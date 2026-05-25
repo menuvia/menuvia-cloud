@@ -1,10 +1,6 @@
 #!/usr/bin/env sh
 # .husky/pre-commit
-# Rulează lint-staged + verificare TypeScript înainte de commit.
+# Format + lint pe fișierele staged. Type-check complet rulează în CI
+# (.github/workflows/test.yml → `npm run typecheck`).
 
-# Lint-staged formatează și verifică doar fișierele staged
 npx lint-staged
-
-# Type-check rapid pe tot (incremental)
-# Comentează această linie dacă devine prea lent (>10s).
-npx tsc --noEmit
