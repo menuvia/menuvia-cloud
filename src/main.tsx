@@ -6,6 +6,10 @@ import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
 import './index.css'
 
+function removeAppLoader() {
+  document.getElementById('app-loader')?.remove()
+}
+
 // ─────────────────────────────────────────────────────────────────
 // Sentry init — DOAR cu consent + cu PII filtrat (GDPR-compliant)
 // ─────────────────────────────────────────────────────────────────
@@ -71,23 +75,32 @@ if ('serviceWorker' in navigator) {
   })
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <Sentry.ErrorBoundary
-      fallback={
-        <div
-          style={{
-            padding: 40,
-            textAlign: 'center',
-            color: '#999',
-            fontFamily: 'sans-serif',
-          }}
-        >
-          A apărut o eroare. Reîncarcă pagina.
-        </div>
-      }
-    >
-      <App />
-    </Sentry.ErrorBoundary>
-  </React.StrictMode>,
-)
+try {
+  const rootEl = document.getElementById('root')
+  if (!rootEl) throw new Error('Root element #root not found')
+
+  ReactDOM.createRoot(rootEl).render(
+    <React.StrictMode>
+      <Sentry.ErrorBoundary
+        fallback={
+          <div
+            style={{
+              padding: 40,
+              textAlign: 'center',
+              color: '#999',
+              fontFamily: 'sans-serif',
+            }}
+          >
+            A apărut o eroare. Reîncarcă pagina.
+          </div>
+        }
+      >
+        <App />
+      </Sentry.ErrorBoundary>
+    </React.StrictMode>,
+  )
+  removeAppLoader()
+} catch (err) {
+  removeAppLoader()
+  throw err
+}

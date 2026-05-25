@@ -5,9 +5,8 @@
 //   3. Offline cache (QR menu — clientul vede meniul chiar fără rețea)
 //   4. App shell cache (instalabil ca PWA pe telefon)
 
-const CACHE_VERSION = 'menuvia-v2'
+const CACHE_VERSION = 'menuvia-v3'
 const APP_SHELL = [
-  '/',
   '/favicon.svg',
   '/manifest.json',
 ]
@@ -27,9 +26,14 @@ self.addEventListener('activate', (event) => {
       Promise.all(
         keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))
       )
-    )
+    ).then(() => self.clients.claim())
+      .then(() => clients.matchAll({ type: 'window', includeUncontrolled: true }))
+      .then((windowClients) => {
+        for (const client of windowClients) {
+          client.navigate(client.url)
+        }
+      })
   )
-  self.clients.claim()
 })
 
 // ── Fetch: routing strategies ───────────────────────────────────
@@ -43,6 +47,11 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return
   // Skip Netlify functions
   if (url.pathname.startsWith('/.netlify/')) return
+
+  if (isDocumentRequest(req)) {
+    event.respondWith(networkFirstWithFallback(req))
+    return
+  }
 
   // QR menu pages: stale-while-revalidate (show cached, update in bg)
   if (url.pathname.startsWith('/menu/') || url.pathname.startsWith('/qr/')) {
@@ -63,6 +72,10 @@ self.addEventListener('fetch', (event) => {
   // Everything else: network-first with offline fallback to app shell
   event.respondWith(networkFirstWithFallback(req))
 })
+
+function isDocumentRequest(req) {
+  return req.mode === 'navigate' || req.destination === 'document' || req.headers.get('accept')?.includes('text/html')
+}
 
 async function staleWhileRevalidate(req) {
   const cache = await caches.open(CACHE_VERSION)
