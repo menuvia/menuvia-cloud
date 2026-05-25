@@ -1,0 +1,217 @@
+// ─────────────────────────────────────────────────────────────
+// offlineSync.ts — Offline queue pentru comenzi ospătar
+//
+// Flux:
+//   createOrder() detectează offline → savePendingOrder() → IDB
+//   window 'online' event / Background Sync API → syncPendingOrders()
+//   syncPendingOrders() → flush IDB → create_order RPC
+//
+// Scoped DOAR pe source='waiter'. Clienții QR sunt online by definition.
+// ─────────────────────────────────────────────────────────────
+
+import { get, set } from 'idb-keyval'
+import type { CreateOrderArgs, OrderConfirmationPayload } from './orders'
+import { supabase } from './supabase'
+
+const QUEUE_KEY = 'menuvia_offline_orders'
+const MAX_RETRIES = 3 // Câte retry-uri pe comandă înainte de a o abandona
+const MAX_QUEUE = 100 // Câte comenzi maxim în queue (safety)
+
+export interface QueuedOrder {
+  localId: string // UUID local — nu e ID-ul din Supabase
+  queuedAt: number // timestamp ms
+  retries: number // câte sync-uri au eșuat pentru asta
+  lastError?: string // ultimul mesaj de eroare (debug)
+  payload: CreateOrderArgs
+}
+
+// ─── IDB helpers ─────────────────────────────────────────────
+
+export async function getPendingOrders(): Promise<QueuedOrder[]> {
+  try {
+    return (await get<QueuedOrder[]>(QUEUE_KEY)) ?? []
+  } catch (err) {
+    console.error('[offlineSync] IDB read error:', err)
+    return []
+  }
+}
+
+async function saveQueue(queue: QueuedOrder[]): Promise<void> {
+  await set(QUEUE_KEY, queue)
+  window.dispatchEvent(new CustomEvent('offline-queue-updated', { detail: queue.length }))
+}
+
+// ─── Public API ───────────────────────────────────────────────
+
+/**
+ * Adaugă o comandă în queue-ul local (IDB).
+ * Returnează un mock OrderConfirmationPayload pentru a ține UI-ul funcțional.
+ * short_id va fi `LOCAL-XXXX` pentru a fi vizibil distinct față de comenzile reale.
+ */
+export async function savePendingOrder(args: CreateOrderArgs): Promise<OrderConfirmationPayload> {
+  const queue = await getPendingOrders()
+
+  // Safety limit — previne umplerea IDB-ului la infinit
+  if (queue.length >= MAX_QUEUE) {
+    throw new Error(`Queue offline plin (${MAX_QUEUE} comenzi). Reconnectează-te pentru a trimite.`)
+  }
+
+  const localId = crypto.randomUUID()
+  const shortNum = String(Math.floor(Math.random() * 9000) + 1000) // 4 cifre random
+
+  const entry: QueuedOrder = {
+    localId,
+    queuedAt: Date.now(),
+    retries: 0,
+    payload: args,
+  }
+
+  queue.push(entry)
+  await saveQueue(queue)
+
+  // Background Sync — dacă browser-ul suportă, SW va triggeriza sync
+  // chiar dacă tab-ul e în background când conexiunea revine
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready
+      // Background Sync API — nu e în TypeScript lib standard
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ('sync' in reg) await (reg as any).sync.register('sync-orders')
+    } catch {
+      // Background Sync nesuportat (Firefox, Safari) — sync manual la 'online' event
+    }
+  }
+
+  // Mock payload — UI-ul afișează comanda cu badge distinctiv
+  const total = args.cart.reduce(
+    (s, i) =>
+      s +
+      (i.unit_price_snapshot + i.selected_modifiers.reduce((m, x) => m + x.price_delta, 0)) *
+        i.quantity,
+    0,
+  )
+
+  return {
+    id: localId,
+    short_id: `LOCAL-${shortNum}`, // Ospătarul vede că e în așteptare
+    status: 'new',
+    total,
+    created_at: new Date().toISOString(),
+  }
+}
+
+// ─── Sync engine ──────────────────────────────────────────────
+
+let isSyncing = false
+
+/**
+ * Încearcă să trimită toate comenzile din queue la Supabase.
+ * Se oprește dacă se pierde conexiunea în mijlocul sync-ului.
+ * Comenzile cu prea multe retry-uri sunt eliminate din queue (cu log).
+ */
+export async function syncPendingOrders(): Promise<void> {
+  if (isSyncing) return
+  if (!navigator.onLine) return
+
+  const queue = await getPendingOrders()
+  if (queue.length === 0) return
+
+  // Verifică sesiunea — dacă a expirat, nu putem trimite
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  if (!session) {
+    console.warn(
+      '[offlineSync] Sesiune expirată — sync amânat. Utilizatorul trebuie să se reconecteze.',
+    )
+    window.dispatchEvent(new CustomEvent('offline-sync-auth-required'))
+    return
+  }
+
+  isSyncing = true
+  console.log(`[offlineSync] Start sync: ${queue.length} comenzi în queue`)
+
+  for (const item of queue) {
+    // Dacă s-a pierdut conexiunea în mijlocul loop-ului, oprim
+    if (!navigator.onLine) {
+      console.log('[offlineSync] Conexiune pierdută în mijlocul sync-ului. Oprit.')
+      break
+    }
+
+    // Prea multe retry-uri → abandonăm comanda (business logic error, nu rețea)
+    if (item.retries >= MAX_RETRIES) {
+      console.error(`[offlineSync] Comandă abandonată după ${MAX_RETRIES} retry-uri:`, item)
+      await removeFromQueue(item.localId)
+      continue
+    }
+
+    try {
+      // Construim p_items exact ca în createOrder() din orders.ts
+      const p_items = item.payload.cart.map((i) => ({
+        product_id: i.product_id,
+        quantity: i.quantity,
+        option_ids: i.selected_modifiers.map((m) => m.option_id),
+        extra_ids: (i.selected_extras ?? []).map((e) => e.id),
+        upsell_source: i.upsell_source ?? null,
+        notes: i.notes ?? null,
+      }))
+
+      const { error } = await supabase.rpc('create_order', {
+        p_restaurant_id: item.payload.restaurant_id,
+        p_source: item.payload.source,
+        p_table_id: item.payload.table_id ?? null,
+        p_qr_token_id: item.payload.qr_token_id ?? null,
+        p_notes: item.payload.notes ?? null,
+        p_items,
+        p_idempotency_key: item.payload.idempotency_key ?? null,
+      })
+
+      if (error) {
+        const isNetworkErr = error.message?.includes('fetch') || error.code === '503'
+        if (isNetworkErr) {
+          // Eroare de rețea → oprim, vom relua la următorul 'online' event
+          console.warn('[offlineSync] Eroare rețea mid-sync:', error.message)
+          await markRetry(item.localId, error.message)
+          break
+        }
+        // Eroare business logic (ex: produs șters) → log + elimină din queue
+        console.error('[offlineSync] Eroare business logic, comandă eliminată:', error)
+        await removeFromQueue(item.localId)
+        continue
+      }
+
+      // Succes ✓
+      console.log(`[offlineSync] Comandă sincronizată: ${item.localId}`)
+      await removeFromQueue(item.localId)
+    } catch (err) {
+      // TypeError de rețea → oprim sync-ul
+      console.warn('[offlineSync] Excepție rețea:', err)
+      await markRetry(item.localId, err instanceof Error ? err.message : String(err))
+      break
+    }
+  }
+
+  isSyncing = false
+
+  // Notifică UI că sync-ul s-a terminat
+  const remaining = await getPendingOrders()
+  window.dispatchEvent(new CustomEvent('offline-queue-updated', { detail: remaining.length }))
+  if (remaining.length === 0) {
+    window.dispatchEvent(new CustomEvent('offline-sync-complete'))
+  }
+}
+
+// ─── Internal helpers ─────────────────────────────────────────
+
+async function removeFromQueue(localId: string): Promise<void> {
+  const queue = await getPendingOrders()
+  await saveQueue(queue.filter((q) => q.localId !== localId))
+}
+
+async function markRetry(localId: string, errMsg: string): Promise<void> {
+  const queue = await getPendingOrders()
+  const updated = queue.map((q) =>
+    q.localId === localId ? { ...q, retries: q.retries + 1, lastError: errMsg } : q,
+  )
+  await saveQueue(updated)
+}

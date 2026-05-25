@@ -1,0 +1,22 @@
+node_modules
+dist
+build
+.next
+.vercel
+.netlify
+coverage
+playwright-report
+test-results
+.husky/_
+
+# Files that are auto-generated or shouldn't be formatted
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+*.min.js
+*.min.css
+
+# Supabase generated
+supabase/.branches
+supabase/.temp
+supabase/functions/_shared

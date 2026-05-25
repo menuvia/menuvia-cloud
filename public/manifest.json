@@ -1,0 +1,39 @@
+{
+  "name": "Menuvia — POS pentru cafenele",
+  "short_name": "Menuvia",
+  "description": "Sistemul complet pentru cafenele și restaurante din România. Comenzi QR, casă de marcat, gestiune stocuri.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0908",
+  "theme_color": "#C8963C",
+  "lang": "ro-RO",
+  "dir": "ltr",
+  "scope": "/",
+  "categories": ["business", "food", "productivity"],
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Bucătărie",
+      "url": "/kitchen",
+      "description": "Ecran comenzi în lucru"
+    },
+    {
+      "name": "Ospătar",
+      "url": "/waiter",
+      "description": "Aplicație ospătar"
+    },
+    {
+      "name": "Dashboard",
+      "url": "/dashboard",
+      "description": "Panou control"
+    }
+  ]
+}

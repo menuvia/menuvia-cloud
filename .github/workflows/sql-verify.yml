@@ -1,0 +1,191 @@
+name: SQL Migrations Verify
+
+# Rulează la fiecare PR ce atinge migrații. Aplică toate migrațiile pe PostgreSQL
+# temporar pentru a prinde bug-uri sintactice + dependențe înainte de a ajunge
+# pe Supabase real. Asta ar fi prins, de exemplu:
+#   - migration-025 cu pickup în CHECK constraint dar fără ALTER TYPE
+#   - migration-046 v1 cu SELECT short_id din coloană inexistentă
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'supabase/**.sql'
+      - '.github/workflows/sql-verify.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'supabase/**.sql'
+      - '.github/workflows/sql-verify.yml'
+
+jobs:
+  verify:
+    name: Apply all migrations to ephemeral Postgres
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: menuvia_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres ready
+        env:
+          PGPASSWORD: postgres
+        run: |
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U postgres; then
+              echo "Postgres ready after $i attempts"
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Create Supabase-compatible extensions and roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Migrațiile noastre presupun anumite extensii și roluri Supabase.
+          # Le creem aici ca să nu eșueze GRANT-urile și extension-urile.
+          psql -h localhost -U postgres -d menuvia_test <<EOF
+          -- Extensions standard Supabase
+          create extension if not exists "uuid-ossp";
+          create extension if not exists "pgcrypto";
+
+          -- Roles Supabase standard
+          do \$\$ begin
+            if not exists (select 1 from pg_roles where rolname = 'anon') then
+              create role anon noinherit;
+            end if;
+            if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+              create role authenticated noinherit;
+            end if;
+            if not exists (select 1 from pg_roles where rolname = 'service_role') then
+              create role service_role noinherit bypassrls;
+            end if;
+          end \$\$;
+
+          -- Mock auth schema (Supabase îl oferă, aici îl simulăm minimal)
+          create schema if not exists auth;
+
+          create table if not exists auth.users (
+            id uuid primary key default gen_random_uuid(),
+            email text,
+            created_at timestamptz default now()
+          );
+
+          -- Mock auth.uid() — în Supabase real e legat de JWT
+          create or replace function auth.uid() returns uuid
+            language sql stable as \$\$
+              select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+            \$\$;
+
+          -- Mock auth.role()
+          create or replace function auth.role() returns text
+            language sql stable as \$\$
+              select coalesce(current_setting('request.jwt.claim.role', true), 'anon')
+            \$\$;
+          EOF
+
+      - name: Apply all migrations in order
+        env:
+          PGPASSWORD: postgres
+        run: |
+          set -e
+          cd supabase
+
+          # Ordonez migrațiile lexicografic (numele lor încep cu migration-XXX)
+          MIGRATIONS=$(ls migration-*.sql 2>/dev/null | sort -V)
+
+          if [ -z "$MIGRATIONS" ]; then
+            echo "No migrations found!"
+            exit 1
+          fi
+
+          echo "Found $(echo "$MIGRATIONS" | wc -l) migrations"
+          echo ""
+
+          FAILED=0
+          for mig in $MIGRATIONS; do
+            echo "─────────────────────────────────────────"
+            echo "Applying: $mig"
+            echo "─────────────────────────────────────────"
+
+            if psql -h localhost -U postgres -d menuvia_test \
+                    -v ON_ERROR_STOP=1 \
+                    -f "$mig" 2>&1 | tee "/tmp/$mig.log"; then
+              echo "✓ $mig OK"
+            else
+              echo "✗ $mig FAILED"
+              FAILED=1
+              # Don't continue past first failure — migrations are ordered
+              break
+            fi
+            echo ""
+          done
+
+          if [ "$FAILED" = "1" ]; then
+            echo "═══════════════════════════════════════════"
+            echo "MIGRATIONS FAILED. Fix above before merge."
+            echo "═══════════════════════════════════════════"
+            exit 1
+          fi
+
+      - name: Verify final schema has expected tables
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Smoke test: tabelele critice trebuie să existe după toate migrațiile
+          REQUIRED_TABLES="restaurants tables products orders order_items qr_tokens bridge_devices pending_receipts restaurant_memberships"
+
+          for tbl in $REQUIRED_TABLES; do
+            COUNT=$(psql -h localhost -U postgres -d menuvia_test -tA -c \
+              "select count(*) from information_schema.tables where table_schema='public' and table_name='$tbl';")
+            if [ "$COUNT" != "1" ]; then
+              echo "✗ Missing table: $tbl"
+              exit 1
+            fi
+            echo "✓ Table exists: $tbl"
+          done
+
+      - name: Verify critical RPC functions exist
+        env:
+          PGPASSWORD: postgres
+        run: |
+          REQUIRED_FUNCS="create_order bridge_validate_device bridge_get_pending bridge_claim_receipt bridge_confirm_receipt"
+
+          for fn in $REQUIRED_FUNCS; do
+            COUNT=$(psql -h localhost -U postgres -d menuvia_test -tA -c \
+              "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='$fn';")
+            if [ "$COUNT" = "0" ]; then
+              echo "✗ Missing function: $fn"
+              exit 1
+            fi
+            echo "✓ Function exists: $fn (count: $COUNT)"
+          done
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-logs
+          path: /tmp/migration-*.log
+          retention-days: 7

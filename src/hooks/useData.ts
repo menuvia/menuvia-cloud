@@ -1,0 +1,282 @@
+import { useState, useEffect, useCallback } from 'react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
+
+export interface Restaurant {
+  id: string
+  owner_id: string
+  name: string
+  tagline: string | null
+  city: string | null
+  slug: string
+  description: string | null
+  address: string | null
+  phone: string | null
+  hours: string | null
+  primary_color: string
+  logo_url: string | null
+  is_active: boolean
+  floor_layout: Record<string, unknown> | null
+  checkout_suggestion_settings: {
+    enabled: boolean
+    categories: string[]
+    max_suggestions: number
+    message: string
+  } | null
+  theme_settings: { preset_id: string; accent_override?: string | null } | null
+  pickup_settings: {
+    enabled: boolean
+    min_lead_time_minutes: number
+    slot_interval_minutes: number
+    open_hours: { start: string; end: string }
+    instructions: string | null
+  } | null
+  google_place_id: string | null
+  google_review_url: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface Category {
+  id: string
+  restaurant_id: string
+  name: string
+  emoji: string
+  display_order: number
+}
+
+export interface Product {
+  id: string
+  restaurant_id: string
+  category_id: string | null
+  name: string
+  description: string | null
+  price: number
+  emoji: string
+  image_url: string | null
+  is_active: boolean
+  is_daily_special: boolean
+  is_sold_out: boolean
+  is_draft: boolean
+  display_order: number
+  allergens: string[]
+  dietary_tags: string[]
+  prep_time_minutes: number | null
+  portion_size: string | null
+  vat_group: number
+}
+
+export function useRestaurants() {
+  const { user } = useAuth()
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!user) {
+      setRestaurants([])
+      setLoading(false)
+      return
+    }
+    setError(null)
+    const [ownedRes, memberRes] = await Promise.all([
+      supabase.from('restaurants').select('*').eq('owner_id', user.id).order('created_at'),
+      supabase
+        .from('restaurant_memberships')
+        .select('restaurant:restaurants(*)')
+        .eq('user_id', user.id)
+        .neq('role', 'owner'),
+    ])
+    if (ownedRes.error && memberRes.error) {
+      setError(ownedRes.error.message)
+      setLoading(false)
+      return
+    }
+    const owned = (ownedRes.data ?? []) as Restaurant[]
+    const viaMembership: Restaurant[] = (memberRes.data ?? [])
+      .map((m) => {
+        const raw = (m as Record<string, unknown>).restaurant as Restaurant | Restaurant[] | null
+        if (!raw) return null
+        return Array.isArray(raw) ? (raw[0] ?? null) : raw
+      })
+      .filter((r): r is Restaurant => r !== null)
+    const seen = new Set(owned.map((r) => r.id))
+    const merged = [...owned]
+    for (const r of viaMembership) {
+      if (!seen.has(r.id)) {
+        merged.push(r)
+        seen.add(r.id)
+      }
+    }
+    setRestaurants(merged)
+    setLoading(false)
+  }, [user])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const create = async (form: Partial<Restaurant>) => {
+    const result = await supabase
+      .from('restaurants')
+      .insert({ ...form, owner_id: user!.id })
+      .select()
+      .single()
+    if (!result.error) await load()
+    return result
+  }
+  const update = async (id: string, form: Partial<Restaurant>) => {
+    const result = await supabase.from('restaurants').update(form).eq('id', id).select().single()
+    if (!result.error) await load()
+    return result
+  }
+  const remove = async (id: string) => {
+    const result = await supabase.from('restaurants').delete().eq('id', id)
+    if (!result.error) await load()
+    return result
+  }
+
+  return { restaurants, loading, error, refetch: load, create, update, remove }
+}
+
+export function useCategories(restaurantId: string | null) {
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!restaurantId) {
+      setCategories([])
+      setLoading(false)
+      return
+    }
+    setError(null)
+    const { data, error: err } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('display_order')
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
+    setCategories((data ?? []) as Category[])
+    setLoading(false)
+  }, [restaurantId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const create = async (form: Partial<Category>) => {
+    const maxOrder = categories.reduce((m, c) => Math.max(m, c.display_order), -1)
+    const r = await supabase
+      .from('categories')
+      .insert({ ...form, restaurant_id: restaurantId, display_order: maxOrder + 1 })
+      .select()
+      .single()
+    if (!r.error) await load()
+    return r
+  }
+  const update = async (id: string, form: Partial<Category>) => {
+    const r = await supabase.from('categories').update(form).eq('id', id).select().single()
+    if (!r.error) await load()
+    return r
+  }
+  const remove = async (id: string) => {
+    const r = await supabase.from('categories').delete().eq('id', id)
+    if (!r.error) await load()
+    return r
+  }
+
+  const reorder = async (ordered: Category[]) => {
+    const updates = ordered.map((c, i) =>
+      supabase.from('categories').update({ display_order: i }).eq('id', c.id),
+    )
+    await Promise.all(updates)
+    setCategories(ordered.map((c, i) => ({ ...c, display_order: i })))
+  }
+
+  return { categories, loading, error, refetch: load, create, update, remove, reorder }
+}
+
+export function useProducts(restaurantId: string | null) {
+  const [products, setProducts] = useState<Product[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!restaurantId) {
+      setProducts([])
+      setLoading(false)
+      return
+    }
+    setError(null)
+    const { data, error: err } = await supabase
+      .from('products')
+      .select('*')
+      .eq('restaurant_id', restaurantId)
+      .order('display_order')
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
+    setProducts((data ?? []) as Product[])
+    setLoading(false)
+  }, [restaurantId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const create = async (form: Partial<Product>) => {
+    const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
+    const r = await supabase
+      .from('products')
+      .insert({ ...form, restaurant_id: restaurantId, display_order: maxOrder + 1 })
+      .select()
+      .single()
+    if (!r.error) await load()
+    return r
+  }
+  const update = async (id: string, form: Partial<Product>) => {
+    const r = await supabase.from('products').update(form).eq('id', id).select().single()
+    if (!r.error) await load()
+    return r
+  }
+  const remove = async (id: string) => {
+    const r = await supabase.from('products').delete().eq('id', id)
+    if (!r.error) await load()
+    return r
+  }
+  const toggleActive = async (id: string, current: boolean) => {
+    const r = await supabase.from('products').update({ is_active: !current }).eq('id', id)
+    if (!r.error) await load()
+    return r
+  }
+  const toggleSoldOut = async (id: string, current: boolean) => {
+    const r = await supabase.from('products').update({ is_sold_out: !current }).eq('id', id)
+    if (!r.error) await load()
+    return r
+  }
+  const toggleDailySpecial = async (id: string, current: boolean) => {
+    const r = await supabase.from('products').update({ is_daily_special: !current }).eq('id', id)
+    if (!r.error) await load()
+    return r
+  }
+
+  return {
+    products,
+    loading,
+    error,
+    refetch: load,
+    create,
+    update,
+    remove,
+    toggleActive,
+    toggleSoldOut,
+    toggleDailySpecial,
+  }
+}

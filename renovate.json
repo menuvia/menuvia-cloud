@@ -1,0 +1,65 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "timezone": "Europe/Bucharest",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "packageRules": [
+    {
+      "description": "Group security patches — auto-merge",
+      "matchPackagePatterns": ["*"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "branch",
+      "ignoreTests": false
+    },
+    {
+      "description": "Group minor updates pentru React/TS/Vite — apply together",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "groupName": "react"
+    },
+    {
+      "matchPackageNames": ["typescript"],
+      "matchUpdateTypes": ["major"],
+      "schedule": ["at any time"],
+      "automerge": false
+    },
+    {
+      "description": "Stripe SDK — review manual (poate avea breaking changes pe API version)",
+      "matchPackageNames": ["stripe"],
+      "automerge": false,
+      "schedule": ["at any time"]
+    },
+    {
+      "description": "Supabase — review manual",
+      "matchPackagePatterns": ["^@supabase/"],
+      "automerge": false
+    },
+    {
+      "description": "Sentry — review manual (semantica trackerului contează)",
+      "matchPackagePatterns": ["^@sentry/"],
+      "automerge": false
+    },
+    {
+      "description": "DevDeps (testing, linting) — auto-merge minor + patch",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "automerge": true,
+    "schedule": ["at any time"]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on first day of month"]
+  },
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "commitMessagePrefix": "chore(deps):",
+  "ignoreDeps": [],
+  "ignorePaths": ["**/node_modules/**", "**/dist/**", "**/build/**"]
+}

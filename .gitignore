@@ -1,0 +1,24 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.env.local
+.supabase/
+supabase/.temp/
+.DS_Store
+
+# Playwright
+playwright-report/
+test-results/
+.playwright-cache/
+
+# Misc
+*.log
+*.bak
+*.bak_*
+.vscode/
+.idea/
+/supabase/migration-*.sql
+/supabase/schema.sql
+/supabase/_migration_backups/

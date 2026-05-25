@@ -1,0 +1,107 @@
+[build]
+  command   = "npm run build"
+  publish   = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
+
+[functions]
+  node_bundler = "esbuild"
+
+# ── Scheduled functions (cron) ─────────────────────────────────
+# Every 5 min: process queued emails
+[functions."process-email-queue"]
+  schedule = "*/5 * * * *"
+
+# Every 15 min: lifecycle events + (every 30min) health scores + (Fri 18:00) weekly reports
+[functions."automation-cron"]
+  schedule = "*/15 * * * *"
+
+# Every 2 min: process Oblio invoice queue
+[functions."oblio-generator"]
+  schedule = "*/2 * * * *"
+
+# Security headers — A+ grade on securityheaders.com
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options         = "DENY"
+    X-Content-Type-Options  = "nosniff"
+    Referrer-Policy         = "strict-origin-when-cross-origin"
+    Permissions-Policy      = "camera=(), microphone=(), geolocation=()"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+    # Cross-Origin policies (relevant pentru Stripe/Supabase popups)
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+    # CSP în Report-Only mode pentru 2-4 săptămâni — monitorizare în Sentry
+    # După ce nu mai vin violations, mută la `Content-Security-Policy` (enforce)
+    Content-Security-Policy-Report-Only = '''
+      default-src 'self';
+      script-src 'self' 'unsafe-inline' https://js.stripe.com https://*.posthog.com https://*.sentry.io https://www.googletagmanager.com;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com data:;
+      img-src 'self' data: blob: https://*.supabase.co https://*.googleusercontent.com https://*.googleapis.com;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://*.posthog.com https://*.sentry.io https://api.anthropic.com;
+      frame-src 'self' https://js.stripe.com https://hooks.stripe.com;
+      worker-src 'self' blob:;
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self' https://*.stripe.com;
+      frame-ancestors 'none';
+      upgrade-insecure-requests;
+    '''
+
+# ── SW + manifest no-cache headers (fresh on every load) ──────
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# ═══════════════════════════════════════════════════════════════
+# BRANCH CONTEXTS — staging vs production
+# ═══════════════════════════════════════════════════════════════
+# Push pe main         → deploy la menuvia.ro (production)
+# Push pe develop      → deploy la staging.menuvia.ro (staging — separate Supabase project)
+# PR-uri               → preview URL automat (deploy-preview-NN--menuvia.netlify.app)
+#
+# IMPORTANT: în Netlify Dashboard → Site settings → Build & deploy → Branches:
+#   - Production branch:  main
+#   - Branch deploys:     develop, feature/*
+#   - Deploy previews:    Any pull request
+
+# ── Production (main) ──────────────────────────────────────────
+[context.production.environment]
+  VITE_APP_ENV    = "production"
+  VITE_APP_URL    = "https://menuvia.ro"
+  # VITE_SUPABASE_URL și VITE_SUPABASE_ANON_KEY sunt setate în Netlify UI
+  # pentru contextul "production" — pointing la project Supabase prod
+
+# ── Staging (develop branch) ───────────────────────────────────
+[context.branch-deploy.environment]
+  VITE_APP_ENV    = "staging"
+  VITE_APP_URL    = "https://staging.menuvia.ro"
+  # VITE_SUPABASE_URL_DEV pointing la project Supabase dev/staging
+
+# Specifically for develop branch
+[context."develop".environment]
+  VITE_APP_ENV    = "staging"
+  VITE_APP_URL    = "https://staging.menuvia.ro"
+
+# ── Deploy previews (PRs) ──────────────────────────────────────
+[context.deploy-preview.environment]
+  VITE_APP_ENV    = "preview"
+  # Folosește implicit URL-ul deploy-preview din Netlify
+  # (deploy-preview-N--menuvia.netlify.app)
+  # Conectează la Supabase dev — NU la prod, niciodată
+

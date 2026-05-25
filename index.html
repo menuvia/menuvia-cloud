@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ro">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Menuvia" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0A0908" />
+
+    <title>Menuvia — Meniu digital și comenzi QR pentru restaurante</title>
+    <meta name="description" content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari. Fără comisioane per comandă." />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Menuvia" />
+    <meta property="og:title" content="Menuvia — Meniu digital și comenzi QR pentru restaurante" />
+    <meta property="og:description" content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari." />
+    <meta property="og:locale" content="ro_RO" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Menuvia — Meniu digital pentru restaurante" />
+    <meta name="twitter:description" content="Meniu QR, comenzi în timp real, dashboard bucătărie și ospătari." />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@400;600;700&display=swap" rel="stylesheet" />
+    <style>
+      body{margin:0;background:#080808;font-family:'DM Sans',system-ui,sans-serif}
+      #app-loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#080808}
+      #app-loader .s{width:40px;height:40px;border-radius:50%;border:3px solid #C8963C;border-top-color:transparent;animation:sp .8s linear infinite}
+      #app-loader .l{color:#4A4844;font-size:14px}
+      @keyframes sp{to{transform:rotate(360deg)}}
+    </style>
+  </head>
+  <body>
+    <div id="app-loader"><div class="s"></div><div class="l">Se încarcă…</div></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
