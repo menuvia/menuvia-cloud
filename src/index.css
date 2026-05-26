@@ -38,3 +38,34 @@ button {
     transform: rotate(360deg);
   }
 }
+
+/* ── Accesibilitate: respect pentru "Reduce motion" ─────────────────────
+   Utilizatorii cu motion sensitivity sau vestibular disorders pot activa
+   "Reduce Motion" în Settings (iOS: Accessibility → Motion → Reduce Motion;
+   Windows: Settings → Ease of Access → Display). Browser-ul expune asta ca
+   prefers-reduced-motion media query.
+
+   Setăm animation-duration foarte mic (0.01ms = imperceptibil dar valid)
+   pe TOATE animation-urile + transition-urile, ca să nu avem mișcare bruscă
+   sau slide-uri. !important pentru a suprascrie orice animation: inline.
+
+   Spinner-urile (mvia-spin, spin) sunt EXCEPTATE — sunt indicatori de
+   loading critici; fără rotație, "loading" devine doar un cerc static și
+   confuz. Pentru ele păstrăm rotația normală.
+*/
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Excepție: spinner-urile rămân funcționale */
+  [style*='mvia-spin'],
+  [style*='animation: spin'] {
+    animation-duration: 0.8s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
