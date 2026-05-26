@@ -18,7 +18,7 @@ import {
 } from '../lib/stocks'
 import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../lib/stocks'
 import { usePlanLimits } from '../hooks/usePlanLimits'
-import { InlineSpinner, QueryError } from '../components/PageLoader'
+import { InlineSpinner, QueryError, SkeletonList } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
 import type { Restaurant, Category, Product } from '../hooks/useData'
 import React from 'react'
@@ -4034,12 +4034,12 @@ export default function DashboardPage({
               )}
               {tab === 'categories' && <CategoriesTab restaurantId={restaurant.id} />}
               {tab === 'modificatori' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă modificatorii..." />}>
+                <Suspense fallback={<SkeletonList rows={3} />}>
                   <ModifiersTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
               {tab === 'mese' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă mesele…" />}>
+                <Suspense fallback={<SkeletonList rows={4} />}>
                   <TablesManager restaurant={restaurant} />
                 </Suspense>
               )}
@@ -4065,7 +4065,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'echipa' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă echipa…" />}>
+                <Suspense fallback={<SkeletonList rows={3} />}>
                   <TeamManager restaurant={restaurant} currentUserId={user?.id || ''} />
                 </Suspense>
               )}
@@ -4076,7 +4076,7 @@ export default function DashboardPage({
               )}
               {tab === 'gestiune' &&
                 (features.has('stocks') ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă gestiunea..." />}>
+                  <Suspense fallback={<SkeletonList rows={5} />}>
                     <StocksTab restaurantId={restaurant.id} />
                   </Suspense>
                 ) : (

@@ -62,6 +62,44 @@ export function InlineSpinner({ label }: { label?: string }) {
   )
 }
 
+/**
+ * SkeletonList — placeholder pentru liste (Comenzi, Produse, Categorii etc.)
+ * pe durata Suspense / loading state. Mai util decât un spinner generic: dă
+ * utilizatorului impresia că content-ul "vine" + reduce perceived load time.
+ * Pulse animation e definită global în src/index.css (@keyframes pulse).
+ */
+export function SkeletonList({
+  rows = 3,
+  rowHeight = 84,
+  gap = 10,
+}: {
+  rows?: number
+  rowHeight?: number
+  gap?: number
+}) {
+  return (
+    <div
+      style={{ display: 'flex', flexDirection: 'column', gap }}
+      role="status"
+      aria-label="Se încarcă"
+    >
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            height: rowHeight,
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            animation: 'menuviaPulse 1.5s ease-in-out infinite',
+            animationDelay: `${i * 0.08}s`,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function QueryError({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
