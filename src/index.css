@@ -33,6 +33,34 @@ select,
 button {
   font-family: inherit;
 }
+
+/* ── Mobile / touch feedback ─────────────────────────────────────────────
+   Pe touch devices, :hover nu există (sau e ambiguu); fără feedback la
+   tap, butoanele par să nu reacționeze. Trei reguli minime cu impact mare:
+
+   1. -webkit-tap-highlight-color  — iOS Safari pune by default un highlight
+      gri-translucid pe orice tap. Îl înlocuim cu o nuanță gold subtle ca
+      să se potrivească designului.
+   2. button:active scale(0.97)    — feedback fizic universal ("button se
+      apasă"). Funcționează pe mobile (tap) și desktop (mouse down) fără
+      să intre în conflict cu transition-uri existente pe opacity/color.
+   3. user-select: none pe button  — previne ca tap lung să selecteze
+      text-ul label-ului accidental.
+*/
+button,
+[role='button'],
+a {
+  -webkit-tap-highlight-color: rgba(200, 150, 60, 0.15);
+}
+button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+button:not(:disabled):active {
+  transform: scale(0.97);
+  transition: transform 0.08s ease-out;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
