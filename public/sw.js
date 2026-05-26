@@ -10,33 +10,29 @@
 // șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
 // primesc instantaneu noul build (nu mai trebuie hard refresh manual).
 const CACHE_VERSION = 'menuvia-v3'
-const APP_SHELL = [
-  '/favicon.svg',
-  '/manifest.json',
-]
+const APP_SHELL = ['/favicon.svg', '/manifest.json']
 
 // ── Install: cache app shell ────────────────────────────────────
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL))
-  )
+  event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)))
   self.skipWaiting()
 })
 
 // ── Activate: clean up old caches ───────────────────────────────
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter(k => k !== CACHE_VERSION).map(k => caches.delete(k))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))),
       )
-    ).then(() => self.clients.claim())
+      .then(() => self.clients.claim())
       .then(() => clients.matchAll({ type: 'window', includeUncontrolled: true }))
       .then((windowClients) => {
         for (const client of windowClients) {
           client.navigate(client.url)
         }
-      })
+      }),
   )
 })
 
@@ -78,7 +74,11 @@ self.addEventListener('fetch', (event) => {
 })
 
 function isDocumentRequest(req) {
-  return req.mode === 'navigate' || req.destination === 'document' || req.headers.get('accept')?.includes('text/html')
+  return (
+    req.mode === 'navigate' ||
+    req.destination === 'document' ||
+    req.headers.get('accept')?.includes('text/html')
+  )
 }
 
 async function staleWhileRevalidate(req) {
@@ -126,18 +126,22 @@ async function networkFirstWithFallback(req) {
 self.addEventListener('push', (event) => {
   if (!event.data) return
   let payload = {}
-  try { payload = event.data.json() } catch { payload = { title: 'Comandă nouă', body: event.data.text() } }
+  try {
+    payload = event.data.json()
+  } catch {
+    payload = { title: 'Comandă nouă', body: event.data.text() }
+  }
 
-  const title   = payload.title || 'Menuvia — Comandă nouă'
+  const title = payload.title || 'Menuvia — Comandă nouă'
   const options = {
-    body:     payload.body    || 'O comandă nouă așteaptă în bucătărie.',
-    icon:     '/favicon.svg',
-    badge:    '/favicon.svg',
-    tag:      payload.tag     || 'menuvia-order',
+    body: payload.body || 'O comandă nouă așteaptă în bucătărie.',
+    icon: '/favicon.svg',
+    badge: '/favicon.svg',
+    tag: payload.tag || 'menuvia-order',
     renotify: true,
-    vibrate:  [200, 100, 200],
-    data:     { url: payload.url || '/kitchen', orderId: payload.orderId },
-    actions:  [{ action: 'open', title: 'Deschide bucătăria' }],
+    vibrate: [200, 100, 200],
+    data: { url: payload.url || '/kitchen', orderId: payload.orderId },
+    actions: [{ action: 'open', title: 'Deschide bucătăria' }],
   }
   event.waitUntil(self.registration.showNotification(title, options))
 })
@@ -153,7 +157,7 @@ self.addEventListener('notificationclick', (event) => {
         }
       }
       if (clients.openWindow) return clients.openWindow(url)
-    })
+    }),
   )
 })
 
@@ -161,13 +165,11 @@ self.addEventListener('notificationclick', (event) => {
 self.addEventListener('sync', (event) => {
   if (event.tag !== 'sync-orders') return
   event.waitUntil(
-    clients
-      .matchAll({ type: 'window', includeUncontrolled: true })
-      .then((windowClients) => {
-        if (windowClients.length === 0) return
-        const active = windowClients.find(c => c.focused) || windowClients[0]
-        active.postMessage({ type: 'SYNC_NOW' })
-      })
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      if (windowClients.length === 0) return
+      const active = windowClients.find((c) => c.focused) || windowClients[0]
+      active.postMessage({ type: 'SYNC_NOW' })
+    }),
   )
 })
 
@@ -175,6 +177,6 @@ self.addEventListener('sync', (event) => {
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
   if (event.data?.type === 'CLEAR_CACHE') {
-    caches.keys().then((keys) => Promise.all(keys.map(k => caches.delete(k))))
+    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
   }
 })
