@@ -3690,9 +3690,28 @@ export default function DashboardPage({
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
   const [productCount, setProductCount] = useState(0)
+  const [tableCount, setTableCount] = useState(0)
+  // Dismiss permanent al banner-ului de onboarding (per-restaurant). Cheia
+  // localStorage e ancorată pe id-ul restaurantului ca să nu zappăm starea
+  // dacă utilizatorul are mai multe restaurante.
+  const [onboardingDismissed, setOnboardingDismissed] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !selectedId) return false
+    return window.localStorage.getItem(`menuvia:onboarding-dismissed:${selectedId}`) === '1'
+  })
+  React.useEffect(() => {
+    if (!restaurant) {
+      setOnboardingDismissed(false)
+      return
+    }
+    setOnboardingDismissed(
+      window.localStorage.getItem(`menuvia:onboarding-dismissed:${restaurant.id}`) === '1',
+    )
+  }, [restaurant?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   React.useEffect(() => {
     if (!restaurant) {
       setProductCount(0)
+      setTableCount(0)
       return
     }
     let cancelled = false
@@ -3702,6 +3721,13 @@ export default function DashboardPage({
       .eq('restaurant_id', restaurant.id)
       .then(({ count }) => {
         if (!cancelled) setProductCount(count ?? 0)
+      })
+    void supabase
+      .from('tables')
+      .select('id', { count: 'exact', head: true })
+      .eq('restaurant_id', restaurant.id)
+      .then(({ count }) => {
+        if (!cancelled) setTableCount(count ?? 0)
       })
     return () => {
       cancelled = true
@@ -4022,6 +4048,187 @@ export default function DashboardPage({
             </div>
           ) : (
             <>
+              {/* Onboarding progress banner — un singur ghid vizual pentru
+                  utilizatorii care au terminat onboarding-ul 4-step dar
+                  rămân blocați pe Dashboard fără să știe ce să facă. Apare
+                  doar până se completează ambii pași sau utilizatorul îl
+                  închide explicit (persistat în localStorage per-restaurant).
+                  Steps actuale: adaugă produse + creează mese cu QR.
+                  Cele 2 sunt minim necesare pentru a primi comenzi. */}
+              {!onboardingDismissed &&
+                (() => {
+                  const steps: {
+                    id: string
+                    done: boolean
+                    label: string
+                    desc: string
+                    emoji: string
+                    target: Tab
+                  }[] = [
+                    {
+                      id: 'products',
+                      done: productCount > 0,
+                      label: 'Adaugă produse',
+                      desc: 'Felurile din meniul tău, vizibile imediat clienților.',
+                      emoji: '🍽️',
+                      target: 'products',
+                    },
+                    {
+                      id: 'tables',
+                      done: tableCount > 0,
+                      label: 'Creează mese cu QR',
+                      desc: 'Coduri unice pentru fiecare masă — clienții scanează și comandă.',
+                      emoji: '🪑',
+                      target: 'mese',
+                    },
+                  ]
+                  const incomplete = steps.filter((s) => !s.done)
+                  if (incomplete.length === 0) return null
+                  const done = steps.length - incomplete.length
+                  return (
+                    <div
+                      style={{
+                        background: `linear-gradient(135deg, ${D.gold}10, ${D.gold}05)`,
+                        border: `1px solid ${D.gold}40`,
+                        borderRadius: 14,
+                        padding: '18px 18px 14px',
+                        marginBottom: 18,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: 14,
+                          gap: 12,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontFamily: 'Fraunces,serif',
+                              fontSize: '1.05rem',
+                              color: D.t1,
+                              fontWeight: 600,
+                            }}
+                          >
+                            Setup restaurant ({done}/{steps.length})
+                          </div>
+                          <div
+                            style={{
+                              fontSize: '0.78rem',
+                              color: D.t3,
+                              marginTop: 3,
+                              lineHeight: 1.45,
+                            }}
+                          >
+                            Finalizează acești pași ca să poți primi prima comandă.
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (restaurant) {
+                              window.localStorage.setItem(
+                                `menuvia:onboarding-dismissed:${restaurant.id}`,
+                                '1',
+                              )
+                            }
+                            setOnboardingDismissed(true)
+                          }}
+                          aria-label="Închide ghidul"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: D.t3,
+                            cursor: 'pointer',
+                            padding: 4,
+                            fontSize: 16,
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {steps.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => {
+                              setTab(s.target)
+                              setSidebarOpen(false)
+                            }}
+                            disabled={s.done}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 12,
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              border: `1px solid ${s.done ? D.green + '55' : D.border}`,
+                              background: s.done ? D.green + '12' : D.s2,
+                              cursor: s.done ? 'default' : 'pointer',
+                              textAlign: 'left',
+                              fontFamily: 'DM Sans,sans-serif',
+                              width: '100%',
+                            }}
+                          >
+                            <span
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: '50%',
+                                background: s.done ? D.green : D.s3,
+                                color: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 14,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {s.done ? '✓' : s.emoji}
+                            </span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: '0.88rem',
+                                  fontWeight: 600,
+                                  color: s.done ? D.t2 : D.t1,
+                                  textDecoration: s.done ? 'line-through' : 'none',
+                                }}
+                              >
+                                {s.label}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '0.74rem',
+                                  color: D.t3,
+                                  marginTop: 2,
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                {s.desc}
+                              </div>
+                            </div>
+                            {!s.done && (
+                              <span
+                                style={{ color: D.gold, fontSize: '1.1rem', flexShrink: 0 }}
+                                aria-hidden="true"
+                              >
+                                →
+                              </span>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               {tab === 'products' && (
                 <ProductsTab
                   restaurantId={restaurant.id}
