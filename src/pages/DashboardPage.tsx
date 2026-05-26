@@ -3959,20 +3959,27 @@ export default function DashboardPage({
 
       {/* Main */}
       <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
-        {/* Mobile top bar — hidden on desktop */}
+        {/* Mobile top bar — hidden on desktop.
+            Înainte: doar un "Menuvia" generic centrat — utilizatorul nu vedea
+            unde e (ce restaurant, ce tab). Acum: numele restaurantului real
+            + sub el label-ul tab-ului curent. Plus safe-area-inset-top pentru
+            iPhone notch (fără el, "Menuvia"-ul era acoperit de notch). */}
         <div
           style={{
-            padding: '12px 16px',
+            // padding-top include safe-area-inset-top pentru iPhone cu notch/dynamic island
+            padding: 'calc(12px + env(safe-area-inset-top, 0px)) 16px 12px 16px',
             borderBottom: `1px solid ${D.border}`,
             background: D.s1,
             display: isMobile ? 'flex' : 'none',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 8,
             flexShrink: 0,
           }}
         >
           <button
             onClick={() => setSidebarOpen(true)}
+            aria-label="Deschide meniu"
             style={{
               background: 'transparent',
               border: 'none',
@@ -3982,24 +3989,61 @@ export default function DashboardPage({
               padding: 6,
               borderRadius: 8,
               fontSize: 20,
+              flexShrink: 0,
             }}
           >
             ☰
           </button>
-          <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>
-            Menuvia
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textAlign: 'center',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: 'Fraunces,serif',
+                fontSize: '1rem',
+                color: D.t1,
+                lineHeight: 1.2,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                fontWeight: 600,
+              }}
+            >
+              {restaurant?.name ?? 'Menuvia'}
+            </div>
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: D.t3,
+                marginTop: 1,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {NAV.find((n) => n.id === tab)?.label ?? ''}
+            </div>
           </div>
           <button
             onClick={() => restaurant && onViewMenu(restaurant.slug)}
+            disabled={!restaurant}
+            aria-label="Vezi meniu public"
             style={{
               background: 'transparent',
               border: 'none',
-              color: D.t2,
-              cursor: 'pointer',
+              color: restaurant ? D.t2 : D.t3,
+              cursor: restaurant ? 'pointer' : 'not-allowed',
               display: 'flex',
               padding: 6,
               borderRadius: 8,
               fontSize: 18,
+              flexShrink: 0,
+              opacity: restaurant ? 1 : 0.4,
             }}
           >
             👁
