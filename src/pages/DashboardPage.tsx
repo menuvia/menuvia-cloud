@@ -35,6 +35,7 @@ const StocksTab = lazy(() => import('../components/StocksTab'))
 const VatReportTab = lazy(() => import('../components/VatReportTab'))
 const BridgeTab = lazy(() => import('../components/BridgeTab'))
 const CashRegisterTab = lazy(() => import('../components/CashRegisterTab'))
+const OrdersTab = lazy(() => import('../components/OrdersTab'))
 const QuickSetupTab = lazy(() => import('../components/QuickSetupTab'))
 const HappyHourTab = lazy(() => import('../components/HappyHourTab'))
 const HealthScoreTab = lazy(() => import('../components/HealthScoreTab'))
@@ -3611,6 +3612,7 @@ function SettingsTab({
 
 // ── Main Dashboard ────────────────────────────────────────────
 type Tab =
+  | 'comenzi'
   | 'products'
   | 'categories'
   | 'modificatori'
@@ -3631,6 +3633,7 @@ type Tab =
   | 'settings'
 
 const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
+  { id: 'comenzi', label: 'Comenzi', icon: '📋' },
   { id: 'products', label: 'Produse', icon: '☰' },
   { id: 'setup', label: 'Setup Asistent', icon: '🪄', adminOnly: true },
   { id: 'categories', label: 'Categorii', icon: '📁' },
@@ -4022,6 +4025,11 @@ export default function DashboardPage({
             </div>
           ) : (
             <>
+              {tab === 'comenzi' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă comenzile..." />}>
+                  <OrdersTab restaurantId={restaurant.id} />
+                </Suspense>
+              )}
               {tab === 'products' && (
                 <ProductsTab
                   restaurantId={restaurant.id}
