@@ -3930,12 +3930,20 @@ export default function DashboardPage({
         <Sidebar />
       </div>
 
-      {/* Mobile overlay */}
+      {/* Mobile drawer: slide-in animation pe deschidere; exit e instant.
+          Animation rulează o singură dată per open event (keyframes definite
+          în src/index.css). Overlay fade-in subtle pentru perceived smoothness. */}
       {sidebarOpen && (
         <>
           <div
             onClick={() => setSidebarOpen(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200 }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.6)',
+              zIndex: 200,
+              animation: 'menuviaOverlayFadeIn 0.18s ease-out',
+            }}
           />
           <div
             style={{
@@ -3950,6 +3958,7 @@ export default function DashboardPage({
               display: 'flex',
               flexDirection: 'column',
               overflow: 'auto',
+              animation: 'menuviaDrawerSlideIn 0.22s ease-out',
             }}
           >
             <Sidebar />

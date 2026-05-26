@@ -38,3 +38,23 @@ button {
     transform: rotate(360deg);
   }
 }
+
+/* Drawer mobile — slide-in din stânga + overlay fade-in. Aplică doar la
+   open (entrance). Exit (close) e instant ca să nu nevoie de o lib de
+   transition pe unmount. Animation o singură dată per open event. */
+@keyframes menuviaDrawerSlideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+@keyframes menuviaOverlayFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
