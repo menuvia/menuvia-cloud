@@ -545,25 +545,6 @@ function Inp({
     />
   )
 }
-function Sel({
-  value,
-  onChange,
-  children,
-}: {
-  value: string
-  onChange: (v: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ ...inp, cursor: 'pointer' }}
-    >
-      {children}
-    </select>
-  )
-}
 function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
