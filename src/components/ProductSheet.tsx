@@ -202,6 +202,8 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             <img
               src={product.image_url}
               alt={product.name}
+              loading="lazy"
+              decoding="async"
               style={{
                 width: '100%',
                 aspectRatio: '16/9',

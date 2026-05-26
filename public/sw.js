@@ -5,7 +5,11 @@
 //   3. Offline cache (QR menu — clientul vede meniul chiar fără rețea)
 //   4. App shell cache (instalabil ca PWA pe telefon)
 
-const CACHE_VERSION = 'menuvia-v2'
+// Bump-uiește această versiune la fiecare deploy cu schimbări de app shell
+// sau de bundle care fac neaplicabil cache-ul vechi. Activate handler
+// șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
+// primesc instantaneu noul build (nu mai trebuie hard refresh manual).
+const CACHE_VERSION = 'menuvia-v3'
 const APP_SHELL = [
   '/',
   '/favicon.svg',

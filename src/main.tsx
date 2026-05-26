@@ -48,13 +48,31 @@ function initSentry() {
   })
 }
 
-// Inițializare condiționată pe consent
+// Defer-uim inițializarea Sentry + analytics după primul paint ca să nu
+// blocăm main thread la încărcare. `requestIdleCallback` execută când
+// browser-ul e idle; fallback la setTimeout dacă API-ul nu există (Safari).
+type IdleScheduler = (cb: () => void) => void
+const scheduleIdle: IdleScheduler =
+  typeof (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ===
+  'function'
+    ? (cb) => {
+        ;(
+          window as unknown as { requestIdleCallback: (cb: () => void) => number }
+        ).requestIdleCallback(cb)
+      }
+    : (cb) => {
+        setTimeout(cb, 1)
+      }
+
 if (hasConsent('performance')) {
-  initSentry()
-  initAnalytics()
+  scheduleIdle(() => {
+    initSentry()
+    initAnalytics()
+  })
 }
 
-// Re-inițializare când utilizatorul schimbă consent
+// Re-inițializare când utilizatorul schimbă consent — fără defer, e răspuns
+// direct la acțiunea utilizatorului
 window.addEventListener('consent-updated', () => {
   if (hasConsent('performance')) {
     initSentry()
