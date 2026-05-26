@@ -3651,6 +3651,21 @@ const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
   { id: 'settings', label: 'Setări', icon: '⚙', adminOnly: true },
 ]
 
+// Grupare semantică a tab-urilor pentru drawer/sidebar — în loc de listă plată
+// cu 19 elemente (greu de scanat vizual), tab-urile sunt grupate pe rol în
+// 5 secțiuni. Itemii non-mappați apar la final ca "Altele" (fail-safe dacă
+// adăugăm un tab nou și uităm să-l grupăm).
+const NAV_GROUPS: { label: string; ids: Tab[] }[] = [
+  { label: 'Operațional', ids: ['comenzi', 'mese', 'arhitectura'] },
+  { label: 'Meniu', ids: ['products', 'categories', 'modificatori', 'happy-hour'] },
+  {
+    label: 'Vânzări & Casă',
+    ids: ['analytics', 'raport', 'tva', 'casa-tura', 'casa-marcat', 'invoices'],
+  },
+  { label: 'Echipă & Operațiuni', ids: ['gestiune', 'echipa', 'ture'] },
+  { label: 'Setup & Setări', ids: ['setup', 'health', 'settings'] },
+]
+
 export default function DashboardPage({
   onViewMenu,
   onPricing,
@@ -3829,40 +3844,86 @@ export default function DashboardPage({
           </div>
         </div>
       )}
-      <nav style={{ padding: '10px 8px', flex: 1 }}>
-        {visibleNav.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => {
-              setTab(item.id)
-              setSidebarOpen(false)
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              width: '100%',
-              padding: '11px 12px',
-              borderRadius: 9,
-              border: 'none',
-              cursor: 'pointer',
-              background: tab === item.id ? D.goldA : 'transparent',
-              color: tab === item.id ? D.goldL : D.t2,
-              marginBottom: 2,
-              fontSize: '0.875rem',
-              fontWeight: tab === item.id ? 500 : 400,
-              fontFamily: 'DM Sans,sans-serif',
-              textAlign: 'left',
-            }}
-            onMouseEnter={(e) => tab !== item.id && (e.currentTarget.style.background = D.s2)}
-            onMouseLeave={(e) =>
-              tab !== item.id && (e.currentTarget.style.background = 'transparent')
-            }
-          >
-            <span style={{ fontSize: '1rem' }}>{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
+      <nav style={{ padding: '10px 8px', flex: 1, overflow: 'auto' }}>
+        {(() => {
+          // Map id → NAV item pentru lookup rapid
+          const byId = new Map(visibleNav.map((n) => [n.id, n]))
+          // Set cu id-urile deja grupate, ca să detectăm orphan items
+          const grouped = new Set<string>()
+          NAV_GROUPS.forEach((g) => g.ids.forEach((id) => grouped.add(id)))
+          const orphans = visibleNav.filter((n) => !grouped.has(n.id))
+
+          const renderItem = (item: { id: Tab; label: string; icon: string }) => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setTab(item.id)
+                setSidebarOpen(false)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '11px 12px',
+                borderRadius: 9,
+                border: 'none',
+                cursor: 'pointer',
+                background: tab === item.id ? D.goldA : 'transparent',
+                color: tab === item.id ? D.goldL : D.t2,
+                marginBottom: 2,
+                fontSize: '0.875rem',
+                fontWeight: tab === item.id ? 500 : 400,
+                fontFamily: 'DM Sans,sans-serif',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => tab !== item.id && (e.currentTarget.style.background = D.s2)}
+              onMouseLeave={(e) =>
+                tab !== item.id && (e.currentTarget.style.background = 'transparent')
+              }
+            >
+              <span style={{ fontSize: '1rem' }}>{item.icon}</span>
+              {item.label}
+            </button>
+          )
+
+          const sectionHeader = (label: string, first: boolean) => (
+            <div
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: 600,
+                color: D.t3,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                padding: '6px 12px 4px',
+                marginTop: first ? 0 : 12,
+              }}
+            >
+              {label}
+            </div>
+          )
+
+          return (
+            <>
+              {NAV_GROUPS.map((group, gi) => {
+                const items = group.ids.map((id) => byId.get(id)).filter((x) => x != null)
+                if (items.length === 0) return null
+                return (
+                  <div key={group.label}>
+                    {sectionHeader(group.label, gi === 0)}
+                    {items.map((item) => renderItem(item!))}
+                  </div>
+                )
+              })}
+              {orphans.length > 0 && (
+                <div>
+                  {sectionHeader('Altele', false)}
+                  {orphans.map(renderItem)}
+                </div>
+              )}
+            </>
+          )
+        })()}
       </nav>
       <UpgradeBanner
         plan={plan}
