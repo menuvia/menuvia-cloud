@@ -110,13 +110,14 @@ jobs:
           PGPASSWORD: postgres
         run: |
           set -e
-          cd supabase
+          cd supabase/migrations
 
-          # Ordonez migrațiile lexicografic (numele lor încep cu migration-XXX)
-          MIGRATIONS=$(ls migration-*.sql 2>/dev/null | sort -V)
+          # Ordonez migrațiile lexicografic — formatul timestamp_migration_NNN_*.sql
+          # este safe la sort simplu (prefix YYYYMMDDHHMMSS).
+          MIGRATIONS=$(ls *.sql 2>/dev/null | sort)
 
           if [ -z "$MIGRATIONS" ]; then
-            echo "No migrations found!"
+            echo "No migrations found in supabase/migrations/!"
             exit 1
           fi
 
@@ -181,6 +182,107 @@ jobs:
             fi
             echo "✓ Function exists: $fn (count: $COUNT)"
           done
+
+      - name: Verify table GRANTs for authenticated
+        # Static analysis al migrațiilor: detectează orice `create table public.X`
+        # care nu are GRANT corespunzător pentru rolul `authenticated`. Previne
+        # regresii de tipul "permission denied for table X" la onboarding/CRUD
+        # (cauza fix-uită prin migrația 047).
+        run: |
+          set -euo pipefail
+          cd supabase/migrations
+
+          # Whitelist — tabele intenționat fără GRANT explicit pentru authenticated.
+          # Adaugă aici DOAR dacă tabela este accesată exclusiv via:
+          #   (A) service_role / Netlify Functions / webhook-uri, SAU
+          #   (B) un VIEW dedicat care are propriul GRANT SELECT.
+          NO_EXPLICIT_GRANT_REQUIRED="
+            stripe_events
+            invoices oblio_configs
+            leads recrutare_leads
+            email_queue lifecycle_events
+            customer_health_scores ai_import_log
+            function_rate_limits
+            audit_log order_feedback
+          "
+
+          # Normalizează SQL-ul tuturor migrațiilor:
+          #   - strip line-comments `--...`
+          #   - flatten newlines (permite detectarea GRANT-urilor multi-line)
+          #   - colapsează whitespace
+          NORM=$(sed 's|--.*$||' *.sql | tr '\n' ' ' | tr -s ' ')
+
+          # Extrage toate tabelele create în orice migrație
+          CREATED=$(grep -hEi 'create table( if not exists)? public\.[a-z_]+' *.sql \
+            | sed -E 's/.*public\.([a-z_]+).*/\1/' \
+            | sort -u)
+
+          if [ -z "$CREATED" ]; then
+            echo "No tables found via CREATE TABLE public.* — nothing to verify."
+            exit 0
+          fi
+
+          # Detectează grant global pe schema (acoperă toate tabelele dintr-un foc)
+          if echo "$NORM" | grep -qiE 'grant[[:space:]]+[^;]+on[[:space:]]+all[[:space:]]+tables[[:space:]]+in[[:space:]]+schema[[:space:]]+public[[:space:]]+to[[:space:]]+[^;]*\bauthenticated\b'; then
+            HAS_GLOBAL_GRANT=1
+          else
+            HAS_GLOBAL_GRANT=0
+          fi
+
+          # Iterează prin fiecare tabelă
+          MISSING=()
+          WHITELISTED=0
+          COVERED=0
+
+          for tbl in $CREATED; do
+            # 1) Whitelist?
+            if echo "$NO_EXPLICIT_GRANT_REQUIRED" | tr -s ' \n' ' ' | grep -qw "$tbl"; then
+              echo "  · $tbl (whitelisted)"
+              WHITELISTED=$((WHITELISTED + 1))
+              continue
+            fi
+
+            # 2) Grant global pe ALL TABLES?
+            if [ "$HAS_GLOBAL_GRANT" = "1" ]; then
+              echo "  ✓ $tbl (covered by global ALL TABLES grant)"
+              COVERED=$((COVERED + 1))
+              continue
+            fi
+
+            # 3) Grant explicit pe această tabelă (singură sau în listă cu virgulă)?
+            #    Pattern: `grant ... on (... )?public.$tbl(,| ) ... to ... authenticated`
+            if echo "$NORM" | grep -qiE "grant[[:space:]]+[^;]+on[[:space:]]+([^;]+[, ]+)*(public\.)?${tbl}[^a-z_][^;]*to[[:space:]]+[^;]*\bauthenticated\b"; then
+              echo "  ✓ $tbl (explicit grant)"
+              COVERED=$((COVERED + 1))
+              continue
+            fi
+
+            MISSING+=("$tbl")
+          done
+
+          echo ""
+          echo "Summary: $COVERED granted, $WHITELISTED whitelisted, ${#MISSING[@]} missing"
+          echo ""
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "═══════════════════════════════════════════════════════════════════"
+            echo "MISSING GRANT for ${#MISSING[@]} table(s):"
+            echo "═══════════════════════════════════════════════════════════════════"
+            for t in "${MISSING[@]}"; do echo "  ✗ $t"; done
+            echo ""
+            echo "Fix options:"
+            echo "  A) Add in a migration:"
+            echo "     GRANT SELECT, INSERT, UPDATE, DELETE ON public.<table> TO authenticated;"
+            echo "  B) Add the table to NO_EXPLICIT_GRANT_REQUIRED in this workflow"
+            echo "     (only if accessed via service_role / SECURITY DEFINER RPC / dedicated VIEW)."
+            echo ""
+            echo "Context: lipsa unui GRANT pentru authenticated produce eroarea"
+            echo "         'permission denied for table X' în Supabase proiecte fără"
+            echo "         default privileges (cauza P0 fix-uită prin migrația 047)."
+            exit 1
+          fi
+
+          echo "✓ All non-whitelisted tables have GRANT for authenticated"
 
       - name: Upload logs on failure
         if: failure()
