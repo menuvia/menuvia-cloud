@@ -2244,9 +2244,63 @@ function ProductsTab({
             Se încarcă...
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: D.t3 }}>
-            {search ? 'Niciun produs găsit' : 'Adaugă primul produs!'}
-          </div>
+          search ? (
+            <div style={{ padding: '40px 20px', textAlign: 'center', color: D.t3 }}>
+              Niciun produs găsit pentru „{search}".
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: '48px 24px',
+                textAlign: 'center',
+                background: D.s2,
+                border: `1px dashed ${D.border}`,
+                borderRadius: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <div style={{ fontSize: 52, lineHeight: 1 }}>🍽️</div>
+              <h3
+                style={{
+                  fontFamily: 'Fraunces,serif',
+                  fontSize: '1.15rem',
+                  color: D.t1,
+                  margin: 0,
+                }}
+              >
+                Nu ai niciun produs încă
+              </h3>
+              <p
+                style={{
+                  fontSize: '0.85rem',
+                  color: D.t3,
+                  lineHeight: 1.55,
+                  maxWidth: 360,
+                  margin: 0,
+                }}
+              >
+                Adaugă felurile de mâncare și băuturile din meniul tău. Apar instant în meniul
+                public scanat de clienți cu QR.
+              </p>
+              <button
+                onClick={() => {
+                  if (canAdd) setModal('add')
+                  else onUpgrade()
+                }}
+                style={btn({
+                  background: D.gold,
+                  color: '#000',
+                  marginTop: 6,
+                  padding: '0 20px',
+                })}
+              >
+                + Adaugă primul produs
+              </button>
+            </div>
+          )
         ) : (
           filtered.map((p, i) =>
             mob ? (
@@ -2748,15 +2802,51 @@ function CategoriesTab({ restaurantId }: { restaurantId: string }) {
         ) : categories.length === 0 ? (
           <div
             style={{
-              padding: '40px',
+              padding: '48px 24px',
               textAlign: 'center',
               background: D.s2,
-              border: `1px solid ${D.border}`,
+              border: `1px dashed ${D.border}`,
               borderRadius: 14,
-              color: D.t3,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 12,
             }}
           >
-            Nicio categorie. Adaugă prima!
+            <div style={{ fontSize: 52, lineHeight: 1 }}>📁</div>
+            <h3
+              style={{
+                fontFamily: 'Fraunces,serif',
+                fontSize: '1.15rem',
+                color: D.t1,
+                margin: 0,
+              }}
+            >
+              Nicio categorie încă
+            </h3>
+            <p
+              style={{
+                fontSize: '0.85rem',
+                color: D.t3,
+                lineHeight: 1.55,
+                maxWidth: 360,
+                margin: 0,
+              }}
+            >
+              Grupează produsele pe categorii (ex. „Băuturi", „Aperitive", „Felul principal") ca să
+              fie mai ușor de navigat în meniu de către clienți.
+            </p>
+            <button
+              onClick={() => setModal('add')}
+              style={btn({
+                background: D.gold,
+                color: '#000',
+                marginTop: 6,
+                padding: '0 20px',
+              })}
+            >
+              + Adaugă prima categorie
+            </button>
           </div>
         ) : (
           categories.map((cat) => {
