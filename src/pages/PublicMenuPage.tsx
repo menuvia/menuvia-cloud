@@ -299,6 +299,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 <img
                   src={product.image_url}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
+                  width={88}
+                  height={88}
                   style={{
                     width: 88,
                     height: 88,

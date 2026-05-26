@@ -347,6 +347,7 @@ export default function QrMenuPage({ token }: Props) {
           <img
             src={ctx.restaurant.logo_url}
             alt={ctx.restaurant.name}
+            decoding="async"
             style={{ height: 48, objectFit: 'contain', marginBottom: 4 }}
           />
         ) : (
@@ -482,6 +483,10 @@ export default function QrMenuPage({ token }: Props) {
                 <img
                   src={product.image_url}
                   alt={product.name}
+                  loading="lazy"
+                  decoding="async"
+                  width={88}
+                  height={88}
                   style={{
                     width: 88,
                     height: 88,
@@ -856,6 +861,10 @@ export default function QrMenuPage({ token }: Props) {
                     <img
                       src={p.image_url}
                       alt={p.name}
+                      loading="lazy"
+                      decoding="async"
+                      width={400}
+                      height={400}
                       style={{
                         width: '100%',
                         aspectRatio: '1/1',
@@ -1192,6 +1201,10 @@ export default function QrMenuPage({ token }: Props) {
                             <img
                               src={s.image_url}
                               alt={s.name}
+                              loading="lazy"
+                              decoding="async"
+                              width={40}
+                              height={40}
                               style={{
                                 width: 40,
                                 height: 40,
