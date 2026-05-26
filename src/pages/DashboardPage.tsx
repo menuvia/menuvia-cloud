@@ -3669,6 +3669,13 @@ export default function DashboardPage({
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const visibleNav = NAV.filter((n) => !n.adminOnly || isAdminRole)
 
+  // Bottom navigation: pe mobile arătăm DOAR 4 tab-uri primare (cele mai folosite
+  // zilnic) + un buton "Mai mult" care deschide drawer-ul pentru restul. Fără
+  // această filtrare am avea 10-19 butoane comprimate ilizibil.
+  const BOTTOM_NAV_PRIMARY_IDS: Tab[] = ['comenzi', 'products', 'mese', 'casa-marcat']
+  const bottomPrimary = visibleNav.filter((n) => BOTTOM_NAV_PRIMARY_IDS.includes(n.id))
+  const bottomSecondary = visibleNav.filter((n) => !BOTTOM_NAV_PRIMARY_IDS.includes(n.id))
+
   // Dacă user-ul a salvat un tab admin-only și apoi a fost demovat la waiter,
   // forțăm înapoi la Produse
   useEffect(() => {
@@ -4155,7 +4162,11 @@ export default function DashboardPage({
           />
         )}
 
-        {/* Mobile bottom nav — hidden on desktop */}
+        {/* Mobile bottom nav — DOAR 4 tab-uri primare + buton "Mai mult".
+            Înainte erau toate 19 tab-uri comprimate ilizibil pe lățimea
+            ecranului (font 0.6rem = 9.6px, sub minimul citibil; padding 4px
+            = touch targets sub limita iOS de 44px).
+            Restul tab-urilor se accesează prin "Mai mult" → drawer lateral. */}
         <div
           style={{
             borderTop: `1px solid ${D.border}`,
@@ -4165,31 +4176,79 @@ export default function DashboardPage({
             paddingBottom: 'env(safe-area-inset-bottom,0px)',
           }}
         >
-          {visibleNav.map((item) => (
+          {bottomPrimary.map((item) => {
+            const active = tab === item.id
+            return (
+              <button
+                key={item.id}
+                onClick={() => setTab(item.id)}
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 4,
+                  minHeight: 56,
+                  padding: '8px 4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: active ? `${D.gold}15` : 'transparent',
+                  color: active ? D.gold : D.t2,
+                  fontFamily: 'DM Sans,sans-serif',
+                  transition: 'background-color .15s, color .15s',
+                  position: 'relative',
+                }}
+              >
+                {active && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: '20%',
+                      right: '20%',
+                      height: 2,
+                      background: D.gold,
+                      borderRadius: 2,
+                    }}
+                  />
+                )}
+                <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>{item.icon}</span>
+                <span style={{ fontSize: '0.7rem', fontWeight: active ? 600 : 500 }}>
+                  {item.label}
+                </span>
+              </button>
+            )
+          })}
+          {bottomSecondary.length > 0 && (
             <button
-              key={item.id}
-              onClick={() => setTab(item.id)}
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label={`Mai mult — încă ${bottomSecondary.length} secțiuni`}
               style={{
                 flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 3,
-                padding: '10px 4px',
+                justifyContent: 'center',
+                gap: 4,
+                minHeight: 56,
+                padding: '8px 4px',
                 border: 'none',
                 cursor: 'pointer',
                 background: 'transparent',
-                color: tab === item.id ? D.gold : D.t3,
+                color: D.t2,
                 fontFamily: 'DM Sans,sans-serif',
                 transition: 'color .15s',
               }}
             >
-              <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
-              <span style={{ fontSize: '0.6rem', fontWeight: tab === item.id ? 600 : 400 }}>
-                {item.label}
-              </span>
+              <span style={{ fontSize: '1.25rem', lineHeight: 1 }}>⋯</span>
+              <span style={{ fontSize: '0.7rem', fontWeight: 500 }}>Mai mult</span>
             </button>
-          ))}
+          )}
         </div>
       </div>
     </div>
