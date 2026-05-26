@@ -681,7 +681,8 @@ export default function QrMenuPage({ token }: Props) {
           disabled={callingWaiter || waiterCalled}
           style={{
             position: 'fixed',
-            bottom: cart.length > 0 ? 90 : 20,
+            // Respect safe-area-inset-bottom ca să nu cadă sub home indicator iPhone
+            bottom: `calc(${cart.length > 0 ? 90 : 20}px + env(safe-area-inset-bottom, 0px))`,
             left: 16,
             background: waiterCalled ? '#4CAF6E' : 'rgba(26,18,8,0.85)',
             color: '#fff',
@@ -715,7 +716,9 @@ export default function QrMenuPage({ token }: Props) {
             transform: 'translateX(-50%)',
             width: '100%',
             maxWidth: 480,
-            padding: '12px 16px 24px',
+            // Bottom padding include safe-area-inset ca butonul "Trimite comandă"
+            // să nu cadă sub home indicator iPhone (PWA fullscreen sau Safari).
+            padding: '12px 16px calc(24px + env(safe-area-inset-bottom, 0px))',
             background: PUB.bg,
             borderTop: `1px solid ${PUB.borderStrong}`,
             zIndex: 50,

@@ -158,7 +158,8 @@ const inp: React.CSSProperties = {
   border: `1px solid ${D.border}`,
   borderRadius: 8,
   padding: '7px 10px',
-  fontSize: '0.82rem',
+  // 16px minim ca să NU declanșeze zoom iOS la focus
+  fontSize: '16px',
   color: D.t1,
   outline: 'none',
   fontFamily: 'DM Sans,sans-serif',

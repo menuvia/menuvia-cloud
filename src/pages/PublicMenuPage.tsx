@@ -471,7 +471,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             transform: 'translateX(-50%)',
             maxWidth: 480,
             width: '100%',
-            padding: '14px 20px',
+            // Bottom padding include safe-area-inset ca butonul să nu cadă sub
+            // home indicator iPhone (PWA fullscreen sau Safari).
+            padding: '14px 20px calc(14px + env(safe-area-inset-bottom, 0px))',
             background: accent,
             color: '#fff',
             border: 'none',

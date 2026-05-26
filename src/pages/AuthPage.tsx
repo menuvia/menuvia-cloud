@@ -15,7 +15,10 @@ const inp: React.CSSProperties = {
   border: `1px solid ${D.border}`,
   borderRadius: 9,
   padding: '12px 14px',
-  fontSize: '0.95rem',
+  // 16px minim ca să NU declanșeze zoom-ul automat al Safari iOS la focus.
+  // Orice valoare < 16px (rem sau px) face Safari să zoom-uiască pagina,
+  // ceea ce e iritant pe email/parolă/orice formular.
+  fontSize: '16px',
   color: D.t1,
   outline: 'none',
   fontFamily: 'DM Sans,sans-serif',
