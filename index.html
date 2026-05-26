@@ -13,33 +13,81 @@
     <meta name="theme-color" content="#0A0908" />
 
     <title>Menuvia — Meniu digital și comenzi QR pentru restaurante</title>
-    <meta name="description" content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari. Fără comisioane per comandă." />
+    <meta
+      name="description"
+      content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari. Fără comisioane per comandă."
+    />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Menuvia" />
     <meta property="og:title" content="Menuvia — Meniu digital și comenzi QR pentru restaurante" />
-    <meta property="og:description" content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari." />
+    <meta
+      property="og:description"
+      content="Meniu digital cu QR, comenzi în timp real la masă și dashboard complet pentru bucătărie și ospătari."
+    />
     <meta property="og:locale" content="ro_RO" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="Menuvia — Meniu digital pentru restaurante" />
-    <meta name="twitter:description" content="Meniu QR, comenzi în timp real, dashboard bucătărie și ospătari." />
+    <meta
+      name="twitter:description"
+      content="Meniu QR, comenzi în timp real, dashboard bucătărie și ospătari."
+    />
 
+    <!--
+      Preconnect: deschide TCP+TLS la origin-uri externe critice înainte ca JS
+      să apuce să le ceară. Vite substituie %VITE_SUPABASE_URL% la build.
+    -->
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@400;600;700&display=swap" rel="stylesheet" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
-      body{margin:0;background:#080808;font-family:'DM Sans',system-ui,sans-serif}
-      #app-loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:16px;background:#080808}
-      #app-loader .s{width:40px;height:40px;border-radius:50%;border:3px solid #C8963C;border-top-color:transparent;animation:sp .8s linear infinite}
-      #app-loader .l{color:#4A4844;font-size:14px}
-      @keyframes sp{to{transform:rotate(360deg)}}
+      body {
+        margin: 0;
+        background: #080808;
+        font-family: 'DM Sans', system-ui, sans-serif;
+      }
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 16px;
+        background: #080808;
+      }
+      #app-loader .s {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        border: 3px solid #c8963c;
+        border-top-color: transparent;
+        animation: sp 0.8s linear infinite;
+      }
+      #app-loader .l {
+        color: #4a4844;
+        font-size: 14px;
+      }
+      @keyframes sp {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>
-    <div id="app-loader"><div class="s"></div><div class="l">Se încarcă…</div></div>
+    <div id="app-loader">
+      <div class="s"></div>
+      <div class="l">Se încarcă…</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
