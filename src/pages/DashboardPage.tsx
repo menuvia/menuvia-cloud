@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useRestaurants, useCategories, useProducts } from '../hooks/useData'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { useActiveOrders } from '../hooks/useOrdersQuery'
 import { D, PLAN_LABELS, ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import { THEMES } from '../lib/themes'
 import {
@@ -3687,6 +3688,13 @@ export default function DashboardPage({
   const restaurant = restaurants.find((r) => r.id === selectedId) ?? restaurants[0] ?? null
   const features = useFeatures(restaurant?.id ?? null)
 
+  // Live count of "active" orders (new/confirmed/preparing/ready) — afișat ca
+  // badge peste tab-ul "Comenzi" în bottom nav. Realtime invalidation prin
+  // postgres_changes (vezi useOrdersQuery), deci badge-ul se actualizează
+  // instant când vine comandă nouă.
+  const { data: activeOrdersData } = useActiveOrders(restaurant?.id ?? null)
+  const activeOrdersCount = activeOrdersData?.length ?? 0
+
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
   const [productCount, setProductCount] = useState(0)
@@ -4165,31 +4173,69 @@ export default function DashboardPage({
             paddingBottom: 'env(safe-area-inset-bottom,0px)',
           }}
         >
-          {visibleNav.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setTab(item.id)}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 3,
-                padding: '10px 4px',
-                border: 'none',
-                cursor: 'pointer',
-                background: 'transparent',
-                color: tab === item.id ? D.gold : D.t3,
-                fontFamily: 'DM Sans,sans-serif',
-                transition: 'color .15s',
-              }}
-            >
-              <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
-              <span style={{ fontSize: '0.6rem', fontWeight: tab === item.id ? 600 : 400 }}>
-                {item.label}
-              </span>
-            </button>
-          ))}
+          {visibleNav.map((item) => {
+            // Badge cu numărul de comenzi active pe tab-ul "Comenzi" — semnal
+            // operațional critic: owner-ul/manager-ul vede instant câte comenzi
+            // așteaptă, fără să schimbe tab-ul. Realtime via useActiveOrders.
+            const badgeCount = item.id === 'comenzi' ? activeOrdersCount : 0
+            const showBadge = badgeCount > 0
+            return (
+              <button
+                key={item.id}
+                onClick={() => setTab(item.id)}
+                aria-label={
+                  showBadge
+                    ? `${item.label} — ${badgeCount} ${badgeCount === 1 ? 'comandă activă' : 'comenzi active'}`
+                    : item.label
+                }
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 3,
+                  padding: '10px 4px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  color: tab === item.id ? D.gold : D.t3,
+                  fontFamily: 'DM Sans,sans-serif',
+                  transition: 'color .15s',
+                }}
+              >
+                <span style={{ fontSize: '1.1rem', position: 'relative', display: 'inline-block' }}>
+                  {item.icon}
+                  {showBadge && (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        top: -4,
+                        right: -10,
+                        minWidth: 18,
+                        height: 18,
+                        padding: '0 5px',
+                        borderRadius: 9,
+                        background: D.red,
+                        color: '#fff',
+                        fontSize: 11,
+                        fontWeight: 700,
+                        lineHeight: '18px',
+                        textAlign: 'center',
+                        boxShadow: `0 0 0 2px ${D.s1}`,
+                        fontFamily: 'DM Sans,sans-serif',
+                      }}
+                    >
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
+                </span>
+                <span style={{ fontSize: '0.6rem', fontWeight: tab === item.id ? 600 : 400 }}>
+                  {item.label}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>
