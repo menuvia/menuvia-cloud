@@ -480,27 +480,29 @@ begin
   end;
 end $$;
 
--- TEST 26: suma plăților ≠ suma articolelor — orders.total e source of truth
--- Dacă SUM(item_total) != orders.total (inconsistency), generatorul folosește
--- orders.total pentru P^. Item lines reflectă valorile lor reale.
+-- TEST 26: suma plăților ≠ suma articolelor — guard de consistency.
+-- DUPĂ migration_051 fix BUG #7: generator RAISE EXCEPTION dacă
+-- SUM(item_total) != total + discount_amount. Forțăm orders.total = 70 dar
+-- item de 50 RON cu PG_TRY ca să evităm trigger-ul recalc_order_subtotal.
 do $$
 declare r uuid; p uuid; o uuid; actual text;
-  -- 1 item de 50 RON, dar total=70 (inconsistent)
-  expected text := E'S^X^5000^1000^buc^1^1\nST^\nP^1^7000';
 begin
   r := _test_helpers.mk_restaurant();
   p := _test_helpers.mk_product(r, 'X', 50, 1);
-  o := _test_helpers.mk_order(r, 'cash', 70);  -- DELIBERAT inconsistent
+  o := _test_helpers.mk_order(r, 'cash', 50);
   perform _test_helpers.add_item(o, p, 'X', 50, 1, 50);
-  actual := public.build_fiscalnet_payload(o);
-  if actual = expected then
-    perform _test_helpers.record('TEST 26', 'mismatch SUM(items) ≠ orders.total', 'PASS',
-      actual, expected,
-      'BUG #7 — generator NU validează consistency. Trimite v_order.total ignorând SUM(items). Risk: dacă recalc_order_subtotal nu rulează corect, bonul are sumă greșită.');
-  else
-    perform _test_helpers.record('TEST 26', 'mismatch', 'FAIL', actual, expected, '');
-  end if;
-exception when others then perform _test_helpers.record('TEST 26', 'mismatch', 'ERROR', SQLERRM, expected, '');
+  -- Force inconsistency: setez total la 70 fără să trigger recalc
+  update public.orders set total = 70 where id = o;
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 26', 'mismatch SUM(items) ≠ total', 'FAIL',
+      actual, '<should raise (BUG #7 fixed)>',
+      'BUG #7 — generator NU validează consistency. Risk: bonul are sumă greșită.');
+  exception when others then
+    perform _test_helpers.record('TEST 26', 'mismatch raises (BUG #7 fix)', 'PASS',
+      SQLERRM, '<raised>',
+      'OK: migration_051 guard refuză payload când SUM(items) ≠ total + discount.');
+  end;
 end $$;
 
 -- TEST 27: GRTVA invalid (0, 6, 99) — schema permite vat_rates.fiscalnet_group 1-5.
@@ -748,6 +750,100 @@ begin
   exception when others then
     perform _test_helpers.record('TEST 39', 'order_id inexistent → raise', 'PASS',
       SQLERRM, '<exception>', 'OK: "Order % not found" raised.');
+  end;
+end $$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- BUG #4 FIX VERIFICATION — split payment (migration_051)
+-- ════════════════════════════════════════════════════════════════════════
+
+-- TEST 40: split 2-way cash 30 + card_pos 20 pe order de 50 RON
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+  expected text := E'S^Burger^5000^1000^buc^1^1\nST^\nP^1^3000\nP^2^2000';
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'Burger', 50, 1);
+  o := _test_helpers.mk_order(r, 'cash', 50);
+  perform _test_helpers.add_item(o, p, 'Burger', 50, 1, 50);
+  insert into public.order_payments(order_id, method, amount, created_at)
+    values (o, 'cash', 30, now()), (o, 'card_pos', 20, now() + interval '1 ms');
+  actual := public.build_fiscalnet_payload(o);
+  if actual = expected then
+    perform _test_helpers.record('TEST 40', 'split 2-way cash+card (BUG #4 fix)', 'PASS',
+      actual, expected, 'OK: generator emite P^ per row order_payments.');
+  else
+    perform _test_helpers.record('TEST 40', 'split 2-way', 'FAIL', actual, expected, '');
+  end if;
+exception when others then perform _test_helpers.record('TEST 40', 'split 2-way', 'ERROR', SQLERRM, expected, '');
+end $$;
+
+-- TEST 41: split 3-way (cash 10 + card 25 + other 15) pe order 50
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+  expected text := E'S^X^5000^1000^buc^1^1\nST^\nP^1^1000\nP^2^2500\nP^8^1500';
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'X', 50, 1);
+  o := _test_helpers.mk_order(r, 'cash', 50);
+  perform _test_helpers.add_item(o, p, 'X', 50, 1, 50);
+  insert into public.order_payments(order_id, method, amount, created_at)
+    values (o, 'cash',     10, now()),
+           (o, 'card_pos', 25, now() + interval '1 ms'),
+           (o, 'other',    15, now() + interval '2 ms');
+  actual := public.build_fiscalnet_payload(o);
+  if actual = expected then
+    perform _test_helpers.record('TEST 41', 'split 3-way (cash+card+other)', 'PASS',
+      actual, expected, 'OK: 3 P^ în ordinea created_at.');
+  else
+    perform _test_helpers.record('TEST 41', 'split 3-way', 'FAIL', actual, expected, '');
+  end if;
+exception when others then perform _test_helpers.record('TEST 41', 'split 3-way', 'ERROR', SQLERRM, expected, '');
+end $$;
+
+-- TEST 42: split fără rows → fallback la single P^ cu tips (BUG #3 behavior preserved)
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+  -- 40 RON + 5 tips → P^1^4500 (single, tips inclus). Niciun row în order_payments.
+  expected text := E'S^X^4000^1000^buc^1^1\nST^\nP^1^4500';
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'X', 40, 1);
+  o := _test_helpers.mk_order(r, 'cash', 40);
+  update public.orders set tips_amount = 5 where id = o;
+  perform _test_helpers.add_item(o, p, 'X', 40, 1, 40);
+  actual := public.build_fiscalnet_payload(o);
+  if actual = expected then
+    perform _test_helpers.record('TEST 42', 'fallback fără split: single P^ cu tips', 'PASS',
+      actual, expected, 'OK: fallback la comportament migration_050 când lipsesc order_payments.');
+  else
+    perform _test_helpers.record('TEST 42', 'fallback', 'FAIL', actual, expected, '');
+  end if;
+exception when others then perform _test_helpers.record('TEST 42', 'fallback', 'ERROR', SQLERRM, expected, '');
+end $$;
+
+-- TEST 43: BUG #6 fix verification — item cu unit_price = 0 → RAISE
+-- (TEST 22 deja verifică acest path; aici testez exact că eroarea conține
+--  marker "BUG #6 guard" ca să confirmăm că noul guard din migration_051 trage.)
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'Free', 0, 1);
+  o := _test_helpers.mk_order(r, 'cash', 0);
+  perform _test_helpers.add_item(o, p, 'Free', 0, 1, 0);
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 43', 'guard BUG #6 (price 0)', 'FAIL',
+      actual, '<should raise BUG #6 guard>', '');
+  exception when others then
+    if SQLERRM like '%BUG #6 guard%' then
+      perform _test_helpers.record('TEST 43', 'guard BUG #6 mesaj explicit', 'PASS',
+        SQLERRM, 'BUG #6 guard', 'OK: eroarea conține marker-ul explicit pentru debug.');
+    else
+      perform _test_helpers.record('TEST 43', 'guard BUG #6 mesaj generic', 'FAIL',
+        SQLERRM, '<should mention BUG #6 guard>', 'Guard a tras dar mesajul nu e diagnostic.');
+    end if;
   end;
 end $$;
 

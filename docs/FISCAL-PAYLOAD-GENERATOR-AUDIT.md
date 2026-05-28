@@ -157,19 +157,22 @@ order.status='paid' UPDATE
 
 ## 🐛 BUG-URI DESCOPERITE
 
-**Status (post `claude/fiscal-payload-fixes`)**:
+**Status (post `claude/fiscal-payload-fixes` + migration_051)**:
 
 | Bug | Severity | Status |
 |---|---|---|
-| #1 — funcția crash-uia | P0 | ✅ **FIXED** în migration_050 (`array_append` + cast explicit) |
-| #2 — quantity ignorat | P0 ANAF | ✅ **FIXED** în migration_050 (PRET=item_total/qty, CANT=qty*1000) |
-| #3 — tips nu pe bon | P1 ANAF | ✅ **FIXED** în migration_050 (P^ include tips_amount) |
-| #4 — split payment | P1 | ⏳ TODO (feature) |
-| #5 — CF^ client CIF | P1 | ⏳ TODO (feature) |
-| #6 — preț 0 acceptat | P2 | ⏳ TODO |
-| #7 — SUM mismatch | P2 | ⏳ TODO |
-| #8 — encoding diacritice | P2 | ⏳ investigație |
-| #9 — payment_method enum | P2 | ⏳ TODO (feature) |
+| #1 — funcția crash-uia | P0 | ✅ **FIXED** migration_050 (`array_append` + cast explicit) |
+| #2 — quantity ignorat | P0 ANAF | ✅ **FIXED** migration_050 (PRET=item_total/qty, CANT=qty*1000) |
+| #3 — tips nu pe bon | P1 ANAF | ✅ **FIXED** migration_050 (P^ include tips_amount) |
+| #4 — split payment | P2 | ✅ **FIXED** migration_051 (P^ per row `order_payments`, fallback la single) |
+| #5 — CF^ client CIF | P2 | ⏳ TODO (feature: requires UI + ALTER TABLE invoices) |
+| #6 — preț 0 acceptat | P2 | ✅ **FIXED** migration_051 (RAISE EXCEPTION pe item_total ≤ 0) |
+| #7 — SUM mismatch | P2 | ✅ **FIXED** migration_051 (guard `SUM(items) = total + discount ± 0.01`) |
+| #8 — encoding diacritice | P2 | ⏳ investigație (necesită test real Bridge → casa fiscală) |
+| #9 — payment_method enum incomplet | P2 | ⏳ TODO (feature: ALTER TYPE tichete/voucher) |
+
+**6 din 9 bug-uri rezolvate**. Rămase 3 (toate feature work, nu corectness):
+- #5, #8, #9.
 
 Sub-secțiunile de mai jos sunt menținute ca documentație istorică a
 descoperirilor. Pentru status curent în code-base, vezi tabelul de mai sus.
@@ -335,20 +338,23 @@ auxiliare (`auth`, `storage`, `extensions`).
 psql -d <test_db> -f supabase/tests/build_fiscalnet_payload_test.sql
 ```
 
-**Rezultate observate** (după aplicare `migration_050_fiscal_payload_fixes`):
+**Rezultate observate** (după `migration_050` + `migration_051` + extensii TEST 40-43):
 
 ```
-PASS  = 29  (+2 față de v1; BUG #2, #3 acum verde)
-FAIL  =  2  (BUG #6 price 0, BUG #7 SUM mismatch — P2, out of scope)
+PASS  = 35  (toate fix-urile verde, plus 4 cazuri noi pentru split + guards)
+FAIL  =  0
+ERROR =  0
 SKIP  =  4  (schema previne — quantity fractionar imposibil)
-TODO  =  5  (features lipsă: CF^, split, tichete)
+TODO  =  5  (features lipsă: CF^, tichete masă, …)
 ─────────
-TOTAL  = 40 cazuri raportate
+TOTAL  = 44 cazuri raportate
 ```
 
-**Înainte de migration_050** (audit-only state):
-- 2 PASS, 26 ERROR (toate din cauza BUG #1 crash), 4 SKIP, 5 TODO.
-- Cu patch test-only pentru BUG #1: 27 PASS, 4 FAIL, 4 SKIP, 5 TODO.
+**Istoric**:
+- Audit-only (pre-fix-uri): 2 PASS, 26 ERROR (BUG #1 crash), 4 SKIP, 5 TODO.
+- Cu patch test-only BUG #1: 27 PASS, 4 FAIL, 4 SKIP, 5 TODO.
+- Post `migration_050` (BUG #1/#2/#3 fix): 29 PASS, 2 FAIL, 4 SKIP, 5 TODO.
+- Post `migration_051` (+ BUG #4/#6/#7 fix): **35 PASS, 0 FAIL**, 4 SKIP, 5 TODO.
 
 **Coverage**: 100% din path-ul codului `build_fiscalnet_payload` e exercitat:
 - happy path: 5 teste (TEST 01-06)
@@ -385,9 +391,11 @@ are blast radius diferit; testează individual.
 ## 8. Fișiere create
 
 - `docs/FISCAL-PAYLOAD-GENERATOR-AUDIT.md` (acest fișier)
-- `supabase/tests/build_fiscalnet_payload_test.sql` (40 cazuri, ~720 linii)
+- `supabase/tests/build_fiscalnet_payload_test.sql` (44 cazuri, ~840 linii)
 - `supabase/migrations/20260525004800_migration_050_fiscal_payload_fixes.sql`
   (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix BUG #1/#2/#3)
+- `supabase/migrations/20260525004900_migration_051_fiscal_payload_p2_fixes.sql`
+  (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix BUG #4/#6/#7)
 
 ## 9. Fișiere modificate
 
