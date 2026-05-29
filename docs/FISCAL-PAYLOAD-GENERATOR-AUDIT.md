@@ -157,7 +157,7 @@ order.status='paid' UPDATE
 
 ## 🐛 BUG-URI DESCOPERITE
 
-**Status (post `claude/fiscal-payload-fixes` + migration_051)**:
+**Status (post `claude/fiscal-payload-fixes` + migration_050/051/052)**:
 
 | Bug | Severity | Status |
 |---|---|---|
@@ -166,13 +166,31 @@ order.status='paid' UPDATE
 | #3 — tips nu pe bon | P1 ANAF | ✅ **FIXED** migration_050 (P^ include tips_amount) |
 | #4 — split payment | P2 | ✅ **FIXED** migration_051 (P^ per row `order_payments`, fallback la single) |
 | #5 — CF^ client CIF | P2 | ⏳ TODO (feature: requires UI + ALTER TABLE invoices) |
-| #6 — preț 0 acceptat | P2 | ✅ **FIXED** migration_051 (RAISE EXCEPTION pe item_total ≤ 0) |
-| #7 — SUM mismatch | P2 | ✅ **FIXED** migration_051 (guard `SUM(items) = total + discount ± 0.01`) |
+| #6 — preț 0 acceptat | P2 | ✅ **FIXED** migration_051 + **RELAXED** migration_052 (doar item_total ≤ 0) |
+| #7 — SUM mismatch | P2 | ✅ **FIXED** migration_051 + **REFORMULATED** migration_052 (invariant fiscal REAL post-emit în cents) |
 | #8 — encoding diacritice | P2 | ⏳ investigație (necesită test real Bridge → casa fiscală) |
 | #9 — payment_method enum incomplet | P2 | ⏳ TODO (feature: ALTER TYPE tichete/voucher) |
 
-**6 din 9 bug-uri rezolvate**. Rămase 3 (toate feature work, nu corectness):
-- #5, #8, #9.
+### Defecte adversariale rezolvate în migration_052
+
+Auto-analiză critică post-051 a scos la lumină 5 defecte ascunse:
+
+| Defect | Severitate | Status |
+|---|---|---|
+| **A1** — drift de rotunjire = bonuri respinse de casa fiscală (10/3 → 333×3=999 ≠ P^=1000) | 🔴 CRITIC | ✅ **FIXED** migration_052 (per-item drift detection + fallback qty=1 + `lifecycle_events` log) |
+| **A2** — BUG #6 guard fals pozitiv pe produs cu unit_price=0 + modifier obligatoriu | 🔴 CRITIC | ✅ **FIXED** migration_052 (relaxed la `item_total ≤ 0` only) |
+| **A3** — BUG #7 guard era tautologie (`SUM(item_total) = orders.total`); invariantul fiscal REAL e `SUM(S^ cents) = P^ cents - tips_cents` post-emit pe casa fiscală | 🔴 CRITIC | ✅ **FIXED** migration_052 (invariant verificat în cents la finalul generării) |
+| **A4** — split payment fără invariant `SUM(order_payments) = total + tips` (casier greșește sumă → bani fără bon) | 🔴 CRITIC | ✅ **FIXED** migration_052 (guard cu toleranță 0.01 RON) |
+| **A5** — `orders.payment_method` NULLABLE; cu NULL emitea `P^^XXXX` malformed | 🟠 MAJOR | ✅ **FIXED** migration_052 (RAISE early dacă NULL și fără split) |
+
+**9 din 9 defecte de corectness rezolvate**. Rămase 3 feature-uri (#5/#8/#9).
+
+### Defecte de production observability (parțial rezolvate)
+
+- ✅ Drift fallback loghează `lifecycle_events` cu `event_type='fiscal_drift_fallback'` (vizibil owner)
+- ✅ Script `grant_business_plan` scrie `audit_log` cu diff old→new + actor_role='system_script'
+- ⏳ `enqueue_fiscal_receipt` cade în `pending_receipts.status='error'` la RAISE — fără notificare push/email owner (P3)
+- ⏳ Niciun retry automat în Bridge poller (P3)
 
 Sub-secțiunile de mai jos sunt menținute ca documentație istorică a
 descoperirilor. Pentru status curent în code-base, vezi tabelul de mai sus.
@@ -338,23 +356,30 @@ auxiliare (`auth`, `storage`, `extensions`).
 psql -d <test_db> -f supabase/tests/build_fiscalnet_payload_test.sql
 ```
 
-**Rezultate observate** (după `migration_050` + `migration_051` + extensii TEST 40-43):
+**Rezultate observate** (după `migration_050` + `051` + `052` + extensii TEST 40-49):
 
 ```
-PASS  = 35  (toate fix-urile verde, plus 4 cazuri noi pentru split + guards)
+PASS  = 41  (toate fix-urile + 6 cazuri noi pentru hotfix A1-A5 + markers explicit)
 FAIL  =  0
 ERROR =  0
 SKIP  =  4  (schema previne — quantity fractionar imposibil)
 TODO  =  5  (features lipsă: CF^, tichete masă, …)
 ─────────
-TOTAL  = 44 cazuri raportate
+TOTAL  = 50 cazuri raportate
 ```
 
 **Istoric**:
 - Audit-only (pre-fix-uri): 2 PASS, 26 ERROR (BUG #1 crash), 4 SKIP, 5 TODO.
 - Cu patch test-only BUG #1: 27 PASS, 4 FAIL, 4 SKIP, 5 TODO.
-- Post `migration_050` (BUG #1/#2/#3 fix): 29 PASS, 2 FAIL, 4 SKIP, 5 TODO.
-- Post `migration_051` (+ BUG #4/#6/#7 fix): **35 PASS, 0 FAIL**, 4 SKIP, 5 TODO.
+- Post `migration_050` (BUG #1/#2/#3): 29 PASS, 2 FAIL, 4 SKIP, 5 TODO.
+- Post `migration_051` (+ BUG #4/#6/#7): 35 PASS, 0 FAIL, 4 SKIP, 5 TODO.
+- Post `migration_052` (+ A1-A5 adversarial fixes): **41 PASS, 0 FAIL**, 4 SKIP, 5 TODO.
+
+**Markers explicit pe exception paths** — toate testele cu pattern
+`exception when others then PASS` au fost convertite să verifice un string
+marker în `SQLERRM` (ex: `'%BUG #6 guard%'`, `'%A4 split-sum guard%'`).
+Asta elimină risc de false-PASS dacă funcția raises din alt motiv
+(typo, RLS, etc.) la refactoring viitor.
 
 **Coverage**: 100% din path-ul codului `build_fiscalnet_payload` e exercitat:
 - happy path: 5 teste (TEST 01-06)
@@ -391,11 +416,17 @@ are blast radius diferit; testează individual.
 ## 8. Fișiere create
 
 - `docs/FISCAL-PAYLOAD-GENERATOR-AUDIT.md` (acest fișier)
-- `supabase/tests/build_fiscalnet_payload_test.sql` (44 cazuri, ~840 linii)
+- `supabase/tests/build_fiscalnet_payload_test.sql` (50 cazuri, ~990 linii)
 - `supabase/migrations/20260525004800_migration_050_fiscal_payload_fixes.sql`
   (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix BUG #1/#2/#3)
 - `supabase/migrations/20260525004900_migration_051_fiscal_payload_p2_fixes.sql`
   (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix BUG #4/#6/#7)
+- `supabase/migrations/20260525005000_migration_052_fiscal_payload_hotfix.sql`
+  (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix A1-A5 din auto-analiză
+  adversarială: drift rotunjire, BUG #6 fals pozitiv, BUG #7 invariant real,
+  split sum guard, payment_method NULL guard)
+- `supabase/scripts/grant_business_plan_georgeradu119.sql` (upgrade plan
+  cu validare + audit_log entry)
 
 ## 9. Fișiere modificate
 

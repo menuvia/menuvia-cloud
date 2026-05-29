@@ -101,14 +101,20 @@ end;
 $$;
 
 -- add_item(order_id, product_id, name_snapshot, unit_price, qty, item_total)
+-- IMPORTANT: forțează created_at = clock_timestamp() ca testele în aceeași
+-- tranzacție să primească timestamp-uri distincte. Cu DEFAULT now() (= start
+-- of transaction), toate item-urile dintr-o tranzacție primesc același
+-- timestamp, iar ORDER BY created_at devine nedeterminist (heap order).
 create or replace function _test_helpers.add_item(
   p_order_id uuid, p_product_id uuid, p_name text,
   p_unit_price numeric, p_qty int, p_item_total numeric
 ) returns void language plpgsql as $$
 begin
   insert into public.order_items(order_id, product_id, product_name_snapshot,
-                                  unit_price_snapshot, quantity, item_total)
-    values (p_order_id, p_product_id, p_name, p_unit_price, p_qty::smallint, p_item_total);
+                                  unit_price_snapshot, quantity, item_total,
+                                  created_at)
+    values (p_order_id, p_product_id, p_name, p_unit_price, p_qty::smallint,
+            p_item_total, clock_timestamp());
 end;
 $$;
 
@@ -410,7 +416,9 @@ end $$;
 -- SECȚIUNEA D — EDGE CASES CRITICE (tests 22-31)
 -- ════════════════════════════════════════════════════════════════════════
 
--- TEST 22: preț 0 — testează dacă se rejectează sau acceptă
+-- TEST 22: preț 0 cu item_total=0 → guard BUG #6 RAISE (post migration_052
+-- relaxed, dar item_total=0 tot e refuzat).
+-- Verificare marker explicit ca să nu fie false-PASS pe orice exception.
 do $$
 declare r uuid; p uuid; o uuid; actual text;
 begin
@@ -418,18 +426,21 @@ begin
   p := _test_helpers.mk_product(r, 'Free', 0, 1);
   o := _test_helpers.mk_order(r, 'cash', 0);
   perform _test_helpers.add_item(o, p, 'Free', 0, 1, 0);
-  actual := public.build_fiscalnet_payload(o);
-  -- Așteptat: REJECT cu RAISE. Observat: generator acceptă, produce S^Free^0^1000^buc^1^1
-  if actual like 'S^Free^0^%' then
-    perform _test_helpers.record('TEST 22', 'price = 0 (free item)', 'FAIL', actual,
-      '<should raise: invalid price 0>',
-      'BUG #6 — generator acceptă preț 0 fără validare. Bon fiscal cu "0 RON" e suspect ANAF.');
-  else
-    perform _test_helpers.record('TEST 22', 'price = 0', 'PASS', actual, '<raised exception>', '');
-  end if;
-exception when others then
-  perform _test_helpers.record('TEST 22', 'price = 0 → exception', 'PASS', SQLERRM, '<exception>',
-    'OK: generator raises pe item gratis.');
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 22', 'price=0 should raise BUG #6', 'FAIL',
+      actual, '<should raise BUG #6 guard>',
+      'BUG #6 — generator acceptă item_total=0. Bon fiscal cu "0 RON" e suspect ANAF.');
+  exception when others then
+    if SQLERRM like '%BUG #6 guard%' then
+      perform _test_helpers.record('TEST 22', 'price=0 → BUG #6 guard', 'PASS',
+        SQLERRM, 'BUG #6 guard marker', 'OK: marker explicit prezent.');
+    else
+      perform _test_helpers.record('TEST 22', 'price=0 raised generic', 'FAIL',
+        SQLERRM, '<should mention BUG #6 guard>',
+        'Funcția raised dar marker-ul lipsește — risc false-PASS la refactoring.');
+    end if;
+  end;
 end $$;
 
 -- TEST 23: cantitate 0 — schema rejectează (check qty >= 1)
@@ -480,10 +491,11 @@ begin
   end;
 end $$;
 
--- TEST 26: suma plăților ≠ suma articolelor — guard de consistency.
--- DUPĂ migration_051 fix BUG #7: generator RAISE EXCEPTION dacă
--- SUM(item_total) != total + discount_amount. Forțăm orders.total = 70 dar
--- item de 50 RON cu PG_TRY ca să evităm trigger-ul recalc_order_subtotal.
+-- TEST 26: invariant fiscal REAL post-migration_052 (înlocuiește tautologia 051).
+-- Forțez orders.total ≠ SUM(item_total) — invariantul SUM(P^) = SUM(S^) + tips
+-- pică pentru că P^ ia v_total_with_tips = orders.total + tips, dar v_lines_sum
+-- e construit din item_total.
+-- Verificare marker explicit "BUG #7 real guard".
 do $$
 declare r uuid; p uuid; o uuid; actual text;
 begin
@@ -491,17 +503,22 @@ begin
   p := _test_helpers.mk_product(r, 'X', 50, 1);
   o := _test_helpers.mk_order(r, 'cash', 50);
   perform _test_helpers.add_item(o, p, 'X', 50, 1, 50);
-  -- Force inconsistency: setez total la 70 fără să trigger recalc
+  -- Force inconsistency: total artificial 70 (item are 50)
   update public.orders set total = 70 where id = o;
   begin
     actual := public.build_fiscalnet_payload(o);
-    perform _test_helpers.record('TEST 26', 'mismatch SUM(items) ≠ total', 'FAIL',
-      actual, '<should raise (BUG #7 fixed)>',
-      'BUG #7 — generator NU validează consistency. Risk: bonul are sumă greșită.');
+    perform _test_helpers.record('TEST 26', 'mismatch SUM(S^) ≠ P^ should raise', 'FAIL',
+      actual, '<should raise BUG #7 real guard>',
+      'BUG #7 — invariant fiscal nu se verifică.');
   exception when others then
-    perform _test_helpers.record('TEST 26', 'mismatch raises (BUG #7 fix)', 'PASS',
-      SQLERRM, '<raised>',
-      'OK: migration_051 guard refuză payload când SUM(items) ≠ total + discount.');
+    if SQLERRM like '%BUG #7 real guard%' then
+      perform _test_helpers.record('TEST 26', 'mismatch → BUG #7 real guard', 'PASS',
+        SQLERRM, 'BUG #7 real guard marker', 'OK: guard fiscal post-emit verifică SUM cents.');
+    else
+      perform _test_helpers.record('TEST 26', 'mismatch raised generic', 'FAIL',
+        SQLERRM, '<should mention BUG #7 real guard>',
+        'Funcția raised dar marker-ul lipsește — verifică ordinea exception path.');
+    end if;
   end;
 end $$;
 
@@ -843,6 +860,174 @@ begin
     else
       perform _test_helpers.record('TEST 43', 'guard BUG #6 mesaj generic', 'FAIL',
         SQLERRM, '<should mention BUG #6 guard>', 'Guard a tras dar mesajul nu e diagnostic.');
+    end if;
+  end;
+end $$;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- HOTFIX VERIFICATION — migration_052 (A1/A2/A3/A4/A5)
+-- ════════════════════════════════════════════════════════════════════════
+
+-- TEST 44 (A1): drift de rotunjire → fallback qty=1 + audit_log entry.
+-- Input: 3 buc cu item_total=10.00 (unit efectiv 3.333... → drift 1 ban).
+-- Pre-fix migration_052 emitea S^...^333^3000 → casa fiscală vede 9.99
+-- dar P^=10.00 → bon respins. Post-fix: S^...^1000^1000 + audit entry.
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+  expected text := E'S^Pizza^1000^1000^buc^1^1\nST^\nP^1^1000';
+  audit_count int;
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'Pizza', 10.00, 1);
+  o := _test_helpers.mk_order(r, 'cash', 10.00);
+  perform _test_helpers.add_item(o, p, 'Pizza', 10.00, 3, 10.00);
+  actual := public.build_fiscalnet_payload(o);
+  if actual <> expected then
+    perform _test_helpers.record('TEST 44', 'drift fallback (A1 fix)', 'FAIL',
+      actual, expected, 'Drift should collapse to qty=1');
+    return;
+  end if;
+  -- Verifică lifecycle_events entry
+  select count(*) into audit_count
+    from public.lifecycle_events
+   where event_type = 'fiscal_drift_fallback'
+     and restaurant_id = r
+     and (event_data->>'order_id')::uuid = o;
+  if audit_count = 1 then
+    perform _test_helpers.record('TEST 44', 'drift A1 fix + lifecycle_events', 'PASS',
+      actual || E'\n[lifecycle_events: 1 fiscal_drift_fallback entry]', expected,
+      'OK: drift detectat, fallback qty=1, transparent log pentru owner.');
+  else
+    perform _test_helpers.record('TEST 44', 'drift A1 fix but log missing', 'FAIL',
+      'event_count=' || audit_count, '<should be 1>',
+      'Payload corect dar transparența owner lipsește.');
+  end if;
+exception when others then perform _test_helpers.record('TEST 44', 'drift A1', 'ERROR', SQLERRM, expected, '');
+end $$;
+
+-- TEST 45 (A2): BUG #6 relaxat — produs cu unit_price_snapshot=0 dar
+-- item_total>0 (caz legitim: modifier obligatoriu) → PASS, nu fals pozitiv.
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+  expected text := E'S^Combo^1000^1000^buc^1^1\nST^\nP^1^1000';
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'Combo', 0, 1);  -- catalog 0, modifier adds value
+  o := _test_helpers.mk_order(r, 'cash', 10);
+  perform _test_helpers.add_item(o, p, 'Combo', 0, 1, 10);  -- unit=0, total=10
+  actual := public.build_fiscalnet_payload(o);
+  if actual = expected then
+    perform _test_helpers.record('TEST 45', 'unit=0 + item_total>0 accepted (A2 fix)', 'PASS',
+      actual, expected, 'OK: produs cu modifier obligatoriu nu mai e fals respins.');
+  else
+    perform _test_helpers.record('TEST 45', 'A2 relaxation', 'FAIL', actual, expected, '');
+  end if;
+exception when others then
+  perform _test_helpers.record('TEST 45', 'A2 unexpectedly raised', 'FAIL',
+    SQLERRM, expected,
+    'Migration_051 BUG #6 guard era prea strict — încă blochează produse legitime cu modifier.');
+end $$;
+
+-- TEST 46 (A4): split sum mismatch → RAISE.
+-- Order total=50 (item 50), split cash=30 + card=15 (sum=45 ≠ 50).
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'X', 50, 1);
+  o := _test_helpers.mk_order(r, 'cash', 50);
+  perform _test_helpers.add_item(o, p, 'X', 50, 1, 50);
+  insert into public.order_payments(order_id, method, amount, created_at)
+    values (o, 'cash', 30, clock_timestamp()),
+           (o, 'card_pos', 15, clock_timestamp());
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 46', 'split sum mismatch should raise', 'FAIL',
+      actual, '<should raise A4 split-sum guard>', '');
+  exception when others then
+    if SQLERRM like '%A4 split-sum guard%' then
+      perform _test_helpers.record('TEST 46', 'split sum mismatch → A4 guard', 'PASS',
+        SQLERRM, 'A4 split-sum guard marker',
+        'OK: casierul greșește sumă → bonul refuzat, nu generăm bani fără bon.');
+    else
+      perform _test_helpers.record('TEST 46', 'split mismatch raised generic', 'FAIL',
+        SQLERRM, '<should mention A4 split-sum guard>',
+        'Funcția raised dar marker-ul lipsește.');
+    end if;
+  end;
+end $$;
+
+-- TEST 47 (A5): payment_method NULL + fără split → RAISE.
+-- Schema permite NULL pe orders.payment_method. Pre-052 emitea 'P^^XXXX'.
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'X', 10, 1);
+  o := _test_helpers.mk_order(r, 'cash', 10);
+  perform _test_helpers.add_item(o, p, 'X', 10, 1, 10);
+  update public.orders set payment_method = null where id = o;
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 47', 'payment_method NULL should raise', 'FAIL',
+      actual, '<should raise A5 guard>', '');
+  exception when others then
+    if SQLERRM like '%A5 guard%' then
+      perform _test_helpers.record('TEST 47', 'payment NULL → A5 guard', 'PASS',
+        SQLERRM, 'A5 guard marker', 'OK: NULL payment refuzat early.');
+    else
+      perform _test_helpers.record('TEST 47', 'NULL raised generic', 'FAIL',
+        SQLERRM, '<should mention A5 guard>', 'Marker lipsă.');
+    end if;
+  end;
+end $$;
+
+-- TEST 48 (A1 mixed): 2 items, unul cu drift, unul fără. Driftul cade
+-- la qty=1; celălalt rămâne cu cantitate reală.
+do $$
+declare r uuid; p1 uuid; p2 uuid; o uuid; actual text;
+  expected text := E'S^Pizza^1000^1000^buc^1^1\nS^Cola^500^2000^buc^1^1\nST^\nP^1^2000';
+begin
+  r := _test_helpers.mk_restaurant();
+  p1 := _test_helpers.mk_product(r, 'Pizza', 10, 1);
+  p2 := _test_helpers.mk_product(r, 'Cola', 5, 1);
+  o := _test_helpers.mk_order(r, 'cash', 20);
+  perform _test_helpers.add_item(o, p1, 'Pizza', 10, 3, 10);  -- drift
+  perform _test_helpers.add_item(o, p2, 'Cola', 5, 2, 10);    -- no drift
+  actual := public.build_fiscalnet_payload(o);
+  if actual = expected then
+    perform _test_helpers.record('TEST 48', 'mixed drift (A1 isolated)', 'PASS',
+      actual, expected, 'OK: doar driftul colapseaza, restul granular.');
+  else
+    perform _test_helpers.record('TEST 48', 'mixed drift', 'FAIL', actual, expected, '');
+  end if;
+exception when others then perform _test_helpers.record('TEST 48', 'mixed drift', 'ERROR', SQLERRM, expected, '');
+end $$;
+
+-- TEST 49 (A3): invariant fiscal post-emit. Folosesc total = SUM(item_total)
+-- (consistent în DB) DAR cu update direct ca total să difere → invariantul
+-- post-emit detectează SUM(P^) ≠ SUM(S^) + tips.
+-- (Aceasta-i o variantă de TEST 26 cu marker A3 specific.)
+do $$
+declare r uuid; p uuid; o uuid; actual text;
+begin
+  r := _test_helpers.mk_restaurant();
+  p := _test_helpers.mk_product(r, 'X', 25, 1);
+  o := _test_helpers.mk_order(r, 'cash', 25);
+  perform _test_helpers.add_item(o, p, 'X', 25, 1, 25);
+  -- Forțez P^ = 30 dar S^ = 25 → invariant rupt
+  update public.orders set total = 30 where id = o;
+  begin
+    actual := public.build_fiscalnet_payload(o);
+    perform _test_helpers.record('TEST 49', 'invariant fiscal should raise', 'FAIL',
+      actual, '<should raise BUG #7 real guard>', '');
+  exception when others then
+    if SQLERRM like '%BUG #7 real guard%' then
+      perform _test_helpers.record('TEST 49', 'invariant → BUG #7 real guard', 'PASS',
+        SQLERRM, 'BUG #7 real guard', 'OK: invariant fiscal post-emit verifică SUM cents.');
+    else
+      perform _test_helpers.record('TEST 49', 'invariant raised generic', 'FAIL',
+        SQLERRM, '<should mention BUG #7 real guard>', 'Marker lipsă.');
     end if;
   end;
 end $$;
