@@ -163,7 +163,7 @@ order.status='paid' UPDATE
 |---|---|---|
 | #1 — funcția crash-uia | P0 | ✅ **FIXED** migration_050 (`array_append` + cast explicit) |
 | #2 — quantity ignorat | P0 ANAF | ✅ **FIXED** migration_050 (PRET=item_total/qty, CANT=qty*1000) |
-| #3 — tips nu pe bon | P1 ANAF | ✅ **FIXED** migration_050 (P^ include tips_amount) |
+| #3 — tips nu pe bon | P1 → REVOCAT | ⚠️ **REVERSED** în migration_053 (B3): fix-ul era fiscal incorect. Tips în P^ era interpretat ca REST DAT CLIENTULUI de casa fiscală. Bonul declară doar bunurile; bacșișul rămâne în `orders.tips_amount` pentru contabilitate. Fiscalizarea bacșișului (OUG 8/2023) = linie separată — necesită spec FiscalNet, P3. |
 | #4 — split payment | P2 | ✅ **FIXED** migration_051 (P^ per row `order_payments`, fallback la single) |
 | #5 — CF^ client CIF | P2 | ⏳ TODO (feature: requires UI + ALTER TABLE invoices) |
 | #6 — preț 0 acceptat | P2 | ✅ **FIXED** migration_051 + **RELAXED** migration_052 (doar item_total ≤ 0) |
@@ -184,6 +184,18 @@ Auto-analiză critică post-051 a scos la lumină 5 defecte ascunse:
 | **A5** — `orders.payment_method` NULLABLE; cu NULL emitea `P^^XXXX` malformed | 🟠 MAJOR | ✅ **FIXED** migration_052 (RAISE early dacă NULL și fără split) |
 
 **9 din 9 defecte de corectness rezolvate**. Rămase 3 feature-uri (#5/#8/#9).
+
+### Runda 2 — defecte descoperite în atac pe migration_052
+
+Atacul adversarial pe 052 (7 scenarii compuse, dovezi empirice cu output real
+pe DB efemer) a scos 4 defecte critice ascunse sub "41 PASS":
+
+| Defect | Severitate | Status |
+|---|---|---|
+| **B1** — toleranța ±1 cent admitea exact erorile pe care guard-ul trebuia să le prindă (cents aritmetica e exactă) | 🔴 CRITIC | ✅ **FIXED** migration_053 (toleranță = 0) |
+| **B2** — `P^` derivat din `orders.total` (sursa trigger-ului), casa fiscală calculează din liniile MELE → 2 surse independente care pot diverga | 🔴 CRITIC (arhitectural) | ✅ **FIXED** migration_053 (`P^` din `v_lines_sum_cents`; `orders.total` doar cross-check cu toleranță 0) |
+| **B3** — tips în `P^` interpretat de casa fiscală ca REST CLIENT, fiscal incorect (pe card → reject probabil); OUG 8/2023 cere linie separată | 🔴 CRITIC (decizie produs) | ✅ **REVERSED** migration_053 — tips OUT din `P^`; `orders.tips_amount` rămâne în DB. Fiscalizarea bacșișului = problem separat P3 |
+| **B4** — `lifecycle_events.fiscal_drift_fallback` se duplica la retry/regenerare | 🟠 MINOR | ✅ **FIXED** migration_053 (idempotency guard) |
 
 ### Defecte de production observability (parțial rezolvate)
 
@@ -359,13 +371,13 @@ psql -d <test_db> -f supabase/tests/build_fiscalnet_payload_test.sql
 **Rezultate observate** (după `migration_050` + `051` + `052` + extensii TEST 40-49):
 
 ```
-PASS  = 41  (toate fix-urile + 6 cazuri noi pentru hotfix A1-A5 + markers explicit)
+PASS  = 43  (toate fix-urile + 2 cazuri noi runda 2 — B1+B2 cross-check, B4 idempotency)
 FAIL  =  0
 ERROR =  0
 SKIP  =  4  (schema previne — quantity fractionar imposibil)
 TODO  =  5  (features lipsă: CF^, tichete masă, …)
 ─────────
-TOTAL  = 50 cazuri raportate
+TOTAL  = 52 cazuri raportate
 ```
 
 **Istoric**:
@@ -373,7 +385,8 @@ TOTAL  = 50 cazuri raportate
 - Cu patch test-only BUG #1: 27 PASS, 4 FAIL, 4 SKIP, 5 TODO.
 - Post `migration_050` (BUG #1/#2/#3): 29 PASS, 2 FAIL, 4 SKIP, 5 TODO.
 - Post `migration_051` (+ BUG #4/#6/#7): 35 PASS, 0 FAIL, 4 SKIP, 5 TODO.
-- Post `migration_052` (+ A1-A5 adversarial fixes): **41 PASS, 0 FAIL**, 4 SKIP, 5 TODO.
+- Post `migration_052` (+ A1-A5 adversarial fixes): 41 PASS, 0 FAIL, 4 SKIP, 5 TODO.
+- Post `migration_053` (+ B1-B4 round-2 attack fixes, tips REVERSED): **43 PASS, 0 FAIL**, 4 SKIP, 5 TODO.
 
 **Markers explicit pe exception paths** — toate testele cu pattern
 `exception when others then PASS` au fost convertite să verifice un string
@@ -425,6 +438,9 @@ are blast radius diferit; testează individual.
   (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix A1-A5 din auto-analiză
   adversarială: drift rotunjire, BUG #6 fals pozitiv, BUG #7 invariant real,
   split sum guard, payment_method NULL guard)
+- `supabase/migrations/20260525005100_migration_053_fiscal_payload_round2.sql`
+  (CREATE OR REPLACE pe `build_fiscalnet_payload`, fix B1-B4 din runda 2:
+  toleranță 0, `P^` derivat din linii, tips REVERSED din `P^`, idempotency log)
 - `supabase/scripts/grant_business_plan_georgeradu119.sql` (upgrade plan
   cu validare + audit_log entry)
 
