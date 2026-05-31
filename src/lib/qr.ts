@@ -441,7 +441,9 @@ export function computeIsOpen(
   if (!today || today.closed) return false
   const open = parseHHMM(today.open)
   const close = parseHHMM(today.close)
-  if (close <= open) return now.minutes >= open // ore peste miezul nopții nu suportat — închidem la 24:00
+  // Program peste miezul nopții (ex: 18:00–02:00): deschis dacă ora curentă e
+  // după open SAU înainte de close. open == close => 24/7.
+  if (close <= open) return now.minutes >= open || now.minutes < close
   return now.minutes >= open && now.minutes < close
 }
 
