@@ -8,7 +8,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useRestaurants, useCategories, useProducts } from '../hooks/useData'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { D, PLAN_LABELS, ALLERGENS, DIETARY_TAGS } from '../lib/constants'
+import { D, PLAN_LABELS, ALLERGENS, DIETARY_TAGS, AMENITIES } from '../lib/constants'
+import type { AmenityId } from '../lib/constants'
 import { THEMES } from '../lib/themes'
 import {
   fetchIngredients,
@@ -1987,6 +1988,33 @@ function CategoryModal({
             placeholder="🍽️"
           />
         </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
+            Text italic sub titlu (opțional)
+          </label>
+          <textarea
+            value={form.meta_text || ''}
+            onChange={(e) => setForm((f) => ({ ...f, meta_text: e.target.value }))}
+            placeholder="ex: Servit până la ora 13:00"
+            rows={2}
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              background: D.s3,
+              border: `1px solid ${D.border}`,
+              borderRadius: 8,
+              color: D.t1,
+              fontSize: '0.85rem',
+              fontFamily: 'inherit',
+              resize: 'vertical',
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
+            Afișat pe meniul public sub numele categoriei.
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
           <button
             onClick={onClose}
@@ -2914,6 +2942,23 @@ function CategoriesTab({ restaurantId }: { restaurantId: string }) {
 }
 
 // ── Settings Tab ──────────────────────────────────────────────
+type WeekDayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+interface DayHoursForm {
+  open: string
+  close: string
+  closed: boolean
+}
+const WEEK_DAY_KEYS: WeekDayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+const WEEK_DAY_LABELS: Record<WeekDayKey, string> = {
+  mon: 'Luni',
+  tue: 'Marți',
+  wed: 'Miercuri',
+  thu: 'Joi',
+  fri: 'Vineri',
+  sat: 'Sâmbătă',
+  sun: 'Duminică',
+}
+
 function SettingsTab({
   restaurant,
   onUpdate,
@@ -2925,10 +2970,74 @@ function SettingsTab({
   plan: string
   onSignOut: () => void
 }) {
+  const { user } = useAuth()
   const [form, setForm] = useState({ ...restaurant })
   const [saving, setSaving] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   const { toasts, toast } = useToast()
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+
+  async function uploadImage(file: File, kind: 'cover' | 'logo'): Promise<string | null> {
+    if (!user) return null
+    const setBusy = kind === 'cover' ? setUploadingCover : setUploadingLogo
+    setBusy(true)
+    try {
+      const canvas = document.createElement('canvas')
+      const ctx2d = canvas.getContext('2d')
+      if (!ctx2d) throw new Error('canvas ctx unavailable')
+      const img = new Image()
+      const url = URL.createObjectURL(file)
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('image load failed'))
+        img.src = url
+      })
+      const maxW = kind === 'cover' ? 1600 : 400
+      const scale = img.width > maxW ? maxW / img.width : 1
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(url)
+      const blob = await new Promise<Blob | null>((res) =>
+        canvas.toBlob((b) => res(b), 'image/webp', 0.85),
+      )
+      if (!blob) throw new Error('blob create failed')
+      const path = user.id + '/' + restaurant.id + '/' + kind + '/' + crypto.randomUUID() + '.webp'
+      const { error } = await supabase.storage
+        .from('product-images')
+        .upload(path, blob, { contentType: 'image/webp' })
+      if (error) throw error
+      const { data } = supabase.storage.from('product-images').getPublicUrl(path)
+      return data.publicUrl
+    } catch (e) {
+      console.error(`${kind} upload failed`, e)
+      toast('Upload eșuat', 'error')
+      return null
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function toggleAmenity(id: AmenityId) {
+    const current = (form.amenities ?? []) as string[]
+    const next = current.includes(id) ? current.filter((a) => a !== id) : [...current, id]
+    upd('amenities', next)
+  }
+
+  function updHours(day: WeekDayKey, patch: Partial<DayHoursForm>) {
+    const current = (form.hours_structured ?? {}) as Record<string, DayHoursForm>
+    const today = current[day] ?? { open: '08:00', close: '23:00', closed: false }
+    upd('hours_structured', { ...current, [day]: { ...today, ...patch } })
+  }
+
+  function copyMondayToAll() {
+    const current = (form.hours_structured ?? {}) as Record<string, DayHoursForm>
+    const mon = current.mon ?? { open: '08:00', close: '23:00', closed: false }
+    const next: Record<string, DayHoursForm> = {}
+    for (const d of WEEK_DAY_KEYS) next[d] = { ...mon }
+    upd('hours_structured', next)
+  }
   const slugify = (s: string) =>
     s
       .toLowerCase()
@@ -3225,6 +3334,403 @@ function SettingsTab({
             >
               {PLAN_LABELS[plan] || plan}
             </span>
+          </div>
+
+          {/* COVER IMAGE — afișată în hero-ul meniului public */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              🖼️ Imagine cover
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
+              Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime.
+              Dacă lipsește, folosim un gradient generat din tema ta.
+            </div>
+            {form.cover_url ? (
+              <div style={{ position: 'relative', marginBottom: 10 }}>
+                <img
+                  src={form.cover_url}
+                  alt="Cover"
+                  style={{
+                    width: '100%',
+                    aspectRatio: '16 / 9',
+                    objectFit: 'cover',
+                    borderRadius: 10,
+                    border: `1px solid ${D.border}`,
+                  }}
+                />
+                <button
+                  onClick={() => upd('cover_url', null)}
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    background: 'rgba(0,0,0,0.65)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 100,
+                    padding: '4px 10px',
+                    fontSize: '0.7rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Șterge
+                </button>
+              </div>
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  aspectRatio: '16 / 9',
+                  borderRadius: 10,
+                  border: `1px dashed ${D.border}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: D.t3,
+                  fontSize: '0.78rem',
+                  marginBottom: 10,
+                }}
+              >
+                Fără imagine — gradient temă activă
+              </div>
+            )}
+            <label
+              style={{
+                ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
+                cursor: uploadingCover ? 'wait' : 'pointer',
+                display: 'inline-block',
+                opacity: uploadingCover ? 0.6 : 1,
+              }}
+            >
+              {uploadingCover ? 'Se încarcă...' : 'Încarcă imagine'}
+              <input
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={async (e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  const url = await uploadImage(f, 'cover')
+                  if (url) upd('cover_url', url)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+          </div>
+
+          {/* LOGO upload — square */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              🏷️ Logo
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
+              Logo pătrat. Opțional, folosit ca avatar / favicon viitor.
+            </div>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              {form.logo_url ? (
+                <div style={{ position: 'relative' }}>
+                  <img
+                    src={form.logo_url}
+                    alt="Logo"
+                    style={{
+                      width: 80,
+                      height: 80,
+                      objectFit: 'cover',
+                      borderRadius: 12,
+                      border: `1px solid ${D.border}`,
+                      background: D.s3,
+                    }}
+                  />
+                  <button
+                    onClick={() => upd('logo_url', null)}
+                    style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -6,
+                      width: 22,
+                      height: 22,
+                      background: D.s2,
+                      color: D.t2,
+                      border: `1px solid ${D.border}`,
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      lineHeight: 1,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 12,
+                    border: `1px dashed ${D.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: D.t3,
+                    fontSize: '0.7rem',
+                  }}
+                >
+                  N/A
+                </div>
+              )}
+              <label
+                style={{
+                  ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
+                  cursor: uploadingLogo ? 'wait' : 'pointer',
+                  display: 'inline-block',
+                  opacity: uploadingLogo ? 0.6 : 1,
+                }}
+              >
+                {uploadingLogo ? 'Se încarcă...' : 'Încarcă logo'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    const url = await uploadImage(f, 'logo')
+                    if (url) upd('logo_url', url)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {/* PROGRAM DETALIAT — hours_structured per zi */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 6,
+              }}
+            >
+              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
+                🕒 Program detaliat
+              </div>
+              <button
+                onClick={copyMondayToAll}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 6,
+                  color: D.t2,
+                  fontSize: '0.7rem',
+                  padding: '4px 10px',
+                  cursor: 'pointer',
+                }}
+              >
+                Copiază luni → toate
+              </button>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+              Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul
+              public.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {WEEK_DAY_KEYS.map((day) => {
+                const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[day] ?? {
+                  open: '08:00',
+                  close: '23:00',
+                  closed: false,
+                }
+                return (
+                  <div
+                    key={day}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '80px 1fr 88px 88px',
+                      gap: 8,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.78rem', color: D.t1 }}>{WEEK_DAY_LABELS[day]}</span>
+                    <label
+                      style={{
+                        fontSize: '0.72rem',
+                        color: D.t2,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!cur.closed}
+                        onChange={(e) => updHours(day, { closed: !e.target.checked })}
+                      />
+                      Deschis
+                    </label>
+                    <input
+                      type="time"
+                      disabled={cur.closed}
+                      value={cur.open}
+                      onChange={(e) => updHours(day, { open: e.target.value })}
+                      style={{
+                        background: D.s3,
+                        border: `1px solid ${D.border}`,
+                        color: D.t1,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        fontSize: '0.78rem',
+                        opacity: cur.closed ? 0.4 : 1,
+                      }}
+                    />
+                    <input
+                      type="time"
+                      disabled={cur.closed}
+                      value={cur.close}
+                      onChange={(e) => updHours(day, { close: e.target.value })}
+                      style={{
+                        background: D.s3,
+                        border: `1px solid ${D.border}`,
+                        color: D.t1,
+                        padding: '6px 8px',
+                        borderRadius: 6,
+                        fontSize: '0.78rem',
+                        opacity: cur.closed ? 0.4 : 1,
+                      }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* AMENITIES toggles */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              ✨ Facilități
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+              Afișate ca pills în hero-ul meniului public.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {AMENITIES.map((a) => {
+                const active = (form.amenities ?? []).includes(a.id)
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => toggleAmenity(a.id)}
+                    style={{
+                      background: active ? D.goldA : D.s3,
+                      border: `1px solid ${active ? D.gold : D.border}`,
+                      color: active ? D.goldL : D.t2,
+                      padding: '6px 12px',
+                      borderRadius: 100,
+                      fontSize: '0.78rem',
+                      fontWeight: active ? 600 : 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {a.labelRo}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* WiFi password */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              📶 Parolă WiFi (opțional)
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+              Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici.
+            </div>
+            <Inp
+              value={form.wifi_password ?? ''}
+              onChange={(v) => upd('wifi_password', v.trim() || null)}
+              placeholder="ex: tinctura2024"
+            />
+          </div>
+
+          {/* Social media */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 12 }}>
+              🌐 Social media
+            </div>
+            {(
+              [
+                ['instagram', 'Instagram', '@tinctura.cafe'],
+                ['facebook', 'Facebook', 'facebook.com/tinctura'],
+                ['tiktok', 'TikTok', '@tinctura'],
+                ['website', 'Website', 'https://tinctura.ro'],
+              ] as const
+            ).map(([k, label, ph]) => {
+              const socials = (form.socials ?? {}) as Record<string, string | null | undefined>
+              return (
+                <div key={k} style={{ marginBottom: 10 }}>
+                  <label
+                    style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
+                  >
+                    {label}
+                  </label>
+                  <Inp
+                    value={socials[k] ?? ''}
+                    onChange={(v) =>
+                      upd('socials', {
+                        ...socials,
+                        [k]: v.trim() || null,
+                      })
+                    }
+                    placeholder={ph}
+                  />
+                </div>
+              )
+            })}
           </div>
 
           {/* VAT rates configuration */}
