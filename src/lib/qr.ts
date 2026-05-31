@@ -137,6 +137,7 @@ export interface Category {
   restaurant_id: string
   name: string
   display_order: number
+  meta_text: string | null
   products: Product[]
 }
 
@@ -201,6 +202,7 @@ interface RawCategoryRow {
   restaurant_id: string
   name: string
   display_order: number
+  meta_text: string | null
 }
 interface RawProductRow {
   id: string
@@ -249,7 +251,7 @@ interface RawModifierOptionRow {
 export async function fetchMenuForRestaurant(restaurantId: string): Promise<Category[]> {
   const { data: catRows, error: catErr } = await supabase
     .from('categories')
-    .select('id, name, display_order, restaurant_id')
+    .select('id, name, display_order, restaurant_id, meta_text')
     .eq('restaurant_id', restaurantId)
     .order('display_order', { ascending: true })
   if (catErr) throw catErr
