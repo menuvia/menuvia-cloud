@@ -15,8 +15,27 @@ export interface Restaurant {
   hours: string | null
   primary_color: string
   logo_url: string | null
+  cover_url: string | null
   is_active: boolean
   floor_layout: Record<string, unknown> | null
+  socials: {
+    instagram?: string | null
+    facebook?: string | null
+    tiktok?: string | null
+    website?: string | null
+  } | null
+  amenities: string[]
+  hours_structured: {
+    mon?: { open: string; close: string; closed: boolean }
+    tue?: { open: string; close: string; closed: boolean }
+    wed?: { open: string; close: string; closed: boolean }
+    thu?: { open: string; close: string; closed: boolean }
+    fri?: { open: string; close: string; closed: boolean }
+    sat?: { open: string; close: string; closed: boolean }
+    sun?: { open: string; close: string; closed: boolean }
+  } | null
+  wifi_password: string | null
+  timezone: string | null
   checkout_suggestion_settings: {
     enabled: boolean
     categories: string[]
@@ -43,6 +62,7 @@ export interface Category {
   name: string
   emoji: string
   display_order: number
+  meta_text: string | null
 }
 
 export interface Product {
