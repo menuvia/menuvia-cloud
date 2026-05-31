@@ -83,6 +83,8 @@ export type AllergenId = (typeof ALLERGENS)[number]['id']
 
 // ── Taguri dietetice (opționale, dar valoroase comercial) ────
 export const DIETARY_TAGS = [
+  { id: 'signature', label: 'Signature', emoji: '★', color: '#C56B5A' },
+  { id: 'nou', label: 'Nou', emoji: '✦', color: '#9A8C7A' },
   { id: 'vegetarian', label: 'Vegetarian', emoji: '🥗', color: '#4CAF6E' },
   { id: 'vegan', label: 'Vegan', emoji: '🌱', color: '#388E3C' },
   { id: 'fara-gluten', label: 'Fără gluten', emoji: '🚫🌾', color: '#E8A020' },
@@ -92,3 +94,49 @@ export const DIETARY_TAGS = [
 ] as const
 
 export type DietaryTagId = (typeof DIETARY_TAGS)[number]['id']
+
+// ── Amenities (afișate ca pills în hero meniu public) ────────
+// Fiecare are un label scurt RO/EN și un id stocat în
+// restaurants.amenities (text[] enum).
+export type AmenityId =
+  | 'wifi'
+  | 'vegan_options'
+  | 'outdoor_seating'
+  | 'parking'
+  | 'cards'
+  | 'reservations'
+  | 'pet_friendly'
+
+export const AMENITIES: Array<{ id: AmenityId; labelRo: string; labelEn: string }> = [
+  { id: 'wifi', labelRo: 'WiFi', labelEn: 'WiFi' },
+  { id: 'vegan_options', labelRo: 'Opțiuni vegane', labelEn: 'Vegan' },
+  { id: 'outdoor_seating', labelRo: 'Terasă', labelEn: 'Outdoor' },
+  { id: 'parking', labelRo: 'Parcare', labelEn: 'Parking' },
+  { id: 'cards', labelRo: 'Card', labelEn: 'Cards' },
+  { id: 'reservations', labelRo: 'Rezervări', labelEn: 'Reservations' },
+  { id: 'pet_friendly', labelRo: 'Pet friendly', labelEn: 'Pet friendly' },
+]
+
+// ── Mini i18n (doar pentru strings vizibile pe meniul public) ─
+// Restaurantele cu language ∉ {ro, en} primesc fallback EN.
+type PublicMenuLang = 'ro' | 'en'
+
+export const PUBLIC_MENU_STRINGS = {
+  open_now: { ro: 'DESCHIS ACUM', en: 'OPEN NOW' },
+  closed: { ro: 'ÎNCHIS', en: 'CLOSED' },
+  search_placeholder: { ro: 'Caută în meniu...', en: 'Search menu...' },
+  all_categories: { ro: 'Toate', en: 'All' },
+  no_results: { ro: 'Niciun rezultat', en: 'No results' },
+  clear_filters: { ro: 'Șterge filtrele', en: 'Clear filters' },
+  menu_by: { ro: 'MENIU BY MENUVIA', en: 'MENU BY MENUVIA' },
+  today: { ro: 'Astăzi', en: 'Today' },
+  back: { ro: 'Înapoi', en: 'Back' },
+  pickup_badge: { ro: 'Comandă pentru ridicare', en: 'Order for pickup' },
+} as const
+
+export type PublicMenuStringKey = keyof typeof PUBLIC_MENU_STRINGS
+
+export function T(lang: string | null | undefined, key: PublicMenuStringKey): string {
+  const normalized: PublicMenuLang = lang === 'ro' ? 'ro' : 'en'
+  return PUBLIC_MENU_STRINGS[key][normalized]
+}

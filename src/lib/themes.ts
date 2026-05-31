@@ -33,30 +33,34 @@ export interface MenuTheme {
   radius: number // border radius global (in px)
 }
 
-// ── Theme: Cafenea modernă (default) ──────────────────────────
+// ── Theme: Editorial coral (default) ──────────────────────────
+// Paletă inspirată din concept-uri editorial modern café —
+// cremă warm + accent coral + ramat de borduri subtile. Folosită
+// de meniul public ca temă default; combinată cu fonturi serif
+// italic Fraunces dă aspectul "Tinctura".
 const cafe: MenuTheme = {
   id: 'cafe',
-  name: 'Cafenea modernă',
+  name: 'Editorial coral',
   emoji: '☕',
-  description: 'Cremă + maro warm. Rotund, primitor, fonturi moderne.',
+  description: 'Cremă warm + coral. Editorial, primitor, tipografie serif italic.',
   colors: {
     bg: '#F8F3EB',
     surface: '#FDF8F2',
     surface2: '#F5F1EA',
-    text: '#1A1208',
-    text2: '#5C4A2A',
+    text: '#2A1F18',
+    text2: '#6B5C45',
     text3: '#9A8C7A',
-    border: '#EDE3D4',
+    border: '#E8DCC9',
     borderStrong: '#D4C8B8',
-    accent: '#C8963C',
-    accentSoft: '#FAF3E5',
-    accentGradient: 'linear-gradient(135deg, #F4ECDD 0%, #E8DCC1 100%)',
+    accent: '#C56B5A',
+    accentSoft: '#F4D9D2',
+    accentGradient: 'linear-gradient(135deg, #E89E8E 0%, #C56B5A 100%)',
     success: '#4CAF6E',
     warning: '#E0A050',
     error: '#C0392B',
   },
   fonts: { heading: 'Fraunces, Georgia, serif', body: 'DM Sans, sans-serif' },
-  radius: 14,
+  radius: 10,
 }
 
 // ── Theme: Pizzerie italiană ──────────────────────────────────
@@ -258,6 +262,20 @@ export const DEFAULT_THEME_ID = 'cafe'
 export function getTheme(id: string | null | undefined): MenuTheme {
   if (id == null) return cafe
   return THEMES.find((t) => t.id === id) ?? cafe
+}
+
+// Calcul WCAG relative luminance. Întoarce true pentru teme cu background
+// "dark" (fineDining în prezent), unde overlay-urile glass trebuie să fie
+// inversate (negru semi-transparent pe text alb) ca să rămână lizibile.
+export function isDarkTheme(theme: MenuTheme): boolean {
+  const hex = theme.colors.bg.replace('#', '')
+  if (hex.length < 6) return false
+  const r = parseInt(hex.slice(0, 2), 16) / 255
+  const g = parseInt(hex.slice(2, 4), 16) / 255
+  const b = parseInt(hex.slice(4, 6), 16) / 255
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
+  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  return luminance < 0.4
 }
 
 // ── Custom theme override ────────────────────────────────────
