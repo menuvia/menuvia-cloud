@@ -1,12 +1,42 @@
 import { supabase } from './supabase'
 
+export interface Socials {
+  instagram?: string | null
+  facebook?: string | null
+  tiktok?: string | null
+  website?: string | null
+}
+
+export interface DayHours {
+  open: string // HH:MM
+  close: string // HH:MM
+  closed: boolean
+}
+
+export type WeekDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
+export type HoursStructured = Partial<Record<WeekDay, DayHours>>
+
 export interface Restaurant {
   id: string
   name: string
+  slug?: string
+  tagline?: string | null
+  description?: string | null
+  address?: string | null
+  phone?: string | null
+  hours?: string | null
   primary_color: string
   logo_url: string | null
+  cover_url?: string | null
   currency?: string
+  language?: string
   ordering_enabled?: boolean
+  socials?: Socials | null
+  amenities?: string[]
+  hours_structured?: HoursStructured | null
+  wifi_password?: string | null
+  timezone?: string | null
+  google_review_url?: string | null
   checkout_suggestion_settings?: {
     enabled: boolean
     categories: string[]
@@ -107,6 +137,7 @@ export interface Category {
   restaurant_id: string
   name: string
   display_order: number
+  meta_text: string | null
   products: Product[]
 }
 
@@ -171,6 +202,7 @@ interface RawCategoryRow {
   restaurant_id: string
   name: string
   display_order: number
+  meta_text: string | null
 }
 interface RawProductRow {
   id: string
@@ -219,7 +251,7 @@ interface RawModifierOptionRow {
 export async function fetchMenuForRestaurant(restaurantId: string): Promise<Category[]> {
   const { data: catRows, error: catErr } = await supabase
     .from('categories')
-    .select('id, name, display_order, restaurant_id')
+    .select('id, name, display_order, restaurant_id, meta_text')
     .eq('restaurant_id', restaurantId)
     .order('display_order', { ascending: true })
   if (catErr) throw catErr
@@ -356,4 +388,79 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
       (a, b) => a.display_order - b.display_order,
     ),
   }))
+}
+
+/** Întoarce ziua + ora curentă în timezone-ul restaurantului. */
+function nowInTimezone(timezone: string): { day: WeekDay; minutes: number } {
+  // toLocaleString cu timeZone returnează exact ce vrem; parsăm cu Date
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(new Date())
+  const weekdayShort = parts.find((p) => p.type === 'weekday')?.value ?? 'Mon'
+  const hour = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
+  const minute = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10)
+  const map: Record<string, WeekDay> = {
+    Sun: 'sun',
+    Mon: 'mon',
+    Tue: 'tue',
+    Wed: 'wed',
+    Thu: 'thu',
+    Fri: 'fri',
+    Sat: 'sat',
+  }
+  return { day: map[weekdayShort] ?? 'mon', minutes: hour * 60 + minute }
+}
+
+function parseHHMM(s: string): number {
+  const [h, m] = s.split(':').map((x) => parseInt(x, 10))
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0)
+}
+
+/**
+ * Întoarce true/false pe baza orelor structurate + timezone.
+ * Întoarce null dacă lipsesc datele (hero pill complet ascuns,
+ * NU "ÎNCHIS").
+ */
+export function computeIsOpen(
+  hours: HoursStructured | null | undefined,
+  timezone: string | null | undefined,
+): boolean | null {
+  if (!hours || Object.keys(hours).length === 0) return null
+  const tz = timezone || 'Europe/Bucharest'
+  let now
+  try {
+    now = nowInTimezone(tz)
+  } catch {
+    return null
+  }
+  const today = hours[now.day]
+  if (!today || today.closed) return false
+  const open = parseHHMM(today.open)
+  const close = parseHHMM(today.close)
+  // Program peste miezul nopții (ex: 18:00–02:00): deschis dacă ora curentă e
+  // după open SAU înainte de close. open == close => 24/7.
+  if (close <= open) return now.minutes >= open || now.minutes < close
+  return now.minutes >= open && now.minutes < close
+}
+
+/** Întoarce program zi astăzi formatat "08:00–23:00" sau null. */
+export function todayHoursLabel(
+  hours: HoursStructured | null | undefined,
+  timezone: string | null | undefined,
+): string | null {
+  if (!hours) return null
+  const tz = timezone || 'Europe/Bucharest'
+  let day: WeekDay
+  try {
+    day = nowInTimezone(tz).day
+  } catch {
+    return null
+  }
+  const today = hours[day]
+  if (!today || today.closed) return null
+  return today.open + '–' + today.close
 }

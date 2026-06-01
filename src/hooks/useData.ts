@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import {
+  pickAllowed,
+  RESTAURANT_UPDATE_FIELDS,
+  CATEGORY_UPDATE_FIELDS,
+  PRODUCT_UPDATE_FIELDS,
+} from '../lib/sanitize'
 
 export interface Restaurant {
   id: string
@@ -15,8 +21,27 @@ export interface Restaurant {
   hours: string | null
   primary_color: string
   logo_url: string | null
+  cover_url: string | null
   is_active: boolean
   floor_layout: Record<string, unknown> | null
+  socials: {
+    instagram?: string | null
+    facebook?: string | null
+    tiktok?: string | null
+    website?: string | null
+  } | null
+  amenities: string[]
+  hours_structured: {
+    mon?: { open: string; close: string; closed: boolean }
+    tue?: { open: string; close: string; closed: boolean }
+    wed?: { open: string; close: string; closed: boolean }
+    thu?: { open: string; close: string; closed: boolean }
+    fri?: { open: string; close: string; closed: boolean }
+    sat?: { open: string; close: string; closed: boolean }
+    sun?: { open: string; close: string; closed: boolean }
+  } | null
+  wifi_password: string | null
+  timezone: string | null
   checkout_suggestion_settings: {
     enabled: boolean
     categories: string[]
@@ -43,6 +68,7 @@ export interface Category {
   name: string
   emoji: string
   display_order: number
+  meta_text: string | null
 }
 
 export interface Product {
@@ -117,16 +143,18 @@ export function useRestaurants() {
   }, [load])
 
   const create = async (form: Partial<Restaurant>) => {
+    const safe = pickAllowed(form, RESTAURANT_UPDATE_FIELDS)
     const result = await supabase
       .from('restaurants')
-      .insert({ ...form, owner_id: user!.id })
+      .insert({ ...safe, owner_id: user!.id })
       .select()
       .single()
     if (!result.error) await load()
     return result
   }
   const update = async (id: string, form: Partial<Restaurant>) => {
-    const result = await supabase.from('restaurants').update(form).eq('id', id).select().single()
+    const safe = pickAllowed(form, RESTAURANT_UPDATE_FIELDS)
+    const result = await supabase.from('restaurants').update(safe).eq('id', id).select().single()
     if (!result.error) await load()
     return result
   }
@@ -171,16 +199,18 @@ export function useCategories(restaurantId: string | null) {
 
   const create = async (form: Partial<Category>) => {
     const maxOrder = categories.reduce((m, c) => Math.max(m, c.display_order), -1)
+    const safe = pickAllowed(form, CATEGORY_UPDATE_FIELDS)
     const r = await supabase
       .from('categories')
-      .insert({ ...form, restaurant_id: restaurantId, display_order: maxOrder + 1 })
+      .insert({ ...safe, restaurant_id: restaurantId, display_order: maxOrder + 1 })
       .select()
       .single()
     if (!r.error) await load()
     return r
   }
   const update = async (id: string, form: Partial<Category>) => {
-    const r = await supabase.from('categories').update(form).eq('id', id).select().single()
+    const safe = pickAllowed(form, CATEGORY_UPDATE_FIELDS)
+    const r = await supabase.from('categories').update(safe).eq('id', id).select().single()
     if (!r.error) await load()
     return r
   }
@@ -233,16 +263,18 @@ export function useProducts(restaurantId: string | null) {
 
   const create = async (form: Partial<Product>) => {
     const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
+    const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
     const r = await supabase
       .from('products')
-      .insert({ ...form, restaurant_id: restaurantId, display_order: maxOrder + 1 })
+      .insert({ ...safe, restaurant_id: restaurantId, display_order: maxOrder + 1 })
       .select()
       .single()
     if (!r.error) await load()
     return r
   }
   const update = async (id: string, form: Partial<Product>) => {
-    const r = await supabase.from('products').update(form).eq('id', id).select().single()
+    const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
+    const r = await supabase.from('products').update(safe).eq('id', id).select().single()
     if (!r.error) await load()
     return r
   }

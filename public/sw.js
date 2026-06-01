@@ -9,7 +9,7 @@
 // sau de bundle care fac neaplicabil cache-ul vechi. Activate handler
 // șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
 // primesc instantaneu noul build (nu mai trebuie hard refresh manual).
-const CACHE_VERSION = 'menuvia-v3'
+const CACHE_VERSION = 'menuvia-v4'
 const APP_SHELL = ['/favicon.svg', '/manifest.json']
 
 // ── Install: cache app shell ────────────────────────────────────
