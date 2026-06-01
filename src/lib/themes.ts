@@ -264,18 +264,47 @@ export function getTheme(id: string | null | undefined): MenuTheme {
   return THEMES.find((t) => t.id === id) ?? cafe
 }
 
+// Acceptă atât '#rrggbb' cât și '#rgb' (CSS short-hex). Întoarce
+// `[r, g, b]` (0–255) sau null dacă input-ul nu e un hex valid.
+function parseHexColor(input: string): [number, number, number] | null {
+  const hex = input.trim().replace(/^#/, '')
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    return [
+      parseInt(hex.slice(0, 2), 16),
+      parseInt(hex.slice(2, 4), 16),
+      parseInt(hex.slice(4, 6), 16),
+    ]
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    return [
+      parseInt(hex[0]! + hex[0]!, 16),
+      parseInt(hex[1]! + hex[1]!, 16),
+      parseInt(hex[2]! + hex[2]!, 16),
+    ]
+  }
+  return null
+}
+
 // Calcul WCAG relative luminance. Întoarce true pentru teme cu background
 // "dark" (fineDining în prezent), unde overlay-urile glass trebuie să fie
 // inversate (negru semi-transparent pe text alb) ca să rămână lizibile.
 export function isDarkTheme(theme: MenuTheme): boolean {
-  const hex = theme.colors.bg.replace('#', '')
-  if (hex.length < 6) return false
-  const r = parseInt(hex.slice(0, 2), 16) / 255
-  const g = parseInt(hex.slice(2, 4), 16) / 255
-  const b = parseInt(hex.slice(4, 6), 16) / 255
+  const parsed = parseHexColor(theme.colors.bg)
+  if (!parsed) return false
+  const [r255, g255, b255] = parsed
+  const r = r255 / 255
+  const g = g255 / 255
+  const b = b255 / 255
   const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
   const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
   return luminance < 0.4
+}
+
+// Validare strictă pentru hex override din DB / Settings form. Acceptă doar
+// '#rrggbb' (6 hex digits) — short-hex respins ca să nu producem accentSoft
+// invalid când îl concatenăm cu '22'.
+export function isValidHexColor(s: string | null | undefined): s is string {
+  return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)
 }
 
 // ── Custom theme override ────────────────────────────────────
@@ -287,15 +316,17 @@ export interface ThemeSettings {
 
 export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTheme {
   const base = getTheme(settings?.preset_id)
-  if (settings?.accent_override == null) return base
-  // Override accent + accentSoft (auto-derived as 0.12 alpha)
+  // Override doar dacă-i un '#rrggbb' valid — altfel cad înapoi pe paleta temei
+  // (în loc să producem accentSoft invalid din concatenare cu '22').
+  if (!isValidHexColor(settings?.accent_override)) return base
+  const accent = settings.accent_override
   return {
     ...base,
     colors: {
       ...base.colors,
-      accent: settings.accent_override,
+      accent,
       // Soft = same color with 12% alpha — works on light AND dark themes
-      accentSoft: settings.accent_override + '22',
+      accentSoft: accent + '22',
     },
   }
 }
