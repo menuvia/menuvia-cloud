@@ -8,6 +8,8 @@ import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
 import LegalFooter from './components/LegalFooter'
+import { ToastProvider } from './components/ui/Toast'
+import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
 
@@ -1699,11 +1701,14 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <RestaurantProvider>
-            <AppRouter />
-            <Suspense fallback={null}>
-              <PWAPrompt />
-            </Suspense>
-            <CookieBanner />
+            <ToastProvider>
+              <AppRouter />
+              <Suspense fallback={null}>
+                <PWAPrompt />
+              </Suspense>
+              <CookieBanner />
+              <ConfirmRoot />
+            </ToastProvider>
           </RestaurantProvider>
         </AuthProvider>
       </QueryClientProvider>

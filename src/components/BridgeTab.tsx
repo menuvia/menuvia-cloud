@@ -13,6 +13,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
+import { confirm as confirmDialog } from './ui/ConfirmDialog'
 import { InlineSpinner } from './PageLoader'
 
 interface BridgeDevice {
@@ -239,8 +240,13 @@ export default function BridgeTab({ restaurantId }: Props) {
   }
 
   async function handleDeleteDevice(id: string) {
-    if (!confirm('Sigur ștergi acest device? Bridge-ul instalat nu va mai putea trimite bonuri.'))
-      return
+    const ok = await confirmDialog({
+      title: 'Ștergi acest device?',
+      description: 'Bridge-ul instalat nu va mai putea trimite bonuri.',
+      confirmLabel: 'Șterge device',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       const { error } = await supabase.from('bridge_devices').delete().eq('id', id)
       if (error) throw error
@@ -261,7 +267,13 @@ export default function BridgeTab({ restaurantId }: Props) {
   }
 
   async function handleCancel(id: string) {
-    if (!confirm('Anulezi acest bon? Nu va mai fi trimis la casă.')) return
+    const ok = await confirmDialog({
+      title: 'Anulezi acest bon?',
+      description: 'Nu va mai fi trimis la casă.',
+      confirmLabel: 'Anulează bon',
+      destructive: true,
+    })
+    if (!ok) return
     try {
       const { error } = await supabase.rpc('bridge_cancel_receipt', { p_receipt_id: id })
       if (error) throw error
