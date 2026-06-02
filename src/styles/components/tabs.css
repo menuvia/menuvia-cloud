@@ -1,0 +1,86 @@
+/* Tabs — două variante:
+   • underline (default) — listă orizontală + indicator sub tabul activ.
+   • segmented — pill-style (folosit pt filtre tip "Azi / Viitoare / Toate").
+   Scroll orizontal pe mobil dacă lista depășește lățimea. */
+.tabs {
+  display: flex;
+  flex-direction: column;
+}
+
+.tabs__list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition-fast);
+  border-radius: var(--radius-md);
+}
+.tabs__tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tabs__tab:hover:not(:disabled):not(.tabs__tab--active) {
+  color: var(--color-text-1);
+}
+
+.tabs__icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tabs__panel {
+  margin-top: var(--space-4);
+}
+
+/* ── Variant: underline ── */
+.tabs--underline .tabs__list {
+  border-bottom: 1px solid var(--color-border);
+  gap: 0;
+}
+.tabs--underline .tabs__tab {
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  padding-bottom: 8px;
+}
+.tabs--underline .tabs__tab--active {
+  color: var(--color-gold);
+  border-bottom-color: var(--color-gold);
+}
+
+/* ── Variant: segmented ── */
+.tabs--segmented .tabs__list {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  gap: 2px;
+  align-self: flex-start;
+}
+.tabs--segmented .tabs__tab {
+  padding: 6px 14px;
+  min-height: 32px;
+}
+.tabs--segmented .tabs__tab--active {
+  background: var(--color-surface-4);
+  color: var(--color-text-1);
+}

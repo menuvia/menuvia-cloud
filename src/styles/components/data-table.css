@@ -1,0 +1,91 @@
+/* DataTable — tabel cu sortare, hover row, animație stagger la load.
+   Scroll orizontal pe mobil (wrapper). Headerul sticky pe vertical
+   pentru tabele lungi. */
+.dt-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+}
+
+.dt {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.dt-th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-surface-3);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.dt-th--sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: var(--transition-fast);
+}
+.dt-th--sortable:hover {
+  color: var(--color-text-1);
+}
+
+.dt-sort-indicator {
+  margin-left: var(--space-1);
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+.dt-row {
+  border-bottom: 1px solid var(--color-border);
+  opacity: 0;
+  animation: fadeIn 300ms ease forwards;
+  transition: var(--transition-fast);
+}
+.dt-row:last-child {
+  border-bottom: none;
+}
+
+.dt-row--clickable {
+  cursor: pointer;
+}
+.dt-row--clickable:hover {
+  background: var(--color-surface-3);
+}
+
+.dt-td {
+  padding: 14px 16px;
+  color: var(--color-text-1);
+  vertical-align: middle;
+}
+
+/* ── Aliniere ── */
+.dt-align-left {
+  text-align: left;
+}
+.dt-align-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dt-align-center {
+  text-align: center;
+}
+
+/* ── Skeleton stack ── */
+.dt-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
