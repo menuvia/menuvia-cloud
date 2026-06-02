@@ -395,7 +395,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   key={product.id}
                   product={product}
                   accent={accent}
-                  accentGradient={accentGradient}
                   theme={theme}
                   PUB={PUB}
                   pickupEnabled={pickupEnabled}
@@ -1278,7 +1277,6 @@ function SectionHeader({ title, metaText, theme, PUB }: SectionHeaderProps) {
 interface CardProps {
   product: Product
   accent: string
-  accentGradient: string
   theme: MenuTheme
   PUB: {
     bg: string
@@ -1297,7 +1295,6 @@ interface CardProps {
 function ProductCardEditorial({
   product,
   accent,
-  accentGradient,
   theme,
   PUB,
   pickupEnabled,
@@ -1317,7 +1314,6 @@ function ProductCardEditorial({
         if (!isSoldOut) onOpen()
       }}
       style={{
-        position: 'relative',
         display: 'flex',
         gap: 14,
         padding: '16px 0',
@@ -1326,7 +1322,7 @@ function ProductCardEditorial({
         opacity: isSoldOut ? 0.55 : 1,
       }}
     >
-      {product.image_url ? (
+      {product.image_url && (
         <img
           src={product.image_url}
           alt={product.name}
@@ -1341,26 +1337,6 @@ function ProductCardEditorial({
             background: PUB.surface,
           }}
         />
-      ) : (
-        <div
-          style={{
-            width: 92,
-            height: 92,
-            borderRadius: 8,
-            flexShrink: 0,
-            background: accentGradient,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: theme.fonts.heading,
-            fontStyle: 'italic',
-            color: 'rgba(255,255,255,0.7)',
-            fontSize: 28,
-            fontWeight: 500,
-          }}
-        >
-          {product.name.charAt(0).toUpperCase()}
-        </div>
       )}
 
       <div
@@ -1514,11 +1490,10 @@ function ProductCardEditorial({
           }}
           aria-label={`Adaugă ${product.name}`}
           style={{
-            position: 'absolute',
-            top: 12,
-            right: 0,
-            width: 30,
-            height: 30,
+            alignSelf: 'center',
+            flexShrink: 0,
+            width: 36,
+            height: 36,
             borderRadius: '50%',
             background: accent,
             color: '#fff',
@@ -1527,10 +1502,10 @@ function ProductCardEditorial({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: 18,
+            fontSize: 20,
             lineHeight: 1,
             paddingBottom: 2,
-            boxShadow: `0 2px 6px ${accent}55`,
+            boxShadow: `0 2px 8px ${accent}55`,
           }}
         >
           +
