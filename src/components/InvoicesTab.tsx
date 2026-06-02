@@ -6,6 +6,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { D } from '../lib/constants'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
+import { Skeleton } from './ui/Skeleton'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -65,7 +66,12 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
     return () => clearInterval(t)
   }, [invoices, load])
 
-  if (loading) return <div style={{ padding: 40, color: D.t2 }}>Se încarcă…</div>
+  if (loading)
+    return (
+      <div style={{ padding: 24 }}>
+        <Skeleton variant="table-row" count={4} />
+      </div>
+    )
 
   // Empty state — no config
   if (!config && !showConfig) {

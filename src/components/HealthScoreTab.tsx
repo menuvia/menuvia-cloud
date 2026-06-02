@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { D, D_RAW } from '../lib/constants'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
+import { Skeleton } from './ui/Skeleton'
 import {
   fetchHealthScore,
   recomputeHealthScore,
@@ -68,7 +69,14 @@ export default function HealthScoreTab() {
     }
   }
 
-  if (loading) return <div style={{ padding: 40, color: D.t2 }}>Se încarcă scorul…</div>
+  if (loading)
+    return (
+      <div style={{ padding: 40, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Skeleton variant="title" />
+        <Skeleton variant="card" />
+        <Skeleton variant="text" count={3} />
+      </div>
+    )
 
   if (!score) {
     return (
