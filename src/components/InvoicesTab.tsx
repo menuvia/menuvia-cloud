@@ -4,8 +4,8 @@
 // =============================================================
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '../lib/constants'
-import { useToast } from './ui/Toast'
-import { confirm as confirmDialog } from './ui/ConfirmDialog'
+import { useToast } from './ui/useToast'
+import { confirm as confirmDialog } from './ui/confirm'
 import {
   fetchOblioConfig,
   saveOblioConfig,

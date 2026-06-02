@@ -1,16 +1,7 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ToastContext, type ToastApi, type ToastKind } from './useToast'
 import '../../styles/components/toast.css'
-
-type ToastKind = 'success' | 'error' | 'warning' | 'info'
 
 interface ToastEntry {
   id: number
@@ -20,22 +11,12 @@ interface ToastEntry {
   duration: number
 }
 
-interface ToastApi {
-  success: (msg: string, duration?: number) => void
-  error: (msg: string, duration?: number) => void
-  warning: (msg: string, duration?: number) => void
-  info: (msg: string, duration?: number) => void
-  dismiss: (id: number) => void
-}
-
 const DEFAULT_DURATIONS: Record<ToastKind, number> = {
   success: 3500,
   info: 3500,
   warning: 5000,
   error: 6500,
 }
-
-const ToastContext = createContext<ToastApi | null>(null)
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([])
@@ -140,12 +121,4 @@ const ICON: Record<ToastKind, string> = {
   error: '✕',
   warning: '!',
   info: 'i',
-}
-
-export function useToast(): ToastApi {
-  const ctx = useContext(ToastContext)
-  if (!ctx) {
-    throw new Error('useToast trebuie folosit într-un <ToastProvider> ascendent.')
-  }
-  return ctx
 }

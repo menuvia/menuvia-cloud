@@ -1,61 +1,30 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from './Button'
+import { _setConfirmHandler, type ConfirmOptions } from './confirm'
 import '../../styles/components/confirm-dialog.css'
-
-interface ConfirmOptions {
-  title: string
-  description?: string
-  /** Eticheta butonului de confirmare. Default: "Confirmă". */
-  confirmLabel?: string
-  /** Eticheta butonului de anulare. Default: "Anulează". */
-  cancelLabel?: string
-  /** Variant pentru butonul de confirmare. Default: "primary"; folosește
-   *  "danger" pentru acțiuni distructive (șterge, anulează comandă). */
-  destructive?: boolean
-}
 
 interface DialogState extends ConfirmOptions {
   open: boolean
   resolve?: (v: boolean) => void
 }
 
-// State global ca apelul din afara arborelui React (event handler simplu)
-// să poată invoca dialogul. Singura instanță e ConfirmRoot, montat în App.
-let pushDialog: ((opts: ConfirmOptions) => Promise<boolean>) | null = null
-
 /**
- * Înlocuitor async pentru `window.confirm`.
- *
- * Necesită <ConfirmRoot /> montat o singură dată în root.
- *
- * ```ts
- * if (await confirm({ title: 'Șterge produsul?', destructive: true })) {
- *   // ...
- * }
- * ```
+ * Singleton — montează o singură dată în root. Înregistrează handler-ul
+ * pe care `confirm()` (din ./confirm) îl va apela ca să afișeze dialogul.
  */
-export async function confirm(opts: ConfirmOptions): Promise<boolean> {
-  if (!pushDialog) {
-    console.warn('[confirm] <ConfirmRoot /> nu e montat; folosesc window.confirm fallback.')
-    return Promise.resolve(window.confirm(opts.title))
-  }
-  return pushDialog(opts)
-}
-
 export function ConfirmRoot() {
-  const [state, setState] = useState<DialogState>({
-    open: false,
-    title: '',
-  })
+  const [state, setState] = useState<DialogState>({ open: false, title: '' })
 
   useEffect(() => {
-    pushDialog = (opts) =>
-      new Promise<boolean>((resolve) => {
-        setState({ ...opts, open: true, resolve })
-      })
+    _setConfirmHandler(
+      (opts) =>
+        new Promise<boolean>((resolve) => {
+          setState({ ...opts, open: true, resolve })
+        }),
+    )
     return () => {
-      pushDialog = null
+      _setConfirmHandler(null)
     }
   }, [])
 

@@ -8,7 +8,7 @@
 //   • Profitabilitate — view product margin
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
-import { confirm as confirmDialog } from './ui/ConfirmDialog'
+import { confirm as confirmDialog } from './ui/confirm'
 import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
 import {

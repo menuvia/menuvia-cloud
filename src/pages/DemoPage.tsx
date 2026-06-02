@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { D } from '../lib/constants'
-import { useToast } from '../components/ui/Toast'
+import { useToast } from '../components/ui/useToast'
 
 const ACCENT = '#C8963C'
 const DEMO_RESTAURANT = {

@@ -13,7 +13,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
-import { confirm as confirmDialog } from './ui/ConfirmDialog'
+import { confirm as confirmDialog } from './ui/confirm'
 import { InlineSpinner } from './PageLoader'
 
 interface BridgeDevice {

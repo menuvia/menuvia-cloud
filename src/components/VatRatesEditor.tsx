@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { D } from '../lib/constants'
-import { useToast } from './ui/Toast'
+import { useToast } from './ui/useToast'
 import { fetchVatRates, updateVatRate } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 
