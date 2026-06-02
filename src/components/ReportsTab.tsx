@@ -799,7 +799,11 @@ export default function ReportsTab({ restaurantId }: Props) {
                     axisLine={false}
                     tickLine={false}
                   />
-                  <YAxis tick={{ fill: D_RAW.t3, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tick={{ fill: D_RAW.t3, fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
                   <Tooltip
                     contentStyle={{
                       background: D.s2,
