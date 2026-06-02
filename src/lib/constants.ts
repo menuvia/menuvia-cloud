@@ -1,4 +1,9 @@
-export const D = {
+// Valori brute (hex/rgba) — paleta originală, sursă unică de adevăr.
+// FOLOSEȘTE D_RAW doar în contexte care NU sunt CSS, unde var() nu se
+// rezolvă: atribute SVG (`fill=`/`stroke=`), config Recharts (tick/dot),
+// canvas 2D. Aceste valori NU se tematizează (rămân fixe pe dark), dar nu
+// se rup. Pentru orice valoare folosită în `style={{...}}` folosește `D`.
+export const D_RAW = {
   bg: '#080808',
   s1: '#0F0F0F',
   s2: '#161616',
@@ -17,6 +22,33 @@ export const D = {
   amber: '#E8A020',
   border: 'rgba(255,255,255,0.07)',
   bHov: 'rgba(255,255,255,0.13)',
+} as const
+
+// Helper: citește o CSS variable (cu fallback la valoarea brută din D_RAW).
+// Permite migrarea graduală — componentele vechi cu inline styles merg
+// neschimbate, dar acum culorile vin dintr-un singur loc (tokens.css) și
+// pot răspunde la temă (dark/light). Vezi src/styles/tokens.css.
+const cssVar = (name: string, fallback: string) => `var(${name}, ${fallback})`
+
+export const D = {
+  bg: cssVar('--color-bg', D_RAW.bg),
+  s1: cssVar('--color-surface-1', D_RAW.s1),
+  s2: cssVar('--color-surface-2', D_RAW.s2),
+  s3: cssVar('--color-surface-3', D_RAW.s3),
+  s4: cssVar('--color-surface-4', D_RAW.s4),
+  gold: cssVar('--color-gold', D_RAW.gold),
+  goldL: cssVar('--color-gold-light', D_RAW.goldL),
+  goldA: cssVar('--color-gold-subtle', D_RAW.goldA),
+  t1: cssVar('--color-text-1', D_RAW.t1),
+  t2: cssVar('--color-text-2', D_RAW.t2),
+  t3: cssVar('--color-text-3', D_RAW.t3),
+  green: cssVar('--color-success', D_RAW.green),
+  greenA: cssVar('--color-success-bg', D_RAW.greenA),
+  red: cssVar('--color-danger', D_RAW.red),
+  redA: cssVar('--color-danger-bg', D_RAW.redA),
+  amber: cssVar('--color-warning', D_RAW.amber),
+  border: cssVar('--color-border', D_RAW.border),
+  bHov: cssVar('--color-border-hover', D_RAW.bHov),
 } as const
 
 export type OrderStatus =

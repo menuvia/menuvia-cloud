@@ -792,14 +792,14 @@ export default function ReportsTab({ restaurantId }: Props) {
               </div>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={D.border} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                   <XAxis
                     dataKey="zi"
-                    tick={{ fill: D.t3, fontSize: 10 }}
+                    tick={{ fill: D_RAW.t3, fontSize: 10 }}
                     axisLine={false}
                     tickLine={false}
                   />
-                  <YAxis tick={{ fill: D.t3, fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: D_RAW.t3, fontSize: 10 }} axisLine={false} tickLine={false} />
                   <Tooltip
                     contentStyle={{
                       background: D.s2,
@@ -810,7 +810,7 @@ export default function ReportsTab({ restaurantId }: Props) {
                     }}
                     formatter={(v: number) => [`${v.toFixed(0)} lei`, 'Revenue']}
                   />
-                  <Bar dataKey="revenue" fill={D.gold} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="revenue" fill={D_RAW.gold} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -934,9 +934,9 @@ export default function ReportsTab({ restaurantId }: Props) {
                       Venituri: Number(h.total_revenue),
                     }))}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke={D.border} vertical={false} />
-                    <XAxis dataKey="hour" stroke={D.t3} tick={{ fontSize: 11 }} interval={1} />
-                    <YAxis stroke={D.t3} tick={{ fontSize: 11 }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
+                    <XAxis dataKey="hour" stroke={D_RAW.t3} tick={{ fontSize: 11 }} interval={1} />
+                    <YAxis stroke={D_RAW.t3} tick={{ fontSize: 11 }} />
                     <Tooltip
                       contentStyle={{
                         background: D.s1,
