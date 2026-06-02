@@ -1,0 +1,90 @@
+/* Button — patru variante (primary/secondary/ghost/danger), trei mărimi.
+   Touch target min 40px (md/lg ≥ 44px conform WCAG 2.5.5).
+   Hover ridică ușor cardul + adaugă umbră; focus folosește :focus-visible
+   global din global.css. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  white-space: nowrap;
+  min-height: 40px;
+  user-select: none;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn:disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Primary — auriu, accent principal ── */
+.btn--primary {
+  background: var(--color-gold);
+  color: #fff;
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--color-gold-light);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-gold);
+}
+
+/* ── Secondary — suprafață cu bordură subtilă ── */
+.btn--secondary {
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+  border-color: var(--color-border);
+}
+.btn--secondary:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+  background: var(--color-surface-3);
+}
+
+/* ── Ghost — fără fundal până la hover ── */
+.btn--ghost {
+  background: transparent;
+  color: var(--color-text-2);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+}
+
+/* ── Danger — pentru acțiuni distructive ── */
+.btn--danger {
+  background: var(--color-danger);
+  color: #fff;
+}
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+/* ── Mărimi ── */
+.btn--sm {
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+  min-height: 32px;
+  gap: var(--space-1);
+}
+.btn--md {
+  padding: 10px 20px;
+  font-size: var(--text-base);
+}
+.btn--lg {
+  padding: 14px 28px;
+  font-size: var(--text-lg);
+  min-height: 48px;
+}
+
+.btn--full {
+  width: 100%;
+}

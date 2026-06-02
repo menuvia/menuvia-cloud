@@ -1,0 +1,54 @@
+/* Badge — chip semantic (success/warning/danger/info/gold/neutral).
+   `pulse` (clasa .badge--live) e definit în animations.css (puls auriu).
+   Pentru variantele cu pulsație vrei adesea variant="gold". */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-full);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+/* ── Mărimi ── */
+.badge--sm {
+  padding: 3px 8px;
+  font-size: 10px;
+}
+.badge--md {
+  padding: 5px 10px;
+  font-size: var(--text-xs);
+}
+
+/* ── Variante semantice ──
+   Border + text primesc culoarea „semantic"; fundalul folosește
+   varianta -bg (12% alpha). */
+.badge--neutral {
+  color: var(--color-text-2);
+  background: var(--color-surface-3);
+  border-color: var(--color-border);
+}
+.badge--success {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+.badge--warning {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+.badge--danger {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+.badge--info {
+  color: var(--color-info);
+  background: var(--color-info-bg);
+}
+.badge--gold {
+  color: var(--color-gold);
+  background: var(--color-gold-subtle);
+}

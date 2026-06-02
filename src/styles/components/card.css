@@ -1,0 +1,45 @@
+/* Card — container cu bordură subtilă, raze medii.
+   Trei variante: default (surface-2), elevated (surface-1 + shadow),
+   outlined (transparent + bordură).
+   `clickable` adaugă hover ridicare + bordură accentuată. */
+.card {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  transition: var(--transition-fast);
+}
+
+.card--elevated {
+  background: var(--color-surface-1);
+  box-shadow: var(--shadow-md);
+}
+
+.card--outlined {
+  background: transparent;
+}
+
+.card--clickable {
+  cursor: pointer;
+}
+.card--clickable:hover {
+  border-color: var(--color-border-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+.card--elevated.card--clickable:hover {
+  box-shadow: var(--shadow-lg);
+}
+
+/* ── Padding ── */
+.card--p-none {
+  padding: 0;
+}
+.card--p-sm {
+  padding: var(--space-3);
+}
+.card--p-md {
+  padding: var(--space-5);
+}
+.card--p-lg {
+  padding: var(--space-6) var(--space-8);
+}
