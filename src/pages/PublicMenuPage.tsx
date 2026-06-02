@@ -20,6 +20,7 @@ import { resolveTheme, isDarkTheme } from '../lib/themes'
 import { DIETARY_TAGS, T } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
 import ProductSheet from '../components/ProductSheet'
+import ReservationSheet from '../components/ReservationSheet'
 
 interface Props {
   slug: string
@@ -36,6 +37,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [cart, setCart] = useState<CartItem[]>([])
   const [showCart, setShowCart] = useState(false)
   const [showPickup, setShowPickup] = useState(false)
+  const [showReservation, setShowReservation] = useState(false)
   const [search, setSearch] = useState('')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
@@ -295,6 +297,40 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           >
             <IconBag size={14} color={accent} /> {T(lang, 'pickup_badge')}
           </div>
+        </div>
+      )}
+
+      {restaurant.amenities?.includes('reservations') && (
+        <div style={{ padding: '14px 20px 0' }}>
+          <button
+            data-testid="reserve-cta"
+            onClick={() => setShowReservation(true)}
+            style={{
+              width: '100%',
+              padding: '14px 16px',
+              background: accent + '12',
+              border: `1.5px solid ${accent}44`,
+              borderRadius: 14,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              cursor: 'pointer',
+              fontFamily: theme.fonts.body,
+              textAlign: 'left',
+              color: PUB.text,
+            }}
+          >
+            <IconCalendar size={22} color={accent} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text }}>
+                {T(lang, 'reserve_cta')}
+              </div>
+              <div style={{ fontSize: 12, color: PUB.text2 }}>
+                {T(lang, 'reserve_trust')}
+              </div>
+            </div>
+            <span style={{ color: accent, fontSize: 18 }}>›</span>
+          </button>
         </div>
       )}
 
@@ -640,6 +676,18 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         />
       )}
 
+      {/* Reservation sheet */}
+      {showReservation && (
+        <ReservationSheet
+          restaurant={restaurant}
+          theme={theme}
+          accent={accent}
+          PUB={PUB}
+          lang={lang}
+          onClose={() => setShowReservation(false)}
+        />
+      )}
+
       {/* Confirmation sheet */}
       {confirmation != null && (
         <div
@@ -745,6 +793,24 @@ function IconBag({ size = 16, color = 'currentColor' }: IconProps) {
     >
       <path d="M6 7h12l-1 13H7L6 7Z" />
       <path d="M9 7a3 3 0 1 1 6 0" />
+    </svg>
+  )
+}
+
+function IconCalendar({ size = 16, color = 'currentColor' }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M3 10h18M8 3v4M16 3v4" />
     </svg>
   )
 }
