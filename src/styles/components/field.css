@@ -1,0 +1,130 @@
+/* Field — stil comun pentru Input/Textarea/Select.
+   Label peste câmp, helper/error sub. Bordura curge prin token,
+   focus folosește accentul auriu. Suport pentru iconițe interior
+   (left/right) la Input și chevron custom la Select (nativ ascuns
+   prin appearance:none). */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-2);
+  letter-spacing: 0.01em;
+}
+
+.field__wrap {
+  position: relative;
+  display: flex;
+}
+
+.field__input {
+  width: 100%;
+  background: var(--color-surface-2);
+  color: var(--color-text-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: var(--text-base);
+  font-family: inherit;
+  line-height: 1.4;
+  transition: var(--transition-fast);
+  outline: none;
+  min-height: 40px;
+}
+.field__input::placeholder {
+  color: var(--color-text-3);
+}
+.field__input:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+.field__input:focus {
+  border-color: var(--color-gold);
+  background: var(--color-surface-3);
+}
+.field__input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Spațiu pentru iconițe interior */
+.field__input--has-left {
+  padding-left: 38px;
+}
+.field__input--has-right {
+  padding-right: 38px;
+}
+
+/* Textarea — readjustare height + resize controlat */
+.field__input--textarea {
+  min-height: 80px;
+  resize: vertical;
+  padding: 12px 14px;
+}
+
+/* Select — ascunde chevron-ul nativ ca să afișăm unul custom */
+.field__input--select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  cursor: pointer;
+}
+
+/* Stare eroare */
+.field__input--error {
+  border-color: var(--color-danger);
+}
+.field__input--error:focus {
+  border-color: var(--color-danger);
+}
+
+/* Iconițe interior */
+.field__icon {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  color: var(--color-text-3);
+  pointer-events: none;
+}
+.field__icon--left {
+  left: 12px;
+}
+.field__icon--right {
+  right: 12px;
+  pointer-events: auto;
+}
+
+.field__chevron {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  color: var(--color-text-3);
+  pointer-events: none;
+  font-size: 12px;
+}
+
+/* Mesaj helper/error sub câmp */
+.field__msg {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-3);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+.field__msg--error {
+  color: var(--color-danger);
+}
+
+.field__count {
+  color: var(--color-text-3);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
