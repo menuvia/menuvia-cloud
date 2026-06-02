@@ -28,9 +28,11 @@ interface DataTableProps<T extends { id: string }> {
   /** Click pe rând — activează cursor pointer + hover. */
   onRowClick?: (row: T) => void
   /** Sortare inițială. */
-  defaultSort?: { key: keyof T; direction: 'asc' | 'desc' }
+  defaultSort?: SortState<T>
 }
 
+// Notă: exportat ca tip-util în jos ar fi un export non-componentă →
+// react-refresh warning; păstrez intern + folosesc prin DataTableProps.
 type SortState<T> = { key: keyof T; direction: 'asc' | 'desc' } | null
 
 export function DataTable<T extends { id: string }>({
