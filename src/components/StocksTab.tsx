@@ -8,6 +8,7 @@
 //   • Profitabilitate — view product margin
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
+import { confirm as confirmDialog } from './ui/confirm'
 import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
 import {
@@ -762,7 +763,12 @@ function IngredientModal({
             {ingredient && (
               <button
                 onClick={async () => {
-                  if (!confirm(`Șterge ${ingredient.name}?`)) return
+                  const ok = await confirmDialog({
+                    title: `Șterge ${ingredient.name}?`,
+                    confirmLabel: 'Șterge',
+                    destructive: true,
+                  })
+                  if (!ok) return
                   await deleteIngredient(ingredient.id)
                   onSave()
                 }}
@@ -1238,7 +1244,12 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
                 {po.status === 'draft' && (
                   <button
                     onClick={async () => {
-                      if (!confirm('Confirmă recepționarea? Stocul va crește automat.')) return
+                      const ok = await confirmDialog({
+                        title: 'Confirmă recepționarea?',
+                        description: 'Stocul va crește automat.',
+                        confirmLabel: 'Recepționează',
+                      })
+                      if (!ok) return
                       await receivePurchaseOrder(po.id)
                       await load()
                     }}

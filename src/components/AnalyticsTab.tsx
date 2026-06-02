@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+import { D, D_RAW } from '../lib/constants'
 import { QueryError } from './PageLoader'
 import {
   LineChart,
@@ -315,14 +315,14 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           >
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={chartData} margin={{ left: -20, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={D.border} vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                 <XAxis
                   dataKey="zi"
-                  tick={{ fill: D.t3, fontSize: 11 }}
+                  tick={{ fill: D_RAW.t3, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
-                <YAxis tick={{ fill: D.t3, fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: D_RAW.t3, fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={tt}
                   formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Revenue']}
@@ -330,9 +330,9 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <Line
                   type="monotone"
                   dataKey="revenue"
-                  stroke={D.gold}
+                  stroke={D_RAW.gold}
                   strokeWidth={2.5}
-                  dot={{ fill: D.gold, r: 3 }}
+                  dot={{ fill: D_RAW.gold, r: 3 }}
                 />
               </LineChart>
             </ResponsiveContainer>
@@ -353,15 +353,15 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           >
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={chartData} margin={{ left: -20, right: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke={D.border} vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                 <XAxis
                   dataKey="zi"
-                  tick={{ fill: D.t3, fontSize: 11 }}
+                  tick={{ fill: D_RAW.t3, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
                 <YAxis
-                  tick={{ fill: D.t3, fontSize: 11 }}
+                  tick={{ fill: D_RAW.t3, fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
@@ -370,7 +370,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                   contentStyle={tt}
                   formatter={(v: unknown) => [String(v ?? ''), 'Comenzi']}
                 />
-                <Bar dataKey="comenzi" fill={D.goldL} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="comenzi" fill={D_RAW.goldL} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -486,15 +486,15 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                     }))}
                     margin={{ left: -20, right: 8 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke={D.border} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={D_RAW.border} vertical={false} />
                     <XAxis
                       dataKey="ora"
-                      tick={{ fill: D.t3, fontSize: 10 }}
+                      tick={{ fill: D_RAW.t3, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                     />
                     <YAxis
-                      tick={{ fill: D.t3, fontSize: 10 }}
+                      tick={{ fill: D_RAW.t3, fontSize: 10 }}
                       axisLine={false}
                       tickLine={false}
                       allowDecimals={false}
@@ -503,7 +503,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                       contentStyle={tt}
                       formatter={(v: unknown) => [String(v ?? ''), 'Comenzi']}
                     />
-                    <Bar dataKey="comenzi" fill={D.amber} radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="comenzi" fill={D_RAW.amber} radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>

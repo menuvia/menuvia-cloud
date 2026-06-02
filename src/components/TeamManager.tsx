@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
+import { Skeleton } from './ui/Skeleton'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 
@@ -393,7 +394,9 @@ export default function TeamManager({
           Membri actuali ({members.length})
         </div>
         {loading ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
+          <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Skeleton variant="table-row" count={3} />
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {members.map((m) => {

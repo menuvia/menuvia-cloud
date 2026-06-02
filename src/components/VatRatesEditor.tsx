@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
 import { D } from '../lib/constants'
+import { useToast } from './ui/useToast'
 import { fetchVatRates, updateVatRate } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export default function VatRatesEditor({ restaurantId }: Props) {
+  const toast = useToast()
   const [rates, setRates] = useState<VatRate[]>([])
   const [loading, setLoading] = useState(true)
   const [savingGroup, setSavingGroup] = useState<number | null>(null)
@@ -71,11 +73,11 @@ export default function VatRatesEditor({ restaurantId }: Props) {
     if (!ed) return
     const rate = parseFloat(ed.rate_percent)
     if (isNaN(rate) || rate < 0 || rate > 100) {
-      alert('Cota TVA trebuie să fie între 0 și 100')
+      toast.error('Cota TVA trebuie să fie între 0 și 100')
       return
     }
     if (ed.label.trim().length === 0) {
-      alert('Eticheta nu poate fi goală')
+      toast.error('Eticheta nu poate fi goală')
       return
     }
     setSavingGroup(group)
@@ -87,7 +89,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
       })
       await load()
     } catch (err) {
-      alert('Eroare la salvare: ' + (err as Error).message)
+      toast.error('Eroare la salvare: ' + (err as Error).message)
     }
     setSavingGroup(null)
   }

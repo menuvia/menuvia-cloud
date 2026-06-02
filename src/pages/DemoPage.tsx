@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { D } from '../lib/constants'
+import { useToast } from '../components/ui/useToast'
 
 const ACCENT = '#C8963C'
 const DEMO_RESTAURANT = {
@@ -127,6 +128,7 @@ const DEMO_PRODUCTS = [
 ]
 
 export default function DemoPage({ onBack }: { onBack: () => void }) {
+  const toast = useToast()
   const [activeCat, setActiveCat] = useState('1')
   const [cartCount, setCartCount] = useState(0)
   const products = DEMO_PRODUCTS.filter((p) => p.cat === activeCat)
@@ -310,7 +312,9 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
         >
           <button
             onClick={() => {
-              alert('Acesta este modul demo. Creeaz\u0103 un cont pentru a trimite comenzi reale!')
+              toast.info(
+                'Acesta este modul demo. Creeaz\u0103 un cont pentru a trimite comenzi reale!',
+              )
               setCartCount(0)
             }}
             style={{

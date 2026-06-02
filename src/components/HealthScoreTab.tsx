@@ -5,8 +5,9 @@
 // Buton recalculare manual cu cooldown 5 min.
 // =============================================================
 import { useEffect, useState, useCallback } from 'react'
-import { D } from '../lib/constants'
+import { D, D_RAW } from '../lib/constants'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
+import { Skeleton } from './ui/Skeleton'
 import {
   fetchHealthScore,
   recomputeHealthScore,
@@ -19,12 +20,14 @@ import {
   getActionableSuggestions,
 } from '../lib/health'
 
-// Colors palette pentru lib helpers
+// Colors palette pentru lib helpers.
+// D_RAW (hex brut), nu D: aceste valori alimentează `stroke` pe inelul SVG
+// din CircularScore, unde var() nu se rezolvă.
 const PALETTE = {
-  green: D.green,
-  gold: D.gold,
-  orange: D.amber,
-  red: D.red,
+  green: D_RAW.green,
+  gold: D_RAW.gold,
+  orange: D_RAW.amber,
+  red: D_RAW.red,
 }
 
 export default function HealthScoreTab() {
@@ -66,7 +69,14 @@ export default function HealthScoreTab() {
     }
   }
 
-  if (loading) return <div style={{ padding: 40, color: D.t2 }}>Se încarcă scorul…</div>
+  if (loading)
+    return (
+      <div style={{ padding: 40, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Skeleton variant="title" />
+        <Skeleton variant="card" />
+        <Skeleton variant="text" count={3} />
+      </div>
+    )
 
   if (!score) {
     return (
@@ -375,7 +385,7 @@ function CircularScore({ score, color }: { score: number; color: string }) {
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={D.s3}
+          stroke={D_RAW.s3}
           strokeWidth={stroke}
         />
         <circle

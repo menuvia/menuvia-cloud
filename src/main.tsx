@@ -4,7 +4,10 @@ import * as Sentry from '@sentry/react'
 import App from './App'
 import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
-import './index.css'
+// Ordinea contează: tokens (variabile) → global (reset+body) → animații
+import './styles/tokens.css'
+import './styles/global.css'
+import './styles/animations.css'
 
 function removeAppLoader() {
   document.getElementById('app-loader')?.remove()

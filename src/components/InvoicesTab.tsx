@@ -4,6 +4,9 @@
 // =============================================================
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '../lib/constants'
+import { useToast } from './ui/useToast'
+import { confirm as confirmDialog } from './ui/confirm'
+import { Skeleton } from './ui/Skeleton'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -63,7 +66,12 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
     return () => clearInterval(t)
   }, [invoices, load])
 
-  if (loading) return <div style={{ padding: 40, color: D.t2 }}>Se încarcă…</div>
+  if (loading)
+    return (
+      <div style={{ padding: 24 }}>
+        <Skeleton variant="table-row" count={4} />
+      </div>
+    )
 
   // Empty state — no config
   if (!config && !showConfig) {
@@ -276,22 +284,24 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
 
 // ── Invoice row ────────────────────────────────────────────────
 function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterAction: () => void }) {
+  const toast = useToast()
   const [acting, setActing] = useState(false)
   const color = invoiceStatusColor(invoice.status, PALETTE)
 
   async function handleCancel() {
-    if (
-      !confirm(
-        `Anulezi factura ${invoice.oblio_series}-${invoice.oblio_number} către ${invoice.customer_name}?\n\nNotă: anularea în Menuvia nu emite automat factură de stornare la Oblio — discută cu contabilul tău.`,
-      )
-    )
-      return
+    const ok = await confirmDialog({
+      title: `Anulezi factura ${invoice.oblio_series}-${invoice.oblio_number}?`,
+      description: `Către ${invoice.customer_name}. Anularea în Menuvia nu emite automat factură de stornare la Oblio — discută cu contabilul tău.`,
+      confirmLabel: 'Anulează factura',
+      destructive: true,
+    })
+    if (!ok) return
     setActing(true)
     try {
       await cancelInvoice(invoice.id)
       onAfterAction()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Eroare')
+      toast.error(e instanceof Error ? e.message : 'Eroare')
     } finally {
       setActing(false)
     }
@@ -475,12 +485,14 @@ function OblioConfigModal({
   }
 
   async function remove() {
-    if (
-      !confirm(
-        'Ștergi configurația Oblio? Facturile existente rămân, dar nu vei mai putea emite altele noi.',
-      )
-    )
-      return
+    const ok = await confirmDialog({
+      title: 'Ștergi configurația Oblio?',
+      description:
+        'Facturile existente rămân, dar nu vei mai putea emite altele noi.',
+      confirmLabel: 'Șterge',
+      destructive: true,
+    })
+    if (!ok) return
     setSaving(true)
     try {
       await deleteOblioConfig(restaurantId)

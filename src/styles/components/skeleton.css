@@ -1,0 +1,45 @@
+/* Skeleton — shimmer loader. Gradient orizontal repetitiv animat (keyframe
+   `shimmer` din animations.css). Culori subtile peste surface-2 ca să
+   ghicești forma fără să dezvolți contrast inutil. */
+.skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-2) 0%,
+    var(--color-surface-3) 50%,
+    var(--color-surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Variante ── */
+.skeleton--text {
+  height: 14px;
+  width: 100%;
+  margin: 4px 0;
+}
+.skeleton--title {
+  height: 24px;
+  width: 60%;
+  margin: 6px 0;
+  border-radius: var(--radius-md);
+}
+.skeleton--card {
+  height: 120px;
+  width: 100%;
+  border-radius: var(--radius-lg);
+}
+.skeleton--circle {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+.skeleton--table-row {
+  height: 48px;
+  width: 100%;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-md);
+}

@@ -1,0 +1,51 @@
+/* Tooltip — bubble cu animație scaleIn, săgeată pseudo-element.
+   Poziționare CSS pură (positioning-engine simplu) — fără auto-flip;
+   consumatorul poate alege manual placement-ul. */
+.tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltip {
+  position: absolute;
+  z-index: var(--z-toast);
+  background: var(--color-surface-4);
+  color: var(--color-text-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  font-weight: var(--weight-medium);
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: var(--shadow-md);
+  animation: scaleIn 140ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform-origin: center;
+}
+
+/* ── Plasament ── */
+.tooltip--top {
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: bottom center;
+}
+.tooltip--bottom {
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  transform-origin: top center;
+}
+.tooltip--left {
+  right: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: right center;
+}
+.tooltip--right {
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  transform-origin: left center;
+}
