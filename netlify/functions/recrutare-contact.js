@@ -64,10 +64,20 @@ exports.handler = async (event) => {
   // Basic rate limiting by IP (best-effort, stored in Supabase)
   // Not implementing here for simplicity — can be added via Netlify Edge or external service.
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  )
+  // Env guard — fără config valid, ieșim cu 500 clar (vezi stripe-webhook.js).
+  // Fallback la VITE_SUPABASE_URL ca defensive depth (același URL public).
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error('[recrutare-contact] Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY)')
+    return {
+      statusCode: 500,
+      headers: corsHeaders(event),
+      body: JSON.stringify({ error: 'Server config error' }),
+    }
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
 
   // Store in leads table (created via migration 037)
   try {

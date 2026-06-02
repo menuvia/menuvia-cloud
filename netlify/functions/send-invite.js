@@ -19,10 +19,17 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid role' }) }
   }
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-  )
+  // Env guard — fără config valid, ieșim cu 500 clar în loc să leak-uim
+  // un stack trace "supabaseUrl is required" din supabase-js către user.
+  // Fallback la VITE_SUPABASE_URL ca defensive depth (același URL public).
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error('[send-invite] Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY)')
+    return { statusCode: 500, body: JSON.stringify({ error: 'Server config error' }) }
+  }
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
 
   // Verify the caller is an admin of this restaurant
   const authHeader = event.headers.authorization || ''

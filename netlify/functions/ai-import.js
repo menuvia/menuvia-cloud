@@ -28,12 +28,19 @@ exports.handler = async (event) => {
     return jsonResponse(401, { error: 'Missing Authorization header' })
   }
 
+  // Env guard — fără config valid, ieșim cu 500 clar (vezi stripe-webhook.js).
+  // Fallback la VITE_SUPABASE_URL ca defensive depth (același URL public).
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    console.error('[ai-import] Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY)')
+    return jsonResponse(500, { error: 'Server config error' })
+  }
+
   // Use Supabase admin client to verify the JWT — getUser() validates signature + expiry
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { persistSession: false } }
-  )
+  const supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { persistSession: false },
+  })
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 

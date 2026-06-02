@@ -33,6 +33,14 @@ exports.handler = async (event) => {
     return json(200, { ok: true, skipped: true })
   }
 
+  // Env guard — fără config valid, ieșim cu 500 clar (vezi stripe-webhook.js).
+  // Fallback la VITE_SUPABASE_URL ca defensive depth (același URL public).
+  const supabaseUrl = SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  if (!supabaseUrl || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('[send-push] Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY)')
+    return json(500, { error: 'Server config error' })
+  }
+
   let body
   try { body = JSON.parse(event.body || '{}') } catch { return json(400, { error: 'Invalid JSON' }) }
 
@@ -44,7 +52,7 @@ exports.handler = async (event) => {
   const tableLabel   = order.table_label || 'Masă necunoscută'
   const itemCount    = order.item_count || 0
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const supabase = createClient(supabaseUrl, SUPABASE_SERVICE_ROLE_KEY)
 
   // Get all push subscriptions for this restaurant
   const { data: subs, error } = await supabase

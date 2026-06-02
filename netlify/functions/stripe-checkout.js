@@ -24,6 +24,14 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Stripe not configured' })
   }
 
+  // Env guard — fără config valid, ieșim cu 500 clar (vezi stripe-webhook.js).
+  // Fallback la VITE_SUPABASE_URL ca defensive depth (același URL public).
+  const supabaseUrl = SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  if (!supabaseUrl || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('[stripe-checkout] Missing env vars (SUPABASE_URL/SERVICE_ROLE_KEY)')
+    return jsonResponse(500, { error: 'Server config error' })
+  }
+
   // Determine which price to use based on plan param
   const body = event.body ? JSON.parse(event.body) : {}
   const planId = body.plan === 'business' && STRIPE_BUSINESS_PRICE_ID ? 'business' : 'pro'
@@ -36,7 +44,7 @@ exports.handler = async (event) => {
     return jsonResponse(401, { error: 'Missing Authorization header' })
   }
 
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  const supabase = createClient(supabaseUrl, SUPABASE_SERVICE_ROLE_KEY)
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) {
     return jsonResponse(401, { error: 'Invalid token' })
