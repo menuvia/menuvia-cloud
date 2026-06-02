@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+import { D, D_RAW } from '../lib/constants'
 import { QueryError } from './PageLoader'
 import {
   LineChart,
