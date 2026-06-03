@@ -8,10 +8,11 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { D, PLAN_LABELS } from '../lib/constants'
 import type { Ingredient as StocksIngredient } from '../lib/stocks'
 import { usePlanLimits } from '../hooks/usePlanLimits'
-import { InlineSpinner, QueryError } from '../components/PageLoader'
+import { InlineSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
-import type { Restaurant, Category, Product } from '../hooks/useData'
+import type { Restaurant } from '../hooks/useData'
 import React from 'react'
+import { btn, Modal, Inp } from '../components/_dashboard/sharedUI'
 
 // ── Lazy-loaded tab components ────────────────────────────────
 // TablesManager pulls in jsPDF (400KB) + qrcode + html2canvas (200KB)
@@ -39,37 +40,6 @@ const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 import type { FloorLayout } from '../components/FloorPlanEditor'
 const WaiterAssignments = lazy(() => import('../components/WaiterAssignments'))
 
-// ── Shared UI ─────────────────────────────────────────────────
-const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 8,
-  padding: '0 18px',
-  height: 44,
-  borderRadius: 10,
-  fontSize: '0.9rem',
-  fontWeight: 500,
-  border: 'none',
-  cursor: 'pointer',
-  fontFamily: 'DM Sans,sans-serif',
-  whiteSpace: 'nowrap',
-  flexShrink: 0,
-  ...e,
-})
-const inp: React.CSSProperties = {
-  width: '100%',
-  background: D.s3,
-  border: `1px solid ${D.border}`,
-  borderRadius: 9,
-  padding: '11px 14px',
-  fontSize: '0.9rem',
-  color: D.t1,
-  outline: 'none',
-  height: 44,
-  fontFamily: 'DM Sans,sans-serif',
-  boxSizing: 'border-box',
-}
 
 
 // ── Upgrade Modal ─────────────────────────────────────────────
@@ -405,100 +375,6 @@ function UpgradeBanner({
   )
 }
 
-function Modal({
-  title,
-  onClose,
-  children,
-  width = 520,
-}: {
-  title: string
-  onClose: () => void
-  children: React.ReactNode
-  width?: number
-}) {
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.75)',
-        backdropFilter: 'blur(8px)',
-        zIndex: 1000,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: D.s2,
-          border: `1px solid ${D.bHov}`,
-          borderRadius: 18,
-          width: '100%',
-          maxWidth: width,
-          maxHeight: '90vh',
-          overflow: 'auto',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            padding: '18px 22px',
-            borderBottom: `1px solid ${D.border}`,
-          }}
-        >
-          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.05rem', color: D.t1 }}>
-            {title}
-          </span>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: D.t2,
-              cursor: 'pointer',
-              padding: 6,
-              borderRadius: 8,
-              fontSize: 18,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-        <div style={{ padding: 22 }}>{children}</div>
-      </div>
-    </div>
-  )
-}
-
-function Inp({
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-}: {
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  type?: string
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      style={inp}
-      onFocus={(e) => (e.target.style.borderColor = D.gold)}
-      onBlur={(e) => (e.target.style.borderColor = D.border)}
-    />
-  )
-}
 
 // ── RecipeAddForm: inline form for adding ingredient to recipe ───
 function RecipeAddForm({
