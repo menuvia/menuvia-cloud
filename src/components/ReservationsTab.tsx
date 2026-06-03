@@ -85,12 +85,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
     async (id: string, status: ReservationStatus, label: string) => {
       try {
         await updateStatus(id, status)
-        toast.show({ message: label, variant: 'success' })
+        toast.success(label)
       } catch (e) {
-        toast.show({
-          message: e instanceof Error ? e.message : 'Eroare actualizare',
-          variant: 'error',
-        })
+        toast.error(e instanceof Error ? e.message : 'Eroare actualizare')
       }
     },
     [updateStatus, toast],
@@ -447,12 +444,9 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     try {
       await save(draft)
       setDraft({})
-      toast.show({ message: 'Setări salvate', variant: 'success' })
+      toast.success('Setări salvate')
     } catch (e) {
-      toast.show({
-        message: e instanceof Error ? e.message : 'Eroare salvare',
-        variant: 'error',
-      })
+      toast.error(e instanceof Error ? e.message : 'Eroare salvare')
     } finally {
       setSaving(false)
     }
