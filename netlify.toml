@@ -31,6 +31,12 @@
 [functions."send-reservation-reminders"]
   schedule = "*/10 * * * *"
 
+# La 5 min după compute_health_scores (rulează prin automation-cron la
+# :00/:15/:30/:45): atomic-claim scoruri critice → POST Slack webhook.
+# Skip silent dacă SLACK_WEBHOOK_URL nu e setat.
+[functions."send-health-slack-alerts"]
+  schedule = "5,20,35,50 * * * *"
+
 # Security headers — A+ grade on securityheaders.com
 [[headers]]
   for = "/*"
