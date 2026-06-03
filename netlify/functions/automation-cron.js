@@ -11,6 +11,7 @@
 //   4. weekly_report dispatch         (only Friday 18:00 ish)
 //   5. detect_winback_inactive        (only daily at 09:00 Bucharest)
 //   6. detect_nps_due                 (only daily at 10:00 Bucharest)
+//   7. daily_report dispatch          (only daily at 08:00 Bucharest)
 //
 // Idempotent: re-running shouldn't cause duplicate emails (dedup_key on queue).
 
@@ -106,6 +107,17 @@ exports.handler = async () => {
     }
   }
 
+  // ── Job 7: daily report (daily 08:00-08:15 Bucharest) ──
+  // Raport pentru ieri către owner-ul fiecărui restaurant activ care a avut
+  // comenzi. Dedup_key zilnic — re-run în aceeași zi nu duplică.
+  if (hour === 8 && minute < 15) {
+    try {
+      results.daily_reports_dispatched = await dispatchDailyReports(supabase)
+    } catch (e) {
+      results.daily_error = e.message
+    }
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({
@@ -159,6 +171,57 @@ async function dispatchWeeklyReports(supabase) {
       dispatched++
     } catch (e) {
       console.warn(`[automation-cron] Weekly report exception for ${r.id}:`, e.message)
+    }
+  }
+
+  return dispatched
+}
+
+// ── Dispatch daily reports for all active restaurants ──────────
+// Raport pe ziua precedentă. Skip restaurante fără comenzi în acea zi
+// (n-are sens să trimiți „0 lei, 0 comenzi" zilnic).
+async function dispatchDailyReports(supabase) {
+  const { data: restaurants, error } = await supabase
+    .from('restaurants')
+    .select('id, owner_id, name, profiles!inner(email, full_name)')
+    .eq('is_active', true)
+
+  if (error) throw error
+  if (!restaurants || restaurants.length === 0) return 0
+
+  // Dedup tag = ziua acoperită de raport (ieri în Bucharest).
+  const yesterdayBuc = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+  let dispatched = 0
+  for (const r of restaurants) {
+    try {
+      const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
+        p_restaurant_id: r.id,
+        p_day: null,
+      })
+
+      if (repErr) {
+        console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
+        continue
+      }
+
+      if (!report || report.orders === 0) continue
+
+      await supabase.rpc('enqueue_email', {
+        p_recipient_email: r.profiles.email,
+        p_template_kind: 'daily_report',
+        p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
+        p_user_id: r.owner_id,
+        p_recipient_name: r.profiles.full_name,
+        p_scheduled_for: null,
+        p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
+      })
+
+      dispatched++
+    } catch (e) {
+      console.warn(`[automation-cron] Daily report exception for ${r.id}:`, e.message)
     }
   }
 

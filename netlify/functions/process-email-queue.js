@@ -123,6 +123,11 @@ const TEMPLATES = {
     html: weeklyReportHtml(d),
   }),
 
+  daily_report: (d) => ({
+    subject: `☀️ Ieri ${formatLei(d.revenue)} (${d.orders || 0} comenzi) — ${esc(d.restaurant_name || '')}`,
+    html: dailyReportHtml(d),
+  }),
+
   milestone_first_month: (d) => ({
     subject: '☕ Prima comandă! Felicitări',
     html: `
@@ -326,6 +331,68 @@ function weeklyReportHtml(d) {
       <p style="color:#999;font-size:12px;margin-top:32px;border-top:1px solid #e8e4dc;padding-top:16px">Primești acest raport săptămânal pentru că ai un cont Menuvia activ. Poți dezactiva în setări.</p>
     </div>
   `
+}
+
+function dailyReportHtml(d) {
+  const revenue = formatLei(d.revenue)
+  const orders  = d.orders || 0
+  const avgT    = formatLei(d.avg_ticket)
+  const change  = d.revenue_change_pct
+  const products = Array.isArray(d.top_products) ? d.top_products : []
+  const dayLabel = formatRoDay(d.day)
+
+  let trendIcon = '→'
+  let trendColor = '#666'
+  let trendLabel = 'date insuficiente'
+  if (change !== null && change !== undefined) {
+    if (change > 5)  { trendIcon = '↗'; trendColor = '#2C7A2C' }
+    if (change < -5) { trendIcon = '↘'; trendColor = '#A93232' }
+    trendLabel = `${Math.abs(change)}% vs ziua precedentă`
+  }
+
+  return `
+    <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+      <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 4px">Raport zilnic</h1>
+      <p style="color:#666;margin:0 0 20px">${esc(dayLabel)} · ${esc(d.restaurant_name || '')}</p>
+
+      <div style="background:#fff;border:1px solid #e8e4dc;border-radius:12px;padding:18px;margin-bottom:14px">
+        <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">Venit ieri</div>
+        <div style="font-family:Georgia,serif;font-size:32px;font-weight:600;color:#0A0908">${revenue}</div>
+        <div style="color:${trendColor};font-size:14px;margin-top:4px">${trendIcon} ${trendLabel}</div>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;margin-bottom:14px">
+        <tr><td style="padding:6px 0;color:#666">Comenzi:</td><td style="text-align:right;font-weight:600">${orders}</td></tr>
+        <tr><td style="padding:6px 0;color:#666">Valoare medie bon:</td><td style="text-align:right;font-weight:600">${avgT}</td></tr>
+        <tr><td style="padding:6px 0;color:#666">Ora de vârf:</td><td style="text-align:right;font-weight:600">${d.busiest_hour != null ? d.busiest_hour + ':00 – ' + (d.busiest_hour + 1) + ':00' : '—'}</td></tr>
+      </table>
+
+      ${products.length > 0 ? `
+      <h2 style="font-family:Georgia,serif;font-size:16px;color:#0A0908;margin:18px 0 8px">Top produse</h2>
+      <table style="width:100%;border-collapse:collapse">
+        ${products.map((p, i) => `
+          <tr style="border-top:${i === 0 ? '1px solid #e8e4dc' : '1px solid #f3efe7'}">
+            <td style="padding:8px 0;color:#0A0908">${i + 1}. ${esc(p.name)}</td>
+            <td style="padding:8px 0;color:#666;text-align:right">${p.units_sold} buc</td>
+            <td style="padding:8px 0;color:#0A0908;text-align:right;font-weight:600">${formatLei(p.revenue)}</td>
+          </tr>
+        `).join('')}
+      </table>
+      ` : ''}
+
+      <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:20px">Vezi dashboard →</a>
+
+      <p style="color:#999;font-size:12px;margin-top:28px;border-top:1px solid #e8e4dc;padding-top:14px">Primești acest raport zilnic pentru că ai un cont Menuvia activ. Răspunde la acest email cu „stop daily" și îl oprim.</p>
+    </div>
+  `
+}
+
+function formatRoDay(day) {
+  if (!day) return ''
+  try {
+    const d = new Date(day)
+    return d.toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
+  } catch { return String(day) }
 }
 
 function formatLei(n) {
