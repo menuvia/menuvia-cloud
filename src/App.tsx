@@ -419,7 +419,7 @@ function PricingPage({
         { t: 'Cheamă ospătar / Cere nota', ok: true },
         { t: 'Dashboard bucătărie', ok: true },
         { t: 'Comenzi manuale ospătar', ok: true },
-        { t: 'Plăți: cash, card POS, online', ok: true },
+        { t: 'Plăți: cash, card la POS', ok: true },
         { t: 'Modifiers + Extras + Pereche', ok: true },
         { t: 'Echipă: până la 5 membri', ok: true },
         { t: 'Mod offline pentru ospătari', ok: true },
@@ -487,17 +487,17 @@ function PricingPage({
   const EXTRAS_MONTHLY = [
     {
       icon: '💳',
-      title: 'Plăți online prin QR',
-      price: '+49 lei/lună + 0.5%',
+      title: 'Plăți online prin QR (în curând)',
+      price: 'În curând',
       plans: 'Growth, Pro',
-      desc: 'Clientul plătește direct cu cardul. Bacșiș integrat.',
+      desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
     },
     {
       icon: '🔌',
-      title: 'Integrare casă de marcat',
+      title: 'Integrare casă de marcat (pilot)',
       price: '+99 lei/lună',
       plans: 'Pro doar',
-      desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. Bonurile se emit automat.',
+      desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. În pilot — disponibil pe bază de cerere, nu activat automat.',
     },
   ]
 
@@ -547,7 +547,7 @@ function PricingPage({
     },
     {
       q: 'Aveți integrare cu casă de marcat?',
-      a: 'Da, ca extras pe planul Pro (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Bonurile fiscale se emit automat la fiecare comandă plătită.',
+      a: 'În pilot, ca extras pe planul Pro (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Sunteți pe piață de mult?',
