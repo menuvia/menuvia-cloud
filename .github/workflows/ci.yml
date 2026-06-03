@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Anulează run-uri vechi pe același branch când vine push nou — economisește
+# minute CI și accelerează feedback-ul pe ultimul commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-build:
     name: Lint + TS + Build
@@ -17,6 +23,10 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Security audit (block high+critical)
+        # Continuă pe vulnerabilități moderate (zgomot); blochează numai
+        # high+critical (real risk). Adaugă --omit=dev dacă vrem mai relax.
+        run: npm audit --audit-level=high
       - run: npm run lint
       - name: Build
         env:

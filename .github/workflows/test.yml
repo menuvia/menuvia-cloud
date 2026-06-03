@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Anulează run-uri vechi pe același branch când vine push nou.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     name: Lint, typecheck, test
