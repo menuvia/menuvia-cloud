@@ -949,10 +949,22 @@ function socialUrl(platform: 'instagram' | 'tiktok' | 'facebook' | 'website', va
   const v = value.trim()
   if (/^https?:\/\//i.test(v)) return v
   if (platform === 'website') return 'https://' + v.replace(/^\/+/, '')
-  const handle = v.replace(/^@/, '')
+  const handle = socialHandle(v)
   if (platform === 'instagram') return `https://instagram.com/${handle}`
   if (platform === 'tiktok')    return `https://tiktok.com/@${handle}`
   return `https://facebook.com/${handle}`
+}
+
+// Extrage handle-ul curat pentru AFIȘARE din orice formă pe care o lipește
+// userul: "tinctura", "@tinctura", "https://tiktok.com/@tinctura",
+// "instagram.com/tinctura/" → toate devin "tinctura".
+function socialHandle(value: string): string {
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, '')          // scoate protocol
+    .replace(/^(www\.)?[^/]+\//, '')       // scoate domeniul + primul slash
+    .replace(/[/?#].*$/, '')               // scoate path/query rămas
+    .replace(/^@/, '')                     // scoate @ de început
 }
 
 function IconSearch({ size = 16, color = 'currentColor' }: IconProps) {
@@ -1130,12 +1142,12 @@ function HeroSection({
           )}
           {instagram && (
             <SocialPill isDark={isDark} href={socialUrl('instagram', instagram)}>
-              <IconInstagram /> {'@' + instagram.replace(/^@/, '')}
+              <IconInstagram /> {'@' + socialHandle(instagram)}
             </SocialPill>
           )}
           {tiktok && (
             <SocialPill isDark={isDark} href={socialUrl('tiktok', tiktok)}>
-              <IconTikTok /> {'@' + tiktok.replace(/^@/, '')}
+              <IconTikTok /> {'@' + socialHandle(tiktok)}
             </SocialPill>
           )}
           {facebook && (
@@ -1854,7 +1866,7 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
             rel="noopener noreferrer"
             style={socialLinkStyle}
           >
-            <IconInstagram size={13} color={accent} /> {'@' + instagram.replace(/^@/, '')}
+            <IconInstagram size={13} color={accent} /> {'@' + socialHandle(instagram)}
           </a>
         )}
         {tiktok && (
@@ -1864,7 +1876,7 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
             rel="noopener noreferrer"
             style={socialLinkStyle}
           >
-            <IconTikTok size={13} color={accent} /> {'@' + tiktok.replace(/^@/, '')}
+            <IconTikTok size={13} color={accent} /> {'@' + socialHandle(tiktok)}
           </a>
         )}
         {facebook && (
