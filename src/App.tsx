@@ -301,7 +301,7 @@ function LandingPage({
             Gratuit pentru început
           </div>
           <p style={{ color: D.t2, fontSize: 14, marginBottom: 20 }}>
-            Plan gratuit cu până la 15 produse. Pro de la 249 lei/lună.
+            Plan gratuit cu până la 15 produse. Planuri plătite de la 99 lei/lună.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
@@ -388,8 +388,8 @@ function PricingPage({
       id: 'starter',
       name: 'Starter',
       emoji: '🌱',
-      price: 79,
-      priceYearly: 65,
+      price: 99,
+      priceYearly: 83,
       badge: null,
       desc: 'Meniu digital QR pentru cafenele și locații mici.',
       features: [
@@ -409,8 +409,8 @@ function PricingPage({
       id: 'growth',
       name: 'Growth',
       emoji: '🚀',
-      price: 149,
-      priceYearly: 125,
+      price: 249,
+      priceYearly: 208,
       badge: 'Recomandat',
       desc: 'Pentru bistro-uri și restaurante care vor comenzi prin QR.',
       features: [
@@ -435,8 +435,8 @@ function PricingPage({
       id: 'pro',
       name: 'Pro',
       emoji: '💎',
-      price: 299,
-      priceYearly: 245,
+      price: 499,
+      priceYearly: 415,
       badge: null,
       desc: 'Pentru restaurante mari, lanțuri 1-2 locații.',
       features: [

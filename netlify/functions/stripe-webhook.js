@@ -89,10 +89,14 @@ exports.handler = async (event) => {
         if (!refUserId) throw new Error('No client_reference_id in session')
         userId = refUserId
 
+        // Citește planul REAL din metadata subscription-ului (setat la
+        // checkout). Fără asta, toate abonamentele deveneau 'pro' hardcodat.
+        const finalPlan = await resolvePlan(stripe, subscriptionId)
+
         const { error } = await supabase
           .from('profiles')
           .update({
-            plan: 'pro',
+            plan: finalPlan,
             stripe_customer_id: customerId,
             stripe_subscription_id: subscriptionId,
           })
@@ -101,10 +105,10 @@ exports.handler = async (event) => {
         if (error) throw new Error(`Profile update failed: ${error.message}`)
 
         await safeInsertLifecycleEvent(supabase, refUserId, 'subscription_started', {
-          plan: 'pro', subscription_id: subscriptionId,
+          plan: finalPlan, subscription_id: subscriptionId,
         })
 
-        console.log(`[stripe-webhook] User ${refUserId} upgraded to pro`)
+        console.log(`[stripe-webhook] User ${refUserId} upgraded to ${finalPlan}`)
         break
       }
 
@@ -124,7 +128,9 @@ exports.handler = async (event) => {
         }
         userId = profile.id
 
-        const activePlan = ['active', 'trialing'].includes(status) ? 'pro' : 'free'
+        // Plan real din metadata (active/trialing); altfel downgrade la free.
+        const subPlan = normalizePlan(subscription.metadata?.plan)
+        const activePlan = ['active', 'trialing'].includes(status) ? subPlan : 'free'
 
         const { error } = await supabase
           .from('profiles')
@@ -243,6 +249,28 @@ exports.handler = async (event) => {
     .eq('event_id', stripeEvent.id)
 
   return jsonResponse(200, { received: true })
+}
+
+// ── Helper: normalize plan string to canonical paid tier ──────────
+// Acceptă doar planurile plătite valide; orice altceva → 'pro' (safe default
+// pentru un abonament activ — nu lăsăm un plan necunoscut să devină 'free').
+const VALID_PAID_PLANS = ['starter', 'growth', 'pro', 'enterprise']
+function normalizePlan(plan) {
+  const p = String(plan || '').toLowerCase()
+  return VALID_PAID_PLANS.includes(p) ? p : 'pro'
+}
+
+// ── Helper: resolve plan from subscription metadata ────────────────
+// Citește metadata.plan setat la checkout. Fallback 'pro' dacă lipsește.
+async function resolvePlan(stripe, subscriptionId) {
+  if (!subscriptionId) return 'pro'
+  try {
+    const sub = await stripe.subscriptions.retrieve(subscriptionId)
+    return normalizePlan(sub.metadata?.plan)
+  } catch (e) {
+    console.warn('[stripe-webhook] resolvePlan failed, defaulting pro:', e.message)
+    return 'pro'
+  }
 }
 
 // ── Helper: best-effort lifecycle event insert ────────────────────

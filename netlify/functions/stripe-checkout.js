@@ -18,16 +18,35 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY, STRIPE_PRO_PRICE_ID, STRIPE_BUSINESS_PRICE_ID, VITE_APP_URL } = process.env
+  const {
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY,
+    STRIPE_STARTER_PRICE_ID, STRIPE_GROWTH_PRICE_ID,
+    STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
+    STRIPE_TRIAL_DAYS, VITE_APP_URL,
+  } = process.env
 
-  if (!STRIPE_SECRET_KEY || !STRIPE_PRO_PRICE_ID) {
+  // Price map per plan canonic. Lipsa unui price ID = planul respectiv
+  // indisponibil (defensiv — vezi mai jos), NU silent fallback la pro.
+  const PRICE_IDS = {
+    starter:    STRIPE_STARTER_PRICE_ID,
+    growth:     STRIPE_GROWTH_PRICE_ID,
+    pro:        STRIPE_PRO_PRICE_ID,
+    enterprise: STRIPE_ENTERPRISE_PRICE_ID,
+  }
+
+  if (!STRIPE_SECRET_KEY || !Object.values(PRICE_IDS).some(Boolean)) {
     return jsonResponse(500, { error: 'Stripe not configured' })
   }
 
-  // Determine which price to use based on plan param
+  // Determine price strictly by requested plan — NO silent fallback to pro.
   const body = event.body ? JSON.parse(event.body) : {}
-  const planId = body.plan === 'business' && STRIPE_BUSINESS_PRICE_ID ? 'business' : 'pro'
-  const priceId = planId === 'business' ? STRIPE_BUSINESS_PRICE_ID : STRIPE_PRO_PRICE_ID
+  const requestedPlan = String(body.plan || '').toLowerCase()
+  const priceId = PRICE_IDS[requestedPlan]
+  if (!priceId) {
+    return jsonResponse(400, {
+      error: `Plan "${requestedPlan}" indisponibil sau neconfigurat în Stripe`,
+    })
+  }
 
   // Auth
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
@@ -66,6 +85,10 @@ exports.handler = async (event) => {
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
 
+  // Trial configurabil — default 30 zile (onorează promisiunea din landing).
+  // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
+  const trialDays = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
+
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
     client_reference_id: user.id,
@@ -74,7 +97,9 @@ exports.handler = async (event) => {
     success_url: `${appUrl}/dashboard?checkout=success`,
     cancel_url: `${appUrl}/pricing?checkout=cancelled`,
     subscription_data: {
-      metadata: { supabase_user_id: user.id },
+      // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
+      metadata: { supabase_user_id: user.id, plan: requestedPlan },
+      ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
     },
   })
 
