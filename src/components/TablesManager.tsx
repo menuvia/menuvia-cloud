@@ -25,6 +25,7 @@ interface TableRow {
   name: string
   slug: string
   seats: number | null
+  zone: string | null
   is_active: boolean
   created_at: string
   updated_at: string
@@ -164,9 +165,30 @@ function TableModal({
   const [name, setName] = useState(table?.name || '')
   const [slug, setSlug] = useState(table?.slug || '')
   const [seats, setSeats] = useState(table?.seats?.toString() || '')
+  const [zone, setZone] = useState(table?.zone || '')
+  const [existingZones, setExistingZones] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const auto = !table
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const { data } = await supabase
+        .from('tables')
+        .select('zone')
+        .eq('restaurant_id', restaurantId)
+        .not('zone', 'is', null)
+      if (cancelled) return
+      const uniq = Array.from(
+        new Set(((data ?? []) as { zone: string | null }[]).map(r => r.zone).filter(Boolean) as string[]),
+      ).sort((a, b) => a.localeCompare(b, 'ro'))
+      setExistingZones(uniq)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
 
   const save = async () => {
     if (!name.trim()) {
@@ -176,7 +198,8 @@ function TableModal({
     setSaving(true)
     setError(null)
     const s = slug || slugify(name)
-    const payload = { name: name.trim(), slug: s, seats: seats ? parseInt(seats) : null }
+    const z = zone.trim().length > 0 ? zone.trim() : null
+    const payload = { name: name.trim(), slug: s, seats: seats ? parseInt(seats) : null, zone: z }
     const { error: e } = table
       ? await supabase.from('tables').update(payload).eq('id', table.id)
       : await supabase.from('tables').insert({ ...payload, restaurant_id: restaurantId })
@@ -255,7 +278,7 @@ function TableModal({
             Identificator unic în URL-ul QR
           </div>
         </div>
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 14 }}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
             Locuri (opțional)
           </label>
@@ -270,6 +293,30 @@ function TableModal({
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
+        </div>
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
+            Zonă (opțional)
+          </label>
+          <input
+            list="table-zones"
+            value={zone}
+            onChange={(e) => setZone(e.target.value)}
+            placeholder="Terasa, Interior, Bar..."
+            style={inp}
+            onFocus={(e) => (e.target.style.borderColor = D.gold)}
+            onBlur={(e) => (e.target.style.borderColor = D.border)}
+          />
+          {existingZones.length > 0 && (
+            <datalist id="table-zones">
+              {existingZones.map((z) => (
+                <option key={z} value={z} />
+              ))}
+            </datalist>
+          )}
+          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
+            Filtru pentru sheet-ul de rezervări publice (Terasa vs Interior)
+          </div>
         </div>
         {error && (
           <div
@@ -682,6 +729,20 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   <span style={{ fontSize: '0.9rem', fontWeight: 600, color: D.t1 }}>{t.name}</span>
                   {t.seats && (
                     <span style={{ fontSize: '0.72rem', color: D.t3 }}>{t.seats} locuri</span>
+                  )}
+                  {t.zone && (
+                    <span
+                      style={{
+                        fontSize: '0.65rem',
+                        background: D.goldA,
+                        color: D.gold,
+                        padding: '1px 7px',
+                        borderRadius: 4,
+                        letterSpacing: '0.02em',
+                      }}
+                    >
+                      {t.zone}
+                    </span>
                   )}
                   {!t.is_active && (
                     <span

@@ -164,6 +164,48 @@ export const PUBLIC_MENU_STRINGS = {
   today: { ro: 'Astăzi', en: 'Today' },
   back: { ro: 'Înapoi', en: 'Back' },
   pickup_badge: { ro: 'Comandă pentru ridicare', en: 'Order for pickup' },
+  reserve_cta: { ro: 'Rezervă o masă', en: 'Reserve a table' },
+  reserve_trust: {
+    ro: 'Garantăm că rezervarea ta este transmisă',
+    en: 'We guarantee your reservation is received',
+  },
+  reserve_party_label: { ro: 'NUMĂRUL DE PERSOANE', en: 'NUMBER OF PEOPLE' },
+  reserve_date_label: { ro: 'DATA REZERVĂRII', en: 'RESERVATION DATE' },
+  reserve_today: { ro: 'Astăzi', en: 'Today' },
+  reserve_tomorrow: { ro: 'Mâine', en: 'Tomorrow' },
+  reserve_other_date: { ro: 'Altă dată', en: 'Other date' },
+  reserve_zone_label: { ro: 'ZONA', en: 'AREA' },
+  reserve_zone_any: { ro: 'Oriunde', en: 'Any area' },
+  reserve_time_label: { ro: 'ORA REZERVĂRII', en: 'RESERVATION HOUR' },
+  reserve_contact_label: { ro: 'CONTACT', en: 'CONTACT' },
+  reserve_name: { ro: 'Nume', en: 'Name' },
+  reserve_phone: { ro: 'Telefon', en: 'Phone' },
+  reserve_email_opt: { ro: 'Email (opțional)', en: 'Email (optional)' },
+  reserve_notes_opt: { ro: 'Observații (opțional)', en: 'Notes (optional)' },
+  reserve_submit: { ro: 'Rezervă', en: 'Reserve' },
+  reserve_submitting: { ro: 'Se trimite...', en: 'Sending...' },
+  reserve_success_title: { ro: 'Rezervare confirmată!', en: 'Reservation confirmed!' },
+  reserve_pending_title: { ro: 'Rezervare primită', en: 'Reservation received' },
+  reserve_pending_sub: {
+    ro: 'Echipa restaurantului va confirma în scurt timp.',
+    en: 'The venue will confirm shortly.',
+  },
+  reserve_code_label: { ro: 'COD REZERVARE', en: 'BOOKING CODE' },
+  reserve_back_to_menu: { ro: 'Înapoi la meniu', en: 'Back to menu' },
+  reserve_post_paid_cta: { ro: 'Rezervă o masă', en: 'Reserve a table' },
+  reserve_post_paid_sub: { ro: 'Pentru data viitoare', en: 'For your next visit' },
+  reserve_no_slots: {
+    ro: 'Nu există slot-uri disponibile',
+    en: 'No available slots',
+  },
+  reserve_call_if_change: {
+    ro: 'Sună dacă nu mai poți veni',
+    en: 'Call if you can no longer make it',
+  },
+  reserve_email_reminder: {
+    ro: 'Vei primi un email reminder înainte de vizită.',
+    en: 'You will receive an email reminder before your visit.',
+  },
 } as const
 
 export type PublicMenuStringKey = keyof typeof PUBLIC_MENU_STRINGS

@@ -134,6 +134,70 @@ const TEMPLATES = {
       </div>
     `,
   }),
+
+  reservation_reminder: (d) => ({
+    subject: `Reminder: rezervarea ta la ${esc(d.restaurant_name || '')} ${formatRelativeDayRo(d.starts_at)}`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
+          Bună ${esc(d.customer_name || '')}!
+        </h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Îți reamintim de rezervarea ta la <b>${esc(d.restaurant_name || '')}</b>:
+        </p>
+        <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Data și ora</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Persoane</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(String(d.party_size || ''))}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Cod confirmare</div>
+          <div style="font-family:Georgia,serif;color:#C8963C;font-size:22px;letter-spacing:0.15em">${esc(d.confirmation_code || '')}</div>
+        </div>
+        ${
+          d.restaurant_phone
+            ? `<p style="color:#333;font-size:15px;line-height:1.55">Dacă nu mai poți veni, te rugăm să suni: <a href="tel:${esc(d.restaurant_phone)}" style="color:#C8963C">${esc(d.restaurant_phone)}</a></p>`
+            : ''
+        }
+        <p style="color:#666;font-size:13px;margin-top:24px">Te așteptăm cu drag.</p>
+      </div>
+    `,
+  }),
+}
+
+function formatDateTimeRo(iso) {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const date = d.toLocaleDateString('ro-RO', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+    })
+    const time = d.toLocaleTimeString('ro-RO', {
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZone: 'Europe/Bucharest',
+    })
+    return `${date} · ${time}`
+  } catch {
+    return String(iso)
+  }
+}
+
+function formatRelativeDayRo(iso) {
+  if (!iso) return ''
+  try {
+    const target = new Date(iso)
+    const now = new Date()
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const startTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate())
+    const days = Math.round((startTarget - startToday) / (1000 * 60 * 60 * 24))
+    if (days <= 0) return 'astăzi'
+    if (days === 1) return 'mâine'
+    return 'pe ' + target.toLocaleDateString('ro-RO', { day: 'numeric', month: 'long' })
+  } catch {
+    return ''
+  }
 }
 
 function weeklyReportHtml(d) {

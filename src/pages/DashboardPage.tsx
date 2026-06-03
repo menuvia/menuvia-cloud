@@ -40,6 +40,7 @@ const QuickSetupTab = lazy(() => import('../components/QuickSetupTab'))
 const HappyHourTab = lazy(() => import('../components/HappyHourTab'))
 const HealthScoreTab = lazy(() => import('../components/HealthScoreTab'))
 const InvoicesTab = lazy(() => import('../components/InvoicesTab'))
+const ReservationsTab = lazy(() => import('../components/ReservationsTab'))
 const ProductsCsvImport = lazy(() => import('../components/ProductsCsvImport'))
 const ReportsTab = lazy(() => import('../components/ReportsTab'))
 const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
@@ -4134,6 +4135,7 @@ type Tab =
   | 'happy-hour'
   | 'health'
   | 'invoices'
+  | 'reservations'
   | 'settings'
 
 const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
@@ -4153,6 +4155,7 @@ const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
   { id: 'casa-tura', label: 'Casă & Tură', icon: '💰', adminOnly: true },
   { id: 'casa-marcat', label: 'Casă marcat', icon: '📟', adminOnly: true },
   { id: 'invoices', label: 'Facturi', icon: '📄', adminOnly: true },
+  { id: 'reservations', label: 'Rezervări', icon: '📅', adminOnly: true },
   { id: 'happy-hour', label: 'Happy Hour', icon: '🎉', adminOnly: true },
   { id: 'settings', label: 'Setări', icon: '⚙', adminOnly: true },
 ]
@@ -4631,6 +4634,11 @@ export default function DashboardPage({
               {tab === 'invoices' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
                   <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                </Suspense>
+              )}
+              {tab === 'reservations' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
+                  <ReservationsTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
               {tab === 'casa-marcat' && (
