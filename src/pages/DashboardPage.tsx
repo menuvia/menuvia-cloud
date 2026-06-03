@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, Suspense, lazy } from 'react'
+import { useState, useEffect, Suspense, lazy } from 'react'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
-import { useRestaurants, useCategories, useProducts } from '../hooks/useData'
+import { useRestaurants } from '../hooks/useData'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { D, PLAN_LABELS } from '../lib/constants'
 import type { Ingredient as StocksIngredient } from '../lib/stocks'
@@ -32,6 +32,7 @@ const InvoicesTab = lazy(() => import('../components/InvoicesTab'))
 const ReservationsTab = lazy(() => import('../components/ReservationsTab'))
 const SettingsTab = lazy(() => import('../components/SettingsTab'))
 const ProductsTab = lazy(() => import('../components/ProductsTab'))
+const CategoriesTab = lazy(() => import('../components/CategoriesTab'))
 const ReportsTab = lazy(() => import('../components/ReportsTab'))
 const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 // Re-importăm type-only pentru a evita any-cast
@@ -70,50 +71,6 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
-function useToast() {
-  const [toasts, setToasts] = useState<{ id: string; msg: string; type: string }[]>([])
-  const toast = useCallback((msg: string, type = 'success') => {
-    const id = Math.random().toString(36).slice(2)
-    setToasts((t) => [...t, { id, msg, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
-  }, [])
-  return { toasts, toast }
-}
-function Toast({ toasts }: { toasts: { id: string; msg: string; type: string }[] }) {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 80,
-        right: 16,
-        zIndex: 9999,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        pointerEvents: 'none',
-      }}
-    >
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          style={{
-            background: D.s3,
-            borderLeft: `3px solid ${t.type === 'error' ? D.red : D.green}`,
-            borderRadius: 10,
-            padding: '12px 16px',
-            fontSize: '0.875rem',
-            color: D.t1,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            minWidth: 220,
-            maxWidth: 320,
-          }}
-        >
-          {t.msg}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -542,57 +499,6 @@ function Inp({
     />
   )
 }
-function Sel({
-  value,
-  onChange,
-  children,
-}: {
-  value: string
-  onChange: (v: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ ...inp, cursor: 'pointer' }}
-    >
-      {children}
-    </select>
-  )
-}
-function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      onClick={() => onChange(!value)}
-      style={{
-        width: 44,
-        height: 26,
-        borderRadius: 13,
-        background: value ? D.gold : D.s4,
-        border: `1px solid ${value ? D.gold : D.border}`,
-        position: 'relative',
-        transition: 'all .2s',
-        cursor: 'pointer',
-        flexShrink: 0,
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          top: 3,
-          left: value ? 20 : 3,
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          background: '#fff',
-          transition: 'left .2s',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
-        }}
-      />
-    </button>
-  )
-}
 
 // ── RecipeAddForm: inline form for adding ingredient to recipe ───
 function RecipeAddForm({
@@ -738,352 +644,7 @@ function ExtraForm({
 }
 
 
-// ── Category Modal ────────────────────────────────────────────
-function CategoryModal({
-  category,
-  onSave,
-  onClose,
-}: {
-  category: Category | null
-  onSave: (f: Partial<Category>) => void
-  onClose: () => void
-}) {
-  const [form, setForm] = useState<Partial<Category>>(category || { name: '', emoji: '🍽️' })
-  return (
-    <Modal
-      title={category ? 'Editează categorie' : 'Adaugă categorie'}
-      onClose={onClose}
-      width={400}
-    >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Nume *
-          </label>
-          <Inp
-            value={form.name || ''}
-            onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-            placeholder="Feluri principale"
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Emoji
-          </label>
-          <Inp
-            value={form.emoji || ''}
-            onChange={(v) => setForm((f) => ({ ...f, emoji: v }))}
-            placeholder="🍽️"
-          />
-        </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
-            Text italic sub titlu (opțional)
-          </label>
-          <textarea
-            value={form.meta_text || ''}
-            onChange={(e) => setForm((f) => ({ ...f, meta_text: e.target.value }))}
-            placeholder="ex: Servit până la ora 13:00"
-            rows={2}
-            style={{
-              width: '100%',
-              padding: '10px 12px',
-              background: D.s3,
-              border: `1px solid ${D.border}`,
-              borderRadius: 8,
-              color: D.t1,
-              fontSize: '0.85rem',
-              fontFamily: 'inherit',
-              resize: 'vertical',
-              outline: 'none',
-              boxSizing: 'border-box',
-            }}
-          />
-          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
-            Afișat pe meniul public sub numele categoriei.
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
-          <button
-            onClick={onClose}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-          >
-            Anulează
-          </button>
-          <button onClick={() => onSave(form)} style={btn({ background: D.gold, color: '#000' })}>
-            Salvează
-          </button>
-        </div>
-      </div>
-    </Modal>
-  )
-}
 
-
-// ── Categories Tab ────────────────────────────────────────────
-function CategoriesTab({ restaurantId }: { restaurantId: string }) {
-  const {
-    categories,
-    loading,
-    error,
-    create,
-    update,
-    remove,
-    reorder,
-    refetch: refetchCats,
-  } = useCategories(restaurantId)
-  const { products, error: prodError, refetch: refetchProds } = useProducts(restaurantId)
-  const { toasts, toast } = useToast()
-  const [modal, setModal] = useState<Category | 'add' | null>(null)
-  const [delId, setDelId] = useState<string | null>(null)
-
-  if (error || prodError)
-    return (
-      <QueryError
-        message={error || prodError || 'Eroare necunoscută'}
-        onRetry={() => {
-          refetchCats()
-          refetchProds()
-        }}
-      />
-    )
-
-  const handleSave = async (form: Partial<Category>) => {
-    if (modal === 'add') {
-      const { error: e } = await create(form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Categorie adăugată')
-        setModal(null)
-      }
-    } else if (modal) {
-      const { error: e } = await update((modal as Category).id, form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Actualizat')
-        setModal(null)
-      }
-    }
-  }
-  const handleDelete = async () => {
-    if (!delId) return
-    const { error: e } = await remove(delId)
-    if (e) toast('Nu poți șterge o categorie cu produse', 'error')
-    else toast('Ștearsă')
-    setDelId(null)
-  }
-
-  return (
-    <div>
-      <Toast toasts={toasts} />
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 20,
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
-      >
-        <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Categorii
-          </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
-            {categories.length} categorii
-          </p>
-        </div>
-        <button
-          onClick={() => setModal('add')}
-          style={btn({
-            background: D.gold,
-            color: '#000',
-            height: 40,
-            padding: '0 16px',
-            fontSize: '0.85rem',
-          })}
-        >
-          + Adaugă categorie
-        </button>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {loading ? (
-          <div style={{ padding: '32px 0', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
-        ) : categories.length === 0 ? (
-          <div
-            style={{
-              padding: '40px',
-              textAlign: 'center',
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              color: D.t3,
-            }}
-          >
-            Nicio categorie. Adaugă prima!
-          </div>
-        ) : (
-          categories.map((cat) => {
-            const count = products.filter((p) => p.category_id === cat.id).length
-            return (
-              <div
-                key={cat.id}
-                style={{
-                  background: D.s2,
-                  border: `1px solid ${D.border}`,
-                  borderRadius: 12,
-                  padding: '14px 18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 14,
-                }}
-              >
-                <div
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 10,
-                    background: D.s3,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '1.3rem',
-                    flexShrink: 0,
-                  }}
-                >
-                  {cat.emoji}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 500, color: D.t1 }}>{cat.name}</div>
-                  <div style={{ fontSize: '0.75rem', color: D.t3, marginTop: 2 }}>
-                    {count} produs{count !== 1 ? 'e' : ''}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <button
-                    onClick={() => {
-                      const idx = categories.indexOf(cat)
-                      if (idx > 0) {
-                        const reordered = [...categories]
-                        ;[reordered[idx - 1], reordered[idx]] = [reordered[idx], reordered[idx - 1]]
-                        reorder(reordered)
-                      }
-                    }}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
-                      background: D.s3,
-                      border: `1px solid ${D.border}`,
-                      color: D.t2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    onClick={() => {
-                      const idx = categories.indexOf(cat)
-                      if (idx < categories.length - 1) {
-                        const reordered = [...categories]
-                        ;[reordered[idx], reordered[idx + 1]] = [reordered[idx + 1], reordered[idx]]
-                        reorder(reordered)
-                      }
-                    }}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
-                      background: D.s3,
-                      border: `1px solid ${D.border}`,
-                      color: D.t2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ↓
-                  </button>
-                  <button
-                    onClick={() => setModal(cat)}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
-                      background: D.s3,
-                      border: `1px solid ${D.border}`,
-                      color: D.t2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    ✏
-                  </button>
-                  <button
-                    onClick={() => setDelId(cat.id)}
-                    style={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: 8,
-                      background: D.redA,
-                      border: `1px solid rgba(224,85,85,0.2)`,
-                      color: D.red,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    🗑
-                  </button>
-                </div>
-              </div>
-            )
-          })
-        )}
-      </div>
-      {modal && (
-        <CategoryModal
-          category={modal === 'add' ? null : (modal as Category)}
-          onSave={handleSave}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {delId && (
-        <Modal title="Șterge categorie" onClose={() => setDelId(null)} width={380}>
-          <p style={{ color: D.t2, marginBottom: 22 }}>
-            Produsele din această categorie rămân fără categorie.
-          </p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setDelId(null)}
-              style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-            >
-              Anulează
-            </button>
-            <button onClick={handleDelete} style={btn({ background: D.red, color: '#fff' })}>
-              Șterge
-            </button>
-          </div>
-        </Modal>
-      )}
-    </div>
-  )
-}
 
 
 // ── Main Dashboard ────────────────────────────────────────────
@@ -1513,7 +1074,11 @@ export default function DashboardPage({
                   />
                 </Suspense>
               )}
-              {tab === 'categories' && <CategoriesTab restaurantId={restaurant.id} />}
+              {tab === 'categories' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă categoriile..." />}>
+                  <CategoriesTab restaurantId={restaurant.id} />
+                </Suspense>
+              )}
               {tab === 'modificatori' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă modificatorii..." />}>
                   <ModifiersTab restaurantId={restaurant.id} />
