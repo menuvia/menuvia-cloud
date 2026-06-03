@@ -23,10 +23,11 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - name: Security audit (block high+critical)
-        # Continuă pe vulnerabilități moderate (zgomot); blochează numai
-        # high+critical (real risk). Adaugă --omit=dev dacă vrem mai relax.
-        run: npm audit --audit-level=high
+      - name: Security audit (prod deps only, block high+critical)
+        # Auditează DOAR deps de production — care ajung în bundle-ul shipped.
+        # Dev tooling (vitest/vite/@typescript-eslint) e zgomot — vulnerabili-
+        # tățile lor nu ating userii finali, doar build pipeline.
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - name: Build
         env:

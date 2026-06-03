@@ -2,6 +2,7 @@ import { useState, useEffect, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
 import { fetchVatRates } from '../lib/vat'
@@ -14,7 +15,7 @@ import {
 } from '../lib/stocks'
 import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../lib/stocks'
 import { QueryError } from './PageLoader'
-import { btn, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
+import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 
@@ -1221,6 +1222,150 @@ function ProductModal({
     </Modal>
   )
 }
+
+// ── RecipeAddForm: inline form for adding ingredient to recipe ───
+function RecipeAddForm({
+  ingredients,
+  onAdd,
+}: {
+  ingredients: StocksIngredient[]
+  onAdd: (ingredientId: string, quantity: number) => void | Promise<void>
+}) {
+  const [selectedId, setSelectedId] = useState('')
+  const [quantity, setQuantity] = useState('')
+
+  function submit() {
+    if (selectedId.length === 0 || quantity.length === 0) return
+    const q = parseFloat(quantity)
+    if (isNaN(q) || q <= 0) return
+    void onAdd(selectedId, q)
+    setSelectedId('')
+    setQuantity('')
+  }
+
+  if (ingredients.length === 0) {
+    return (
+      <div
+        style={{
+          fontSize: '0.74rem',
+          color: D.t3,
+          padding: '10px',
+          background: D.s3,
+          borderRadius: 7,
+          textAlign: 'center',
+        }}
+      >
+        Toate ingredientele sunt deja adăugate la rețetă
+      </div>
+    )
+  }
+
+  const sel = ingredients.find((i) => i.id === selectedId)
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 100px 70px',
+        gap: 6,
+        alignItems: 'center',
+      }}
+    >
+      <select
+        value={selectedId}
+        onChange={(e) => setSelectedId(e.target.value)}
+        style={{
+          padding: '8px 10px',
+          background: D.s3,
+          border: `1px solid ${D.border}`,
+          borderRadius: 7,
+          color: D.t1,
+          fontSize: '0.82rem',
+          fontFamily: 'DM Sans,sans-serif',
+          height: 36,
+        }}
+      >
+        <option value="">Alege ingredient...</option>
+        {ingredients.map((i) => (
+          <option key={i.id} value={i.id}>
+            {i.emoji ?? '🥬'} {i.name}
+          </option>
+        ))}
+      </select>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Inp value={quantity} onChange={setQuantity} type="number" placeholder="0" />
+        <span style={{ fontSize: '0.7rem', color: D.t3, whiteSpace: 'nowrap' }}>
+          {sel?.unit ?? ''}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={selectedId.length === 0 || quantity.length === 0}
+        style={btn({
+          background: D.gold,
+          color: '#000',
+          height: 36,
+          fontSize: '0.74rem',
+          opacity: selectedId.length === 0 || quantity.length === 0 ? 0.5 : 1,
+        })}
+      >
+        + Add
+      </button>
+    </div>
+  )
+}
+
+// ── ExtraForm: small inline form for adding a product extra ───────
+function ExtraForm({
+  onAdd,
+}: {
+  onAdd: (name: string, price: number, emoji: string) => void | Promise<void>
+}) {
+  const [name, setName] = useState('')
+  const [price, setPrice] = useState('')
+  const [emoji, setEmoji] = useState('')
+
+  function submit() {
+    if (name.trim().length === 0 || price.length === 0) return
+    const p = parseFloat(price)
+    if (isNaN(p) || p < 0) return
+    void onAdd(name, p, emoji)
+    setName('')
+    setPrice('')
+    setEmoji('')
+  }
+
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '40px 1fr 80px 70px',
+        gap: 6,
+        alignItems: 'center',
+      }}
+    >
+      <Inp value={emoji} onChange={setEmoji} placeholder="🧀" />
+      <Inp value={name} onChange={setName} placeholder="Brânză extra" />
+      <Inp value={price} onChange={setPrice} type="number" placeholder="5.00" />
+      <button
+        type="button"
+        onClick={submit}
+        disabled={name.trim().length === 0 || price.length === 0}
+        style={btn({
+          background: D.gold,
+          color: '#000',
+          height: 36,
+          fontSize: '0.78rem',
+          opacity: name.trim().length === 0 || price.length === 0 ? 0.5 : 1,
+        })}
+      >
+        + Adaugă
+      </button>
+    </div>
+  )
+}
+
 // ── Products Tab ──────────────────────────────────────────────
 export default function ProductsTab({
   restaurantId,
