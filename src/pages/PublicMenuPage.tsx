@@ -6,7 +6,7 @@
 //   • Order for pickup — when pickup_settings.enabled = true
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useMemo, useDeferredValue } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, CSSProperties } from 'react'
 import {
   fetchRestaurantBySlug,
   fetchMenuForRestaurant,
@@ -908,6 +908,65 @@ function IconInstagram({ size = 14, color = 'currentColor' }: IconProps) {
   )
 }
 
+function IconTikTok({ size = 14, color = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M16.6 5.82c-.86-.86-1.4-2.05-1.4-3.32h-3.36v13.5a2.85 2.85 0 0 1-2.85 2.85 2.85 2.85 0 0 1-2.85-2.85 2.85 2.85 0 0 1 2.85-2.85c.31 0 .61.05.9.14V9.84a6.18 6.18 0 0 0-.9-.06A6.21 6.21 0 0 0 2.78 16a6.21 6.21 0 0 0 6.21 6.21 6.21 6.21 0 0 0 6.21-6.21V9.27a8.16 8.16 0 0 0 4.77 1.53V7.45a4.85 4.85 0 0 1-3.37-1.63Z" />
+    </svg>
+  )
+}
+
+function IconFacebook({ size = 14, color = 'currentColor' }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+      <path d="M22 12a10 10 0 1 0-11.56 9.88V14.9H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.57V12h2.77l-.44 2.9h-2.33v6.98A10 10 0 0 0 22 12Z" />
+    </svg>
+  )
+}
+
+function IconGlobe({ size = 14, color = 'currentColor' }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <path d="M2 12h20" />
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+    </svg>
+  )
+}
+
+// "@user", "user", sau URL complet → URL absolut pentru platforma respectivă.
+// Acceptă defensiv ambele forme că utilizatorii lipesc des linkuri întregi.
+function socialUrl(platform: 'instagram' | 'tiktok' | 'facebook' | 'website', value: string): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) return v
+  if (platform === 'website') return 'https://' + v.replace(/^\/+/, '')
+  const handle = socialHandle(v)
+  if (platform === 'instagram') return `https://instagram.com/${handle}`
+  if (platform === 'tiktok')    return `https://tiktok.com/@${handle}`
+  return `https://facebook.com/${handle}`
+}
+
+// Extrage handle-ul curat pentru AFIȘARE din orice formă pe care o lipește
+// userul: "tinctura", "@tinctura", "https://tiktok.com/@tinctura",
+// "instagram.com/tinctura/" → toate devin "tinctura".
+function socialHandle(value: string): string {
+  return value
+    .trim()
+    .replace(/^https?:\/\//i, '')          // scoate protocol
+    .replace(/^(www\.)?[^/]+\//, '')       // scoate domeniul + primul slash
+    .replace(/[/?#].*$/, '')               // scoate path/query rămas
+    .replace(/^@/, '')                     // scoate @ de început
+}
+
 function IconSearch({ size = 16, color = 'currentColor' }: IconProps) {
   return (
     <svg
@@ -951,6 +1010,9 @@ function HeroSection({
   const hasWifi = restaurant.amenities?.includes('wifi') ?? false
   const hasVegan = restaurant.amenities?.includes('vegan_options') ?? false
   const instagram = restaurant.socials?.instagram
+  const tiktok = restaurant.socials?.tiktok
+  const facebook = restaurant.socials?.facebook
+  const website = restaurant.socials?.website
 
   return (
     <div
@@ -1079,13 +1141,65 @@ function HeroSection({
             </InfoPill>
           )}
           {instagram && (
-            <InfoPill isDark={isDark}>
-              <IconInstagram /> {instagram.replace(/^@/, '@')}
-            </InfoPill>
+            <SocialPill isDark={isDark} href={socialUrl('instagram', instagram)}>
+              <IconInstagram /> {'@' + socialHandle(instagram)}
+            </SocialPill>
+          )}
+          {tiktok && (
+            <SocialPill isDark={isDark} href={socialUrl('tiktok', tiktok)}>
+              <IconTikTok /> {'@' + socialHandle(tiktok)}
+            </SocialPill>
+          )}
+          {facebook && (
+            <SocialPill isDark={isDark} href={socialUrl('facebook', facebook)}>
+              <IconFacebook /> Facebook
+            </SocialPill>
+          )}
+          {website && (
+            <SocialPill isDark={isDark} href={socialUrl('website', website)}>
+              <IconGlobe /> Website
+            </SocialPill>
           )}
         </div>
       </div>
     </div>
+  )
+}
+
+// Versiunea clickable a InfoPill: render <a> cu același styling.
+function SocialPill({
+  children,
+  isDark,
+  href,
+}: {
+  children: ReactNode
+  isDark: boolean
+  href: string
+}) {
+  return (
+    <a
+      data-testid="social-pill"
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '6px 12px',
+        borderRadius: 100,
+        background: isDark ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.18)',
+        backdropFilter: 'blur(12px) saturate(120%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(120%)',
+        border: `1px solid ${isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.28)'}`,
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 500,
+        textDecoration: 'none',
+      }}
+    >
+      {children}
+    </a>
   )
 }
 
@@ -1673,6 +1787,17 @@ interface FooterProps {
 
 function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
   const instagram = restaurant.socials?.instagram
+  const tiktok = restaurant.socials?.tiktok
+  const facebook = restaurant.socials?.facebook
+  const website = restaurant.socials?.website
+  const socialLinkStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    justifyContent: 'center',
+    color: 'inherit',
+    textDecoration: 'none',
+  }
   return (
     <div
       data-testid="footer-brand"
@@ -1735,9 +1860,44 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
           </div>
         )}
         {instagram && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-            <IconInstagram size={13} color={accent} /> {instagram}
-          </div>
+          <a
+            href={socialUrl('instagram', instagram)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={socialLinkStyle}
+          >
+            <IconInstagram size={13} color={accent} /> {'@' + socialHandle(instagram)}
+          </a>
+        )}
+        {tiktok && (
+          <a
+            href={socialUrl('tiktok', tiktok)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={socialLinkStyle}
+          >
+            <IconTikTok size={13} color={accent} /> {'@' + socialHandle(tiktok)}
+          </a>
+        )}
+        {facebook && (
+          <a
+            href={socialUrl('facebook', facebook)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={socialLinkStyle}
+          >
+            <IconFacebook size={13} color={accent} /> Facebook
+          </a>
+        )}
+        {website && (
+          <a
+            href={socialUrl('website', website)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={socialLinkStyle}
+          >
+            <IconGlobe size={13} color={accent} /> {website.replace(/^https?:\/\//i, '')}
+          </a>
         )}
       </div>
       <div
