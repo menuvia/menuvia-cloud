@@ -2,6 +2,10 @@
 // CategoriesTab. Extracție DRY după refactor-ul god component.
 // API păstrat 1:1 cu legacy (lift-and-shift); migrare la src/components/ui/
 // (Toast / useToast cu API .success/.error) e refactor separat.
+//
+// Fișier hibrid (components + style helpers + hook). Split în 2 fișiere e
+// follow-up — pentru acum dezactivăm regula react-refresh local.
+/* eslint-disable react-refresh/only-export-components */
 
 import { useState, useCallback } from 'react'
 import type React from 'react'

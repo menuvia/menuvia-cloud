@@ -10,6 +10,8 @@ export interface PlanLimits {
   features: string[]
 }
 
+// Fallback offline — valori identice cu rândurile din migration 062
+// (plan_limits). Folosit când fetch-ul DB eșuează sau înainte de load.
 const DEFAULTS: Record<string, PlanLimits> = {
   free: {
     plan: 'free',
@@ -19,13 +21,43 @@ const DEFAULTS: Record<string, PlanLimits> = {
     ai_imports_month: 1,
     features: ['qr_static'],
   },
-  pro: {
-    plan: 'pro',
+  starter: {
+    plan: 'starter',
+    max_products: 50,
+    max_restaurants: 1,
+    max_tables: 8,
+    ai_imports_month: 2,
+    features: ['qr_static', 'qr_dynamic'],
+  },
+  growth: {
+    plan: 'growth',
     max_products: 500,
     max_restaurants: 1,
-    max_tables: 30,
+    max_tables: 50,
     ai_imports_month: 20,
-    features: ['qr_dynamic', 'ordering', 'analytics', 'ai_import', 'team', 'kitchen', 'waiter'],
+    features: ['qr_dynamic', 'ordering', 'analytics', 'team', 'kitchen', 'waiter'],
+  },
+  pro: {
+    plan: 'pro',
+    max_products: 2000,
+    max_restaurants: 2,
+    max_tables: 100,
+    ai_imports_month: 50,
+    features: [
+      'qr_dynamic', 'ordering', 'analytics', 'ai_import', 'team',
+      'kitchen', 'waiter', 'floor_plan', 'split_bill',
+    ],
+  },
+  enterprise: {
+    plan: 'enterprise',
+    max_products: 99999,
+    max_restaurants: 99,
+    max_tables: 999,
+    ai_imports_month: 999,
+    features: [
+      'qr_dynamic', 'ordering', 'analytics', 'ai_import', 'team',
+      'kitchen', 'waiter', 'floor_plan', 'split_bill', 'multi_location',
+    ],
   },
 }
 

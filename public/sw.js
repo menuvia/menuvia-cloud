@@ -9,7 +9,7 @@
 // sau de bundle care fac neaplicabil cache-ul vechi. Activate handler
 // șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
 // primesc instantaneu noul build (nu mai trebuie hard refresh manual).
-const CACHE_VERSION = 'menuvia-v4'
+const CACHE_VERSION = 'menuvia-v5'
 const APP_SHELL = ['/favicon.svg', '/manifest.json']
 
 // ── Install: cache app shell ────────────────────────────────────
@@ -54,7 +54,10 @@ self.addEventListener('fetch', (event) => {
   }
 
   // QR menu pages: stale-while-revalidate (show cached, update in bg)
-  if (url.pathname.startsWith('/menu/') || url.pathname.startsWith('/qr/')) {
+  // Rutele REALE sunt /m/<slug> și /q/<token> (vezi App.tsx parsePath).
+  // Înainte verifica /menu/ și /qr/ care nu există → meniul public nu se
+  // cache-uia niciodată offline.
+  if (url.pathname.startsWith('/m/') || url.pathname.startsWith('/q/')) {
     event.respondWith(staleWhileRevalidate(req))
     return
   }

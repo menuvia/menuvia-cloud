@@ -301,7 +301,7 @@ function LandingPage({
             Gratuit pentru început
           </div>
           <p style={{ color: D.t2, fontSize: 14, marginBottom: 20 }}>
-            Plan gratuit cu până la 15 produse. Pro de la 249 lei/lună.
+            Plan gratuit cu până la 15 produse. Planuri plătite de la 99 lei/lună.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
@@ -388,8 +388,8 @@ function PricingPage({
       id: 'starter',
       name: 'Starter',
       emoji: '🌱',
-      price: 79,
-      priceYearly: 65,
+      price: 99,
+      priceYearly: 83,
       badge: null,
       desc: 'Meniu digital QR pentru cafenele și locații mici.',
       features: [
@@ -409,8 +409,8 @@ function PricingPage({
       id: 'growth',
       name: 'Growth',
       emoji: '🚀',
-      price: 149,
-      priceYearly: 125,
+      price: 249,
+      priceYearly: 208,
       badge: 'Recomandat',
       desc: 'Pentru bistro-uri și restaurante care vor comenzi prin QR.',
       features: [
@@ -419,7 +419,7 @@ function PricingPage({
         { t: 'Cheamă ospătar / Cere nota', ok: true },
         { t: 'Dashboard bucătărie', ok: true },
         { t: 'Comenzi manuale ospătar', ok: true },
-        { t: 'Plăți: cash, card POS, online', ok: true },
+        { t: 'Plăți: cash, card la POS', ok: true },
         { t: 'Modifiers + Extras + Pereche', ok: true },
         { t: 'Echipă: până la 5 membri', ok: true },
         { t: 'Mod offline pentru ospătari', ok: true },
@@ -435,8 +435,8 @@ function PricingPage({
       id: 'pro',
       name: 'Pro',
       emoji: '💎',
-      price: 299,
-      priceYearly: 245,
+      price: 499,
+      priceYearly: 415,
       badge: null,
       desc: 'Pentru restaurante mari, lanțuri 1-2 locații.',
       features: [
@@ -487,17 +487,17 @@ function PricingPage({
   const EXTRAS_MONTHLY = [
     {
       icon: '💳',
-      title: 'Plăți online prin QR',
-      price: '+49 lei/lună + 0.5%',
+      title: 'Plăți online prin QR (în curând)',
+      price: 'În curând',
       plans: 'Growth, Pro',
-      desc: 'Clientul plătește direct cu cardul. Bacșiș integrat.',
+      desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
     },
     {
       icon: '🔌',
-      title: 'Integrare casă de marcat',
+      title: 'Integrare casă de marcat (pilot)',
       price: '+99 lei/lună',
       plans: 'Pro doar',
-      desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. Bonurile se emit automat.',
+      desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. În pilot — disponibil pe bază de cerere, nu activat automat.',
     },
   ]
 
@@ -547,7 +547,7 @@ function PricingPage({
     },
     {
       q: 'Aveți integrare cu casă de marcat?',
-      a: 'Da, ca extras pe planul Pro (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Bonurile fiscale se emit automat la fiecare comandă plătită.',
+      a: 'În pilot, ca extras pe planul Pro (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Sunteți pe piață de mult?',
