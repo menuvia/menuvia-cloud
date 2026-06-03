@@ -10,7 +10,6 @@ import { usePlanLimits } from '../hooks/usePlanLimits'
 import { InlineSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
 import React from 'react'
-import { btn, Inp } from '../components/_dashboard/sharedUI'
 
 // ── Lazy-loaded tab components ────────────────────────────────
 // TablesManager pulls in jsPDF (400KB) + qrcode + html2canvas (200KB)
