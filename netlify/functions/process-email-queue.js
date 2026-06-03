@@ -162,6 +162,82 @@ const TEMPLATES = {
       </div>
     `,
   }),
+
+  win_back_7d: (d) => ({
+    subject: `${esc(d.restaurant_name || '')} — văd că ai pauză. Pot ajuta cu ceva?`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Am observat că ultima comandă prin Menuvia la <b>${esc(d.restaurant_name || '')}</b> a fost acum <b>${esc(String(d.days_since_last_order || ''))} zile</b>.
+        </p>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Nu trag concluzii — patroni inteligenți au săptămâni încărcate, sezon scăzut, sau pur și simplu testează altceva. Dar vreau să întreb direct: <b>e ceva ce nu merge cu Menuvia?</b>
+        </p>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Răspunde la acest email cu un cuvânt sau două. Dacă e un bug, îl rezolv în 24h. Dacă lipsește o feature, o pun în roadmap. Dacă e altceva — ascult.
+        </p>
+        <p style="color:#666;font-size:13px;margin-top:24px">— Radu, Menuvia</p>
+      </div>
+    `,
+  }),
+
+  win_back_30d: (d) => ({
+    subject: `${esc(d.restaurant_name || '')} — o lună fără comenzi. Vorbim?`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          ${esc(String(d.days_since_last_order || ''))} zile fără comenzi prin Menuvia la <b>${esc(d.restaurant_name || '')}</b>. Vreau să fiu transparent: la pragul ăsta e clar că ceva nu funcționează pentru tine.
+        </p>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Două scenarii probabile:
+        </p>
+        <ul style="color:#333;font-size:16px;line-height:1.55">
+          <li><b>Ai un blocker tehnic</b> pe care nu l-am identificat. Răspunde la acest email — rezolv săptămâna asta.</li>
+          <li><b>Ai trecut pe alt produs.</b> E ok. Dar înainte, dă-mi 10 minute la telefon (răspunde cu "sună-mă"). Vreau să înțeleg ce am ratat — pentru următorii ${esc(d.restaurant_name || '')}-uri.</li>
+        </ul>
+        <p style="color:#333;font-size:16px;line-height:1.55">
+          Oricum ar fi: îți mulțumesc că ai dat o șansă produsului.
+        </p>
+        <p style="color:#666;font-size:13px;margin-top:24px">— Radu</p>
+      </div>
+    `,
+  }),
+
+  nps_survey: (d) => {
+    // mailto: pre-fill subject = nota + body = ID identificare.
+    // Zero infra → patron click pe nota → deschide client email → trimite.
+    // Înlocuiește cu URL real (route /nps) dacă vrei pagini de feedback.
+    const replyEmail = 'radu@menuvia.ro'
+    const link = (score) =>
+      `mailto:${replyEmail}?subject=${encodeURIComponent('NPS ' + score + '/10 — ' + (d.restaurant_name || ''))}&body=${encodeURIComponent('Nota: ' + score + '/10\n\nMotiv (opțional):\n\n\n—\nUser: ' + (d.user_id || '') + '\nRestaurant: ' + (d.restaurant_name || ''))}`
+    return {
+      subject: `${esc(d.restaurant_name || 'Menuvia')} — pe scara 0-10, ce notă dai Menuvia?`,
+      html: `
+        <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+          <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px;margin:0 0 16px">Bună ${esc(d.owner_name || 'Patron')},</h1>
+          <p style="color:#333;font-size:16px;line-height:1.55">
+            Sunt 2 luni de când folosești Menuvia. O singură întrebare:
+          </p>
+          <p style="color:#0A0908;font-size:18px;font-weight:600;line-height:1.4;margin:24px 0">
+            Pe scara 0–10, cât de probabil e să recomanzi Menuvia altui patron de restaurant?
+          </p>
+          <div style="text-align:center;margin:24px 0">
+            ${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+              .map(
+                (n) => `<a href="${link(n)}" style="display:inline-block;width:36px;height:36px;line-height:36px;margin:2px;border:1px solid #C8963C;border-radius:50%;color:#0A0908;text-decoration:none;font-weight:600">${n}</a>`,
+              )
+              .join('')}
+          </div>
+          <p style="color:#666;font-size:13px;line-height:1.55">
+            Click pe notă → deschide email-ul tău cu nota pre-completată. Adaugă 1-2 fraze cu motivul (opțional). Pentru orice notă sub 7, sun personal în 48h.
+          </p>
+          <p style="color:#666;font-size:13px;margin-top:24px">— Radu</p>
+        </div>
+      `,
+    }
+  },
 }
 
 function formatDateTimeRo(iso) {

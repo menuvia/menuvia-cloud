@@ -5,10 +5,12 @@
 //     schedule = "*/15 * * * *"  # every 15 minutes
 //
 // Jobs executed each tick:
-//   1. process_lifecycle_events   (every tick)
-//   2. compute_health_scores       (only at HH:00, HH:30 — every 30 min)
-//   3. cleanup_old_rate_limits     (only daily at 03:15)
-//   4. weekly_report dispatch      (only Friday 18:00 ish)
+//   1. process_lifecycle_events       (every tick)
+//   2. compute_health_scores          (only at HH:00, HH:30 — every 30 min)
+//   3. cleanup_old_rate_limits        (only daily at 03:15)
+//   4. weekly_report dispatch         (only Friday 18:00 ish)
+//   5. detect_winback_inactive        (only daily at 09:00 Bucharest)
+//   6. detect_nps_due                 (only daily at 10:00 Bucharest)
 //
 // Idempotent: re-running shouldn't cause duplicate emails (dedup_key on queue).
 
@@ -74,6 +76,33 @@ exports.handler = async () => {
       results.weekly_reports_dispatched = reportsDispatched
     } catch (e) {
       results.weekly_error = e.message
+    }
+  }
+
+  // ── Job 5: win-back inactive (daily 09:00-09:15 Bucharest) ──
+  // Detector SQL face deduplication per lună prin dedup_key.
+  if (hour === 9 && minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('detect_winback_inactive')
+      if (error) throw error
+      const row = (data && data[0]) || {}
+      results.winback_7d = row.enqueued_7d ?? 0
+      results.winback_30d = row.enqueued_30d ?? 0
+    } catch (e) {
+      results.winback_error = e.message
+    }
+  }
+
+  // ── Job 6: NPS due (daily 10:00-10:15 Bucharest) ──
+  // Useri la 60+ zile post-signup care n-au primit încă survey-ul.
+  // Dedup_key lifetime — fiecare user primește exact 1 email vreodată.
+  if (hour === 10 && minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('detect_nps_due')
+      if (error) throw error
+      results.nps_enqueued = data ?? 0
+    } catch (e) {
+      results.nps_error = e.message
     }
   }
 
