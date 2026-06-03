@@ -1,47 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { sentryVitePlugin } from '@sentry/vite-plugin'
 import path from 'path'
 
-const sentryAuth = process.env.SENTRY_AUTH_TOKEN
-const sentryOrg = process.env.SENTRY_ORG
-const sentryProject = process.env.SENTRY_PROJECT
-const sentryReady = Boolean(sentryAuth && sentryOrg && sentryProject)
-const release = process.env.COMMIT_REF || process.env.GITHUB_SHA
+// Sentry source maps upload: scos temporar pentru CI green (package-lock.json
+// out of sync). Re-adăugat via post-build script separat după ce avem env+lock OK.
 
 export default defineConfig({
-  plugins: [
-    react(),
-    // Gated pe env vars: pe local dev / CI fără token = no-op silent.
-    // Pe Netlify build cu SENTRY_AUTH_TOKEN setat = upload source maps +
-    // injectează release name în bundle pentru decode stack traces.
-    ...(sentryReady
-      ? [
-          sentryVitePlugin({
-            org: sentryOrg,
-            project: sentryProject,
-            authToken: sentryAuth,
-            release: release ? { name: release } : undefined,
-            sourcemaps: {
-              assets: ['./dist/**/*.js', './dist/**/*.js.map'],
-              // Critic: șterge .map din dist/ după upload — Netlify deployează
-              // doar bundle minified, Sentry păstrează maps privat pentru decode.
-              filesToDeleteAfterUpload: ['./dist/**/*.js.map'],
-            },
-            telemetry: false,
-          }),
-        ]
-      : []),
-  ],
+  plugins: [react()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
   },
   build: {
-    // Generăm source maps DOAR pe build-uri cu Sentry ready (upload + delete).
-    // Fără asta, dev/CI nu generează .map → zero risc de leak public.
-    sourcemap: sentryReady,
+    // Source maps OFF — zero risc de leak public + bundle mai mic.
+    sourcemap: false,
     rollupOptions: {
       output: {
         // Chunks separate pentru:
