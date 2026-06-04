@@ -56,6 +56,16 @@ interface RouteState {
   token?: string
 }
 
+// VITE_WHATSAPP_NUMBER e numărul fondatorului (format internațional fără +,
+// ex: 40751234567). Lipsa env var → întoarce null → CTA-urile WhatsApp sunt
+// ascunse complet (fail-safe pentru preview/staging unde nu vrem să trimitem
+// trafic real către un număr de prod).
+function whatsappUrl(prefilledText: string): string | null {
+  const number = import.meta.env.VITE_WHATSAPP_NUMBER
+  if (!number || typeof number !== 'string' || !number.trim()) return null
+  return `https://wa.me/${number.trim()}?text=${encodeURIComponent(prefilledText)}`
+}
+
 function parsePath(): RouteState {
   const p = window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
@@ -756,13 +766,12 @@ function PricingPage({
               rămase: limitate.
             </div>
           </div>
+          {(() => {
+            const url = whatsappUrl('Salut Radu, m-ar interesa programul pilot Menuvia')
+            if (!url) return null
+            return (
           <button
-            onClick={() =>
-              window.open(
-                'https://wa.me/40751234567?text=Salut%20Radu%2C%20m-ar%20interesa%20programul%20pilot%20Menuvia',
-                '_blank',
-              )
-            }
+            onClick={() => window.open(url, '_blank')}
             style={{
               background: L.accent,
               color: '#fff',
@@ -778,6 +787,8 @@ function PricingPage({
           >
             Vorbește cu Radu →
           </button>
+            )
+          })()}
         </div>
 
         {/* Plans grid */}
@@ -1011,10 +1022,14 @@ function PricingPage({
         </div>
 
         {/* Custom / Enterprise inquiry */}
+        {(() => {
+          const url = whatsappUrl('Salut Radu, avem 3+ locații și am vrea o ofertă custom')
+          if (!url) return null
+          return (
         <div style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: L.text2 }}>
           Ai 3+ locații sau nevoi custom?{' '}
           <a
-            href="https://wa.me/40751234567?text=Salut%20Radu%2C%20avem%203%2B%20loca%C8%9Bii%20%C8%99i%20am%20vrea%20o%20ofert%C4%83%20custom"
+            href={url}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: L.accent, textDecoration: 'underline', fontWeight: 500 }}
@@ -1022,6 +1037,8 @@ function PricingPage({
             Scrie-ne pentru ofertă personalizată →
           </a>
         </div>
+          )
+        })()}
       </div>
 
       {/* Extras section — separated with light grey background */}

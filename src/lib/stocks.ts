@@ -310,46 +310,22 @@ export interface CreatePurchaseOrderArgs {
 }
 
 export async function createPurchaseOrder(args: CreatePurchaseOrderArgs): Promise<string> {
-  let subtotal = 0
-  let vatTotal = 0
-  for (const it of args.items) {
-    const lineNet = it.quantity * it.unit_price
-    subtotal += lineNet
-    vatTotal += lineNet * (it.vat_rate / 100)
+  // Atomic: RPC face header + items într-o singură tranzacție SQL +
+  // calculează subtotal/VAT server-side (anti-tamper). Anterior 2 cereri
+  // separate puteau lăsa PO orfan fără items dacă a doua eșua.
+  const { data, error } = await supabase.rpc('create_purchase_order_atomic', {
+    p_restaurant_id: args.restaurant_id,
+    p_supplier_id: args.supplier_id,
+    p_invoice_number: args.invoice_number,
+    p_invoice_date: args.invoice_date,
+    p_notes: args.notes,
+    p_items: args.items,
+  })
+  if (error) throw error
+  if (!data || typeof data !== 'object' || !('id' in data)) {
+    throw new Error('Failed to create purchase order')
   }
-  const total = subtotal + vatTotal
-
-  const { data: po, error: poErr } = await supabase
-    .from('purchase_orders')
-    .insert({
-      restaurant_id: args.restaurant_id,
-      supplier_id: args.supplier_id,
-      invoice_number: args.invoice_number,
-      invoice_date: args.invoice_date,
-      status: 'draft',
-      subtotal: subtotal,
-      vat_total: vatTotal,
-      total: total,
-      notes: args.notes,
-    })
-    .select()
-    .single()
-  if (poErr || !po) throw poErr ?? new Error('Failed to create PO')
-
-  // Insert items
-  const itemsToInsert = args.items.map((it) => ({
-    purchase_order_id: po.id,
-    ingredient_id: it.ingredient_id,
-    quantity: it.quantity,
-    unit_price: it.unit_price,
-    vat_rate: it.vat_rate,
-    line_total: it.quantity * it.unit_price * (1 + it.vat_rate / 100),
-  }))
-
-  const { error: itemsErr } = await supabase.from('purchase_order_items').insert(itemsToInsert)
-  if (itemsErr) throw itemsErr
-
-  return po.id as string
+  return (data as { id: string }).id
 }
 
 export async function receivePurchaseOrder(poId: string): Promise<void> {
