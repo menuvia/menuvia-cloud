@@ -50,10 +50,10 @@ const DEFAULTS: Record<string, PlanLimits> = {
   },
   enterprise: {
     plan: 'enterprise',
-    max_products: 99999,
-    max_restaurants: 99,
-    max_tables: 999,
-    ai_imports_month: 999,
+    max_products: 1_000_000_000,
+    max_restaurants: 1_000_000_000,
+    max_tables: 1_000_000_000,
+    ai_imports_month: 5000,
     features: [
       'qr_dynamic', 'ordering', 'analytics', 'ai_import', 'team',
       'kitchen', 'waiter', 'floor_plan', 'split_bill', 'multi_location',
