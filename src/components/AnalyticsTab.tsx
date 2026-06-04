@@ -74,7 +74,9 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [days, setDays] = useState(30)
-  const hasAccess = plan === 'pro' || plan === 'business'
+  // 'business' a fost eliminat din taxonomie (mig 062 → free/starter/growth/pro/enterprise).
+  // Enterprise include tot Pro, deci ambele au acces.
+  const hasAccess = plan === 'pro' || plan === 'enterprise'
 
   const loadData = useCallback(async () => {
     if (!restaurantId || !hasAccess) return

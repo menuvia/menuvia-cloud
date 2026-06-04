@@ -82,7 +82,7 @@ export function QueryError({ message, onRetry }: { message: string; onRetry?: ()
             fontFamily: 'inherit',
           }}
         >
-          Re\xeencearc\u0103
+          Reîncearcă
         </button>
       )}
     </div>
