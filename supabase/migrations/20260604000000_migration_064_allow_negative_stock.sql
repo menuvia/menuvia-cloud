@@ -28,10 +28,7 @@ alter table public.ingredients
   drop constraint if exists ingredients_current_stock_check;
 
 comment on column public.ingredients.current_stock is
-  'Stoc curent în unitatea declarată. Poate fi negativ când vânzarea ' ||
-  'depășește stocul teoretic — semn de reconciliere necesară (preparator ' ||
-  'a uitat receipt, gramaj real ≠ rețetă, pierdere). UI afișează badge ' ||
-  '"reconciliere necesară" când <0.';
+  $$Stoc curent în unitatea declarată. Poate fi negativ când vânzarea depășește stocul teoretic — semn de reconciliere necesară (preparator a uitat receipt, gramaj real ≠ rețetă, pierdere). UI afișează badge "reconciliere necesară" când <0.$$;
 
 -- ── 2. Extinde CHECK-urile pe stock_movements pentru below_zero_alert ──
 -- stock_movements.reason are check (in 'purchase','sale','waste',
