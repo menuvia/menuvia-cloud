@@ -939,13 +939,22 @@ export default function DashboardPage({
           />
         )}
 
-        {/* Mobile bottom nav — hidden on desktop */}
+        {/* Mobile bottom nav — hidden on desktop.
+            Scroll orizontal izolat în nav (overflowX:auto + flexShrink:0 per
+            buton + minWidth fix), să nu bleed-uiască peste tot conținutul
+            dashboardului. Înainte: tab-urile cu label lung ("Modificatori",
+            "Casă & Tură") expandau peste flex:1 → flex container overflow →
+            întreaga pagină se mișca lateral la swipe. */}
         <div
           style={{
             borderTop: `1px solid ${D.border}`,
             background: D.s1,
             display: isMobile ? 'flex' : 'none',
             flexShrink: 0,
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            WebkitOverflowScrolling: 'touch',
+            scrollbarWidth: 'none',
             paddingBottom: 'env(safe-area-inset-bottom,0px)',
           }}
         >
@@ -954,12 +963,13 @@ export default function DashboardPage({
               key={item.id}
               onClick={() => setTab(item.id)}
               style={{
-                flex: 1,
+                flexShrink: 0,
+                minWidth: 68,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 3,
-                padding: '10px 4px',
+                padding: '10px 8px',
                 border: 'none',
                 cursor: 'pointer',
                 background: 'transparent',
@@ -969,7 +979,13 @@ export default function DashboardPage({
               }}
             >
               <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
-              <span style={{ fontSize: '0.6rem', fontWeight: tab === item.id ? 600 : 400 }}>
+              <span
+                style={{
+                  fontSize: '0.6rem',
+                  fontWeight: tab === item.id ? 600 : 400,
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {item.label}
               </span>
             </button>

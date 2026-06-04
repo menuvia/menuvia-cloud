@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
@@ -97,13 +97,23 @@ export function useRestaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Marchez DOAR fetch-ul inițial pentru user-ul curent. Refetch-urile după
+  // create/update/remove NU mai setează loading:true → fără full-page spinner
+  // în DashboardPage la fiecare CRUD.
+  const initialFetchDoneRef = useRef(false)
 
   const load = useCallback(async () => {
     if (!user) {
       setRestaurants([])
       setLoading(false)
+      initialFetchDoneRef.current = false
       return
     }
+    // Setăm loading:true doar pe fetch-ul INIȚIAL pentru acest user. Asta
+    // previne flash-ul OnboardingPage când auth se hidratează tardiv —
+    // înainte de fix exista fereastra loading=false + restaurants=[] +
+    // user=real în care App.tsx randa onboarding-ul 2-3 sec.
+    if (!initialFetchDoneRef.current) setLoading(true)
     setError(null)
     const [ownedRes, memberRes] = await Promise.all([
       supabase.from('restaurants').select('*').eq('owner_id', user.id).order('created_at'),
@@ -136,6 +146,7 @@ export function useRestaurants() {
     }
     setRestaurants(merged)
     setLoading(false)
+    initialFetchDoneRef.current = true
   }, [user])
 
   useEffect(() => {

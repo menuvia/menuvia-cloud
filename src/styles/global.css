@@ -18,6 +18,15 @@ body,
   height: 100%;
 }
 
+/* Defensiv: blochează horizontal-scroll bleed dintr-un copil (ex: bara
+   de nav mobil cu overflow-x: auto). body are deja overflow-x:hidden,
+   dar #root e flex/grid container și poate fi împins lateral de un
+   copil cu width > viewport. width:100% + overflow-x:hidden previne. */
+#root {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text-1);
