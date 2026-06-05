@@ -39,3 +39,14 @@ create policy reservations_waiter_update on public.reservations
         and m.role = 'waiter'
     )
   );
+
+-- Asigură realtime pe reservations — fără asta useReservations nu primește
+-- INSERT live → dashboard rămâne stale când clientul rezervă pe alt tab.
+-- Idempotent (do/exception pentru runs repetate sau publication absentă).
+do $$
+begin
+  alter publication supabase_realtime add table public.reservations;
+exception
+  when duplicate_object then null;  -- already added
+  when undefined_object then null;  -- publication doesn't exist (managed)
+end $$;

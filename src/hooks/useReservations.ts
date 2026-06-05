@@ -103,6 +103,26 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     void fetchReservations()
   }, [fetchReservations])
 
+  // Realtime: orice insert/update/delete pe reservations pentru restaurantul
+  // curent re-fetch lista. Fără asta, dashboard-ul afișa doar rezervările
+  // de la mount → tester făcea o a doua rezervare și nu apărea până refresh.
+  useEffect(() => {
+    if (!restaurantId) return
+    const ch = supabase
+      .channel(`reservations:${restaurantId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'reservations', filter: `restaurant_id=eq.${restaurantId}` },
+        () => {
+          void fetchReservations()
+        },
+      )
+      .subscribe()
+    return () => {
+      void supabase.removeChannel(ch)
+    }
+  }, [restaurantId, fetchReservations])
+
   const updateStatus = useCallback(
     async (id: string, status: ReservationStatus) => {
       const prev = reservations
