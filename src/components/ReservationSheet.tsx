@@ -364,22 +364,47 @@ export default function ReservationSheet({
               </a>
             </div>
           )}
-          <button
-            onClick={onClose}
-            style={{
-              padding: '14px 20px',
-              background: 'transparent',
-              border: `1.5px solid ${PUB.border}`,
-              borderRadius: 12,
-              color: PUB.text,
-              fontFamily: theme.fonts.body,
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            {T(lang, 'reserve_back_to_menu')}
-          </button>
+          <div style={{ display: 'flex', gap: 10, flexDirection: 'column' }}>
+            <button
+              onClick={() => {
+                setResult(null)
+                setError(null)
+                setName('')
+                setPhone('')
+                setEmail('')
+                setNotes('')
+              }}
+              style={{
+                padding: '14px 20px',
+                background: accent,
+                border: 'none',
+                borderRadius: 12,
+                color: '#fff',
+                fontFamily: theme.fonts.body,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              + Rezervă altă masă
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '14px 20px',
+                background: 'transparent',
+                border: `1.5px solid ${PUB.border}`,
+                borderRadius: 12,
+                color: PUB.text,
+                fontFamily: theme.fonts.body,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              {T(lang, 'reserve_back_to_menu')}
+            </button>
+          </div>
         </div>
       </SheetShell>
     )

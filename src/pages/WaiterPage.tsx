@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
+import { useReservations } from '../hooks/useReservations'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { playSound } from '../lib/utils'
@@ -196,6 +197,28 @@ export default function WaiterPage() {
     error,
     advance,
   } = useOrders(restaurantId, 'waiter')
+
+  // Rezervări azi — start/end calculat o singură dată pe zi
+  const todayRange = useMemo(() => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 1)
+    return { from: start.toISOString(), to: end.toISOString() }
+  }, [])
+  const { reservations, updateStatus: updateReservationStatus } = useReservations(
+    restaurantId,
+    todayRange,
+  )
+  const activeReservations = useMemo(
+    () =>
+      reservations.filter(
+        (r) =>
+          r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed',
+      ),
+    [reservations],
+  )
+
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [lastManualOrder, setLastManualOrder] = useState<{ id: string; shortId: string } | null>(
     null,
@@ -440,6 +463,145 @@ export default function WaiterPage() {
           width: '100%',
         }}
       >
+        {/* Section 0 — Rezervări azi */}
+        {activeReservations.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div
+              style={{
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 12,
+                fontWeight: 600,
+                color: D.gold,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 12,
+              }}
+            >
+              📅 Rezervări azi ({activeReservations.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {activeReservations.map((r) => {
+                const t = new Date(r.starts_at).toLocaleTimeString('ro-RO', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      background: D.s2,
+                      border: `1px solid ${D.s3}`,
+                      borderRadius: 12,
+                      padding: 14,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'baseline',
+                        marginBottom: 6,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+                        <span
+                          style={{
+                            fontFamily: 'Fraunces, Georgia, serif',
+                            fontSize: 20,
+                            fontWeight: 700,
+                            color: D.t1,
+                          }}
+                        >
+                          {t}
+                        </span>
+                        <span style={{ fontSize: 14, color: D.t1 }}>{r.customer_name}</span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          color: r.status === 'seated' ? D.green : D.gold,
+                        }}
+                      >
+                        {r.status === 'seated' ? 'AȘEZAT' : r.status === 'confirmed' ? 'CONFIRMAT' : 'PENDING'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
+                      {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
+                      {r.table?.name ? ` · Masa ${r.table.name}` : ''}
+                      {' · '}
+                      <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
+                        {r.customer_phone}
+                      </a>
+                    </div>
+                    {r.special_requests && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: D.t2,
+                          fontStyle: 'italic',
+                          marginBottom: 10,
+                          padding: '6px 10px',
+                          background: D.s1,
+                          borderRadius: 6,
+                        }}
+                      >
+                        „{r.special_requests}"
+                      </div>
+                    )}
+                    {r.status !== 'seated' && (
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => {
+                            void updateReservationStatus(r.id, 'seated').catch((e) =>
+                              alert(e instanceof Error ? e.message : 'Eroare'),
+                            )
+                          }}
+                          style={{
+                            flex: 1,
+                            padding: '10px',
+                            background: D.green,
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 8,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Așezat
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!confirm('Marchezi ca no-show?')) return
+                            void updateReservationStatus(r.id, 'no_show').catch((e) =>
+                              alert(e instanceof Error ? e.message : 'Eroare'),
+                            )
+                          }}
+                          style={{
+                            padding: '10px 14px',
+                            background: 'transparent',
+                            color: D.red,
+                            border: `1px solid ${D.red}`,
+                            borderRadius: 8,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          No-show
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Section 1 — Ready */}
         {readyOrders.length > 0 && (
           <div>
