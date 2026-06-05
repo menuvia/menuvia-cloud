@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { pickAllowed } from '../lib/sanitize'
+import { playSound } from '../lib/utils'
 
 export type ReservationStatus =
   | 'pending'
@@ -113,7 +114,9 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'reservations', filter: `restaurant_id=eq.${restaurantId}` },
-        () => {
+        (payload) => {
+          // Sunet doar la rezervare NOUĂ (insert), nu la update-uri de status.
+          if (payload.eventType === 'INSERT') playSound(880, 140)
           void fetchReservations()
         },
       )
@@ -151,6 +154,23 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     [fetchReservations],
   )
 
+  // Combinat: alocă masa + marchează seated într-un singur update (evită
+  // 2 round-trips și starea intermediară). Folosit de ospătar la sosire.
+  const seat = useCallback(
+    async (id: string, tableId: string | null) => {
+      const patch: { status: ReservationStatus; table_id?: string } = { status: 'seated' }
+      if (tableId) patch.table_id = tableId
+      const prev = reservations
+      setReservations(p => p.map(r => (r.id === id ? { ...r, ...patch } : r)))
+      const { error: e } = await supabase.from('reservations').update(patch).eq('id', id)
+      if (e) {
+        setReservations(prev)
+        throw new Error(e.message)
+      }
+    },
+    [reservations],
+  )
+
   return {
     reservations,
     loading,
@@ -158,6 +178,7 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     refetch: fetchReservations,
     updateStatus,
     assignTable,
+    seat,
   }
 }
 

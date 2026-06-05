@@ -206,10 +206,11 @@ export default function WaiterPage() {
     end.setDate(end.getDate() + 1)
     return { from: start.toISOString(), to: end.toISOString() }
   }, [])
-  const { reservations, updateStatus: updateReservationStatus } = useReservations(
-    restaurantId,
-    todayRange,
-  )
+  const {
+    reservations,
+    updateStatus: updateReservationStatus,
+    seat: seatReservation,
+  } = useReservations(restaurantId, todayRange)
   const activeReservations = useMemo(
     () =>
       reservations.filter(
@@ -218,6 +219,21 @@ export default function WaiterPage() {
       ),
     [reservations],
   )
+
+  // Mese disponibile pentru alocare manuală la așezare
+  const [tables, setTables] = useState<{ id: string; name: string; seats: number | null }[]>([])
+  useEffect(() => {
+    if (!restaurantId) return
+    void supabase
+      .from('tables')
+      .select('id, name, seats')
+      .eq('restaurant_id', restaurantId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => setTables((data ?? []) as typeof tables))
+  }, [restaurantId])
+  // Masă selectată per rezervare (pentru cele fără masă alocată)
+  const [seatTablePick, setSeatTablePick] = useState<Record<string, string>>({})
 
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [lastManualOrder, setLastManualOrder] = useState<{ id: string; shortId: string } | null>(
@@ -530,7 +546,7 @@ export default function WaiterPage() {
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
                       {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
-                      {r.table?.name ? ` · Masa ${r.table.name}` : ''}
+                      {r.table?.name ? ` · Masa ${r.table.name}` : ' · fără masă'}
                       {' · '}
                       <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
                         {r.customer_phone}
@@ -552,10 +568,36 @@ export default function WaiterPage() {
                       </div>
                     )}
                     {r.status !== 'seated' && (
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                        {/* Selector masă — pre-selectează masa alocată dacă există */}
+                        <select
+                          value={seatTablePick[r.id] ?? r.table_id ?? ''}
+                          onChange={(e) =>
+                            setSeatTablePick((p) => ({ ...p, [r.id]: e.target.value }))
+                          }
+                          style={{
+                            flex: '0 0 auto',
+                            maxWidth: 120,
+                            background: D.s1,
+                            color: D.t1,
+                            border: `1px solid ${D.s3}`,
+                            borderRadius: 8,
+                            padding: '0 8px',
+                            fontSize: 13,
+                          }}
+                        >
+                          <option value="">Masă…</option>
+                          {tables.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                              {t.seats ? ` (${t.seats})` : ''}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           onClick={() => {
-                            void updateReservationStatus(r.id, 'seated').catch((e) =>
+                            const pick = seatTablePick[r.id] ?? r.table_id ?? null
+                            void seatReservation(r.id, pick).catch((e) =>
                               alert(e instanceof Error ? e.message : 'Eroare'),
                             )
                           }}
