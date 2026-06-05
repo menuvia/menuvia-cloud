@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { pickAllowed } from '../lib/sanitize'
 import { playSound } from '../lib/utils'
@@ -34,9 +34,10 @@ export interface Reservation {
   source: ReservationSource
   reminder_sent_at: string | null
   confirmation_code: string
+  requested_zone: string | null
   created_at: string
   updated_at: string
-  table?: { id: string; name: string; seats: number; zone: string | null } | null
+  table?: { id: string; name: string; seats: number | null; zone: string | null } | null
 }
 
 export interface ReservationSettings {
@@ -76,10 +77,15 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // ID-urile rezervărilor cunoscute din primul fetch — evită playSound la
+  // events de catch-up când socket-ul se conectează (replay events care
+  // sunau ca rezervări noi pentru rezervări deja vizibile).
+  const knownIdsRef = useRef<Set<string>>(new Set())
 
   const fetchReservations = useCallback(async () => {
     if (!restaurantId) {
       setReservations([])
+      knownIdsRef.current = new Set()
       return
     }
     setLoading(true)
@@ -95,7 +101,11 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       setError(e.message)
       setReservations([])
     } else {
-      setReservations((data ?? []) as Reservation[])
+      const rows = (data ?? []) as Reservation[]
+      setReservations(rows)
+      // Repopulează cache de ID-uri pe fiecare fetch (păstrează vechiul +
+      // adaugă noile rezervări vizibile fără să facă sunet retroactiv).
+      for (const r of rows) knownIdsRef.current.add(r.id)
     }
     setLoading(false)
   }, [restaurantId, range.from, range.to])
@@ -104,9 +114,6 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     void fetchReservations()
   }, [fetchReservations])
 
-  // Realtime: orice insert/update/delete pe reservations pentru restaurantul
-  // curent re-fetch lista. Fără asta, dashboard-ul afișa doar rezervările
-  // de la mount → tester făcea o a doua rezervare și nu apărea până refresh.
   useEffect(() => {
     if (!restaurantId) return
     const ch = supabase
@@ -115,8 +122,16 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'reservations', filter: `restaurant_id=eq.${restaurantId}` },
         (payload) => {
-          // Sunet doar la rezervare NOUĂ (insert), nu la update-uri de status.
-          if (payload.eventType === 'INSERT') playSound(880, 140)
+          // Sunet DOAR pentru rezervare cu adevărat nouă: INSERT și ID
+          // necunoscut. Evită beep retroactiv pe replay/catch-up și pe
+          // INSERT-uri care ne-au ajuns deja prin fetch.
+          if (payload.eventType === 'INSERT') {
+            const id = (payload.new as { id?: string } | null)?.id
+            if (id && !knownIdsRef.current.has(id)) {
+              knownIdsRef.current.add(id)
+              playSound(880, 140)
+            }
+          }
           void fetchReservations()
         },
       )
@@ -156,10 +171,12 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
 
   // Combinat: alocă masa + marchează seated într-un singur update (evită
   // 2 round-trips și starea intermediară). Folosit de ospătar la sosire.
+  // `tableId` e OBLIGATORIU non-null la apel — semantica „seated" cere masă;
+  // caller-ul (WaiterPage) blochează butonul când nu există masă selectată.
   const seat = useCallback(
-    async (id: string, tableId: string | null) => {
-      const patch: { status: ReservationStatus; table_id?: string } = { status: 'seated' }
-      if (tableId) patch.table_id = tableId
+    async (id: string, tableId: string) => {
+      if (!tableId) throw new Error('Masă obligatorie pentru a marca rezervarea ca așezată')
+      const patch = { status: 'seated' as ReservationStatus, table_id: tableId }
       const prev = reservations
       setReservations(p => p.map(r => (r.id === id ? { ...r, ...patch } : r)))
       const { error: e } = await supabase.from('reservations').update(patch).eq('id', id)

@@ -45,6 +45,7 @@ interface CreateResult {
   table_name: string | null
   starts_at: string
   ends_at: string
+  requested_zone: string | null
 }
 
 function pad2(n: number): string {
@@ -275,6 +276,9 @@ export default function ReservationSheet({
   // ── SUCCESS state ─────────────────────────────────────────────
   if (result) {
     const isConfirmed = result.status === 'confirmed'
+    // Pending fără masă alocată ≠ pending care așteaptă confirmare admin.
+    // Mesaj diferit ca să nu sugerăm clientului că rezervarea poate fi refuzată.
+    const isPendingNoTable = !isConfirmed && !result.table_name
     return (
       <SheetShell onClose={onClose} PUB={PUB} theme={theme} accent={accent} title={restaurant.name}>
         <div style={{ padding: '32px 22px', textAlign: 'center' }}>
@@ -308,7 +312,7 @@ export default function ReservationSheet({
           </div>
           {!isConfirmed && (
             <div style={{ fontSize: 14, color: PUB.text2, marginBottom: 16, lineHeight: 1.5 }}>
-              {T(lang, 'reserve_pending_sub')}
+              {T(lang, isPendingNoTable ? 'reserve_pending_no_table_sub' : 'reserve_pending_sub')}
             </div>
           )}
           <div

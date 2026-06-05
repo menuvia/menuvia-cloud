@@ -190,6 +190,10 @@ export const PUBLIC_MENU_STRINGS = {
     ro: 'Echipa restaurantului va confirma în scurt timp.',
     en: 'The venue will confirm shortly.',
   },
+  reserve_pending_no_table_sub: {
+    ro: 'Locul tău e rezervat — ospătarul îți alocă masa la sosire.',
+    en: 'Your spot is held — the waiter will assign a table on arrival.',
+  },
   reserve_code_label: { ro: 'COD REZERVARE', en: 'BOOKING CODE' },
   reserve_back_to_menu: { ro: 'Înapoi la meniu', en: 'Back to menu' },
   reserve_post_paid_cta: { ro: 'Rezervă o masă', en: 'Reserve a table' },
