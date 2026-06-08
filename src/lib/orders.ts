@@ -274,6 +274,34 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
   }
 }
 
+// Edit items pe comandă non-terminală, fără plăți parțiale.
+// Server validează rol + status + plăți + produs/modificatori; client doar
+// trimite snapshot-ul nou complet.
+export interface EditOrderItemPayload {
+  product_id: string
+  quantity: number
+  option_ids: string[]
+  notes: string | null
+}
+
+export async function updateOrderItems(
+  orderId: string,
+  items: EditOrderItemPayload[],
+): Promise<{ id: string; total: number; discount_amount: number; items_count: number }> {
+  const p_items = items.map((item) => ({
+    product_id: item.product_id,
+    quantity: item.quantity,
+    option_ids: item.option_ids,
+    notes: item.notes,
+  }))
+  const { data, error } = await supabase.rpc('update_order_items', {
+    p_order_id: orderId,
+    p_items,
+  })
+  if (error) throw error
+  return data as { id: string; total: number; discount_amount: number; items_count: number }
+}
+
 export async function fetchTables(restaurantId: string): Promise<RestaurantTable[]> {
   const { data, error } = await supabase
     .from('tables')

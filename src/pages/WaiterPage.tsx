@@ -13,6 +13,7 @@ import { D } from '../lib/constants'
 import { playSound } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import ManualOrderSheet from '../components/ManualOrderSheet'
+import EditOrderSheet from '../components/EditOrderSheet'
 import {
   fetchWaiterCalls,
   resolveWaiterCall,
@@ -42,6 +43,7 @@ export default function WaiterPage() {
   } = useRestaurantCtx()
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [payOrder, setPayOrder] = useState<Order | null>(null)
+  const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
   const [showEntry, setShowEntry] = useState(false)
@@ -910,6 +912,17 @@ export default function WaiterPage() {
                 order={order}
                 onPayOpen={setPayOrder}
                 onSplitOpen={openSplitBill}
+                onEdit={setEditOrder}
+                onCancel={(o) => {
+                  const reason = window.prompt(
+                    `Anulează comanda #${o.id.slice(-6).toUpperCase()} (${o.total.toFixed(2)} lei). Motiv (opțional):`,
+                  )
+                  if (reason === null) return
+                  void advance(o.id, o.status, {
+                    status: 'cancelled',
+                    cancel_reason: reason || undefined,
+                  })
+                }}
               />
             ))}
             {openOrders.length === 0 && (
@@ -1152,6 +1165,14 @@ export default function WaiterPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {editOrder != null && (
+        <EditOrderSheet
+          order={editOrder}
+          onClose={() => setEditOrder(null)}
+          onSaved={() => setEditOrder(null)}
+        />
       )}
 
       {showManualOrder && restaurantId != null && (

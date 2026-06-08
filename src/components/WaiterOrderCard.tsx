@@ -405,9 +405,11 @@ interface OrderCardProps {
   order: Order
   onPayOpen: (order: Order) => void
   onSplitOpen: (order: Order) => void
+  onEdit?: (order: Order) => void
+  onCancel?: (order: Order) => void
 }
 
-function OrderCard({ order, onPayOpen, onSplitOpen }: OrderCardProps) {
+function OrderCard({ order, onPayOpen, onSplitOpen, onEdit, onCancel }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
 
@@ -516,6 +518,50 @@ function OrderCard({ order, onPayOpen, onSplitOpen }: OrderCardProps) {
       >
         {order.total.toFixed(2)} lei
       </div>
+
+      {/* Edit + Cancel — available for any non-terminal status */}
+      {(onEdit || onCancel) && order.status !== 'paid' && order.status !== 'cancelled' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {onEdit && (
+            <button
+              onClick={() => onEdit(order)}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                color: D.gold,
+                border: `1px solid ${D.gold}77`,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ✎ Editează
+            </button>
+          )}
+          {onCancel && (
+            <button
+              onClick={() => onCancel(order)}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                color: D.red,
+                border: `1px solid ${D.red}77`,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Anulează
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Payment buttons for served orders */}
       {order.status === 'served' && (
