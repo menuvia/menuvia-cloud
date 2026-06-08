@@ -407,9 +407,17 @@ interface OrderCardProps {
   onSplitOpen: (order: Order) => void
   onEdit?: (order: Order) => void
   onCancel?: (order: Order) => void
+  onAudit?: (order: Order) => void
 }
 
-function OrderCard({ order, onPayOpen, onSplitOpen, onEdit, onCancel }: OrderCardProps) {
+function OrderCard({
+  order,
+  onPayOpen,
+  onSplitOpen,
+  onEdit,
+  onCancel,
+  onAudit,
+}: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
 
@@ -561,6 +569,29 @@ function OrderCard({ order, onPayOpen, onSplitOpen, onEdit, onCancel }: OrderCar
             </button>
           )}
         </div>
+      )}
+
+      {/* History button — admin-only (RLS gate on audit_log restricts waiter) */}
+      {onAudit && (
+        <button
+          onClick={() => onAudit(order)}
+          style={{
+            background: 'transparent',
+            color: D.t3,
+            border: 'none',
+            padding: '4px 0',
+            fontFamily: 'DM Sans, sans-serif',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            textAlign: 'left',
+            textDecoration: 'underline',
+            textDecorationColor: `${D.t3}66`,
+            textUnderlineOffset: 3,
+          }}
+        >
+          🕘 Vezi istoric
+        </button>
       )}
 
       {/* Payment buttons for served orders */}

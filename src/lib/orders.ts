@@ -277,6 +277,33 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
 // Edit items pe comandă non-terminală, fără plăți parțiale.
 // Server validează rol + status + plăți + produs/modificatori; client doar
 // trimite snapshot-ul nou complet.
+// Istoric audit pentru o comandă: orders + order_items.
+// Folosește view-ul public.v_audit_recent (mig 044) care joinează profile
+// pentru numele actorului. RLS filtrează: owner/manager văd tot audit-ul
+// restaurantelor lor; waiter vede doar propriile acțiuni.
+export interface AuditEntry {
+  id: number
+  created_at: string
+  actor_id: string | null
+  actor_name: string | null
+  table_name: string
+  operation: 'INSERT' | 'UPDATE' | 'DELETE'
+  row_id: string
+  changed_keys: string[] | null
+  diff_short: Record<string, unknown> | null
+}
+
+export async function fetchOrderAuditHistory(orderId: string): Promise<AuditEntry[]> {
+  // RPC SECURITY DEFINER cu role check (owner/manager only) — mig 080.
+  // Pe RLS-ul direct pe audit_log filtrarea jsonb e fragilă; RPC-ul
+  // joacă rolul de query unificat + permission gate.
+  const { data, error } = await supabase.rpc('get_order_audit_history', {
+    p_order_id: orderId,
+  })
+  if (error) throw error
+  return (data ?? []) as unknown as AuditEntry[]
+}
+
 export interface EditOrderItemPayload {
   product_id: string
   quantity: number
@@ -313,9 +340,12 @@ export async function fetchTables(restaurantId: string): Promise<RestaurantTable
   return (data ?? []) as RestaurantTable[]
 }
 
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+
 export function subscribeToOrders(
   restaurantId: string,
   onEvent: (payload: OrderRealtimePayload) => void,
+  onStatus?: (status: RealtimeConnectionStatus) => void,
 ) {
   return supabase
     .channel(`orders:${restaurantId}`)
@@ -330,7 +360,14 @@ export function subscribeToOrders(
         })
       },
     )
-    .subscribe()
+    .subscribe((status) => {
+      if (!onStatus) return
+      // Supabase realtime status: SUBSCRIBED | CHANNEL_ERROR | TIMED_OUT | CLOSED
+      if (status === 'SUBSCRIBED') onStatus('connected')
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED')
+        onStatus('disconnected')
+      else onStatus('connecting')
+    })
 }
 
 // ── Waiter calls ──

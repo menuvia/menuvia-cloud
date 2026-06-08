@@ -9,7 +9,13 @@ import {
   type Order,
   type OrderStatus,
   type AdvanceOrderPayload,
+  type RealtimeConnectionStatus,
 } from '../lib/orders'
+
+// Refetch periodic ca plasă de siguranță dacă realtime pică tăcut.
+// 30s e suficient pentru un POS (comenzile apar mai devreme via realtime
+// când canalul e OK; polling-ul prinde doar cazurile când realtime a căzut).
+const POLLING_INTERVAL_MS = 30_000
 
 const KITCHEN_STATUSES: OrderStatus[] = ['new', 'confirmed', 'preparing', 'ready']
 const WAITER_EXCLUDED: OrderStatus[] = ['paid', 'cancelled']
@@ -23,6 +29,7 @@ interface UseOrdersResult {
   orders: Order[]
   loading: boolean
   error: string | null
+  connectionStatus: RealtimeConnectionStatus
   advance: (
     orderId: string,
     currentStatus: OrderStatus,
@@ -38,6 +45,8 @@ export function useOrders(
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [connectionStatus, setConnectionStatus] =
+    useState<RealtimeConnectionStatus>('connecting')
 
   const upsertOrder = useCallback(
     (order: Order) => {
@@ -79,28 +88,52 @@ export function useOrders(
   const channelRef = useRef<RealtimeChannel | null>(null)
   useEffect(() => {
     if (!restaurantId) return
-    const channel = subscribeToOrders(restaurantId, async (payload) => {
-      const { eventType, new: newRow, old: oldRow } = payload
-      if (eventType === 'DELETE') {
-        const deletedId = oldRow?.id
-        if (typeof deletedId === 'string') removeOrder(deletedId)
-        return
-      }
-      const orderId = newRow?.id
-      if (typeof orderId !== 'string') return
-      try {
-        const hydrated = await fetchOrderById(orderId)
-        upsertOrder(hydrated)
-      } catch {
-        /* order outside SELECT access */
-      }
-    })
+    const channel = subscribeToOrders(
+      restaurantId,
+      async (payload) => {
+        const { eventType, new: newRow, old: oldRow } = payload
+        if (eventType === 'DELETE') {
+          const deletedId = oldRow?.id
+          if (typeof deletedId === 'string') removeOrder(deletedId)
+          return
+        }
+        const orderId = newRow?.id
+        if (typeof orderId !== 'string') return
+        try {
+          const hydrated = await fetchOrderById(orderId)
+          upsertOrder(hydrated)
+        } catch {
+          /* order outside SELECT access */
+        }
+      },
+      (status) => setConnectionStatus(status),
+    )
     channelRef.current = channel
     return () => {
       channelRef.current?.unsubscribe()
       channelRef.current = null
     }
   }, [restaurantId, upsertOrder, removeOrder])
+
+  // Plasă de siguranță: refetch periodic chiar dacă realtime e OK.
+  // Prinde scenariile când canalul a căzut tăcut (no SUBSCRIBED status) sau
+  // când au apărut evenimente între unsubscribe și re-subscribe.
+  useEffect(() => {
+    if (!restaurantId) return
+    const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
+    const interval = setInterval(() => {
+      fetcher(restaurantId)
+        .then((data) => {
+          // Înlocuim doar dacă fetch-ul a reușit; păstrează state local
+          // dacă eșuează (offline temporary).
+          setOrders(data)
+        })
+        .catch(() => {
+          /* ignore — păstrăm state-ul curent */
+        })
+    }, POLLING_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [restaurantId, view])
 
   const advance = useCallback(
     async (orderId: string, currentStatus: OrderStatus, payload: AdvanceOrderPayload) => {
@@ -137,5 +170,5 @@ export function useOrders(
     [orders],
   )
 
-  return { orders, loading, error, advance, byStatus }
+  return { orders, loading, error, connectionStatus, advance, byStatus }
 }

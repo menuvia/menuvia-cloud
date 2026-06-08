@@ -14,6 +14,8 @@ import { playSound } from '../lib/utils'
 import { supabase } from '../lib/supabase'
 import ManualOrderSheet from '../components/ManualOrderSheet'
 import EditOrderSheet from '../components/EditOrderSheet'
+import CancelOrderDialog from '../components/CancelOrderDialog'
+import OrderAuditSheet from '../components/OrderAuditSheet'
 import {
   fetchWaiterCalls,
   resolveWaiterCall,
@@ -44,6 +46,8 @@ export default function WaiterPage() {
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
+  const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
+  const [auditOrder, setAuditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
   const [showEntry, setShowEntry] = useState(false)
@@ -200,6 +204,7 @@ export default function WaiterPage() {
     loading: ordersLoading,
     error,
     advance,
+    connectionStatus,
   } = useOrders(restaurantId, 'waiter')
 
   // Rezervări azi — start/end calculat o singură dată pe zi
@@ -402,17 +407,44 @@ export default function WaiterPage() {
             </button>
           )}
           <div>
-            <span
-              style={{
-                fontFamily: 'Fraunces, Georgia, serif',
-                fontSize: 18,
-                fontWeight: 700,
-                color: D.t1,
-              }}
-            >
-              {isAdminRole ? 'Comenzi live' : 'Ospătar'}
-              {restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                style={{
+                  fontFamily: 'Fraunces, Georgia, serif',
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: D.t1,
+                }}
+              >
+                {isAdminRole ? 'Comenzi live' : 'Ospătar'}
+                {restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
+              </span>
+              <span
+                title={
+                  connectionStatus === 'connected'
+                    ? 'Live conectat'
+                    : connectionStatus === 'connecting'
+                      ? 'Se conectează…'
+                      : 'Deconectat — se face refresh automat la 30s'
+                }
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  background:
+                    connectionStatus === 'connected'
+                      ? D.green
+                      : connectionStatus === 'connecting'
+                        ? D.amber
+                        : D.red,
+                  boxShadow:
+                    connectionStatus === 'connected'
+                      ? `0 0 6px ${D.green}88`
+                      : 'none',
+                  flexShrink: 0,
+                }}
+              />
+            </div>
             {assignedTableIds instanceof Set && (
               <div style={{ fontSize: 11, color: D.gold, marginTop: 1 }}>
                 🪑 {assignedTableIds.size}{' '}
@@ -913,16 +945,8 @@ export default function WaiterPage() {
                 onPayOpen={setPayOrder}
                 onSplitOpen={openSplitBill}
                 onEdit={setEditOrder}
-                onCancel={(o) => {
-                  const reason = window.prompt(
-                    `Anulează comanda #${o.id.slice(-6).toUpperCase()} (${o.total.toFixed(2)} lei). Motiv (opțional):`,
-                  )
-                  if (reason === null) return
-                  void advance(o.id, o.status, {
-                    status: 'cancelled',
-                    cancel_reason: reason || undefined,
-                  })
-                }}
+                onCancel={setCancelOrder}
+                onAudit={isAdminRole ? setAuditOrder : undefined}
               />
             ))}
             {openOrders.length === 0 && (
@@ -1172,6 +1196,28 @@ export default function WaiterPage() {
           order={editOrder}
           onClose={() => setEditOrder(null)}
           onSaved={() => setEditOrder(null)}
+        />
+      )}
+
+      {cancelOrder != null && (
+        <CancelOrderDialog
+          order={cancelOrder}
+          onClose={() => setCancelOrder(null)}
+          onConfirm={(reason) => {
+            void advance(cancelOrder.id, cancelOrder.status, {
+              status: 'cancelled',
+              cancel_reason: reason,
+            })
+            setCancelOrder(null)
+          }}
+        />
+      )}
+
+      {auditOrder != null && (
+        <OrderAuditSheet
+          orderId={auditOrder.id}
+          orderShortId={auditOrder.id.slice(-6).toUpperCase()}
+          onClose={() => setAuditOrder(null)}
         />
       )}
 

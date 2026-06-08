@@ -17,7 +17,15 @@ interface Props {
   onSaved: () => void
 }
 
-function orderItemsToCart(order: Order): CartItem[] {
+// Extindem CartItem local cu flag pentru produse orfane (șterse din meniu).
+// Acestea nu pot fi re-salvate via update_order_items (RPC validează că
+// produsul există + e activ), deci le marcăm read-only și blocăm save-ul
+// până când utilizatorul le elimină explicit.
+interface EditCartItem extends CartItem {
+  _orphan?: boolean
+}
+
+function orderItemsToCart(order: Order): EditCartItem[] {
   return order.order_items.map((it) => ({
     _key: it.id,
     product_id: it.product_id ?? '',
@@ -26,6 +34,7 @@ function orderItemsToCart(order: Order): CartItem[] {
     quantity: it.quantity,
     selected_modifiers: it.selected_modifiers ?? [],
     notes: it.notes,
+    _orphan: it.product_id == null,
   }))
 }
 
@@ -35,7 +44,8 @@ function lineTotal(item: CartItem): number {
 }
 
 export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
-  const [cart, setCart] = useState<CartItem[]>(() => orderItemsToCart(order))
+  const [cart, setCart] = useState<EditCartItem[]>(() => orderItemsToCart(order))
+  const hasOrphan = cart.some((i) => i._orphan)
   const [categories, setCategories] = useState<Category[]>([])
   const [showPicker, setShowPicker] = useState(false)
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
@@ -72,7 +82,15 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
 
   async function handleSave(): Promise<void> {
     if (cart.length === 0) {
-      setSubmitError('Comanda trebuie să aibă cel puțin 1 produs. Pentru anulare folosește butonul „Anulează" din card.')
+      setSubmitError(
+        'Comanda trebuie să aibă cel puțin 1 produs. Pentru anulare folosește butonul „Anulează" din card.',
+      )
+      return
+    }
+    if (hasOrphan) {
+      setSubmitError(
+        'Comanda conține produse șterse din meniu (marcate cu ⚠). Elimină-le sau roagă owner-ul să reactiveze produsul înainte de a salva.',
+      )
       return
     }
     setSubmitting(true)
@@ -173,7 +191,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                   key={item._key}
                   style={{
                     background: D.s2,
-                    border: `1px solid ${D.s3}`,
+                    border: `1px solid ${item._orphan ? D.red + '88' : D.s3}`,
                     borderRadius: 10,
                     padding: 12,
                     display: 'flex',
@@ -184,8 +202,18 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ color: D.t1, fontWeight: 600, fontSize: 14 }}>
+                        {item._orphan && (
+                          <span title="Produs șters din meniu" style={{ marginRight: 6 }}>
+                            ⚠
+                          </span>
+                        )}
                         {item.product_name_snapshot}
                       </div>
+                      {item._orphan && (
+                        <div style={{ fontSize: 11, color: D.red, marginTop: 3 }}>
+                          Produs șters din meniu — doar elimină
+                        </div>
+                      )}
                       {item.selected_modifiers.length > 0 && (
                         <div style={{ fontSize: 11, color: D.t3, marginTop: 3 }}>
                           {item.selected_modifiers.map((m) => m.option_name).join(' · ')}
@@ -214,7 +242,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <button
                         onClick={() => updateQty(item._key, -1)}
-                        disabled={item.quantity <= 1}
+                        disabled={item._orphan || item.quantity <= 1}
                         style={{
                           width: 30,
                           height: 30,
@@ -222,8 +250,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                           background: D.s3,
                           border: 'none',
                           color: D.t1,
-                          cursor: item.quantity <= 1 ? 'not-allowed' : 'pointer',
-                          opacity: item.quantity <= 1 ? 0.4 : 1,
+                          cursor: item._orphan || item.quantity <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: item._orphan || item.quantity <= 1 ? 0.4 : 1,
                           fontSize: 16,
                         }}
                       >
@@ -242,6 +270,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                       </span>
                       <button
                         onClick={() => updateQty(item._key, 1)}
+                        disabled={item._orphan}
                         style={{
                           width: 30,
                           height: 30,
@@ -249,7 +278,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                           background: D.s3,
                           border: 'none',
                           color: D.t1,
-                          cursor: 'pointer',
+                          cursor: item._orphan ? 'not-allowed' : 'pointer',
+                          opacity: item._orphan ? 0.4 : 1,
                           fontSize: 16,
                         }}
                       >
