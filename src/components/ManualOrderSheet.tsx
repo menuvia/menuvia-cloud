@@ -4,7 +4,7 @@
 // Funcționează pe telefon, tabletă sau laptop
 // source: 'waiter', qr_token_id: null
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
@@ -104,6 +104,9 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
   // For modifier selection per product
   const [pickingProduct, setPickingProduct] = useState<Product | null>(null)
   const [modSelections, setModSelections] = useState<Record<string, string | Set<string>>>({})
+  // Key stabil per coș (reutilizat la retry) — vechiul genKey() per apel
+  // făcea idempotency-ul inutil. Rotit după trimitere reușită.
+  const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
   // ─── Load tables + menu ─────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -296,8 +299,9 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
         qr_token_id: null,
         notes: notes.trim() || null,
         cart,
-        idempotency_key: genKey(),
+        idempotency_key: idempotencyKeyRef.current,
       })
+      idempotencyKeyRef.current = crypto.randomUUID()
       onOrderPlaced(result.id, result.short_id)
     } catch (e: unknown) {
       setSubmitError(e instanceof Error ? e.message : 'Eroare la trimiterea comenzii')

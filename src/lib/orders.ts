@@ -314,6 +314,7 @@ export interface EditOrderItemPayload {
 export async function updateOrderItems(
   orderId: string,
   items: EditOrderItemPayload[],
+  expectedTotal?: number,
 ): Promise<{ id: string; total: number; discount_amount: number; items_count: number }> {
   const p_items = items.map((item) => ({
     product_id: item.product_id,
@@ -324,6 +325,7 @@ export async function updateOrderItems(
   const { data, error } = await supabase.rpc('update_order_items', {
     p_order_id: orderId,
     p_items,
+    p_expected_total: expectedTotal ?? null,
   })
   if (error) throw error
   return data as { id: string; total: number; discount_amount: number; items_count: number }

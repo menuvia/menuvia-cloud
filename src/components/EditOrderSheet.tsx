@@ -56,6 +56,10 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   // 'dirty' = utilizatorul a atins deja coșul. Refetch-ul de la deschidere
   // NU suprascrie modificările in-progress (evită să-i ștergem munca).
   const [dirty, setDirty] = useState(false)
+  // Totalul comenzii pe care s-a bazat coșul (baseline pentru optimistic
+  // lock). Trimis la save; dacă DB-ul are alt total, alt user a editat între
+  // timp → RPC respinge cu mesaj de redeschidere.
+  const [baselineTotal, setBaselineTotal] = useState<number>(order.total)
 
   useEffect(() => {
     fetchMenuForRestaurant(order.restaurant_id)
@@ -75,6 +79,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
       .then((fresh) => {
         if (cancelled || dirty) return
         setCart(orderItemsToCart(fresh))
+        setBaselineTotal(fresh.total)
       })
       .catch(() => {
         /* păstrăm snapshot-ul din prop */
@@ -129,6 +134,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           option_ids: i.selected_modifiers.map((m) => m.option_id),
           notes: i.notes,
         })),
+        baselineTotal,
       )
       onSaved()
     } catch (e: unknown) {

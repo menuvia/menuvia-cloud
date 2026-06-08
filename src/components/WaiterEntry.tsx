@@ -4,7 +4,7 @@
 // Flow: table selector → product browser → cart → submit
 // =============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchTables, createOrder } from '../lib/orders'
 import { fetchMenuForRestaurant } from '../lib/qr'
 import type { RestaurantTable, CartItem } from '../lib/orders'
@@ -37,6 +37,11 @@ export default function WaiterEntry({ restaurantId, onClose, onOrderCreated }: P
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Key stabil per sesiune de coș. Reutilizat la toate retry-urile (loop-ul
+  // de mai jos + sync offline) → dublu-submit / răspuns pierdut nu creează
+  // 2 comenzi (index UNIQUE pe (restaurant_id, idempotency_key) deduplică).
+  // Regenerat după fiecare comandă trimisă cu succes.
+  const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
   useEffect(() => {
     fetchTables(restaurantId)
@@ -91,7 +96,10 @@ export default function WaiterEntry({ restaurantId, onClose, onOrderCreated }: P
           qr_token_id: null,
           notes: notes.length > 0 ? notes : null,
           cart,
+          idempotency_key: idempotencyKeyRef.current,
         })
+        // Comandă trimisă — rotim key-ul pentru următoarea comandă.
+        idempotencyKeyRef.current = crypto.randomUUID()
         onOrderCreated()
         return
       } catch (e: unknown) {
