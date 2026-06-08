@@ -6,7 +6,7 @@
 // =============================================================
 
 import { useState, useEffect } from 'react'
-import { updateOrderItems, type Order, type CartItem } from '../lib/orders'
+import { updateOrderItems, fetchOrderById, type Order, type CartItem } from '../lib/orders'
 import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
@@ -53,6 +53,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // 'dirty' = utilizatorul a atins deja coșul. Refetch-ul de la deschidere
+  // NU suprascrie modificările in-progress (evită să-i ștergem munca).
+  const [dirty, setDirty] = useState(false)
 
   useEffect(() => {
     fetchMenuForRestaurant(order.restaurant_id)
@@ -63,17 +66,39 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
       .catch(() => setLoadError('Nu s-a putut încărca meniul'))
   }, [order.restaurant_id])
 
+  // Refetch starea curentă a comenzii la deschidere — reduce fereastra de
+  // lost-update (alt ospătar a adăugat ceva între render și deschidere).
+  // Aplicăm doar dacă userul n-a început deja să editeze (dirty=false).
+  useEffect(() => {
+    let cancelled = false
+    fetchOrderById(order.id)
+      .then((fresh) => {
+        if (cancelled || dirty) return
+        setCart(orderItemsToCart(fresh))
+      })
+      .catch(() => {
+        /* păstrăm snapshot-ul din prop */
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order.id])
+
   function updateQty(key: string, delta: number): void {
+    setDirty(true)
     setCart((prev) =>
       prev.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
     )
   }
 
   function removeItem(key: string): void {
+    setDirty(true)
     setCart((prev) => prev.filter((i) => i._key !== key))
   }
 
   function addItem(item: CartItem): void {
+    setDirty(true)
     setCart((prev) => [...prev, item])
   }
 

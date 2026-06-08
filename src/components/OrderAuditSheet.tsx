@@ -46,6 +46,19 @@ function describeEntry(e: AuditEntry): string {
     return 'A modificat comanda'
   }
   if (e.table_name === 'order_items') {
+    // Audit-summary de la update_order_items: diff_short = {items:{from,to}, total:{from,to}}
+    const diff = e.diff_short as
+      | { items?: { from?: unknown[]; to?: unknown[] }; total?: { from?: number; to?: number } }
+      | null
+    if (e.operation === 'UPDATE' && (diff?.items || diff?.total)) {
+      const fromCount = Array.isArray(diff?.items?.from) ? diff.items.from.length : null
+      const toCount = Array.isArray(diff?.items?.to) ? diff.items.to.length : null
+      const toTotal = diff?.total?.to
+      const countPart =
+        fromCount != null && toCount != null ? `${fromCount} → ${toCount} produse` : 'produse'
+      const totalPart = typeof toTotal === 'number' ? ` · total ${toTotal.toFixed(2)} lei` : ''
+      return `A modificat comanda (${countPart}${totalPart})`
+    }
     if (e.operation === 'INSERT') {
       const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
       return `A adăugat ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`

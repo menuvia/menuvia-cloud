@@ -86,8 +86,21 @@ export function useOrders(
   }, [restaurantId, view])
 
   const channelRef = useRef<RealtimeChannel | null>(null)
+  // Câte operații advance() sunt in-flight. Polling-ul nu suprascrie state-ul
+  // cât timp > 0 (altfel ar reverti update-ul optimist înainte de RPC).
+  const pendingAdvancesRef = useRef(0)
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   useEffect(() => {
     if (!restaurantId) return
+    setConnectionStatus('connecting')
+    // Timeout: dacă realtime nu raportează SUBSCRIBED în 12s, marcăm
+    // disconnected (polling-ul preia datele). Evită bulina blocată pe galben.
+    if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current)
+    connectTimeoutRef.current = setTimeout(() => {
+      setConnectionStatus((s) => (s === 'connecting' ? 'disconnected' : s))
+    }, 12_000)
+
     const channel = subscribeToOrders(
       restaurantId,
       async (payload) => {
@@ -106,10 +119,20 @@ export function useOrders(
           /* order outside SELECT access */
         }
       },
-      (status) => setConnectionStatus(status),
+      (status) => {
+        setConnectionStatus(status)
+        if (status === 'connected' && connectTimeoutRef.current) {
+          clearTimeout(connectTimeoutRef.current)
+          connectTimeoutRef.current = null
+        }
+      },
     )
     channelRef.current = channel
     return () => {
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current)
+        connectTimeoutRef.current = null
+      }
       channelRef.current?.unsubscribe()
       channelRef.current = null
     }
@@ -118,14 +141,18 @@ export function useOrders(
   // Plasă de siguranță: refetch periodic chiar dacă realtime e OK.
   // Prinde scenariile când canalul a căzut tăcut (no SUBSCRIBED status) sau
   // când au apărut evenimente între unsubscribe și re-subscribe.
+  // Guard-uri: (1) nu poll-uim când tab-ul e ascuns (cost inutil pe mobil),
+  // (2) nu suprascriem dacă un advance() optimist e in-flight.
   useEffect(() => {
     if (!restaurantId) return
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      if (pendingAdvancesRef.current > 0) return
       fetcher(restaurantId)
         .then((data) => {
-          // Înlocuim doar dacă fetch-ul a reușit; păstrează state local
-          // dacă eșuează (offline temporary).
+          // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
+          if (pendingAdvancesRef.current > 0) return
           setOrders(data)
         })
         .catch(() => {
@@ -142,6 +169,7 @@ export function useOrders(
         previous = prev.find((o) => o.id === orderId)
         return prev.map((o) => (o.id === orderId ? { ...o, ...payload } : o))
       })
+      pendingAdvancesRef.current += 1
       try {
         const updated = await advanceOrderStatus(orderId, {
           ...payload,
@@ -160,6 +188,8 @@ export function useOrders(
           })
         }
         setError(e instanceof Error ? e.message : 'Failed to update order')
+      } finally {
+        pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)
       }
     },
     [upsertOrder],
