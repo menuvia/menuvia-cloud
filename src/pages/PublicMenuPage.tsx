@@ -10,9 +10,12 @@ import type { ReactNode, CSSProperties } from 'react'
 import {
   fetchRestaurantBySlug,
   fetchMenuForRestaurant,
+  fetchActiveHappyHour,
+  happyHourPercentForProduct,
   computeIsOpen,
   todayHoursLabel,
 } from '../lib/qr'
+import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import type { CartItem } from '../lib/orders'
 import { createOrder } from '../lib/orders'
@@ -30,6 +33,7 @@ interface Props {
 export default function PublicMenuPage({ slug, onBack }: Props) {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+  const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [activeCat, setActiveCat] = useState<string>('all')
@@ -94,9 +98,14 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         return
       }
       setRestaurant(r as unknown as Restaurant)
-      const cats = await fetchMenuForRestaurant((r as { id: string }).id)
+      const rid = (r as { id: string }).id
+      const cats = await fetchMenuForRestaurant(rid)
       setCategories(cats)
       setLoading(false)
+      // Happy Hour — non-blocking
+      void fetchActiveHappyHour(rid)
+        .then(setHappyHour)
+        .catch(() => {})
     } catch (err) {
       console.error('[PublicMenuPage] load error:', err)
       setError('Conexiune eșuată. Verifică internetul și încearcă din nou.')
@@ -407,6 +416,42 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           gap: 22,
         }}
       >
+        {happyHour.length > 0 && (
+          <div
+            style={{
+              padding: '10px 14px',
+              background: 'linear-gradient(90deg, #2e7d32, #43a047)',
+              borderRadius: 12,
+              color: '#fff',
+              fontFamily: theme.fonts.body,
+              fontSize: 13,
+              fontWeight: 600,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
+            <span style={{ fontSize: 16 }}>🎉</span>
+            <span>Happy Hour activ:</span>
+            {happyHour.map((r) => (
+              <span
+                key={r.id}
+                style={{
+                  background: 'rgba(255,255,255,0.2)',
+                  borderRadius: 6,
+                  padding: '2px 8px',
+                  fontWeight: 700,
+                }}
+              >
+                {r.name} ·{' '}
+                {r.discount_type === 'percent'
+                  ? `-${r.discount_value}%`
+                  : `-${r.discount_value} lei`}
+              </span>
+            ))}
+          </div>
+        )}
         {filtered.length === 0 && (
           <EmptyState
             lang={lang}
@@ -434,6 +479,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   theme={theme}
                   PUB={PUB}
                   pickupEnabled={pickupEnabled}
+                  happyHourPct={happyHourPercentForProduct(product, happyHour)}
                   onOpen={() => {
                     if (!product.is_sold_out) setActiveProduct(product)
                   }}
@@ -1468,6 +1514,7 @@ interface CardProps {
     borderStrong: string
   }
   pickupEnabled: boolean
+  happyHourPct?: number
   onOpen: () => void
   onQuickAdd: () => void
 }
@@ -1478,14 +1525,16 @@ function ProductCardEditorial({
   theme,
   PUB,
   pickupEnabled,
+  happyHourPct = 0,
   onOpen,
   onQuickAdd,
 }: CardProps) {
   const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
   const tags = (product.dietary_tags ?? []).slice(0, 3)
   const isSoldOut = product.is_sold_out
-  const priceInt = Math.floor(product.price)
-  const priceFrac = (product.price - priceInt).toFixed(2).slice(2) // "50" pentru 32.50
+  const effectivePrice = happyHourPct > 0 ? product.price * (1 - happyHourPct / 100) : product.price
+  const priceInt = Math.floor(effectivePrice)
+  const priceFrac = (effectivePrice - priceInt).toFixed(2).slice(2) // "50" pentru 32.50
 
   return (
     <div
@@ -1573,12 +1622,27 @@ function ProductCardEditorial({
                 de la
               </span>
             )}
+            {happyHourPct > 0 && (
+              <span
+                style={{
+                  fontFamily: theme.fonts.heading,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: PUB.text3,
+                  textDecoration: 'line-through',
+                  marginRight: 4,
+                  lineHeight: 1,
+                }}
+              >
+                {product.price.toFixed(2)}
+              </span>
+            )}
             <span
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 20,
                 fontWeight: 700,
-                color: accent,
+                color: happyHourPct > 0 ? '#2e7d32' : accent,
                 letterSpacing: '-0.02em',
                 lineHeight: 1,
               }}
@@ -1590,7 +1654,7 @@ function ProductCardEditorial({
                 fontFamily: theme.fonts.heading,
                 fontSize: 13,
                 fontWeight: 600,
-                color: accent,
+                color: happyHourPct > 0 ? '#2e7d32' : accent,
                 lineHeight: 1,
               }}
             >

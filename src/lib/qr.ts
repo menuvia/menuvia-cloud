@@ -390,6 +390,49 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
   }))
 }
 
+// ── Happy Hour (afișare pe meniu public) ─────────────────────────
+export interface HappyHourRule {
+  id: string
+  name: string
+  scope: 'all' | 'category' | 'product'
+  category_id: string | null
+  product_id: string | null
+  discount_type: 'percent' | 'amount'
+  discount_value: number
+  max_discount: number | null
+}
+
+/** Regulile Happy Hour active ACUM (server decide ora/zilele). Public/anon. */
+export async function fetchActiveHappyHour(restaurantId: string): Promise<HappyHourRule[]> {
+  const { data, error } = await supabase.rpc('public_happy_hour_now', {
+    p_restaurant_id: restaurantId,
+  })
+  if (error || !data) return []
+  return data as HappyHourRule[]
+}
+
+/**
+ * Pentru afișare per-produs: cel mai bun discount PROCENTUAL aplicabil
+ * produsului. Reducerile de tip 'amount' sunt la nivel de notă (nu per-unit),
+ * deci nu le reflectăm în prețul unitar — apar doar în banner-ul de sus și se
+ * aplică exact server-side la crearea comenzii. Întoarce procentul (0 = niciunul).
+ */
+export function happyHourPercentForProduct(
+  product: Pick<Product, 'id' | 'category_id'>,
+  rules: HappyHourRule[],
+): number {
+  let best = 0
+  for (const r of rules) {
+    if (r.discount_type !== 'percent') continue
+    const applies =
+      r.scope === 'all' ||
+      (r.scope === 'category' && r.category_id === product.category_id) ||
+      (r.scope === 'product' && r.product_id === product.id)
+    if (applies && r.discount_value > best) best = r.discount_value
+  }
+  return best
+}
+
 /** Întoarce ziua + ora curentă în timezone-ul restaurantului. */
 function nowInTimezone(timezone: string): { day: WeekDay; minutes: number } {
   // toLocaleString cu timeZone returnează exact ce vrem; parsăm cu Date
