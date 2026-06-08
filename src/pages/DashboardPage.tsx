@@ -424,10 +424,12 @@ const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
 
 export default function DashboardPage({
   onViewMenu,
+  onViewWaiter,
   onPricing,
   onSignOut,
 }: {
   onViewMenu: (slug: string) => void
+  onViewWaiter: () => void
   onPricing: () => void
   onSignOut: () => Promise<void>
 }) {
@@ -645,7 +647,15 @@ export default function DashboardPage({
           )
         }
       />
-      <div style={{ padding: '10px 8px', borderBottom: `1px solid ${D.border}` }}>
+      <div
+        style={{
+          padding: '10px 8px',
+          borderBottom: `1px solid ${D.border}`,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+        }}
+      >
         <button
           onClick={() => restaurant && onViewMenu(restaurant.slug)}
           style={{
@@ -673,6 +683,35 @@ export default function DashboardPage({
         >
           👁 Previzualizează meniu
         </button>
+        {isAdminRole && (
+          <button
+            onClick={onViewWaiter}
+            title="Deschide ecranul de ospătar — comenzi live, rezervări, plăți"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: 9,
+              border: `1px solid ${D.gold}55`,
+              cursor: 'pointer',
+              background: `${D.gold}11`,
+              color: D.gold,
+              fontSize: '0.85rem',
+              fontFamily: 'DM Sans,sans-serif',
+              fontWeight: 600,
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = `${D.gold}22`
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = `${D.gold}11`
+            }}
+          >
+            🍽 Vezi ca ospătar
+          </button>
+        )}
       </div>
     </>
   )
@@ -760,21 +799,41 @@ export default function DashboardPage({
           <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>
             Menuvia
           </div>
-          <button
-            onClick={() => restaurant && onViewMenu(restaurant.slug)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: D.t2,
-              cursor: 'pointer',
-              display: 'flex',
-              padding: 6,
-              borderRadius: 8,
-              fontSize: 18,
-            }}
-          >
-            👁
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {isAdminRole && (
+              <button
+                onClick={onViewWaiter}
+                title="Vezi ca ospătar"
+                style={{
+                  background: `${D.gold}11`,
+                  border: `1px solid ${D.gold}55`,
+                  color: D.gold,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  padding: 6,
+                  borderRadius: 8,
+                  fontSize: 16,
+                }}
+              >
+                🍽
+              </button>
+            )}
+            <button
+              onClick={() => restaurant && onViewMenu(restaurant.slug)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: D.t2,
+                cursor: 'pointer',
+                display: 'flex',
+                padding: 6,
+                borderRadius: 8,
+                fontSize: 18,
+              }}
+            >
+              👁
+            </button>
+          </div>
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px 12px' : '28px 32px' }}>

@@ -36,9 +36,11 @@ export default function WaiterPage() {
   const {
     activeId: restaurantId,
     activeName: restaurantName,
+    activeRole,
     memberships,
     setActive,
   } = useRestaurantCtx()
+  const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
@@ -374,23 +376,53 @@ export default function WaiterPage() {
           zIndex: 100,
         }}
       >
-        <div>
-          <span
-            style={{
-              fontFamily: 'Fraunces, Georgia, serif',
-              fontSize: 18,
-              fontWeight: 700,
-              color: D.t1,
-            }}
-          >
-            Ospătar{restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
-          </span>
-          {assignedTableIds instanceof Set && (
-            <div style={{ fontSize: 11, color: D.gold, marginTop: 1 }}>
-              🪑 {assignedTableIds.size}{' '}
-              {assignedTableIds.size === 1 ? 'masă alocată' : 'mese alocate'} · Comenzile tale
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {isAdminRole && (
+            <button
+              onClick={() => {
+                window.history.pushState({}, '', '/dashboard')
+                window.dispatchEvent(new PopStateEvent('popstate'))
+              }}
+              title="Înapoi la Dashboard"
+              style={{
+                background: 'transparent',
+                color: D.t2,
+                border: `1px solid ${D.s3}`,
+                borderRadius: 7,
+                padding: '5px 10px',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ← Dashboard
+            </button>
           )}
+          <div>
+            <span
+              style={{
+                fontFamily: 'Fraunces, Georgia, serif',
+                fontSize: 18,
+                fontWeight: 700,
+                color: D.t1,
+              }}
+            >
+              {isAdminRole ? 'Comenzi live' : 'Ospătar'}
+              {restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
+            </span>
+            {assignedTableIds instanceof Set && (
+              <div style={{ fontSize: 11, color: D.gold, marginTop: 1 }}>
+                🪑 {assignedTableIds.size}{' '}
+                {assignedTableIds.size === 1 ? 'masă alocată' : 'mese alocate'} · Comenzile tale
+              </div>
+            )}
+            {isAdminRole && !(assignedTableIds instanceof Set) && (
+              <div style={{ fontSize: 11, color: D.t3, marginTop: 1 }}>
+                Vizualizare admin · vezi tot live
+              </div>
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Restaurant selector — only visible for multi-restaurant users */}

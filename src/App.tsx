@@ -1698,6 +1698,7 @@ function AppRouter() {
     <Suspense fallback={<PageSpinner />}>
       <DashboardPage
         onViewMenu={(slug) => navigate(`/m/${slug}`)}
+        onViewWaiter={() => navigate('/waiter')}
         onPricing={() => navigate('/pricing')}
         onSignOut={async () => {
           await signOut()
