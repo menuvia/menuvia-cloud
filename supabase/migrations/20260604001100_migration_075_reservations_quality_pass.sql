@@ -32,7 +32,14 @@ create index if not exists restaurants_lower_slug_idx
   on public.restaurants (lower(slug));
 
 -- ── 3. Rescrie create_reservation_public ─────────────────────
-create or replace function public.create_reservation_public(
+-- DROP necesar fiindcă RETURNS TABLE primește o coloană nouă
+-- (requested_zone) → Postgres refuză CREATE OR REPLACE când shape-ul
+-- de return se schimbă: ERROR 42P13. Drop + create curat.
+drop function if exists public.create_reservation_public(
+  text, text, text, smallint, timestamptz, text, text, smallint, text
+);
+
+create function public.create_reservation_public(
   p_slug             text,
   p_customer_name    text,
   p_customer_phone   text,
@@ -179,3 +186,13 @@ begin
     v_zone;
 end;
 $$;
+
+-- Re-aplicăm grant-urile (DROP-ul anterior le-a șters; defaulturile noi
+-- create de o funcție includ EXECUTE pentru public, deci revoke-ul e
+-- esențial pentru securitate).
+revoke all on function public.create_reservation_public(
+  text, text, text, smallint, timestamptz, text, text, smallint, text
+) from public;
+grant execute on function public.create_reservation_public(
+  text, text, text, smallint, timestamptz, text, text, smallint, text
+) to anon, authenticated;

@@ -5,7 +5,13 @@
 // =============================================================
 
 import { useState, useEffect } from 'react'
-import { resolveQrToken, fetchMenuForRestaurant } from '../lib/qr'
+import {
+  resolveQrToken,
+  fetchMenuForRestaurant,
+  fetchActiveHappyHour,
+  happyHourPercentForProduct,
+  type HappyHourRule,
+} from '../lib/qr'
 import { createOrder } from '../lib/orders'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -37,6 +43,7 @@ interface Props {
 export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+  const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
   const [resolving, setResolving] = useState(true)
   const [invalid, setInvalid] = useState(false)
@@ -74,6 +81,12 @@ export default function QrMenuPage({ token }: Props) {
           return
         }
         setCtx(result)
+        // Happy Hour activ — non-blocking; meniul se afișează chiar dacă pică.
+        void fetchActiveHappyHour(result.restaurant.id)
+          .then((rules) => {
+            if (!cancelled) setHappyHour(rules)
+          })
+          .catch(() => {})
         return fetchMenuForRestaurant(result.restaurant.id).then((cats) => {
           if (cancelled) return
           setCategories(cats)
@@ -391,6 +404,45 @@ export default function QrMenuPage({ token }: Props) {
         </div>
       )}
 
+      {/* Happy Hour banner */}
+      {happyHour.length > 0 && (
+        <div
+          style={{
+            margin: '12px 16px 0',
+            padding: '10px 14px',
+            background: 'linear-gradient(90deg, #2e7d32, #43a047)',
+            borderRadius: 12,
+            color: '#fff',
+            fontFamily: 'DM Sans, sans-serif',
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 6,
+            alignItems: 'center',
+          }}
+        >
+          <span style={{ fontSize: 16 }}>🎉</span>
+          <span>Happy Hour activ:</span>
+          {happyHour.map((r) => (
+            <span
+              key={r.id}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                borderRadius: 6,
+                padding: '2px 8px',
+                fontWeight: 700,
+              }}
+            >
+              {r.name} ·{' '}
+              {r.discount_type === 'percent'
+                ? `-${r.discount_value}%`
+                : `-${r.discount_value} lei`}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Category tabs */}
       <div
         style={{
@@ -441,6 +493,8 @@ export default function QrMenuPage({ token }: Props) {
         {activeProducts.map((product) => {
           const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
           const isUnavailable = product.is_sold_out || !orderingAllowed
+          const hhPct = happyHourPercentForProduct(product, happyHour)
+          const hhPrice = hhPct > 0 ? product.price * (1 - hhPct / 100) : null
           // Compact badges: max 2 (priority: daily_special > dietary)
           const badges: string[] = []
           if (product.is_daily_special) badges.push('⭐')
@@ -586,22 +640,56 @@ export default function QrMenuPage({ token }: Props) {
                         de la
                       </span>
                     )}
+                    {hhPrice != null && (
+                      <span
+                        style={{
+                          fontFamily: 'Fraunces, Georgia, serif',
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: '#9b8e7d',
+                          textDecoration: 'line-through',
+                          marginRight: 2,
+                        }}
+                      >
+                        {product.price.toFixed(2)}
+                      </span>
+                    )}
                     <span
                       style={{
                         fontFamily: 'Fraunces, Georgia, serif',
                         fontSize: 17,
                         fontWeight: 700,
-                        color: accent,
+                        color: hhPrice != null ? '#2e7d32' : accent,
                         letterSpacing: '-0.01em',
                       }}
                     >
-                      {product.price.toFixed(2)}
+                      {(hhPrice ?? product.price).toFixed(2)}
                     </span>
                     <span
-                      style={{ fontSize: 12, color: accent, fontFamily: 'DM Sans, sans-serif' }}
+                      style={{
+                        fontSize: 12,
+                        color: hhPrice != null ? '#2e7d32' : accent,
+                        fontFamily: 'DM Sans, sans-serif',
+                      }}
                     >
                       lei
                     </span>
+                    {hhPrice != null && (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          color: '#fff',
+                          background: '#2e7d32',
+                          borderRadius: 6,
+                          padding: '2px 6px',
+                          marginLeft: 4,
+                          fontFamily: 'DM Sans, sans-serif',
+                        }}
+                      >
+                        -{hhPct}%
+                      </span>
+                    )}
                   </div>
 
                   {product.is_sold_out ? (

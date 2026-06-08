@@ -20,6 +20,9 @@ interface FloorTable {
   seats: number
   rotation: number
   status: TableStatus
+  // Legătura cu masa reală (public.tables.id). Opțional pentru
+  // backward-compat; auto-link după nume dacă lipsește.
+  tableId?: string
 }
 interface FloorWall {
   id: string
@@ -205,6 +208,10 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   } | null>(null)
   const [showGrid, setShowGrid] = useState(true)
   const [live, setLive] = useState(false)
+  // Mese reale (pentru linkare în editor) + status live calculat din
+  // comenzi & rezervări (cheie = FloorTable.id).
+  const [realTables, setRealTables] = useState<{ id: string; name: string }[]>([])
+  const [liveStatus, setLiveStatus] = useState<Record<string, TableStatus>>({})
   const [saving, setSaving] = useState(false)
   const [savedOk, setSavedOk] = useState(false)
   const [hist, setHist] = useState<string[]>([])
@@ -426,6 +433,82 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   }
 
   const selTable = sel?.type === 'table' ? floor.tables.find((t) => t.id === sel.id) : null
+
+  // Mese reale (public.tables) — pentru dropdown-ul de linkare în editor.
+  useEffect(() => {
+    if (!restaurantId) return
+    let cancelled = false
+    void supabase
+      .from('tables')
+      .select('id, name')
+      .eq('restaurant_id', restaurantId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => {
+        if (!cancelled) setRealTables((data ?? []) as { id: string; name: string }[])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  // Status live: în mod Live, colorează mesele după comenzi active +
+  // rezervări de azi. Rezolvă FloorTable → masă reală prin tableId
+  // (explicit) sau, fallback, prin potrivire de nume (label == tables.name).
+  useEffect(() => {
+    if (!live || !restaurantId) {
+      setLiveStatus({})
+      return
+    }
+    let cancelled = false
+    const nameToId = new Map(realTables.map((rt) => [rt.name.trim().toLowerCase(), rt.id]))
+    const resolve = (t: FloorTable): string | null =>
+      t.tableId ?? nameToId.get(t.label.trim().toLowerCase()) ?? null
+
+    async function compute(): Promise<void> {
+      const sod = new Date()
+      sod.setHours(0, 0, 0, 0)
+      const eod = new Date(sod)
+      eod.setDate(eod.getDate() + 1)
+      const [ordersRes, resvRes] = await Promise.all([
+        supabase
+          .from('orders')
+          .select('table_id, status')
+          .eq('restaurant_id', restaurantId)
+          .not('status', 'in', '(paid,cancelled)')
+          .not('table_id', 'is', null),
+        supabase
+          .from('reservations')
+          .select('table_id, status')
+          .eq('restaurant_id', restaurantId)
+          .in('status', ['confirmed', 'seated'])
+          .not('table_id', 'is', null)
+          .gte('starts_at', sod.toISOString())
+          .lte('starts_at', eod.toISOString()),
+      ])
+      if (cancelled) return
+      const occupied = new Set(
+        ((ordersRes.data ?? []) as { table_id: string }[]).map((o) => o.table_id),
+      )
+      const reserved = new Set(
+        ((resvRes.data ?? []) as { table_id: string }[]).map((r) => r.table_id),
+      )
+      const map: Record<string, TableStatus> = {}
+      for (const t of floor.tables) {
+        const rid = resolve(t)
+        if (rid && occupied.has(rid)) map[t.id] = 'occupied'
+        else if (rid && reserved.has(rid)) map[t.id] = 'reserved'
+        else map[t.id] = 'free'
+      }
+      setLiveStatus(map)
+    }
+    void compute()
+    const iv = setInterval(() => void compute(), 15000)
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [live, restaurantId, realTables, floor.tables])
   const selDeco = sel?.type === 'deco' ? floor.decos.find((d) => d.id === sel.id) : null
 
   const totalTables = floor.tables.length
@@ -826,7 +909,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             {/* Tables */}
             {floor.tables.map((t) => {
               const isSel = sel?.type === 'table' && sel.id === t.id
-              const st = STATUS_META[t.status || 'free']
+              // În Live, statusul vine din comenzi/rezervări; în Edit, cel salvat.
+              const effectiveStatus: TableStatus = live
+                ? (liveStatus[t.id] ?? 'free')
+                : t.status || 'free'
+              const st = STATUS_META[effectiveStatus]
               return (
                 <div
                   key={t.id}
@@ -1022,34 +1109,42 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   style={{ width: '100%', accentColor: D.gold }}
                 />
               </div>
-              {live && (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={propLabel}>Status</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {(
-                      Object.entries(STATUS_META) as [
-                        TableStatus,
-                        (typeof STATUS_META)[TableStatus],
-                      ][]
-                    ).map(([k, v]) => (
-                      <button
-                        key={k}
-                        onClick={() => updTbl('status', k)}
-                        style={btn({
-                          height: 28,
-                          padding: '0 8px',
-                          fontSize: '0.7rem',
-                          border: `1px solid ${v.bg}`,
-                          background: selTable.status === k ? v.bg : 'transparent',
-                          color: selTable.status === k ? '#fff' : v.bg,
-                        })}
-                      >
-                        {v.label}
-                      </button>
-                    ))}
-                  </div>
+              {/* Legătură cu masa reală (POS) — folosită pentru status Live
+                  (comenzi/rezervări) și interconectare. Auto-link după nume
+                  dacă nu e setat explicit. */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={propLabel}>Masă reală (POS)</div>
+                <select
+                  value={selTable.tableId ?? ''}
+                  onChange={(e) => updTbl('tableId', e.target.value || undefined)}
+                  style={{
+                    width: '100%',
+                    height: 32,
+                    background: D.s1,
+                    color: D.t1,
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 6,
+                    padding: '0 8px',
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  <option value="">
+                    {realTables.some(
+                      (rt) => rt.name.trim().toLowerCase() === selTable.label.trim().toLowerCase(),
+                    )
+                      ? `Auto (după nume: ${selTable.label})`
+                      : '— nelegată —'}
+                  </option>
+                  {realTables.map((rt) => (
+                    <option key={rt.id} value={rt.id}>
+                      {rt.name}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: '0.66rem', color: D.t3, marginTop: 4 }}>
+                  Leagă masa de POS ca să vezi în Live comenzile și rezervările ei.
                 </div>
-              )}
+              </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                 <button
                   onClick={rotateSel}
@@ -1206,16 +1301,14 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
         {live && (
           <>
             <span style={{ color: D.green }}>
-              ● {floor.tables.filter((t) => t.status === 'free').length} libere
+              ● {floor.tables.filter((t) => (liveStatus[t.id] ?? 'free') === 'free').length} libere
             </span>
             <span style={{ color: D.amber }}>
-              ● {floor.tables.filter((t) => t.status === 'occupied').length} ocupate
+              ● {floor.tables.filter((t) => liveStatus[t.id] === 'occupied').length} ocupate
             </span>
-            {floor.tables.some((t) => t.status === 'calling') && (
-              <span style={{ color: D.red }}>
-                ● {floor.tables.filter((t) => t.status === 'calling').length} cheamă
-              </span>
-            )}
+            <span style={{ color: '#9B72CF' }}>
+              ● {floor.tables.filter((t) => liveStatus[t.id] === 'reserved').length} rezervate
+            </span>
           </>
         )}
       </div>
