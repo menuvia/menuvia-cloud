@@ -206,10 +206,11 @@ export default function WaiterPage() {
     end.setDate(end.getDate() + 1)
     return { from: start.toISOString(), to: end.toISOString() }
   }, [])
-  const { reservations, updateStatus: updateReservationStatus } = useReservations(
-    restaurantId,
-    todayRange,
-  )
+  const {
+    reservations,
+    updateStatus: updateReservationStatus,
+    seat: seatReservation,
+  } = useReservations(restaurantId, todayRange)
   const activeReservations = useMemo(
     () =>
       reservations.filter(
@@ -218,6 +219,44 @@ export default function WaiterPage() {
       ),
     [reservations],
   )
+
+  // Mese disponibile pentru alocare manuală la așezare
+  const [tables, setTables] = useState<{ id: string; name: string; seats: number | null }[]>([])
+  const [tablesLoadError, setTablesLoadError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!restaurantId) {
+      setTables([])
+      return
+    }
+    // Guard împotriva race-ului la switch rapid de restaurant.
+    let cancelled = false
+    setTablesLoadError(null)
+    void supabase
+      .from('tables')
+      .select('id, name, seats')
+      .eq('restaurant_id', restaurantId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data, error: e }) => {
+        if (cancelled) return
+        if (e) {
+          setTablesLoadError(e.message)
+          setTables([])
+        } else {
+          setTables((data ?? []) as typeof tables)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+  // Masă selectată per rezervare (pentru cele fără masă alocată).
+  // Reset la schimbarea restaurantului — altfel pick-urile vechi rămân
+  // (pre-fill greșit + memory accumulator pe sesiuni lungi).
+  const [seatTablePick, setSeatTablePick] = useState<Record<string, string>>({})
+  useEffect(() => {
+    setSeatTablePick({})
+  }, [restaurantId])
 
   const [showManualOrder, setShowManualOrder] = useState(false)
   const [lastManualOrder, setLastManualOrder] = useState<{ id: string; shortId: string } | null>(
@@ -530,12 +569,27 @@ export default function WaiterPage() {
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
                       {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
-                      {r.table?.name ? ` · Masa ${r.table.name}` : ''}
+                      {r.table?.name ? ` · Masa ${r.table.name}` : ' · fără masă'}
                       {' · '}
                       <a href={'tel:' + r.customer_phone} style={{ color: D.gold }}>
                         {r.customer_phone}
                       </a>
                     </div>
+                    {r.requested_zone && !r.table?.name && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: D.amber,
+                          marginBottom: 8,
+                          padding: '4px 8px',
+                          background: 'rgba(232,160,32,0.08)',
+                          borderRadius: 6,
+                          display: 'inline-block',
+                        }}
+                      >
+                        🌿 Cere zona: {r.requested_zone}
+                      </div>
+                    )}
                     {r.special_requests && (
                       <div
                         style={{
@@ -551,24 +605,57 @@ export default function WaiterPage() {
                         „{r.special_requests}"
                       </div>
                     )}
-                    {r.status !== 'seated' && (
-                      <div style={{ display: 'flex', gap: 8 }}>
+                    {r.status !== 'seated' && (() => {
+                      // O singură sursă de adevăr pentru pickul de masă:
+                      // pickul manual al ospătarului, fallback la masa pre-alocată.
+                      const pick = seatTablePick[r.id] ?? r.table_id ?? ''
+                      const canSeat = pick.length > 0
+                      return (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                        <select
+                          value={pick}
+                          onChange={(e) =>
+                            setSeatTablePick((p) => ({ ...p, [r.id]: e.target.value }))
+                          }
+                          style={{
+                            flex: '0 0 auto',
+                            maxWidth: 120,
+                            background: D.s1,
+                            color: D.t1,
+                            border: `1px solid ${D.s3}`,
+                            borderRadius: 8,
+                            padding: '0 8px',
+                            fontSize: 13,
+                          }}
+                        >
+                          <option value="">Alege masă…</option>
+                          {tables.map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.name}
+                              {t.seats ? ` (${t.seats})` : ''}
+                            </option>
+                          ))}
+                        </select>
                         <button
                           onClick={() => {
-                            void updateReservationStatus(r.id, 'seated').catch((e) =>
+                            if (!canSeat) return
+                            void seatReservation(r.id, pick).catch((e) =>
                               alert(e instanceof Error ? e.message : 'Eroare'),
                             )
                           }}
+                          disabled={!canSeat}
+                          title={canSeat ? 'Marchează ca așezat' : 'Alege întâi o masă'}
                           style={{
                             flex: 1,
                             padding: '10px',
-                            background: D.green,
-                            color: '#fff',
+                            background: canSeat ? D.green : D.s3,
+                            color: canSeat ? '#fff' : D.t3,
                             border: 'none',
                             borderRadius: 8,
                             fontSize: 13,
                             fontWeight: 600,
-                            cursor: 'pointer',
+                            cursor: canSeat ? 'pointer' : 'not-allowed',
+                            opacity: canSeat ? 1 : 0.7,
                           }}
                         >
                           Așezat
@@ -594,11 +681,26 @@ export default function WaiterPage() {
                           No-show
                         </button>
                       </div>
-                    )}
+                    )
+                    })()}
                   </div>
                 )
               })}
             </div>
+            {tablesLoadError && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: D.red,
+                  marginTop: 8,
+                  padding: '6px 10px',
+                  background: 'rgba(224,85,85,0.10)',
+                  borderRadius: 6,
+                }}
+              >
+                Nu am putut încărca lista meselor: {tablesLoadError}
+              </div>
+            )}
           </div>
         )}
 
