@@ -70,3 +70,71 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+  lighthouse:
+    name: Lighthouse mobile ≥ 90 (public menu)
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Build app (stub Supabase env)
+        env:
+          # URL fictiv dar valid ca format — aplicația trebuie să se construiască
+          # și pagina publică să randeze fără backend (loading state / empty state)
+          VITE_SUPABASE_URL:      "https://placeholder.supabase.co"
+          VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.placeholder"
+        run: npm run build
+
+      - name: Serve static build
+        run: npx serve dist -p 4173 &
+        # Pornim un server static în fundal; Lighthouse îl va ataca
+
+      - name: Wait for server
+        run: |
+          for i in {1..20}; do
+            if curl -s http://localhost:4173 > /dev/null; then echo "Server ready"; break; fi
+            sleep 1
+          done
+
+      - name: Run Lighthouse (mobile)
+        run: |
+          npx lighthouse http://localhost:4173/m/tinctura \
+            --output=json \
+            --output-path=lighthouse-report.json \
+            --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+            --preset=perf \
+            --form-factor=mobile \
+            --screenEmulation.width=375 \
+            --screenEmulation.height=812 \
+            --screenEmulation.deviceScaleFactor=2 \
+            --throttling-method=simulate \
+            --only-categories=performance 2>/dev/null || true
+
+      - name: Assert performance score ≥ 90
+        run: |
+          SCORE=$(node -e "
+            const r = require('./lighthouse-report.json');
+            const s = Math.round(r.categories.performance.score * 100);
+            console.log(s);
+          ")
+          echo "Lighthouse mobile performance score: $SCORE"
+          if [ "$SCORE" -lt 90 ]; then
+            echo "❌ Score $SCORE < 90 — Gate A exit criteria NOT met."
+            echo "   Fix: reduce initial bundle, improve CLS/LCP on PublicMenuPage."
+            exit 1
+          fi
+          echo "✅ Score $SCORE ≥ 90 — Gate A passed."
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: lighthouse-report.json
+          retention-days: 14

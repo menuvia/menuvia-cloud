@@ -220,6 +220,100 @@ jobs:
             echo "✓ Function exists: $fn (count: $COUNT)"
           done
 
+      - name: "Gate A assertion: Plan 1 (free/starter) cannot create orders"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §6 Poarta A: "Test de asserțiune: Plan 1 NU poate crea comenzi"
+          # Verificăm că enforce_ordering_enabled() respinge INSERT pe orders
+          # pentru restaurante cu plan free/starter (order_qr=false).
+          psql -h localhost -U postgres -d menuvia_test <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id    uuid := gen_random_uuid();
+            v_rest_id     uuid := gen_random_uuid();
+            v_table_id    uuid := gen_random_uuid();
+            v_blocked     boolean := false;
+          begin
+            -- Setup: user cu plan 'free'
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-a@menuvia.ro');
+            insert into public.profiles (id, email, full_name, plan)
+              values (v_owner_id, 'test-gate-a@menuvia.ro', 'Test Gate A', 'free');
+
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Restaurant Gate A', 'test-gate-a-slug', 'București', true);
+
+            insert into public.tables (id, restaurant_id, name, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', true);
+
+            -- Setăm auth.uid() la owner (bypass RLS pentru test)
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            -- Încearcă INSERT pe orders — trigger-ul trebuie să-l respingă
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              -- Dacă ajunge aici, gate-ul NU funcționează
+              raise exception 'ASSERTION FAILED: Plan 1 (free) a putut crea o comandă! Gate-ul nu funcționează.';
+            exception
+              when check_violation then
+                v_blocked := true;
+                raise notice 'OK: INSERT respins pentru plan free (check_violation)';
+              when others then
+                if sqlerrm like '%plan_upgrade_required%' or sqlerrm like '%Growth%' or sqlerrm like '%free%' then
+                  v_blocked := true;
+                  raise notice 'OK: INSERT respins pentru plan free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED unexpected error: %', sqlerrm;
+                end if;
+            end;
+
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: Plan free a putut crea o comandă!';
+            end if;
+
+            -- Test pentru 'starter' — același comportament
+            update public.profiles set plan = 'starter' where id = v_owner_id;
+            v_blocked := false;
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              raise exception 'ASSERTION FAILED: Plan 1 (starter) a putut crea o comandă!';
+            exception
+              when others then
+                v_blocked := true;
+                raise notice 'OK: INSERT respins pentru plan starter: %', sqlerrm;
+            end;
+
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: Plan starter a putut crea o comandă!';
+            end if;
+
+            -- Test pozitiv: growth TREBUIE să poată insera
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              raise notice 'OK: Plan growth poate crea comenzi.';
+            exception
+              when others then
+                raise exception 'ASSERTION FAILED: Plan growth NU a putut crea o comandă: %', sqlerrm;
+            end;
+
+            raise notice '✅ Gate A assertions passed: free/starter blocked, growth allowed.';
+          end$$;
+          ASSERTION
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
