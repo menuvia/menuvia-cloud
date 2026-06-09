@@ -1,7 +1,7 @@
 // src/lib/__tests__/orders.test.ts
 import { describe, it, expect } from 'vitest'
-import { orderSubtotal } from '../orders'
-import type { Order } from '../orders'
+import { orderSubtotal, describeAuditEntry } from '../orders'
+import type { Order, AuditEntry } from '../orders'
 
 // Helper pentru a crea un Order minimal (multe câmpuri nu sunt necesare pentru testarea funcției)
 function makeOrder(overrides: Partial<Order>): Order {
@@ -144,5 +144,122 @@ describe('orderSubtotal()', () => {
       total: 0,
     })
     expect(orderSubtotal(order)).toBe(0)
+  })
+})
+
+// Helper: AuditEntry minimal cu override-uri
+function makeEntry(overrides: Partial<AuditEntry>): AuditEntry {
+  return {
+    id: 1,
+    created_at: '2026-06-09T10:00:00Z',
+    actor_id: 'u1',
+    actor_name: 'Maria',
+    table_name: 'orders',
+    operation: 'UPDATE',
+    row_id: 'o1',
+    changed_keys: null,
+    diff_short: null,
+    ...overrides,
+  }
+}
+
+describe('describeAuditEntry()', () => {
+  describe('tabel orders', () => {
+    it('INSERT → creare comandă', () => {
+      expect(describeAuditEntry(makeEntry({ operation: 'INSERT' }))).toBe('A creat comanda')
+    })
+
+    it('DELETE → ștergere comandă', () => {
+      expect(describeAuditEntry(makeEntry({ operation: 'DELETE' }))).toBe('A șters comanda')
+    })
+
+    it('mapează tranzițiile de status cunoscute', () => {
+      const transitions: Array<[string, string]> = [
+        ['confirmed', 'A confirmat comanda'],
+        ['preparing', 'A trimis la pregătire'],
+        ['ready', 'A marcat ca gata'],
+        ['served', 'A marcat ca servit'],
+        ['paid', 'A încasat plata'],
+        ['cancelled', 'A anulat comanda'],
+      ]
+      for (const [to, expected] of transitions) {
+        const e = makeEntry({
+          changed_keys: ['status'],
+          diff_short: { status: { to } },
+        })
+        expect(describeAuditEntry(e)).toBe(expected)
+      }
+    })
+
+    it('status necunoscut → fallback cu săgeată', () => {
+      const e = makeEntry({ changed_keys: ['status'], diff_short: { status: { to: 'weird' } } })
+      expect(describeAuditEntry(e)).toBe('Status → weird')
+    })
+
+    it('schimbare de discount → modificare reducere', () => {
+      const e = makeEntry({ changed_keys: ['discount_value', 'discount_amount'] })
+      expect(describeAuditEntry(e)).toBe('A modificat reducerea')
+    })
+
+    it('doar total schimbat → recalcul total', () => {
+      const e = makeEntry({ changed_keys: ['total'] })
+      expect(describeAuditEntry(e)).toBe('A recalculat totalul')
+    })
+
+    it('alte chei → modificare generică', () => {
+      const e = makeEntry({ changed_keys: ['notes'] })
+      expect(describeAuditEntry(e)).toBe('A modificat comanda')
+    })
+  })
+
+  describe('tabel order_items', () => {
+    it('UPDATE summary → count + total formatat', () => {
+      const e = makeEntry({
+        table_name: 'order_items',
+        operation: 'UPDATE',
+        diff_short: {
+          items: { from: [1, 2, 3], to: [1, 2] },
+          total: { from: 30, to: 22.5 },
+        },
+      })
+      expect(describeAuditEntry(e)).toBe('A modificat comanda (3 → 2 produse · total 22.50 lei)')
+    })
+
+    it('UPDATE summary fără count valid → "produse"', () => {
+      const e = makeEntry({
+        table_name: 'order_items',
+        operation: 'UPDATE',
+        diff_short: { total: { to: 10 } },
+      })
+      expect(describeAuditEntry(e)).toBe('A modificat comanda (produse · total 10.00 lei)')
+    })
+
+    it('INSERT → adăugare produs cu nume + cantitate', () => {
+      const e = makeEntry({
+        table_name: 'order_items',
+        operation: 'INSERT',
+        diff_short: { product_name_snapshot: 'Cappuccino', quantity: 2 },
+      })
+      expect(describeAuditEntry(e)).toBe('A adăugat Cappuccino × 2')
+    })
+
+    it('INSERT fără date → fallback', () => {
+      const e = makeEntry({ table_name: 'order_items', operation: 'INSERT', diff_short: null })
+      expect(describeAuditEntry(e)).toBe('A adăugat produs × 1')
+    })
+
+    it('DELETE → ștergere produs', () => {
+      const e = makeEntry({
+        table_name: 'order_items',
+        operation: 'DELETE',
+        diff_short: { product_name_snapshot: 'Espresso', quantity: 1 },
+      })
+      expect(describeAuditEntry(e)).toBe('A șters Espresso × 1')
+    })
+  })
+
+  it('tabel necunoscut → fallback table · operation', () => {
+    const e = makeEntry({ table_name: 'payments', operation: 'INSERT' })
+    expect(describeAuditEntry(e)).toBe('payments · INSERT')
   })
 })

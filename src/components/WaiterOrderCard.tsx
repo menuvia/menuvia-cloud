@@ -405,9 +405,19 @@ interface OrderCardProps {
   order: Order
   onPayOpen: (order: Order) => void
   onSplitOpen: (order: Order) => void
+  onEdit?: (order: Order) => void
+  onCancel?: (order: Order) => void
+  onAudit?: (order: Order) => void
 }
 
-function OrderCard({ order, onPayOpen, onSplitOpen }: OrderCardProps) {
+function OrderCard({
+  order,
+  onPayOpen,
+  onSplitOpen,
+  onEdit,
+  onCancel,
+  onAudit,
+}: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
 
@@ -516,6 +526,73 @@ function OrderCard({ order, onPayOpen, onSplitOpen }: OrderCardProps) {
       >
         {order.total.toFixed(2)} lei
       </div>
+
+      {/* Edit + Cancel — available for any non-terminal status */}
+      {(onEdit || onCancel) && order.status !== 'paid' && order.status !== 'cancelled' && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          {onEdit && (
+            <button
+              onClick={() => onEdit(order)}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                color: D.gold,
+                border: `1px solid ${D.gold}77`,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              ✎ Editează
+            </button>
+          )}
+          {onCancel && (
+            <button
+              onClick={() => onCancel(order)}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                color: D.red,
+                border: `1px solid ${D.red}77`,
+                borderRadius: 8,
+                padding: '8px 0',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Anulează
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* History button — admin-only (RLS gate on audit_log restricts waiter) */}
+      {onAudit && (
+        <button
+          onClick={() => onAudit(order)}
+          style={{
+            background: 'transparent',
+            color: D.t3,
+            border: 'none',
+            padding: '4px 0',
+            fontFamily: 'DM Sans, sans-serif',
+            fontSize: 12,
+            fontWeight: 500,
+            cursor: 'pointer',
+            textAlign: 'left',
+            textDecoration: 'underline',
+            textDecorationColor: `${D.t3}66`,
+            textUnderlineOffset: 3,
+          }}
+        >
+          🕘 Vezi istoric
+        </button>
+      )}
 
       {/* Payment buttons for served orders */}
       {order.status === 'served' && (

@@ -274,6 +274,113 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
   }
 }
 
+// Edit items pe comandă non-terminală, fără plăți parțiale.
+// Server validează rol + status + plăți + produs/modificatori; client doar
+// trimite snapshot-ul nou complet.
+// Istoric audit pentru o comandă: orders + order_items.
+// Folosește view-ul public.v_audit_recent (mig 044) care joinează profile
+// pentru numele actorului. RLS filtrează: owner/manager văd tot audit-ul
+// restaurantelor lor; waiter vede doar propriile acțiuni.
+export interface AuditEntry {
+  id: number
+  created_at: string
+  actor_id: string | null
+  actor_name: string | null
+  table_name: string
+  operation: 'INSERT' | 'UPDATE' | 'DELETE'
+  row_id: string
+  changed_keys: string[] | null
+  diff_short: Record<string, unknown> | null
+}
+
+// Umanizează o intrare de audit într-o frază scurtă în română.
+// Funcție pură (fără I/O) — testabilă direct. Folosită de OrderAuditSheet.
+export function describeAuditEntry(e: AuditEntry): string {
+  if (e.table_name === 'orders') {
+    if (e.operation === 'INSERT') return 'A creat comanda'
+    if (e.operation === 'DELETE') return 'A șters comanda'
+    if (e.changed_keys?.includes('status')) {
+      const diff = e.diff_short as Record<string, { from?: string; to?: string }> | null
+      const to = diff?.status?.to
+      if (to === 'confirmed') return 'A confirmat comanda'
+      if (to === 'preparing') return 'A trimis la pregătire'
+      if (to === 'ready') return 'A marcat ca gata'
+      if (to === 'served') return 'A marcat ca servit'
+      if (to === 'paid') return 'A încasat plata'
+      if (to === 'cancelled') return 'A anulat comanda'
+      return `Status → ${to}`
+    }
+    if (e.changed_keys?.some((k) => k.startsWith('discount'))) {
+      return 'A modificat reducerea'
+    }
+    if (e.changed_keys?.includes('total')) return 'A recalculat totalul'
+    return 'A modificat comanda'
+  }
+  if (e.table_name === 'order_items') {
+    // Audit-summary de la update_order_items: diff_short = {items:{from,to}, total:{from,to}}
+    const diff = e.diff_short as
+      | { items?: { from?: unknown[]; to?: unknown[] }; total?: { from?: number; to?: number } }
+      | null
+    if (e.operation === 'UPDATE' && (diff?.items || diff?.total)) {
+      const fromCount = Array.isArray(diff?.items?.from) ? diff.items.from.length : null
+      const toCount = Array.isArray(diff?.items?.to) ? diff.items.to.length : null
+      const toTotal = diff?.total?.to
+      const countPart =
+        fromCount != null && toCount != null ? `${fromCount} → ${toCount} produse` : 'produse'
+      const totalPart = typeof toTotal === 'number' ? ` · total ${toTotal.toFixed(2)} lei` : ''
+      return `A modificat comanda (${countPart}${totalPart})`
+    }
+    if (e.operation === 'INSERT') {
+      const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
+      return `A adăugat ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
+    }
+    if (e.operation === 'DELETE') {
+      const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
+      return `A șters ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
+    }
+    return 'A modificat un produs'
+  }
+  return `${e.table_name} · ${e.operation}`
+}
+
+export async function fetchOrderAuditHistory(orderId: string): Promise<AuditEntry[]> {
+  // RPC SECURITY DEFINER cu role check (owner/manager only) — mig 080.
+  // Pe RLS-ul direct pe audit_log filtrarea jsonb e fragilă; RPC-ul
+  // joacă rolul de query unificat + permission gate.
+  const { data, error } = await supabase.rpc('get_order_audit_history', {
+    p_order_id: orderId,
+  })
+  if (error) throw error
+  return (data ?? []) as unknown as AuditEntry[]
+}
+
+export interface EditOrderItemPayload {
+  product_id: string
+  quantity: number
+  option_ids: string[]
+  notes: string | null
+}
+
+export async function updateOrderItems(
+  orderId: string,
+  items: EditOrderItemPayload[],
+  expectedTotal?: number,
+): Promise<{ id: string; total: number; discount_amount: number; items_count: number }> {
+  const p_items = items.map((item) => ({
+    product_id: item.product_id,
+    quantity: item.quantity,
+    option_ids: item.option_ids,
+    notes: item.notes,
+  }))
+  const { data, error } = await supabase.rpc('update_order_items', {
+    p_order_id: orderId,
+    p_items,
+    p_expected_total: expectedTotal ?? null,
+  })
+  if (error) throw error
+  return data as { id: string; total: number; discount_amount: number; items_count: number }
+}
+
 export async function fetchTables(restaurantId: string): Promise<RestaurantTable[]> {
   const { data, error } = await supabase
     .from('tables')
@@ -285,9 +392,12 @@ export async function fetchTables(restaurantId: string): Promise<RestaurantTable
   return (data ?? []) as RestaurantTable[]
 }
 
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'disconnected'
+
 export function subscribeToOrders(
   restaurantId: string,
   onEvent: (payload: OrderRealtimePayload) => void,
+  onStatus?: (status: RealtimeConnectionStatus) => void,
 ) {
   return supabase
     .channel(`orders:${restaurantId}`)
@@ -302,7 +412,14 @@ export function subscribeToOrders(
         })
       },
     )
-    .subscribe()
+    .subscribe((status) => {
+      if (!onStatus) return
+      // Supabase realtime status: SUBSCRIBED | CHANNEL_ERROR | TIMED_OUT | CLOSED
+      if (status === 'SUBSCRIBED') onStatus('connected')
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED')
+        onStatus('disconnected')
+      else onStatus('connecting')
+    })
 }
 
 // ── Waiter calls ──
