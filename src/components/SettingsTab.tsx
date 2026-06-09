@@ -744,7 +744,7 @@ export default function SettingsTab({
                     </div>
                   </div>
                   <Toggle
-                    checked={modulesState.isEnabled('reservations')}
+                    value={modulesState.isEnabled('reservations')}
                     onChange={(v) => {
                       modulesState
                         .setModule('reservations', v)
