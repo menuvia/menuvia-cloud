@@ -106,7 +106,7 @@ export default function PickupCheckoutSheet({
         qr_token_id: null,
         notes: null,
         cart,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: idempotencyKeyRef.current,
         pickup_time: pickupTime || null,
         customer_name: name.trim(),
         customer_phone: phone.trim().length > 0 ? phone.trim() : null,

@@ -208,7 +208,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          REQUIRED_FUNCS="create_order bridge_validate_device bridge_get_pending bridge_claim_receipt bridge_confirm_receipt open_table_session close_session_orders advance_order is_module_enabled set_restaurant_module"
+          REQUIRED_FUNCS="create_order bridge_validate_device bridge_get_pending bridge_claim_receipt bridge_confirm_receipt open_table_session close_session_orders advance_order is_module_enabled set_restaurant_module enforce_feature_for_restaurant"
 
           for fn in $REQUIRED_FUNCS; do
             COUNT=$(psql -h localhost -U postgres -d menuvia_test -tA -c \
@@ -602,6 +602,100 @@ jobs:
             raise notice 'OK: toggle off persistă';
 
             raise notice '✅ Gate D assertions passed: module toggle blochează server-side.';
+          end$$;
+          ASSERTION
+
+      - name: "Gate C enforcement: table_lifecycle plan-gate on close_order"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §10 Poarta C exit: free/starter NU pot folosi close_order
+          # (lifecycle non-fiscal e feature Plan 2+).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id   uuid := gen_random_uuid();
+            v_rest_id    uuid := gen_random_uuid();
+            v_table_id   uuid := gen_random_uuid();
+            v_session_id uuid := gen_random_uuid();
+            v_order_id   uuid := gen_random_uuid();
+            v_caught     boolean := false;
+            v_status     text;
+            v_result     jsonb;
+          begin
+            -- Setup: owner pe plan free
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-c-enf@menuvia.ro');
+            -- Triggerul handle_new_user lasă plan='free' default.
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Gate C Enforce', 'gate-c-enf-slug', 'BV', true);
+            insert into public.restaurant_memberships (restaurant_id, user_id, role)
+              values (v_rest_id, v_owner_id, 'owner');
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'M1', 'm1', true);
+            insert into public.table_sessions (id, restaurant_id, table_id, status)
+              values (v_session_id, v_rest_id, v_table_id, 'open');
+            -- Bypass trigger Gate A: insert direct cu status served (skip enforce_ordering_enabled
+            -- e BEFORE INSERT, deci INSERT direct e respins. Folosim un user growth temporar
+            -- ca să creem comanda, apoi degradăm planul la free).
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 45.00, v_session_id);
+            -- Acum degradăm la free → close_order trebuie respins de plan-gate.
+            update public.profiles set plan = 'free' where id = v_owner_id;
+
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            -- Test 1: close_order respins pe plan free
+            begin
+              v_result := public.advance_order(v_order_id, 'close_order', null, null);
+              raise exception 'ASSERTION FAILED: close_order a trecut pe plan free!';
+            exception
+              when others then
+                if sqlerrm ilike '%nu e disponibil%' or sqlerrm ilike '%feature_disabled%'
+                   or sqlerrm ilike '%table_lifecycle%' then
+                  v_caught := true;
+                  raise notice 'OK: advance_order(close_order) respins pe free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected feature_disabled, got: %', sqlerrm;
+                end if;
+            end;
+            if not v_caught then
+              raise exception 'ASSERTION FAILED: nu am prins gate-ul feature pe free';
+            end if;
+
+            -- Test 2: close_session_orders respins pe plan free
+            v_caught := false;
+            begin
+              v_result := public.close_session_orders(v_session_id);
+              raise exception 'ASSERTION FAILED: close_session_orders a trecut pe plan free!';
+            exception
+              when others then
+                if sqlerrm ilike '%nu e disponibil%' or sqlerrm ilike '%feature_disabled%'
+                   or sqlerrm ilike '%table_lifecycle%' then
+                  v_caught := true;
+                  raise notice 'OK: close_session_orders respins pe free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected feature_disabled, got: %', sqlerrm;
+                end if;
+            end;
+            if not v_caught then
+              raise exception 'ASSERTION FAILED: nu am prins gate-ul feature la close_session_orders';
+            end if;
+
+            -- Test 3: upgrade la growth → close_order trece
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            v_result := public.advance_order(v_order_id, 'close_order', null, null);
+            if not (v_result->>'ok')::boolean then
+              raise exception 'ASSERTION FAILED: close_order eșuat pe growth: %', v_result;
+            end if;
+            select status into v_status from public.orders where id = v_order_id;
+            if v_status != 'closed' then
+              raise exception 'ASSERTION FAILED: status ar trebui closed, e: %', v_status;
+            end if;
+            raise notice 'OK: close_order trece pe growth';
+
+            raise notice '✅ Gate C enforce passed: table_lifecycle plan-gate funcționează.';
           end$$;
           ASSERTION
 
