@@ -7,6 +7,7 @@ export type OrderStatus =
   | 'preparing'
   | 'ready'
   | 'served'
+  | 'closed'
   | 'paid'
   | 'cancelled'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
@@ -149,7 +150,7 @@ export async function fetchWaiterOrders(restaurantId: string): Promise<Order[]> 
     .from('orders')
     .select(ORDER_SELECT)
     .eq('restaurant_id', restaurantId)
-    .not('status', 'in', '("paid","cancelled")')
+    .not('status', 'in', '("paid","cancelled","closed")')
     .order('created_at', { ascending: true })
   if (error) throw error
   return (data ?? []) as unknown as Order[]
@@ -170,7 +171,8 @@ const STATUS_TO_ACTION: Record<string, string> = {
   'confirmed→preparing': 'start_preparing',
   'preparing→ready': 'mark_ready',
   'ready→served': 'mark_served',
-  'served→paid': 'mark_paid',
+  'served→closed': 'close_order',  // Plan 2: non-fiscal close
+  'served→paid': 'mark_paid',       // Plan 3: fiscal close via bridge
 }
 
 export async function advanceOrderStatus(
@@ -194,17 +196,17 @@ export async function advanceOrderStatus(
             ? 'mark_ready'
             : target === 'served'
               ? 'mark_served'
-              : target === 'paid'
-                ? 'mark_paid'
-                : target
+              : target === 'closed'
+                ? 'close_order'
+                : target === 'paid'
+                  ? 'mark_paid'
+                  : target
   }
   const { error: rpcError } = await supabase.rpc('advance_order', {
     p_order_id: orderId,
     p_action: action,
-    p_payment_method: payload.payment_method ?? null,
     p_paid_amount: payload.paid_amount ?? null,
-    p_tips_amount: payload.tips_amount ?? null,
-    p_cancel_reason: payload.cancel_reason ?? null,
+    p_payment_method: payload.payment_method ?? null,
   })
   if (rpcError) throw rpcError
   return fetchOrderById(orderId)
@@ -308,6 +310,7 @@ export function describeAuditEntry(e: AuditEntry): string {
       if (to === 'preparing') return 'A trimis la pregătire'
       if (to === 'ready') return 'A marcat ca gata'
       if (to === 'served') return 'A marcat ca servit'
+      if (to === 'closed') return 'A închis masa (fără bon fiscal)'
       if (to === 'paid') return 'A încasat plata'
       if (to === 'cancelled') return 'A anulat comanda'
       return `Status → ${to}`
@@ -587,4 +590,10 @@ export function orderSubtotal(order: Order): number {
     return order.total + (order.discount_amount || 0)
   }
   return order.order_items.reduce((sum, it) => sum + Number(it.item_total || 0), 0)
+}
+
+export async function closeSessionOrders(sessionId: string): Promise<{ closed_count: number; already_closed?: boolean }> {
+  const { data, error } = await supabase.rpc('close_session_orders', { p_session_id: sessionId })
+  if (error) throw error
+  return data as { closed_count: number; already_closed?: boolean }
 }
