@@ -140,10 +140,19 @@ begin
     );
   end if;
 
-  -- Creează sesiune nouă
-  insert into public.table_sessions (restaurant_id, table_id)
-  values (v_qr.restaurant_id, v_qr.table_id)
-  returning id, opened_at into v_session_id, v_opened_at;
+  -- Creează sesiune nouă. Dacă un scan concurent a câștigat cursa (unique
+  -- partial index pe table_id WHERE status='open'), recitim sesiunea open
+  -- existentă → idempotent chiar sub concurență.
+  begin
+    insert into public.table_sessions (restaurant_id, table_id)
+    values (v_qr.restaurant_id, v_qr.table_id)
+    returning id, opened_at into v_session_id, v_opened_at;
+  exception
+    when unique_violation then
+      select id, opened_at into v_session_id, v_opened_at
+      from public.table_sessions
+      where table_id = v_qr.table_id and status = 'open';
+  end;
 
   return jsonb_build_object(
     'session_id',    v_session_id,
@@ -332,10 +341,17 @@ begin
         using errcode = 'P0001', hint = 'missing_customer_name';
     end if;
 
-    select rs.ordering_enabled, rs.pickup_enabled
-    into v_pickup_enabled, v_pickup_enabled
+    select rs.pickup_enabled
+    into v_pickup_enabled
     from public.restaurant_settings rs
     where rs.restaurant_id = p_restaurant_id;
+
+    -- Blocăm explicit doar când pickup e dezactivat (false). Lipsa rândului
+    -- de settings (null) păstrează comportamentul anterior (permis).
+    if v_pickup_enabled is false then
+      raise exception 'Comenzile pickup sunt dezactivate pentru acest restaurant.'
+        using errcode = 'P0001', hint = 'pickup_disabled';
+    end if;
 
     perform public.check_pickup_order_rate_limit(p_restaurant_id, p_customer_phone);
 
@@ -591,8 +607,10 @@ begin
     set status    = 'expired',
         closed_at = now()
   where status = 'open'
-    and last_activity_at < now() - (p_inactive_hours || ' hours')::interval
-  returning count(*) into v_count;
+    and last_activity_at < now() - (p_inactive_hours || ' hours')::interval;
+
+  -- count(*) nu e permis în RETURNING (per-row); folosim ROW_COUNT.
+  get diagnostics v_count = row_count;
 
   return coalesce(v_count, 0);
 end;

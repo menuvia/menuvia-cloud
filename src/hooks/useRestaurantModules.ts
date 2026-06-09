@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────
 // Citire prin SELECT direct pe restaurant_modules (RLS = public read);
 // mutație prin set_restaurant_module RPC (admin-only, verifică membership).
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 export type ModuleKey =
@@ -34,11 +34,16 @@ export function useRestaurantModules(
 ): UseRestaurantModulesResult {
   const [modules, setModules] = useState<Record<ModuleKey, boolean>>(DEFAULT_MODULES)
   const [loading, setLoading] = useState(true)
+  // Token de secvență: ignoră răspunsuri întârziate pentru un restaurantId vechi.
+  const loadSeqRef = useRef(0)
 
   async function load(): Promise<void> {
+    const seq = ++loadSeqRef.current
     if (!restaurantId) {
-      setModules(DEFAULT_MODULES)
-      setLoading(false)
+      if (seq === loadSeqRef.current) {
+        setModules(DEFAULT_MODULES)
+        setLoading(false)
+      }
       return
     }
     setLoading(true)
@@ -52,11 +57,11 @@ export function useRestaurantModules(
       for (const row of data ?? []) {
         next[row.module_key as ModuleKey] = row.enabled
       }
-      setModules(next)
+      if (seq === loadSeqRef.current) setModules(next)
     } catch (err) {
       console.error('[useRestaurantModules] load error:', err)
     }
-    setLoading(false)
+    if (seq === loadSeqRef.current) setLoading(false)
   }
 
   useEffect(() => {

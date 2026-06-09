@@ -131,14 +131,22 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   useEffect(() => {
     if (!restaurant?.id) return
     let cancelled = false
+    // Tri-state: null = necunoscut/lipsă rând/eroare (→ fallback la amenity
+    // legacy), true/false = toggle explicit din restaurant_modules.
+    setReservationsModuleEnabled(null)
     void supabase
       .from('restaurant_modules')
       .select('enabled')
       .eq('restaurant_id', restaurant.id)
       .eq('module_key', 'reservations')
       .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setReservationsModuleEnabled(data?.enabled ?? false)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          setReservationsModuleEnabled(null)
+          return
+        }
+        setReservationsModuleEnabled(data ? data.enabled : null)
       })
     return () => {
       cancelled = true
@@ -1058,12 +1066,18 @@ function socialUrl(
 
 // Extrage handle-ul curat (fără URL, fără @) pentru afișare în text.
 function socialHandle(value: string): string {
-  const v = value.trim().replace(/\/+$/, '')
+  const v = value.trim()
   if (/^https?:\/\//i.test(v)) {
-    const parts = v.split('/').filter(Boolean)
-    return (parts[parts.length - 1] ?? v).replace(/^@/, '')
+    try {
+      // URL.pathname elimină query (?...) și hash (#...) automat.
+      const pathname = new URL(v).pathname.replace(/\/+$/, '')
+      const parts = pathname.split('/').filter(Boolean)
+      return (parts[parts.length - 1] ?? '').replace(/^@/, '')
+    } catch {
+      return v.replace(/^@/, '').replace(/\/+$/, '')
+    }
   }
-  return v.replace(/^@/, '')
+  return v.replace(/^@/, '').replace(/\/+$/, '')
 }
 
 // Versiunea clickable a InfoPill: render <a> cu același styling.

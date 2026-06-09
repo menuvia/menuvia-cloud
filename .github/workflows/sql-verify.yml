@@ -374,8 +374,11 @@ jobs:
 
             -- Test 3: sesiune closed → create_order cu p_session_id respinge comanda
             -- Inserăm manual o sesiune CLOSED (simulează masa plătită)
+            -- Sesiune CLOSED pe ACEEAȘI masă (v_table_id) ca să declanșeze
+            -- exact guard-ul session_closed din create_order (table_id trebuie
+            -- să existe — FK către tables — și să corespundă token-ului).
             insert into public.table_sessions (id, restaurant_id, table_id, status, closed_at)
-              values (v_closed_sess, v_rest_id, gen_random_uuid(), 'closed', now());
+              values (v_closed_sess, v_rest_id, v_table_id, 'closed', now());
 
             v_blocked := false;
             begin
@@ -395,14 +398,14 @@ jobs:
               raise exception 'ASSERTION FAILED: create_order a acceptat sesiune closed!';
             exception
               when others then
-                if sqlerrm like '%session_closed%' or sqlerrm like '%sesiune%' or sqlerrm like '%închis%' or sqlerrm like '%Sesiunea%' then
+                -- SQLERRM = textul mesajului ('Masa a fost închisă...'), nu hint-ul.
+                -- Acceptăm DOAR mesajul guard-ului de sesiune; orice altă eroare
+                -- (ex: product not found) înseamnă că guard-ul NU s-a activat → fail.
+                if sqlerrm like '%închis%' or sqlerrm like '%sesiune%' or sqlerrm like '%expirat%' then
                   v_blocked := true;
                   raise notice 'OK: create_order respinge sesiune closed: %', sqlerrm;
                 else
-                  -- Orice altă eroare (ex: product not found) e acceptabilă — guard-ul sesiunii
-                  -- nu s-a activat, dar testul de produs vine după. Verificăm altfel.
-                  raise notice 'NOTE: eroare diferită la create_order (posibil după guard sesiune): %', sqlerrm;
-                  v_blocked := true;  -- Sesiunea closed cu alt UUID nu e pentru această masă → not found = OK
+                  raise exception 'ASSERTION FAILED: expected session_closed guard, got: %', sqlerrm;
                 end if;
             end;
 
@@ -553,11 +556,7 @@ jobs:
                   v_caught := true;
                   raise notice 'OK: create_reservation_public respins corect (modul OFF): %', sqlerrm;
                 else
-                  -- Alte erori (validare date) sunt acceptabile dacă apar înainte de gate;
-                  -- dar gate-ul de module e foarte sus în RPC, deci dacă vedem alt mesaj,
-                  -- e suspect.
-                  raise notice 'ATENȚIE: eroare diferită de module gate: %', sqlerrm;
-                  v_caught := true;
+                  raise exception 'ASSERTION FAILED: expected module_disabled for OFF module, got: %', sqlerrm;
                 end if;
             end;
             if not v_caught then

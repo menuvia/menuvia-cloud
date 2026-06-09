@@ -1,6 +1,6 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
 import type { Restaurant } from '../lib/qr'
@@ -42,6 +42,9 @@ export default function PickupCheckoutSheet({
   const [pickupTime, setPickupTime] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Cheie de idempotență stabilă pe durata sheet-ului: retry-urile (după
+  // ambiguitate de rețea) refolosesc aceeași cheie → fără comenzi duplicate.
+  const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
   const slots = useMemo(() => {
     const settings = restaurant.pickup_settings
@@ -50,6 +53,14 @@ export default function PickupCheckoutSheet({
     const lead = settings.min_lead_time_minutes
     const interval = settings.slot_interval_minutes
     const earliest = new Date(now.getTime() + lead * 60_000)
+
+    // Lower bound = ora de deschidere (nu putem oferi sloturi înainte de open).
+    const [openH, openM] = settings.open_hours.start.split(':').map(Number)
+    const open = new Date(now)
+    open.setHours(openH, openM, 0, 0)
+    if (earliest.getTime() < open.getTime()) {
+      earliest.setTime(open.getTime())
+    }
 
     const min = earliest.getMinutes()
     const remainder = min % interval
@@ -72,11 +83,15 @@ export default function PickupCheckoutSheet({
   }, [restaurant.pickup_settings])
 
   async function submitOrder() {
+    if (slots.length === 0) {
+      setError('Restaurantul este închis acum. Revino în programul de funcționare.')
+      return
+    }
     if (name.trim().length === 0) {
       setError('Te rog completează numele')
       return
     }
-    if (slots.length > 0 && !pickupTime) {
+    if (!pickupTime) {
       setError('Te rog alege un interval')
       return
     }

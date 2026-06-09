@@ -71,6 +71,11 @@ create policy modules_admin_write on public.restaurant_modules
         and m.user_id = auth.uid()
         and m.role in ('owner','manager')
     )
+    or exists (
+      select 1 from public.restaurants r
+      where r.id = restaurant_modules.restaurant_id
+        and r.owner_id = auth.uid()
+    )
   )
   with check (
     exists (
@@ -78,6 +83,11 @@ create policy modules_admin_write on public.restaurant_modules
       where m.restaurant_id = restaurant_modules.restaurant_id
         and m.user_id = auth.uid()
         and m.role in ('owner','manager')
+    )
+    or exists (
+      select 1 from public.restaurants r
+      where r.id = restaurant_modules.restaurant_id
+        and r.owner_id = auth.uid()
     )
   );
 
@@ -129,12 +139,17 @@ begin
       using errcode = 'insufficient_privilege';
   end if;
 
-  -- Verifică membership admin
+  -- Verifică membership admin SAU owner direct (owner-ul poate să nu fie
+  -- mirror-uit în restaurant_memberships).
   if not exists (
     select 1 from public.restaurant_memberships
     where restaurant_id = p_restaurant_id
       and user_id = v_uid
       and role in ('owner','manager')
+  ) and not exists (
+    select 1 from public.restaurants
+    where id = p_restaurant_id
+      and owner_id = v_uid
   ) then
     raise exception 'Doar owner sau manager poate activa module'
       using errcode = 'insufficient_privilege';
