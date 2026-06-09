@@ -102,7 +102,9 @@ begin
       using errcode = 'P0001', hint = 'unauthorized';
   end if;
 
-  v_role := coalesce(v_order.member_role,
+  -- v_order.member_role e enum public.member_role; cast la text pentru
+  -- match cu literalele 'owner','manager' etc. în branch-urile case de jos.
+  v_role := coalesce(v_order.member_role::text,
     case when v_order.owner_id = v_user_id then 'owner' else null end);
 
   if v_order.status in ('paid', 'cancelled', 'closed') then

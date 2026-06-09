@@ -81,7 +81,9 @@ begin
       using errcode = 'P0001', hint = 'unauthorized';
   end if;
 
-  v_role := coalesce(v_order.member_role,
+  -- v_order.member_role e enum public.member_role; cast la text ca să
+  -- match-uiască cu literalele 'owner', 'manager' etc. în comparațiile de mai jos.
+  v_role := coalesce(v_order.member_role::text,
     case when v_order.owner_id = v_user_id then 'owner' else null end);
 
   -- Comenzile terminal nu mai pot fi modificate
