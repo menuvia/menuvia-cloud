@@ -507,3 +507,19 @@ export function todayHoursLabel(
   if (!today || today.closed) return null
   return today.open + '–' + today.close
 }
+
+export interface TableSessionResult {
+  session_id: string
+  table_id: string
+  restaurant_id: string
+  status: 'open'
+  opened_at: string
+  is_new: boolean
+}
+
+/** Deschide sau returnează sesiunea curentă a mesei. Apelat la scanarea QR. */
+export async function openTableSession(token: string): Promise<TableSessionResult> {
+  const { data, error } = await supabase.rpc('open_table_session', { p_token: token })
+  if (error) throw error
+  return data as TableSessionResult
+}

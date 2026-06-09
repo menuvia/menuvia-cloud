@@ -10,6 +10,7 @@ import {
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
+  openTableSession,
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
@@ -67,6 +68,10 @@ export default function QrMenuPage({ token }: Props) {
   // Prevents duplicate orders when network flakes between request and response.
   const [idempotencyKey, setIdempotencyKey] = useState<string>(() => getIdempotencyKey(token))
 
+  // Gate B: session_id deschisă la scanare QR (open_table_session RPC).
+  // Opțional — null dacă restaurantul nu e pe Gate B sau RPC eșuează (graceful).
+  const [sessionId, setSessionId] = useState<string | null>(null)
+
   function loadQr() {
     setResolving(true)
     setInvalid(false)
@@ -81,6 +86,14 @@ export default function QrMenuPage({ token }: Props) {
           return
         }
         setCtx(result)
+        // Gate B: deschide sesiunea la scanare (non-blocking, graceful fallback).
+        // Dacă RPC-ul lipsește sau eșuează → session_id rămâne null, create_order
+        // funcționează fără guard (backward compat).
+        openTableSession(token)
+          .then((sess) => {
+            if (!cancelled) setSessionId(sess.session_id)
+          })
+          .catch(() => {})
         // Happy Hour activ — non-blocking; meniul se afișează chiar dacă pică.
         void fetchActiveHappyHour(result.restaurant.id)
           .then((rules) => {
@@ -159,6 +172,7 @@ export default function QrMenuPage({ token }: Props) {
           notes: notes.length > 0 ? notes : null,
           cart,
           idempotency_key: idempotencyKey,
+          session_id: sessionId,
         })
         setConfirmation(result)
         return
@@ -206,6 +220,8 @@ export default function QrMenuPage({ token }: Props) {
       setPreviousOrders((prev) => [...prev, confirmation])
     } else {
       setPreviousOrders([])
+      // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
+      setSessionId(null)
     }
     clearIdempotencyKey(token)
     setCart([])

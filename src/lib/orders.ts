@@ -221,6 +221,7 @@ export interface CreateOrderArgs {
   pickup_time?: string | null
   customer_name?: string | null
   customer_phone?: string | null
+  session_id?: string | null
 }
 
 export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmationPayload> {
@@ -250,6 +251,7 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
       p_pickup_time: args.pickup_time ?? null,
       p_customer_name: args.customer_name ?? null,
       p_customer_phone: args.customer_phone ?? null,
+      p_session_id: args.session_id ?? null,
     })
 
     if (error) {
