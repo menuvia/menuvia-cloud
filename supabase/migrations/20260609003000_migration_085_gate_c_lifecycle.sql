@@ -30,6 +30,13 @@ end $$;
 -- ═══════════════════════════════════════════════════════════════
 -- 2. Actualizează advance_order — permite served → closed
 -- ═══════════════════════════════════════════════════════════════
+-- Drop semnături anterioare (mig 011/043/076) ca să evităm overload
+-- ambiguous cu noua semnătură 4-arg de mai jos. CREATE OR REPLACE NU
+-- înlocuiește o semnătură diferită, deci fără DROP explicit am rămâne
+-- cu 2 funcții cu același nume → "function is not unique" la apel cu null-uri.
+drop function if exists public.advance_order(uuid, text, text, numeric, text);
+drop function if exists public.advance_order(uuid, text, text, numeric, numeric, text);
+
 create or replace function public.advance_order(
   p_order_id    uuid,
   p_action      text,   -- 'confirm' | 'start_preparing' | 'mark_ready' | 'mark_served' | 'close_order' | 'mark_paid' | 'cancel'
