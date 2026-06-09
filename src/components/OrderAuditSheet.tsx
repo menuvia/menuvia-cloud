@@ -5,7 +5,7 @@
 // =============================================================
 
 import { useEffect, useState } from 'react'
-import { fetchOrderAuditHistory, type AuditEntry } from '../lib/orders'
+import { fetchOrderAuditHistory, describeAuditEntry, type AuditEntry } from '../lib/orders'
 import { D } from '../lib/constants'
 
 interface Props {
@@ -22,54 +22,6 @@ function formatTime(iso: string): string {
     minute: '2-digit',
     second: '2-digit',
   })
-}
-
-function describeEntry(e: AuditEntry): string {
-  if (e.table_name === 'orders') {
-    if (e.operation === 'INSERT') return 'A creat comanda'
-    if (e.operation === 'DELETE') return 'A șters comanda'
-    if (e.changed_keys?.includes('status')) {
-      const diff = e.diff_short as Record<string, { from?: string; to?: string }> | null
-      const to = diff?.status?.to
-      if (to === 'confirmed') return 'A confirmat comanda'
-      if (to === 'preparing') return 'A trimis la pregătire'
-      if (to === 'ready') return 'A marcat ca gata'
-      if (to === 'served') return 'A marcat ca servit'
-      if (to === 'paid') return 'A încasat plata'
-      if (to === 'cancelled') return 'A anulat comanda'
-      return `Status → ${to}`
-    }
-    if (e.changed_keys?.some((k) => k.startsWith('discount'))) {
-      return 'A modificat reducerea'
-    }
-    if (e.changed_keys?.includes('total')) return 'A recalculat totalul'
-    return 'A modificat comanda'
-  }
-  if (e.table_name === 'order_items') {
-    // Audit-summary de la update_order_items: diff_short = {items:{from,to}, total:{from,to}}
-    const diff = e.diff_short as
-      | { items?: { from?: unknown[]; to?: unknown[] }; total?: { from?: number; to?: number } }
-      | null
-    if (e.operation === 'UPDATE' && (diff?.items || diff?.total)) {
-      const fromCount = Array.isArray(diff?.items?.from) ? diff.items.from.length : null
-      const toCount = Array.isArray(diff?.items?.to) ? diff.items.to.length : null
-      const toTotal = diff?.total?.to
-      const countPart =
-        fromCount != null && toCount != null ? `${fromCount} → ${toCount} produse` : 'produse'
-      const totalPart = typeof toTotal === 'number' ? ` · total ${toTotal.toFixed(2)} lei` : ''
-      return `A modificat comanda (${countPart}${totalPart})`
-    }
-    if (e.operation === 'INSERT') {
-      const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
-      return `A adăugat ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
-    }
-    if (e.operation === 'DELETE') {
-      const item = e.diff_short as { product_name_snapshot?: string; quantity?: number } | null
-      return `A șters ${item?.product_name_snapshot ?? 'produs'} × ${item?.quantity ?? 1}`
-    }
-    return 'A modificat un produs'
-  }
-  return `${e.table_name} · ${e.operation}`
 }
 
 export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Props) {
@@ -200,7 +152,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
                     }}
                   >
                     <span style={{ fontSize: 13, color: D.t1, fontWeight: 600 }}>
-                      {describeEntry(e)}
+                      {describeAuditEntry(e)}
                     </span>
                     <span style={{ fontSize: 10, color: D.t3, whiteSpace: 'nowrap' }}>
                       {formatTime(e.created_at)}
