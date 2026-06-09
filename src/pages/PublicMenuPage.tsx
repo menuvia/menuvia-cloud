@@ -21,6 +21,7 @@ import type { CartItem } from '../lib/orders'
 import { resolveTheme, isDarkTheme } from '../lib/themes'
 
 import { DIETARY_TAGS, T } from '../lib/constants'
+import { supabase } from '../lib/supabase'
 import type { MenuTheme } from '../lib/themes'
 import {
   IconBag, IconCalendar, IconMapPin, IconClock, IconWifi,
@@ -49,6 +50,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [showCart, setShowCart] = useState(false)
   const [showPickup, setShowPickup] = useState(false)
   const [showReservation, setShowReservation] = useState(false)
+  const [reservationsModuleEnabled, setReservationsModuleEnabled] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
@@ -123,6 +125,25 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   useEffect(() => {
     void loadMenu()
   }, [slug]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Gate D: încarcă starea modulului 'reservations' separat (non-blocking).
+  // RLS permite SELECT public pe restaurant_modules.
+  useEffect(() => {
+    if (!restaurant?.id) return
+    let cancelled = false
+    void supabase
+      .from('restaurant_modules')
+      .select('enabled')
+      .eq('restaurant_id', restaurant.id)
+      .eq('module_key', 'reservations')
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) setReservationsModuleEnabled(data?.enabled ?? false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurant?.id])
 
   const allProducts = useMemo(() => categories.flatMap((c) => c.products), [categories])
 
@@ -316,7 +337,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
 
-      {restaurant.amenities?.includes('reservations') && (
+      {/* Gate D: CTA vizibil doar când modulul Rezervări e activat server-side.
+          Backward compat: dacă amenity 'reservations' bifat, păstrăm legacy
+          behavior până când admin-ul folosește toggle-ul nou. */}
+      {(reservationsModuleEnabled ?? restaurant.amenities?.includes('reservations')) && (
         <div style={{ padding: '14px 20px 0' }}>
           <button
             data-testid="reserve-cta"

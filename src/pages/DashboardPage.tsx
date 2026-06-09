@@ -1,6 +1,7 @@
 import { useState, useEffect, Suspense, lazy } from 'react'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
+import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useRestaurants } from '../hooks/useData'
@@ -440,16 +441,25 @@ export default function DashboardPage({
 
   // Audit fix #2: filter tab-uri admin-only pentru waiter/kitchen
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
-  const visibleNav = NAV.filter((n) => !n.adminOnly || isAdminRole)
+  // Gate D: tab-urile dependente de module se ascund când modulul e OFF.
+  const visibleNav = NAV.filter((n) => {
+    if (n.adminOnly && !isAdminRole) return false
+    if (n.id === 'reservations' && !modulesState.isEnabled('reservations')) return false
+    return true
+  })
 
   // Dacă user-ul a salvat un tab admin-only și apoi a fost demovat la waiter,
-  // forțăm înapoi la Produse
+  // forțăm înapoi la Produse. La fel pentru tab-uri de modul disabled.
   useEffect(() => {
     const current = NAV.find((n) => n.id === tab)
     if (current?.adminOnly && !isAdminRole) {
       setTab('products')
+      return
     }
-  }, [activeRole, tab, isAdminRole])
+    if (tab === 'reservations' && !modulesState.isEnabled('reservations')) {
+      setTab('products')
+    }
+  }, [activeRole, tab, isAdminRole, modulesState])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
@@ -459,6 +469,7 @@ export default function DashboardPage({
   // Sync selectedId when restaurants load: keep selection if still valid, else pick first
   const restaurant = restaurants.find((r) => r.id === selectedId) ?? restaurants[0] ?? null
   const features = useFeatures(restaurant?.id ?? null)
+  const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
@@ -980,6 +991,7 @@ export default function DashboardPage({
                     onUpdate={update}
                     plan={plan}
                     onSignOut={onSignOut}
+                    modulesState={modulesState}
                   />
                 </Suspense>
               )}
