@@ -441,8 +441,7 @@ jobs:
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Gate C Restaurant', 'test-gate-c-slug', 'Cluj', true);
 
-            insert into public.restaurant_memberships (restaurant_id, user_id, role)
-              values (v_rest_id, v_owner_id, 'owner');
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
 
             insert into public.tables (id, restaurant_id, name, slug, is_active)
               values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
@@ -530,8 +529,7 @@ jobs:
             update public.profiles set plan = 'growth' where id = v_owner_id;
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Gate D Restaurant', 'test-gate-d-slug', 'Iași', true);
-            insert into public.restaurant_memberships (restaurant_id, user_id, role)
-              values (v_rest_id, v_owner_id, 'owner');
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
             insert into public.tables (id, restaurant_id, name, slug, seats, is_active)
               values (v_table_id, v_rest_id, 'Masa GD1', 'masa-gd1', 4, true);
 
@@ -628,8 +626,7 @@ jobs:
             -- Triggerul handle_new_user lasă plan='free' default.
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Gate C Enforce', 'gate-c-enf-slug', 'BV', true);
-            insert into public.restaurant_memberships (restaurant_id, user_id, role)
-              values (v_rest_id, v_owner_id, 'owner');
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
             insert into public.tables (id, restaurant_id, name, slug, is_active)
               values (v_table_id, v_rest_id, 'M1', 'm1', true);
             insert into public.table_sessions (id, restaurant_id, table_id, status)
