@@ -1035,6 +1035,37 @@ function HeroSection({
   )
 }
 
+// Construiește URL absolut pentru un canal social din handle sau URL brut.
+// Dacă valoarea e deja un URL complet, o folosește ca atare.
+function socialUrl(
+  platform: 'instagram' | 'tiktok' | 'facebook' | 'website',
+  value: string,
+): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) return v
+  const handle = v.replace(/^@/, '')
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${handle}`
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`
+    case 'facebook':
+      return `https://facebook.com/${handle}`
+    case 'website':
+      return `https://${handle}`
+  }
+}
+
+// Extrage handle-ul curat (fără URL, fără @) pentru afișare în text.
+function socialHandle(value: string): string {
+  const v = value.trim().replace(/\/+$/, '')
+  if (/^https?:\/\//i.test(v)) {
+    const parts = v.split('/').filter(Boolean)
+    return (parts[parts.length - 1] ?? v).replace(/^@/, '')
+  }
+  return v.replace(/^@/, '')
+}
+
 // Versiunea clickable a InfoPill: render <a> cu același styling.
 function SocialPill({
   children,

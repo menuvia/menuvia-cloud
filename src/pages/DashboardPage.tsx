@@ -439,8 +439,19 @@ export default function DashboardPage({
   const { restaurants, loading: rLoading, update } = useRestaurants()
   const [tab, setTab] = useState<Tab>('products')
 
-  // Audit fix #2: filter tab-uri admin-only pentru waiter/kitchen
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
+  const plan = profile?.plan || 'free'
+  const isMobile = useIsMobile()
+
+  // Sync selectedId when restaurants load: keep selection if still valid, else pick first
+  const restaurant = restaurants.find((r) => r.id === selectedId) ?? restaurants[0] ?? null
+  const features = useFeatures(restaurant?.id ?? null)
+  const modulesState = useRestaurantModules(restaurant?.id ?? null)
+
+  // Audit fix #2: filter tab-uri admin-only pentru waiter/kitchen.
   // Gate D: tab-urile dependente de module se ascund când modulul e OFF.
   const visibleNav = NAV.filter((n) => {
     if (n.adminOnly && !isAdminRole) return false
@@ -460,16 +471,6 @@ export default function DashboardPage({
       setTab('products')
     }
   }, [activeRole, tab, isAdminRole, modulesState])
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
-  const plan = profile?.plan || 'free'
-  const isMobile = useIsMobile()
-
-  // Sync selectedId when restaurants load: keep selection if still valid, else pick first
-  const restaurant = restaurants.find((r) => r.id === selectedId) ?? restaurants[0] ?? null
-  const features = useFeatures(restaurant?.id ?? null)
-  const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)

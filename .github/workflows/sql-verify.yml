@@ -227,7 +227,7 @@ jobs:
           # Spec §6 Poarta A: "Test de asserțiune: Plan 1 NU poate crea comenzi"
           # Verificăm că enforce_ordering_enabled() respinge INSERT pe orders
           # pentru restaurante cu plan free/starter (order_qr=false).
-          psql -h localhost -U postgres -d menuvia_test <<'ASSERTION'
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
           do $$
           declare
             v_owner_id    uuid := gen_random_uuid();
@@ -236,9 +236,8 @@ jobs:
             v_blocked     boolean := false;
           begin
             -- Setup: user cu plan 'free'
+            -- Trigger handle_new_user creează automat profilul (plan='free' default).
             insert into auth.users (id, email) values (v_owner_id, 'test-gate-a@menuvia.ro');
-            insert into public.profiles (id, email, full_name, plan)
-              values (v_owner_id, 'test-gate-a@menuvia.ro', 'Test Gate A', 'free');
 
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Restaurant Gate A', 'test-gate-a-slug', 'București', true);
@@ -321,7 +320,7 @@ jobs:
           # Spec §4 Poarta B: "Test de asserțiune: sesiune închisă respinge comenzi QR"
           # Verificăm că create_order cu p_session_id closed returnează eroare
           # și că open_table_session returnează sesiune validă.
-          psql -h localhost -U postgres -d menuvia_test <<'ASSERTION'
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
           do $$
           declare
             v_owner_id    uuid := gen_random_uuid();
@@ -335,9 +334,9 @@ jobs:
             v_blocked     boolean := false;
           begin
             -- Setup: user cu plan 'growth' (poate crea comenzi)
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
             insert into auth.users (id, email) values (v_owner_id, 'test-gate-b@menuvia.ro');
-            insert into public.profiles (id, email, full_name, plan)
-              values (v_owner_id, 'test-gate-b@menuvia.ro', 'Test Gate B', 'growth');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
 
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Restaurant Gate B', 'test-gate-b-slug', 'București', true);
@@ -420,7 +419,7 @@ jobs:
           PGPASSWORD: postgres
         run: |
           # Spec §5 Poarta C: tranziție served→closed și close_session_orders
-          psql -h localhost -U postgres -d menuvia_test <<'ASSERTION'
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
           do $$
           declare
             v_owner_id    uuid := gen_random_uuid();
@@ -432,9 +431,9 @@ jobs:
             v_status      text;
           begin
             -- Setup: user cu plan 'growth'
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
             insert into auth.users (id, email) values (v_owner_id, 'test-gate-c@menuvia.ro');
-            insert into public.profiles (id, email, full_name, plan)
-              values (v_owner_id, 'test-gate-c@menuvia.ro', 'Test Gate C', 'growth');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
 
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Gate C Restaurant', 'test-gate-c-slug', 'Cluj', true);
@@ -446,17 +445,17 @@ jobs:
               values (v_table_id, v_rest_id, 'Masa 1', true);
 
             -- Creem o sesiune open
+            v_session_id := gen_random_uuid();
             insert into public.table_sessions (id, restaurant_id, table_id, status)
-              values (v_session_id := gen_random_uuid(), v_rest_id, v_table_id, 'open')
-              returning id into v_session_id;
+              values (v_session_id, v_rest_id, v_table_id, 'open');
 
             -- Creem o comandă în sesiune (status 'served')
+            v_order_id := gen_random_uuid();
             insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
               values (
-                v_order_id := gen_random_uuid(),
+                v_order_id,
                 v_rest_id, v_table_id, 'qr', 'served', 45.00, v_session_id
-              )
-              returning id into v_order_id;
+              );
 
             -- Setăm context ca owner (pentru advance_order auth check)
             perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
@@ -523,9 +522,9 @@ jobs:
             v_caught      boolean := false;
           begin
             -- Setup: owner + restaurant + masă
-            insert into auth.users (id) values (v_owner_id);
-            insert into public.profiles (id, email, full_name, plan)
-              values (v_owner_id, 'test-gate-d@menuvia.ro', 'Test Gate D', 'growth');
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-d@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Gate D Restaurant', 'test-gate-d-slug', 'Iași', true);
             insert into public.restaurant_memberships (restaurant_id, user_id, role)
