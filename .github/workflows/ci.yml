@@ -75,6 +75,12 @@ jobs:
     name: Lighthouse mobile ≥ 90 (public menu)
     runs-on: ubuntu-latest
     needs: lint-and-build
+    # Advisory: în CI pagina /m/tinctura rulează cu backend Supabase placeholder,
+    # deci randează empty-state ("Restaurant negăsit"), iar scorul nu e
+    # reprezentativ pentru meniul real. Raportul se încarcă ca artifact, dar
+    # job-ul NU blochează PR-ul. Gate-ul real Lighthouse rulează pe deploy
+    # preview-ul Netlify (cu backend + restaurant seed-uit).
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

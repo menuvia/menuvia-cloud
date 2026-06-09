@@ -242,8 +242,8 @@ jobs:
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Restaurant Gate A', 'test-gate-a-slug', 'București', true);
 
-            insert into public.tables (id, restaurant_id, name, is_active)
-              values (v_table_id, v_rest_id, 'Masa 1', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
 
             -- Setăm auth.uid() la owner (bypass RLS pentru test)
             perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
@@ -341,8 +341,8 @@ jobs:
             insert into public.restaurants (id, owner_id, name, slug, city, is_active)
               values (v_rest_id, v_owner_id, 'Test Restaurant Gate B', 'test-gate-b-slug', 'București', true);
 
-            insert into public.tables (id, restaurant_id, name, is_active, seats)
-              values (v_table_id, v_rest_id, 'Masa 1', true, 4);
+            insert into public.tables (id, restaurant_id, name, slug, is_active, seats)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true, 4);
 
             -- Token QR valid
             insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active)
@@ -441,8 +441,8 @@ jobs:
             insert into public.restaurant_memberships (restaurant_id, user_id, role)
               values (v_rest_id, v_owner_id, 'owner');
 
-            insert into public.tables (id, restaurant_id, name, is_active)
-              values (v_table_id, v_rest_id, 'Masa 1', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
 
             -- Creem o sesiune open
             v_session_id := gen_random_uuid();
@@ -529,8 +529,8 @@ jobs:
               values (v_rest_id, v_owner_id, 'Test Gate D Restaurant', 'test-gate-d-slug', 'Iași', true);
             insert into public.restaurant_memberships (restaurant_id, user_id, role)
               values (v_rest_id, v_owner_id, 'owner');
-            insert into public.tables (id, restaurant_id, name, seats, is_active)
-              values (v_table_id, v_rest_id, 'Masa GD1', 4, true);
+            insert into public.tables (id, restaurant_id, name, slug, seats, is_active)
+              values (v_table_id, v_rest_id, 'Masa GD1', 'masa-gd1', 4, true);
 
             -- Test 1: is_module_enabled returnează false când rândul lipsește
             v_module_enabled := public.is_module_enabled(v_rest_id, 'reservations');
