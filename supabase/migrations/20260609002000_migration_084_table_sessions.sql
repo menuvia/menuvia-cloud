@@ -69,12 +69,11 @@ create policy "table_sessions: staff select"
     )
   );
 
--- Clientul anonim (QR scan) poate citi sesiunea proprie după id
--- (e.g. pentru a verifica status-ul comenzii)
-create policy "table_sessions: anon read own"
-  on public.table_sessions for select
-  to anon
-  using (status = 'open');
+-- FĂRĂ policy de SELECT pentru anon: clientul primește session_id din
+-- open_table_session (SECURITY DEFINER) și nu are nevoie să citească tabela.
+-- Un policy `using (status='open')` ar permite enumerarea tuturor sesiunilor
+-- deschise (ocuparea meselor + id-uri) de către oricine.
+drop policy if exists "table_sessions: anon read own" on public.table_sessions;
 
 -- ═══════════════════════════════════════════════════════════════
 -- 4. RPC open_table_session(token_text) — pas la scanarea QR-ului
@@ -152,6 +151,12 @@ begin
       select id, opened_at into v_session_id, v_opened_at
       from public.table_sessions
       where table_id = v_qr.table_id and status = 'open';
+      -- Fereastră rară: sesiunea câștigătoare a fost închisă/ștearsă între
+      -- conflict și recitire. Mai bine eroare explicită decât session_id null.
+      if v_session_id is null then
+        raise exception 'Nu am putut deschide sesiunea mesei. Scanează din nou codul QR.'
+          using errcode = 'P0001', hint = 'session_open_race';
+      end if;
   end;
 
   return jsonb_build_object(

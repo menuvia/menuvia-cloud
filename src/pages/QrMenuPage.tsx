@@ -95,7 +95,10 @@ export default function QrMenuPage({ token }: Props) {
           .then((sess) => {
             if (!cancelled) setSessionId(sess.session_id)
           })
-          .catch(() => {})
+          .catch((err) => {
+            // Loghează — submit-ul mai are un retry înainte de createOrder.
+            console.warn('[QrMenuPage] openTableSession failed:', err)
+          })
         // Happy Hour activ — non-blocking; meniul se afișează chiar dacă pică.
         void fetchActiveHappyHour(result.restaurant.id)
           .then((rules) => {
@@ -162,6 +165,20 @@ export default function QrMenuPage({ token }: Props) {
     setSubmitting(true)
     setSubmitError(null)
 
+    // Dacă deschiderea sesiunii a eșuat la scanare, mai încearcă o dată
+    // ÎNAINTE să trimitem comanda — altfel Gate B respinge cu eroare criptică.
+    let activeSessionId = sessionId
+    if (activeSessionId == null) {
+      try {
+        const sess = await openTableSession(ctx.token.token)
+        activeSessionId = sess.session_id
+        setSessionId(sess.session_id)
+      } catch (err) {
+        console.warn('[QrMenuPage] openTableSession retry failed:', err)
+        // Continuă fără sessionId — backward compat dacă RPC-ul nu există încă.
+      }
+    }
+
     // Retry up to 2 times on network failures (common on 4G in restaurants)
     let lastError: unknown = null
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -174,7 +191,7 @@ export default function QrMenuPage({ token }: Props) {
           notes: notes.length > 0 ? notes : null,
           cart,
           idempotency_key: idempotencyKey,
-          session_id: sessionId,
+          session_id: activeSessionId,
         })
         setConfirmation(result)
         return

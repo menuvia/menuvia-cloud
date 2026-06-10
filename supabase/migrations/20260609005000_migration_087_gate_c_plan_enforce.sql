@@ -16,7 +16,8 @@
 -- în care planul scade după ce comenzile au fost create (downgrade).
 
 -- ── 1. Helper enforce_feature_for_restaurant ─────────────────────
--- STABLE: planul nu se schimbă în interiorul unei tranzacții → safe.
+-- VOLATILE (default): funcțiile de enforcement care fac RAISE nu trebuie
+-- să fie candidate la caching/inlining de optimizer.
 -- SECURITY DEFINER + search_path fixat: protejează contra atacurilor.
 create or replace function public.enforce_feature_for_restaurant(
   p_restaurant_id uuid,
@@ -26,7 +27,6 @@ returns void
 language plpgsql
 security definer
 set search_path = public, pg_temp
-stable
 as $$
 declare
   v_plan       text;
@@ -59,12 +59,20 @@ comment on function public.enforce_feature_for_restaurant(uuid, text) is
   un feature. Raise check_violation cu hint=feature_disabled.$$;
 
 -- ── 2. advance_order: gate pe close_order ────────────────────────
--- Repetăm SEMNĂTURA exactă pentru CREATE OR REPLACE (păstrăm restul logicii).
+-- COPIE SINCRONIZATĂ a versiunii din mig 085 (aceleași roluri, tranziții,
+-- timestamps, tips, cancel_reason, format de retur) + un singur rând nou:
+-- gate-ul enforce_feature_for_restaurant în branch-ul close_order.
+-- Orice modificare la lifecycle se face ÎNTÂI în 085, apoi se oglindește aici.
+-- Drop variantă 4-arg (dintr-o iterație anterioară) ca să evităm overload.
+drop function if exists public.advance_order(uuid, text, numeric, text);
+
 create or replace function public.advance_order(
   p_order_id    uuid,
   p_action      text,
-  p_paid_amount numeric default null,
-  p_payment_method text default null
+  p_paid_amount numeric  default null,
+  p_payment_method text default null,
+  p_tips_amount numeric  default null,
+  p_cancel_reason text   default null
 )
 returns jsonb
 language plpgsql
@@ -118,44 +126,43 @@ begin
         raise exception 'Can only confirm new orders (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
-      if v_role not in ('owner', 'manager', 'waiter') then
+      if v_role not in ('owner', 'manager', 'kitchen', 'waiter') then
         raise exception 'Role % cannot confirm orders', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
-      update public.orders set status='confirmed', confirmed_at=now()
-      where id=p_order_id;
+      update public.orders set status='confirmed', confirmed_at=now() where id=p_order_id;
 
     when 'start_preparing' then
       if v_order.status not in ('new','confirmed') then
         raise exception 'Can only start preparing new/confirmed orders (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
-      if v_role not in ('owner', 'manager', 'waiter', 'kitchen') then
-        raise exception 'Role % cannot start preparing', v_role
+      if v_role not in ('owner', 'manager', 'kitchen', 'waiter') then
+        raise exception 'Role % cannot start preparing orders', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
       update public.orders set status='preparing', preparing_at=now()
       where id=p_order_id;
 
     when 'mark_ready' then
-      if v_order.status not in ('preparing','confirmed','new') then
+      if v_order.status not in ('confirmed','preparing') then
         raise exception 'Order not in a preparable state (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
-      if v_role not in ('owner', 'manager', 'waiter', 'kitchen') then
-        raise exception 'Role % cannot mark ready', v_role
+      if v_role not in ('owner', 'manager', 'kitchen', 'waiter') then
+        raise exception 'Role % cannot mark orders ready', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
       update public.orders set status='ready', ready_at=now()
       where id=p_order_id;
 
     when 'mark_served' then
-      if v_order.status not in ('ready','confirmed','new','preparing') then
+      if v_order.status not in ('ready','preparing') then
         raise exception 'Order not in a servable state (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
       if v_role not in ('owner', 'manager', 'waiter') then
-        raise exception 'Role % cannot mark served', v_role
+        raise exception 'Role % cannot mark orders served', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
       update public.orders set status='served', served_at=now(), served_by=v_user_id
@@ -186,22 +193,30 @@ begin
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
       if v_role not in ('owner', 'manager', 'waiter') then
-        raise exception 'Role % cannot mark paid', v_role
+        raise exception 'Role % cannot mark orders paid', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
+      -- Fallback-uri identice cu mig 076/085: păstrează valorile existente,
+      -- nu inventează 'cash'/total când parametrii lipsesc.
       update public.orders
         set status='paid',
             paid_at=now(),
             paid_by=v_user_id,
-            paid_amount=coalesce(p_paid_amount, total),
-            payment_method=coalesce(p_payment_method, payment_method)
+            payment_method=coalesce(p_payment_method::public.payment_method, payment_method),
+            paid_amount=coalesce(p_paid_amount, paid_amount),
+            tips_amount=coalesce(p_tips_amount, tips_amount)
       where id=p_order_id;
 
     when 'cancel' then
-      if v_role not in ('owner', 'manager') then
-        raise exception 'Only owner/manager can cancel orders' using errcode = 'P0001';
+      -- Waiter poate anula (identic cu mig 076/085 — WaiterPage trimite cancel + motiv).
+      if v_role not in ('owner', 'manager', 'waiter') then
+        raise exception 'Role % cannot cancel orders', v_role
+          using errcode = 'P0001', hint = 'role_insufficient';
       end if;
-      update public.orders set status='cancelled', cancelled_at=now()
+      update public.orders
+        set status='cancelled',
+            cancelled_at=now(),
+            cancel_reason=coalesce(p_cancel_reason, cancel_reason)
       where id=p_order_id;
 
     else
@@ -210,12 +225,15 @@ begin
   end case;
 
   return jsonb_build_object(
-    'ok', true,
-    'order_id', p_order_id,
-    'action', p_action
+    'id',     p_order_id,
+    'action', p_action,
+    'ok',     true
   );
 end;
 $$;
+
+revoke all on function public.advance_order(uuid, text, numeric, text, numeric, text) from public;
+grant execute on function public.advance_order(uuid, text, numeric, text, numeric, text) to authenticated;
 
 -- ── 3. close_session_orders: gate la început ─────────────────────
 create or replace function public.close_session_orders(

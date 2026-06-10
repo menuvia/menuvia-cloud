@@ -44,7 +44,9 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
     if (confirmation.short_id?.startsWith('LOCAL-')) return
 
     let cancelled = false
-    const TERMINAL = ['cancelled']
+    // 'closed' (Plan 2 non-fiscal) = terminal, nu emite bon → oprește polling.
+    // 'paid' rămâne polling: așteptăm fiscal_receipt_requested_at.
+    const TERMINAL = ['cancelled', 'closed']
 
     const poll = async () => {
       // Continuă polling chiar și după 'paid' — vrem să prindem și fiscal_receipt update
@@ -101,12 +103,14 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
   }
 
   const currentIdx = ORDER_STEPS.findIndex((s) => s.status === status)
+  // 'closed' = Plan 2 terminal (mulțumire fără bon fiscal); 'paid' = Plan 3 cu bon.
   const isPaid = status === 'paid'
-  const isDone = status === 'served' || status === 'paid'
+  const isClosed = status === 'closed'
+  const isDone = status === 'served' || status === 'paid' || status === 'closed'
   const isCancelled = status === 'cancelled'
 
   // ── Plată confirmată → afișează ecranul dedicat cu feedback + Google review
-  if (isPaid && restaurantInfo) {
+  if ((isPaid || isClosed) && restaurantInfo) {
     return (
       <PaymentConfirmedScreen
         confirmation={{ ...confirmation, total: paidAmount } as OrderConfirmationPayload}
@@ -114,8 +118,9 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
         googleReviewUrl={restaurantInfo.google_review_url}
         accent={accent}
         tipsAmount={tipsAmount}
-        onRequestFiscalReceipt={handleRequestFiscalReceipt}
-        fiscalReceiptRequested={!!fiscalRequestedAt}
+        // Plan 2 (closed): masa închisă fără bon fiscal — ascunde CTA-ul de bon.
+        onRequestFiscalReceipt={isClosed ? undefined : handleRequestFiscalReceipt}
+        fiscalReceiptRequested={isClosed ? true : !!fiscalRequestedAt}
       />
     )
   }

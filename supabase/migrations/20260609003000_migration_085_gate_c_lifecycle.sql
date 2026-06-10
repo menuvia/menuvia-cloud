@@ -31,17 +31,26 @@ end $$;
 -- 2. Actualizează advance_order — permite served → closed
 -- ═══════════════════════════════════════════════════════════════
 -- Drop semnături anterioare (mig 011/043/076) ca să evităm overload
--- ambiguous cu noua semnătură 4-arg de mai jos. CREATE OR REPLACE NU
+-- ambiguous cu noua semnătură de mai jos. CREATE OR REPLACE NU
 -- înlocuiește o semnătură diferită, deci fără DROP explicit am rămâne
 -- cu 2 funcții cu același nume → "function is not unique" la apel cu null-uri.
 drop function if exists public.advance_order(uuid, text, text, numeric, text);
 drop function if exists public.advance_order(uuid, text, text, numeric, numeric, text);
+-- Varianta 4-arg dintr-o iterație anterioară a acestei migrații (idempotență
+-- dacă cineva re-rulează după ce 085 a fost deja aplicată).
+drop function if exists public.advance_order(uuid, text, numeric, text);
 
+-- Semnătura păstrează p_tips_amount + p_cancel_reason din mig 043/076:
+-- WaiterPage trimite bacșișul la mark_paid și motivul la cancel — fără ele
+-- am pierde date operaționale (regresie). Toate cu default null, deci
+-- apelurile poziționale cu 4 argumente rămân valide.
 create or replace function public.advance_order(
   p_order_id    uuid,
   p_action      text,   -- 'confirm' | 'start_preparing' | 'mark_ready' | 'mark_served' | 'close_order' | 'mark_paid' | 'cancel'
   p_paid_amount numeric  default null,
-  p_payment_method text default null
+  p_payment_method text default null,
+  p_tips_amount numeric  default null,
+  p_cancel_reason text   default null
 )
 returns jsonb
 language plpgsql
@@ -105,33 +114,32 @@ begin
       update public.orders set status='confirmed', confirmed_at=now() where id=p_order_id;
 
     when 'start_preparing' then
+      -- Roluri + tranziții + timestamp identice cu mig 076 (versiunea de producție).
       if v_order.status not in ('new','confirmed') then
         raise exception 'Can only start preparing new/confirmed orders (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
-      if v_role not in ('owner', 'manager', 'kitchen') then
+      if v_role not in ('owner', 'manager', 'kitchen', 'waiter') then
         raise exception 'Role % cannot start preparing orders', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
-      update public.orders set status='preparing',
-        confirmed_at=coalesce(confirmed_at, now())
+      update public.orders set status='preparing', preparing_at=now()
       where id=p_order_id;
 
     when 'mark_ready' then
-      if v_order.status not in ('preparing','confirmed','new') then
+      if v_order.status not in ('confirmed','preparing') then
         raise exception 'Order not in a preparable state (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
-      if v_role not in ('owner', 'manager', 'kitchen') then
+      if v_role not in ('owner', 'manager', 'kitchen', 'waiter') then
         raise exception 'Role % cannot mark orders ready', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
-      update public.orders set status='ready',
-        confirmed_at=coalesce(confirmed_at, now())
+      update public.orders set status='ready', ready_at=now()
       where id=p_order_id;
 
     when 'mark_served' then
-      if v_order.status not in ('ready','confirmed','new','preparing') then
+      if v_order.status not in ('ready','preparing') then
         raise exception 'Order not in a servable state (current: %)', v_order.status
           using errcode = 'P0001', hint = 'invalid_transition';
       end if;
@@ -169,20 +177,28 @@ begin
         raise exception 'Role % cannot mark orders paid', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
+      -- Fallback-uri identice cu mig 076: păstrează valorile existente
+      -- pe payment_method/paid_amount, nu inventează 'cash'/total.
       update public.orders
         set status='paid',
             paid_at=now(),
             paid_by=v_user_id,
-            payment_method=coalesce(p_payment_method::public.payment_method, 'cash'),
-            paid_amount=coalesce(p_paid_amount, total)
+            payment_method=coalesce(p_payment_method::public.payment_method, payment_method),
+            paid_amount=coalesce(p_paid_amount, paid_amount),
+            tips_amount=coalesce(p_tips_amount, tips_amount)
       where id=p_order_id;
 
     when 'cancel' then
-      if v_role not in ('owner', 'manager') then
+      -- Waiter poate anula (identic cu mig 076 — WaiterPage trimite cancel + motiv).
+      if v_role not in ('owner', 'manager', 'waiter') then
         raise exception 'Role % cannot cancel orders', v_role
           using errcode = 'P0001', hint = 'role_insufficient';
       end if;
-      update public.orders set status='cancelled' where id=p_order_id;
+      update public.orders
+        set status='cancelled',
+            cancelled_at=now(),
+            cancel_reason=coalesce(p_cancel_reason, cancel_reason)
+      where id=p_order_id;
 
     else
       raise exception 'Unknown action: %', p_action
@@ -197,8 +213,8 @@ begin
 end;
 $$;
 
-revoke all on function public.advance_order(uuid, text, numeric, text) from public;
-grant execute on function public.advance_order(uuid, text, numeric, text) to authenticated;
+revoke all on function public.advance_order(uuid, text, numeric, text, numeric, text) from public;
+grant execute on function public.advance_order(uuid, text, numeric, text, numeric, text) to authenticated;
 
 -- ═══════════════════════════════════════════════════════════════
 -- 3. RPC close_session_orders(p_session_id) — staff închide masa

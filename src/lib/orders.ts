@@ -207,6 +207,8 @@ export async function advanceOrderStatus(
     p_action: action,
     p_paid_amount: payload.paid_amount ?? null,
     p_payment_method: payload.payment_method ?? null,
+    p_tips_amount: payload.tips_amount ?? null,
+    p_cancel_reason: payload.cancel_reason ?? null,
   })
   if (rpcError) throw rpcError
   return fetchOrderById(orderId)

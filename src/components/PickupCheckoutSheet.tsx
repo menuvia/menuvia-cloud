@@ -111,6 +111,10 @@ export default function PickupCheckoutSheet({
         customer_name: name.trim(),
         customer_phone: phone.trim().length > 0 ? phone.trim() : null,
       })
+      // Rotește cheia înainte de a propaga succesul: dacă părintele lasă
+      // sheet-ul montat și user-ul mai trimite o comandă, a doua nu va fi
+      // dedup-uită silențios de server pe aceeași idempotency_key.
+      idempotencyKeyRef.current = crypto.randomUUID()
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
