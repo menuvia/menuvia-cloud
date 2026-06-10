@@ -5,7 +5,7 @@
 //   • View only — when pickup is disabled (just browse menu)
 //   • Order for pickup — when pickup_settings.enabled = true
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useDeferredValue } from 'react'
+import { useState, useEffect, useMemo, useDeferredValue, lazy, Suspense } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import {
   fetchRestaurantBySlug,
@@ -18,12 +18,20 @@ import {
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import type { CartItem } from '../lib/orders'
-import { createOrder } from '../lib/orders'
 import { resolveTheme, isDarkTheme } from '../lib/themes'
+
 import { DIETARY_TAGS, T } from '../lib/constants'
+import { supabase } from '../lib/supabase'
 import type { MenuTheme } from '../lib/themes'
-import ProductSheet from '../components/ProductSheet'
-import ReservationSheet from '../components/ReservationSheet'
+import {
+  IconBag, IconCalendar, IconMapPin, IconClock, IconWifi,
+  IconLeaf, IconInstagram, IconTikTok, IconFacebook, IconGlobe, IconSearch,
+} from '../components/icons/MenuIcons'
+
+// Lazy-load modalele grele — nu fac parte din bundle-ul inițial
+const ProductSheet = lazy(() => import('../components/ProductSheet'))
+const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
+const PickupCheckoutSheet = lazy(() => import('../components/PickupCheckoutSheet'))
 
 interface Props {
   slug: string
@@ -42,6 +50,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [showCart, setShowCart] = useState(false)
   const [showPickup, setShowPickup] = useState(false)
   const [showReservation, setShowReservation] = useState(false)
+  const [reservationsModuleEnabled, setReservationsModuleEnabled] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
@@ -116,6 +125,33 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   useEffect(() => {
     void loadMenu()
   }, [slug]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Gate D: încarcă starea modulului 'reservations' separat (non-blocking).
+  // RLS permite SELECT public pe restaurant_modules.
+  useEffect(() => {
+    if (!restaurant?.id) return
+    let cancelled = false
+    // Tri-state: null = necunoscut/lipsă rând/eroare (→ fallback la amenity
+    // legacy), true/false = toggle explicit din restaurant_modules.
+    setReservationsModuleEnabled(null)
+    void supabase
+      .from('restaurant_modules')
+      .select('enabled')
+      .eq('restaurant_id', restaurant.id)
+      .eq('module_key', 'reservations')
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          setReservationsModuleEnabled(null)
+          return
+        }
+        setReservationsModuleEnabled(data ? data.enabled : null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurant?.id])
 
   const allProducts = useMemo(() => categories.flatMap((c) => c.products), [categories])
 
@@ -309,7 +345,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
 
-      {restaurant.amenities?.includes('reservations') && (
+      {/* Gate D: CTA vizibil doar când modulul Rezervări e activat server-side.
+          Backward compat: dacă amenity 'reservations' bifat, păstrăm legacy
+          behavior până când admin-ul folosește toggle-ul nou. */}
+      {(reservationsModuleEnabled ?? restaurant.amenities?.includes('reservations')) && (
         <div style={{ padding: '14px 20px 0' }}>
           <button
             data-testid="reserve-cta"
@@ -539,13 +578,15 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
       {/* Product sheet */}
       {activeProduct != null && (
-        <ProductSheet
-          product={activeProduct}
-          accent={accent}
-          theme={theme}
-          onAdd={addToCart}
-          onClose={() => setActiveProduct(null)}
-        />
+        <Suspense fallback={null}>
+          <ProductSheet
+            product={activeProduct}
+            accent={accent}
+            theme={theme}
+            onAdd={addToCart}
+            onClose={() => setActiveProduct(null)}
+          />
+        </Suspense>
       )}
 
       {/* Cart sheet */}
@@ -706,32 +747,36 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
       {/* Pickup checkout sheet */}
       {showPickup && restaurant.pickup_settings != null && (
-        <PickupCheckoutSheet
-          restaurant={restaurant}
-          cart={cart}
-          cartTotal={cartTotal}
-          theme={theme}
-          accent={accent}
-          PUB={PUB}
-          onClose={() => setShowPickup(false)}
-          onSuccess={(short_id, pickup_time, total) => {
-            setShowPickup(false)
-            setCart([])
-            setConfirmation({ short_id, pickup_time, total })
-          }}
-        />
+        <Suspense fallback={null}>
+          <PickupCheckoutSheet
+            restaurant={restaurant}
+            cart={cart}
+            cartTotal={cartTotal}
+            theme={theme}
+            accent={accent}
+            PUB={PUB}
+            onClose={() => setShowPickup(false)}
+            onSuccess={(short_id, pickup_time, total) => {
+              setShowPickup(false)
+              setCart([])
+              setConfirmation({ short_id, pickup_time, total })
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Reservation sheet */}
       {showReservation && (
-        <ReservationSheet
-          restaurant={restaurant}
-          theme={theme}
-          accent={accent}
-          PUB={PUB}
-          lang={lang}
-          onClose={() => setShowReservation(false)}
-        />
+        <Suspense fallback={null}>
+          <ReservationSheet
+            restaurant={restaurant}
+            theme={theme}
+            accent={accent}
+            PUB={PUB}
+            lang={lang}
+            onClose={() => setShowReservation(false)}
+          />
+        </Suspense>
       )}
 
       {/* Confirmation sheet */}
@@ -814,220 +859,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
     </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ICON SVGs inline — consistent stroke 1.5, currentColor
-// ═══════════════════════════════════════════════════════════════
-interface IconProps {
-  size?: number
-  color?: string
-}
-
-function IconBag({ size = 16, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M6 7h12l-1 13H7L6 7Z" />
-      <path d="M9 7a3 3 0 1 1 6 0" />
-    </svg>
-  )
-}
-
-function IconCalendar({ size = 16, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="5" width="18" height="16" rx="2" />
-      <path d="M3 10h18M8 3v4M16 3v4" />
-    </svg>
-  )
-}
-
-function IconMapPin({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 22s7-6.5 7-12a7 7 0 1 0-14 0c0 5.5 7 12 7 12Z" />
-      <circle cx="12" cy="10" r="2.5" />
-    </svg>
-  )
-}
-
-function IconClock({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  )
-}
-
-function IconWifi({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M2 9a16 16 0 0 1 20 0" />
-      <path d="M5 12.5a11 11 0 0 1 14 0" />
-      <path d="M8.5 16a6 6 0 0 1 7 0" />
-      <circle cx="12" cy="19" r="0.8" fill={color} />
-    </svg>
-  )
-}
-
-function IconLeaf({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M5 19c8 0 14-6 14-14-8 0-14 6-14 14Z" />
-      <path d="M5 19c2-5 5-8 10-10" />
-    </svg>
-  )
-}
-
-function IconInstagram({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="3" y="3" width="18" height="18" rx="5" />
-      <circle cx="12" cy="12" r="4" />
-      <circle cx="17.5" cy="6.5" r="0.6" fill={color} />
-    </svg>
-  )
-}
-
-function IconTikTok({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <path d="M16.6 5.82c-.86-.86-1.4-2.05-1.4-3.32h-3.36v13.5a2.85 2.85 0 0 1-2.85 2.85 2.85 2.85 0 0 1-2.85-2.85 2.85 2.85 0 0 1 2.85-2.85c.31 0 .61.05.9.14V9.84a6.18 6.18 0 0 0-.9-.06A6.21 6.21 0 0 0 2.78 16a6.21 6.21 0 0 0 6.21 6.21 6.21 6.21 0 0 0 6.21-6.21V9.27a8.16 8.16 0 0 0 4.77 1.53V7.45a4.85 4.85 0 0 1-3.37-1.63Z" />
-    </svg>
-  )
-}
-
-function IconFacebook({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-      <path d="M22 12a10 10 0 1 0-11.56 9.88V14.9H7.9V12h2.54V9.8c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.24.2 2.24.2v2.46h-1.26c-1.24 0-1.63.77-1.63 1.57V12h2.77l-.44 2.9h-2.33v6.98A10 10 0 0 0 22 12Z" />
-    </svg>
-  )
-}
-
-function IconGlobe({ size = 14, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="12" cy="12" r="10" />
-      <path d="M2 12h20" />
-      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-    </svg>
-  )
-}
-
-// "@user", "user", sau URL complet → URL absolut pentru platforma respectivă.
-// Acceptă defensiv ambele forme că utilizatorii lipesc des linkuri întregi.
-function socialUrl(platform: 'instagram' | 'tiktok' | 'facebook' | 'website', value: string): string {
-  const v = value.trim()
-  if (/^https?:\/\//i.test(v)) return v
-  if (platform === 'website') return 'https://' + v.replace(/^\/+/, '')
-  const handle = socialHandle(v)
-  if (platform === 'instagram') return `https://instagram.com/${handle}`
-  if (platform === 'tiktok')    return `https://tiktok.com/@${handle}`
-  return `https://facebook.com/${handle}`
-}
-
-// Extrage handle-ul curat pentru AFIȘARE din orice formă pe care o lipește
-// userul: "tinctura", "@tinctura", "https://tiktok.com/@tinctura",
-// "instagram.com/tinctura/" → toate devin "tinctura".
-function socialHandle(value: string): string {
-  return value
-    .trim()
-    .replace(/^https?:\/\//i, '')          // scoate protocol
-    .replace(/^(www\.)?[^/]+\//, '')       // scoate domeniul + primul slash
-    .replace(/[/?#].*$/, '')               // scoate path/query rămas
-    .replace(/^@/, '')                     // scoate @ de început
-}
-
-function IconSearch({ size = 16, color = 'currentColor' }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.5-3.5" />
-    </svg>
   )
 }
 
@@ -1210,6 +1041,43 @@ function HeroSection({
       </div>
     </div>
   )
+}
+
+// Construiește URL absolut pentru un canal social din handle sau URL brut.
+// Dacă valoarea e deja un URL complet, o folosește ca atare.
+function socialUrl(
+  platform: 'instagram' | 'tiktok' | 'facebook' | 'website',
+  value: string,
+): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) return v
+  const handle = v.replace(/^@/, '')
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${handle}`
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`
+    case 'facebook':
+      return `https://facebook.com/${handle}`
+    case 'website':
+      return `https://${handle}`
+  }
+}
+
+// Extrage handle-ul curat (fără URL, fără @) pentru afișare în text.
+function socialHandle(value: string): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      // URL.pathname elimină query (?...) și hash (#...) automat.
+      const pathname = new URL(v).pathname.replace(/\/+$/, '')
+      const parts = pathname.split('/').filter(Boolean)
+      return (parts[parts.length - 1] ?? '').replace(/^@/, '')
+    } catch {
+      return v.replace(/^@/, '').replace(/\/+$/, '')
+    }
+  }
+  return v.replace(/^@/, '').replace(/\/+$/, '')
 }
 
 // Versiunea clickable a InfoPill: render <a> cu același styling.
@@ -1979,358 +1847,3 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// PICKUP CHECKOUT (existing)
-// ═══════════════════════════════════════════════════════════════
-
-interface PickupCheckoutProps {
-  restaurant: Restaurant
-  cart: CartItem[]
-  cartTotal: number
-  theme: MenuTheme
-  accent: string
-  PUB: {
-    bg: string
-    surface: string
-    text: string
-    text2: string
-    text3: string
-    border: string
-    borderStrong: string
-  }
-  onClose: () => void
-  onSuccess: (short_id: string, pickup_time: string | null, total: number) => void
-}
-
-function PickupCheckoutSheet({
-  restaurant,
-  cart,
-  cartTotal,
-  theme,
-  accent,
-  PUB,
-  onClose,
-  onSuccess,
-}: PickupCheckoutProps) {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [pickupTime, setPickupTime] = useState<string>('')
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  // Generate time slots: from now + min_lead_time, in slot_interval increments, until close
-  const slots = useMemo(() => {
-    const settings = restaurant.pickup_settings
-    if (!settings) return []
-    const now = new Date()
-    const lead = settings.min_lead_time_minutes
-    const interval = settings.slot_interval_minutes
-    const earliest = new Date(now.getTime() + lead * 60_000)
-
-    // Round up to next interval
-    const min = earliest.getMinutes()
-    const remainder = min % interval
-    if (remainder > 0) earliest.setMinutes(min + (interval - remainder))
-    earliest.setSeconds(0)
-    earliest.setMilliseconds(0)
-
-    // Parse close time today
-    const [closeH, closeM] = settings.open_hours.end.split(':').map(Number)
-    const close = new Date(now)
-    close.setHours(closeH, closeM, 0, 0)
-    if (close.getTime() < earliest.getTime()) return [] // closed
-
-    const result: string[] = []
-    let cursor = new Date(earliest)
-    while (cursor.getTime() <= close.getTime() && result.length < 16) {
-      result.push(cursor.toISOString())
-      cursor = new Date(cursor.getTime() + interval * 60_000)
-    }
-    return result
-  }, [restaurant.pickup_settings])
-
-  async function submitOrder() {
-    if (name.trim().length === 0) {
-      setError('Te rog completează numele')
-      return
-    }
-    if (slots.length > 0 && !pickupTime) {
-      setError('Te rog alege un interval')
-      return
-    }
-
-    setSubmitting(true)
-    setError(null)
-    try {
-      const result = await createOrder({
-        restaurant_id: restaurant.id,
-        source: 'pickup',
-        table_id: null,
-        qr_token_id: null,
-        notes: null,
-        cart,
-        idempotency_key: crypto.randomUUID(),
-        pickup_time: pickupTime || null,
-        customer_name: name.trim(),
-        customer_phone: phone.trim().length > 0 ? phone.trim() : null,
-      })
-      onSuccess(result.short_id, pickupTime || null, result.total)
-    } catch (err) {
-      console.error('[PickupCheckout] error:', err)
-      setError('Comanda nu s-a trimis. Încearcă din nou.')
-      setSubmitting(false)
-    }
-  }
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(26,18,8,0.55)',
-        display: 'flex',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        zIndex: 150,
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: PUB.bg,
-          borderRadius: '20px 20px 0 0',
-          width: '100%',
-          maxWidth: 480,
-          maxHeight: '90vh',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <div
-          style={{
-            width: 40,
-            height: 4,
-            borderRadius: 2,
-            background: PUB.borderStrong,
-            margin: '10px auto 0',
-          }}
-        />
-        <div style={{ padding: '20px 22px 14px', flex: 1, overflowY: 'auto' }}>
-          <div
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontSize: 22,
-              fontWeight: 600,
-              color: PUB.text,
-              marginBottom: 6,
-              letterSpacing: '-0.01em',
-            }}
-          >
-            Detalii ridicare
-          </div>
-          <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 20 }}>
-            Plata se face cash la ridicare.
-          </div>
-
-          {/* Name (required) */}
-          <div style={{ marginBottom: 16 }}>
-            <label
-              style={{
-                display: 'block',
-                fontSize: 12,
-                fontWeight: 600,
-                color: PUB.text2,
-                marginBottom: 6,
-              }}
-            >
-              Nume *
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Ion Popescu"
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                border: `1.5px solid ${PUB.border}`,
-                borderRadius: 10,
-                fontSize: 14,
-                fontFamily: theme.fonts.body,
-                background: PUB.surface,
-                color: PUB.text,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-          </div>
-
-          {/* Phone (optional) */}
-          <div style={{ marginBottom: 16 }}>
-            <label
-              style={{
-                display: 'block',
-                fontSize: 12,
-                fontWeight: 600,
-                color: PUB.text2,
-                marginBottom: 6,
-              }}
-            >
-              Telefon (opțional)
-            </label>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="07XX XXX XXX"
-              type="tel"
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                border: `1.5px solid ${PUB.border}`,
-                borderRadius: 10,
-                fontSize: 14,
-                fontFamily: theme.fonts.body,
-                background: PUB.surface,
-                color: PUB.text,
-                outline: 'none',
-                boxSizing: 'border-box',
-              }}
-            />
-            <div style={{ fontSize: 11, color: PUB.text3, marginTop: 5 }}>
-              Pentru a putea fi sunat dacă întârzii
-            </div>
-          </div>
-
-          {/* Time slots */}
-          {slots.length > 0 ? (
-            <div style={{ marginBottom: 16 }}>
-              <label
-                style={{
-                  display: 'block',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: PUB.text2,
-                  marginBottom: 8,
-                }}
-              >
-                Vino la *
-              </label>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
-                  gap: 8,
-                }}
-              >
-                {slots.map((iso) => {
-                  const t = new Date(iso)
-                  const label = t.toLocaleTimeString('ro-RO', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
-                  const isSel = pickupTime === iso
-                  return (
-                    <button
-                      key={iso}
-                      onClick={() => setPickupTime(iso)}
-                      style={{
-                        padding: '10px 6px',
-                        border: `1.5px solid ${isSel ? accent : PUB.border}`,
-                        background: isSel ? `${accent}14` : PUB.surface,
-                        color: isSel ? accent : PUB.text,
-                        borderRadius: 8,
-                        fontSize: 13,
-                        fontWeight: isSel ? 700 : 500,
-                        cursor: 'pointer',
-                        fontFamily: theme.fonts.body,
-                      }}
-                    >
-                      {label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ) : (
-            <div
-              style={{
-                padding: '12px 14px',
-                background: PUB.surface,
-                border: `1px solid ${PUB.border}`,
-                borderRadius: 10,
-                fontSize: 13,
-                color: PUB.text2,
-                marginBottom: 16,
-                lineHeight: 1.5,
-              }}
-            >
-              ⚠️ Restaurantul este închis acum. Vino mâine în orele de program.
-            </div>
-          )}
-
-          {restaurant.pickup_settings?.instructions && (
-            <div
-              style={{
-                padding: '12px 14px',
-                background: PUB.surface,
-                border: `1px solid ${PUB.border}`,
-                borderRadius: 10,
-                fontSize: 12,
-                color: PUB.text2,
-                marginBottom: 16,
-                lineHeight: 1.55,
-              }}
-            >
-              ℹ️ {restaurant.pickup_settings.instructions}
-            </div>
-          )}
-
-          {error && (
-            <div
-              style={{
-                padding: '10px 14px',
-                background: '#FBE5E5',
-                border: '1px solid #C0392B22',
-                borderRadius: 8,
-                fontSize: 13,
-                color: '#C0392B',
-                marginBottom: 14,
-              }}
-            >
-              {error}
-            </div>
-          )}
-        </div>
-
-        <div
-          style={{
-            padding: '14px 22px 22px',
-            borderTop: `1px solid ${PUB.border}`,
-            background: PUB.bg,
-          }}
-        >
-          <button
-            disabled={submitting || (slots.length > 0 && !pickupTime)}
-            onClick={() => void submitOrder()}
-            style={{
-              width: '100%',
-              padding: '15px',
-              background:
-                submitting || (slots.length > 0 && !pickupTime) ? PUB.borderStrong : accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 12,
-              fontFamily: theme.fonts.body,
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: submitting || (slots.length > 0 && !pickupTime) ? 'not-allowed' : 'pointer',
-              boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
-            }}
-          >
-            {submitting ? 'Se trimite...' : `Trimite comanda · ${cartTotal.toFixed(2)} lei`}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}

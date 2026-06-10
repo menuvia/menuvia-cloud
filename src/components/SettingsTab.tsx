@@ -10,6 +10,7 @@ import {
 import { THEMES } from '../lib/themes'
 import VatRatesEditor from './VatRatesEditor'
 import type { Restaurant } from '../hooks/useData'
+import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 
 // ── Constants for hours_structured editor ──
@@ -41,11 +42,13 @@ export default function SettingsTab({
   onUpdate,
   plan,
   onSignOut,
+  modulesState,
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
   plan: string
   onSignOut: () => void
+  modulesState?: ReturnType<typeof useRestaurantModules>
 }) {
   const { user } = useAuth()
   const [form, setForm] = useState({ ...restaurant })
@@ -703,6 +706,60 @@ export default function SettingsTab({
               })}
             </div>
           </div>
+
+          {/* MODULES toggles — Gate D */}
+          {modulesState && (
+            <div
+              style={{
+                background: D.s2,
+                border: `1px solid ${D.border}`,
+                borderRadius: 14,
+                padding: 22,
+              }}
+            >
+              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+                🧩 Module opționale
+              </div>
+              <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 16, lineHeight: 1.5 }}>
+                Activează doar ce ai nevoie. Modulele dezactivate sunt blocate
+                server-side — nici clienții, nici angajații nu pot crea date pe
+                ele.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                      📅 Rezervări
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
+                      Permite clienților să rezerve mese din meniul public. Vei avea
+                      tabul Rezervări în dashboard pentru gestionare.
+                    </div>
+                  </div>
+                  <Toggle
+                    value={modulesState.isEnabled('reservations')}
+                    onChange={(v) => {
+                      modulesState
+                        .setModule('reservations', v)
+                        .then(() =>
+                          toast(v ? 'Modulul Rezervări activat' : 'Modulul Rezervări dezactivat'),
+                        )
+                        .catch((err) =>
+                          toast(err instanceof Error ? err.message : 'Eroare la salvare'),
+                        )
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* AMENITIES toggles */}
           <div

@@ -179,6 +179,7 @@ describe('describeAuditEntry()', () => {
         ['preparing', 'A trimis la pregătire'],
         ['ready', 'A marcat ca gata'],
         ['served', 'A marcat ca servit'],
+        ['closed', 'A închis masa (fără bon fiscal)'],
         ['paid', 'A încasat plata'],
         ['cancelled', 'A anulat comanda'],
       ]

@@ -24,6 +24,10 @@ Pentru schimbări mici, păstrează doar primele 2 secțiuni.
 - [ ] Migration verifier (sql-verify.yml) a trecut local
 - [ ] Migrația e idempotentă (poate fi rulată de 2 ori fără să strice)
 - [ ] Schemele NU au schimbat ENUM-uri existente fără `ALTER TYPE ... ADD VALUE`
+- [ ] ⚠️ **Aplicare manuală pe prod**: migrațiile NU se aplică automat la deploy.
+      Dacă PR-ul adaugă migrații, am notat în descriere că trebuie rulate în
+      Supabase Dashboard → SQL Editor (în ordine) imediat după merge — altfel
+      frontend-ul live va apela RPC-uri/coloane inexistente.
 
 ## Testare
 

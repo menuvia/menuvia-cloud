@@ -192,7 +192,7 @@ jobs:
           PGPASSWORD: postgres
         run: |
           # Smoke test: tabelele critice trebuie să existe după toate migrațiile
-          REQUIRED_TABLES="restaurants tables products orders order_items qr_tokens bridge_devices pending_receipts restaurant_memberships"
+          REQUIRED_TABLES="restaurants tables products orders order_items qr_tokens bridge_devices pending_receipts restaurant_memberships table_sessions restaurant_modules"
 
           for tbl in $REQUIRED_TABLES; do
             COUNT=$(psql -h localhost -U postgres -d menuvia_test -tA -c \
@@ -208,7 +208,7 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          REQUIRED_FUNCS="create_order bridge_validate_device bridge_get_pending bridge_claim_receipt bridge_confirm_receipt"
+          REQUIRED_FUNCS="create_order bridge_validate_device bridge_get_pending bridge_claim_receipt bridge_confirm_receipt open_table_session close_session_orders advance_order is_module_enabled set_restaurant_module enforce_feature_for_restaurant"
 
           for fn in $REQUIRED_FUNCS; do
             COUNT=$(psql -h localhost -U postgres -d menuvia_test -tA -c \
@@ -219,6 +219,552 @@ jobs:
             fi
             echo "✓ Function exists: $fn (count: $COUNT)"
           done
+
+      - name: "Gate A assertion: Plan 1 (free/starter) cannot create orders"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §6 Poarta A: "Test de asserțiune: Plan 1 NU poate crea comenzi"
+          # Verificăm că enforce_ordering_enabled() respinge INSERT pe orders
+          # pentru restaurante cu plan free/starter (order_qr=false).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id    uuid := gen_random_uuid();
+            v_rest_id     uuid := gen_random_uuid();
+            v_table_id    uuid := gen_random_uuid();
+            v_blocked     boolean := false;
+          begin
+            -- Setup: user cu plan 'free'
+            -- Trigger handle_new_user creează automat profilul (plan='free' default).
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-a@menuvia.ro');
+
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Restaurant Gate A', 'test-gate-a-slug', 'București', true);
+
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
+
+            -- Setăm auth.uid() la owner (bypass RLS pentru test)
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            -- Încearcă INSERT pe orders — trigger-ul trebuie să-l respingă
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              -- Dacă ajunge aici, gate-ul NU funcționează
+              raise exception 'ASSERTION FAILED: Plan 1 (free) a putut crea o comandă! Gate-ul nu funcționează.';
+            exception
+              when check_violation then
+                v_blocked := true;
+                raise notice 'OK: INSERT respins pentru plan free (check_violation)';
+              when others then
+                if sqlerrm like '%plan_upgrade_required%' or sqlerrm like '%Growth%' or sqlerrm like '%free%' then
+                  v_blocked := true;
+                  raise notice 'OK: INSERT respins pentru plan free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED unexpected error: %', sqlerrm;
+                end if;
+            end;
+
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: Plan free a putut crea o comandă!';
+            end if;
+
+            -- Test pentru 'starter' — același comportament
+            update public.profiles set plan = 'starter' where id = v_owner_id;
+            v_blocked := false;
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              raise exception 'ASSERTION FAILED: Plan 1 (starter) a putut crea o comandă!';
+            exception
+              when others then
+                v_blocked := true;
+                raise notice 'OK: INSERT respins pentru plan starter: %', sqlerrm;
+            end;
+
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: Plan starter a putut crea o comandă!';
+            end if;
+
+            -- Test pozitiv: growth TREBUIE să poată insera
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            begin
+              insert into public.orders (
+                restaurant_id, table_id, source, status, total
+              ) values (
+                v_rest_id, v_table_id, 'qr', 'new', 0
+              );
+              raise notice 'OK: Plan growth poate crea comenzi.';
+            exception
+              when others then
+                raise exception 'ASSERTION FAILED: Plan growth NU a putut crea o comandă: %', sqlerrm;
+            end;
+
+            -- Test per-source: mig 083 gate-uiește și 'pickup' (pickup_orders) și
+            -- 'waiter' (waiter_manual), nu doar 'qr'. Verificăm pickup pe free —
+            -- altfel o spargere a mapării source→feature ar trece neobservată.
+            update public.profiles set plan = 'free' where id = v_owner_id;
+            v_blocked := false;
+            begin
+              insert into public.orders (restaurant_id, table_id, source, status, total)
+                values (v_rest_id, v_table_id, 'pickup', 'new', 0);
+              raise exception 'ASSERTION FAILED: Plan free a putut crea comandă pickup!';
+            exception
+              when others then
+                if sqlerrm like '%plan%' or sqlerrm like '%Growth%' or sqlerrm like '%disponibile%' then
+                  v_blocked := true;
+                  raise notice 'OK: pickup respins pe plan free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED unexpected error la pickup/free: %', sqlerrm;
+                end if;
+            end;
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: pickup nu e gate-uit pe free!';
+            end if;
+
+            raise notice '✅ Gate A assertions passed: free/starter blocked (qr+pickup), growth allowed.';
+          end$$;
+          ASSERTION
+
+      - name: "Gate B assertion: session closed → rejects new QR orders"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §4 Poarta B: "Test de asserțiune: sesiune închisă respinge comenzi QR"
+          # Verificăm că create_order cu p_session_id closed returnează eroare
+          # și că open_table_session returnează sesiune validă.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id    uuid := gen_random_uuid();
+            v_rest_id     uuid := gen_random_uuid();
+            v_table_id    uuid := gen_random_uuid();
+            v_token_id    uuid := gen_random_uuid();
+            v_token       text := 'test-gate-b-token-' || extract(epoch from now())::bigint;
+            v_session     jsonb;
+            v_session_id  uuid;
+            v_closed_sess uuid := gen_random_uuid();
+            v_blocked     boolean := false;
+          begin
+            -- Setup: user cu plan 'growth' (poate crea comenzi)
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-b@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Restaurant Gate B', 'test-gate-b-slug', 'București', true);
+
+            insert into public.tables (id, restaurant_id, name, slug, is_active, seats)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true, 4);
+
+            -- Token QR valid
+            insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active)
+              values (v_token_id, v_rest_id, v_table_id, v_token, true);
+
+            -- Setăm context anon (cum face clientul real)
+            perform set_config('request.jwt.claim.role', 'anon', true);
+
+            -- Test 1: open_table_session creează sesiune nouă
+            v_session := public.open_table_session(v_token);
+            if v_session->>'status' != 'open' then
+              raise exception 'ASSERTION FAILED: open_table_session nu a creat sesiune open: %', v_session;
+            end if;
+            if (v_session->>'is_new')::boolean != true then
+              raise exception 'ASSERTION FAILED: sesiunea ar trebui să fie nouă: %', v_session;
+            end if;
+            v_session_id := (v_session->>'session_id')::uuid;
+            raise notice 'OK: open_table_session a creat sesiunea % pentru masa %', v_session_id, v_table_id;
+
+            -- Test 2: open_table_session e idempotentă (returnează aceeași sesiune)
+            v_session := public.open_table_session(v_token);
+            if (v_session->>'session_id')::uuid != v_session_id then
+              raise exception 'ASSERTION FAILED: open_table_session nu e idempotentă — sesiune diferită returnată';
+            end if;
+            if (v_session->>'is_new')::boolean != false then
+              raise exception 'ASSERTION FAILED: a doua scanare ar trebui is_new=false';
+            end if;
+            raise notice 'OK: open_table_session este idempotentă';
+
+            -- Test 2.5: CONTROL POZITIV — sesiunea OPEN trece de session-guard.
+            -- Folosim un product_id fals: dacă guard-ul de sesiune ar respinge
+            -- și sesiunile open (logică inversată), eroarea ar fi cea de sesiune;
+            -- cu guard corect, create_order ajunge la validarea produselor și
+            -- eșuează cu 'Product not found' — dovadă că open a trecut de guard.
+            begin
+              perform public.create_order(
+                v_rest_id, 'qr', v_table_id, v_token_id, null,
+                '[{"product_id":"00000000-0000-0000-0000-000000000001","quantity":1}]'::jsonb,
+                null, null, null, null,
+                v_session_id  -- sesiunea OPEN din Test 1
+              );
+              raise exception 'ASSERTION FAILED: create_order a trecut complet cu produs fals!';
+            exception
+              when others then
+                if sqlerrm like '%Product not found%' then
+                  raise notice 'OK: sesiunea OPEN trece de session-guard (eșec doar la produs)';
+                elsif sqlerrm like '%închis%' or sqlerrm like '%sesiune%' or sqlerrm like '%expirat%' then
+                  raise exception 'ASSERTION FAILED: session-guard respinge și sesiuni OPEN: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: eroare neașteptată la control pozitiv: %', sqlerrm;
+                end if;
+            end;
+
+            -- Test 3: sesiune closed → create_order cu p_session_id respinge comanda
+            -- Inserăm manual o sesiune CLOSED (simulează masa plătită)
+            -- Sesiune CLOSED pe ACEEAȘI masă (v_table_id) ca să declanșeze
+            -- exact guard-ul session_closed din create_order (table_id trebuie
+            -- să existe — FK către tables — și să corespundă token-ului).
+            insert into public.table_sessions (id, restaurant_id, table_id, status, closed_at)
+              values (v_closed_sess, v_rest_id, v_table_id, 'closed', now());
+
+            v_blocked := false;
+            begin
+              perform public.create_order(
+                v_rest_id,   -- p_restaurant_id
+                'qr',        -- p_source
+                v_table_id,  -- p_table_id
+                v_token_id,  -- p_qr_token_id
+                null,        -- p_notes
+                '[{"product_id":"00000000-0000-0000-0000-000000000001","quantity":1}]'::jsonb,
+                null,        -- p_idempotency_key
+                null,        -- p_pickup_time
+                null,        -- p_customer_name
+                null,        -- p_customer_phone
+                v_closed_sess -- p_session_id (sesiune CLOSED — trebuie respinsă)
+              );
+              raise exception 'ASSERTION FAILED: create_order a acceptat sesiune closed!';
+            exception
+              when others then
+                -- SQLERRM = textul mesajului ('Masa a fost închisă...'), nu hint-ul.
+                -- Acceptăm DOAR mesajul guard-ului de sesiune; orice altă eroare
+                -- (ex: product not found) înseamnă că guard-ul NU s-a activat → fail.
+                if sqlerrm like '%închis%' or sqlerrm like '%sesiune%' or sqlerrm like '%expirat%' then
+                  v_blocked := true;
+                  raise notice 'OK: create_order respinge sesiune closed: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected session_closed guard, got: %', sqlerrm;
+                end if;
+            end;
+
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: create_order a acceptat sesiune closed!';
+            end if;
+
+            raise notice '✅ Gate B assertions passed: open_table_session OK + idempotent, closed session rejected.';
+          end$$;
+          ASSERTION
+
+      - name: "Gate C assertion: lifecycle closed + close_session_orders"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §5 Poarta C: tranziție served→closed și close_session_orders
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id    uuid := gen_random_uuid();
+            v_rest_id     uuid := gen_random_uuid();
+            v_table_id    uuid := gen_random_uuid();
+            v_session_id  uuid;
+            v_order_id    uuid;
+            v_result      jsonb;
+            v_status      text;
+          begin
+            -- Setup: user cu plan 'growth'
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-c@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Gate C Restaurant', 'test-gate-c-slug', 'Cluj', true);
+
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
+
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
+
+            -- Creem o sesiune open
+            v_session_id := gen_random_uuid();
+            insert into public.table_sessions (id, restaurant_id, table_id, status)
+              values (v_session_id, v_rest_id, v_table_id, 'open');
+
+            -- Creem o comandă în sesiune (status 'served')
+            v_order_id := gen_random_uuid();
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (
+                v_order_id,
+                v_rest_id, v_table_id, 'qr', 'served', 45.00, v_session_id
+              );
+
+            -- Setăm context ca owner (pentru advance_order auth check)
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            -- Test 1: advance_order cu action='close_order' → served → closed
+            v_result := public.advance_order(v_order_id, 'close_order', null, null);
+            if not (v_result->>'ok')::boolean then
+              raise exception 'ASSERTION FAILED: advance_order close_order a eșuat: %', v_result;
+            end if;
+
+            select status into v_status from public.orders where id = v_order_id;
+            if v_status != 'closed' then
+              raise exception 'ASSERTION FAILED: orders.status ar trebui să fie closed, e: %', v_status;
+            end if;
+            raise notice 'OK: advance_order served→closed funcționează';
+
+            -- Sesiunea trebuie să se fi închis automat (trigger maybe_close_session_fn)
+            select status into v_status from public.table_sessions where id = v_session_id;
+            if v_status != 'closed' then
+              raise exception 'ASSERTION FAILED: table_sessions.status ar trebui să fie closed (trigger), e: %', v_status;
+            end if;
+            raise notice 'OK: auto-close sesiune funcționează după última comandă closed';
+
+            -- Test 2: close_session_orders pe sesiune deja closed → ok, already_closed=true
+            v_result := public.close_session_orders(v_session_id);
+            if not (v_result->>'already_closed')::boolean then
+              raise exception 'ASSERTION FAILED: close_session_orders pe sesiune deja closed ar trebui already_closed=true: %', v_result;
+            end if;
+            raise notice 'OK: close_session_orders idempotent pe sesiune deja closed';
+
+            -- Test 3: enum order_status conține 'closed'
+            -- Verificare indirectă: dacă insert cu status='closed' funcționează, enum e corect
+            begin
+              insert into public.orders (restaurant_id, table_id, source, status, total)
+                values (v_rest_id, v_table_id, 'qr', 'closed', 0);
+              raise notice 'OK: enum order_status conține closed';
+            exception
+              when invalid_text_representation then
+                raise exception 'ASSERTION FAILED: enum order_status nu conține closed!';
+              when others then
+                -- Alte erori (trigger plan-gate etc.) înseamnă că enum e OK
+                raise notice 'OK: enum closed există (eroare la trigger, nu la enum): %', sqlerrm;
+            end;
+
+            -- Test 4: REGRESIE tips — mark_paid cu p_tips_amount scrie orders.tips_amount.
+            -- Semnătura advance_order a pierdut odată p_tips_amount (rescriere Gate C)
+            -- și bacșișurile ospătarilor se evaporau silențios. Acest test blochează re-regresia.
+            v_order_id := gen_random_uuid();
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 60.00, null);
+            v_result := public.advance_order(v_order_id, 'mark_paid', 60.00, 'cash', 5.50, null);
+            select tips_amount::text into v_status from public.orders where id = v_order_id;
+            if v_status is distinct from '5.50' then
+              raise exception 'ASSERTION FAILED: tips_amount ar trebui 5.50, e: %', v_status;
+            end if;
+            raise notice 'OK: mark_paid scrie tips_amount (%) — regresia tips e blocată', v_status;
+
+            -- Test 5: REGRESIE cancel_reason — cancel cu p_cancel_reason persistă motivul.
+            v_order_id := gen_random_uuid();
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'new', 10.00, null);
+            v_result := public.advance_order(v_order_id, 'cancel', null, null, null, 'test-motiv-anulare');
+            select cancel_reason into v_status from public.orders where id = v_order_id;
+            if v_status is distinct from 'test-motiv-anulare' then
+              raise exception 'ASSERTION FAILED: cancel_reason ar trebui persistat, e: %', v_status;
+            end if;
+            raise notice 'OK: cancel scrie cancel_reason — audit trail intact';
+
+            raise notice '✅ Gate C assertions passed: closed lifecycle + auto-close session + tips/cancel_reason.';
+          end$$;
+          ASSERTION
+
+      - name: "Gate D assertion: module toggle + reservations gating"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §6 Poarta D: modulele opționale sunt OFF default și blocate
+          # server-side. Test: încercăm rezervare fără module → eroare;
+          # activăm modulul → permise.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id    uuid := gen_random_uuid();
+            v_rest_id     uuid := gen_random_uuid();
+            v_table_id    uuid := gen_random_uuid();
+            v_module_enabled boolean;
+            v_caught      boolean := false;
+          begin
+            -- Setup: owner + restaurant + masă
+            -- Trigger handle_new_user creează profilul; setăm planul prin update.
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-d@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Gate D Restaurant', 'test-gate-d-slug', 'Iași', true);
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
+            insert into public.tables (id, restaurant_id, name, slug, seats, is_active)
+              values (v_table_id, v_rest_id, 'Masa GD1', 'masa-gd1', 4, true);
+
+            -- Test 1: is_module_enabled returnează false când rândul lipsește
+            v_module_enabled := public.is_module_enabled(v_rest_id, 'reservations');
+            if v_module_enabled then
+              raise exception 'ASSERTION FAILED: is_module_enabled trebuie să fie false pentru modul inexistent';
+            end if;
+            raise notice 'OK: is_module_enabled returnează false (default OFF)';
+
+            -- Test 2: create_reservation_public eșuează cu module OFF
+            begin
+              perform * from public.create_reservation_public(
+                'test-gate-d-slug', 'Ion Test', '0700111222',
+                2::smallint, now() + interval '24 hours',
+                null, null, null, null
+              );
+              raise exception 'ASSERTION FAILED: create_reservation_public ar fi trebuit să eșueze (modul OFF)';
+            exception
+              when others then
+                if sqlerrm ilike '%nu sunt activate%' or sqlerrm ilike '%module_disabled%' then
+                  v_caught := true;
+                  raise notice 'OK: create_reservation_public respins corect (modul OFF): %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected module_disabled for OFF module, got: %', sqlerrm;
+                end if;
+            end;
+            if not v_caught then
+              raise exception 'ASSERTION FAILED: nu am prins niciun raise pentru module OFF';
+            end if;
+
+            -- Test 3: activăm modulul (direct insert ca să nu depindem de auth.uid)
+            insert into public.restaurant_modules (restaurant_id, module_key, enabled, configured_by)
+              values (v_rest_id, 'reservations', true, v_owner_id);
+
+            v_module_enabled := public.is_module_enabled(v_rest_id, 'reservations');
+            if not v_module_enabled then
+              raise exception 'ASSERTION FAILED: is_module_enabled trebuie să fie true după insert';
+            end if;
+            raise notice 'OK: is_module_enabled returnează true după activare';
+
+            -- Test 4: create_reservation_public funcționează acum
+            -- (poate eșua din alte motive — settings, etc — dar NU module gate)
+            begin
+              perform * from public.create_reservation_public(
+                'test-gate-d-slug', 'Ion Test', '0700111222',
+                2::smallint, now() + interval '24 hours',
+                null, null, null, null
+              );
+              raise notice 'OK: create_reservation_public a trecut cu modul ON';
+            exception
+              when others then
+                if sqlerrm ilike '%nu sunt activate%' or sqlerrm ilike '%module_disabled%' then
+                  raise exception 'ASSERTION FAILED: module gate respinge chiar și cu modul ON: %', sqlerrm;
+                end if;
+                raise notice 'OK: create_reservation_public a trecut de module gate (eroare ulterioară: %)', sqlerrm;
+            end;
+
+            -- Test 5: dezactivăm modulul prin update direct
+            update public.restaurant_modules
+              set enabled = false
+              where restaurant_id = v_rest_id and module_key = 'reservations';
+
+            v_module_enabled := public.is_module_enabled(v_rest_id, 'reservations');
+            if v_module_enabled then
+              raise exception 'ASSERTION FAILED: is_module_enabled trebuie să fie false după update';
+            end if;
+            raise notice 'OK: toggle off persistă';
+
+            raise notice '✅ Gate D assertions passed: module toggle blochează server-side.';
+          end$$;
+          ASSERTION
+
+      - name: "Gate C enforcement: table_lifecycle plan-gate on close_order"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Spec §10 Poarta C exit: free/starter NU pot folosi close_order
+          # (lifecycle non-fiscal e feature Plan 2+).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id   uuid := gen_random_uuid();
+            v_rest_id    uuid := gen_random_uuid();
+            v_table_id   uuid := gen_random_uuid();
+            v_session_id uuid := gen_random_uuid();
+            v_order_id   uuid := gen_random_uuid();
+            v_caught     boolean := false;
+            v_status     text;
+            v_result     jsonb;
+          begin
+            -- Setup: owner pe plan free
+            insert into auth.users (id, email) values (v_owner_id, 'test-gate-c-enf@menuvia.ro');
+            -- Triggerul handle_new_user lasă plan='free' default.
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Gate C Enforce', 'gate-c-enf-slug', 'BV', true);
+            -- Owner membership creat automat de trigger bootstrap_restaurant_owner.
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'M1', 'm1', true);
+            insert into public.table_sessions (id, restaurant_id, table_id, status)
+              values (v_session_id, v_rest_id, v_table_id, 'open');
+            -- Bypass trigger Gate A: insert direct cu status served (skip enforce_ordering_enabled
+            -- e BEFORE INSERT, deci INSERT direct e respins. Folosim un user growth temporar
+            -- ca să creem comanda, apoi degradăm planul la free).
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 45.00, v_session_id);
+            -- Acum degradăm la free → close_order trebuie respins de plan-gate.
+            update public.profiles set plan = 'free' where id = v_owner_id;
+
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            -- Test 1: close_order respins pe plan free
+            begin
+              v_result := public.advance_order(v_order_id, 'close_order', null, null);
+              raise exception 'ASSERTION FAILED: close_order a trecut pe plan free!';
+            exception
+              when others then
+                if sqlerrm ilike '%nu e disponibil%' or sqlerrm ilike '%feature_disabled%'
+                   or sqlerrm ilike '%table_lifecycle%' then
+                  v_caught := true;
+                  raise notice 'OK: advance_order(close_order) respins pe free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected feature_disabled, got: %', sqlerrm;
+                end if;
+            end;
+            if not v_caught then
+              raise exception 'ASSERTION FAILED: nu am prins gate-ul feature pe free';
+            end if;
+
+            -- Test 2: close_session_orders respins pe plan free
+            v_caught := false;
+            begin
+              v_result := public.close_session_orders(v_session_id);
+              raise exception 'ASSERTION FAILED: close_session_orders a trecut pe plan free!';
+            exception
+              when others then
+                if sqlerrm ilike '%nu e disponibil%' or sqlerrm ilike '%feature_disabled%'
+                   or sqlerrm ilike '%table_lifecycle%' then
+                  v_caught := true;
+                  raise notice 'OK: close_session_orders respins pe free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: expected feature_disabled, got: %', sqlerrm;
+                end if;
+            end;
+            if not v_caught then
+              raise exception 'ASSERTION FAILED: nu am prins gate-ul feature la close_session_orders';
+            end if;
+
+            -- Test 3: upgrade la growth → close_order trece
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            v_result := public.advance_order(v_order_id, 'close_order', null, null);
+            if not (v_result->>'ok')::boolean then
+              raise exception 'ASSERTION FAILED: close_order eșuat pe growth: %', v_result;
+            end if;
+            select status into v_status from public.orders where id = v_order_id;
+            if v_status != 'closed' then
+              raise exception 'ASSERTION FAILED: status ar trebui closed, e: %', v_status;
+            end if;
+            raise notice 'OK: close_order trece pe growth';
+
+            raise notice '✅ Gate C enforce passed: table_lifecycle plan-gate funcționează.';
+          end$$;
+          ASSERTION
 
       - name: Upload logs on failure
         if: failure()

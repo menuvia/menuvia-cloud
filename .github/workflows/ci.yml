@@ -70,3 +70,82 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+
+  lighthouse:
+    # Numele spune explicit "advisory" — un check verde aici NU certifică
+    # scorul ≥ 90 (criteriul blocking din spec rămâne datorie pentru Gate F,
+    # când CI va avea backend seed-uit).
+    name: Lighthouse mobile (advisory, public menu)
+    runs-on: ubuntu-latest
+    needs: lint-and-build
+    # Advisory: în CI pagina /m/tinctura rulează cu backend Supabase placeholder,
+    # deci randează empty-state ("Restaurant negăsit"), iar scorul nu e
+    # reprezentativ pentru meniul real. Raportul se încarcă ca artifact, dar
+    # job-ul NU blochează PR-ul. Gate-ul real Lighthouse rulează pe deploy
+    # preview-ul Netlify (cu backend + restaurant seed-uit).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Build app (stub Supabase env)
+        env:
+          # URL fictiv dar valid ca format — aplicația trebuie să se construiască
+          # și pagina publică să randeze fără backend (loading state / empty state)
+          VITE_SUPABASE_URL:      "https://placeholder.supabase.co"
+          VITE_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.placeholder"
+        run: npm run build
+
+      - name: Serve static build
+        run: npx serve dist -p 4173 &
+        # Pornim un server static în fundal; Lighthouse îl va ataca
+
+      - name: Wait for server
+        run: |
+          for i in {1..20}; do
+            if curl -s http://localhost:4173 > /dev/null; then echo "Server ready"; break; fi
+            sleep 1
+          done
+
+      - name: Run Lighthouse (mobile)
+        run: |
+          npx lighthouse http://localhost:4173/m/tinctura \
+            --output=json \
+            --output-path=lighthouse-report.json \
+            --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+            --preset=perf \
+            --form-factor=mobile \
+            --screenEmulation.width=375 \
+            --screenEmulation.height=812 \
+            --screenEmulation.deviceScaleFactor=2 \
+            --throttling-method=simulate \
+            --only-categories=performance 2>/dev/null || true
+
+      - name: Report performance score (advisory)
+        run: |
+          # Advisory: în CI pagina rulează fără backend real, deci scorul nu e
+          # reprezentativ și NU blocăm PR-ul. Raportăm scorul informativ; gate-ul
+          # real ≥90 se evaluează pe deploy preview-ul Netlify cu backend.
+          SCORE=$(node -e "
+            try {
+              const r = require('./lighthouse-report.json');
+              const s = r.categories?.performance?.score;
+              console.log(s == null ? 'n/a' : Math.round(s * 100));
+            } catch (e) { console.log('n/a'); }
+          ")
+          echo "Lighthouse mobile performance score (advisory): $SCORE"
+          if [ "$SCORE" != "n/a" ] && [ "$SCORE" -lt 90 ] 2>/dev/null; then
+            echo "⚠️  Score $SCORE < 90 în CI (empty-state, fără backend) — verifică pe deploy preview."
+          fi
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: lighthouse-report.json
+          retention-days: 14
