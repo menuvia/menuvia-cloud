@@ -72,7 +72,10 @@ jobs:
           retention-days: 14
 
   lighthouse:
-    name: Lighthouse mobile ≥ 90 (public menu)
+    # Numele spune explicit "advisory" — un check verde aici NU certifică
+    # scorul ≥ 90 (criteriul blocking din spec rămâne datorie pentru Gate F,
+    # când CI va avea backend seed-uit).
+    name: Lighthouse mobile (advisory, public menu)
     runs-on: ubuntu-latest
     needs: lint-and-build
     # Advisory: în CI pagina /m/tinctura rulează cu backend Supabase placeholder,

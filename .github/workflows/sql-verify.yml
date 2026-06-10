@@ -309,7 +309,29 @@ jobs:
                 raise exception 'ASSERTION FAILED: Plan growth NU a putut crea o comandă: %', sqlerrm;
             end;
 
-            raise notice '✅ Gate A assertions passed: free/starter blocked, growth allowed.';
+            -- Test per-source: mig 083 gate-uiește și 'pickup' (pickup_orders) și
+            -- 'waiter' (waiter_manual), nu doar 'qr'. Verificăm pickup pe free —
+            -- altfel o spargere a mapării source→feature ar trece neobservată.
+            update public.profiles set plan = 'free' where id = v_owner_id;
+            v_blocked := false;
+            begin
+              insert into public.orders (restaurant_id, table_id, source, status, total)
+                values (v_rest_id, v_table_id, 'pickup', 'new', 0);
+              raise exception 'ASSERTION FAILED: Plan free a putut crea comandă pickup!';
+            exception
+              when others then
+                if sqlerrm like '%plan%' or sqlerrm like '%Growth%' or sqlerrm like '%disponibile%' then
+                  v_blocked := true;
+                  raise notice 'OK: pickup respins pe plan free: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED unexpected error la pickup/free: %', sqlerrm;
+                end if;
+            end;
+            if not v_blocked then
+              raise exception 'ASSERTION FAILED: pickup nu e gate-uit pe free!';
+            end if;
+
+            raise notice '✅ Gate A assertions passed: free/starter blocked (qr+pickup), growth allowed.';
           end$$;
           ASSERTION
 
@@ -371,6 +393,30 @@ jobs:
               raise exception 'ASSERTION FAILED: a doua scanare ar trebui is_new=false';
             end if;
             raise notice 'OK: open_table_session este idempotentă';
+
+            -- Test 2.5: CONTROL POZITIV — sesiunea OPEN trece de session-guard.
+            -- Folosim un product_id fals: dacă guard-ul de sesiune ar respinge
+            -- și sesiunile open (logică inversată), eroarea ar fi cea de sesiune;
+            -- cu guard corect, create_order ajunge la validarea produselor și
+            -- eșuează cu 'Product not found' — dovadă că open a trecut de guard.
+            begin
+              perform public.create_order(
+                v_rest_id, 'qr', v_table_id, v_token_id, null,
+                '[{"product_id":"00000000-0000-0000-0000-000000000001","quantity":1}]'::jsonb,
+                null, null, null, null,
+                v_session_id  -- sesiunea OPEN din Test 1
+              );
+              raise exception 'ASSERTION FAILED: create_order a trecut complet cu produs fals!';
+            exception
+              when others then
+                if sqlerrm like '%Product not found%' then
+                  raise notice 'OK: sesiunea OPEN trece de session-guard (eșec doar la produs)';
+                elsif sqlerrm like '%închis%' or sqlerrm like '%sesiune%' or sqlerrm like '%expirat%' then
+                  raise exception 'ASSERTION FAILED: session-guard respinge și sesiuni OPEN: %', sqlerrm;
+                else
+                  raise exception 'ASSERTION FAILED: eroare neașteptată la control pozitiv: %', sqlerrm;
+                end if;
+            end;
 
             -- Test 3: sesiune closed → create_order cu p_session_id respinge comanda
             -- Inserăm manual o sesiune CLOSED (simulează masa plătită)
@@ -503,7 +549,31 @@ jobs:
                 raise notice 'OK: enum closed există (eroare la trigger, nu la enum): %', sqlerrm;
             end;
 
-            raise notice '✅ Gate C assertions passed: closed lifecycle + auto-close session.';
+            -- Test 4: REGRESIE tips — mark_paid cu p_tips_amount scrie orders.tips_amount.
+            -- Semnătura advance_order a pierdut odată p_tips_amount (rescriere Gate C)
+            -- și bacșișurile ospătarilor se evaporau silențios. Acest test blochează re-regresia.
+            v_order_id := gen_random_uuid();
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 60.00, null);
+            v_result := public.advance_order(v_order_id, 'mark_paid', 60.00, 'cash', 5.50, null);
+            select tips_amount::text into v_status from public.orders where id = v_order_id;
+            if v_status is distinct from '5.50' then
+              raise exception 'ASSERTION FAILED: tips_amount ar trebui 5.50, e: %', v_status;
+            end if;
+            raise notice 'OK: mark_paid scrie tips_amount (%) — regresia tips e blocată', v_status;
+
+            -- Test 5: REGRESIE cancel_reason — cancel cu p_cancel_reason persistă motivul.
+            v_order_id := gen_random_uuid();
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'new', 10.00, null);
+            v_result := public.advance_order(v_order_id, 'cancel', null, null, null, 'test-motiv-anulare');
+            select cancel_reason into v_status from public.orders where id = v_order_id;
+            if v_status is distinct from 'test-motiv-anulare' then
+              raise exception 'ASSERTION FAILED: cancel_reason ar trebui persistat, e: %', v_status;
+            end if;
+            raise notice 'OK: cancel scrie cancel_reason — audit trail intact';
+
+            raise notice '✅ Gate C assertions passed: closed lifecycle + auto-close session + tips/cancel_reason.';
           end$$;
           ASSERTION
 

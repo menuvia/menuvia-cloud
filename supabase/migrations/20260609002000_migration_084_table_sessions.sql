@@ -58,6 +58,7 @@ create index if not exists orders_session_id_idx on public.orders(session_id);
 alter table public.table_sessions enable row level security;
 
 -- Membrii restaurantului văd sesiunile restaurantului lor
+drop policy if exists "table_sessions: staff select" on public.table_sessions;
 create policy "table_sessions: staff select"
   on public.table_sessions for select
   to authenticated
