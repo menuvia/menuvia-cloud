@@ -190,7 +190,11 @@ function TableModal({
         .not('zone', 'is', null)
       if (cancelled) return
       const uniq = Array.from(
-        new Set(((data ?? []) as { zone: string | null }[]).map(r => r.zone).filter(Boolean) as string[]),
+        new Set(
+          ((data ?? []) as { zone: string | null }[])
+            .map((r) => r.zone)
+            .filter(Boolean) as string[],
+        ),
       ).sort((a, b) => a.localeCompare(b, 'ro'))
       setExistingZones(uniq)
     })()
@@ -544,9 +548,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         doc.setTextColor(26, 18, 8)
         doc.setFont('helvetica', 'bold')
         const maxRn = scale === 'lg' ? 38 : 26
-        const rn = restaurant.name.length > maxRn
-          ? restaurant.name.slice(0, maxRn - 2) + '…'
-          : restaurant.name
+        const rn =
+          restaurant.name.length > maxRn
+            ? restaurant.name.slice(0, maxRn - 2) + '…'
+            : restaurant.name
         doc.text(rn, x + cW / 2, y + cH * 0.1, { align: 'center' })
 
         // Table name (cu accent restaurant)
@@ -581,7 +586,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         doc.text('menuvia.ro', x + cW / 2, y + cH * 0.96, { align: 'center' })
       }
 
-      const pW = 210, pH = 297
+      const pW = 210,
+        pH = 297
 
       if (format === 'poster') {
         // 1 card/A4, aproape full-page → ideal pentru intrare/poster
@@ -592,33 +598,33 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         }
       } else if (format === 'tent') {
         // 4 cards/A4 portrait (2x2), card pătrat 90x90mm — pliabil ca tent card
-        const cols = 2, rows = 2, cW = 90, cH = 90
+        const cols = 2,
+          rows = 2,
+          cW = 90,
+          cH = 90
         const mX = (pW - cols * cW) / (cols + 1)
         const mY = (pH - rows * cH) / (rows + 1)
         for (let i = 0; i < active.length; i++) {
           if (i > 0 && i % (cols * rows) === 0) doc.addPage()
           const idx = i % (cols * rows)
-          const col = idx % cols, row = Math.floor(idx / cols)
-          await drawCard(i,
-            mX + col * (cW + mX),
-            mY + row * (cH + mY),
-            cW, cH, 'md',
-          )
+          const col = idx % cols,
+            row = Math.floor(idx / cols)
+          await drawCard(i, mX + col * (cW + mX), mY + row * (cH + mY), cW, cH, 'md')
         }
       } else {
         // grid — 6 cards/A4 (2x3), default
-        const cols = 2, rows = 3, cW = 80, cH = 82
+        const cols = 2,
+          rows = 3,
+          cW = 80,
+          cH = 82
         const mX = (pW - cols * cW) / (cols + 1)
         const mY = (pH - rows * cH) / (rows + 1)
         for (let i = 0; i < active.length; i++) {
           if (i > 0 && i % (cols * rows) === 0) doc.addPage()
           const idx = i % (cols * rows)
-          const col = idx % cols, row = Math.floor(idx / cols)
-          await drawCard(i,
-            mX + col * (cW + mX),
-            mY + row * (cH + mY),
-            cW, cH, 'sm',
-          )
+          const col = idx % cols,
+            row = Math.floor(idx / cols)
+          await drawCard(i, mX + col * (cW + mX), mY + row * (cH + mY), cW, cH, 'sm')
         }
       }
 

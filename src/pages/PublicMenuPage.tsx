@@ -24,8 +24,17 @@ import { DIETARY_TAGS, T } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme } from '../lib/themes'
 import {
-  IconBag, IconCalendar, IconMapPin, IconClock, IconWifi,
-  IconLeaf, IconInstagram, IconTikTok, IconFacebook, IconGlobe, IconSearch,
+  IconBag,
+  IconCalendar,
+  IconMapPin,
+  IconClock,
+  IconWifi,
+  IconLeaf,
+  IconInstagram,
+  IconTikTok,
+  IconFacebook,
+  IconGlobe,
+  IconSearch,
 } from '../components/icons/MenuIcons'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
@@ -373,9 +382,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text }}>
                 {T(lang, 'reserve_cta')}
               </div>
-              <div style={{ fontSize: 12, color: PUB.text2 }}>
-                {T(lang, 'reserve_trust')}
-              </div>
+              <div style={{ fontSize: 12, color: PUB.text2 }}>{T(lang, 'reserve_trust')}</div>
             </div>
             <span style={{ color: accent, fontSize: 18 }}>›</span>
           </button>
@@ -569,8 +576,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           }}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <IconBag size={16} color="#fff" /> {cartCount}{' '}
-            {cartCount === 1 ? 'produs' : 'produse'} în coș
+            <IconBag size={16} color="#fff" /> {cartCount} {cartCount === 1 ? 'produs' : 'produse'}{' '}
+            în coș
           </span>
           <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
         </button>
@@ -903,9 +910,7 @@ function HeroSection({
         borderRadius: '0 0 24px 24px',
         overflow: 'hidden',
         background: restaurant.cover_url ? '#0a0a0a' : undefined,
-        backgroundImage: restaurant.cover_url
-          ? `url(${restaurant.cover_url})`
-          : accentGradient,
+        backgroundImage: restaurant.cover_url ? `url(${restaurant.cover_url})` : accentGradient,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         display: 'flex',
@@ -1782,12 +1787,26 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
         }}
       >
         {restaurant.address && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              justifyContent: 'center',
+            }}
+          >
             <IconMapPin size={13} color={accent} /> {restaurant.address}
           </div>
         )}
         {restaurant.hours && (
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              justifyContent: 'center',
+            }}
+          >
             <IconClock size={13} color={accent} /> {restaurant.hours}
           </div>
         )}
@@ -1846,4 +1865,3 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
     </div>
   )
 }
-

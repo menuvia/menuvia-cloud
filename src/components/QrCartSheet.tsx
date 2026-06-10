@@ -21,11 +21,14 @@ export interface QrCartSheetProps {
   submitting: boolean
   submitError: string | null
   categories: Category[]
-  checkoutSuggestionSettings: {
-    enabled: boolean
-    max_suggestions?: number
-    message?: string
-  } | null | undefined
+  checkoutSuggestionSettings:
+    | {
+        enabled: boolean
+        max_suggestions?: number
+        message?: string
+      }
+    | null
+    | undefined
   PUB: PUBColors
   accent: string
   accentGradient: string
@@ -124,9 +127,7 @@ export default function QrCartSheet({
               <div style={{ color: PUB.text, fontSize: 14, fontWeight: 600 }}>
                 {item.product_name_snapshot}
               </div>
-              <div style={{ color: accent, fontSize: 13 }}>
-                {onLineTotal(item).toFixed(2)} lei
-              </div>
+              <div style={{ color: accent, fontSize: 13 }}>{onLineTotal(item).toFixed(2)} lei</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
@@ -198,7 +199,8 @@ export default function QrCartSheet({
           (() => {
             const maxSugg = checkoutSuggestionSettings?.max_suggestions ?? 2
             const customMsg =
-              checkoutSuggestionSettings?.message ?? '🍰 Înainte să trimiți... ai vrea ceva în plus?'
+              checkoutSuggestionSettings?.message ??
+              '🍰 Înainte să trimiți... ai vrea ceva în plus?'
             const cartCategoryIds = new Set(
               cart
                 .map((item) => {

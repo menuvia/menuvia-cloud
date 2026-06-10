@@ -56,10 +56,7 @@ export function Textarea({
         {...rest}
       />
       {(error || helper || (showCount && maxLength)) && (
-        <span
-          id={describedById}
-          className={`field__msg ${hasError ? 'field__msg--error' : ''}`}
-        >
+        <span id={describedById} className={`field__msg ${hasError ? 'field__msg--error' : ''}`}>
           <span>{error || helper}</span>
           {showCount && maxLength && (
             <span className="field__count">

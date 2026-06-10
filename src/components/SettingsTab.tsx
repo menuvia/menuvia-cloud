@@ -1,12 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import {
-  D,
-  PLAN_LABELS,
-  AMENITIES,
-  type AmenityId,
-} from '../lib/constants'
+import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES } from '../lib/themes'
 import VatRatesEditor from './VatRatesEditor'
 import type { Restaurant } from '../hooks/useData'
@@ -429,8 +424,8 @@ export default function SettingsTab({
               🖼️ Imagine cover
             </div>
             <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
-              Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime.
-              Dacă lipsește, folosim un gradient generat din tema ta.
+              Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime. Dacă
+              lipsește, folosim un gradient generat din tema ta.
             </div>
             {form.cover_url ? (
               <div style={{ position: 'relative', marginBottom: 10 }}>
@@ -638,7 +633,9 @@ export default function SettingsTab({
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {WEEK_DAY_KEYS.map((day) => {
-                const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[day] ?? {
+                const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[
+                  day
+                ] ?? {
                   open: '08:00',
                   close: '23:00',
                   closed: false,
@@ -721,9 +718,8 @@ export default function SettingsTab({
                 🧩 Module opționale
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 16, lineHeight: 1.5 }}>
-                Activează doar ce ai nevoie. Modulele dezactivate sunt blocate
-                server-side — nici clienții, nici angajații nu pot crea date pe
-                ele.
+                Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici
+                clienții, nici angajații nu pot crea date pe ele.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div
@@ -739,8 +735,8 @@ export default function SettingsTab({
                       📅 Rezervări
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
-                      Permite clienților să rezerve mese din meniul public. Vei avea
-                      tabul Rezervări în dashboard pentru gestionare.
+                      Permite clienților să rezerve mese din meniul public. Vei avea tabul Rezervări
+                      în dashboard pentru gestionare.
                     </div>
                   </div>
                   <Toggle

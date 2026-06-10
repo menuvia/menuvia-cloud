@@ -11,13 +11,7 @@ interface EmptyStateProps {
   compact?: boolean
 }
 
-export function EmptyState({
-  icon,
-  title,
-  description,
-  action,
-  compact = false,
-}: EmptyStateProps) {
+export function EmptyState({ icon, title, description, action, compact = false }: EmptyStateProps) {
   return (
     <div className={`empty-state ${compact ? 'empty-state--compact' : ''}`}>
       {icon && <div className="empty-state__icon">{icon}</div>}

@@ -38,8 +38,6 @@ const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 import type { FloorLayout } from '../components/FloorPlanEditor'
 const WaiterAssignments = lazy(() => import('../components/WaiterAssignments'))
 
-
-
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
 function UpgradeModal({
@@ -372,12 +370,6 @@ function UpgradeBanner({
     </div>
   )
 }
-
-
-
-
-
-
 
 // ── Main Dashboard ────────────────────────────────────────────
 type Tab =

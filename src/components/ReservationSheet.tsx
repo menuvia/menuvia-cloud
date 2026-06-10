@@ -100,14 +100,7 @@ function formatDateRo(dateYmd: string, lang: string): string {
   })
 }
 
-export default function ReservationSheet({
-  restaurant,
-  theme,
-  accent,
-  PUB,
-  lang,
-  onClose,
-}: Props) {
+export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [zones, setZones] = useState<string[]>([])
   const [partySize, setPartySize] = useState<number>(2)
@@ -163,7 +156,9 @@ export default function ReservationSheet({
         .not('zone', 'is', null)
       if (cancelled) return
       const uniq = Array.from(
-        new Set(((tz ?? []) as { zone: string | null }[]).map(r => r.zone).filter(Boolean) as string[]),
+        new Set(
+          ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
+        ),
       ).sort((a, b) => a.localeCompare(b, lang === 'ro' ? 'ro' : 'en'))
       setZones(uniq)
     }
@@ -325,7 +320,9 @@ export default function ReservationSheet({
               textAlign: 'left',
             }}
           >
-            <div style={{ fontSize: 11, color: PUB.text2, letterSpacing: '0.08em', marginBottom: 4 }}>
+            <div
+              style={{ fontSize: 11, color: PUB.text2, letterSpacing: '0.08em', marginBottom: 4 }}
+            >
               {T(lang, 'reserve_code_label')}
             </div>
             <div
@@ -441,7 +438,7 @@ export default function ReservationSheet({
           }}
           data-testid="party-size-row"
         >
-          {Array.from({ length: Math.min(maxParty, 20) }, (_, i) => i + 1).map(n => (
+          {Array.from({ length: Math.min(maxParty, 20) }, (_, i) => i + 1).map((n) => (
             <button
               key={n}
               onClick={() => setPartySize(n)}
@@ -468,19 +465,34 @@ export default function ReservationSheet({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
           <button
             onClick={() => setDateChoice('today')}
-            style={{ ...chipBase, padding: '14px 8px', textAlign: 'center', ...chipActive(dateChoice === 'today') }}
+            style={{
+              ...chipBase,
+              padding: '14px 8px',
+              textAlign: 'center',
+              ...chipActive(dateChoice === 'today'),
+            }}
           >
             {T(lang, 'reserve_today')}
           </button>
           <button
             onClick={() => setDateChoice('tomorrow')}
-            style={{ ...chipBase, padding: '14px 8px', textAlign: 'center', ...chipActive(dateChoice === 'tomorrow') }}
+            style={{
+              ...chipBase,
+              padding: '14px 8px',
+              textAlign: 'center',
+              ...chipActive(dateChoice === 'tomorrow'),
+            }}
           >
             {T(lang, 'reserve_tomorrow')}
           </button>
           <button
             onClick={() => setDateChoice('other')}
-            style={{ ...chipBase, padding: '14px 8px', textAlign: 'center', ...chipActive(dateChoice === 'other') }}
+            style={{
+              ...chipBase,
+              padding: '14px 8px',
+              textAlign: 'center',
+              ...chipActive(dateChoice === 'other'),
+            }}
           >
             📅 {T(lang, 'reserve_other_date')}
           </button>
@@ -490,7 +502,7 @@ export default function ReservationSheet({
             type="date"
             value={customDate}
             min={ymd(new Date())}
-            onChange={e => setCustomDate(e.target.value)}
+            onChange={(e) => setCustomDate(e.target.value)}
             style={{ ...inputStyle, marginTop: 10 }}
           />
         )}
@@ -506,7 +518,7 @@ export default function ReservationSheet({
               >
                 {T(lang, 'reserve_zone_any')}
               </button>
-              {zones.map(z => (
+              {zones.map((z) => (
                 <button
                   key={z}
                   onClick={() => setZone(z)}
@@ -536,7 +548,7 @@ export default function ReservationSheet({
             }}
             data-testid="time-slot-row"
           >
-            {slots.map(s => (
+            {slots.map((s) => (
               <button
                 key={s}
                 onClick={() => setTimeSlot(s)}
@@ -556,13 +568,13 @@ export default function ReservationSheet({
         <div style={labelStyle}>{T(lang, 'reserve_contact_label')}</div>
         <input
           value={name}
-          onChange={e => setName(e.target.value)}
+          onChange={(e) => setName(e.target.value)}
           placeholder={T(lang, 'reserve_name')}
           style={{ ...inputStyle, marginBottom: 10 }}
         />
         <input
           value={phone}
-          onChange={e => setPhone(e.target.value)}
+          onChange={(e) => setPhone(e.target.value)}
           placeholder={T(lang, 'reserve_phone')}
           type="tel"
           inputMode="tel"
@@ -570,7 +582,7 @@ export default function ReservationSheet({
         />
         <input
           value={email}
-          onChange={e => setEmail(e.target.value)}
+          onChange={(e) => setEmail(e.target.value)}
           placeholder={T(lang, 'reserve_email_opt')}
           type="email"
           inputMode="email"
@@ -578,7 +590,7 @@ export default function ReservationSheet({
         />
         <textarea
           value={notes}
-          onChange={e => setNotes(e.target.value)}
+          onChange={(e) => setNotes(e.target.value)}
           placeholder={T(lang, 'reserve_notes_opt')}
           rows={2}
           style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }}
@@ -657,7 +669,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
       }}
     >
       <div
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         style={{
           background: PUB.bg,
           borderRadius: '20px 20px 0 0',

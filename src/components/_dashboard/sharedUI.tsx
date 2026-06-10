@@ -218,13 +218,7 @@ export function Sel({
   )
 }
 
-export function Toggle({
-  value,
-  onChange,
-}: {
-  value: boolean
-  onChange: (v: boolean) => void
-}) {
+export function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
       onClick={() => onChange(!value)}

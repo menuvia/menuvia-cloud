@@ -7,8 +7,7 @@ export interface SelectOption {
   disabled?: boolean
 }
 
-interface SelectProps
-  extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> {
+interface SelectProps extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children'> {
   label?: string
   helper?: string
   error?: string
@@ -72,10 +71,7 @@ export function Select({
         </span>
       </div>
       {(error || helper) && (
-        <span
-          id={describedById}
-          className={`field__msg ${hasError ? 'field__msg--error' : ''}`}
-        >
+        <span id={describedById} className={`field__msg ${hasError ? 'field__msg--error' : ''}`}>
           {error || helper}
         </span>
       )}

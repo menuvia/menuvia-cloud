@@ -24,13 +24,7 @@ export function Button({
   type = 'button',
   ...rest
 }: ButtonProps) {
-  const cls = [
-    'btn',
-    `btn--${variant}`,
-    `btn--${size}`,
-    fullWidth ? 'btn--full' : '',
-    className,
-  ]
+  const cls = ['btn', `btn--${variant}`, `btn--${size}`, fullWidth ? 'btn--full' : '', className]
     .filter(Boolean)
     .join(' ')
 

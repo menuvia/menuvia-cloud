@@ -411,14 +411,7 @@ interface OrderCardProps {
   onAudit?: (order: Order) => void
 }
 
-function OrderCard({
-  order,
-  onPayOpen,
-  onSplitOpen,
-  onEdit,
-  onCancel,
-  onAudit,
-}: OrderCardProps) {
+function OrderCard({ order, onPayOpen, onSplitOpen, onEdit, onCancel, onAudit }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
 

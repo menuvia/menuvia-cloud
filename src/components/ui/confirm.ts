@@ -18,9 +18,7 @@ export interface ConfirmOptions {
 let pushDialog: ((opts: ConfirmOptions) => Promise<boolean>) | null = null
 
 /** API intern — folosit de ConfirmRoot ca să se înregistreze la mount. */
-export function _setConfirmHandler(
-  handler: ((opts: ConfirmOptions) => Promise<boolean>) | null,
-) {
+export function _setConfirmHandler(handler: ((opts: ConfirmOptions) => Promise<boolean>) | null) {
   pushDialog = handler
 }
 

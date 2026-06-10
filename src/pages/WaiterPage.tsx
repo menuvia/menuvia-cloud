@@ -223,8 +223,7 @@ export default function WaiterPage() {
   const activeReservations = useMemo(
     () =>
       reservations.filter(
-        (r) =>
-          r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed',
+        (r) => r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed',
       ),
     [reservations],
   )
@@ -437,10 +436,7 @@ export default function WaiterPage() {
                       : connectionStatus === 'connecting'
                         ? D.amber
                         : D.red,
-                  boxShadow:
-                    connectionStatus === 'connected'
-                      ? `0 0 6px ${D.green}88`
-                      : 'none',
+                  boxShadow: connectionStatus === 'connected' ? `0 0 6px ${D.green}88` : 'none',
                   flexShrink: 0,
                 }}
               />
@@ -630,7 +626,11 @@ export default function WaiterPage() {
                           color: r.status === 'seated' ? D.green : D.gold,
                         }}
                       >
-                        {r.status === 'seated' ? 'AȘEZAT' : r.status === 'confirmed' ? 'CONFIRMAT' : 'PENDING'}
+                        {r.status === 'seated'
+                          ? 'AȘEZAT'
+                          : r.status === 'confirmed'
+                            ? 'CONFIRMAT'
+                            : 'PENDING'}
                       </span>
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
@@ -671,84 +671,85 @@ export default function WaiterPage() {
                         „{r.special_requests}"
                       </div>
                     )}
-                    {r.status !== 'seated' && (() => {
-                      // O singură sursă de adevăr pentru pickul de masă:
-                      // pickul manual al ospătarului, fallback la masa pre-alocată.
-                      const pick = seatTablePick[r.id] ?? r.table_id ?? ''
-                      const canSeat = pick.length > 0
-                      return (
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-                        <select
-                          value={pick}
-                          onChange={(e) =>
-                            setSeatTablePick((p) => ({ ...p, [r.id]: e.target.value }))
-                          }
-                          style={{
-                            flex: '0 0 auto',
-                            maxWidth: 120,
-                            background: D.s1,
-                            color: D.t1,
-                            border: `1px solid ${D.s3}`,
-                            borderRadius: 8,
-                            padding: '0 8px',
-                            fontSize: 13,
-                          }}
-                        >
-                          <option value="">Alege masă…</option>
-                          {tables.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                              {t.seats ? ` (${t.seats})` : ''}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          onClick={() => {
-                            if (!canSeat) return
-                            void seatReservation(r.id, pick).catch((e) =>
-                              alert(e instanceof Error ? e.message : 'Eroare'),
-                            )
-                          }}
-                          disabled={!canSeat}
-                          title={canSeat ? 'Marchează ca așezat' : 'Alege întâi o masă'}
-                          style={{
-                            flex: 1,
-                            padding: '10px',
-                            background: canSeat ? D.green : D.s3,
-                            color: canSeat ? '#fff' : D.t3,
-                            border: 'none',
-                            borderRadius: 8,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: canSeat ? 'pointer' : 'not-allowed',
-                            opacity: canSeat ? 1 : 0.7,
-                          }}
-                        >
-                          Așezat
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (!confirm('Marchezi ca no-show?')) return
-                            void updateReservationStatus(r.id, 'no_show').catch((e) =>
-                              alert(e instanceof Error ? e.message : 'Eroare'),
-                            )
-                          }}
-                          style={{
-                            padding: '10px 14px',
-                            background: 'transparent',
-                            color: D.red,
-                            border: `1px solid ${D.red}`,
-                            borderRadius: 8,
-                            fontSize: 13,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          No-show
-                        </button>
-                      </div>
-                    )
-                    })()}
+                    {r.status !== 'seated' &&
+                      (() => {
+                        // O singură sursă de adevăr pentru pickul de masă:
+                        // pickul manual al ospătarului, fallback la masa pre-alocată.
+                        const pick = seatTablePick[r.id] ?? r.table_id ?? ''
+                        const canSeat = pick.length > 0
+                        return (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+                            <select
+                              value={pick}
+                              onChange={(e) =>
+                                setSeatTablePick((p) => ({ ...p, [r.id]: e.target.value }))
+                              }
+                              style={{
+                                flex: '0 0 auto',
+                                maxWidth: 120,
+                                background: D.s1,
+                                color: D.t1,
+                                border: `1px solid ${D.s3}`,
+                                borderRadius: 8,
+                                padding: '0 8px',
+                                fontSize: 13,
+                              }}
+                            >
+                              <option value="">Alege masă…</option>
+                              {tables.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                  {t.seats ? ` (${t.seats})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              onClick={() => {
+                                if (!canSeat) return
+                                void seatReservation(r.id, pick).catch((e) =>
+                                  alert(e instanceof Error ? e.message : 'Eroare'),
+                                )
+                              }}
+                              disabled={!canSeat}
+                              title={canSeat ? 'Marchează ca așezat' : 'Alege întâi o masă'}
+                              style={{
+                                flex: 1,
+                                padding: '10px',
+                                background: canSeat ? D.green : D.s3,
+                                color: canSeat ? '#fff' : D.t3,
+                                border: 'none',
+                                borderRadius: 8,
+                                fontSize: 13,
+                                fontWeight: 600,
+                                cursor: canSeat ? 'pointer' : 'not-allowed',
+                                opacity: canSeat ? 1 : 0.7,
+                              }}
+                            >
+                              Așezat
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!confirm('Marchezi ca no-show?')) return
+                                void updateReservationStatus(r.id, 'no_show').catch((e) =>
+                                  alert(e instanceof Error ? e.message : 'Eroare'),
+                                )
+                              }}
+                              style={{
+                                padding: '10px 14px',
+                                background: 'transparent',
+                                color: D.red,
+                                border: `1px solid ${D.red}`,
+                                borderRadius: 8,
+                                fontSize: 13,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              No-show
+                            </button>
+                          </div>
+                        )
+                      })()}
                   </div>
                 )
               })}

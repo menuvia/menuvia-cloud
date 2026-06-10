@@ -63,7 +63,7 @@ const scheduleIdle: IdleScheduler =
   typeof (window as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ===
   'function'
     ? (cb) => {
-        (
+        ;(
           window as unknown as { requestIdleCallback: (cb: () => void) => number }
         ).requestIdleCallback(cb)
       }

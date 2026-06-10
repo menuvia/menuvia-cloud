@@ -770,23 +770,23 @@ function PricingPage({
             const url = whatsappUrl('Salut Radu, m-ar interesa programul pilot Menuvia')
             if (!url) return null
             return (
-          <button
-            onClick={() => window.open(url, '_blank')}
-            style={{
-              background: L.accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 100,
-              padding: '10px 18px',
-              fontSize: '0.88rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Vorbește cu Radu →
-          </button>
+              <button
+                onClick={() => window.open(url, '_blank')}
+                style={{
+                  background: L.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 100,
+                  padding: '10px 18px',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'DM Sans,sans-serif',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Vorbește cu Radu →
+              </button>
             )
           })()}
         </div>
@@ -1026,17 +1026,19 @@ function PricingPage({
           const url = whatsappUrl('Salut Radu, avem 3+ locații și am vrea o ofertă custom')
           if (!url) return null
           return (
-        <div style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: L.text2 }}>
-          Ai 3+ locații sau nevoi custom?{' '}
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: L.accent, textDecoration: 'underline', fontWeight: 500 }}
-          >
-            Scrie-ne pentru ofertă personalizată →
-          </a>
-        </div>
+            <div
+              style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: L.text2 }}
+            >
+              Ai 3+ locații sau nevoi custom?{' '}
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: L.accent, textDecoration: 'underline', fontWeight: 500 }}
+              >
+                Scrie-ne pentru ofertă personalizată →
+              </a>
+            </div>
           )
         })()}
       </div>
