@@ -403,6 +403,7 @@ export default function QrMenuPage({ token }: Props) {
         accent={accent}
         onReset={handleReset}
         previousOrders={previousOrders}
+        sessionId={sessionId}
       />
     )
   }
@@ -461,6 +462,7 @@ export default function QrMenuPage({ token }: Props) {
           <ActiveOrdersBanner
             orders={previousOrders}
             accent={accent}
+            sessionId={sessionId}
             onAddMore={() => {
               /* user is already in menu */
             }}

@@ -23,9 +23,18 @@ interface OrderTrackerProps {
   accent: string
   onReset: (addMore?: boolean) => void
   previousOrders: OrderConfirmationPayload[]
+  // Sesiunea mesei — necesară pentru payload-ul complet (mig 092).
+  // Fără ea, serverul întoarce doar statusul. NU se afișează în UI.
+  sessionId?: string | null
 }
 
-function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTrackerProps) {
+function OrderTracker({
+  confirmation,
+  accent,
+  onReset,
+  previousOrders,
+  sessionId = null,
+}: OrderTrackerProps) {
   const [status, setStatus] = useState<string>(confirmation.status ?? 'new')
   const [tipsAmount, setTipsAmount] = useState<number>(0)
   const [paidAmount, setPaidAmount] = useState<number>(Number(confirmation.total))
@@ -35,6 +44,9 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
     google_review_url: string | null
   } | null>(null)
   const [fiscalRequestedAt, setFiscalRequestedAt] = useState<string | null>(null)
+  // Mig 092: serverul a downgradat payload-ul (sesiune lipsă/expirată) —
+  // statusul merge în continuare, dar sumele și review-ul nu mai vin.
+  const [limitedTracking, setLimitedTracking] = useState(false)
   const [fiscalRequesting, setFiscalRequesting] = useState(false)
   const statusRef = useRef<string>(status)
   statusRef.current = status
@@ -51,10 +63,11 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
     const poll = async () => {
       // Continuă polling chiar și după 'paid' — vrem să prindem și fiscal_receipt update
       if (TERMINAL.includes(statusRef.current)) return
-      const payload = await getOrderPublicStatus(confirmation.id)
+      const payload = await getOrderPublicStatus(confirmation.id, sessionId)
       if (cancelled || !payload) return
       const p = payload as unknown as Record<string, unknown>
       setStatus(p.status as string)
+      setLimitedTracking(!('total' in p))
       if (typeof p.tips_amount === 'number' || typeof p.tips_amount === 'string') {
         setTipsAmount(Number(p.tips_amount) || 0)
       }
@@ -91,7 +104,7 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
     if (fiscalRequesting || fiscalRequestedAt) return
     setFiscalRequesting(true)
     try {
-      const result = await requestFiscalReceipt(confirmation.id)
+      const result = await requestFiscalReceipt(confirmation.id, sessionId)
       if (result?.requested_at) {
         setFiscalRequestedAt(String(result.requested_at))
       }
@@ -155,6 +168,26 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
       <div style={{ fontSize: 13, color: '#5C4A2A', marginBottom: 10 }}>
         Bucătăria a primit comanda. · #{confirmation.short_id}
       </div>
+      {limitedTracking && (
+        <div
+          style={{
+            background: 'rgba(232,160,32,0.12)',
+            border: '1px solid rgba(232,160,32,0.3)',
+            borderRadius: 10,
+            padding: '10px 14px',
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#8a6d1f',
+            textAlign: 'center',
+            lineHeight: 1.5,
+            maxWidth: 320,
+          }}
+        >
+          Urmărirea comenzii nu mai este disponibilă complet.
+          <br />
+          Te rugăm să întrebi personalul.
+        </div>
+      )}
       <div
         style={{
           fontFamily: 'Fraunces, Georgia, serif',
@@ -318,12 +351,13 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
 }
 
 interface ActiveOrdersBannerProps {
+  sessionId?: string | null
   orders: OrderConfirmationPayload[]
   accent: string
   onAddMore: () => void
 }
 
-function ActiveOrdersBanner({ orders, accent, onAddMore }: ActiveOrdersBannerProps) {
+function ActiveOrdersBanner({ orders, accent, onAddMore, sessionId = null }: ActiveOrdersBannerProps) {
   const [expanded, setExpanded] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
     Object.fromEntries(orders.map((o) => [o.id, o.status])),
@@ -350,7 +384,7 @@ function ActiveOrdersBanner({ orders, accent, onAddMore }: ActiveOrdersBannerPro
 
       const results = await Promise.all(
         active.map(async (o) => {
-          const payload = await getOrderPublicStatus(o.id)
+          const payload = await getOrderPublicStatus(o.id, sessionId)
           return { id: o.id, status: payload?.status ?? null }
         }),
       )

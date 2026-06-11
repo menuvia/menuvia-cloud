@@ -537,8 +537,16 @@ export interface PublicOrderStatus {
   }
 }
 
-export async function getOrderPublicStatus(orderId: string): Promise<PublicOrderStatus | null> {
-  const { data, error } = await supabase.rpc('get_order_public_status', { p_order_id: orderId })
+export async function getOrderPublicStatus(
+  orderId: string,
+  sessionId: string | null = null,
+): Promise<PublicOrderStatus | null> {
+  // Mig 092: fără sesiune validă, serverul întoarce payload MINIM
+  // {id, short_id, status} — fără sume, fără timestamps.
+  const { data, error } = await supabase.rpc('get_order_public_status', {
+    p_order_id: orderId,
+    p_session_id: sessionId,
+  })
   if (error || data == null) return null
   return data as PublicOrderStatus
 }
@@ -549,8 +557,13 @@ export async function getOrderPublicStatus(orderId: string): Promise<PublicOrder
 // ospătar prin Realtime subscribe.
 export async function requestFiscalReceipt(
   orderId: string,
+  sessionId: string | null = null,
 ): Promise<{ success: boolean; already_requested: boolean; requested_at: string } | null> {
-  const { data, error } = await supabase.rpc('request_fiscal_receipt', { p_order_id: orderId })
+  // Mig 092: write-ul cere sesiune validă pentru comenzile de la masă.
+  const { data, error } = await supabase.rpc('request_fiscal_receipt', {
+    p_order_id: orderId,
+    p_session_id: sessionId,
+  })
   if (error || data == null) return null
   return data as { success: boolean; already_requested: boolean; requested_at: string }
 }
