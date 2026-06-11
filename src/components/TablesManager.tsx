@@ -5,6 +5,8 @@
 // =============================================================
 
 import { useState, useEffect, useCallback } from 'react'
+import { useFeatures } from '../hooks/useFeatures'
+import { getPlanByInternalId } from '../lib/plans'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
@@ -374,8 +376,22 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const [modal, setModal] = useState<TableRow | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
   const [rotating, setRotating] = useState<string | null>(null)
+  // UX: regenerarea invalidează QR-ul printat — cerem confirmare explicită.
+  const [rotateTarget, setRotateTarget] = useState<TableRow | null>(null)
   const [downloading, setDownloading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  // Generare rapidă: „Câte mese ai?" → creăm Masa 1..N dintr-un foc.
+  const [bulkCount, setBulkCount] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [limitMsg, setLimitMsg] = useState<string | null>(null)
+
+  // Limita de mese: numărul REAL din DB (get_restaurant_features, aliniat cu
+  // plans.ts prin mig 089); fallback pe config-ul comercial dacă fetch-ul
+  // eșuează. null = nelimitat (enterprise).
+  const restaurantFeatures = useFeatures(restaurant.id)
+  const maxTables: number | null = restaurantFeatures.features
+    ? restaurantFeatures.limit('max_tables')
+    : getPlanByInternalId('free').limits.maxTables
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -496,6 +512,59 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     }
     await load()
     setRotating(null)
+  }
+
+  // „Câte mese ai?" → completăm de la Masa {existente+1} până la Masa N.
+  // Idempotent prin design: rulat de două ori cu același N nu creează dubluri.
+  const bulkGenerate = async () => {
+    const n = parseInt(bulkCount, 10)
+    setLimitMsg(null)
+    if (!n || n < 1) {
+      toast('Introdu numărul de mese (ex. 80)', 'error')
+      return
+    }
+    if (n <= tables.length) {
+      toast(`Ai deja ${tables.length} mese configurate`)
+      return
+    }
+    if (maxTables != null && n > maxTables) {
+      setLimitMsg(
+        `Planul tău permite până la ${maxTables} mese / QR-uri. Pentru mai multe, poți face upgrade.`,
+      )
+      return
+    }
+    setBulkBusy(true)
+    try {
+      const rows = []
+      for (let i = tables.length + 1; i <= n; i++) {
+        rows.push({ restaurant_id: restaurant.id, name: `Masa ${i}`, slug: `masa-${i}` })
+      }
+      const { error } = await supabase.from('tables').insert(rows)
+      if (error) throw error
+      await load()
+      await ensureTokens()
+      await load()
+      setBulkCount('')
+      toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
+    } catch (e) {
+      toast('Eroare la generare: ' + (e instanceof Error ? e.message : 'unknown'), 'error')
+    }
+    setBulkBusy(false)
+  }
+
+  // Descarcă QR-ul unei singure mese ca PNG (pentru re-print rapid).
+  const downloadPng = async (t: TableRow) => {
+    if (!t.active_token) return
+    try {
+      const dataUrl = await generateQRDataURL(t.active_token.token, 600)
+      const a = document.createElement('a')
+      a.href = dataUrl
+      a.download = `QR-${t.name.replace(/[^a-zA-Z0-9ăâîșțĂÂÎȘȚ ]/g, '')}.png`
+      a.click()
+      toast(`QR descărcat pentru ${t.name}`)
+    } catch {
+      toast('Eroare la descărcare', 'error')
+    }
   }
 
   const copyLink = (t: TableRow) => {
@@ -659,7 +728,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               letterSpacing: '-0.02em',
             }}
           >
-            Mese
+            Mese & QR
           </h2>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
             {tables.filter((t) => t.is_active).length} active · {tables.length} total
@@ -679,7 +748,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'PDF grilă'}
+                ⬇ {downloading ? '...' : 'Descarcă toate QR-urile'}
               </button>
               <button
                 onClick={() => downloadPdf('tent')}
@@ -692,7 +761,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'PDF tent'}
+                ⬇ {downloading ? '...' : 'Carduri pliabile'}
               </button>
               <button
                 onClick={() => downloadPdf('poster')}
@@ -705,7 +774,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'PDF poster'}
+                ⬇ {downloading ? '...' : 'Poster A4'}
               </button>
             </>
           )}
@@ -754,6 +823,94 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         )
       })()}
 
+      {/* Generare rapidă: fluxul principal pentru patron — fără termeni tehnici */}
+      {!loading && !loadError && (
+        <div
+          style={{
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 14,
+            padding: '20px 22px',
+            marginBottom: 18,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: '1.05rem',
+              color: D.t1,
+              fontWeight: 600,
+              marginBottom: 4,
+            }}
+          >
+            {tables.length === 0
+              ? 'Nu ai mese configurate încă'
+              : 'Generează QR-urile pentru mese'}
+          </div>
+          <p style={{ color: D.t3, fontSize: '0.8rem', marginBottom: 14, lineHeight: 1.5 }}>
+            {tables.length === 0
+              ? 'Adaugă numărul de mese, iar Menuvia îți generează automat QR-urile.'
+              : 'Spune-ne câte mese ai, iar Menuvia creează automat QR-urile pentru fiecare masă.'}
+          </p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="number"
+              min={1}
+              value={bulkCount}
+              onChange={(e) => {
+                setBulkCount(e.target.value)
+                setLimitMsg(null)
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && void bulkGenerate()}
+              placeholder="Câte mese ai? ex. 80"
+              style={{
+                background: D.s3,
+                border: `1px solid ${D.border}`,
+                borderRadius: 9,
+                padding: '10px 14px',
+                color: D.t1,
+                fontSize: '0.9rem',
+                fontFamily: 'DM Sans,sans-serif',
+                width: 180,
+              }}
+            />
+            <button
+              onClick={() => void bulkGenerate()}
+              disabled={bulkBusy}
+              style={btn({
+                background: D.gold,
+                color: '#000',
+                opacity: bulkBusy ? 0.7 : 1,
+              })}
+            >
+              {bulkBusy
+                ? 'Se generează...'
+                : tables.length === 0
+                  ? 'Generează mese și QR-uri'
+                  : 'Generează QR-uri'}
+            </button>
+          </div>
+          {limitMsg && (
+            <div
+              style={{
+                marginTop: 10,
+                background: 'rgba(232,160,32,0.1)',
+                border: '1px solid rgba(232,160,32,0.25)',
+                borderRadius: 8,
+                padding: '8px 12px',
+                color: '#E8A020',
+                fontSize: '0.78rem',
+              }}
+            >
+              {limitMsg}
+            </div>
+          )}
+          <p style={{ color: D.t3, fontSize: '0.72rem', marginTop: 10 }}>
+            Poți edita, dezactiva sau regenera orice QR mai târziu.
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <div style={{ padding: '48px 0', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
       ) : loadError ? (
@@ -767,29 +924,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             Reîncearcă
           </button>
         </div>
-      ) : tables.length === 0 ? (
-        <div
-          style={{
-            padding: '60px 20px',
-            textAlign: 'center',
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 16,
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '2rem', marginBottom: 12 }}>🪑</div>
-          <div style={{ fontSize: '0.95rem', marginBottom: 8, color: D.t2 }}>
-            Nicio masă configurată
-          </div>
-          <button
-            onClick={() => setModal('add')}
-            style={btn({ background: D.gold, color: '#000' })}
-          >
-            Adaugă prima masă
-          </button>
-        </div>
-      ) : (
+      ) : tables.length === 0 ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tables.map((t) => (
             <div
@@ -854,10 +989,18 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
-                  {t.active_token
-                    ? `Token: ${t.active_token.token.slice(0, 16)}…`
-                    : '⚠️ Fără token QR'}
+                <div
+                  style={{
+                    fontSize: '0.72rem',
+                    marginTop: 2,
+                    color: t.active_token && t.is_active ? D.green : D.t3,
+                  }}
+                >
+                  {!t.active_token
+                    ? '⚠️ Fără QR — apasă ↻ pentru a genera'
+                    : t.is_active
+                      ? '● QR activ'
+                      : '○ QR dezactivat'}
                 </div>
               </div>
               {/* FIX: QRImage generates locally — no api.qrserver.com */}
@@ -867,6 +1010,26 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                 </div>
               )}
               <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                {t.active_token && (
+                  <button
+                    onClick={() => void downloadPng(t)}
+                    title="Descarcă QR (PNG)"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 7,
+                      background: D.s3,
+                      border: `1px solid ${D.border}`,
+                      color: D.t2,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ⬇
+                  </button>
+                )}
                 {t.active_token && (
                   <button
                     onClick={() => copyLink(t)}
@@ -888,9 +1051,13 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   </button>
                 )}
                 <button
-                  onClick={() => rotateToken(t)}
+                  onClick={() => {
+                    // Fără QR existent nu e nimic de invalidat — generăm direct.
+                    if (!t.active_token) void rotateToken(t)
+                    else setRotateTarget(t)
+                  }}
                   disabled={rotating === t.id}
-                  title="Reînnoit token"
+                  title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   style={{
                     width: 32,
                     height: 32,
@@ -972,6 +1139,65 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           onSave={handleSave}
           onClose={() => setModal(null)}
         />
+      )}
+      {rotateTarget && (
+        <div
+          onClick={() => setRotateTarget(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.75)',
+            zIndex: 1000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 16,
+              padding: 24,
+              maxWidth: 380,
+              width: '100%',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: 'Fraunces,serif',
+                fontSize: '1.05rem',
+                color: D.t1,
+                marginBottom: 12,
+              }}
+            >
+              Regenerează QR — {rotateTarget.name}
+            </div>
+            <p style={{ color: D.t2, marginBottom: 22, fontSize: '0.875rem', lineHeight: 1.55 }}>
+              QR-ul vechi nu va mai funcționa. Vrei să generezi unul nou pentru această masă?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setRotateTarget(null)}
+                style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
+              >
+                Anulează
+              </button>
+              <button
+                onClick={() => {
+                  const t = rotateTarget
+                  setRotateTarget(null)
+                  void rotateToken(t)
+                }}
+                style={btn({ background: D.gold, color: '#000' })}
+              >
+                Regenerează
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {delId && (
         <div

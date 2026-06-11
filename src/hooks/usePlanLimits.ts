@@ -21,19 +21,22 @@ const DEFAULTS: Record<string, PlanLimits> = {
     ai_imports_month: 1,
     features: ['qr_static'],
   },
+  // Limitele de mai jos sunt sincronizate cu plans.ts + migrația 089.
+  // Dacă schimbi într-un loc, schimbă în toate trei (TS config, DB migrate,
+  // acest fallback). UI-ul citește în primul rând din get_restaurant_features.
   starter: {
     plan: 'starter',
-    max_products: 50,
+    max_products: 300,
     max_restaurants: 1,
-    max_tables: 8,
+    max_tables: 120,
     ai_imports_month: 2,
     features: ['qr_static', 'qr_dynamic'],
   },
   growth: {
     plan: 'growth',
-    max_products: 500,
+    max_products: 1000,
     max_restaurants: 1,
-    max_tables: 50,
+    max_tables: 300,
     ai_imports_month: 20,
     features: ['qr_dynamic', 'ordering', 'analytics', 'team', 'kitchen', 'waiter'],
   },
@@ -41,7 +44,7 @@ const DEFAULTS: Record<string, PlanLimits> = {
     plan: 'pro',
     max_products: 2000,
     max_restaurants: 2,
-    max_tables: 100,
+    max_tables: 500,
     ai_imports_month: 50,
     features: [
       'qr_dynamic',

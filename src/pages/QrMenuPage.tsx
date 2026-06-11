@@ -60,6 +60,9 @@ export default function QrMenuPage({ token }: Props) {
   const [confirmation, setConfirmation] = useState<OrderConfirmationPayload | null>(null)
   const [callingWaiter, setCallingWaiter] = useState(false)
   const [waiterCalled, setWaiterCalled] = useState(false)
+  const [requestingBill, setRequestingBill] = useState(false)
+  const [billRequested, setBillRequested] = useState(false)
+  const [search, setSearch] = useState('')
   const [previousOrders, setPreviousOrders] = useState<OrderConfirmationPayload[]>([])
   const [pairingPopup, setPairingPopup] = useState<{
     sourceProduct: Product
@@ -232,6 +235,21 @@ export default function QrMenuPage({ token }: Props) {
     setCallingWaiter(false)
   }
 
+  // „Cere nota" — același anti-spam ca la chemarea ospătarului (60s UI +
+  // rate limit server-side per masă per tip, mig 091).
+  async function handleRequestBill(): Promise<void> {
+    if (!ctx || requestingBill || billRequested) return
+    setRequestingBill(true)
+    try {
+      await callWaiter(ctx.token.id, 'bill')
+      setBillRequested(true)
+      setTimeout(() => setBillRequested(false), 60000)
+    } catch (err) {
+      console.error('[QrMenuPage] requestBill failed:', err)
+    }
+    setRequestingBill(false)
+  }
+
   function handleReset(addMore = false): void {
     // If addMore: push current order to previousOrders, stay in session
     // If full reset: clear everything including session history
@@ -266,7 +284,18 @@ export default function QrMenuPage({ token }: Props) {
   // Backward-compat: primary_color from old DB column → override accent if set
   const accent = ctx?.restaurant.primary_color ?? theme.colors.accent
   const accentGradient = theme.colors.accentGradient
-  const activeProducts = categories.find((c) => c.id === activeCatId)?.products ?? []
+  // Search activ → căutăm în TOT meniul (toate categoriile), nu doar în cea
+  // selectată — altfel clientul nu găsește produsul dacă e pe alt tab.
+  const searchQuery = search.trim().toLowerCase()
+  const activeProducts = searchQuery
+    ? categories
+        .flatMap((c) => c.products ?? [])
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(searchQuery) ||
+            (p.description ?? '').toLowerCase().includes(searchQuery),
+        )
+    : (categories.find((c) => c.id === activeCatId)?.products ?? [])
   const orderingAllowed = ctx?.orderingAllowed ?? false
 
   if (resolving) {
@@ -309,10 +338,10 @@ export default function QrMenuPage({ token }: Props) {
             textAlign: 'center',
           }}
         >
-          QR invalid sau expirat
+          Acest QR nu mai este activ
         </div>
         <div style={{ fontSize: 14, color: '#5C4A2A', textAlign: 'center' }}>
-          Scanează din nou codul QR de pe masă.
+          Te rugăm să ceri personalului un QR nou.
         </div>
       </div>
     )
@@ -374,6 +403,7 @@ export default function QrMenuPage({ token }: Props) {
         accent={accent}
         onReset={handleReset}
         previousOrders={previousOrders}
+        sessionId={sessionId}
       />
     )
   }
@@ -432,6 +462,7 @@ export default function QrMenuPage({ token }: Props) {
           <ActiveOrdersBanner
             orders={previousOrders}
             accent={accent}
+            sessionId={sessionId}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -513,6 +544,28 @@ export default function QrMenuPage({ token }: Props) {
         ))}
       </div>
 
+      {/* Search — sub tab-uri, peste tot meniul */}
+      <div style={{ padding: '12px 16px 0' }}>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Caută în meniu..."
+          style={{
+            width: '100%',
+            background: '#FDF8F2',
+            border: '1px solid #EDE3D4',
+            borderRadius: 12,
+            padding: '11px 14px',
+            fontSize: 15,
+            color: PUB.text,
+            fontFamily: 'DM Sans, sans-serif',
+            outline: 'none',
+            boxSizing: 'border-box',
+          }}
+        />
+      </div>
+
       {/* Product list — clean compact card design */}
       <div
         style={{
@@ -523,6 +576,20 @@ export default function QrMenuPage({ token }: Props) {
           gap: 10,
         }}
       >
+        {/* Empty states: meniu gol vs. căutare fără rezultate */}
+        {activeProducts.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '48px 16px', color: '#5C4A2A' }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>{searchQuery ? '🔍' : '🍽️'}</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
+              {searchQuery
+                ? `Niciun produs găsit pentru „${search.trim()}"`
+                : 'Momentan meniul nu este disponibil.'}
+            </div>
+            <div style={{ fontSize: 13 }}>
+              {searchQuery ? 'Încearcă alt cuvânt.' : 'Te rugăm să întrebi personalul.'}
+            </div>
+          </div>
+        )}
         {activeProducts.map((product) => {
           const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
           const isUnavailable = product.is_sold_out || !orderingAllowed
@@ -822,10 +889,41 @@ export default function QrMenuPage({ token }: Props) {
           }}
         >
           {waiterCalled
-            ? '\u2713 Ospătar chemat'
+            ? '\u2713 Am anunțat ospătarul'
             : callingWaiter
               ? 'Se cheam\u0103...'
               : '\ud83d\udc4b Cheam\u0103 ospătarul'}
+        </button>
+      )}
+      {ctx && orderingAllowed && !confirmation && (
+        <button
+          onClick={() => {
+            void handleRequestBill()
+          }}
+          disabled={requestingBill || billRequested}
+          style={{
+            position: 'fixed',
+            bottom: cart.length > 0 ? 90 : 20,
+            right: 16,
+            background: billRequested ? '#4CAF6E' : 'rgba(26,18,8,0.85)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 30,
+            padding: '10px 18px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: requestingBill || billRequested ? 'default' : 'pointer',
+            fontFamily: 'DM Sans, sans-serif',
+            zIndex: 49,
+            boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
+            opacity: requestingBill ? 0.7 : 1,
+          }}
+        >
+          {billRequested
+            ? '\u2713 Nota e pe drum'
+            : requestingBill
+              ? 'Se trimite...'
+              : '\ud83e\uddfe Cere nota'}
         </button>
       )}
 

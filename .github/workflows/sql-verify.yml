@@ -535,6 +535,87 @@ jobs:
           end$$;
           ASSERTION
 
+      - name: "Tracking assertion: session-bound public status (mig 092)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Audit securitate: tracking-ul public cere sesiune validă pentru
+          # payload complet; fără sesiune → doar {id, short_id, status}.
+          # request_fiscal_receipt (WRITE) refuză fără sesiune validă.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id   uuid := gen_random_uuid();
+            v_rest_id    uuid := gen_random_uuid();
+            v_table_id   uuid := gen_random_uuid();
+            v_session_id uuid := gen_random_uuid();
+            v_order_id   uuid := gen_random_uuid();
+            v_pickup_id  uuid := gen_random_uuid();
+            v_res        jsonb;
+            v_blocked    boolean := false;
+          begin
+            insert into auth.users (id, email) values (v_owner_id, 'test-tracking@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Tracking', 'test-tracking-slug', 'Cluj', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
+            insert into public.table_sessions (id, restaurant_id, table_id, status)
+              values (v_session_id, v_rest_id, v_table_id, 'open');
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 45.00, v_session_id);
+
+            -- T1: doar UUID → payload MINIM (fără total/payment_method)
+            v_res := public.get_order_public_status(v_order_id, null);
+            if v_res ? 'total' or v_res ? 'payment_method' then
+              raise exception 'ASSERTION FAILED: payload fără sesiune conține bani: %', v_res;
+            end if;
+            if (v_res->>'status') is distinct from 'served' then
+              raise exception 'ASSERTION FAILED: payload minim trebuie să conțină statusul: %', v_res;
+            end if;
+            raise notice 'OK: UUID singur → payload minim (status + short_id)';
+
+            -- T2: UUID + sesiune validă → payload COMPLET
+            v_res := public.get_order_public_status(v_order_id, v_session_id);
+            if not (v_res ? 'total') or (v_res->>'total')::numeric is distinct from 45.00 then
+              raise exception 'ASSERTION FAILED: payload cu sesiune ar trebui complet: %', v_res;
+            end if;
+            raise notice 'OK: UUID + sesiune validă → payload complet (total=45.00)';
+
+            -- T3: request_fiscal_receipt fără sesiune → REFUZ
+            begin
+              perform public.request_fiscal_receipt(v_order_id, null);
+              raise exception 'ASSERTION FAILED: fiscal receipt acceptat fără sesiune!';
+            exception when others then
+              if sqlerrm like '%Sesiunea mesei nu mai este valid%' then
+                v_blocked := true;
+                raise notice 'OK: fiscal receipt fără sesiune respins (session_required)';
+              else
+                raise exception 'ASSERTION FAILED: eroare neașteptată la T3: %', sqlerrm;
+              end if;
+            end;
+            if not v_blocked then raise exception 'ASSERTION FAILED: gate sesiune absent pe fiscal receipt'; end if;
+
+            -- T4: request_fiscal_receipt CU sesiune validă → succes (status served)
+            v_res := public.request_fiscal_receipt(v_order_id, v_session_id);
+            if not (v_res->>'success')::boolean then
+              raise exception 'ASSERTION FAILED: fiscal receipt cu sesiune validă a eșuat: %', v_res;
+            end if;
+            raise notice 'OK: fiscal receipt cu sesiune validă funcționează';
+
+            -- T5: comandă FĂRĂ sesiune (pickup/legacy) → full payload pe UUID (compatibilitate)
+            insert into public.orders (id, restaurant_id, source, status, total)
+              values (v_pickup_id, v_rest_id, 'pickup', 'served', 30.00);
+            v_res := public.get_order_public_status(v_pickup_id, null);
+            if not (v_res ? 'total') then
+              raise exception 'ASSERTION FAILED: pickup fără sesiune ar trebui full payload: %', v_res;
+            end if;
+            raise notice 'OK: pickup (fără session_id) păstrează comportamentul vechi';
+
+            raise notice '✅ Tracking assertion passed: payload complet doar cu sesiune validă (mig 092).';
+          end$$;
+          ASSERTION
+
       - name: "Gate C assertion: lifecycle closed + close_session_orders"
         env:
           PGPASSWORD: postgres

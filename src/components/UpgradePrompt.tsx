@@ -20,7 +20,7 @@ export default function UpgradePrompt({
   onUpgrade,
 }: Props) {
   const nextPlan = suggestUpgrade(currentPlan)
-  const nextPlanName = nextPlan ? PLAN_NAMES[nextPlan] : 'Pro'
+  const nextPlanName = nextPlan ? PLAN_NAMES[nextPlan] : PLAN_NAMES.pro
 
   return (
     <div

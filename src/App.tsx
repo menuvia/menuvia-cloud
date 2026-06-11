@@ -15,6 +15,7 @@ import { D } from './lib/constants'
 
 // ── Eager: tiny, always-needed pages ─────────────────────────
 import AuthPage from './pages/AuthPage'
+import { PLANS as COMMERCIAL_PLANS, TRUST_SIGNALS, getPlanByInternalId } from './lib/plans'
 import OnboardingPage from './pages/OnboardingPage'
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
@@ -98,261 +99,720 @@ async function getUserRoles(userId: string): Promise<MemberRole[]> {
   return (data ?? []).map((r) => r.role as MemberRole)
 }
 
+// ── Marketing palette (landing + pricing) — cald, premium, NU dashboard ──
+const M = {
+  bg: '#FAF9F6',
+  surface: '#FFFFFF',
+  surface2: '#F5F1EA',
+  text: '#1A1208',
+  text2: '#5C4A2A',
+  text3: '#9A8C7A',
+  border: '#E8E0D2',
+  accent: '#C8963C',
+  accentSoft: '#FAF3E5',
+  success: '#2D8659',
+}
+
+// Plan intent: păstrat în sessionStorage înainte de /auth, consumat după
+// login de usePlanIntentAutoCheckout (vezi mai jos). Folosit de Landing ȘI
+// de Pricing — de-asta e la nivel de modul.
+function pushPlanIntent(planId: string): void {
+  try {
+    sessionStorage.setItem('menuvia.plan_intent', planId)
+  } catch {
+    /* ignore (private mode) */
+  }
+}
+
 // ── Landing page (unauthenticated visitors) ──────────────────
+// Obiectiv: vizitatorul înțelege în 10 secunde ce e Menuvia, pentru cine e,
+// de ce Meniu + Comenzi e planul recomandat și cât de simplu e setup-ul.
+// Vinde FLOW-ul (Adaugi meniul → Generezi QR → Primești comenzi), nu module.
 function LandingPage({
+  onStartPlan,
   onLogin,
   onPricing,
   onDemo,
 }: {
+  onStartPlan: (plan: 'starter' | 'growth') => void
   onLogin: () => void
   onPricing: () => void
   onDemo: () => void
 }) {
-  const features = [
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+
+  const BENEFITS = [
+    { icon: '📝', title: 'Meniu actualizabil oricând', desc: 'Schimbi prețuri și produse pe loc — fără re-printat meniuri.' },
+    { icon: '🛎', title: 'Comenzi direct de la masă', desc: 'Clientul scanează, alege și trimite. Fără așteptat după ospătar.' },
+    { icon: '🚶', title: 'Mai puține drumuri pentru ospătari', desc: 'Chemarea ospătarului și nota de plată — direct din telefonul clientului.' },
+    { icon: '👨‍🍳', title: 'Bucătărie organizată', desc: 'Comenzile apar instant pe ecran, în ordinea corectă. Zero hârtii.' },
+    { icon: '🔲', title: 'QR-uri generate automat', desc: 'Spui câte mese ai — primești QR-urile gata de printat, în PDF.' },
+    { icon: '📊', title: 'Rapoarte simple', desc: 'Ce s-a comandat azi și săptămâna asta — fără să sapi prin meniuri.' },
+  ]
+
+  const STEPS = [
+    { n: '1', title: 'Adaugi meniul', desc: 'Manual sau importat cu AI dintr-o poză. Gata în câteva minute.' },
+    { n: '2', title: 'Generezi QR-urile pentru mese', desc: 'Spui câte mese ai. PDF-ul de printat e gata în 30 de secunde.' },
+    { n: '3', title: 'Primești comenzi instant', desc: 'Clienții comandă de pe telefon, bucătăria vede totul live.' },
+  ]
+
+  const FAQ = [
     {
-      icon: '📱',
-      title: 'Meniu QR digital',
-      desc: 'Clientul scanează, vede meniul și comandă direct de pe telefon.',
+      q: 'Am nevoie de hardware special?',
+      a: 'Nu. Funcționează pe orice telefon sau tabletă. Pentru bucătărie merge orice ecran cu browser.',
     },
     {
-      icon: '👨‍🍳',
-      title: 'Dashboard bucătărie',
-      desc: 'Comenzile apar instant pe ecranul din bucătărie. Zero hârtie.',
+      q: 'Cum știe sistemul de la ce masă vine comanda?',
+      a: 'Fiecare masă are QR-ul ei. Când clientul scanează și comandă, comanda ajunge automat cu masa atașată — ospătarul nu mai întreabă nimic.',
     },
     {
-      icon: '📊',
-      title: 'Analytics & rapoarte',
-      desc: 'Revenue, ore de vârf, top produse — totul într-un singur loc.',
+      q: 'Plata se face prin aplicație?',
+      a: 'Pe planurile Meniu Digital și Meniu + Comenzi, plata și bonul rămân pe casa ta de marcat, exact ca până acum. Plățile în aplicație există pe planul Fiscalizare, disponibil în pilot.',
     },
     {
-      icon: '👥',
-      title: 'Echipă & roluri',
-      desc: 'Invită ospătar, bucătar, manager. Fiecare vede doar ce trebuie.',
+      q: 'Pot începe doar cu meniul digital?',
+      a: 'Da. Planul Meniu Digital îți dă meniul QR modern, fără comenzi. Poți activa comenzile oricând, dintr-un click.',
     },
   ]
-  const steps = [
-    { n: '1', title: 'Creează cont', desc: '30 de secunde, gratuit.' },
-    { n: '2', title: 'Adaugă meniul', desc: 'Manual sau cu AI din poză.' },
-    { n: '3', title: 'Printează QR-urile', desc: 'PDF gata de tipar, pe fiecare masă.' },
-  ]
+
+  const ctaBtn: React.CSSProperties = {
+    background: M.accent,
+    color: '#fff',
+    border: 'none',
+    borderRadius: 12,
+    padding: '15px 30px',
+    fontWeight: 700,
+    fontSize: 16,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans,sans-serif',
+    boxShadow: '0 4px 14px rgba(200,150,60,0.3)',
+  }
+  const ghostBtn: React.CSSProperties = {
+    background: 'transparent',
+    color: M.text,
+    border: `1.5px solid ${M.border}`,
+    borderRadius: 12,
+    padding: '15px 30px',
+    fontWeight: 600,
+    fontSize: 16,
+    cursor: 'pointer',
+    fontFamily: 'DM Sans,sans-serif',
+  }
+  const scrollTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   return (
-    <div style={{ minHeight: '100vh', background: D.bg, fontFamily: 'DM Sans,sans-serif' }}>
-      {/* Hero */}
-      <div
-        style={{ maxWidth: 800, margin: '0 auto', padding: '80px 24px 60px', textAlign: 'center' }}
+    <div style={{ minHeight: '100vh', background: M.bg, fontFamily: 'DM Sans,sans-serif' }}>
+      {/* Header */}
+      <header
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          background: 'rgba(250,249,246,0.92)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: `1px solid ${M.border}`,
+        }}
       >
         <div
           style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 52,
-            color: D.gold,
-            fontWeight: 700,
-            letterSpacing: '-0.03em',
-            marginBottom: 16,
-          }}
-        >
-          Menuvia
-        </div>
-        <h1
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 28,
-            color: D.t1,
-            fontWeight: 700,
-            lineHeight: 1.3,
-            marginBottom: 16,
-          }}
-        >
-          Meniu digital, comenzi QR și dashboard complet pentru restaurantul tău
-        </h1>
-        <p
-          style={{
-            color: D.t2,
-            fontSize: 16,
-            maxWidth: 500,
-            margin: '0 auto 32px',
-            lineHeight: 1.7,
-          }}
-        >
-          Clienții comandă de pe telefon. Bucătăria primește instant. Tu vezi totul în timp real.
-        </p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button
-            onClick={onLogin}
-            style={{
-              background: D.gold,
-              color: '#000',
-              border: 'none',
-              borderRadius: 10,
-              padding: '14px 32px',
-              fontWeight: 700,
-              fontSize: 15,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-          >
-            Începe gratuit
-          </button>
-          <button
-            onClick={onDemo}
-            style={{
-              background: 'transparent',
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              borderRadius: 10,
-              padding: '14px 32px',
-              fontWeight: 600,
-              fontSize: 15,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-          >
-            Vezi demo
-          </button>
-        </div>
-      </div>
-      {/* Features */}
-      <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 24px 60px' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
+            maxWidth: 1040,
+            margin: '0 auto',
+            padding: '14px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             gap: 16,
-          }}
-        >
-          {features.map((f) => (
-            <div
-              key={f.title}
-              style={{
-                background: D.s1,
-                border: `1px solid ${D.border}`,
-                borderRadius: 14,
-                padding: '24px 20px',
-              }}
-            >
-              <div style={{ fontSize: 28, marginBottom: 12 }}>{f.icon}</div>
-              <div
-                style={{
-                  fontFamily: 'Fraunces,serif',
-                  fontSize: 16,
-                  color: D.t1,
-                  fontWeight: 600,
-                  marginBottom: 6,
-                }}
-              >
-                {f.title}
-              </div>
-              <div style={{ color: D.t2, fontSize: 13, lineHeight: 1.6 }}>{f.desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* Steps */}
-      <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 24px 60px', textAlign: 'center' }}>
-        <div
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 22,
-            color: D.t1,
-            fontWeight: 700,
-            marginBottom: 32,
-          }}
-        >
-          Cum funcționează
-        </div>
-        <div style={{ display: 'flex', gap: 24, justifyContent: 'center', flexWrap: 'wrap' }}>
-          {steps.map((s) => (
-            <div key={s.n} style={{ flex: '1 1 150px', maxWidth: 180 }}>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  background: D.goldA,
-                  color: D.gold,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 18,
-                  fontWeight: 700,
-                  margin: '0 auto 12px',
-                  border: `1px solid ${D.gold}44`,
-                }}
-              >
-                {s.n}
-              </div>
-              <div style={{ fontWeight: 600, color: D.t1, fontSize: 14, marginBottom: 4 }}>
-                {s.title}
-              </div>
-              <div style={{ color: D.t3, fontSize: 13 }}>{s.desc}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* CTA */}
-      <div style={{ maxWidth: 600, margin: '0 auto', padding: '0 24px 60px', textAlign: 'center' }}>
-        <div
-          style={{
-            background: D.s1,
-            border: `1px solid ${D.gold}33`,
-            borderRadius: 18,
-            padding: '40px 24px',
           }}
         >
           <div
             style={{
               fontFamily: 'Fraunces,serif',
               fontSize: 24,
-              color: D.t1,
+              color: M.accent,
               fontWeight: 700,
-              marginBottom: 8,
+              letterSpacing: '-0.02em',
             }}
           >
-            Gratuit pentru început
+            Menuvia
           </div>
-          <p style={{ color: D.t2, fontSize: 14, marginBottom: 20 }}>
-            Plan gratuit cu până la 15 produse. Planuri plătite de la 99 lei/lună.
-          </p>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <nav style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            {[
+              { label: 'Funcții', id: 'functii' },
+              { label: 'Cum funcționează', id: 'cum-functioneaza' },
+            ].map((l) => (
+              <button
+                key={l.id}
+                onClick={() => scrollTo(l.id)}
+                className="lp-nav-link"
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: M.text2,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  padding: '8px 10px',
+                  fontFamily: 'DM Sans,sans-serif',
+                }}
+              >
+                {l.label}
+              </button>
+            ))}
+            <button
+              onClick={onPricing}
+              className="lp-nav-link"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: M.text2,
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+                padding: '8px 10px',
+                fontFamily: 'DM Sans,sans-serif',
+              }}
+            >
+              Prețuri
+            </button>
             <button
               onClick={onLogin}
               style={{
-                background: D.gold,
-                color: '#000',
+                background: M.accent,
+                color: '#fff',
                 border: 'none',
                 borderRadius: 10,
-                padding: '14px 28px',
+                padding: '9px 18px',
                 fontWeight: 700,
-                fontSize: 15,
+                fontSize: 14,
                 cursor: 'pointer',
                 fontFamily: 'DM Sans,sans-serif',
+                marginLeft: 6,
               }}
             >
-              Creează cont
+              Începe gratuit
             </button>
-            <button
-              onClick={onPricing}
-              style={{
-                background: 'transparent',
-                color: D.t2,
-                border: `1px solid ${D.border}`,
-                borderRadius: 10,
-                padding: '14px 28px',
-                fontWeight: 600,
-                fontSize: 15,
-                cursor: 'pointer',
-                fontFamily: 'DM Sans,sans-serif',
-              }}
-            >
-              Planuri și prețuri
-            </button>
+          </nav>
+        </div>
+      </header>
+
+      {/* Hero */}
+      <div
+        style={{
+          maxWidth: 820,
+          margin: '0 auto',
+          padding: '72px 24px 48px',
+          textAlign: 'center',
+        }}
+      >
+        <h1
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: 'clamp(2rem, 5.5vw, 3.2rem)',
+            color: M.text,
+            fontWeight: 700,
+            lineHeight: 1.12,
+            letterSpacing: '-0.03em',
+            marginBottom: 18,
+          }}
+        >
+          Meniu QR și comenzi de la masă pentru restaurante moderne
+        </h1>
+        <p
+          style={{
+            color: M.text2,
+            fontSize: 'clamp(1rem, 2.4vw, 1.2rem)',
+            maxWidth: 560,
+            margin: '0 auto 30px',
+            lineHeight: 1.65,
+          }}
+        >
+          Clienții scanează codul QR, comandă de pe telefon, iar bucătăria primește instant.
+        </p>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => onStartPlan('growth')} style={ctaBtn}>
+            Începe cu Meniu + Comenzi
+          </button>
+          <button onClick={() => scrollTo('cum-functioneaza')} style={ghostBtn}>
+            Vezi cum funcționează
+          </button>
+        </div>
+        <div style={{ color: M.text3, fontSize: 13, marginTop: 16 }}>
+          30 de zile gratuite. Anulezi oricând.
+        </div>
+      </div>
+
+      {/* Product preview — mock CSS, nu imagini */}
+      <div
+        style={{
+          maxWidth: 1040,
+          margin: '0 auto',
+          padding: '0 24px 72px',
+          display: 'flex',
+          gap: 18,
+          justifyContent: 'center',
+          flexWrap: 'wrap',
+          alignItems: 'stretch',
+        }}
+      >
+        {/* Telefon: meniul QR */}
+        <div
+          style={{
+            background: M.surface,
+            border: `1px solid ${M.border}`,
+            borderRadius: 26,
+            padding: 16,
+            width: 230,
+            boxShadow: '0 12px 32px rgba(26,18,8,0.08)',
+          }}
+        >
+          <div style={{ fontSize: 11, color: M.text3, textAlign: 'center', marginBottom: 10 }}>
+            📱 Meniul pe telefonul clientului
           </div>
+          <div
+            style={{
+              background: M.accentSoft,
+              borderRadius: 14,
+              padding: '8px 10px',
+              fontSize: 12,
+              fontWeight: 700,
+              color: M.accent,
+              textAlign: 'center',
+              marginBottom: 10,
+            }}
+          >
+            Masa 12
+          </div>
+          {[
+            { n: 'Pizza Margherita', p: '32 lei' },
+            { n: 'Limonadă cu mentă', p: '14 lei' },
+          ].map((it) => (
+            <div
+              key={it.n}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '9px 4px',
+                borderBottom: `1px solid ${M.surface2}`,
+                fontSize: 12.5,
+              }}
+            >
+              <span style={{ color: M.text, fontWeight: 600 }}>{it.n}</span>
+              <span style={{ color: M.text2 }}>{it.p}</span>
+            </div>
+          ))}
+          <div
+            style={{
+              marginTop: 12,
+              background: M.accent,
+              color: '#fff',
+              borderRadius: 10,
+              padding: '10px 0',
+              fontSize: 13,
+              fontWeight: 700,
+              textAlign: 'center',
+            }}
+          >
+            Trimite comanda · 46 lei
+          </div>
+        </div>
+
+        {/* Card comandă bucătărie */}
+        <div
+          style={{
+            background: M.surface,
+            border: `1px solid ${M.border}`,
+            borderRadius: 18,
+            padding: 18,
+            width: 250,
+            alignSelf: 'center',
+            boxShadow: '0 8px 24px rgba(26,18,8,0.06)',
+          }}
+        >
+          <div style={{ fontSize: 11, color: M.text3, marginBottom: 10 }}>
+            👨‍🍳 Ecranul din bucătărie
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 10,
+            }}
+          >
+            <span style={{ fontFamily: 'Fraunces,serif', fontWeight: 700, color: M.text }}>
+              Masa 12
+            </span>
+            <span
+              style={{
+                background: M.accentSoft,
+                color: M.accent,
+                fontSize: 11,
+                fontWeight: 700,
+                borderRadius: 6,
+                padding: '3px 9px',
+              }}
+            >
+              NOUĂ · acum
+            </span>
+          </div>
+          <div style={{ fontSize: 13, color: M.text2, lineHeight: 1.7 }}>
+            1 × Pizza Margherita
+            <br />2 × Limonadă cu mentă
+          </div>
+          <div
+            style={{
+              marginTop: 12,
+              background: M.success,
+              color: '#fff',
+              borderRadius: 9,
+              padding: '9px 0',
+              fontSize: 12.5,
+              fontWeight: 700,
+              textAlign: 'center',
+            }}
+          >
+            ✓ Confirmă
+          </div>
+        </div>
+
+        {/* Card QR pe masă */}
+        <div
+          style={{
+            background: M.surface,
+            border: `1px solid ${M.border}`,
+            borderRadius: 18,
+            padding: 18,
+            width: 170,
+            alignSelf: 'center',
+            textAlign: 'center',
+            boxShadow: '0 8px 24px rgba(26,18,8,0.06)',
+          }}
+        >
+          <div style={{ fontSize: 11, color: M.text3, marginBottom: 10 }}>🔲 QR-ul de pe masă</div>
+          <div
+            style={{
+              fontSize: 64,
+              lineHeight: 1,
+              marginBottom: 8,
+              filter: 'contrast(1.1)',
+            }}
+          >
+            ▦
+          </div>
+          <div style={{ fontFamily: 'Fraunces,serif', fontWeight: 700, color: M.text, fontSize: 15 }}>
+            Masa 12
+          </div>
+          <div style={{ fontSize: 11, color: M.text3, marginTop: 4 }}>Scanează pentru a comanda</div>
+        </div>
+      </div>
+
+      {/* Benefits */}
+      <div id="functii" style={{ background: M.surface2, padding: '64px 24px' }}>
+        <div style={{ maxWidth: 1040, margin: '0 auto' }}>
+          <h2
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.5rem, 3.5vw, 2.1rem)',
+              color: M.text,
+              fontWeight: 700,
+              textAlign: 'center',
+              marginBottom: 36,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Tot ce are nevoie un restaurant. Nimic în plus.
+          </h2>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+              gap: 16,
+            }}
+          >
+            {BENEFITS.map((b) => (
+              <div
+                key={b.title}
+                style={{
+                  background: M.surface,
+                  border: `1px solid ${M.border}`,
+                  borderRadius: 16,
+                  padding: '22px 22px',
+                }}
+              >
+                <div style={{ fontSize: 26, marginBottom: 10 }}>{b.icon}</div>
+                <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                  {b.title}
+                </div>
+                <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{b.desc}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div id="cum-functioneaza" style={{ maxWidth: 880, margin: '0 auto', padding: '72px 24px' }}>
+        <h2
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: 'clamp(1.5rem, 3.5vw, 2.1rem)',
+            color: M.text,
+            fontWeight: 700,
+            textAlign: 'center',
+            marginBottom: 40,
+            letterSpacing: '-0.02em',
+          }}
+        >
+          Pornești în 3 pași
+        </h2>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 18,
+          }}
+        >
+          {STEPS.map((st) => (
+            <div key={st.n} style={{ textAlign: 'center', padding: '0 8px' }}>
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: '50%',
+                  background: M.accentSoft,
+                  color: M.accent,
+                  fontFamily: 'Fraunces,serif',
+                  fontSize: 22,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 14px',
+                }}
+              >
+                {st.n}
+              </div>
+              <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                {st.title}
+              </div>
+              <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{st.desc}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ textAlign: 'center', marginTop: 36 }}>
+          <button onClick={onDemo} style={ghostBtn}>
+            Vezi demo live
+          </button>
+        </div>
+      </div>
+
+      {/* Plan highlight — Meniu + Comenzi e vedeta */}
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 24px 72px' }}>
+        <div
+          style={{
+            background: M.surface,
+            border: `1.5px solid ${M.accent}`,
+            borderRadius: 20,
+            padding: '32px 28px',
+            textAlign: 'center',
+            boxShadow: '0 8px 32px rgba(200,150,60,0.14)',
+          }}
+        >
+          <div
+            style={{
+              display: 'inline-block',
+              background: M.accent,
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '5px 14px',
+              borderRadius: 100,
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+              marginBottom: 14,
+            }}
+          >
+            Recomandat
+          </div>
+          <div
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: '1.4rem',
+              color: M.text,
+              fontWeight: 700,
+              marginBottom: 10,
+            }}
+          >
+            🛎 Meniu + Comenzi
+          </div>
+          <p
+            style={{
+              color: M.text2,
+              fontSize: 15,
+              lineHeight: 1.65,
+              maxWidth: 480,
+              margin: '0 auto 22px',
+            }}
+          >
+            Alegerea potrivită pentru restaurantele care vor să reducă timpul pierdut cu preluarea
+            comenzilor. Plata și bonul rămân pe casa ta actuală.
+          </p>
+          <button onClick={onPricing} style={ctaBtn}>
+            Vezi planurile
+          </button>
+        </div>
+      </div>
+
+      {/* FAQ light */}
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 24px 72px' }}>
+        <h2
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: '1.5rem',
+            color: M.text,
+            fontWeight: 700,
+            textAlign: 'center',
+            marginBottom: 24,
+          }}
+        >
+          Întrebări frecvente
+        </h2>
+        {FAQ.map((f, i) => (
+          <div
+            key={f.q}
+            style={{
+              background: M.surface,
+              border: `1px solid ${M.border}`,
+              borderRadius: 12,
+              marginBottom: 8,
+              overflow: 'hidden',
+            }}
+          >
+            <button
+              onClick={() => setOpenFaq(openFaq === i ? null : i)}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                width: '100%',
+                padding: '15px 18px',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                fontFamily: 'DM Sans,sans-serif',
+                fontSize: 14.5,
+                fontWeight: 600,
+                color: M.text,
+                textAlign: 'left',
+                gap: 12,
+              }}
+            >
+              {f.q}
+              <span style={{ color: M.text3, flexShrink: 0 }}>{openFaq === i ? '−' : '+'}</span>
+            </button>
+            {openFaq === i && (
+              <div
+                style={{
+                  padding: '0 18px 15px',
+                  color: M.text2,
+                  fontSize: 14,
+                  lineHeight: 1.65,
+                }}
+              >
+                {f.a}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Final CTA */}
+      <div
+        style={{
+          background: M.surface2,
+          padding: '64px 24px',
+          textAlign: 'center',
+        }}
+      >
+        <h3
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: '1.7rem',
+            color: M.text,
+            fontWeight: 700,
+            marginBottom: 10,
+          }}
+        >
+          Gata să începi?
+        </h3>
+        <p style={{ color: M.text2, fontSize: 15, marginBottom: 26 }}>
+          30 de zile gratuite. Setup în 10 minute. Anulezi oricând.
+        </p>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => onStartPlan('growth')} style={ctaBtn}>
+            Începe cu Meniu + Comenzi
+          </button>
+          <button onClick={onPricing} style={ghostBtn}>
+            Vezi prețurile
+          </button>
         </div>
       </div>
       <LegalFooter />
     </div>
   )
 }
+// Auto-trigger checkout după login: dacă userul ajunge pe /pricing logat și
+// avem plan_intent în sessionStorage (setat înainte de /auth), pornim imediat
+// Stripe Checkout pe planul țintă. Asta închide bucla pricing→auth→checkout.
+//
+// Întoarce planul în curs de checkout (sau null) — PricingPage îl folosește
+// ca FLASH GUARD: cât timp e non-null, randează un loader centrat în locul
+// card-urilor, ca userul să nu vadă pricing-ul o fracțiune de secundă
+// înainte de redirect-ul Stripe. Intent-ul e citit SINCRON la inițializarea
+// state-ului (înaintea primului paint), nu într-un effect — de-asta nu
+// există flash. 'pro' (Fiscalizare) e pilot → niciodată auto-checkout.
+function usePlanIntentAutoCheckout(
+  user: { id: string } | null,
+  onCheckout: (plan: string) => void | Promise<void>,
+): string | null {
+  const [pendingPlan, setPendingPlan] = React.useState<string | null>(() => {
+    try {
+      const i = sessionStorage.getItem('menuvia.plan_intent')
+      return i === 'starter' || i === 'growth' ? i : null
+    } catch {
+      return null
+    }
+  })
+
+  React.useEffect(() => {
+    if (!user || pendingPlan == null) return
+    try {
+      sessionStorage.removeItem('menuvia.plan_intent')
+    } catch {
+      /* ignore */
+    }
+    let alive = true
+    // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul
+    // nu mai contează. Dacă eșuează (sau Stripe nu e configurat), curățăm
+    // guard-ul ca pricing-ul să se afișeze normal.
+    Promise.resolve(onCheckout(pendingPlan))
+      .catch(() => undefined)
+      .then(() => {
+        if (alive) setPendingPlan(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [user, pendingPlan, onCheckout])
+
+  // Guard activ doar pentru useri logați — anonimii văd pricing-ul normal
+  // chiar dacă au un intent vechi în session (îl vor consuma după login).
+  return user ? pendingPlan : null
+}
+
 function PricingPage({
   onBack,
   onLogin,
@@ -362,6 +822,8 @@ function PricingPage({
   onLogin: () => void
   onCheckout: (plan: string) => void
 }) {
+  const { user } = useAuth()
+  const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout)
   const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
@@ -381,6 +843,11 @@ function PricingPage({
     successSoft: '#E8F2EC',
   }
 
+  // Single source of truth pentru pricing: src/lib/plans.ts.
+  // Adapter local — păstrăm shape-ul renderului existent (features {t,ok})
+  // ca diff-ul să fie minim. CTA-urile injectează planul-țintă în
+  // sessionStorage înainte de /auth, ca user-ul să fie dus direct la
+  // checkout-ul corect după login.
   const PLANS: Array<{
     id: string
     name: string
@@ -393,86 +860,34 @@ function PricingPage({
     cta: string
     ctaFn: () => void | Promise<void>
     highlight: boolean
-  }> = [
-    {
-      id: 'starter',
-      name: 'Meniu Digital',
-      emoji: '📖',
-      price: 99,
-      priceYearly: 83,
-      badge: null,
-      desc: 'Meniul tău, frumos, pe telefonul clientului. QR pe masă în 15 minute.',
-      features: [
-        { t: 'Meniu QR digital', ok: true },
-        { t: 'Până la 30 produse', ok: true },
-        { t: 'Până la 5 mese', ok: true },
-        { t: 'Imagini la produse', ok: true },
-        { t: 'Alergeni + dietetic', ok: true },
-        { t: 'Comenzi prin QR', ok: false },
-        { t: 'Dashboard bucătărie', ok: false },
-      ],
-      cta: 'Începe 30 zile gratuit',
-      ctaFn: onLogin,
-      highlight: false,
-    },
-    {
-      id: 'growth',
-      name: 'Meniu + Comenzi',
-      emoji: '🛎',
-      price: 249,
-      priceYearly: 208,
-      badge: 'Recomandat',
-      desc: 'Clienții comandă singuri de la masă. Plata și bonul rămân pe casa ta actuală.',
-      features: [
-        { t: 'Produse și mese nelimitate', ok: true },
-        { t: 'Comenzi prin QR', ok: true },
-        { t: 'Cheamă ospătar / Cere nota', ok: true },
-        { t: 'Dashboard bucătărie', ok: true },
-        { t: 'Comenzi manuale ospătar', ok: true },
-        { t: 'Închidere comandă — plata pe casa ta actuală', ok: true },
-        { t: 'Modifiers + Extras + Pereche', ok: true },
-        { t: 'Echipă: până la 5 membri', ok: true },
-        { t: 'Mod offline pentru ospătari', ok: true },
-        { t: 'Rapoarte operaționale (zilnic + săptămânal)', ok: true },
-        { t: 'Multilingv RO/EN inclus', ok: true },
-        { t: 'Fără branding Menuvia', ok: true },
-      ],
-      cta: 'Începe 30 zile gratuit',
-      ctaFn: () => onCheckout('growth'),
-      highlight: true,
-    },
-    {
-      id: 'pro',
-      name: 'Fiscalizare',
-      emoji: '🧾',
-      price: 499,
-      priceYearly: 415,
-      badge: 'Pilot',
-      desc: 'Plăți și bon fiscal direct din aplicație, pe casa ta de marcat.',
-      features: [
-        { t: 'Tot din Meniu + Comenzi +', ok: true },
-        { t: 'Plăți în aplicație: cash, card, split bill', ok: true },
-        { t: 'Bon fiscal: Datecs / Activa / Tremol', ok: true },
-        { t: 'Raport TVA + Casă & tură', ok: true },
-        { t: 'Echipă nelimitată', ok: true },
-        { t: 'Alocare mese pe ospătari (ture)', ok: true },
-        { t: 'Floor plan vizual', ok: true },
-        { t: 'Rapoarte avansate (custom range)', ok: true },
-        { t: 'Import meniu cu AI (din poză)', ok: true },
-        { t: 'Suport prioritar (răspuns 4h)', ok: true },
-      ],
-      cta: 'Disponibil în pilot — discută cu noi',
-      // Fiscalizarea NU se vinde self-serve cât e în pilot: onboarding-ul
-      // cere verificarea casei de marcat împreună cu noi. WhatsApp dacă e
-      // configurat, altfel checkout clasic (fallback ca butonul să nu moară).
-      ctaFn: () => {
+  }> = COMMERCIAL_PLANS.map((p) => ({
+    id: p.id,
+    name: p.name,
+    emoji: p.emoji,
+    price: p.priceMonthly,
+    priceYearly: p.priceYearly,
+    badge: p.badge,
+    desc: p.tagline,
+    features: [
+      ...p.included.map((t) => ({ t, ok: true })),
+      ...p.notIncluded.map((t) => ({ t, ok: false })),
+    ],
+    cta: p.ctaLabel,
+    ctaFn: () => {
+      if (p.id === 'pro') {
+        // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
         const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
         if (url) window.open(url, '_blank')
         else void onCheckout('pro')
-      },
-      highlight: false,
+        return
+      }
+      pushPlanIntent(p.id)
+      // Tier 1+2: dacă userul nu e logat, mergem la auth (cu ?plan=) — App
+      // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
+      void onCheckout(p.id)
     },
-  ]
+    highlight: p.highlight,
+  }))
 
   const EXTRAS_ONETIME = [
     {
@@ -521,7 +936,7 @@ function PricingPage({
   const BONUSES = [
     { icon: '🔄', title: 'Migrare gratuită', desc: 'Vă mutăm meniul de la alt sistem.' },
     { icon: '💰', title: '30 zile garanție', desc: 'Bani înapoi integrali. Fără întrebări.' },
-    { icon: '📄', title: 'QR-uri PDF nelimitate', desc: 'Generați câte vreți, oricând.' },
+    { icon: '📄', title: 'QR-uri PDF', desc: 'Regenerați PDF-urile oricând, gratis.' },
     { icon: '🔁', title: 'Schimb plan oricând', desc: 'Upgrade/downgrade fără penalizări.' },
     { icon: '💾', title: 'Backup automat zilnic', desc: 'Nu pierdeți niciodată date.' },
     { icon: '🔒', title: 'GDPR + securitate', desc: 'HTTPS, RLS, conformitate completă.' },
@@ -571,6 +986,45 @@ function PricingPage({
       a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct WhatsApp cu Radu, fondatorul.',
     },
   ]
+
+  // Flash guard: user logat cu plan intent activ → loader, nu card-urile.
+  if (checkingOutPlan != null) {
+    const targetName = getPlanByInternalId(checkingOutPlan).name
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: L.bg,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 14,
+          fontFamily: 'DM Sans,sans-serif',
+          padding: 24,
+          textAlign: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            border: `3px solid ${L.border}`,
+            borderTopColor: L.accent,
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }}
+        />
+        <style>{'@keyframes spin { to { transform: rotate(360deg) } }'}</style>
+        <div style={{ color: L.text, fontSize: '1.05rem', fontWeight: 600 }}>
+          Se pregătește checkout-ul pentru {targetName}...
+        </div>
+        <div style={{ color: L.text3, fontSize: '0.88rem' }}>
+          Te redirecționăm către plata securizată.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -646,9 +1100,7 @@ function PricingPage({
               lineHeight: 1.1,
             }}
           >
-            Prețuri simple,
-            <br />
-            fără surprize
+            Prețuri simple pentru restaurante care vor meniu QR și comenzi la masă
           </h1>
           <p
             style={{
@@ -659,7 +1111,7 @@ function PricingPage({
               fontWeight: 400,
             }}
           >
-            30 de zile gratuite pe orice plan. Fără card. Anulezi oricând.
+            30 de zile gratuite pe orice plan. Anulezi cu un click, fără penalizări.
           </p>
 
           {/* Yearly toggle */}
@@ -1015,17 +1467,75 @@ function PricingPage({
           })}
         </div>
 
-        {/* Trust line */}
+        {/* Trust signals — adevăruri verificabile, fără promisiuni vagi */}
         <div
           style={{
-            textAlign: 'center',
-            color: L.text3,
-            fontSize: '0.88rem',
-            marginBottom: 16,
-            fontWeight: 400,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+            gap: 12,
+            marginBottom: 22,
           }}
         >
-          Toate planurile includ migrare gratuită din alt sistem și 30 zile garanție bani înapoi.
+          {TRUST_SIGNALS.map((t) => (
+            <div
+              key={t.label}
+              style={{
+                background: L.surface,
+                border: `1px solid ${L.border}`,
+                borderRadius: 12,
+                padding: '14px 16px',
+                fontFamily: 'DM Sans,sans-serif',
+              }}
+            >
+              <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{t.icon}</div>
+              <div style={{ color: L.text, fontSize: '0.88rem', fontWeight: 600 }}>{t.label}</div>
+              <div style={{ color: L.text3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.45 }}>
+                {t.desc}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Ghid de alegere: primele 2 planuri, în limbaj de patron */}
+        <div
+          style={{
+            maxWidth: 720,
+            margin: '0 auto 56px',
+            background: L.surface,
+            border: `1px solid ${L.border}`,
+            borderRadius: 18,
+            padding: '28px 28px',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: '1.25rem',
+              color: L.text,
+              fontWeight: 700,
+              marginBottom: 16,
+              textAlign: 'center',
+            }}
+          >
+            Nu știi ce să alegi?
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>📖</span>
+              <p style={{ color: L.text2, fontSize: '0.95rem', lineHeight: 1.6 }}>
+                Alege <strong style={{ color: L.text }}>Meniu Digital</strong> dacă vrei doar să
+                înlocuiești meniul fizic cu un meniu QR modern.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>🛎</span>
+              <p style={{ color: L.text2, fontSize: '0.95rem', lineHeight: 1.6 }}>
+                Alege <strong style={{ color: L.text }}>Meniu + Comenzi</strong> dacă vrei ca
+                oamenii să poată comanda direct de la masă, iar bucătăria și ospătarii să vadă
+                comenzile instant.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Custom / Enterprise inquiry */}
@@ -1374,10 +1884,13 @@ function PricingPage({
           Gata să începi?
         </h3>
         <p style={{ color: L.text2, fontSize: '1rem', marginBottom: 28, lineHeight: 1.6 }}>
-          30 zile gratuite, fără card. Setup în 10 minute.
+          30 zile gratuite. Setup în 10 minute.
         </p>
         <button
-          onClick={() => onCheckout('growth')}
+          onClick={() => {
+            pushPlanIntent('growth')
+            void onCheckout('growth')
+          }}
           style={{
             background: L.accent,
             color: '#fff',
@@ -1630,7 +2143,15 @@ function AppRouter() {
         onLogin={() => navigate('/auth')}
         onCheckout={async (plan) => {
           if (!user) {
-            navigate('/auth')
+            // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
+            // recuperăm după login (vezi AuthPage onSuccess). URL-ul primește
+            // și el ?plan= pentru cazurile cu sessionStorage blocat.
+            try {
+              sessionStorage.setItem('menuvia.plan_intent', plan)
+            } catch {
+              /* ignore */
+            }
+            navigate('/auth?plan=' + encodeURIComponent(plan))
             return
           }
           try {
@@ -1678,6 +2199,10 @@ function AppRouter() {
   if (state.view === 'landing' && !user)
     return (
       <LandingPage
+        onStartPlan={(p) => {
+          pushPlanIntent(p)
+          navigate('/auth?plan=' + p)
+        }}
         onLogin={() => navigate('/auth')}
         onPricing={() => navigate('/pricing')}
         onDemo={() => navigate('/demo')}
@@ -1685,7 +2210,28 @@ function AppRouter() {
     )
 
   // ── Auth ───────────────────────────────────────────────────
-  if (state.view === 'auth' || !user) return <AuthPage onSuccess={() => navigate('/dashboard')} />
+  if (state.view === 'auth' || !user) {
+    return (
+      <AuthPage
+        onSuccess={() => {
+          // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
+          // înapoi la pricing — onCheckout va detecta că e logat și va sări
+          // la Stripe. Fără intent, mergem la dashboard ca până acum.
+          let intent: string | null = null
+          try {
+            intent = sessionStorage.getItem('menuvia.plan_intent')
+          } catch {
+            /* ignore (private mode) */
+          }
+          if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
+            navigate('/pricing')
+            return
+          }
+          navigate('/dashboard')
+        }}
+      />
+    )
+  }
 
   // ── Authenticated: landing redirects to dashboard ──────────
   if (state.view === 'landing') {
@@ -1708,6 +2254,7 @@ function AppRouter() {
       <DashboardPage
         onViewMenu={(slug) => navigate(`/m/${slug}`)}
         onViewWaiter={() => navigate('/waiter')}
+        onViewKitchen={() => navigate('/kitchen')}
         onPricing={() => navigate('/pricing')}
         onSignOut={async () => {
           await signOut()

@@ -222,7 +222,7 @@ function PayModal({
               <span style={{ fontSize: 20 }}>🎉</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: D.gold }}>
-                  Happy Hour activ!
+                  Promoție activă!
                 </div>
                 <div style={{ fontSize: 11, color: D.t2 }}>
                   {happyHourSuggestion.rule_name} · {happyHourSuggestion.discount_value}
@@ -255,7 +255,7 @@ function PayModal({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              Aplică Happy Hour
+              Aplică promoția
             </button>
           </div>
         )}

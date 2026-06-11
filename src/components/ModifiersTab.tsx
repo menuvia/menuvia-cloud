@@ -198,7 +198,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               letterSpacing: '-0.02em',
             }}
           >
-            Modificatori
+            Opțiuni produse
           </h2>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
             Grupuri de op\u021biuni (ex: Extra sos, M\u0103rime)
