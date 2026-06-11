@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 
@@ -22,7 +22,40 @@ const inp: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+// Cheia sub care păstrăm planul-țintă între /pricing → /auth → checkout.
+// SessionStorage (nu local): dispare la închiderea tab-ului, fără privacy debt.
+const PLAN_INTENT_KEY = 'menuvia.plan_intent'
+
+export function readPlanIntent(): string | null {
+  try {
+    return sessionStorage.getItem(PLAN_INTENT_KEY)
+  } catch {
+    return null
+  }
+}
+
+export function clearPlanIntent(): void {
+  try {
+    sessionStorage.removeItem(PLAN_INTENT_KEY)
+  } catch {
+    /* ignore (private mode) */
+  }
+}
+
 export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
+  // Persistăm planul-țintă dacă /auth a fost deschisă din /pricing cu ?plan=...
+  // Citim direct URL-ul (nu folosim router) ca să nu adăugăm dependență.
+  useEffect(() => {
+    const m = window.location.search.match(/[?&]plan=(starter|growth|pro)\b/)
+    if (m) {
+      try {
+        sessionStorage.setItem(PLAN_INTENT_KEY, m[1])
+      } catch {
+        /* ignore (private mode) */
+      }
+    }
+  }, [])
+
   const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')

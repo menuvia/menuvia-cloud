@@ -15,6 +15,7 @@ import { D } from './lib/constants'
 
 // ── Eager: tiny, always-needed pages ─────────────────────────
 import AuthPage from './pages/AuthPage'
+import { PLANS as COMMERCIAL_PLANS, TRUST_SIGNALS } from './lib/plans'
 import OnboardingPage from './pages/OnboardingPage'
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
@@ -353,6 +354,31 @@ function LandingPage({
     </div>
   )
 }
+// Auto-trigger checkout după login: dacă userul ajunge pe /pricing logat și
+// avem plan_intent în sessionStorage (setat înainte de /auth), pornim imediat
+// Stripe Checkout pe planul țintă. Asta închide bucla pricing→auth→checkout.
+function usePlanIntentAutoCheckout(
+  user: { id: string } | null,
+  onCheckout: (plan: string) => void | Promise<void>,
+): void {
+  React.useEffect(() => {
+    if (!user) return
+    let intent: string | null = null
+    try {
+      intent = sessionStorage.getItem('menuvia.plan_intent')
+    } catch {
+      return
+    }
+    if (intent !== 'starter' && intent !== 'growth') return // 'pro' = pilot, nu auto-checkout
+    try {
+      sessionStorage.removeItem('menuvia.plan_intent')
+    } catch {
+      /* ignore */
+    }
+    void onCheckout(intent)
+  }, [user, onCheckout])
+}
+
 function PricingPage({
   onBack,
   onLogin,
@@ -362,6 +388,8 @@ function PricingPage({
   onLogin: () => void
   onCheckout: (plan: string) => void
 }) {
+  const { user } = useAuth()
+  usePlanIntentAutoCheckout(user, onCheckout)
   const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
@@ -381,6 +409,18 @@ function PricingPage({
     successSoft: '#E8F2EC',
   }
 
+  // Single source of truth pentru pricing: src/lib/plans.ts.
+  // Adapter local — păstrăm shape-ul renderului existent (features {t,ok})
+  // ca diff-ul să fie minim. CTA-urile injectează planul-țintă în
+  // sessionStorage înainte de /auth, ca user-ul să fie dus direct la
+  // checkout-ul corect după login.
+  function pushPlanIntent(planId: string): void {
+    try {
+      sessionStorage.setItem('menuvia.plan_intent', planId)
+    } catch {
+      /* ignore (private mode) */
+    }
+  }
   const PLANS: Array<{
     id: string
     name: string
@@ -393,86 +433,34 @@ function PricingPage({
     cta: string
     ctaFn: () => void | Promise<void>
     highlight: boolean
-  }> = [
-    {
-      id: 'starter',
-      name: 'Meniu Digital',
-      emoji: '📖',
-      price: 99,
-      priceYearly: 83,
-      badge: null,
-      desc: 'Meniul tău, frumos, pe telefonul clientului. QR pe masă în 15 minute.',
-      features: [
-        { t: 'Meniu QR digital', ok: true },
-        { t: 'Până la 30 produse', ok: true },
-        { t: 'Până la 5 mese', ok: true },
-        { t: 'Imagini la produse', ok: true },
-        { t: 'Alergeni + dietetic', ok: true },
-        { t: 'Comenzi prin QR', ok: false },
-        { t: 'Dashboard bucătărie', ok: false },
-      ],
-      cta: 'Începe 30 zile gratuit',
-      ctaFn: onLogin,
-      highlight: false,
-    },
-    {
-      id: 'growth',
-      name: 'Meniu + Comenzi',
-      emoji: '🛎',
-      price: 249,
-      priceYearly: 208,
-      badge: 'Recomandat',
-      desc: 'Clienții comandă singuri de la masă. Plata și bonul rămân pe casa ta actuală.',
-      features: [
-        { t: 'Produse și mese nelimitate', ok: true },
-        { t: 'Comenzi prin QR', ok: true },
-        { t: 'Cheamă ospătar / Cere nota', ok: true },
-        { t: 'Dashboard bucătărie', ok: true },
-        { t: 'Comenzi manuale ospătar', ok: true },
-        { t: 'Închidere comandă — plata pe casa ta actuală', ok: true },
-        { t: 'Modifiers + Extras + Pereche', ok: true },
-        { t: 'Echipă: până la 5 membri', ok: true },
-        { t: 'Mod offline pentru ospătari', ok: true },
-        { t: 'Rapoarte operaționale (zilnic + săptămânal)', ok: true },
-        { t: 'Multilingv RO/EN inclus', ok: true },
-        { t: 'Fără branding Menuvia', ok: true },
-      ],
-      cta: 'Începe 30 zile gratuit',
-      ctaFn: () => onCheckout('growth'),
-      highlight: true,
-    },
-    {
-      id: 'pro',
-      name: 'Fiscalizare',
-      emoji: '🧾',
-      price: 499,
-      priceYearly: 415,
-      badge: 'Pilot',
-      desc: 'Plăți și bon fiscal direct din aplicație, pe casa ta de marcat.',
-      features: [
-        { t: 'Tot din Meniu + Comenzi +', ok: true },
-        { t: 'Plăți în aplicație: cash, card, split bill', ok: true },
-        { t: 'Bon fiscal: Datecs / Activa / Tremol', ok: true },
-        { t: 'Raport TVA + Casă & tură', ok: true },
-        { t: 'Echipă nelimitată', ok: true },
-        { t: 'Alocare mese pe ospătari (ture)', ok: true },
-        { t: 'Floor plan vizual', ok: true },
-        { t: 'Rapoarte avansate (custom range)', ok: true },
-        { t: 'Import meniu cu AI (din poză)', ok: true },
-        { t: 'Suport prioritar (răspuns 4h)', ok: true },
-      ],
-      cta: 'Disponibil în pilot — discută cu noi',
-      // Fiscalizarea NU se vinde self-serve cât e în pilot: onboarding-ul
-      // cere verificarea casei de marcat împreună cu noi. WhatsApp dacă e
-      // configurat, altfel checkout clasic (fallback ca butonul să nu moară).
-      ctaFn: () => {
+  }> = COMMERCIAL_PLANS.map((p) => ({
+    id: p.id,
+    name: p.name,
+    emoji: p.emoji,
+    price: p.priceMonthly,
+    priceYearly: p.priceYearly,
+    badge: p.badge,
+    desc: p.tagline,
+    features: [
+      ...p.included.map((t) => ({ t, ok: true })),
+      ...p.notIncluded.map((t) => ({ t, ok: false })),
+    ],
+    cta: p.ctaLabel,
+    ctaFn: () => {
+      if (p.id === 'pro') {
+        // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
         const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
         if (url) window.open(url, '_blank')
         else void onCheckout('pro')
-      },
-      highlight: false,
+        return
+      }
+      pushPlanIntent(p.id)
+      // Tier 1+2: dacă userul nu e logat, mergem la auth (cu ?plan=) — App
+      // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
+      void onCheckout(p.id)
     },
-  ]
+    highlight: p.highlight,
+  }))
 
   const EXTRAS_ONETIME = [
     {
@@ -521,7 +509,7 @@ function PricingPage({
   const BONUSES = [
     { icon: '🔄', title: 'Migrare gratuită', desc: 'Vă mutăm meniul de la alt sistem.' },
     { icon: '💰', title: '30 zile garanție', desc: 'Bani înapoi integrali. Fără întrebări.' },
-    { icon: '📄', title: 'QR-uri PDF nelimitate', desc: 'Generați câte vreți, oricând.' },
+    { icon: '📄', title: 'QR-uri PDF', desc: 'Regenerați PDF-urile oricând, gratis.' },
     { icon: '🔁', title: 'Schimb plan oricând', desc: 'Upgrade/downgrade fără penalizări.' },
     { icon: '💾', title: 'Backup automat zilnic', desc: 'Nu pierdeți niciodată date.' },
     { icon: '🔒', title: 'GDPR + securitate', desc: 'HTTPS, RLS, conformitate completă.' },
@@ -659,7 +647,7 @@ function PricingPage({
               fontWeight: 400,
             }}
           >
-            30 de zile gratuite pe orice plan. Fără card. Anulezi oricând.
+            30 de zile gratuite pe orice plan. Anulezi cu un click, fără penalizări.
           </p>
 
           {/* Yearly toggle */}
@@ -1015,17 +1003,33 @@ function PricingPage({
           })}
         </div>
 
-        {/* Trust line */}
+        {/* Trust signals — adevăruri verificabile, fără promisiuni vagi */}
         <div
           style={{
-            textAlign: 'center',
-            color: L.text3,
-            fontSize: '0.88rem',
-            marginBottom: 16,
-            fontWeight: 400,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))',
+            gap: 12,
+            marginBottom: 22,
           }}
         >
-          Toate planurile includ migrare gratuită din alt sistem și 30 zile garanție bani înapoi.
+          {TRUST_SIGNALS.map((t) => (
+            <div
+              key={t.label}
+              style={{
+                background: L.surface,
+                border: `1px solid ${L.border}`,
+                borderRadius: 12,
+                padding: '14px 16px',
+                fontFamily: 'DM Sans,sans-serif',
+              }}
+            >
+              <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{t.icon}</div>
+              <div style={{ color: L.text, fontSize: '0.88rem', fontWeight: 600 }}>{t.label}</div>
+              <div style={{ color: L.text3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.45 }}>
+                {t.desc}
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Custom / Enterprise inquiry */}
@@ -1374,10 +1378,13 @@ function PricingPage({
           Gata să începi?
         </h3>
         <p style={{ color: L.text2, fontSize: '1rem', marginBottom: 28, lineHeight: 1.6 }}>
-          30 zile gratuite, fără card. Setup în 10 minute.
+          30 zile gratuite. Setup în 10 minute.
         </p>
         <button
-          onClick={() => onCheckout('growth')}
+          onClick={() => {
+            pushPlanIntent('growth')
+            void onCheckout('growth')
+          }}
           style={{
             background: L.accent,
             color: '#fff',
@@ -1630,7 +1637,15 @@ function AppRouter() {
         onLogin={() => navigate('/auth')}
         onCheckout={async (plan) => {
           if (!user) {
-            navigate('/auth')
+            // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
+            // recuperăm după login (vezi AuthPage onSuccess). URL-ul primește
+            // și el ?plan= pentru cazurile cu sessionStorage blocat.
+            try {
+              sessionStorage.setItem('menuvia.plan_intent', plan)
+            } catch {
+              /* ignore */
+            }
+            navigate('/auth?plan=' + encodeURIComponent(plan))
             return
           }
           try {
@@ -1685,7 +1700,28 @@ function AppRouter() {
     )
 
   // ── Auth ───────────────────────────────────────────────────
-  if (state.view === 'auth' || !user) return <AuthPage onSuccess={() => navigate('/dashboard')} />
+  if (state.view === 'auth' || !user) {
+    return (
+      <AuthPage
+        onSuccess={() => {
+          // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
+          // înapoi la pricing — onCheckout va detecta că e logat și va sări
+          // la Stripe. Fără intent, mergem la dashboard ca până acum.
+          let intent: string | null = null
+          try {
+            intent = sessionStorage.getItem('menuvia.plan_intent')
+          } catch {
+            /* ignore (private mode) */
+          }
+          if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
+            navigate('/pricing')
+            return
+          }
+          navigate('/dashboard')
+        }}
+      />
+    )
+  }
 
   // ── Authenticated: landing redirects to dashboard ──────────
   if (state.view === 'landing') {

@@ -2,6 +2,7 @@ import { useState, useEffect, Suspense, lazy } from 'react'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
 import { planTier, type PlanTier } from '../lib/features'
+import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
@@ -49,12 +50,22 @@ function UpgradeModal({
   onClose: () => void
   onGoToPricing: () => void
 }) {
-  // Comparația comercială: Meniu Digital vs Meniu + Comenzi (NU „Gratuit vs
-  // Pro" — Pro nu există ca nume public; upsell-ul natural e planul 2).
+  // Comparația comercială citește limitele DIRECT din plans.ts ca să nu
+  // diverge de pagina de pricing. Numele coloanelor = numele comerciale.
+  const starter = getCommercialPlan('starter')
+  const growth = getCommercialPlan('growth')
   const COMPARE = [
     { label: 'Meniu QR', free: '✓', pro: '✓' },
-    { label: 'Produse', free: '30', pro: 'Nelimitate' },
-    { label: 'Mese + QR', free: '5', pro: 'Nelimitate' },
+    {
+      label: 'Produse',
+      free: String(starter.limits.maxProducts),
+      pro: String(growth.limits.maxProducts),
+    },
+    {
+      label: 'Mese + QR',
+      free: String(starter.limits.maxTables),
+      pro: String(growth.limits.maxTables),
+    },
     { label: 'Comenzi prin QR', free: '—', pro: '✓' },
     { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
     { label: 'Comenzi ospătar', free: '—', pro: '✓' },
@@ -161,7 +172,7 @@ function UpgradeModal({
                 paddingBottom: 8,
               }}
             >
-              Meniu Digital
+              {starter.name}
             </div>
             <div
               style={{
@@ -174,7 +185,7 @@ function UpgradeModal({
                 paddingBottom: 8,
               }}
             >
-              Meniu + Comenzi
+              {growth.name}
             </div>
             {COMPARE.map((row, i) => (
               <React.Fragment key={row.label}>
@@ -234,7 +245,7 @@ function UpgradeModal({
                 fontWeight: 700,
               }}
             >
-              249
+              {growth.priceMonthly}
             </span>
             <span style={{ color: D.t3, fontSize: '0.8rem', marginLeft: 4 }}>lei/lună</span>
             <div style={{ fontSize: '0.72rem', color: D.goldL, marginTop: 3 }}>
@@ -258,7 +269,7 @@ function UpgradeModal({
                 cursor: 'pointer',
               }}
             >
-              Activează Meniu + Comenzi →
+              {growth.ctaLabel} →
             </button>
             <button
               onClick={onClose}
