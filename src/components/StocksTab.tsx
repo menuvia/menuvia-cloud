@@ -124,7 +124,7 @@ export default function StocksTab({ restaurantId }: Props) {
             fontWeight: 600,
           }}
         >
-          Gestiune
+          Stocuri
         </h2>
         <div style={{ fontSize: '0.85rem', color: D.t3, lineHeight: 1.5 }}>
           Stocuri, rețete, furnizori, profitabilitate.
@@ -191,7 +191,7 @@ export default function StocksTab({ restaurantId }: Props) {
               letterSpacing: '-0.01em',
             }}
           >
-            👋 Bun venit în Gestiune
+            👋 Bun venit în Stocuri
           </div>
           <div style={{ fontSize: '0.85rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
             Modulul de gestiune îți permite să urmărești stocul de ingrediente, să definești rețete

@@ -200,7 +200,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
               fontFamily: 'Fraunces,serif',
             }}
           >
-            🎉 Happy Hour
+            🎉 Promoții
           </h1>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
             Reguli automate de reducere pe interval orar și zile săptămână. Ospătarul va vedea un

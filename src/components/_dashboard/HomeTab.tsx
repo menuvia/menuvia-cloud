@@ -133,15 +133,16 @@ export default function HomeTab({
   const [ordersToday, setOrdersToday] = useState<number | null>(null)
   useEffect(() => {
     if (tier < 2) return
-    const start = new Date()
-    start.setHours(0, 0, 0, 0)
+    // Aceeași logică de „azi" ca ReportsTab (boundary explicit România),
+    // ca cifra din Acasă să bată cu raportul zilei.
+    const todayStart = new Date().toISOString().slice(0, 10) + 'T00:00:00+03:00'
     let alive = true
     void supabase
       .from('orders')
       .select('id', { count: 'exact', head: true })
       .eq('restaurant_id', restaurantId)
       .neq('status', 'cancelled')
-      .gte('created_at', start.toISOString())
+      .gte('created_at', todayStart)
       .then(({ count }) => {
         if (alive) setOrdersToday(count ?? 0)
       })

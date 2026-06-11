@@ -142,7 +142,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           }}
         >
           <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
-          <div style={{ marginBottom: 16 }}>Analytics disponibil din planul Pro</div>
+          <div style={{ marginBottom: 16 }}>Statisticile sunt disponibile din planul Meniu + Comenzi</div>
           <button
             onClick={onUpgrade}
             style={{

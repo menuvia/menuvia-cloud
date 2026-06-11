@@ -49,13 +49,16 @@ function UpgradeModal({
   onClose: () => void
   onGoToPricing: () => void
 }) {
+  // Comparația comercială: Meniu Digital vs Meniu + Comenzi (NU „Gratuit vs
+  // Pro" — Pro nu există ca nume public; upsell-ul natural e planul 2).
   const COMPARE = [
-    { label: 'Produse', free: '15', pro: '500' },
-    { label: 'Mese + QR', free: '3', pro: '30' },
-    { label: 'Comenzi live', free: '—', pro: '✓' },
-    { label: 'Kitchen view', free: '—', pro: '✓' },
-    { label: 'Analytics', free: '—', pro: '✓' },
-    { label: 'AI import meniu', free: '—', pro: '✓' },
+    { label: 'Meniu QR', free: '✓', pro: '✓' },
+    { label: 'Produse', free: '30', pro: 'Nelimitate' },
+    { label: 'Mese + QR', free: '5', pro: 'Nelimitate' },
+    { label: 'Comenzi prin QR', free: '—', pro: '✓' },
+    { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
+    { label: 'Comenzi ospătar', free: '—', pro: '✓' },
+    { label: 'Rapoarte', free: 'De bază', pro: 'Zilnic + săptămânal' },
   ]
   return (
     <div
@@ -141,7 +144,7 @@ function UpgradeModal({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 80px 80px',
+              gridTemplateColumns: '1fr 90px 110px',
               gap: 0,
               marginBottom: 16,
             }}
@@ -158,7 +161,7 @@ function UpgradeModal({
                 paddingBottom: 8,
               }}
             >
-              Gratuit
+              Meniu Digital
             </div>
             <div
               style={{
@@ -171,7 +174,7 @@ function UpgradeModal({
                 paddingBottom: 8,
               }}
             >
-              Pro
+              Meniu + Comenzi
             </div>
             {COMPARE.map((row, i) => (
               <React.Fragment key={row.label}>
@@ -255,7 +258,7 @@ function UpgradeModal({
                 cursor: 'pointer',
               }}
             >
-              Upgrade la Pro →
+              Activează Meniu + Comenzi →
             </button>
             <button
               onClick={onClose}
@@ -405,7 +408,6 @@ interface SubTab {
   label: string
   adminOnly?: boolean
   minTier?: PlanTier
-  module?: 'reservations'
 }
 interface NavGroup {
   id: string
@@ -434,12 +436,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Comenzi',
     icon: '🛎',
     minTier: 2,
-    subTabs: [
-      { id: 'comenzi', label: 'Comenzi' },
-      // Rezervările NU sunt în nav-ul principal (MVP): apar doar dacă
-      // modulul e pornit din Setări → Module (Gate D).
-      { id: 'reservations', label: 'Rezervări', adminOnly: true, module: 'reservations' },
-    ],
+    // Rezervările sunt complet ascunse din nav-ul MVP (componenta există,
+    // modulul se gestionează din Setări; expunere = decizie viitoare).
+    subTabs: [{ id: 'comenzi', label: 'Comenzi' }],
   },
   {
     id: 'mese-qr',
@@ -479,15 +478,9 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-function isSubTabVisible(
-  st: SubTab,
-  isAdmin: boolean,
-  tier: PlanTier,
-  moduleOn: (m: 'reservations') => boolean,
-): boolean {
+function isSubTabVisible(st: SubTab, isAdmin: boolean, tier: PlanTier): boolean {
   if (st.adminOnly && !isAdmin) return false
   if (st.minTier && tier < st.minTier) return false
-  if (st.module && !moduleOn(st.module)) return false
   return true
 }
 
@@ -592,10 +585,9 @@ export default function DashboardPage({
 
   // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
   // sub-tab vizibil dispare complet din sidebar.
-  const moduleOn = (m: 'reservations') => modulesState.isEnabled(m)
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter((st) => isSubTabVisible(st, isAdminRole, tier, moduleOn)),
+    subTabs: g.subTabs.filter((st) => isSubTabVisible(st, isAdminRole, tier)),
   })).filter(
     (g) =>
       (!g.adminOnly || isAdminRole) &&
@@ -1055,6 +1047,9 @@ export default function DashboardPage({
                 <OrdersHub
                   onViewWaiter={onViewWaiter}
                   onViewKitchen={onViewKitchen}
+                  // TODO: înlocuiește shortcut-ul către raportul agregat cu o
+                  // listă reală de istoric (ID, masă, oră, produse, status,
+                  // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
                 />
               )}

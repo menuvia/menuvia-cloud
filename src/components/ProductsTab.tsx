@@ -1067,7 +1067,7 @@ function ProductModal({
                     border: `1px dashed ${D.border}`,
                   }}
                 >
-                  ℹ️ <strong>Nu ai ingrediente în stoc încă.</strong> Mergi la tab-ul Gestiune →
+                  ℹ️ <strong>Nu ai ingrediente în stoc încă.</strong> Mergi la tab-ul Stocuri →
                   Ingrediente și adaugă-le pe cele folosite în acest produs.
                 </div>
               ) : (

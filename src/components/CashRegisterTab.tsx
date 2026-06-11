@@ -156,7 +156,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
             fontFamily: 'Fraunces,serif',
           }}
         >
-          💰 Casă & Tură
+          💰 Încasări
         </h1>
         <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
           Gestiune fond casă, depuneri/retrageri și închidere zi cu Raport Z automat.
@@ -894,7 +894,7 @@ function CloseShiftModal({
                 color: D.green,
               }}
             >
-              ✓ Raport Z trimis la casa de marcat. Verifică tab "Casă marcat" pentru confirmare.
+              ✓ Raport Z trimis la casa de marcat. Verifică tab-ul "Fiscalizare" pentru confirmare.
             </div>
           )}
           <button
