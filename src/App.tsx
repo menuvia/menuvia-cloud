@@ -15,7 +15,7 @@ import { D } from './lib/constants'
 
 // ── Eager: tiny, always-needed pages ─────────────────────────
 import AuthPage from './pages/AuthPage'
-import { PLANS as COMMERCIAL_PLANS, TRUST_SIGNALS } from './lib/plans'
+import { PLANS as COMMERCIAL_PLANS, TRUST_SIGNALS, getPlanByInternalId } from './lib/plans'
 import OnboardingPage from './pages/OnboardingPage'
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
@@ -357,26 +357,50 @@ function LandingPage({
 // Auto-trigger checkout după login: dacă userul ajunge pe /pricing logat și
 // avem plan_intent în sessionStorage (setat înainte de /auth), pornim imediat
 // Stripe Checkout pe planul țintă. Asta închide bucla pricing→auth→checkout.
+//
+// Întoarce planul în curs de checkout (sau null) — PricingPage îl folosește
+// ca FLASH GUARD: cât timp e non-null, randează un loader centrat în locul
+// card-urilor, ca userul să nu vadă pricing-ul o fracțiune de secundă
+// înainte de redirect-ul Stripe. Intent-ul e citit SINCRON la inițializarea
+// state-ului (înaintea primului paint), nu într-un effect — de-asta nu
+// există flash. 'pro' (Fiscalizare) e pilot → niciodată auto-checkout.
 function usePlanIntentAutoCheckout(
   user: { id: string } | null,
   onCheckout: (plan: string) => void | Promise<void>,
-): void {
-  React.useEffect(() => {
-    if (!user) return
-    let intent: string | null = null
+): string | null {
+  const [pendingPlan, setPendingPlan] = React.useState<string | null>(() => {
     try {
-      intent = sessionStorage.getItem('menuvia.plan_intent')
+      const i = sessionStorage.getItem('menuvia.plan_intent')
+      return i === 'starter' || i === 'growth' ? i : null
     } catch {
-      return
+      return null
     }
-    if (intent !== 'starter' && intent !== 'growth') return // 'pro' = pilot, nu auto-checkout
+  })
+
+  React.useEffect(() => {
+    if (!user || pendingPlan == null) return
     try {
       sessionStorage.removeItem('menuvia.plan_intent')
     } catch {
       /* ignore */
     }
-    void onCheckout(intent)
-  }, [user, onCheckout])
+    let alive = true
+    // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul
+    // nu mai contează. Dacă eșuează (sau Stripe nu e configurat), curățăm
+    // guard-ul ca pricing-ul să se afișeze normal.
+    Promise.resolve(onCheckout(pendingPlan))
+      .catch(() => undefined)
+      .then(() => {
+        if (alive) setPendingPlan(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [user, pendingPlan, onCheckout])
+
+  // Guard activ doar pentru useri logați — anonimii văd pricing-ul normal
+  // chiar dacă au un intent vechi în session (îl vor consuma după login).
+  return user ? pendingPlan : null
 }
 
 function PricingPage({
@@ -389,7 +413,7 @@ function PricingPage({
   onCheckout: (plan: string) => void
 }) {
   const { user } = useAuth()
-  usePlanIntentAutoCheckout(user, onCheckout)
+  const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout)
   const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
@@ -559,6 +583,45 @@ function PricingPage({
       a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct WhatsApp cu Radu, fondatorul.',
     },
   ]
+
+  // Flash guard: user logat cu plan intent activ → loader, nu card-urile.
+  if (checkingOutPlan != null) {
+    const targetName = getPlanByInternalId(checkingOutPlan).name
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: L.bg,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 14,
+          fontFamily: 'DM Sans,sans-serif',
+          padding: 24,
+          textAlign: 'center',
+        }}
+      >
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            border: `3px solid ${L.border}`,
+            borderTopColor: L.accent,
+            borderRadius: '50%',
+            animation: 'spin 0.8s linear infinite',
+          }}
+        />
+        <style>{'@keyframes spin { to { transform: rotate(360deg) } }'}</style>
+        <div style={{ color: L.text, fontSize: '1.05rem', fontWeight: 600 }}>
+          Se pregătește checkout-ul pentru {targetName}...
+        </div>
+        <div style={{ color: L.text3, fontSize: '0.88rem' }}>
+          Te redirecționăm către plata securizată.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
