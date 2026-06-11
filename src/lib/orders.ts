@@ -435,6 +435,8 @@ export interface WaiterCall {
   id: string
   restaurant_id: string
   table_id: string | null
+  // 'bill' = clientul cere nota; 'waiter' = chemare simplă (mig 091)
+  call_type?: 'waiter' | 'bill'
   status: 'pending' | 'resolved'
   created_at: string
   resolved_at: string | null
@@ -452,8 +454,14 @@ export async function fetchWaiterCalls(restaurantId: string): Promise<WaiterCall
   return (data ?? []) as unknown as WaiterCall[]
 }
 
-export async function callWaiter(qrTokenId: string): Promise<{ ok: boolean; message?: string }> {
-  const { data, error } = await supabase.rpc('call_waiter', { p_qr_token_id: qrTokenId })
+export async function callWaiter(
+  qrTokenId: string,
+  callType: 'waiter' | 'bill' = 'waiter',
+): Promise<{ ok: boolean; message?: string }> {
+  const { data, error } = await supabase.rpc('call_waiter', {
+    p_qr_token_id: qrTokenId,
+    p_call_type: callType,
+  })
   if (error) throw error
   return data as { ok: boolean; message?: string }
 }

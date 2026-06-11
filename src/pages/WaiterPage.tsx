@@ -909,7 +909,24 @@ export default function WaiterPage() {
                         color: D.t1,
                       }}
                     >
+                      {call.call_type === 'bill' ? '🧾 ' : '👋 '}
                       {call.table?.name ?? 'Masa necunoscuta'}
+                      {call.call_type === 'bill' && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            fontSize: 11,
+                            fontWeight: 600,
+                            background: 'rgba(232,160,32,0.18)',
+                            color: D.amber,
+                            borderRadius: 5,
+                            padding: '2px 8px',
+                            verticalAlign: 'middle',
+                          }}
+                        >
+                          CERE NOTA
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
                       {new Date(call.created_at).toLocaleTimeString('ro-RO', {

@@ -139,6 +139,7 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
         overflowY: 'auto',
       }}
     >
+      <div style={{ fontSize: 40, marginBottom: 8 }}>✅</div>
       <div
         style={{
           fontFamily: 'Fraunces, Georgia, serif',
@@ -146,9 +147,13 @@ function OrderTracker({ confirmation, accent, onReset, previousOrders }: OrderTr
           fontWeight: 700,
           color: PUB.text,
           marginBottom: 4,
+          textAlign: 'center',
         }}
       >
-        Comanda #{confirmation.short_id}
+        Comanda a fost trimisă
+      </div>
+      <div style={{ fontSize: 13, color: '#5C4A2A', marginBottom: 10 }}>
+        Bucătăria a primit comanda. · #{confirmation.short_id}
       </div>
       <div
         style={{

@@ -374,6 +374,16 @@ export default function QrCartSheet({
         >
           Total: {cartTotal.toFixed(2)} lei
         </div>
+        <div
+          style={{
+            fontSize: 11,
+            color: '#8A7E6C',
+            textAlign: 'right',
+            marginTop: 2,
+          }}
+        >
+          Totalul final este confirmat de restaurant.
+        </div>
 
         {submitError != null && (
           <div
