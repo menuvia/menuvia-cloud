@@ -886,7 +886,15 @@ export default function WaiterPage() {
               Apeluri ospatar ({waiterCalls.length})
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {waiterCalls.map((call) => (
+              {/* „Cere nota" înaintea chemărilor simple — clientul care vrea
+                  să plătească e mai urgent decât cel care vrea să întrebe ceva */}
+              {[...waiterCalls]
+                .sort(
+                  (a, b) =>
+                    (b.call_type === 'bill' ? 1 : 0) - (a.call_type === 'bill' ? 1 : 0) ||
+                    a.created_at.localeCompare(b.created_at),
+                )
+                .map((call) => (
                 <div
                   key={call.id}
                   style={{
@@ -950,7 +958,7 @@ export default function WaiterPage() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    Rezolvat
+                    Preiau
                   </button>
                 </div>
               ))}
@@ -973,19 +981,57 @@ export default function WaiterPage() {
           >
             Toate comenzile deschise ({openOrders.length})
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {openOrders.map((order) => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                onPayOpen={setPayOrder}
-                onSplitOpen={openSplitBill}
-                onEdit={setEditOrder}
-                onCancel={setCancelOrder}
-                onAudit={isAdminRole ? setAuditOrder : undefined}
-                paymentsEnabled={paymentsEnabled}
-                onCloseOrder={handleCloseOrder}
-              />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Grupare pe masă: ospătarul gândește în mese, nu în comenzi.
+                Fără refactor — doar render-ul e grupat; cardurile rămân identice. */}
+            {Array.from(
+              openOrders.reduce((m, o) => {
+                const key = o.table?.name ?? 'Fără masă'
+                const arr = m.get(key) ?? []
+                arr.push(o)
+                m.set(key, arr)
+                return m
+              }, new Map<string, Order[]>()),
+            ).map(([tableName, tableOrders]) => (
+              <div key={tableName}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 8,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontSize: 15,
+                      fontWeight: 700,
+                      color: D.t1,
+                    }}
+                  >
+                    🪑 {tableName}
+                  </span>
+                  <span style={{ fontSize: 12, color: D.t3 }}>
+                    {tableOrders.length === 1 ? '1 comandă' : `${tableOrders.length} comenzi`}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {tableOrders.map((order) => (
+                    <OrderCard
+                      key={order.id}
+                      order={order}
+                      onPayOpen={setPayOrder}
+                      onSplitOpen={openSplitBill}
+                      onEdit={setEditOrder}
+                      onCancel={setCancelOrder}
+                      onAudit={isAdminRole ? setAuditOrder : undefined}
+                      paymentsEnabled={paymentsEnabled}
+                      onCloseOrder={handleCloseOrder}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
             {openOrders.length === 0 && (
               <div style={{ color: D.t3, fontSize: 14, textAlign: 'center', padding: 32 }}>

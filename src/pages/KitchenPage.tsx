@@ -16,16 +16,18 @@ import { supabase } from '../lib/supabase'
 // D imported from constants
 
 const KITCHEN_NEXT: Partial<Record<OrderStatus, { status: OrderStatus; label: string }>> = {
-  new: { status: 'confirmed', label: 'Acceptă' },
-  confirmed: { status: 'preparing', label: 'Începe prepararea' },
-  preparing: { status: 'ready', label: 'Gata de servit' },
+  new: { status: 'confirmed', label: 'Confirmă' },
+  confirmed: { status: 'preparing', label: 'Marchează în pregătire' },
+  preparing: { status: 'ready', label: 'Gata' },
 }
 
-const COLUMNS: { status: OrderStatus; label: string }[] = [
-  { status: 'new', label: 'Nou' },
-  { status: 'confirmed', label: 'Confirmat' },
-  { status: 'preparing', label: 'În preparare' },
-  { status: 'ready', label: 'Gata de servit' },
+// Board pe 3 coloane (DESIGN_SPEC Val 3): „Noi" cumulează new+confirmed —
+// vizual, fără schimbare de statusuri în backend. Butonul de pe card face
+// în continuare tranzițiile reale (new→confirmed→preparing→ready).
+const COLUMNS: { statuses: OrderStatus[]; label: string }[] = [
+  { statuses: ['new', 'confirmed'], label: 'Comenzi noi' },
+  { statuses: ['preparing'], label: 'În pregătire' },
+  { statuses: ['ready'], label: 'Gata de servit' },
 ]
 
 // elapsed, urgencyColor, playSound — imported from ../lib/utils
@@ -63,7 +65,8 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
   const urg = urgencyColor(order.created_at)
   const card: CSSProperties = {
     background: D.s2,
-    border: `1px solid ${D.s3}`,
+    // Comenzile noi ies în evidență — border auriu până sunt confirmate
+    border: `1px solid ${order.status === 'new' ? D.gold + '88' : D.s3}`,
     borderRadius: 12,
     padding: 16,
     display: 'flex',
@@ -116,17 +119,28 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
             <div style={{ fontSize: 14, color: D.t1 }}>
               {item.product_name_snapshot} × {item.quantity}
             </div>
+            {/* Fără prețuri în bucătărie — bucătarul nu are nevoie de bani pe ecran */}
             {item.selected_modifiers.map((mod, i) => (
               <div key={i} style={{ fontSize: 12, color: D.t2, paddingLeft: 12 }}>
                 + {mod.option_name}
-                {mod.price_delta > 0 ? ` (+${mod.price_delta} lei)` : ''}
               </div>
             ))}
           </div>
         ))}
       </div>
       {order.notes != null && order.notes.length > 0 && (
-        <div style={{ fontSize: 12, color: D.t2, fontStyle: 'italic' }}>"{order.notes}"</div>
+        <div
+          style={{
+            fontSize: 12,
+            color: D.t1,
+            fontStyle: 'italic',
+            background: D.s3,
+            borderRadius: 8,
+            padding: '8px 10px',
+          }}
+        >
+          "{order.notes}"
+        </div>
       )}
       {next != null && (
         <button
@@ -397,16 +411,17 @@ export default function KitchenPage() {
         style={{
           flex: 1,
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          // auto-fit: 3 coloane pe desktop/tabletă, stack vertical pe telefon
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
           gap: 1,
           overflow: 'auto',
         }}
       >
         {COLUMNS.map((col) => {
-          const colOrders = byStatus([col.status])
+          const colOrders = byStatus(col.statuses)
           return (
             <div
-              key={col.status}
+              key={col.label}
               style={{
                 background: D.s1,
                 borderRight: `1px solid ${D.s3}`,
@@ -464,7 +479,17 @@ export default function KitchenPage() {
                 ))}
                 {colOrders.length === 0 && (
                   <div style={{ color: D.t3, fontSize: 13, textAlign: 'center', marginTop: 24 }}>
-                    Nicio comandă
+                    {orders.length === 0 && col.label === 'Comenzi noi' ? (
+                      <>
+                        Nu sunt comenzi în bucătărie.
+                        <br />
+                        <span style={{ fontSize: 12 }}>
+                          Comenzile prin QR vor apărea aici automat.
+                        </span>
+                      </>
+                    ) : (
+                      'Nicio comandă'
+                    )}
                   </div>
                 )}
               </div>
