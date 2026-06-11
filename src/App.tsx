@@ -1708,6 +1708,7 @@ function AppRouter() {
       <DashboardPage
         onViewMenu={(slug) => navigate(`/m/${slug}`)}
         onViewWaiter={() => navigate('/waiter')}
+        onViewKitchen={() => navigate('/kitchen')}
         onPricing={() => navigate('/pricing')}
         onSignOut={async () => {
           await signOut()

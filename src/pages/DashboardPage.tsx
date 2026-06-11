@@ -25,15 +25,14 @@ const StocksTab = lazy(() => import('../components/StocksTab'))
 const VatReportTab = lazy(() => import('../components/VatReportTab'))
 const BridgeTab = lazy(() => import('../components/BridgeTab'))
 const CashRegisterTab = lazy(() => import('../components/CashRegisterTab'))
-const QuickSetupTab = lazy(() => import('../components/QuickSetupTab'))
 const HappyHourTab = lazy(() => import('../components/HappyHourTab'))
-const HealthScoreTab = lazy(() => import('../components/HealthScoreTab'))
 const InvoicesTab = lazy(() => import('../components/InvoicesTab'))
 const ReservationsTab = lazy(() => import('../components/ReservationsTab'))
 const SettingsTab = lazy(() => import('../components/SettingsTab'))
 const ProductsTab = lazy(() => import('../components/ProductsTab'))
 const CategoriesTab = lazy(() => import('../components/CategoriesTab'))
 const ReportsTab = lazy(() => import('../components/ReportsTab'))
+const HomeTab = lazy(() => import('../components/_dashboard/HomeTab'))
 const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 // Re-importăm type-only pentru a evita any-cast
 import type { FloorLayout } from '../components/FloorPlanEditor'
@@ -373,11 +372,13 @@ function UpgradeBanner({
 }
 
 // ── Main Dashboard ────────────────────────────────────────────
-type Tab =
+export type Tab =
+  | 'home'
   | 'products'
   | 'categories'
   | 'modificatori'
   | 'mese'
+  | 'comenzi'
   | 'analytics'
   | 'echipa'
   | 'raport'
@@ -387,57 +388,190 @@ type Tab =
   | 'tva'
   | 'casa-tura'
   | 'casa-marcat'
-  | 'setup'
   | 'happy-hour'
-  | 'health'
   | 'invoices'
   | 'reservations'
   | 'settings'
 
-// Sidebar pe plan (review monetizare): clientul vede DOAR ce poate folosi.
-//   tier 1 — Meniu Digital:    meniu, design, QR, analytics simple
-//   tier 2 — Meniu + Comenzi:  + mese/QR per masă, modificatori, echipă,
-//                                rapoarte OPERAȚIONALE (fără bani), hartă, happy hour
-//   tier 3 — Fiscalizare:      + casă/ture, TVA, facturi, gestiune
-// minTier lipsă = vizibil pe toate planurile. Gating-ul REAL e server-side
-// (RPC/RLS, Porțile A-D); aici doar simplificăm suprafața UI.
-const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean; minTier?: PlanTier }[] = [
-  { id: 'products', label: 'Produse', icon: '☰' },
-  { id: 'setup', label: 'Setup Asistent', icon: '🪄', adminOnly: true },
-  { id: 'categories', label: 'Categorii', icon: '📁' },
-  { id: 'modificatori', label: 'Modificatori', icon: '⚙', minTier: 2 },
-  { id: 'mese', label: 'Mese & QR', icon: '🪑', minTier: 2 },
-  { id: 'health', label: 'Sănătate', icon: '🩺', adminOnly: true, minTier: 2 },
-  { id: 'analytics', label: 'Analytics', icon: '📊', adminOnly: true },
-  { id: 'raport', label: 'Rapoarte', icon: '📋', adminOnly: true, minTier: 2 },
-  { id: 'arhitectura', label: 'Hartă', icon: '🗺', minTier: 2 },
-  { id: 'echipa', label: 'Echipă', icon: '👥', adminOnly: true, minTier: 2 },
-  { id: 'ture', label: 'Ture', icon: '👷', adminOnly: true, minTier: 3 },
-  { id: 'gestiune', label: 'Gestiune', icon: '📦', adminOnly: true, minTier: 3 },
-  { id: 'tva', label: 'Raport TVA', icon: '🧾', adminOnly: true, minTier: 3 },
-  { id: 'casa-tura', label: 'Casă & Tură', icon: '💰', adminOnly: true, minTier: 3 },
-  { id: 'casa-marcat', label: 'Casă marcat', icon: '📟', adminOnly: true, minTier: 3 },
-  { id: 'invoices', label: 'Facturi', icon: '📄', adminOnly: true, minTier: 3 },
-  { id: 'reservations', label: 'Rezervări', icon: '📅', adminOnly: true },
-  { id: 'happy-hour', label: 'Happy Hour', icon: '🎉', adminOnly: true, minTier: 2 },
-  { id: 'settings', label: 'Setări', icon: '⚙', adminOnly: true },
+// Navigație pe GRUPURI (max 6 în sidebar) cu sub-tab-uri interne.
+// Filozofia: „Adaugi meniul. Generezi QR. Primești comenzi. Vezi rapoarte simple."
+//   tier 1 — Meniu Digital:    Acasă, Meniu, Mese & QR, Setări
+//   tier 2 — Meniu + Comenzi:  + Comenzi, Rapoarte
+//   tier 3 — Fiscalizare:      aceleași 6 grupuri; fiscalul = sub-tab-uri, nu sidebar
+// Funcțiile avansate NU se șterg — se regrupează sau se ascund pe plan.
+// Gating-ul REAL e server-side (RPC/RLS, Porțile A-D); aici doar simplificăm UI-ul.
+interface SubTab {
+  id: Tab
+  label: string
+  adminOnly?: boolean
+  minTier?: PlanTier
+  module?: 'reservations'
+}
+interface NavGroup {
+  id: string
+  label: string
+  icon: string
+  adminOnly?: boolean
+  minTier?: PlanTier
+  subTabs: SubTab[]
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  { id: 'acasa', label: 'Acasă', icon: '🏠', subTabs: [{ id: 'home', label: 'Acasă' }] },
+  {
+    id: 'meniu',
+    label: 'Meniu',
+    icon: '🍽',
+    subTabs: [
+      { id: 'products', label: 'Produse' },
+      { id: 'categories', label: 'Categorii' },
+      { id: 'modificatori', label: 'Opțiuni produse', minTier: 2 },
+      { id: 'happy-hour', label: 'Promoții', adminOnly: true, minTier: 2 },
+    ],
+  },
+  {
+    id: 'comenzi',
+    label: 'Comenzi',
+    icon: '🛎',
+    minTier: 2,
+    subTabs: [
+      { id: 'comenzi', label: 'Comenzi' },
+      // Rezervările NU sunt în nav-ul principal (MVP): apar doar dacă
+      // modulul e pornit din Setări → Module (Gate D).
+      { id: 'reservations', label: 'Rezervări', adminOnly: true, module: 'reservations' },
+    ],
+  },
+  {
+    id: 'mese-qr',
+    label: 'Mese & QR',
+    icon: '🪑',
+    subTabs: [
+      { id: 'mese', label: 'Mese & QR-uri' },
+      { id: 'arhitectura', label: 'Hartă sală', minTier: 2 },
+    ],
+  },
+  {
+    id: 'rapoarte',
+    label: 'Rapoarte',
+    icon: '📊',
+    adminOnly: true,
+    minTier: 2,
+    subTabs: [
+      { id: 'raport', label: 'Rapoarte' },
+      { id: 'analytics', label: 'Statistici' },
+      { id: 'tva', label: 'TVA', minTier: 3 },
+      { id: 'casa-tura', label: 'Încasări', minTier: 3 },
+      { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
+      { id: 'invoices', label: 'Facturi', minTier: 3 },
+      { id: 'gestiune', label: 'Stocuri', minTier: 3 },
+    ],
+  },
+  {
+    id: 'setari',
+    label: 'Setări',
+    icon: '⚙',
+    adminOnly: true,
+    subTabs: [
+      { id: 'settings', label: 'General' },
+      { id: 'echipa', label: 'Echipă', minTier: 2 },
+      { id: 'ture', label: 'Program echipă', minTier: 3 },
+    ],
+  },
 ]
+
+function isSubTabVisible(
+  st: SubTab,
+  isAdmin: boolean,
+  tier: PlanTier,
+  moduleOn: (m: 'reservations') => boolean,
+): boolean {
+  if (st.adminOnly && !isAdmin) return false
+  if (st.minTier && tier < st.minTier) return false
+  if (st.module && !moduleOn(st.module)) return false
+  return true
+}
+
+// Hub-ul „Comenzi": carduri către fluxurile live — fără embed/refactor al
+// paginilor /waiter și /kitchen (deliberat low-risk; embed real = etapă viitoare).
+function OrdersHub({
+  onViewWaiter,
+  onViewKitchen,
+  onHistory,
+}: {
+  onViewWaiter: () => void
+  onViewKitchen: () => void
+  onHistory: () => void
+}) {
+  const cards = [
+    { icon: '🔴', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
+    { icon: '👨‍🍳', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
+    { icon: '🤵', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
+    { icon: '🕘', title: 'Istoric comenzi', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
+  ]
+  return (
+    <div style={{ maxWidth: 1000 }}>
+      <h1
+        style={{
+          fontFamily: 'Fraunces,serif',
+          fontSize: '1.5rem',
+          fontWeight: 600,
+          color: D.t1,
+          letterSpacing: '-0.02em',
+          marginBottom: 18,
+        }}
+      >
+        Comenzi
+      </h1>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))',
+          gap: 12,
+        }}
+      >
+        {cards.map((c) => (
+          <button
+            key={c.title}
+            onClick={c.fn}
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: '22px 20px',
+              cursor: 'pointer',
+              textAlign: 'left',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          >
+            <div style={{ fontSize: '1.6rem', marginBottom: 10 }}>{c.icon}</div>
+            <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>
+              {c.title}
+            </div>
+            <div style={{ color: D.t3, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function DashboardPage({
   onViewMenu,
   onViewWaiter,
+  onViewKitchen,
   onPricing,
   onSignOut,
 }: {
   onViewMenu: (slug: string) => void
   onViewWaiter: () => void
+  onViewKitchen: () => void
   onPricing: () => void
   onSignOut: () => Promise<void>
 }) {
   const { profile, user } = useAuth()
   const { activeRole } = useRestaurantCtx()
   const { restaurants, loading: rLoading, update } = useRestaurants()
-  const [tab, setTab] = useState<Tab>('products')
+  const [tab, setTab] = useState<Tab>('home')
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -456,33 +590,25 @@ export default function DashboardPage({
   // Fallback pe profile.plan cât timp features se încarcă (cazul owner).
   const tier: PlanTier = planTier(features.features?.plan ?? plan)
 
-  // Audit fix #2: filter tab-uri admin-only pentru waiter/kitchen.
-  // Gate D: tab-urile dependente de module se ascund când modulul e OFF.
-  // Review monetizare: tab-urile peste tier-ul planului se ascund — clientul
-  // de Plan 1 vede 6 intrări, nu 19. Gating-ul real rămâne server-side.
-  const visibleNav = NAV.filter((n) => {
-    if (n.adminOnly && !isAdminRole) return false
-    if (n.minTier && tier < n.minTier) return false
-    if (n.id === 'reservations' && !modulesState.isEnabled('reservations')) return false
-    return true
-  })
+  // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
+  // sub-tab vizibil dispare complet din sidebar.
+  const moduleOn = (m: 'reservations') => modulesState.isEnabled(m)
+  const visibleGroups = NAV_GROUPS.map((g) => ({
+    ...g,
+    subTabs: g.subTabs.filter((st) => isSubTabVisible(st, isAdminRole, tier, moduleOn)),
+  })).filter(
+    (g) =>
+      (!g.adminOnly || isAdminRole) &&
+      (!g.minTier || tier >= g.minTier) &&
+      g.subTabs.length > 0,
+  )
+  const activeGroup = visibleGroups.find((g) => g.subTabs.some((st) => st.id === tab)) ?? null
 
-  // Dacă user-ul a salvat un tab admin-only și apoi a fost demovat la waiter,
-  // forțăm înapoi la Produse. La fel pentru tab-uri de modul disabled / tier.
+  // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) →
+  // înapoi Acasă.
   useEffect(() => {
-    const current = NAV.find((n) => n.id === tab)
-    if (current?.adminOnly && !isAdminRole) {
-      setTab('products')
-      return
-    }
-    if (current?.minTier && tier < current.minTier) {
-      setTab('products')
-      return
-    }
-    if (tab === 'reservations' && !modulesState.isEnabled('reservations')) {
-      setTab('products')
-    }
-  }, [activeRole, tab, isAdminRole, modulesState, tier])
+    if (activeGroup == null) setTab('home')
+  }, [activeGroup])
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
@@ -627,39 +753,40 @@ export default function DashboardPage({
         </div>
       )}
       <nav style={{ padding: '10px 8px', flex: 1 }}>
-        {visibleNav.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => {
-              setTab(item.id)
-              setSidebarOpen(false)
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              width: '100%',
-              padding: '11px 12px',
-              borderRadius: 9,
-              border: 'none',
-              cursor: 'pointer',
-              background: tab === item.id ? D.goldA : 'transparent',
-              color: tab === item.id ? D.goldL : D.t2,
-              marginBottom: 2,
-              fontSize: '0.875rem',
-              fontWeight: tab === item.id ? 500 : 400,
-              fontFamily: 'DM Sans,sans-serif',
-              textAlign: 'left',
-            }}
-            onMouseEnter={(e) => tab !== item.id && (e.currentTarget.style.background = D.s2)}
-            onMouseLeave={(e) =>
-              tab !== item.id && (e.currentTarget.style.background = 'transparent')
-            }
-          >
-            <span style={{ fontSize: '1rem' }}>{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
+        {visibleGroups.map((g) => {
+          const active = activeGroup?.id === g.id
+          return (
+            <button
+              key={g.id}
+              onClick={() => {
+                setTab(g.subTabs[0].id)
+                setSidebarOpen(false)
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '11px 12px',
+                borderRadius: 9,
+                border: 'none',
+                cursor: 'pointer',
+                background: active ? D.goldA : 'transparent',
+                color: active ? D.goldL : D.t2,
+                marginBottom: 2,
+                fontSize: '0.875rem',
+                fontWeight: active ? 500 : 400,
+                fontFamily: 'DM Sans,sans-serif',
+                textAlign: 'left',
+              }}
+              onMouseEnter={(e) => !active && (e.currentTarget.style.background = D.s2)}
+              onMouseLeave={(e) => !active && (e.currentTarget.style.background = 'transparent')}
+            >
+              <span style={{ fontSize: '1rem' }}>{g.icon}</span>
+              {g.label}
+            </button>
+          )
+        })}
       </nav>
       <UpgradeBanner
         plan={plan}
@@ -876,6 +1003,61 @@ export default function DashboardPage({
             </div>
           ) : (
             <>
+              {/* Sub-navigație internă a grupului activ (chips) */}
+              {activeGroup != null && activeGroup.subTabs.length > 1 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    overflowX: 'auto',
+                    marginBottom: 18,
+                    paddingBottom: 2,
+                  }}
+                >
+                  {activeGroup.subTabs.map((st) => (
+                    <button
+                      key={st.id}
+                      onClick={() => setTab(st.id)}
+                      style={{
+                        flexShrink: 0,
+                        padding: '7px 14px',
+                        fontSize: '0.8rem',
+                        fontFamily: 'DM Sans,sans-serif',
+                        fontWeight: tab === st.id ? 600 : 400,
+                        border: `1px solid ${tab === st.id ? D.gold + '55' : D.border}`,
+                        borderRadius: 100,
+                        cursor: 'pointer',
+                        background: tab === st.id ? D.goldA : 'transparent',
+                        color: tab === st.id ? D.goldL : D.t2,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {tab === 'home' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                  <HomeTab
+                    restaurantId={restaurant.id}
+                    restaurantName={restaurant.name}
+                    tier={tier}
+                    isAdmin={isAdminRole}
+                    productCount={productCount}
+                    onNavigate={setTab}
+                    onViewMenu={() => onViewMenu(restaurant.slug)}
+                    onPricing={onPricing}
+                  />
+                </Suspense>
+              )}
+              {tab === 'comenzi' && (
+                <OrdersHub
+                  onViewWaiter={onViewWaiter}
+                  onViewKitchen={onViewKitchen}
+                  onHistory={() => setTab('raport')}
+                />
+              )}
               {tab === 'products' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă produsele..." />}>
                   <ProductsTab
@@ -944,7 +1126,7 @@ export default function DashboardPage({
                     currentPlan={plan}
                     featureName="Modul Gestiune"
                     emoji="📦"
-                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil din planul Growth."
+                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Fiscalizare."
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -958,7 +1140,7 @@ export default function DashboardPage({
                     currentPlan={plan}
                     featureName="Raport TVA"
                     emoji="🧾"
-                    description="Raport TVA grupat pe cote și zile, export CSV pentru contabil. Disponibil din planul Growth."
+                    description="Raport TVA grupat pe cote și zile, export CSV pentru contabil. Disponibil pe planul Fiscalizare."
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -967,19 +1149,9 @@ export default function DashboardPage({
                   <CashRegisterTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'setup' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <QuickSetupTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
-                </Suspense>
-              )}
               {tab === 'happy-hour' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                   <HappyHourTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
-              {tab === 'health' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă scorul..." />}>
-                  <HealthScoreTab />
                 </Suspense>
               )}
               {tab === 'invoices' && (
@@ -1042,10 +1214,10 @@ export default function DashboardPage({
             paddingBottom: 'env(safe-area-inset-bottom,0px)',
           }}
         >
-          {visibleNav.map((item) => (
+          {visibleGroups.map((g) => (
             <button
-              key={item.id}
-              onClick={() => setTab(item.id)}
+              key={g.id}
+              onClick={() => setTab(g.subTabs[0].id)}
               style={{
                 flexShrink: 0,
                 minWidth: 68,
@@ -1057,20 +1229,20 @@ export default function DashboardPage({
                 border: 'none',
                 cursor: 'pointer',
                 background: 'transparent',
-                color: tab === item.id ? D.gold : D.t3,
+                color: activeGroup?.id === g.id ? D.gold : D.t3,
                 fontFamily: 'DM Sans,sans-serif',
                 transition: 'color .15s',
               }}
             >
-              <span style={{ fontSize: '1.1rem' }}>{item.icon}</span>
+              <span style={{ fontSize: '1.1rem' }}>{g.icon}</span>
               <span
                 style={{
                   fontSize: '0.6rem',
-                  fontWeight: tab === item.id ? 600 : 400,
+                  fontWeight: activeGroup?.id === g.id ? 600 : 400,
                   whiteSpace: 'nowrap',
                 }}
               >
-                {item.label}
+                {g.label}
               </span>
             </button>
           ))}
