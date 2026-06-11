@@ -487,8 +487,7 @@ function OblioConfigModal({
   async function remove() {
     const ok = await confirmDialog({
       title: 'Ștergi configurația Oblio?',
-      description:
-        'Facturile existente rămân, dar nu vei mai putea emite altele noi.',
+      description: 'Facturile existente rămân, dar nu vei mai putea emite altele noi.',
       confirmLabel: 'Șterge',
       destructive: true,
     })

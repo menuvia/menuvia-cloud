@@ -190,8 +190,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
               Editează comanda
             </div>
             <div style={{ fontSize: 12, color: D.t3, marginTop: 2 }}>
-              {order.table?.name ? `Masa ${order.table.name}` : 'Fără masă'} ·{' '}
-              #{order.id.slice(-6).toUpperCase()}
+              {order.table?.name ? `Masa ${order.table.name}` : 'Fără masă'} · #
+              {order.id.slice(-6).toUpperCase()}
             </div>
           </div>
           <button
@@ -269,7 +269,13 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                       </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <button
                         onClick={() => updateQty(item._key, -1)}
@@ -552,7 +558,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 </button>
               ))}
               {activeProducts.length === 0 && (
-                <div style={{ color: D.t3, gridColumn: '1 / -1', textAlign: 'center', padding: 20 }}>
+                <div
+                  style={{ color: D.t3, gridColumn: '1 / -1', textAlign: 'center', padding: 20 }}
+                >
                   Nicio categorie cu produse
                 </div>
               )}

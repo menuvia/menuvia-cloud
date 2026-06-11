@@ -23,13 +23,7 @@ interface TabsProps {
   ariaLabel?: string
 }
 
-export function Tabs({
-  items,
-  value,
-  onChange,
-  variant = 'underline',
-  ariaLabel,
-}: TabsProps) {
+export function Tabs({ items, value, onChange, variant = 'underline', ariaLabel }: TabsProps) {
   const baseId = useId()
   const tablistRef = useRef<HTMLDivElement | null>(null)
 
@@ -55,9 +49,7 @@ export function Tabs({
       }
       const nextId = enabled[nextIdx].id
       onChange(nextId)
-      const btn = tablistRef.current?.querySelector<HTMLElement>(
-        `[data-tab-id="${nextId}"]`,
-      )
+      const btn = tablistRef.current?.querySelector<HTMLElement>(`[data-tab-id="${nextId}"]`)
       btn?.focus()
     },
     [items, value, onChange],

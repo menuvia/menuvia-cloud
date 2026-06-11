@@ -45,8 +45,7 @@ export function useOrders(
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [connectionStatus, setConnectionStatus] =
-    useState<RealtimeConnectionStatus>('connecting')
+  const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
 
   const upsertOrder = useCallback(
     (order: Order) => {

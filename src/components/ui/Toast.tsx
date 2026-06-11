@@ -85,12 +85,7 @@ function ToastViewport({
   // SSR-safe — randăm doar pe client (document există).
   if (typeof document === 'undefined') return null
   return createPortal(
-    <div
-      className="toast-viewport"
-      role="region"
-      aria-label="Notificări"
-      aria-live="polite"
-    >
+    <div className="toast-viewport" role="region" aria-label="Notificări" aria-live="polite">
       {toasts.map((t) => (
         <div
           key={t.id}

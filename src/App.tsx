@@ -396,12 +396,12 @@ function PricingPage({
   }> = [
     {
       id: 'starter',
-      name: 'Starter',
-      emoji: '🌱',
+      name: 'Meniu Digital',
+      emoji: '📖',
       price: 99,
       priceYearly: 83,
       badge: null,
-      desc: 'Meniu digital QR pentru cafenele și locații mici.',
+      desc: 'Meniul tău, frumos, pe telefonul clientului. QR pe masă în 15 minute.',
       features: [
         { t: 'Meniu QR digital', ok: true },
         { t: 'Până la 30 produse', ok: true },
@@ -417,23 +417,23 @@ function PricingPage({
     },
     {
       id: 'growth',
-      name: 'Growth',
-      emoji: '🚀',
+      name: 'Meniu + Comenzi',
+      emoji: '🛎',
       price: 249,
       priceYearly: 208,
       badge: 'Recomandat',
-      desc: 'Pentru bistro-uri și restaurante care vor comenzi prin QR.',
+      desc: 'Clienții comandă singuri de la masă. Plata și bonul rămân pe casa ta actuală.',
       features: [
         { t: 'Produse și mese nelimitate', ok: true },
         { t: 'Comenzi prin QR', ok: true },
         { t: 'Cheamă ospătar / Cere nota', ok: true },
         { t: 'Dashboard bucătărie', ok: true },
         { t: 'Comenzi manuale ospătar', ok: true },
-        { t: 'Plăți: cash, card la POS', ok: true },
+        { t: 'Închidere comandă — plata pe casa ta actuală', ok: true },
         { t: 'Modifiers + Extras + Pereche', ok: true },
         { t: 'Echipă: până la 5 membri', ok: true },
         { t: 'Mod offline pentru ospătari', ok: true },
-        { t: 'Rapoarte zilnice + săptămânale', ok: true },
+        { t: 'Rapoarte operaționale (zilnic + săptămânal)', ok: true },
         { t: 'Multilingv RO/EN inclus', ok: true },
         { t: 'Fără branding Menuvia', ok: true },
       ],
@@ -443,26 +443,33 @@ function PricingPage({
     },
     {
       id: 'pro',
-      name: 'Pro',
-      emoji: '💎',
+      name: 'Fiscalizare',
+      emoji: '🧾',
       price: 499,
       priceYearly: 415,
-      badge: null,
-      desc: 'Pentru restaurante mari, lanțuri 1-2 locații.',
+      badge: 'Pilot',
+      desc: 'Plăți și bon fiscal direct din aplicație, pe casa ta de marcat.',
       features: [
-        { t: 'Tot din Growth +', ok: true },
+        { t: 'Tot din Meniu + Comenzi +', ok: true },
+        { t: 'Plăți în aplicație: cash, card, split bill', ok: true },
+        { t: 'Bon fiscal: Datecs / Activa / Tremol', ok: true },
+        { t: 'Raport TVA + Casă & tură', ok: true },
         { t: 'Echipă nelimitată', ok: true },
         { t: 'Alocare mese pe ospătari (ture)', ok: true },
         { t: 'Floor plan vizual', ok: true },
         { t: 'Rapoarte avansate (custom range)', ok: true },
-        { t: 'Analytics ore de vârf', ok: true },
         { t: 'Import meniu cu AI (din poză)', ok: true },
-        { t: 'Split bill', ok: true },
-        { t: 'Sugestii la coș configurabile', ok: true },
         { t: 'Suport prioritar (răspuns 4h)', ok: true },
       ],
-      cta: 'Începe 30 zile gratuit',
-      ctaFn: () => onCheckout('pro'),
+      cta: 'Disponibil în pilot — discută cu noi',
+      // Fiscalizarea NU se vinde self-serve cât e în pilot: onboarding-ul
+      // cere verificarea casei de marcat împreună cu noi. WhatsApp dacă e
+      // configurat, altfel checkout clasic (fallback ca butonul să nu moară).
+      ctaFn: () => {
+        const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
+        if (url) window.open(url, '_blank')
+        else void onCheckout('pro')
+      },
       highlight: false,
     },
   ]
@@ -499,14 +506,14 @@ function PricingPage({
       icon: '💳',
       title: 'Plăți online prin QR (în curând)',
       price: 'În curând',
-      plans: 'Growth, Pro',
+      plans: 'Meniu + Comenzi, Fiscalizare',
       desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
     },
     {
       icon: '🔌',
       title: 'Integrare casă de marcat (pilot)',
       price: '+99 lei/lună',
-      plans: 'Pro doar',
+      plans: 'Doar Fiscalizare',
       desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. În pilot — disponibil pe bază de cerere, nu activat automat.',
     },
   ]
@@ -533,7 +540,7 @@ function PricingPage({
     },
     {
       q: 'Care plan e potrivit pentru mine?',
-      a: 'Starter dacă vrei doar meniu digital citibil. Growth dacă vrei ca clienții să comande singuri prin QR — cel mai popular. Pro dacă ai 20+ mese, lanț cu 1-2 locații sau ai nevoie de integrare cu casa de marcat.',
+      a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — disponibil în pilot.',
     },
     {
       q: 'Pot schimba planul oricând?',
@@ -557,7 +564,7 @@ function PricingPage({
     },
     {
       q: 'Aveți integrare cu casă de marcat?',
-      a: 'În pilot, ca extras pe planul Pro (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
+      a: 'În pilot, pe planul Fiscalizare (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Sunteți pe piață de mult?',
@@ -762,7 +769,7 @@ function PricingPage({
               Program Pilot — 60 de zile gratis
             </div>
             <div style={{ fontSize: '0.85rem', color: L.text2, lineHeight: 1.5 }}>
-              Primii 10 patroni primesc setup personal cu Radu și 60 zile gratis pe Growth. Locuri
+              Primii 10 patroni primesc setup personal cu Radu și 60 zile gratis pe Meniu + Comenzi. Locuri
               rămase: limitate.
             </div>
           </div>
@@ -770,23 +777,23 @@ function PricingPage({
             const url = whatsappUrl('Salut Radu, m-ar interesa programul pilot Menuvia')
             if (!url) return null
             return (
-          <button
-            onClick={() => window.open(url, '_blank')}
-            style={{
-              background: L.accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 100,
-              padding: '10px 18px',
-              fontSize: '0.88rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Vorbește cu Radu →
-          </button>
+              <button
+                onClick={() => window.open(url, '_blank')}
+                style={{
+                  background: L.accent,
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 100,
+                  padding: '10px 18px',
+                  fontSize: '0.88rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'DM Sans,sans-serif',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Vorbește cu Radu →
+              </button>
             )
           })()}
         </div>
@@ -1026,17 +1033,19 @@ function PricingPage({
           const url = whatsappUrl('Salut Radu, avem 3+ locații și am vrea o ofertă custom')
           if (!url) return null
           return (
-        <div style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: L.text2 }}>
-          Ai 3+ locații sau nevoi custom?{' '}
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: L.accent, textDecoration: 'underline', fontWeight: 500 }}
-          >
-            Scrie-ne pentru ofertă personalizată →
-          </a>
-        </div>
+            <div
+              style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: L.text2 }}
+            >
+              Ai 3+ locații sau nevoi custom?{' '}
+              <a
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: L.accent, textDecoration: 'underline', fontWeight: 500 }}
+              >
+                Scrie-ne pentru ofertă personalizată →
+              </a>
+            </div>
           )
         })()}
       </div>
@@ -1382,7 +1391,7 @@ function PricingPage({
             boxShadow: '0 4px 14px rgba(200,150,60,0.3)',
           }}
         >
-          Începe gratuit Growth →
+          Începe gratuit Meniu + Comenzi →
         </button>
       </div>
     </div>

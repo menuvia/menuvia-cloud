@@ -463,6 +463,78 @@ jobs:
           end$$;
           ASSERTION
 
+      - name: "Gate B+ assertion: create_order FULL happy path (real product)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Regresie-guard sistemic: TOATE asserțiunile anterioare foloseau un
+          # product_id fals → create_order eșua la validarea produsului ÎNAINTE
+          # de a atinge INSERT-ul real. Asta a ascuns 5 bug-uri în mig 084
+          # (ordine INSERT/FK, coloană extras, happy hour, pickup) reparate în 088.
+          # Aici cream o comandă COMPLETĂ cu produs real → INSERT-ul chiar rulează.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner uuid := gen_random_uuid();
+            v_rest  uuid := gen_random_uuid();
+            v_table uuid := gen_random_uuid();
+            v_tok   uuid := gen_random_uuid();
+            v_token text := 'gate-bplus-' || extract(epoch from now())::bigint;
+            v_pid   uuid;
+            v_sess  jsonb; v_sid uuid; v_res jsonb; v_oid uuid;
+            v_total numeric; v_items int; v_blocked boolean := false;
+          begin
+            insert into auth.users (id, email) values (v_owner, 'gate-bplus@menuvia.ro');
+            update public.profiles set plan = 'growth' where id = v_owner;
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest, v_owner, 'Gate B+ R', 'gate-bplus-slug', 'Cluj', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active, seats)
+              values (v_table, v_rest, 'Masa 1', 'masa-bplus', true, 4);
+            insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active)
+              values (v_tok, v_rest, v_table, v_token, true);
+            insert into public.products (restaurant_id, category_id, name, price, is_active)
+              values (v_rest, null, 'Cafea', 12.00, true) returning id into v_pid;
+
+            perform set_config('request.jwt.claim.role', 'anon', true);
+
+            -- 1: qr FĂRĂ sesiune → respins (mig 088 strict)
+            begin
+              perform public.create_order(v_rest, 'qr', v_table, v_tok, null,
+                ('[{"product_id":"' || v_pid || '","quantity":1}]')::jsonb,
+                null, null, null, null, null);
+              raise exception 'ASSERTION FAILED: qr fără sesiune acceptat!';
+            exception when others then
+              if sqlerrm like '%Sesiunea mesei lipsește%' then
+                v_blocked := true;
+                raise notice 'OK: qr fără session_id respins (session_required)';
+              else
+                raise exception 'ASSERTION FAILED: eroare neașteptată: %', sqlerrm;
+              end if;
+            end;
+            if not v_blocked then raise exception 'ASSERTION FAILED: guard sesiune absent'; end if;
+
+            -- 2: qr CU sesiune open + produs real → comandă COMPLETĂ
+            v_sess := public.open_table_session(v_token);
+            v_sid  := (v_sess->>'session_id')::uuid;
+            v_res  := public.create_order(v_rest, 'qr', v_table, v_tok, null,
+              ('[{"product_id":"' || v_pid || '","quantity":3}]')::jsonb,
+              null, null, null, null, v_sid);
+            v_oid := (v_res->>'id')::uuid;
+
+            select total into v_total from public.orders where id = v_oid;
+            if v_total is distinct from 36.00 then
+              raise exception 'ASSERTION FAILED: total ar trebui 36.00, e: %', v_total;
+            end if;
+            select count(*) into v_items from public.order_items where order_id = v_oid;
+            if v_items != 1 then
+              raise exception 'ASSERTION FAILED: ar trebui 1 order_item, sunt: %', v_items;
+            end if;
+            raise notice 'OK: comanda QR completă — orders + order_items inserate, total=%', v_total;
+
+            raise notice '✅ Gate B+ passed: create_order full path funcționează (FK + extras_added + happy-hour trigger + sesiune).';
+          end$$;
+          ASSERTION
+
       - name: "Gate C assertion: lifecycle closed + close_session_orders"
         env:
           PGPASSWORD: postgres

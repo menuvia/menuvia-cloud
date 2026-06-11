@@ -409,6 +409,11 @@ interface OrderCardProps {
   onEdit?: (order: Order) => void
   onCancel?: (order: Order) => void
   onAudit?: (order: Order) => void
+  // Regula de aur (review monetizare): bani + bon = Plan 3, fără excepții.
+  // false (Plan 1/2) → butoanele de plată dispar; apare „Închide comanda"
+  // (plata + bonul se fac pe casa de marcat existentă a localului).
+  paymentsEnabled?: boolean
+  onCloseOrder?: (order: Order) => void
 }
 
 function OrderCard({
@@ -418,6 +423,8 @@ function OrderCard({
   onEdit,
   onCancel,
   onAudit,
+  paymentsEnabled = true,
+  onCloseOrder,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
@@ -595,8 +602,10 @@ function OrderCard({
         </button>
       )}
 
-      {/* Payment buttons for served orders */}
-      {order.status === 'served' && (
+      {/* Acțiune finală pe comenzi servite — diferită pe plan:
+          Plan 3 (paymentsEnabled): Plată integrală / parțială (bon fiscal).
+          Plan 1/2: „Închide comanda" — plata + bonul pe casa existentă. */}
+      {order.status === 'served' && paymentsEnabled && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={() => onPayOpen(order)}
@@ -632,6 +641,30 @@ function OrderCard({
           >
             Plată parțială
           </button>
+        </div>
+      )}
+      {order.status === 'served' && !paymentsEnabled && onCloseOrder && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            onClick={() => onCloseOrder(order)}
+            style={{
+              background: D.green,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              padding: '12px 0',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+              width: '100%',
+            }}
+          >
+            ✓ Închide comanda
+          </button>
+          <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
+            Plata și bonul se fac pe casa de marcat existentă
+          </div>
         </div>
       )}
     </div>

@@ -470,9 +470,7 @@ export default function QrMenuPage({ token }: Props) {
               }}
             >
               {r.name} ·{' '}
-              {r.discount_type === 'percent'
-                ? `-${r.discount_value}%`
-                : `-${r.discount_value} lei`}
+              {r.discount_type === 'percent' ? `-${r.discount_value}%` : `-${r.discount_value} lei`}
             </span>
           ))}
         </div>
@@ -1133,7 +1131,9 @@ export default function QrMenuPage({ token }: Props) {
             onRemove={removeFromCart}
             onLineTotal={lineTotal}
             onSubmit={() => void handleSubmit()}
-            onOpenProduct={(product) => { setActiveProduct(product) }}
+            onOpenProduct={(product) => {
+              setActiveProduct(product)
+            }}
             onAddToCart={(item) => setCart((prev) => [...prev, item])}
           />
         </Suspense>

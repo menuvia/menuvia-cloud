@@ -6,12 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-export type ModuleKey =
-  | 'reservations'
-  | 'online_payments'
-  | 'loyalty'
-  | 'delivery'
-  | 'gift_cards'
+export type ModuleKey = 'reservations' | 'online_payments' | 'loyalty' | 'delivery' | 'gift_cards'
 
 interface UseRestaurantModulesResult {
   modules: Record<ModuleKey, boolean>

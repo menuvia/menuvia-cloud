@@ -50,11 +50,7 @@ export function ConfirmRoot() {
   if (!state.open || typeof document === 'undefined') return null
 
   return createPortal(
-    <div
-      className="confirm-backdrop"
-      onClick={() => close(false)}
-      role="presentation"
-    >
+    <div className="confirm-backdrop" onClick={() => close(false)} role="presentation">
       <div
         className="confirm-dialog"
         onClick={(e) => e.stopPropagation()}

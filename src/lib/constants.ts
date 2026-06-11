@@ -85,10 +85,15 @@ export const TRANSITION_LABELS: Partial<Record<OrderStatus, string>> = {
 export const KITCHEN_TRANSITIONS: OrderStatus[] = ['confirmed', 'preparing', 'ready']
 export const WAITER_TRANSITIONS: OrderStatus[] = ['served', 'paid']
 
+// Numele COMERCIALE ale planurilor (taxonomia din 3 concepte — vezi
+// lib/features.ts planTier). Intern rămân free/starter/growth/pro/enterprise.
 export const PLAN_LABELS: Record<string, string> = {
-  free: 'Meniu Gratuit',
-  pro: 'Comenzi Pro',
-  business: 'Business',
+  free: 'Demo gratuit',
+  starter: 'Meniu Digital',
+  growth: 'Meniu + Comenzi',
+  pro: 'Fiscalizare',
+  enterprise: 'Custom / Lanțuri',
+  business: 'Business', // legacy — conturi vechi pre-rebranding
 }
 
 // ── Alergeni (Regulamentul EU 1169/2011) ─────────────────────

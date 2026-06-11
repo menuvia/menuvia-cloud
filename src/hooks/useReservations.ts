@@ -11,13 +11,7 @@ export type ReservationStatus =
   | 'cancelled'
   | 'no_show'
 
-export type ReservationSource =
-  | 'public'
-  | 'phone'
-  | 'google'
-  | 'widget'
-  | 'walk_in'
-  | 'dashboard'
+export type ReservationSource = 'public' | 'phone' | 'google' | 'widget' | 'walk_in' | 'dashboard'
 
 export interface Reservation {
   id: string
@@ -120,7 +114,12 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       .channel(`reservations:${restaurantId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'reservations', filter: `restaurant_id=eq.${restaurantId}` },
+        {
+          event: '*',
+          schema: 'public',
+          table: 'reservations',
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
         (payload) => {
           // Sunet DOAR pentru rezervare cu adevărat nouă: INSERT și ID
           // necunoscut. Evită beep retroactiv pe replay/catch-up și pe
@@ -144,11 +143,8 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
   const updateStatus = useCallback(
     async (id: string, status: ReservationStatus) => {
       const prev = reservations
-      setReservations(p => p.map(r => (r.id === id ? { ...r, status } : r)))
-      const { error: e } = await supabase
-        .from('reservations')
-        .update({ status })
-        .eq('id', id)
+      setReservations((p) => p.map((r) => (r.id === id ? { ...r, status } : r)))
+      const { error: e } = await supabase.from('reservations').update({ status }).eq('id', id)
       if (e) {
         setReservations(prev)
         throw new Error(e.message)
@@ -178,7 +174,7 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       if (!tableId) throw new Error('Masă obligatorie pentru a marca rezervarea ca așezată')
       const patch = { status: 'seated' as ReservationStatus, table_id: tableId }
       const prev = reservations
-      setReservations(p => p.map(r => (r.id === id ? { ...r, ...patch } : r)))
+      setReservations((p) => p.map((r) => (r.id === id ? { ...r, ...patch } : r)))
       const { error: e } = await supabase.from('reservations').update(patch).eq('id', id)
       if (e) {
         setReservations(prev)
@@ -265,7 +261,9 @@ export function useTableZones(restaurantId: string | null) {
       .eq('is_active', true)
       .not('zone', 'is', null)
     const unique = Array.from(
-      new Set(((data ?? []) as { zone: string | null }[]).map(r => r.zone).filter(Boolean) as string[]),
+      new Set(
+        ((data ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
+      ),
     ).sort((a, b) => a.localeCompare(b, 'ro'))
     setZones(unique)
     setLoading(false)

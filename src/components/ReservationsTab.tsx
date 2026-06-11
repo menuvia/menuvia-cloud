@@ -76,7 +76,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
   const filtered = useMemo(() => {
     if (!pendingOnly) return reservations
-    return reservations.filter(r => r.status === 'pending')
+    return reservations.filter((r) => r.status === 'pending')
   }, [reservations, pendingOnly])
 
   const grouped = useMemo(() => groupByDay(filtered), [filtered])
@@ -127,7 +127,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
         <FilterChip onClick={setWeek}>Săptămâna asta</FilterChip>
         <input
           type="date"
-          onChange={e => {
+          onChange={(e) => {
             if (e.target.value) {
               const [y, mo, d] = e.target.value.split('-').map(Number)
               setSpecificDate(new Date(y!, mo! - 1, d!))
@@ -160,7 +160,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
           <input
             type="checkbox"
             checked={pendingOnly}
-            onChange={e => setPendingOnly(e.target.checked)}
+            onChange={(e) => setPendingOnly(e.target.checked)}
             style={{ margin: 0 }}
           />
           Doar pending
@@ -234,7 +234,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
                 {formatDay(list[0]!.starts_at)}
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {list.map(r => (
+                {list.map((r) => (
                   <ReservationCard
                     key={r.id}
                     r={r}
@@ -343,17 +343,11 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
         </div>
       </div>
       <div style={{ display: 'flex', gap: 14, fontSize: 12, color: D.t2, marginBottom: 10 }}>
-        <a
-          href={'tel:' + r.customer_phone}
-          style={{ color: D.t2, textDecoration: 'none' }}
-        >
+        <a href={'tel:' + r.customer_phone} style={{ color: D.t2, textDecoration: 'none' }}>
           📞 {r.customer_phone}
         </a>
         {r.customer_email && (
-          <a
-            href={'mailto:' + r.customer_email}
-            style={{ color: D.t2, textDecoration: 'none' }}
-          >
+          <a href={'mailto:' + r.customer_email} style={{ color: D.t2, textDecoration: 'none' }}>
             ✉ {r.customer_email}
           </a>
         )}
@@ -385,13 +379,11 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
             No-show
           </ActionButton>
         )}
-        {r.status !== 'cancelled' &&
-          r.status !== 'completed' &&
-          r.status !== 'no_show' && (
-            <ActionButton onClick={onCancel} danger>
-              Anulează
-            </ActionButton>
-          )}
+        {r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show' && (
+          <ActionButton onClick={onCancel} danger>
+            Anulează
+          </ActionButton>
+        )}
       </div>
     </div>
   )
@@ -470,7 +462,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
       }}
     >
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         style={{
           width: '100%',
           padding: '14px 16px',
@@ -501,7 +493,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
             <input
               type="time"
               value={merged.open_time?.slice(0, 5) ?? ''}
-              onChange={e => setDraft(d => ({ ...d, open_time: e.target.value }))}
+              onChange={(e) => setDraft((d) => ({ ...d, open_time: e.target.value }))}
               style={settingsInputStyle}
             />
           </SettingField>
@@ -509,14 +501,14 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
             <input
               type="time"
               value={merged.close_time?.slice(0, 5) ?? ''}
-              onChange={e => setDraft(d => ({ ...d, close_time: e.target.value }))}
+              onChange={(e) => setDraft((d) => ({ ...d, close_time: e.target.value }))}
               style={settingsInputStyle}
             />
           </SettingField>
           <SettingField label="Interval slot (min)">
             <select
               value={merged.slot_interval}
-              onChange={e => setDraft(d => ({ ...d, slot_interval: Number(e.target.value) }))}
+              onChange={(e) => setDraft((d) => ({ ...d, slot_interval: Number(e.target.value) }))}
               style={settingsInputStyle}
             >
               <option value={15}>15 min</option>
@@ -527,8 +519,8 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
           <SettingField label="Durata rezervării (min)">
             <select
               value={merged.reservation_duration}
-              onChange={e =>
-                setDraft(d => ({ ...d, reservation_duration: Number(e.target.value) }))
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, reservation_duration: Number(e.target.value) }))
               }
               style={settingsInputStyle}
             >
@@ -544,7 +536,9 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               min={0}
               max={72}
               value={merged.min_advance_hours}
-              onChange={e => setDraft(d => ({ ...d, min_advance_hours: Number(e.target.value) }))}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, min_advance_hours: Number(e.target.value) }))
+              }
               style={settingsInputStyle}
             />
           </SettingField>
@@ -554,7 +548,9 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               min={1}
               max={90}
               value={merged.max_advance_days}
-              onChange={e => setDraft(d => ({ ...d, max_advance_days: Number(e.target.value) }))}
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, max_advance_days: Number(e.target.value) }))
+              }
               style={settingsInputStyle}
             />
           </SettingField>
@@ -564,15 +560,15 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               min={1}
               max={50}
               value={merged.max_party_size}
-              onChange={e => setDraft(d => ({ ...d, max_party_size: Number(e.target.value) }))}
+              onChange={(e) => setDraft((d) => ({ ...d, max_party_size: Number(e.target.value) }))}
               style={settingsInputStyle}
             />
           </SettingField>
           <SettingField label="Reminder cu (ore înainte)">
             <select
               value={merged.reminder_hours_before}
-              onChange={e =>
-                setDraft(d => ({ ...d, reminder_hours_before: Number(e.target.value) }))
+              onChange={(e) =>
+                setDraft((d) => ({ ...d, reminder_hours_before: Number(e.target.value) }))
               }
               style={settingsInputStyle}
             >
@@ -596,7 +592,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               <input
                 type="checkbox"
                 checked={merged.auto_confirm}
-                onChange={e => setDraft(d => ({ ...d, auto_confirm: e.target.checked }))}
+                onChange={(e) => setDraft((d) => ({ ...d, auto_confirm: e.target.checked }))}
               />
               {merged.auto_confirm ? 'Activat' : 'Dezactivat'}
             </label>
@@ -657,4 +653,3 @@ function SettingField({ label, children }: { label: string; children: React.Reac
     </div>
   )
 }
-

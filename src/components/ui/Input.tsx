@@ -57,10 +57,7 @@ export function Input({
         {iconRight && <span className="field__icon field__icon--right">{iconRight}</span>}
       </div>
       {(error || helper) && (
-        <span
-          id={describedById}
-          className={`field__msg ${hasError ? 'field__msg--error' : ''}`}
-        >
+        <span id={describedById} className={`field__msg ${hasError ? 'field__msg--error' : ''}`}>
           {error || helper}
         </span>
       )}

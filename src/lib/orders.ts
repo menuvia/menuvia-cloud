@@ -171,8 +171,8 @@ const STATUS_TO_ACTION: Record<string, string> = {
   'confirmed→preparing': 'start_preparing',
   'preparing→ready': 'mark_ready',
   'ready→served': 'mark_served',
-  'served→closed': 'close_order',  // Plan 2: non-fiscal close
-  'served→paid': 'mark_paid',       // Plan 3: fiscal close via bridge
+  'served→closed': 'close_order', // Plan 2: non-fiscal close
+  'served→paid': 'mark_paid', // Plan 3: fiscal close via bridge
 }
 
 export async function advanceOrderStatus(
@@ -325,9 +325,10 @@ export function describeAuditEntry(e: AuditEntry): string {
   }
   if (e.table_name === 'order_items') {
     // Audit-summary de la update_order_items: diff_short = {items:{from,to}, total:{from,to}}
-    const diff = e.diff_short as
-      | { items?: { from?: unknown[]; to?: unknown[] }; total?: { from?: number; to?: number } }
-      | null
+    const diff = e.diff_short as {
+      items?: { from?: unknown[]; to?: unknown[] }
+      total?: { from?: number; to?: number }
+    } | null
     if (e.operation === 'UPDATE' && (diff?.items || diff?.total)) {
       const fromCount = Array.isArray(diff?.items?.from) ? diff.items.from.length : null
       const toCount = Array.isArray(diff?.items?.to) ? diff.items.to.length : null
@@ -594,7 +595,9 @@ export function orderSubtotal(order: Order): number {
   return order.order_items.reduce((sum, it) => sum + Number(it.item_total || 0), 0)
 }
 
-export async function closeSessionOrders(sessionId: string): Promise<{ closed_count: number; already_closed?: boolean }> {
+export async function closeSessionOrders(
+  sessionId: string,
+): Promise<{ closed_count: number; already_closed?: boolean }> {
   const { data, error } = await supabase.rpc('close_session_orders', { p_session_id: sessionId })
   if (error) throw error
   return data as { closed_count: number; already_closed?: boolean }
