@@ -456,7 +456,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         {[
           'Meniu QR gata de folosit',
           'QR-uri pentru mese generate automat',
-          'Comenzi trimise către bucătărie și ospătari',
+          'Poți porni simplu și activa comenzi când ai nevoie',
         ].map((t) => (
           <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span
