@@ -30,6 +30,11 @@ import {
 
 interface Props {
   restaurantId: string
+  // Regula de aur (review monetizare): bani + bon = Plan 3, fără excepții.
+  // false (Plan 1/2) → „evidență operațională": ce s-a comandat (cantități,
+  // mix, top produse), FĂRĂ revenue/cash/card/bon mediu și fără exporturi
+  // care arată sume — plata reală + bonul se fac pe casa existentă.
+  fiscalReports?: boolean
 }
 
 type Period = 'today' | 'week' | 'month' | 'custom'
@@ -131,7 +136,7 @@ const btn = (active?: boolean): React.CSSProperties => ({
 })
 
 // ─── Main component ───────────────────────────────────────────
-export default function ReportsTab({ restaurantId }: Props) {
+export default function ReportsTab({ restaurantId, fiscalReports = true }: Props) {
   const [period, setPeriod] = useState<Period>('today')
   const [custom, setCustom] = useState({ from: toISO(new Date()), to: toISO(new Date()) })
   const [loading, setLoading] = useState(true)
@@ -518,7 +523,9 @@ export default function ReportsTab({ restaurantId }: Props) {
             {periodLabel(period, range.from, range.to)}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        {/* Export-urile conțin sume (revenue, cash/card, vânzări per ospătar) —
+            doar pe Plan 3. Plan 2 = evidență pe ecran, fără documente. */}
+        <div style={{ display: fiscalReports ? 'flex' : 'none', gap: 8 }}>
           <button
             onClick={() => exportCsv()}
             disabled={loading || totalOrders === 0}
@@ -641,6 +648,26 @@ export default function ReportsTab({ restaurantId }: Props) {
         </div>
       ) : (
         <>
+          {/* Plan 1/2: evidență operațională — niciun număr nu e document fiscal */}
+          {!fiscalReports && (
+            <div
+              style={{
+                background: 'rgba(232,160,32,0.10)',
+                border: `1px solid ${D.amber}`,
+                borderRadius: 10,
+                padding: '10px 14px',
+                marginBottom: 14,
+                color: D.amber,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              ⚠️ <strong>Evidență operațională</strong> — ce s-a comandat (cantități, mix
+              produse). Estimare, <strong>nu este raport fiscal</strong>. Plata și bonul se
+              înregistrează pe casa de marcat existentă.
+            </div>
+          )}
+
           {/* Metrics grid */}
           <div
             style={{
@@ -651,20 +678,28 @@ export default function ReportsTab({ restaurantId }: Props) {
             }}
           >
             <StatCard label="Comenzi" value={String(totalOrders)} />
-            <StatCard label="Revenue" value={`${revenue.toFixed(0)} lei`} color={D.gold} />
-            <StatCard label="Bon mediu" value={`${avgTicket.toFixed(2)} lei`} color={D.goldL} />
-            <StatCard
-              label="Cash"
-              value={`${cashRev.toFixed(0)} lei`}
-              color={D.green}
-              sub={revenue > 0 ? `${Math.round((cashRev / revenue) * 100)}%` : undefined}
-            />
-            <StatCard
-              label="Card"
-              value={`${cardRev.toFixed(0)} lei`}
-              color="#7EB8F7"
-              sub={revenue > 0 ? `${Math.round((cardRev / revenue) * 100)}%` : undefined}
-            />
+            {fiscalReports && (
+              <>
+                <StatCard label="Revenue" value={`${revenue.toFixed(0)} lei`} color={D.gold} />
+                <StatCard
+                  label="Bon mediu"
+                  value={`${avgTicket.toFixed(2)} lei`}
+                  color={D.goldL}
+                />
+                <StatCard
+                  label="Cash"
+                  value={`${cashRev.toFixed(0)} lei`}
+                  color={D.green}
+                  sub={revenue > 0 ? `${Math.round((cashRev / revenue) * 100)}%` : undefined}
+                />
+                <StatCard
+                  label="Card"
+                  value={`${cardRev.toFixed(0)} lei`}
+                  color="#7EB8F7"
+                  sub={revenue > 0 ? `${Math.round((cardRev / revenue) * 100)}%` : undefined}
+                />
+              </>
+            )}
           </div>
 
           {/* QR vs Waiter */}

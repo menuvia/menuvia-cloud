@@ -7,6 +7,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
+import { useFeatures } from '../hooks/useFeatures'
+import { planTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
@@ -44,6 +46,15 @@ export default function WaiterPage() {
     setActive,
   } = useRestaurantCtx()
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
+
+  // Regula de aur: bani + bon = Plan 3, fără excepții. Planul vine de la
+  // RESTAURANT (get_restaurant_features), nu de la profilul ospătarului.
+  // Cât timp features se încarcă, default-ul SIGUR e fără plăți (tier < 3) —
+  // mai bine un ospătar vede „Închide comanda" o secundă decât să înregistreze
+  // o plată pe un plan care nu o permite. Gating-ul real e oricum server-side.
+  const restaurantFeatures = useFeatures(restaurantId)
+  const paymentsEnabled = planTier(restaurantFeatures.features?.plan) >= 3
+
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
@@ -344,6 +355,13 @@ export default function WaiterPage() {
       tips_amount: tips,
     })
     setPayOrder(null)
+  }
+
+  // Plan 1/2: închidere NON-fiscală (served → closed). Fără sumă, fără metodă
+  // de plată — clientul plătește la casa de marcat existentă a localului.
+  function handleCloseOrder(order: Order): void {
+    if (user == null) return
+    void advance(order.id, 'served', { status: 'closed' })
   }
 
   const readyOrders = byStatus(['ready'])
@@ -948,6 +966,8 @@ export default function WaiterPage() {
                 onEdit={setEditOrder}
                 onCancel={setCancelOrder}
                 onAudit={isAdminRole ? setAuditOrder : undefined}
+                paymentsEnabled={paymentsEnabled}
+                onCloseOrder={handleCloseOrder}
               />
             ))}
             {openOrders.length === 0 && (
@@ -961,6 +981,7 @@ export default function WaiterPage() {
 
       {payOrder != null &&
         user != null &&
+        paymentsEnabled &&
         (() => {
           // Live lookup: dacă orders au fost actualizate (ex: discount aplicat),
           // PayModal afișează versiunea curentă, nu cea închisă în payOrder.
@@ -1014,7 +1035,7 @@ export default function WaiterPage() {
         })()}
 
       {/* Split Bill Modal */}
-      {splitOrder != null && (
+      {splitOrder != null && paymentsEnabled && (
         <div
           onClick={() => setSplitOrder(null)}
           style={{

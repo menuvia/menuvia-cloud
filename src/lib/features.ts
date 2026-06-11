@@ -71,13 +71,35 @@ export function isWithinLimit(
   return currentCount < limit
 }
 
-// User-friendly plan names
+// ── Taxonomie comercială: 3 planuri ─────────────────────────
+// Intern păstrăm free/starter/growth/pro/enterprise (DB, Stripe, gating),
+// dar clientul vede DOAR 3 concepte: Meniu Digital / Meniu + Comenzi /
+// Fiscalizare. Regula de aur: bani + bon = Plan 3, fără excepții.
+//   tier 1 — Meniu Digital      (free = trial/demo, starter)
+//   tier 2 — Meniu + Comenzi    (growth) — FĂRĂ bani: plata pe casa existentă
+//   tier 3 — Fiscalizare        (pro, enterprise) — plăți, casă, TVA, facturi
+export type PlanTier = 1 | 2 | 3
+
+export function planTier(plan: string | null | undefined): PlanTier {
+  switch (plan) {
+    case 'pro':
+    case 'enterprise':
+      return 3
+    case 'growth':
+      return 2
+    default:
+      // 'free', 'starter' sau plan necunoscut → cel mai restrictiv
+      return 1
+  }
+}
+
+// User-friendly plan names — numele COMERCIALE (cele 3 concepte publice)
 export const PLAN_NAMES: Record<string, string> = {
-  free: 'Gratuit',
-  starter: '🌱 Starter',
-  growth: '🚀 Growth',
-  pro: '💎 Pro',
-  enterprise: '🏢 Enterprise',
+  free: 'Demo gratuit',
+  starter: '📖 Meniu Digital',
+  growth: '🛎 Meniu + Comenzi',
+  pro: '🧾 Fiscalizare',
+  enterprise: '🏢 Custom / Lanțuri',
 }
 
 // Suggest upgrade path: from current plan, what's next

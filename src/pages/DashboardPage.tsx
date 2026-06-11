@@ -1,6 +1,7 @@
 import { useState, useEffect, Suspense, lazy } from 'react'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
+import { planTier, type PlanTier } from '../lib/features'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
@@ -119,7 +120,7 @@ function UpgradeModal({
               marginBottom: 6,
             }}
           >
-            Upgrade la Pro
+            Deblochează mai mult
           </div>
           <div
             style={{
@@ -393,25 +394,32 @@ type Tab =
   | 'reservations'
   | 'settings'
 
-const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean }[] = [
+// Sidebar pe plan (review monetizare): clientul vede DOAR ce poate folosi.
+//   tier 1 — Meniu Digital:    meniu, design, QR, analytics simple
+//   tier 2 — Meniu + Comenzi:  + mese/QR per masă, modificatori, echipă,
+//                                rapoarte OPERAȚIONALE (fără bani), hartă, happy hour
+//   tier 3 — Fiscalizare:      + casă/ture, TVA, facturi, gestiune
+// minTier lipsă = vizibil pe toate planurile. Gating-ul REAL e server-side
+// (RPC/RLS, Porțile A-D); aici doar simplificăm suprafața UI.
+const NAV: { id: Tab; label: string; icon: string; adminOnly?: boolean; minTier?: PlanTier }[] = [
   { id: 'products', label: 'Produse', icon: '☰' },
   { id: 'setup', label: 'Setup Asistent', icon: '🪄', adminOnly: true },
   { id: 'categories', label: 'Categorii', icon: '📁' },
-  { id: 'modificatori', label: 'Modificatori', icon: '⚙' },
-  { id: 'mese', label: 'Mese', icon: '🪑' },
-  { id: 'health', label: 'Sănătate', icon: '🩺', adminOnly: true },
+  { id: 'modificatori', label: 'Modificatori', icon: '⚙', minTier: 2 },
+  { id: 'mese', label: 'Mese & QR', icon: '🪑', minTier: 2 },
+  { id: 'health', label: 'Sănătate', icon: '🩺', adminOnly: true, minTier: 2 },
   { id: 'analytics', label: 'Analytics', icon: '📊', adminOnly: true },
-  { id: 'raport', label: 'Rapoarte', icon: '📋', adminOnly: true },
-  { id: 'arhitectura', label: 'Hartă', icon: '🗺' },
-  { id: 'echipa', label: 'Echipă', icon: '👥', adminOnly: true },
-  { id: 'ture', label: 'Ture', icon: '👷', adminOnly: true },
-  { id: 'gestiune', label: 'Gestiune', icon: '📦', adminOnly: true },
-  { id: 'tva', label: 'Raport TVA', icon: '🧾', adminOnly: true },
-  { id: 'casa-tura', label: 'Casă & Tură', icon: '💰', adminOnly: true },
-  { id: 'casa-marcat', label: 'Casă marcat', icon: '📟', adminOnly: true },
-  { id: 'invoices', label: 'Facturi', icon: '📄', adminOnly: true },
+  { id: 'raport', label: 'Rapoarte', icon: '📋', adminOnly: true, minTier: 2 },
+  { id: 'arhitectura', label: 'Hartă', icon: '🗺', minTier: 2 },
+  { id: 'echipa', label: 'Echipă', icon: '👥', adminOnly: true, minTier: 2 },
+  { id: 'ture', label: 'Ture', icon: '👷', adminOnly: true, minTier: 3 },
+  { id: 'gestiune', label: 'Gestiune', icon: '📦', adminOnly: true, minTier: 3 },
+  { id: 'tva', label: 'Raport TVA', icon: '🧾', adminOnly: true, minTier: 3 },
+  { id: 'casa-tura', label: 'Casă & Tură', icon: '💰', adminOnly: true, minTier: 3 },
+  { id: 'casa-marcat', label: 'Casă marcat', icon: '📟', adminOnly: true, minTier: 3 },
+  { id: 'invoices', label: 'Facturi', icon: '📄', adminOnly: true, minTier: 3 },
   { id: 'reservations', label: 'Rezervări', icon: '📅', adminOnly: true },
-  { id: 'happy-hour', label: 'Happy Hour', icon: '🎉', adminOnly: true },
+  { id: 'happy-hour', label: 'Happy Hour', icon: '🎉', adminOnly: true, minTier: 2 },
   { id: 'settings', label: 'Setări', icon: '⚙', adminOnly: true },
 ]
 
@@ -443,26 +451,38 @@ export default function DashboardPage({
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
+  // Tier comercial al RESTAURANTULUI (get_restaurant_features — corect și
+  // pentru manageri-staff, al căror profil personal n-are planul owner-ului).
+  // Fallback pe profile.plan cât timp features se încarcă (cazul owner).
+  const tier: PlanTier = planTier(features.features?.plan ?? plan)
+
   // Audit fix #2: filter tab-uri admin-only pentru waiter/kitchen.
   // Gate D: tab-urile dependente de module se ascund când modulul e OFF.
+  // Review monetizare: tab-urile peste tier-ul planului se ascund — clientul
+  // de Plan 1 vede 6 intrări, nu 19. Gating-ul real rămâne server-side.
   const visibleNav = NAV.filter((n) => {
     if (n.adminOnly && !isAdminRole) return false
+    if (n.minTier && tier < n.minTier) return false
     if (n.id === 'reservations' && !modulesState.isEnabled('reservations')) return false
     return true
   })
 
   // Dacă user-ul a salvat un tab admin-only și apoi a fost demovat la waiter,
-  // forțăm înapoi la Produse. La fel pentru tab-uri de modul disabled.
+  // forțăm înapoi la Produse. La fel pentru tab-uri de modul disabled / tier.
   useEffect(() => {
     const current = NAV.find((n) => n.id === tab)
     if (current?.adminOnly && !isAdminRole) {
       setTab('products')
       return
     }
+    if (current?.minTier && tier < current.minTier) {
+      setTab('products')
+      return
+    }
     if (tab === 'reservations' && !modulesState.isEnabled('reservations')) {
       setTab('products')
     }
-  }, [activeRole, tab, isAdminRole, modulesState])
+  }, [activeRole, tab, isAdminRole, modulesState, tier])
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
@@ -890,7 +910,7 @@ export default function DashboardPage({
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă raportul..." />}>
-                  <ReportsTab restaurantId={restaurant.id} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={tier >= 3} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
