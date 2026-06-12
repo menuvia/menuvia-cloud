@@ -407,7 +407,7 @@ function ActiveOrdersBanner({ orders, accent, onAddMore, sessionId = null }: Act
       cancelled = true
       clearInterval(interval)
     }
-  }, [orders])
+  }, [orders, sessionId])
 
   const totalSpent = orders.reduce((s, o) => s + Number(o.total), 0)
   const activeCount = orders.filter((o) => {
