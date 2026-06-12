@@ -14,6 +14,8 @@ import {
   happyHourPercentForProduct,
   computeIsOpen,
   todayHoursLabel,
+  socialUrl,
+  socialHandle,
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
@@ -1050,40 +1052,6 @@ function HeroSection({
 
 // Construiește URL absolut pentru un canal social din handle sau URL brut.
 // Dacă valoarea e deja un URL complet, o folosește ca atare.
-function socialUrl(
-  platform: 'instagram' | 'tiktok' | 'facebook' | 'website',
-  value: string,
-): string {
-  const v = value.trim()
-  if (/^https?:\/\//i.test(v)) return v
-  const handle = v.replace(/^@/, '')
-  switch (platform) {
-    case 'instagram':
-      return `https://instagram.com/${handle}`
-    case 'tiktok':
-      return `https://tiktok.com/@${handle}`
-    case 'facebook':
-      return `https://facebook.com/${handle}`
-    case 'website':
-      return `https://${handle}`
-  }
-}
-
-// Extrage handle-ul curat (fără URL, fără @) pentru afișare în text.
-function socialHandle(value: string): string {
-  const v = value.trim()
-  if (/^https?:\/\//i.test(v)) {
-    try {
-      // URL.pathname elimină query (?...) și hash (#...) automat.
-      const pathname = new URL(v).pathname.replace(/\/+$/, '')
-      const parts = pathname.split('/').filter(Boolean)
-      return (parts[parts.length - 1] ?? '').replace(/^@/, '')
-    } catch {
-      return v.replace(/^@/, '').replace(/\/+$/, '')
-    }
-  }
-  return v.replace(/^@/, '').replace(/\/+$/, '')
-}
 
 // Versiunea clickable a InfoPill: render <a> cu același styling.
 function SocialPill({
@@ -1727,6 +1695,8 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
   const tiktok = restaurant.socials?.tiktok
   const facebook = restaurant.socials?.facebook
   const website = restaurant.socials?.website
+  const googleMaps = restaurant.socials?.google_maps?.trim() || null
+  const whatsappNum = restaurant.socials?.whatsapp?.replace(/[^\d]/g, '') || null
   const socialLinkStyle: CSSProperties = {
     display: 'inline-flex',
     alignItems: 'center',
@@ -1848,6 +1818,21 @@ function FooterBrand({ restaurant, theme, accent, PUB, lang }: FooterProps) {
             style={socialLinkStyle}
           >
             <IconGlobe size={13} color={accent} /> {website.replace(/^https?:\/\//i, '')}
+          </a>
+        )}
+        {googleMaps && (
+          <a href={googleMaps} target="_blank" rel="noopener noreferrer" style={socialLinkStyle}>
+            <IconMapPin size={13} color={accent} /> Vezi pe Google Maps
+          </a>
+        )}
+        {whatsappNum && (
+          <a
+            href={'https://wa.me/' + whatsappNum}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={socialLinkStyle}
+          >
+            💬 WhatsApp
           </a>
         )}
       </div>

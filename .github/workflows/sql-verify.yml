@@ -616,6 +616,67 @@ jobs:
           end$$;
           ASSERTION
 
+      - name: "Resolve assertion: orderingAllowed e plan-aware (mig 093)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # „Aceleași QR-uri pe ambele planuri": pe starter meniul e read-only
+          # (orderingAllowed=false), pe growth comenzile sunt active pe ACELAȘI
+          # token; kill-switch-ul manual ordering_enabled rămâne respectat.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id uuid := gen_random_uuid();
+            v_rest_id  uuid := gen_random_uuid();
+            v_table_id uuid := gen_random_uuid();
+            v_token    text;
+            v_res      jsonb;
+          begin
+            insert into auth.users (id, email) values (v_owner_id, 'test-resolve@menuvia.ro');
+            update public.profiles set plan = 'starter' where id = v_owner_id;
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Resolve', 'test-resolve-slug', 'Cluj', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
+            insert into public.qr_tokens (restaurant_id, table_id)
+              values (v_rest_id, v_table_id);
+            select token into v_token from public.qr_tokens where table_id = v_table_id;
+
+            -- T1: starter → orderingAllowed = false (meniu read-only)
+            v_res := public.resolve_qr_token(v_token);
+            if (v_res->>'orderingAllowed')::boolean then
+              raise exception 'ASSERTION FAILED: starter ar trebui orderingAllowed=false: %', v_res;
+            end if;
+            raise notice 'OK: starter → orderingAllowed=false (read-only)';
+
+            -- T2: ACELAȘI token, plan growth → orderingAllowed = true
+            update public.profiles set plan = 'growth' where id = v_owner_id;
+            v_res := public.resolve_qr_token(v_token);
+            if not (v_res->>'orderingAllowed')::boolean then
+              raise exception 'ASSERTION FAILED: growth ar trebui orderingAllowed=true: %', v_res;
+            end if;
+            raise notice 'OK: același QR pe growth → orderingAllowed=true (zero re-printare)';
+
+            -- T3: kill-switch manual pe growth → false
+            insert into public.restaurant_settings (restaurant_id, ordering_enabled)
+              values (v_rest_id, false)
+              on conflict (restaurant_id) do update set ordering_enabled = false;
+            v_res := public.resolve_qr_token(v_token);
+            if (v_res->>'orderingAllowed')::boolean then
+              raise exception 'ASSERTION FAILED: ordering_enabled=false trebuie respectat: %', v_res;
+            end if;
+            raise notice 'OK: kill-switch ordering_enabled funcțional pe growth';
+
+            -- T4: payload-ul expune socials (pentru bara de link-uri)
+            if not (v_res->'restaurant' ? 'socials') then
+              raise exception 'ASSERTION FAILED: restaurant.socials lipsește din payload: %', v_res;
+            end if;
+            raise notice 'OK: resolve expune restaurant.socials';
+
+            raise notice '✅ Resolve assertion passed: orderingAllowed = plan AND kill-switch (mig 093).';
+          end$$;
+          ASSERTION
+
       - name: "Gate C assertion: lifecycle closed + close_session_orders"
         env:
           PGPASSWORD: postgres

@@ -5,6 +5,47 @@ export interface Socials {
   facebook?: string | null
   tiktok?: string | null
   website?: string | null
+  // Mig 093: convenție extinsă — link Google Maps (locație) și WhatsApp.
+  google_maps?: string | null
+  whatsapp?: string | null
+}
+
+// Normalizează valorile introduse de patron („@handle", „facebook.com/x",
+// URL complet) într-un href valid. Mutat din PublicMenuPage (mig 093) ca să
+// fie refolosit de RestaurantLinksBar pe pagina QR.
+export function socialUrl(
+  platform: 'instagram' | 'tiktok' | 'facebook' | 'website',
+  value: string,
+): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) return v
+  const handle = v.replace(/^@/, '')
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${handle}`
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`
+    case 'facebook':
+      return `https://facebook.com/${handle}`
+    case 'website':
+      return `https://${handle}`
+  }
+}
+
+// Extrage handle-ul curat (fără URL, fără @) pentru afișare în text.
+export function socialHandle(value: string): string {
+  const v = value.trim()
+  if (/^https?:\/\//i.test(v)) {
+    try {
+      // URL.pathname elimină query (?...) și hash (#...) automat.
+      const pathname = new URL(v).pathname.replace(/\/+$/, '')
+      const parts = pathname.split('/').filter(Boolean)
+      return (parts[parts.length - 1] ?? '').replace(/^@/, '')
+    } catch {
+      return v.replace(/^@/, '').replace(/\/+$/, '')
+    }
+  }
+  return v.replace(/^@/, '').replace(/\/+$/, '')
 }
 
 export interface DayHours {

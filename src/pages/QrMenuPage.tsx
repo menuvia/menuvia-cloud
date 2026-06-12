@@ -19,6 +19,7 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
 
 import ProductSheet from '../components/ProductSheet'
+import RestaurantLinksBar from '../components/RestaurantLinksBar'
 import { resolveTheme } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 
@@ -456,6 +457,21 @@ export default function QrMenuPage({ token }: Props) {
         </div>
       </div>
 
+      {/* Link-urile restaurantului — pe Meniu Digital (read-only) sunt
+          valoarea principală a paginii, deci vizibile sus; pe planurile cu
+          comenzi apar discret la finalul listei (vezi mai jos). */}
+      {ctx && !orderingAllowed && (
+        <RestaurantLinksBar
+          socials={ctx.restaurant.socials}
+          phone={ctx.restaurant.phone}
+          googleReviewUrl={ctx.restaurant.google_review_url}
+          accent={accent}
+          textColor={PUB.text}
+          borderColor={PUB.borderStrong}
+          prominent
+        />
+      )}
+
       {/* Active orders banner — shown when session has previous orders */}
       {previousOrders.length > 0 && orderingAllowed && !confirmation && (
         <div style={{ padding: '12px 16px 0' }}>
@@ -864,6 +880,20 @@ export default function QrMenuPage({ token }: Props) {
       </div>
 
       {/* Call waiter button */}
+      {ctx && orderingAllowed && (
+        <div style={{ paddingBottom: cart.length > 0 ? 0 : 8 }}>
+          <RestaurantLinksBar
+            socials={ctx.restaurant.socials}
+            phone={ctx.restaurant.phone}
+            googleReviewUrl={ctx.restaurant.google_review_url}
+            accent={accent}
+            textColor={PUB.text}
+            borderColor={PUB.borderStrong}
+            prominent={false}
+          />
+        </div>
+      )}
+
       {ctx && orderingAllowed && !confirmation && (
         <button
           onClick={() => {

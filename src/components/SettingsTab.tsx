@@ -838,6 +838,8 @@ export default function SettingsTab({
                 ['facebook', 'Facebook', 'facebook.com/tinctura'],
                 ['tiktok', 'TikTok', '@tinctura'],
                 ['website', 'Website', 'https://tinctura.ro'],
+                ['google_maps', 'Google Maps (locație)', 'https://maps.app.goo.gl/...'],
+                ['whatsapp', 'WhatsApp', '40712345678'],
               ] as const
             ).map(([k, label, ph]) => {
               const socials = (form.socials ?? {}) as Record<string, string | null | undefined>
