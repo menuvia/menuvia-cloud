@@ -67,25 +67,9 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
   boxShadow: disabled ? 'none' : '0 4px 14px rgba(200,150,60,0.25)',
 })
 
-// Cheia sub care păstrăm planul-țintă între /pricing → /auth → checkout.
-// SessionStorage (nu local): dispare la închiderea tab-ului, fără privacy debt.
-const PLAN_INTENT_KEY = 'menuvia.plan_intent'
-
-export function readPlanIntent(): string | null {
-  try {
-    return sessionStorage.getItem(PLAN_INTENT_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function clearPlanIntent(): void {
-  try {
-    sessionStorage.removeItem(PLAN_INTENT_KEY)
-  } catch {
-    /* ignore (private mode) */
-  }
-}
+// Helperii readPlanIntent/clearPlanIntent/writePlanIntent + cheia au fost
+// mutați în ../lib/planIntent ca să respecte react-refresh/only-export-components.
+import { readPlanIntent, writePlanIntent } from '../lib/planIntent'
 
 function readIntentFromUrlOrSession(): 'starter' | 'growth' | 'pro' | null {
   const m = window.location.search.match(/[?&]plan=(starter|growth|pro)\b/)
@@ -172,13 +156,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   // Citim direct URL-ul (nu folosim router) ca să nu adăugăm dependență.
   useEffect(() => {
     const m = window.location.search.match(/[?&]plan=(starter|growth|pro)\b/)
-    if (m) {
-      try {
-        sessionStorage.setItem(PLAN_INTENT_KEY, m[1])
-      } catch {
-        /* ignore (private mode) */
-      }
-    }
+    if (m) writePlanIntent(m[1])
   }, [])
 
   const [mode, setMode] = useState<'login' | 'signup'>('login')

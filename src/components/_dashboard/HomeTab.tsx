@@ -17,6 +17,9 @@ import {
   getActionableSuggestions,
   type HealthScore,
 } from '../../lib/health'
+
+// Paleta de scor — citește din tokens-urile existente (CSS vars).
+const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
 import { InlineSpinner } from '../PageLoader'
 
 const QuickSetupTab = lazy(() => import('../QuickSetupTab'))
@@ -190,7 +193,7 @@ export default function HomeTab({
     let alive = true
     const head = { count: 'exact' as const, head: true }
 
-    const counts: Promise<void>[] = [
+    const counts: PromiseLike<void>[] = [
       supabase
         .from('tables')
         .select('id', head)
@@ -454,8 +457,8 @@ export default function HomeTab({
                   {health && (
                     <span
                       style={{
-                        background: `${scoreColor(health.score)}22`,
-                        color: scoreColor(health.score),
+                        background: `${scoreColor(health.score, scorePalette)}22`,
+                        color: scoreColor(health.score, scorePalette),
                         fontSize: '0.72rem',
                         fontWeight: 700,
                         borderRadius: 100,
