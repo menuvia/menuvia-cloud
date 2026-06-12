@@ -1532,7 +1532,8 @@ function PricingPage({
               <p style={{ color: L.text2, fontSize: '0.95rem', lineHeight: 1.6 }}>
                 Alege <strong style={{ color: L.text }}>Meniu + Comenzi</strong> dacă vrei ca
                 oamenii să poată comanda direct de la masă, iar bucătăria și ospătarii să vadă
-                comenzile instant.
+                comenzile instant. Ai deja QR-urile pe mese de la Meniu Digital? Se activează pe
+                loc — nu printezi nimic din nou.
               </p>
             </div>
           </div>

@@ -518,8 +518,9 @@ export default function HomeTab({
               Vrei să primești comenzi direct de la masă?
             </div>
             <div style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.5 }}>
-              Activează {growthPlan.name} și clienții pot comanda prin QR, iar bucătăria primește
-              instant.
+              {(tablesCount ?? 0) > 0
+                ? `Ai deja QR-urile pe mese. Activăm comenzile pe aceleași QR-uri — nu printezi nimic din nou.`
+                : `Activează ${growthPlan.name} și clienții pot comanda prin QR, iar bucătăria primește instant.`}
             </div>
           </div>
           <button

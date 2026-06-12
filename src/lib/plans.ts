@@ -52,7 +52,7 @@ export const PLANS: Plan[] = [
     badge: null,
     tagline: 'Meniul tău, frumos, pe telefonul clientului. QR pe masă în 15 minute.',
     included: [
-      'Meniu QR digital',
+      'QR-uri pe mese — clienții văd meniul pe telefon',
       'Până la 300 de produse',
       'Până la 120 mese / QR-uri',
       'Imagini la produse',
@@ -76,7 +76,8 @@ export const PLANS: Plan[] = [
       'Tot din Meniu Digital +',
       'Până la 1.000 de produse',
       'Până la 300 mese active / QR-uri',
-      'Comenzi prin QR (identificare automată a mesei)',
+      'Aceleași QR-uri activează comenzile — fără re-printare',
+      'Identificare automată a mesei',
       'Dashboard bucătărie',
       'Flux ospătar (preluare + închidere comandă)',
       'Rapoarte zilnice + săptămânale',
