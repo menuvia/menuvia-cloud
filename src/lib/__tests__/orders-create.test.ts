@@ -12,8 +12,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // ── Mocks ───────────────────────────────────────────────────────
 // Mock-uim modulul supabase ÎNAINTE să importăm orders.ts.
-// vi.mock se hoistează automat de Vitest, deci e ok să fie scris aici.
-const rpcMock = vi.fn()
+// vi.mock se hoistează la top — folosim vi.hoisted pentru a hoista și
+// declarația mock-urilor, altfel cădem cu "Cannot access before initialization".
+const { rpcMock, savePendingOrderMock } = vi.hoisted(() => ({
+  rpcMock: vi.fn(),
+  savePendingOrderMock: vi.fn(),
+}))
 
 vi.mock('../supabase', () => ({
   supabase: {
@@ -23,8 +27,6 @@ vi.mock('../supabase', () => ({
 
 // Mock pentru offlineSync — savePendingOrder e un dynamic import în createOrder,
 // dar vi.mock-ul intercepteaza și dynamic imports.
-const savePendingOrderMock = vi.fn()
-
 vi.mock('../offlineSync', () => ({
   savePendingOrder: savePendingOrderMock,
 }))

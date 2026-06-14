@@ -24,7 +24,7 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom'],
           'vendor-supabase': ['@supabase/supabase-js'],
-          'vendor-query': ['@tanstack/react-query', 'idb-keyval'],
+          'vendor-idb': ['idb-keyval'],
           'vendor-charts': ['recharts'],
           'vendor-pdf': ['jspdf'],
           'vendor-qr': ['qrcode'],

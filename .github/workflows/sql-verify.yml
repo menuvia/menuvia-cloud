@@ -838,6 +838,9 @@ jobs:
             -- Test 4: REGRESIE tips — mark_paid cu p_tips_amount scrie orders.tips_amount.
             -- Semnătura advance_order a pierdut odată p_tips_amount (rescriere Gate C)
             -- și bacșișurile ospătarilor se evaporau silențios. Acest test blochează re-regresia.
+            -- NB: mig 094 a gate-uit mark_paid pe fiscal_receipt (regula de aur — bani + bon = Plan 3).
+            -- Upgrade la 'pro' ca să trecem prin enforce_feature_for_restaurant.
+            update public.profiles set plan = 'pro' where id = v_owner_id;
             v_order_id := gen_random_uuid();
             insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
               values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 60.00, null);
