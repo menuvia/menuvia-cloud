@@ -616,6 +616,136 @@ jobs:
           end$$;
           ASSERTION
 
+      - name: "Critical fixes assertion (mig 094): 5 P0 vulnerabilities closed"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Audit critic 2026-06-14: 5 vulnerabilități critice închise în mig 094.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 <<'ASSERTION'
+          do $$
+          declare
+            v_owner_id   uuid := gen_random_uuid();
+            v_rest_id    uuid := gen_random_uuid();
+            v_table_id   uuid := gen_random_uuid();
+            v_order_id   uuid := gen_random_uuid();
+            v_session_id uuid := gen_random_uuid();
+            v_blocked    boolean;
+            v_count      int;
+            v_status     text;
+          begin
+            insert into auth.users (id, email) values (v_owner_id, 'test-mig094@menuvia.ro');
+            update public.profiles set plan = 'starter' where id = v_owner_id;
+            insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+              values (v_rest_id, v_owner_id, 'Test Mig 094', 'test-mig094', 'Cluj', true);
+            insert into public.tables (id, restaurant_id, name, slug, is_active)
+              values (v_table_id, v_rest_id, 'Masa 1', 'masa-1', true);
+
+            -- T1 (Fix 1): create_order 10-arg NU mai există
+            select count(*) into v_count
+              from pg_proc p
+              join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'public'
+               and p.proname = 'create_order'
+               and pg_get_function_identity_arguments(p.oid) =
+                   'p_restaurant_id uuid, p_source text, p_table_id uuid, p_qr_token_id uuid, p_notes text, p_items jsonb, p_idempotency_key uuid, p_pickup_time timestamp with time zone, p_customer_name text, p_customer_phone text';
+            if v_count > 0 then
+              raise exception 'ASSERTION FAILED T1: create_order 10-arg încă există (bypass mig 088)';
+            end if;
+            raise notice 'OK T1: create_order 10-arg DROP-uit';
+
+            -- T2 (Fix 2): is_admin/is_member/my_role au search_path setat
+            select count(*) into v_count
+              from pg_proc p
+             where p.proname in ('is_admin', 'is_member', 'my_role')
+               and array_to_string(p.proconfig, ',') like '%search_path=%';
+            if v_count != 3 then
+              raise exception 'ASSERTION FAILED T2: doar % din 3 funcții RLS au search_path', v_count;
+            end if;
+            raise notice 'OK T2: backbone RLS cu search_path setat';
+
+            -- T3 (Fix 3): feature fiscal_receipt pe toate planurile
+            select count(*) into v_count from public.plan_features where feature = 'fiscal_receipt';
+            if v_count < 5 then
+              raise exception 'ASSERTION FAILED T3: fiscal_receipt seed incomplet (%)', v_count;
+            end if;
+            raise notice 'OK T3: fiscal_receipt seed pe toate planurile';
+
+            -- T4 (Fix 4a): starter NU poate mark_paid (regula de aur)
+            insert into public.table_sessions (id, restaurant_id, table_id, status)
+              values (v_session_id, v_rest_id, v_table_id, 'open');
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 100.00, v_session_id);
+
+            perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
+            perform set_config('request.jwt.claim.role', 'authenticated', true);
+
+            v_blocked := false;
+            begin
+              perform public.advance_order(v_order_id, 'mark_paid', 100.00, 'cash', null, null);
+              raise exception 'ASSERTION FAILED T4: starter a putut emite bon fiscal!';
+            exception when others then
+              if sqlerrm like '%nu e disponibil%' or sqlerrm like '%feature_disabled%' then
+                v_blocked := true;
+                raise notice 'OK T4: starter blocat la mark_paid';
+              else
+                raise exception 'ASSERTION FAILED T4: eroare neașteptată: %', sqlerrm;
+              end if;
+            end;
+            if not v_blocked then raise exception 'ASSERTION FAILED T4: gate fiscal absent'; end if;
+
+            -- T5 (control pozitiv): pro POATE mark_paid
+            update public.profiles set plan = 'pro' where id = v_owner_id;
+            perform public.advance_order(v_order_id, 'mark_paid', 100.00, 'cash', null, null);
+            select status into v_status from public.orders where id = v_order_id;
+            if v_status != 'paid' then
+              raise exception 'ASSERTION FAILED T5: pro nu a putut mark_paid (status: %)', v_status;
+            end if;
+            raise notice 'OK T5 (CONTROL POZITIV): pro → status=paid';
+
+            -- T6 (Fix 4b): paid_amount negativ respins
+            insert into public.orders (id, restaurant_id, table_id, source, status, total)
+              values (gen_random_uuid(), v_rest_id, v_table_id, 'qr', 'served', 50.00)
+              returning id into v_order_id;
+            v_blocked := false;
+            begin
+              perform public.advance_order(v_order_id, 'mark_paid', -50.00, 'cash', null, null);
+              raise exception 'ASSERTION FAILED T6: paid_amount negativ acceptat!';
+            exception when others then
+              if sqlerrm like '%nu poate fi negativ%' or sqlerrm like '%invalid_amount%' then
+                v_blocked := true;
+                raise notice 'OK T6: paid_amount negativ respins';
+              else
+                raise exception 'ASSERTION FAILED T6: eroare neașteptată: %', sqlerrm;
+              end if;
+            end;
+            if not v_blocked then raise exception 'ASSERTION FAILED T6: validare semn absentă'; end if;
+
+            -- T7 (Fix 5): submit_order_feedback fără p_session_id respins
+            insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
+              values (gen_random_uuid(), v_rest_id, v_table_id, 'qr', 'served', 25.00, v_session_id)
+              returning id into v_order_id;
+            v_blocked := false;
+            begin
+              perform public.submit_order_feedback(v_order_id, 'service', 5, null, null);
+              raise exception 'ASSERTION FAILED T7: feedback acceptat fără session_id!';
+            exception when others then
+              if sqlerrm like '%session_required%' or sqlerrm like '%nu mai este valid%' then
+                v_blocked := true;
+                raise notice 'OK T7: feedback fără sesiune respins';
+              else
+                raise exception 'ASSERTION FAILED T7: eroare neașteptată: %', sqlerrm;
+              end if;
+            end;
+            if not v_blocked then raise exception 'ASSERTION FAILED T7: session-gate feedback absent'; end if;
+
+            -- T8 (control pozitiv): feedback cu sesiune validă acceptat
+            perform public.submit_order_feedback(v_order_id, 'service', 5, 'test', v_session_id);
+            raise notice 'OK T8 (CONTROL POZITIV): feedback cu sesiune acceptat';
+
+            raise notice '✅ Mig 094 assertion passed: 5 vulnerabilități P0 închise.';
+          end$$;
+          ASSERTION
+
       - name: "Gate C assertion: lifecycle closed + close_session_orders"
         env:
           PGPASSWORD: postgres
