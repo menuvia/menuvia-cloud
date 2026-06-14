@@ -4,7 +4,7 @@
 // Mobile-first, max-width 480px.
 // =============================================================
 
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useRef, lazy, Suspense } from 'react'
 import {
   resolveQrToken,
   fetchMenuForRestaurant,
@@ -602,13 +602,21 @@ export default function QrMenuPage({ token }: Props) {
           else if (product.dietary_tags?.includes('vegetarian')) badges.push('🥗')
 
           return (
-            <div
+            <button
               key={product.id}
+              type="button"
+              disabled={isUnavailable}
+              aria-label={product.name}
               onClick={() => {
                 if (isUnavailable) return
                 setActiveProduct(product)
               }}
               style={{
+                // Reset default button styles
+                font: 'inherit',
+                textAlign: 'left',
+                width: '100%',
+                // Keep visual styling intact
                 background: '#FDF8F2',
                 border: '1px solid #EDE3D4',
                 borderRadius: 14,
@@ -621,6 +629,7 @@ export default function QrMenuPage({ token }: Props) {
                 position: 'relative',
                 transition: 'transform 0.1s ease',
                 boxShadow: '0 1px 3px rgba(26,18,8,0.04)',
+                color: 'inherit',
               }}
               onMouseDown={(e) => {
                 if (!isUnavailable) e.currentTarget.style.transform = 'scale(0.985)'
@@ -858,7 +867,7 @@ export default function QrMenuPage({ token }: Props) {
                   )}
                 </div>
               </div>
-            </div>
+            </button>
           )
         })}
       </div>
