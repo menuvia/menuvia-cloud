@@ -167,6 +167,7 @@ describe('getPlan — accesare directă config', () => {
     expect(getPlan('starter').limits.maxProducts).toBeLessThan(getPlan('growth').limits.maxProducts)
     expect(getPlan('growth').limits.maxProducts).toBeLessThan(getPlan('pro').limits.maxProducts)
     expect(getPlan('starter').limits.maxTables).toBeLessThan(getPlan('growth').limits.maxTables)
+    expect(getPlan('growth').limits.maxTables).toBeLessThan(getPlan('pro').limits.maxTables)
   })
 
   it('doar pro/enterprise au highlight=true sau badge — UI-ul vinde Meniu + Comenzi', () => {

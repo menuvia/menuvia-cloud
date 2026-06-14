@@ -4,7 +4,7 @@
 // Mobile-first, max-width 480px.
 // =============================================================
 
-import { useState, useEffect, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import {
   resolveQrToken,
   fetchMenuForRestaurant,
@@ -602,21 +602,24 @@ export default function QrMenuPage({ token }: Props) {
           else if (product.dietary_tags?.includes('vegetarian')) badges.push('🥗')
 
           return (
-            <button
+            <div
               key={product.id}
-              type="button"
-              disabled={isUnavailable}
+              role="button"
+              tabIndex={isUnavailable ? -1 : 0}
               aria-label={product.name}
+              aria-disabled={isUnavailable || undefined}
               onClick={() => {
                 if (isUnavailable) return
                 setActiveProduct(product)
               }}
+              onKeyDown={(e) => {
+                if (isUnavailable) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setActiveProduct(product)
+                }
+              }}
               style={{
-                // Reset default button styles
-                font: 'inherit',
-                textAlign: 'left',
-                width: '100%',
-                // Keep visual styling intact
                 background: '#FDF8F2',
                 border: '1px solid #EDE3D4',
                 borderRadius: 14,
@@ -629,7 +632,6 @@ export default function QrMenuPage({ token }: Props) {
                 position: 'relative',
                 transition: 'transform 0.1s ease',
                 boxShadow: '0 1px 3px rgba(26,18,8,0.04)',
-                color: 'inherit',
               }}
               onMouseDown={(e) => {
                 if (!isUnavailable) e.currentTarget.style.transform = 'scale(0.985)'
@@ -817,6 +819,7 @@ export default function QrMenuPage({ token }: Props) {
                     </span>
                   ) : (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (!orderingAllowed) return
@@ -867,7 +870,7 @@ export default function QrMenuPage({ token }: Props) {
                   )}
                 </div>
               </div>
-            </button>
+            </div>
           )
         })}
       </div>

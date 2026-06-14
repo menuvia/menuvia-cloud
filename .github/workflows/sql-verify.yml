@@ -670,7 +670,9 @@ jobs:
             end if;
             raise notice 'OK T3: fiscal_receipt seed pe toate planurile';
 
-            -- T4 (Fix 4a): starter NU poate mark_paid (regula de aur)
+            -- Setup pentru T4-T8: creem comanda pe plan growth (care permite QR),
+            -- apoi schimbăm planul ca să testăm gate-ul fiscal pe mark_paid.
+            update public.profiles set plan = 'growth' where id = v_owner_id;
             insert into public.table_sessions (id, restaurant_id, table_id, status)
               values (v_session_id, v_rest_id, v_table_id, 'open');
             insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
@@ -679,14 +681,15 @@ jobs:
             perform set_config('request.jwt.claim.sub', v_owner_id::text, true);
             perform set_config('request.jwt.claim.role', 'authenticated', true);
 
+            -- T4 (Fix 4a): growth (fără fiscal_receipt) NU poate mark_paid
             v_blocked := false;
             begin
               perform public.advance_order(v_order_id, 'mark_paid', 100.00, 'cash', null, null);
-              raise exception 'ASSERTION FAILED T4: starter a putut emite bon fiscal!';
+              raise exception 'ASSERTION FAILED T4: growth a putut emite bon fiscal!';
             exception when others then
               if sqlerrm like '%nu e disponibil%' or sqlerrm like '%feature_disabled%' then
                 v_blocked := true;
-                raise notice 'OK T4: starter blocat la mark_paid';
+                raise notice 'OK T4: growth blocat la mark_paid (regula de aur)';
               else
                 raise exception 'ASSERTION FAILED T4: eroare neașteptată: %', sqlerrm;
               end if;
@@ -702,7 +705,7 @@ jobs:
             end if;
             raise notice 'OK T5 (CONTROL POZITIV): pro → status=paid';
 
-            -- T6 (Fix 4b): paid_amount negativ respins
+            -- T6 (Fix 4b): paid_amount negativ respins (rămânem pe pro pentru ordering)
             insert into public.orders (id, restaurant_id, table_id, source, status, total)
               values (gen_random_uuid(), v_rest_id, v_table_id, 'qr', 'served', 50.00)
               returning id into v_order_id;
