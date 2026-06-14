@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
-import { QueryClientProvider } from '@tanstack/react-query'
+// React Query a fost scos (mig 094 P2): instalat dar 0 useQuery/useMutation
+// în codebase. Greutate de bundle + semnal arhitectural fals.
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
-import { queryClient } from './lib/queryClient'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
@@ -2272,20 +2272,18 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <RestaurantProvider>
-            <ToastProvider>
-              <AppRouter />
-              <Suspense fallback={null}>
-                <PWAPrompt />
-              </Suspense>
-              <CookieBanner />
-              <ConfirmRoot />
-            </ToastProvider>
-          </RestaurantProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <AuthProvider>
+        <RestaurantProvider>
+          <ToastProvider>
+            <AppRouter />
+            <Suspense fallback={null}>
+              <PWAPrompt />
+            </Suspense>
+            <CookieBanner />
+            <ConfirmRoot />
+          </ToastProvider>
+        </RestaurantProvider>
+      </AuthProvider>
     </ErrorBoundary>
   )
 }
