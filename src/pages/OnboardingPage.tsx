@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
+import { createRestaurant } from '../lib/restaurants'
 
 // ─── Helpers ─────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -197,7 +198,6 @@ function Shell({ children }: { children: React.ReactNode }) {
 // STEP 1 — Creează restaurantul
 // ═══════════════════════════════════════════════════════════════
 function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: string) => void }) {
-  const { user } = useAuth()
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
   const [slug, setSlug] = useState('')
@@ -212,23 +212,19 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
     setSaving(true)
     setError(null)
     const finalSlug = slug || slugify(name)
-    const { data, error: e } = await supabase
-      .from('restaurants')
-      .insert({
-        owner_id: user!.id,
+    try {
+      const created = await createRestaurant({
         name: name.trim(),
         city: city.trim() || null,
         slug: finalSlug,
-        primary_color: '#C8963C',
+        primaryColor: '#C8963C',
       })
-      .select('id, slug')
-      .single()
-    if (e) {
-      setError(e.message.includes('slug') ? 'Acest URL e deja folosit. Alege altul.' : e.message)
+      onNext(created.restaurant_id, created.restaurant_slug)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
+      setError(msg.includes('slug') ? 'Acest URL e deja folosit. Alege altul.' : msg)
       setSaving(false)
-      return
     }
-    onNext(data.id, data.slug)
   }
 
   return (

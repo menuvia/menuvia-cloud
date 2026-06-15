@@ -4,6 +4,7 @@ import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
+import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Owner',
@@ -189,10 +190,9 @@ export default function TeamManager({
     setSending(false)
   }
 
-  const revokeInvite = async (id: string) => {
+  const handleRevokeInvite = async (id: string) => {
     try {
-      const { error } = await supabase.from('invite_tokens').delete().eq('id', id)
-      if (error) throw error
+      await revokeInvite({ inviteId: id })
       toast('Invitație anulată')
       await load()
     } catch {
@@ -200,14 +200,10 @@ export default function TeamManager({
     }
   }
 
-  const removeMember = async () => {
+  const handleRemoveMember = async () => {
     if (!removeTarget) return
     try {
-      const { error } = await supabase
-        .from('restaurant_memberships')
-        .delete()
-        .eq('id', removeTarget.id)
-      if (error) throw error
+      await removeMember({ membershipId: removeTarget.id })
       toast('Membru eliminat')
     } catch {
       toast('Eroare la eliminare', 'error')
@@ -216,13 +212,17 @@ export default function TeamManager({
     await load()
   }
 
-  const changeRole = async (id: string, newRole: MemberRole) => {
+  const handleChangeRole = async (id: string, newRole: MemberRole) => {
+    if (newRole === 'owner') {
+      // UI nu permite promovarea la owner; defense in depth.
+      toast('Promovarea la owner nu este permisă', 'error')
+      return
+    }
     try {
-      const { error } = await supabase
-        .from('restaurant_memberships')
-        .update({ role: newRole })
-        .eq('id', id)
-      if (error) throw error
+      await changeMemberRole({
+        membershipId: id,
+        newRole: newRole as Exclude<MemberRole, 'owner'>,
+      })
       toast('Rol actualizat')
       await load()
     } catch {
@@ -362,7 +362,7 @@ export default function TeamManager({
                   </div>
                 </div>
                 <button
-                  onClick={() => revokeInvite(inv.id)}
+                  onClick={() => handleRevokeInvite(inv.id)}
                   style={btn({
                     background: D.s3,
                     color: D.t2,
@@ -459,7 +459,7 @@ export default function TeamManager({
                   {!isOwner && !isSelf ? (
                     <select
                       value={m.role}
-                      onChange={(e) => changeRole(m.id, e.target.value as MemberRole)}
+                      onChange={(e) => handleChangeRole(m.id, e.target.value as MemberRole)}
                       style={{
                         background: D.s3,
                         border: `1px solid ${D.border}`,
@@ -558,7 +558,7 @@ export default function TeamManager({
               >
                 Anulează
               </button>
-              <button onClick={removeMember} style={btn({ background: D.red, color: '#fff' })}>
+              <button onClick={handleRemoveMember} style={btn({ background: D.red, color: '#fff' })}>
                 Elimină
               </button>
             </div>

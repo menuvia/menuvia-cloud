@@ -7,6 +7,7 @@ import {
   CATEGORY_UPDATE_FIELDS,
   PRODUCT_UPDATE_FIELDS,
 } from '../lib/sanitize'
+import { createRestaurant } from '../lib/restaurants'
 
 export interface Restaurant {
   id: string
@@ -154,14 +155,26 @@ export function useRestaurants() {
   }, [load])
 
   const create = async (form: Partial<Restaurant>) => {
-    const safe = pickAllowed(form, RESTAURANT_UPDATE_FIELDS)
-    const result = await supabase
-      .from('restaurants')
-      .insert({ ...safe, owner_id: user!.id })
-      .select()
-      .single()
-    if (!result.error) await load()
-    return result
+    // Forma legacy a contractului (păstrăm shape-ul {data,error} pe care îl
+    // așteptau call site-urile). Folosim RPC-ul `create_restaurant`; după
+    // bootstrap reluăm fetch-ul pentru a returna rândul cu toate coloanele.
+    try {
+      const created = await createRestaurant({
+        name: form.name ?? '',
+        city: form.city ?? null,
+        slug: form.slug ?? null,
+        primaryColor: form.primary_color ?? undefined,
+      })
+      await load()
+      const fetched = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('id', created.restaurant_id)
+        .single()
+      return fetched
+    } catch (e) {
+      return { data: null, error: e as Error }
+    }
   }
   const update = async (id: string, form: Partial<Restaurant>) => {
     const safe = pickAllowed(form, RESTAURANT_UPDATE_FIELDS)
