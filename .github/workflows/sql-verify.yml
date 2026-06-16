@@ -11,11 +11,15 @@ on:
     branches: [main, develop]
     paths:
       - 'supabase/**.sql'
+      - 'tests/sql/**/*.sql'
+      - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
   pull_request:
     branches: [main, develop]
     paths:
       - 'supabase/**.sql'
+      - 'tests/sql/**/*.sql'
+      - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
 
 jobs:
@@ -1054,6 +1058,63 @@ jobs:
             raise notice '✅ Gate C enforce passed: table_lifecycle plan-gate funcționează.';
           end$$;
           ASSERTION
+
+      - name: "Authorization PR 1A: confirm psql connects as postgres"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
+            "do \$\$ begin if session_user <> 'postgres' then raise exception 'CI FAIL: %', session_user; end if; end \$\$;"
+
+      - name: "Authorization PR 1A: seed mock-auth deterministic fixture"
+        if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/authorization_test_fixture.sql
+
+      - name: "Authorization PR 1A: phase-1A assertions (A1-A8)"
+        if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' && hashFiles('supabase/migrations/20260616000000_migration_096b_authorization_enforcement.sql') == '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/authorization_phase_1a_assertions.sql
+
+      - name: "Authorization PR 1A: load CI-only audit helper"
+        if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/helpers/assert_security_audit_shape.sql
+
+      - name: "Authorization PR 1A: catalog drift harness (18 cases)"
+        if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(tests/sql/catalog_drift/*.sql)
+          if (( ${#files[@]} != 18 )); then
+            echo "DRIFT FAIL: expected exactly 18 drift cases, found ${#files[@]}"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            echo "── drift case: $f"
+            psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: "Authorization PR 1A: drop CI-only audit helper"
+        if: ${{ always() && hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
+            "drop function if exists public.assert_security_audit_shape(text);"
 
       - name: Upload logs on failure
         if: failure()
