@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
 
