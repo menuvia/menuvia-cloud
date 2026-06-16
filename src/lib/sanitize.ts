@@ -4,11 +4,19 @@ import type { Restaurant, Category, Product } from '../hooks/useData'
 // Câmpuri controlate exclusiv server-side (id, owner_id, qr_token, is_active,
 // timestamps) sunt OMISE intenționat — RLS owner_id-policy permite altfel
 // transferul de proprietate prin payload fabricat.
+//
+// `slug` este OMIS deliberat din PR 1B (mig 096B): privilegiul column-level
+// UPDATE pe `restaurants.slug` este revocat la nivel de DB. Schimbarea slug-ului
+// trece exclusiv prin RPC-ul `change_restaurant_slug` (vezi
+// src/lib/restaurants.ts:130 + src/components/SettingsTab.tsx:124). Dacă slug-ul
+// ar fi păstrat în whitelist, un caller hipotetic l-ar putea trimite prin
+// `useRestaurants.update()` și PostgREST l-ar respinge cu 42501 — fail-closed
+// dar inutil. Mai bine îl excludem aici ca whitelist-ul TS să oglindească exact
+// privilegiile DB.
 export const RESTAURANT_UPDATE_FIELDS = [
   'name',
   'tagline',
   'city',
-  'slug',
   'description',
   'address',
   'phone',

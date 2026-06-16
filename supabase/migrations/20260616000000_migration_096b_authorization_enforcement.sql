@@ -15,8 +15,10 @@
 --
 -- Compatibilitate front-end:
 --   • UPDATE table-level revocat → fluxul de UPDATE pe restaurants merge prin
---     column-level GRANT pe whitelist-ul derivat din RESTAURANT_UPDATE_FIELDS
---     (src/lib/sanitize.ts:7-30) minus `slug` (V9.12 decision §13).
+--     column-level GRANT pe whitelist-ul care oglindește exact
+--     `RESTAURANT_UPDATE_FIELDS` (src/lib/sanitize.ts). `slug` este OMIS
+--     deliberat din ambele liste (V9.12 decision §13) — schimbarea slug-ului
+--     trece exclusiv prin `change_restaurant_slug` RPC.
 --   • SettingsTab.tsx folosea direct .update({slug, ...}). Acel call site
 --     migrează la `change_restaurant_slug` RPC în același PR.
 --   • `restaurants.remove()` din useData.ts nu este apelat din UI (verificat
