@@ -388,4 +388,76 @@ begin
   raise notice 'F8 PASS: 7 RPCs metadata + EXECUTE matrix OK';
 end$$;
 
-\echo '✅ final-state assertions passed (F1-F8)'
+-- ═══════════════════════ F9. change_restaurant_slug TOCTOU safety net ════════
+--   Forțează unique_violation pe UPDATE-ul intern (printr-un trigger BEFORE
+--   UPDATE care injectează un rând cu același slug) și asertă că funcția
+--   returnează contractul {ok:false, reason:slug_taken, slug} în loc să lase
+--   23505 să iasă către client. Acoperă fereastra TOCTOU dintre `exists` check
+--   și UPDATE care nu poate fi eliminată single-statement.
+do $$
+declare v_resp jsonb;
+        v_parasite uuid := gen_random_uuid();
+        v_parasite_user uuid := gen_random_uuid();
+        v_target_slug text := 'f9-toctou-' || substring(gen_random_uuid()::text, 1, 8);
+        v_my uuid := '00000000-0000-4000-8000-00000000a602';
+begin
+  -- Preconditii fixture-ului existent + competitor user/profile
+  insert into auth.users (id, email) values (v_parasite_user, 'f9-parasite@test.invalid')
+    on conflict (id) do nothing;
+  insert into public.profiles (id, email, full_name)
+    values (v_parasite_user, 'f9-parasite@test.invalid', 'F9 Parasite')
+    on conflict (id) do nothing;
+
+  -- Trigger injection: la UPDATE-ul restaurantului țintă, inserează rândul
+  -- competitor cu acelaşi slug → unique_violation.
+  create or replace function pg_temp.f9_race_inject() returns trigger language plpgsql as $f$
+  begin
+    if NEW.slug = current_setting('app.f9_race_slug', true) then
+      insert into public.restaurants (id, owner_id, name, slug, primary_color)
+      values (
+        current_setting('app.f9_race_parasite_id')::uuid,
+        current_setting('app.f9_race_parasite_user')::uuid,
+        'F9 Parasite Restaurant',
+        NEW.slug,
+        '#000000'
+      );
+    end if;
+    return NEW;
+  end$f$;
+
+  perform set_config('app.f9_race_slug', v_target_slug, true);
+  perform set_config('app.f9_race_parasite_id', v_parasite::text, true);
+  perform set_config('app.f9_race_parasite_user', v_parasite_user::text, true);
+
+  drop trigger if exists trg_f9_toctou_inject on public.restaurants;
+  create trigger trg_f9_toctou_inject before update on public.restaurants
+    for each row execute function pg_temp.f9_race_inject();
+
+  perform set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000a601', true);
+  v_resp := public.change_restaurant_slug(v_my, v_target_slug);
+
+  drop trigger trg_f9_toctou_inject on public.restaurants;
+
+  -- Contractul trebuie să fie {ok:false, reason:slug_taken, slug:v_target_slug}
+  if v_resp->>'ok' <> 'false' then
+    raise exception 'F9 FAIL: TOCTOU race returned ok=% (expected false); resp=%',
+      v_resp->>'ok', v_resp;
+  end if;
+  if v_resp->>'reason' <> 'slug_taken' then
+    raise exception 'F9 FAIL: reason=% (expected slug_taken); resp=%',
+      v_resp->>'reason', v_resp;
+  end if;
+  if v_resp->>'slug' <> v_target_slug then
+    raise exception 'F9 FAIL: slug=% (expected %); resp=%',
+      v_resp->>'slug', v_target_slug, v_resp;
+  end if;
+
+  -- Cleanup (parasite row a fost inserat în loc, restaurantul țintă neschimbat)
+  delete from public.restaurants where id = v_parasite;
+  delete from public.profiles  where id = v_parasite_user;
+  delete from auth.users       where id = v_parasite_user;
+
+  raise notice 'F9 PASS: change_restaurant_slug TOCTOU race → {ok:false, reason:slug_taken, slug:%}', v_target_slug;
+end$$;
+
+\echo '✅ final-state assertions passed (F1-F9)'

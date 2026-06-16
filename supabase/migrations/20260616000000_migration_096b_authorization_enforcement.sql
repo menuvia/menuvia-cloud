@@ -220,10 +220,19 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'slug_taken', 'slug', v_new_slug);
   end if;
 
-  update public.restaurants
-     set slug = v_new_slug
-   where id = p_restaurant_id
-   returning slug into v_existing;
+  -- TOCTOU safety net: între `exists` check și UPDATE există o fereastră în care
+  -- alt session poate INSERT-ui exact acest slug. UNIQUE(restaurants.slug) prinde
+  -- duplicarea, dar fără handler-ul ăsta clientul ar primi 23505 în loc de
+  -- contractul `{ok:false, reason:'slug_taken'}`.
+  begin
+    update public.restaurants
+       set slug = v_new_slug
+     where id = p_restaurant_id
+     returning slug into v_existing;
+  exception
+    when unique_violation then
+      return jsonb_build_object('ok', false, 'reason', 'slug_taken', 'slug', v_new_slug);
+  end;
   if not found then
     raise exception using errcode = 'no_data_found', message = 'restaurant not found';
   end if;
