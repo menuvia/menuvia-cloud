@@ -604,9 +604,20 @@ export default function QrMenuPage({ token }: Props) {
           return (
             <div
               key={product.id}
+              role="button"
+              tabIndex={isUnavailable ? -1 : 0}
+              aria-label={product.name}
+              aria-disabled={isUnavailable || undefined}
               onClick={() => {
                 if (isUnavailable) return
                 setActiveProduct(product)
+              }}
+              onKeyDown={(e) => {
+                if (isUnavailable) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setActiveProduct(product)
+                }
               }}
               style={{
                 background: '#FDF8F2',
@@ -808,6 +819,7 @@ export default function QrMenuPage({ token }: Props) {
                     </span>
                   ) : (
                     <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation()
                         if (!orderingAllowed) return
