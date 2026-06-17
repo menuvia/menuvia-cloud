@@ -253,6 +253,7 @@ end$$;
 do $$
 declare
   v_col text;
+  v_extra text;
   v_whitelist text[] := array[
     'name','tagline','city','description','address','phone','hours',
     'hours_structured','timezone','wifi_password','primary_color','logo_url',
@@ -267,22 +268,31 @@ begin
       raise exception 'F6 FAIL: authenticated lost UPDATE on restaurants.%', v_col;
     end if;
   end loop;
-  -- owner_id + slug EXPLICIT excluse din whitelist
+
+  -- Exact-allowlist enforcement: zero coloane în AFARA whitelist-ului trebuie
+  -- să rămână UPDATE-able. Asigură că o nouă coloană adăugată în viitor sau o
+  -- altă coloană sensibilă (business_type, qr_token, is_active, currency,
+  -- language, etc.) NU primește implicit privilegiu.
+  select string_agg(c.column_name, ', ' order by c.ordinal_position)
+    into v_extra
+    from information_schema.columns c
+   where c.table_schema = 'public'
+     and c.table_name   = 'restaurants'
+     and has_column_privilege('authenticated', 'public.restaurants', c.column_name, 'UPDATE')
+     and not (c.column_name = any (v_whitelist));
+  if v_extra is not null then
+    raise exception 'F6 FAIL: authenticated retains UPDATE on coloane în afara whitelist-ului: %', v_extra;
+  end if;
+
+  -- owner_id + slug EXPLICIT excluse din whitelist (sanity asserts; redundanți
+  -- cu exact-allowlist check de mai sus, dar mențin mesajul de eroare precis)
   if has_column_privilege('authenticated', 'public.restaurants', 'owner_id', 'UPDATE') then
     raise exception 'F6 FAIL: authenticated retains UPDATE on restaurants.owner_id';
   end if;
   if has_column_privilege('authenticated', 'public.restaurants', 'slug', 'UPDATE') then
     raise exception 'F6 FAIL: authenticated retains UPDATE on restaurants.slug';
   end if;
-  -- Coloane sensitive neexpuse în UI (currency, language, tax_included, is_active)
-  -- nu trebuie să fie UPDATE-able fără un decis explicit per coloană
-  if has_column_privilege('authenticated', 'public.restaurants', 'currency', 'UPDATE') then
-    raise exception 'F6 FAIL: authenticated retains UPDATE on restaurants.currency';
-  end if;
-  if has_column_privilege('authenticated', 'public.restaurants', 'language', 'UPDATE') then
-    raise exception 'F6 FAIL: authenticated retains UPDATE on restaurants.language';
-  end if;
-  raise notice 'F6 PASS: whitelist 21 coloane UPDATE OK; owner_id/slug/currency/language excluse';
+  raise notice 'F6 PASS: exact allowlist 21 coloane UPDATE OK; toate celelalte coloane excluse';
 end$$;
 
 -- ═══════════════════════ F7. A6 partajat (3 cazuri + metadata) ════════════════
@@ -429,7 +439,14 @@ begin
   perform set_config('app.f9_race_parasite_id', v_parasite::text, true);
   perform set_config('app.f9_race_parasite_user', v_parasite_user::text, true);
 
-  drop trigger if exists trg_f9_toctou_inject on public.restaurants;
+  -- Conditional drop ca să nu emitem NOTICE inutil în CI dacă triggerul lipsea.
+  if exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.restaurants'::regclass
+       and tgname  = 'trg_f9_toctou_inject'
+  ) then
+    drop trigger trg_f9_toctou_inject on public.restaurants;
+  end if;
   create trigger trg_f9_toctou_inject before update on public.restaurants
     for each row execute function pg_temp.f9_race_inject();
 
@@ -438,18 +455,15 @@ begin
 
   drop trigger trg_f9_toctou_inject on public.restaurants;
 
-  -- Contractul trebuie să fie {ok:false, reason:slug_taken, slug:v_target_slug}
-  if v_resp->>'ok' <> 'false' then
-    raise exception 'F9 FAIL: TOCTOU race returned ok=% (expected false); resp=%',
-      v_resp->>'ok', v_resp;
-  end if;
-  if v_resp->>'reason' <> 'slug_taken' then
-    raise exception 'F9 FAIL: reason=% (expected slug_taken); resp=%',
-      v_resp->>'reason', v_resp;
-  end if;
-  if v_resp->>'slug' <> v_target_slug then
-    raise exception 'F9 FAIL: slug=% (expected %); resp=%',
-      v_resp->>'slug', v_target_slug, v_resp;
+  -- Contractul trebuie să fie EXACT {ok:false, reason:slug_taken, slug:v_target_slug}.
+  -- `IS DISTINCT FROM` pe jsonb întreg e null-safe (cheile lipsă nu mai produc NULL).
+  if v_resp is distinct from jsonb_build_object(
+    'ok',     false,
+    'reason', 'slug_taken',
+    'slug',   v_target_slug
+  ) then
+    raise exception 'F9 FAIL: TOCTOU race response=% (expected {ok:false, reason:slug_taken, slug:%})',
+      v_resp, v_target_slug;
   end if;
 
   -- Cleanup (parasite row a fost inserat în loc, restaurantul țintă neschimbat)
