@@ -1,0 +1,217 @@
+-- tests/sql/authorization_phase_1c_assertions.sql
+--   Set complet asserții PR 1C (după 096C). Cere fixture-ul rulat în prealabil.
+--
+--   G1. Guard tranzitoriu eliminat (trigger + funcție).
+--   G2. Invariant deferred CONSTRAINT TRIGGER activ (deferrable, init deferred).
+--   G3. owner_id immutability trigger (096A) păstrat activ.
+--   G4. Schema/tabela `archive.invite_tokens_owner_history` există, zero
+--       privilegii pentru rolurile aplicației.
+--   G5. Privilegii table-level final-state (096B) păstrate: zero IUD pe cele
+--       trei tabele pentru PUBLIC/anon/authenticated.
+--   G6. Comportamental: invariantul deferred respinge o stare finală ruptă
+--       (DELETE owner) la SET CONSTRAINTS IMMEDIATE; pozitiv: create_restaurant
+--       rămâne valid (1 owner aliniat).
+--   G7. 7 RPC-uri intacte: EXECUTE matrix per (anon, authenticated, service_role)
+--       + PUBLIC EXECUTE zero.
+--   G8. A6 validated via \ir (convalidated=true + 3 cazuri comportamentale).
+
+\set ON_ERROR_STOP on
+
+-- ═══════════════════════ G1. Guard tranzitoriu eliminat ══════════════════════
+do $$
+begin
+  if exists (select 1 from pg_trigger
+              where tgname='trg_block_owner_membership_mutation' and not tgisinternal) then
+    raise exception 'G1 FAIL: transitory guard trigger still present';
+  end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname='fn_block_owner_membership_mutation') then
+    raise exception 'G1 FAIL: fn_block_owner_membership_mutation still present';
+  end if;
+  raise notice 'G1 PASS: transitory guard fully retired';
+end$$;
+
+-- ═══════════════════════ G2. Invariant deferred trigger activ ════════════════
+do $$
+declare v_count int;
+begin
+  select count(*) into v_count from pg_trigger
+   where tgname  = 'trg_enforce_owner_membership_invariant'
+     and tgrelid = 'public.restaurant_memberships'::regclass
+     and not tgisinternal
+     and tgenabled in ('O','A')
+     and tgdeferrable and tginitdeferred
+     and tgfoid = 'public.fn_enforce_owner_membership_invariant()'::regprocedure;
+  if v_count <> 1 then
+    raise exception 'G2 FAIL: deferred invariant trigger missing/not-deferred/wrong-fn';
+  end if;
+  raise notice 'G2 PASS: trg_enforce_owner_membership_invariant active, DEFERRABLE INITIALLY DEFERRED';
+end$$;
+
+-- ═══════════════════════ G3. owner_id immutability păstrat ═══════════════════
+do $$
+begin
+  if not exists (select 1 from pg_trigger
+                  where tgname='trg_restaurants_owner_id_immutable'
+                    and tgrelid='public.restaurants'::regclass
+                    and not tgisinternal and tgenabled in ('O','A')
+                    and tgfoid='public.fn_restaurants_owner_id_immutable()'::regprocedure) then
+    raise exception 'G3 FAIL: owner_id immutability trigger missing';
+  end if;
+  raise notice 'G3 PASS: trg_restaurants_owner_id_immutable still active';
+end$$;
+
+-- ═══════════════════════ G4. Arhivă owner-invite ═════════════════════════════
+do $$
+declare v_role text;
+begin
+  if to_regclass('archive.invite_tokens_owner_history') is null then
+    raise exception 'G4 FAIL: archive.invite_tokens_owner_history missing';
+  end if;
+  -- Zero privilegii pe tabela de arhivă pentru rolurile aplicației
+  foreach v_role in array array['anon','authenticated','service_role'] loop
+    if has_table_privilege(v_role, 'archive.invite_tokens_owner_history',
+         'SELECT, INSERT, UPDATE, DELETE') then
+      raise exception 'G4 FAIL: % retains privilege on archive table', v_role;
+    end if;
+  end loop;
+  -- PUBLIC via aclexplode
+  if exists (select 1 from pg_class c, aclexplode(c.relacl) ae
+              where c.oid = 'archive.invite_tokens_owner_history'::regclass
+                and ae.grantee = 0) then
+    raise exception 'G4 FAIL: PUBLIC retains privilege on archive table';
+  end if;
+  raise notice 'G4 PASS: archive table present, zero app-role privileges';
+end$$;
+
+-- ═══════════════════════ G5. Privilegii table-level (096B) păstrate ══════════
+do $$
+declare v_role text;
+begin
+  foreach v_role in array array['anon','authenticated','service_role'] loop
+    if has_table_privilege(v_role, 'public.restaurants',
+         'INSERT, DELETE, REFERENCES, TRUNCATE, TRIGGER') then
+      raise exception 'G5 FAIL: % retains non-UPDATE privilege on restaurants', v_role;
+    end if;
+    if has_table_privilege(v_role, 'public.restaurant_memberships', 'INSERT, UPDATE, DELETE') then
+      raise exception 'G5 FAIL: % retains IUD on restaurant_memberships', v_role;
+    end if;
+    if has_table_privilege(v_role, 'public.invite_tokens', 'INSERT, UPDATE, DELETE') then
+      raise exception 'G5 FAIL: % retains IUD on invite_tokens', v_role;
+    end if;
+  end loop;
+  raise notice 'G5 PASS: 096B table-level lockdown preserved';
+end$$;
+
+-- ═══════════════════════ G6. Comportamental invariant deferred ═══════════════
+-- G6.1 negativ: ștergerea owner membership lasă o stare finală ruptă →
+-- SET CONSTRAINTS ALL IMMEDIATE forțează triggerul deferred → check_violation.
+begin;
+set local role postgres;
+savepoint g6;
+do $$
+declare v_hint text;
+begin
+  delete from public.restaurant_memberships
+   where restaurant_id = '00000000-0000-4000-8000-00000000a602'
+     and role = 'owner'::public.member_role;
+  begin
+    set constraints all immediate;
+    raise exception 'G6.1 FAIL: deferred invariant did not fire on missing owner';
+  exception
+    when check_violation then
+      get stacked diagnostics v_hint = pg_exception_hint;
+      if v_hint <> 'invariant:owner_membership_singleton' then
+        raise exception 'G6.1 FAIL: wrong hint=%', v_hint;
+      end if;
+    when others then
+      raise exception 'G6.1 FAIL: unexpected SQLSTATE %', sqlstate;
+  end;
+end$$;
+rollback to savepoint g6;
+rollback;
+
+-- G6.2 pozitiv: create_restaurant produce exact 1 owner aliniat; SET CONSTRAINTS
+-- IMMEDIATE nu ridică nimic (invariant satisfăcut).
+begin;
+do $$ begin
+  update public.profiles set plan = 'enterprise'
+   where id = '00000000-0000-4000-8000-00000000a601';
+end$$;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000a601';
+set local role authenticated;
+do $$
+declare v_slug text := 'g6-bootstrap-' || gen_random_uuid()::text;
+        v_resp jsonb; v_rid uuid; v_n int;
+begin
+  v_resp := public.create_restaurant('G6 Bootstrap', 'București', v_slug, '#C8963C');
+  if not (v_resp->>'ok')::boolean then raise exception 'G6.2 FAIL: resp=%', v_resp; end if;
+  v_rid := (v_resp->>'restaurant_id')::uuid;
+  set constraints all immediate;  -- nu trebuie să ridice
+  select count(*) into v_n from public.restaurant_memberships
+   where restaurant_id = v_rid and role = 'owner'::public.member_role;
+  if v_n <> 1 then raise exception 'G6.2 FAIL: owner count=%', v_n; end if;
+  raise notice 'G6 PASS: deferred invariant blocks broken end-state + permits create_restaurant';
+end$$;
+rollback;
+
+-- ═══════════════════════ G7. 7 RPC-uri EXECUTE matrix intactă ════════════════
+do $$
+declare v_role text; v_fn text; v_should boolean; v_actual boolean; v_proc regprocedure;
+  v_all text[] := array[
+    'public.preview_invite(text)','public.accept_invite(text)',
+    'public.create_restaurant(text,text,text,text)',
+    'public.change_member_role(uuid,public.member_role)',
+    'public.remove_member(uuid)','public.revoke_invite(uuid)',
+    'public.change_restaurant_slug(uuid,text)'];
+begin
+  -- toate cele 7 există
+  foreach v_fn in array v_all loop
+    if to_regprocedure(v_fn) is null then raise exception 'G7 FAIL: % missing', v_fn; end if;
+  end loop;
+  -- PUBLIC EXECUTE zero
+  foreach v_fn in array v_all loop
+    v_proc := v_fn::regprocedure;
+    if exists (select 1 from pg_proc p, aclexplode(p.proacl) ae
+                where p.oid = v_proc and ae.grantee=0 and ae.privilege_type='EXECUTE') then
+      raise exception 'G7 FAIL: PUBLIC retains EXECUTE on %', v_fn;
+    end if;
+  end loop;
+  -- matrix
+  for v_role, v_fn, v_should in
+    select * from (values
+      ('anon','public.preview_invite(text)',true),
+      ('authenticated','public.preview_invite(text)',true),
+      ('service_role','public.preview_invite(text)',false),
+      ('anon','public.accept_invite(text)',false),
+      ('authenticated','public.accept_invite(text)',true),
+      ('service_role','public.accept_invite(text)',false),
+      ('anon','public.create_restaurant(text,text,text,text)',false),
+      ('authenticated','public.create_restaurant(text,text,text,text)',true),
+      ('service_role','public.create_restaurant(text,text,text,text)',false),
+      ('anon','public.change_member_role(uuid,public.member_role)',false),
+      ('authenticated','public.change_member_role(uuid,public.member_role)',true),
+      ('service_role','public.change_member_role(uuid,public.member_role)',false),
+      ('anon','public.remove_member(uuid)',false),
+      ('authenticated','public.remove_member(uuid)',true),
+      ('service_role','public.remove_member(uuid)',false),
+      ('anon','public.revoke_invite(uuid)',false),
+      ('authenticated','public.revoke_invite(uuid)',true),
+      ('service_role','public.revoke_invite(uuid)',false),
+      ('anon','public.change_restaurant_slug(uuid,text)',false),
+      ('authenticated','public.change_restaurant_slug(uuid,text)',true),
+      ('service_role','public.change_restaurant_slug(uuid,text)',false)
+    ) m(rl, fn, should)
+  loop
+    v_actual := has_function_privilege(v_role, v_fn::regprocedure, 'EXECUTE');
+    if v_actual <> v_should then
+      raise exception 'G7 FAIL: % on % expected=% actual=%', v_role, v_fn, v_should, v_actual;
+    end if;
+  end loop;
+  raise notice 'G7 PASS: 7 RPCs EXECUTE matrix intact + PUBLIC zero';
+end$$;
+
+-- ═══════════════════════ G8. A6 validated (convalidated + 3 cazuri) ══════════
+\ir assertions/a6_invite_owner_constraint_validated.sql
+
+\echo '✅ phase-1C assertions passed (G1-G8)'
