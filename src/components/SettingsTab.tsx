@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES } from '../lib/themes'
 import VatRatesEditor from './VatRatesEditor'
@@ -122,7 +123,33 @@ export default function SettingsTab({
 
   const handleSave = async () => {
     setSaving(true)
-    const { error } = await onUpdate(restaurant.id, form)
+    // Slug-ul are flux separat (RPC change_restaurant_slug — PR 1B 096B revocă
+    // UPDATE column-level pe restaurants.slug). Rulăm slug-ul ÎNAINTE: dacă
+    // eșuează (slug ocupat), abortăm și nu mai trimitem celelalte câmpuri.
+    const slugChanged =
+      typeof form.slug === 'string' && form.slug.trim() !== '' && form.slug !== restaurant.slug
+    if (slugChanged) {
+      try {
+        const r = await changeRestaurantSlug({
+          restaurantId: restaurant.id,
+          newSlug: form.slug as string,
+        })
+        if (!r.ok) {
+          toast(`Slug indisponibil: "${r.slug}" e deja folosit`, 'error')
+          setSaving(false)
+          return
+        }
+      } catch (e) {
+        toast('Eroare la schimbarea slug-ului: ' + (e as Error).message, 'error')
+        setSaving(false)
+        return
+      }
+    }
+
+    // Restul câmpurilor (fără slug) prin .update() — gated de RLS + column-level GRANT.
+    const { slug: _slug, ...rest } = form
+    void _slug
+    const { error } = await onUpdate(restaurant.id, rest)
     if (error) toast('Eroare: ' + error.message, 'error')
     else toast('Salvat')
     setSaving(false)

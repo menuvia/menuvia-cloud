@@ -16,6 +16,7 @@ import {
   changeMemberRole,
   removeMember,
   revokeInvite,
+  changeRestaurantSlug,
 } from '../restaurants'
 
 beforeEach(() => {
@@ -130,5 +131,50 @@ describe('revokeInvite', () => {
       error: null,
     })
     await expect(revokeInvite({ inviteId: 'i-1' })).rejects.toThrow(/ok !== true/)
+  })
+})
+
+describe('changeRestaurantSlug', () => {
+  it('returns the parsed new slug on success', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { ok: true, restaurant_id: 'r-1', slug: 'noul-slug' },
+      error: null,
+    })
+    const r = await changeRestaurantSlug({ restaurantId: 'r-1', newSlug: 'Noul Slug' })
+    expect(r).toEqual({ ok: true, restaurant_id: 'r-1', slug: 'noul-slug' })
+    expect(mockRpc).toHaveBeenCalledWith('change_restaurant_slug', {
+      p_restaurant_id: 'r-1',
+      p_new_slug: 'Noul Slug',
+    })
+  })
+
+  it('returns slug_taken conflict without throwing', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { ok: false, reason: 'slug_taken', slug: 'ocupat' },
+      error: null,
+    })
+    const r = await changeRestaurantSlug({ restaurantId: 'r-1', newSlug: 'ocupat' })
+    expect(r).toEqual({ ok: false, reason: 'slug_taken', slug: 'ocupat' })
+  })
+
+  it('throws on rpc error', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: new Error('rpc died') })
+    await expect(
+      changeRestaurantSlug({ restaurantId: 'r-1', newSlug: 'x' }),
+    ).rejects.toThrow('rpc died')
+  })
+
+  it('throws on missing fields in success response', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { ok: true, restaurant_id: 'r-1' }, error: null })
+    await expect(
+      changeRestaurantSlug({ restaurantId: 'r-1', newSlug: 'x' }),
+    ).rejects.toThrow(/Invalid change_restaurant_slug success/)
+  })
+
+  it('throws on malformed conflict response', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { ok: false }, error: null })
+    await expect(
+      changeRestaurantSlug({ restaurantId: 'r-1', newSlug: 'x' }),
+    ).rejects.toThrow(/Invalid change_restaurant_slug conflict/)
   })
 })

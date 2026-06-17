@@ -109,3 +109,45 @@ export async function revokeInvite(input: { inviteId: string }): Promise<RevokeI
   }
   return { invite_id: inviteId }
 }
+
+// ── change_restaurant_slug — introdus în mig 096B (PR 1B).
+//    Înlocuiește UPDATE direct pe `restaurants.slug` (privilegiul column-level
+//    a fost revocat). Admin-only server-side; validează unicitate.
+export interface ChangeRestaurantSlugSuccess {
+  ok: true
+  restaurant_id: string
+  slug: string
+}
+export interface ChangeRestaurantSlugConflict {
+  ok: false
+  reason: 'slug_taken'
+  slug: string
+}
+export type ChangeRestaurantSlugResult =
+  | ChangeRestaurantSlugSuccess
+  | ChangeRestaurantSlugConflict
+
+export async function changeRestaurantSlug(input: {
+  restaurantId: string
+  newSlug: string
+}): Promise<ChangeRestaurantSlugResult> {
+  const { data, error } = await supabase.rpc('change_restaurant_slug', {
+    p_restaurant_id: input.restaurantId,
+    p_new_slug: input.newSlug,
+  })
+  if (error) throw error
+  if (!isObject(data) || (data.ok !== true && data.ok !== false)) {
+    throw new Error('Invalid change_restaurant_slug response')
+  }
+  if (data.ok === false) {
+    if (data.reason !== 'slug_taken' || typeof data.slug !== 'string') {
+      throw new Error('Invalid change_restaurant_slug conflict response')
+    }
+    return { ok: false, reason: 'slug_taken', slug: data.slug }
+  }
+  // data.ok === true
+  if (typeof data.restaurant_id !== 'string' || typeof data.slug !== 'string') {
+    throw new Error('Invalid change_restaurant_slug success response')
+  }
+  return { ok: true, restaurant_id: data.restaurant_id, slug: data.slug }
+}
