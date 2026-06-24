@@ -61,6 +61,42 @@ begin
   raise notice 'G3 PASS: trg_restaurants_owner_id_immutable still active';
 end$$;
 
+-- ═══════════════════════ G3.5 Coexistență triggers ownership ═════════════════
+-- Modelul de securitate depinde de AMBELE triggere active simultan:
+--   • trg_restaurants_owner_id_immutable — owner_id pe `restaurants` e
+--     imuabil (096A). Fără el, o tranzacție ar putea pivota owner_id ca să
+--     „alinieze" un membership compromis → invariantul deferred l-ar accepta
+--     ca stare finală coerentă, dar atacatorul ar fi mutat efectiv ownership.
+--   • trg_enforce_owner_membership_invariant — exact 1 owner membership
+--     aliniat la COMMIT (096C). Fără el, un RPC buggy ar putea persista
+--     zero/doi owneri sau un owner nealiniat.
+-- Eliminarea ORICĂRUIA slăbește tăcut invariantul global: invariantul de
+-- membership presupune owner_id imuabil; immutability presupune memberships
+-- coerente. Niciunul nu e suficient singur.
+do $$
+declare v_immutable int; v_invariant int;
+begin
+  select count(*) into v_immutable from pg_trigger
+   where tgname  = 'trg_restaurants_owner_id_immutable'
+     and tgrelid = 'public.restaurants'::regclass
+     and tgfoid  = 'public.fn_restaurants_owner_id_immutable()'::regprocedure
+     and not tgisinternal and tgenabled in ('O','A');
+  if v_immutable <> 1 then
+    raise exception 'G3.5 FAIL: owner_id immutability trigger missing/disabled (count=%)', v_immutable;
+  end if;
+
+  select count(*) into v_invariant from pg_trigger
+   where tgname  = 'trg_enforce_owner_membership_invariant'
+     and tgrelid = 'public.restaurant_memberships'::regclass
+     and tgfoid  = 'public.fn_enforce_owner_membership_invariant()'::regprocedure
+     and not tgisinternal and tgenabled in ('O','A');
+  if v_invariant <> 1 then
+    raise exception 'G3.5 FAIL: owner membership invariant trigger missing/disabled (count=%)', v_invariant;
+  end if;
+
+  raise notice 'G3.5 PASS: both ownership triggers coexist (owner_id immutability + membership invariant)';
+end$$;
+
 -- ═══════════════════════ G4. Arhivă owner-invite ═════════════════════════════
 do $$
 declare v_role text;
@@ -153,6 +189,41 @@ begin
   if v_n <> 1 then raise exception 'G6.2 FAIL: owner count=%', v_n; end if;
   raise notice 'G6 PASS: deferred invariant blocks broken end-state + permits create_restaurant';
 end$$;
+rollback;
+
+-- G6.3 negativ alignment: count=1 dar user_id ≠ restaurants.owner_id.
+-- Acoperă ramura distinctă `invariant:owner_membership_alignment`, care e
+-- separată de `owner_membership_singleton` testată în G6.1. Pivotăm user_id
+-- al owner-membership-ului existent la un user competitor → count rămâne 1
+-- (singleton ok) dar alignment se rupe. SET CONSTRAINTS IMMEDIATE forțează
+-- triggerul deferred → check_violation cu hint exact.
+begin;
+set local role postgres;
+savepoint g63;
+do $$
+declare v_hint text; v_other uuid := gen_random_uuid();
+begin
+  insert into auth.users (id, email) values (v_other, 'g63-other@test.invalid')
+    on conflict (id) do nothing;
+  update public.restaurant_memberships
+     set user_id = v_other
+   where restaurant_id = '00000000-0000-4000-8000-00000000a602'
+     and role = 'owner'::public.member_role;
+  begin
+    set constraints all immediate;
+    raise exception 'G6.3 FAIL: deferred invariant did not fire on alignment break';
+  exception
+    when check_violation then
+      get stacked diagnostics v_hint = pg_exception_hint;
+      if v_hint <> 'invariant:owner_membership_alignment' then
+        raise exception 'G6.3 FAIL: wrong hint=% (expected invariant:owner_membership_alignment)', v_hint;
+      end if;
+    when others then
+      raise exception 'G6.3 FAIL: unexpected SQLSTATE %', sqlstate;
+  end;
+  raise notice 'G6.3 PASS: deferred invariant blocks owner_membership_alignment break + zero state drift';
+end$$;
+rollback to savepoint g63;
 rollback;
 
 -- ═══════════════════════ G7. 7 RPC-uri EXECUTE matrix intactă ════════════════

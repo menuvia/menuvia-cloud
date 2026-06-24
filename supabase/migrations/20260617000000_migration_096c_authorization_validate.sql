@@ -22,6 +22,38 @@
 -- Securitate: zero GUC bypass, zero session_replication_role. Migrația rulează
 -- într-o singură tranzacție DDL atomică; dacă invariantul global e rupt la
 -- pre-check, abort înainte de orice modificare.
+--
+-- TRADE-OFF NOTE: per-statement guard → deferred invariant
+--   Mutarea de la guardul BEFORE I/U/D (per-statement, din 096A) la CONSTRAINT
+--   TRIGGER DEFERRABLE INITIALLY DEFERRED (commit-time) NU este o îmbunătățire
+--   pură — este un trade-off conștient asumat:
+--     • ÎNAINTE (per-statement): guardul respingea statementul ofensator
+--       IMEDIAT, inclusiv din interiorul RPC-urilor SECURITY DEFINER. Un bug
+--       care încerca să rupă starea owner era prins exact la statementul
+--       vinovat — debugging trivial, fail-fast la sursa erorii.
+--     • DUPĂ (commit-time): un RPC buggy poate TRANZITA o stare ruptă pe
+--       parcursul tranzacției (ex. ștergere temporară a owner-membership +
+--       reinserare ulterioară) și o poate „repara" înainte de COMMIT;
+--       invariantul deferred NU va trage pe transit, doar dacă starea finală
+--       rămâne ruptă la COMMIT (sau la SET CONSTRAINTS IMMEDIATE).
+--   De ce e acceptabil:
+--     • Commit-time garantează în continuare invariantul final pentru ORICE
+--       tranzacție care reușește să se commit-eze — zero scenarii „end-state
+--       broken" se persistă în tabel.
+--     • 096B a făcut REVOKE IUD pe rolurile aplicației (anon/authenticated/
+--       service_role) pe `restaurant_memberships`, deci mutațiile directe de
+--       la PostgREST sunt deja blocate la nivel de privilegii — singura cale
+--       de mutație rămâne RPC-urile SECURITY DEFINER auditate (suprafața
+--       mică: create_restaurant, change_member_role, remove_member).
+--   Ce trebuie să respecte codul viitor:
+--     • Orice cod nou care mutează owner memberships în interiorul unei
+--       tranzacții TREBUIE să lase starea finală coerentă (exact 1 owner
+--       aliniat cu restaurants.owner_id) — invariantul deferred NU va ajuta
+--       la debugging mid-transaction transit; bug-urile care „se autocorect-
+--       ează" înainte de COMMIT vor trece neobservate de DB.
+--     • Pentru orice RPC nou care atinge owner memberships, adaugă teste
+--       comportamentale care verifică explicit starea intermediară, nu doar
+--       starea finală.
 
 begin;
 
