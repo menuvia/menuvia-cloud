@@ -144,38 +144,74 @@ language plpgsql
 set search_path = public, pg_temp
 as $$
 declare
-  v_rid             uuid := coalesce(NEW.restaurant_id, OLD.restaurant_id);
+  -- Setul de restaurante de validat per rând atinsit. Iterăm peste valori
+  -- distincte: când restaurant_memberships UPDATE mută rândul între
+  -- restaurante (OLD.restaurant_id ≠ NEW.restaurant_id), AMBELE restaurante
+  -- trebuie validate, altfel restaurantul vechi poate rămâne cu 0 owneri și
+  -- triggerul nu l-ar prinde dacă verifica doar NEW (CodeRabbit PR#48 #3).
+  v_restaurant_ids  uuid[];
+  v_rid             uuid;
   v_restaurant_owner uuid;
   v_owner_count     int;
 begin
-  -- Restaurantul a dispărut (cascade delete) → nu mai e nimic de impus.
-  select r.owner_id into v_restaurant_owner
-    from public.restaurants r where r.id = v_rid;
-  if not found then
-    return null;
+  -- Determină ce restaurante au fost atinse de operația curentă. Funcția
+  -- e atașată la DOUĂ triggere (CONSTRAINT TRIGGER DEFERRED):
+  --   • pe `restaurant_memberships` (AFTER I/U/D) — sursa primară;
+  --   • pe `restaurants` (AFTER INSERT OR UPDATE OF owner_id) — defense-in-depth
+  --     pentru cazul în care un INSERT/UPDATE pe `restaurants` ar putea
+  --     persista un restaurant fără owner-membership (ex. bootstrap-ul
+  --     `bootstrap_restaurant_owner` dezactivat sau bypass-at).
+  if TG_TABLE_NAME = 'restaurant_memberships' then
+    if TG_OP = 'INSERT' then
+      v_restaurant_ids := array[NEW.restaurant_id];
+    elsif TG_OP = 'DELETE' then
+      v_restaurant_ids := array[OLD.restaurant_id];
+    else  -- UPDATE: ambele dacă diferă (mutarea owner între restaurante)
+      v_restaurant_ids := array[OLD.restaurant_id, NEW.restaurant_id];
+    end if;
+  elsif TG_TABLE_NAME = 'restaurants' then
+    -- Pe `restaurants`: PK `id` e imuabil, deci NEW.id == OLD.id la UPDATE.
+    -- INSERT setează NEW.id; nu există trigger DELETE pe `restaurants` aici
+    -- (CASCADE-ul va trigger-ui DELETE-ul de pe memberships oricum).
+    v_restaurant_ids := array[coalesce(NEW.id, OLD.id)];
+  else
+    return null;  -- defensive: niciodată atins în production
   end if;
 
-  select count(*) into v_owner_count
-    from public.restaurant_memberships rm
-   where rm.restaurant_id = v_rid and rm.role = 'owner'::public.member_role;
+  for v_rid in
+    select distinct rid
+      from unnest(v_restaurant_ids) as ids(rid)
+     where rid is not null
+  loop
+    -- Restaurantul a dispărut (cascade delete) → nu mai e nimic de impus.
+    select r.owner_id into v_restaurant_owner
+      from public.restaurants r where r.id = v_rid;
+    if not found then
+      continue;
+    end if;
 
-  if v_owner_count <> 1 then
-    raise exception using errcode = 'check_violation',
-      message = format('restaurant %s must have exactly 1 owner membership, found %s',
-                       v_rid, v_owner_count),
-      hint = 'invariant:owner_membership_singleton';
-  end if;
+    select count(*) into v_owner_count
+      from public.restaurant_memberships rm
+     where rm.restaurant_id = v_rid and rm.role = 'owner'::public.member_role;
 
-  if not exists (
-    select 1 from public.restaurant_memberships rm
-     where rm.restaurant_id = v_rid
-       and rm.role = 'owner'::public.member_role
-       and rm.user_id = v_restaurant_owner
-  ) then
-    raise exception using errcode = 'check_violation',
-      message = format('restaurant %s owner membership not aligned with owner_id', v_rid),
-      hint = 'invariant:owner_membership_alignment';
-  end if;
+    if v_owner_count <> 1 then
+      raise exception using errcode = 'check_violation',
+        message = format('restaurant %s must have exactly 1 owner membership, found %s',
+                         v_rid, v_owner_count),
+        hint = 'invariant:owner_membership_singleton';
+    end if;
+
+    if not exists (
+      select 1 from public.restaurant_memberships rm
+       where rm.restaurant_id = v_rid
+         and rm.role = 'owner'::public.member_role
+         and rm.user_id = v_restaurant_owner
+    ) then
+      raise exception using errcode = 'check_violation',
+        message = format('restaurant %s owner membership not aligned with owner_id', v_rid),
+        hint = 'invariant:owner_membership_alignment';
+    end if;
+  end loop;
 
   return null;
 end$$;
@@ -187,6 +223,20 @@ drop trigger if exists trg_enforce_owner_membership_invariant
   on public.restaurant_memberships;
 create constraint trigger trg_enforce_owner_membership_invariant
   after insert or update or delete on public.restaurant_memberships
+  deferrable initially deferred
+  for each row execute function public.fn_enforce_owner_membership_invariant();
+
+-- Defense-in-depth: invariant și pe `restaurants` la INSERT și UPDATE OF
+-- owner_id. UPDATE-ul de owner_id e blocat de `trg_restaurants_owner_id_immutable`
+-- în mod normal, dar scriptul admin de remediere îl dezactivează temporar —
+-- triggerul ăsta asigură că, chiar și sub bypass, ownership-ul rămâne aliniat
+-- la COMMIT. INSERT-ul prinde cazul în care un RPC viitor ar bypassa
+-- triggerul `bootstrap_restaurant_owner` (din 004) și ar lăsa restaurantul
+-- fără owner-membership.
+drop trigger if exists trg_enforce_owner_membership_invariant_restaurants
+  on public.restaurants;
+create constraint trigger trg_enforce_owner_membership_invariant_restaurants
+  after insert or update of owner_id on public.restaurants
   deferrable initially deferred
   for each row execute function public.fn_enforce_owner_membership_invariant();
 
@@ -224,14 +274,22 @@ begin
     raise exception '096C FAIL: fn_block_owner_membership_mutation still present';
   end if;
 
-  -- Invariant deferred constraint trigger activ
+  -- Invariant deferred constraint trigger activ — ambele tabele
   select count(*) into v_inv from pg_trigger
    where tgname = 'trg_enforce_owner_membership_invariant'
      and tgrelid = 'public.restaurant_memberships'::regclass
      and not tgisinternal and tgdeferrable and tginitdeferred
      and tgfoid = 'public.fn_enforce_owner_membership_invariant()'::regprocedure;
   if v_inv <> 1 then
-    raise exception '096C FAIL: deferred invariant trigger missing/not-deferred';
+    raise exception '096C FAIL: deferred invariant trigger on memberships missing/not-deferred';
+  end if;
+  select count(*) into v_inv from pg_trigger
+   where tgname = 'trg_enforce_owner_membership_invariant_restaurants'
+     and tgrelid = 'public.restaurants'::regclass
+     and not tgisinternal and tgdeferrable and tginitdeferred
+     and tgfoid = 'public.fn_enforce_owner_membership_invariant()'::regprocedure;
+  if v_inv <> 1 then
+    raise exception '096C FAIL: deferred invariant trigger on restaurants missing/not-deferred';
   end if;
 
   -- owner_id immutability trigger (din 096A) rămâne activ

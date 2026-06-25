@@ -73,7 +73,7 @@ begin
   select count(*) into v_total from public.invite_tokens;
   raise notice '[Sec 3] invite_tokens: % rows, on-disk %', v_total, v_size;
   if v_size_bytes > 1024 * 1024 * 1024 or v_total > 5000000 then
-    raise notice 'WARNING: invite_tokens is large (size=%s, rows=%s). VALIDATE CONSTRAINT does a full sequential scan and may exceed the 120s statement_timeout in 096C. Recommendation: SET LOCAL statement_timeout to e.g. 30min for the apply session.',
+    raise notice 'WARNING: invite_tokens is large (size=%, rows=%). VALIDATE CONSTRAINT does a full sequential scan and may exceed the 120s statement_timeout in 096C. Recommendation: SET LOCAL statement_timeout to e.g. 30min for the apply session.',
       v_size, v_total;
   end if;
 end$$;

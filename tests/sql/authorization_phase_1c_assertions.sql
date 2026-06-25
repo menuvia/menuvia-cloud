@@ -48,6 +48,27 @@ begin
   raise notice 'G2 PASS: trg_enforce_owner_membership_invariant active, DEFERRABLE INITIALLY DEFERRED';
 end$$;
 
+-- ═══════════════════════ G2.5 Invariant trigger și pe `restaurants` ═════════
+-- Defense-in-depth: triggerul a doua atașat la `public.restaurants` (AFTER
+-- INSERT OR UPDATE OF owner_id) — acoperă cazul în care un RPC viitor ar
+-- bypassa `bootstrap_restaurant_owner` la INSERT, sau dezactivează triggerul
+-- de imutabilitate pentru UPDATE owner_id (cum face scriptul admin de remediere).
+do $$
+declare v_count int;
+begin
+  select count(*) into v_count from pg_trigger
+   where tgname  = 'trg_enforce_owner_membership_invariant_restaurants'
+     and tgrelid = 'public.restaurants'::regclass
+     and not tgisinternal
+     and tgenabled in ('O','A')
+     and tgdeferrable and tginitdeferred
+     and tgfoid = 'public.fn_enforce_owner_membership_invariant()'::regprocedure;
+  if v_count <> 1 then
+    raise exception 'G2.5 FAIL: deferred invariant trigger on restaurants missing/not-deferred/wrong-fn';
+  end if;
+  raise notice 'G2.5 PASS: trg_enforce_owner_membership_invariant_restaurants active, DEFERRABLE INITIALLY DEFERRED';
+end$$;
+
 -- ═══════════════════════ G3. owner_id immutability păstrat ═══════════════════
 do $$
 begin
@@ -224,6 +245,64 @@ begin
   raise notice 'G6.3 PASS: deferred invariant blocks owner_membership_alignment break + zero state drift';
 end$$;
 rollback to savepoint g63;
+rollback;
+
+-- G6.4 negativ multi-restaurant UPDATE: mută owner-membership-ul restaurantului
+-- a602 într-un al doilea restaurant. Restaurantul a602 rămâne fără owner (count=0)
+-- → triggerul trebuie să verifice AMBELE restaurante (OLD + NEW), nu doar NEW.
+-- Înainte de fix: coalesce(NEW.restaurant_id, OLD.restaurant_id) verifica doar
+-- NEW, ratând restaurantul vechi. Fix: iterare distinctă peste OLD + NEW.
+begin;
+set local role postgres;
+savepoint g64;
+do $$
+declare
+  v_other_rid uuid := '00000000-0000-4000-8000-00000000a604';
+  v_other_owner uuid := gen_random_uuid();
+  v_hint text;
+begin
+  -- Seed: al doilea restaurant cu owner-ul aliniat (bootstrap_restaurant_owner
+  -- creează owner-membership automat la INSERT). NU rulăm SET CONSTRAINTS
+  -- IMMEDIATE aici — păstrăm checkurile queued, ca să le evaluăm o singură dată
+  -- la sfârșit, după operația răutăcioasă, pe starea finală.
+  insert into auth.users (id, email) values (v_other_owner, 'g64-other-owner@test.invalid')
+    on conflict (id) do nothing;
+  insert into public.profiles (id, email, full_name)
+    values (v_other_owner, 'g64-other-owner@test.invalid', 'G64 Other')
+    on conflict (id) do nothing;
+  insert into public.restaurants (id, owner_id, name, slug, primary_color)
+    values (v_other_rid, v_other_owner, 'G64 Other', 'g64-other', '#000000');
+
+  -- Operația răutăcioasă: șterge owner-ul a604 (creat de bootstrap) și mută
+  -- owner-membership-ul a602 în a604, setând user_id = owner_id-ul a604 ca
+  -- alinierea pe a604 să fie OK. Atunci A SINGURĂ ramură ruptă rămâne a602
+  -- (singleton, count=0) — exact ramura pe care fix-ul OLD+NEW o prinde.
+  delete from public.restaurant_memberships
+   where restaurant_id = v_other_rid and role = 'owner'::public.member_role;
+  update public.restaurant_memberships
+     set restaurant_id = v_other_rid, user_id = v_other_owner
+   where restaurant_id = '00000000-0000-4000-8000-00000000a602'
+     and role = 'owner'::public.member_role;
+
+  -- Acum: a602 are 0 owneri; a604 are 1 owner aliniat. Pre-fix, triggerul cu
+  -- coalesce(NEW.restaurant_id, OLD.restaurant_id) ar verifica doar a604 → OK
+  -- și ar lăsa a602 nedetectat. Post-fix, iterează peste OLD ∪ NEW distinct și
+  -- prinde a602 cu singleton 0.
+  begin
+    set constraints all immediate;
+    raise exception 'G6.4 FAIL: deferred invariant did not fire on OLD-restaurant break after UPDATE move';
+  exception
+    when check_violation then
+      get stacked diagnostics v_hint = pg_exception_hint;
+      if v_hint <> 'invariant:owner_membership_singleton' then
+        raise exception 'G6.4 FAIL: wrong hint=% (expected invariant:owner_membership_singleton on OLD restaurant)', v_hint;
+      end if;
+    when others then
+      raise exception 'G6.4 FAIL: unexpected SQLSTATE %', sqlstate;
+  end;
+  raise notice 'G6.4 PASS: deferred invariant validates BOTH OLD and NEW restaurant_id on UPDATE move';
+end$$;
+rollback to savepoint g64;
 rollback;
 
 -- ═══════════════════════ G7. 7 RPC-uri EXECUTE matrix intactă ════════════════
