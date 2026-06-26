@@ -56,22 +56,49 @@ exports.handler = async (event) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
   // ── SEC-003: idempotency dedup ─────────────────────────────────
+  // Persistăm `data` ÎNTREG (object + previous_attributes), nu doar
+  // `data.object`. Pentru subscription.updated, `previous_attributes` e
+  // singura sursă a tranziției de plan (ex. Plan 3 → Plan 2) — necesară
+  // pentru reconstrucția corectă a comisioanelor de afiliere downstream.
   const { error: dedupErr } = await supabase
     .from('stripe_events')
     .insert({
       event_id:   stripeEvent.id,
       event_type: stripeEvent.type,
-      payload:    stripeEvent.data?.object || null,
+      payload:    stripeEvent.data || null,
       status:     'processing',
     })
 
   if (dedupErr) {
     if (dedupErr.code === '23505') {
-      console.log(`[stripe-webhook] Duplicate event ${stripeEvent.id} ignored`)
-      return jsonResponse(200, { received: true, duplicate: true })
+      // event_id deja există. Distingem un duplicat REAL (deja procesat cu
+      // succes) de o reprocesare legitimă cerută de Stripe după un 500
+      // (rândul a rămas 'failed'). Vechiul cod ștergea rândul pe eroare ca
+      // să permită retry; acum păstrăm rândul ca ancoră durabilă de
+      // idempotență și deblocăm reprocesarea doar pentru stările ne-finale.
+      const { data: existing } = await supabase
+        .from('stripe_events')
+        .select('status')
+        .eq('event_id', stripeEvent.id)
+        .single()
+
+      if (existing?.status === 'completed') {
+        console.log(`[stripe-webhook] Duplicate event ${stripeEvent.id} ignored (completed)`)
+        return jsonResponse(200, { received: true, duplicate: true })
+      }
+
+      // status 'failed' / 'processing' / 'received' → retry Stripe: redeschidem
+      // pentru reprocesare. Efectele financiare downstream trebuie să fie
+      // idempotente per-efect (ON CONFLICT), nu să se bazeze pe acest rând.
+      await supabase
+        .from('stripe_events')
+        .update({ status: 'processing', error_info: null })
+        .eq('event_id', stripeEvent.id)
+      console.log(`[stripe-webhook] Reprocessing event ${stripeEvent.id} (prev status: ${existing?.status})`)
+    } else {
+      console.error('[stripe-webhook] Dedup table error:', dedupErr.message)
+      return jsonResponse(500, { error: 'Dedup storage failed' })
     }
-    console.error('[stripe-webhook] Dedup table error:', dedupErr.message)
-    return jsonResponse(500, { error: 'Dedup storage failed' })
   }
 
   // ── Process event ──────────────────────────────────────────────
@@ -223,6 +250,38 @@ exports.handler = async (event) => {
         break
       }
 
+      case 'invoice.paid': {
+        // Sursa canonică de „bani efectiv încasați" — temelia comisioanelor
+        // de afiliere (setup la prima factură, recurring la cicluri).
+        // În Faza 0 doar capturăm evenimentul (lifecycle + dedup durabil);
+        // logica de comision se adaugă într-o migrație/RPC separată.
+        const invoice = stripeEvent.data.object
+        const customerId = invoice.customer
+        // billing_reason distinge prima factură (subscription_create) de
+        // ciclurile recurente (subscription_cycle) și de prorations.
+        const billingReason = invoice.billing_reason || null
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('stripe_customer_id', customerId)
+          .single()
+
+        if (profile) {
+          userId = profile.id
+          await safeInsertLifecycleEvent(supabase, profile.id, 'invoice_paid', {
+            billing_reason:  billingReason,
+            amount_paid:     invoice.amount_paid,
+            currency:        invoice.currency,
+            invoice_id:      invoice.id,
+            subscription_id: invoice.subscription,
+          })
+        } else {
+          console.warn(`[stripe-webhook] invoice.paid: no profile for customer ${customerId}`)
+        }
+        break
+      }
+
       default:
         console.log(`[stripe-webhook] Unhandled event type: ${stripeEvent.type}`)
         break
@@ -234,8 +293,17 @@ exports.handler = async (event) => {
 
   // ── Finalize stripe_events row ─────────────────────────────────
   if (processingError) {
-    // Delete failed row so Stripe retry can re-process cleanly
-    await supabase.from('stripe_events').delete().eq('event_id', stripeEvent.id)
+    // NU ștergem rândul (vechiul comportament): ștergerea distrugea singura
+    // sursă durabilă de idempotență, iar orice efect parțial deja scris
+    // (ex. un viitor ledger de comisioane) s-ar fi redublat la retry.
+    // În schimb marcăm 'failed' + error_info și răspundem 500: Stripe
+    // retrimite, dar dedup-ul pe event_id rămâne ancora durabilă —
+    // procesarea idempotentă se face per-efect (ON CONFLICT), nu prin
+    // ștergerea rândului de dedup.
+    await supabase
+      .from('stripe_events')
+      .update({ status: 'failed', error_info: processingError })
+      .eq('event_id', stripeEvent.id)
     return jsonResponse(500, { error: 'Processing failed', detail: processingError })
   }
 
