@@ -193,12 +193,42 @@ Cron lunar → draft → awaiting_invoice → invoice_matched → processing →
 
 | Fază | Conținut | Stare |
 |---|---|---|
-| **0** | Hardening webhook (idempotență durabilă + `invoice.paid` + payload complet) | ✅ PR #49 |
-| **1** | Fundația contabilă: `ledger_entries` append-only (WORM trigger) + `amount_cents`/`currency` + RPC `process_stripe_affiliate_event` + state machine comision | next |
-| **2** | Atribuire profile-bound + anti-fraud economic; checkout metadata; gates self-referral/incrementality; cap 12 luni. **Payout 100% manual.** | — |
-| **3** | UI panou afiliat (paralel): 4 tab-uri, KPI hero, breakdown, `formatRON`, fix contrast `D.t3`, extrage `MetricCard` în `sharedUI` | — |
-| **4** | Legal + TVA (paralel, non-cod): contract validat avocat; seed VAT 11/21 + banner one-time | acest doc |
-| **5** | Doar dacă scalează: `restaurant_subscriptions`, Wise sandbox + payout automat, Stripe Connect, fraud-graph CUI/IBAN | backlog |
+| **0** | Hardening webhook (idempotență durabilă + `invoice.paid` + payload complet) | ✅ |
+| **1** | Fundația contabilă: ledger append-only (WORM) + cents/currency + RPC comision (097/097B) | ✅ |
+| **2** | Atribuire profile-bound + anti-fraud economic (097C); checkout/webhook wiring; `/r/:cod` | ✅ |
+| **3** | UI panou afiliat: 4 tab-uri, dashboard RPC (097D), `useAffiliate`, `/afiliat`, QR | ✅ |
+| **4** | Legal + TVA (non-cod): contract avocat; seed VAT 11/21 | brief gata (acest doc) |
+| **5** | Payouts: schema + state machine + batch RPC (098). **Plată manuală** până la Wise sandbox | ✅ schema; Wise = backlog |
+| **6** | Doar dacă scalează: `restaurant_subscriptions`, Wise automat, Stripe Connect, fraud-graph CUI/IBAN | backlog |
+
+## 10. Runbook payout (MVP manual)
+
+Cron-ul (`automation-cron.js`, ziua 1 a lunii la 04:00) cheamă
+`run_affiliate_payout_batch` care creează **DOAR draft-uri** din soldul plătibil
+(`eligibil − în-zbor`). Nu mișcă bani. Operatorul avansează manual fiecare draft:
+
+1. **Review draft** — verifică suma (`affiliate_payouts.gross_cents`) și soldul afiliatului.
+2. `draft → awaiting_invoice` — cere afiliatului factura (PFA/SRL, e-Factura/SPV).
+3. `awaiting_invoice → invoice_matched` — după ce factura e confirmată (Oblio/SPV),
+   setează `invoice_number`.
+4. `invoice_matched → processing` — trimite banii prin Wise (UI/CSV), setează `wise_transfer_id`.
+5. `processing → paid` — la confirmarea Wise. **Triggerul inserează automat debitul
+   în ledger** (decontare WORM-compatibilă); balanța afiliatului scade.
+   - `processing → failed` (IBAN invalid) → soldul redevine plătibil luna următoare.
+   - `processing → on_hold` (ambiguu) → reconciliere manuală.
+
+Invariante impuse de DB (mig 098):
+- tranziții ilegale respinse (state machine trigger);
+- niciun revert spre stări pre-transfer după ce există `wise_transfer_id` (anti dublă-plată);
+- `paid`/`canceled` = terminale;
+- idempotency: un singur batch per (afiliat, perioadă); `wise_customer_txn_id` = UUID persistat.
+
+### Automatizare Wise (backlog, NEACTIVAT)
+Înainte de a automatiza pașii 4-5, **validează în sandbox Wise**:
+(a) idempotența `POST /transfers/{id}/payments` (fund-step) pe `transfer_id`;
+(b) comportamentul la reutilizarea `customerTransactionId` după X ore (TTL nepublicat).
+Designul cere **2 faze** (create transfer + fund) cu **reconciliere-prin-GET înainte de
+orice resubmit** — niciodată re-trimitere oarbă. Vezi auditul E7/D7.
 
 ## 9. Istoric decizii (de ce arată așa)
 
