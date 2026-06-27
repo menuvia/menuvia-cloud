@@ -78,4 +78,14 @@ describe('toCsv()', () => {
     const csv = toCsv([{ complex: 'a, "b"\nc' }])
     expect(csv).toBe(`${BOM}complex\n"a, ""b""\nc"`)
   })
+
+  it('neutralizează injecția de formulă (=,+,-,@ la început)', () => {
+    // Un produs numit ca o formulă nu trebuie să se execute când owner-ul
+    // deschide CSV-ul în Excel/Sheets → prefixat cu apostrof.
+    const csv = toCsv([{ nume: '=HYPERLINK("http://rau")' }])
+    expect(csv).toContain(`'=HYPERLINK`)
+    expect(csv.includes('\n=HYPERLINK')).toBe(false)
+    // Numerele negative (tip number) NU sunt prefixate.
+    expect(toCsv([{ x: -5 }])).toBe(`${BOM}x\n-5`)
+  })
 })
