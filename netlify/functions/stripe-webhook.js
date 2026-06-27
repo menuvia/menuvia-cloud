@@ -170,8 +170,12 @@ exports.handler = async (event) => {
         }
         userId = profile.id
 
-        // Plan real din metadata (active/trialing); altfel downgrade la free.
-        const subPlan = normalizePlan(subscription.metadata?.plan)
+        // Plan real din price.id-ul FACTURAT (subscription.items), NU din metadata.plan
+        // care ramane stale la downgrade (audit P1: gate-leak — un downgrade Plan 3→2/1 nu
+        // retrograda gate-ul fiscal). Mapam prin PLAN_BY_PRICE; price nemapat → fail-closed 'free'.
+        const subItems = subscription.items?.data || []
+        const subPlanItems = subItems.filter((i) => i?.price?.id && PLAN_BY_PRICE[i.price.id])
+        const subPlan = subPlanItems.length ? PLAN_BY_PRICE[subPlanItems[0].price.id] : 'free'
         const activePlan = ['active', 'trialing'].includes(status) ? subPlan : 'free'
 
         const { error } = await supabase
@@ -447,24 +451,25 @@ exports.handler = async (event) => {
 }
 
 // ── Helper: normalize plan string to canonical paid tier ──────────
-// Acceptă doar planurile plătite valide; orice altceva → 'pro' (safe default
-// pentru un abonament activ — nu lăsăm un plan necunoscut să devină 'free').
+// FAIL-CLOSED (audit P1): un plan necunoscut/lipsă → 'free', NU 'pro'. Altfel orice
+// valoare nemapată ar fi acordat Plan 3 (fiscalizare) gratuit — gate-leak. Planul
+// real se derivă oricum din price.id facturat, nu din string-uri arbitrare.
 const VALID_PAID_PLANS = ['starter', 'growth', 'pro', 'enterprise']
 function normalizePlan(plan) {
   const p = String(plan || '').toLowerCase()
-  return VALID_PAID_PLANS.includes(p) ? p : 'pro'
+  return VALID_PAID_PLANS.includes(p) ? p : 'free'
 }
 
 // ── Helper: resolve plan from subscription metadata ────────────────
-// Citește metadata.plan setat la checkout. Fallback 'pro' dacă lipsește.
+// Citește metadata.plan setat la checkout. Fail-CLOSED la 'free' dacă lipsește/eșuează.
 async function resolvePlan(stripe, subscriptionId) {
-  if (!subscriptionId) return 'pro'
+  if (!subscriptionId) return 'free'
   try {
     const sub = await stripe.subscriptions.retrieve(subscriptionId)
     return normalizePlan(sub.metadata?.plan)
   } catch (e) {
-    console.warn('[stripe-webhook] resolvePlan failed, defaulting pro:', e.message)
-    return 'pro'
+    console.warn('[stripe-webhook] resolvePlan failed, defaulting free:', e.message)
+    return 'free'
   }
 }
 
