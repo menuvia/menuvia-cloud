@@ -47,6 +47,9 @@ exports.handler = async (event) => {
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '')
     .slice(0, 32)
+  // visitor_id corelează touch-ul (de la /r/:cod) cu această conversie pentru
+  // gate-ul de incrementality fail-closed (vezi capture_affiliate_attribution).
+  const visitorId = String(body.visitor_id || '').slice(0, 64)
   const priceId = PRICE_IDS[requestedPlan]
   if (!priceId) {
     return jsonResponse(400, {
@@ -99,6 +102,7 @@ exports.handler = async (event) => {
         p_referral_code: referralCode,
         p_referred_profile_id: user.id,
         p_stripe_customer_id: customerId,
+        p_visitor_id: visitorId || null,
       })
       if (attrErr) {
         console.warn('[stripe-checkout] affiliate capture failed:', attrErr.message)

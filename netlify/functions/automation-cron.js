@@ -71,18 +71,27 @@ exports.handler = async () => {
     }
   }
 
-  // ── Job 3b: affiliate payout batch (o dată pe lună, ziua 1 la 04:00 Buc) ──
+  // ── Job 3b: affiliate payout batch (lunar, catch-up robust) ──
   //   Creează DOAR draft-uri de payout din soldul plătibil (eligibil − în-zbor).
-  //   NU mișcă bani — transferul efectiv (factură + Wise) e proces separat,
-  //   manual până la validarea în sandbox. Idempotent per (afiliat, perioadă).
-  if (day === 1 && hour === 4 && minute < 15) {
+  //   NU mișcă bani — transferul efectiv (factură + Wise) e proces separat.
+  //   FEREASTRĂ LARGĂ (primele 2 zile, înainte de 06:00) ca un tick ratat de
+  //   Netlify să nu însemne „zero plăți luna asta". Un check ieftin de existență
+  //   asigură că batch-ul (care iterează toți afiliații) rulează o SINGURĂ dată
+  //   pe perioadă; restul tick-urilor sunt no-op.
+  if (day <= 2 && hour < 6) {
     try {
       const period = `${t.year}-${t.month}-01` // prima zi a lunii curente (Buc)
-      const { data, error } = await supabase.rpc('run_affiliate_payout_batch', {
-        p_period_month: period,
-      })
-      if (error) throw error
-      results.affiliate_payouts = data
+      const { count } = await supabase
+        .from('affiliate_payouts')
+        .select('id', { count: 'exact', head: true })
+        .eq('period_month', period)
+      if (!count) {
+        const { data, error } = await supabase.rpc('run_affiliate_payout_batch', {
+          p_period_month: period,
+        })
+        if (error) throw error
+        results.affiliate_payouts = data
+      }
     } catch (e) {
       results.affiliate_payout_error = e.message
     }

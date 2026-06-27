@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
-import { getStoredReferral } from './lib/affiliate'
+import { getStoredReferral, getVisitorId } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
@@ -2166,13 +2166,18 @@ function AppRouter() {
             // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
             // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
             const referralCode = getStoredReferral()
+            const visitorId = getVisitorId()
             const res = await fetch('/.netlify/functions/stripe-checkout', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer ' + (s?.access_token || ''),
               },
-              body: JSON.stringify({ plan, ...(referralCode ? { referral_code: referralCode } : {}) }),
+              body: JSON.stringify({
+                plan,
+                ...(referralCode ? { referral_code: referralCode } : {}),
+                ...(visitorId ? { visitor_id: visitorId } : {}),
+              }),
             })
             const d = await res.json()
             if (d.url) window.location.href = d.url

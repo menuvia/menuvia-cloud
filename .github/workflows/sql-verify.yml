@@ -1090,6 +1090,20 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/authorization_final_state_assertions.sql
 
+      - name: "Affiliate program assertions"
+        if: ${{ hashFiles('supabase/migrations/20260626000000_migration_097_affiliate_foundation.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Programul de afiliere: capture/process/refund/payout direct (service-role).
+          # Nu cheamă register/dashboard → auth.uid()=NULL e OK. Fiecare fișier e
+          # self-contained (begin;…rollback;), deci ordinea nu contează.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_foundation_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_commission_rpc_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_attribution_rpc_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_p0_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
