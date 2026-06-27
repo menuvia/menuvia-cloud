@@ -468,7 +468,7 @@ const NAV_GROUPS: NavGroup[] = [
     minTier: 2,
     subTabs: [
       { id: 'raport', label: 'Rapoarte' },
-      { id: 'analytics', label: 'Statistici' },
+      { id: 'analytics', label: 'Statistici', minTier: 3 },
       { id: 'tva', label: 'TVA', minTier: 3 },
       { id: 'casa-tura', label: 'Încasări', minTier: 3 },
       { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
