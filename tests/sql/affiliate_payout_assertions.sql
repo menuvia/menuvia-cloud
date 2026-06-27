@@ -202,6 +202,31 @@ begin
   raise notice 'PO9 OK: processing necesită wise_transfer_id';
 end $$;
 
+-- ── PO10: comision EUR → batch creează draft EUR (mig 107, multi-monedă) ─────
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000da','00da@aff.test'),
+  ('00000000-0000-0000-0000-0000000000ea','00ea@aff.test')
+  on conflict (id) do nothing;
+insert into public.affiliates (id, profile_id, referral_code) values
+  ('0a000000-0000-0000-0000-00000000000a','00000000-0000-0000-0000-0000000000da','aff00a');
+insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, status) values
+  ('0b000000-0000-0000-0000-00000000000a','0a000000-0000-0000-0000-00000000000a','00000000-0000-0000-0000-0000000000ea','active');
+insert into public.affiliate_ledger
+  (affiliate_id, attribution_id, leg, amount_cents, currency, hold_until, stripe_event_id)
+  values ('0a000000-0000-0000-0000-00000000000a','0b000000-0000-0000-0000-00000000000a',
+          'setup',30000,'EUR', now() - interval '1 day','evt_eur');
+do $$
+declare v jsonb; v_cur text; v_gross bigint;
+begin
+  v := public.run_affiliate_payout_batch('2027-02-01');
+  if (v->>'created')::int < 1 then raise exception 'PO10 FAIL: niciun draft creat (%)', v; end if;
+  select currency::text, gross_cents into v_cur, v_gross from public.affiliate_payouts
+   where affiliate_id='0a000000-0000-0000-0000-00000000000a' and period_month='2027-02-01';
+  if v_cur is distinct from 'EUR' then raise exception 'PO10 FAIL: draft nu e EUR (%)', v_cur; end if;
+  if v_gross is distinct from 30000 then raise exception 'PO10 FAIL: gross EUR % (așteptat 30000)', v_gross; end if;
+  raise notice 'PO10 OK: comision EUR → draft EUR 30000';
+end $$;
+
 do $$ begin raise notice '════ affiliate payout assertions: ALL PASS ════'; end $$;
 
 rollback;
