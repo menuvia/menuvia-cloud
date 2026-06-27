@@ -60,6 +60,30 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Taxonomie planuri | 062, 068, 071, 028 | nașterea plan_features |
 | Quality pass comenzi | 059, 063–066, 069, 072–076, 078–082 | bug-uri reale găsite în folosință: race-uri, RLS pe rezervări, optimistic lock |
 | **Porțile A–D (monetizare)** | **083–088** | gating server-side pe plan; 088 repară 5 bug-uri din 084 care blocau comanda QR |
+| **Authorization lockdown** | **096A → 096B → 096C** | închidere P0 owner-membership: model cu 2 invariante + REVOKE-by-default + 7 RPC SECURITY DEFINER (vezi mai jos). |
+
+## Authorization lockdown (096A/B/C)
+
+Modelul cu DOUĂ invariante coexistente, ambele necesare:
+
+- `trg_restaurants_owner_id_immutable` (BEFORE UPDATE pe `restaurants`, 096A): blochează modificarea `owner_id`. Fără el, o tranzacție ar putea pivota owner_id ca să „alinieze" un membership compromis.
+- `trg_enforce_owner_membership_invariant` (CONSTRAINT TRIGGER DEFERRABLE INITIALLY DEFERRED pe `restaurant_memberships`, 096C): la COMMIT, fiecare restaurant are exact 1 owner membership aliniat cu `restaurants.owner_id`. Permite tranzitul intra-tx; respinge stările finale rupte. Înlocuiește guardul tranzitoriu per-statement `trg_block_owner_membership_mutation` din 096A (care a fost drop-uit în 096C).
+
+Regimul de privilegii (096B):
+- REVOKE INSERT/UPDATE/DELETE pe `restaurants`/`restaurant_memberships`/`invite_tokens` pentru PUBLIC/anon/authenticated.
+- `restaurants` păstrează UPDATE column-level pe whitelist 21 coloane (sursa de adevăr: `RESTAURANT_UPDATE_FIELDS` în `src/lib/sanitize.ts`). `slug` și `owner_id` sunt deliberat excluse.
+- Mutațiile pe memberships/invites/slug merg exclusiv prin RPC SECURITY DEFINER.
+
+7 RPC pe această suprafață (toate returnează `jsonb`, `search_path = public, pg_temp`, PUBLIC zero EXECUTE): `preview_invite`, `accept_invite`, `create_restaurant`, `change_member_role`, `remove_member`, `revoke_invite`, `change_restaurant_slug`.
+
+Schema `archive.invite_tokens_owner_history` (096C): append-only, zero privilegii pentru roluri aplicație. Conține istoricul owner-invite arhivat pre-`VALIDATE CONSTRAINT invite_tokens_role_not_owner`.
+
+Workflow `sql-verify.yml` are gate-uri phase-aware (mutuabil exclusive):
+- phase-1A (A1–A8) când 096A există dar 096B/096C nu.
+- final-state (F1–F9) când 096B există dar 096C nu.
+- phase-1C (G1–G8) când 096C există.
+
+Pre-flight pentru deploy 096C în prod: `psql -f scripts/preflight_096c.sql` (read-only, exit=0 când e safe).
 
 Lecția lanțurilor „fix-for-fix" (050→053, 084→088): domeniile fiscal și ordering
 se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Gate B+ assertions).

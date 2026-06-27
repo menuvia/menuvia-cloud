@@ -9,11 +9,21 @@
 --
 -- Designul de securitate:
 --   • Nu există GUC caller-settable de bypass (V9.12 #1).
---   • Bypass-ul guard-urilor este per-trigger, sub lock, în aceeași tranzacție:
---       ALTER TABLE … DISABLE TRIGGER trg_block_owner_membership_mutation
+--   • Post-096C: guardul per-statement `trg_block_owner_membership_mutation`
+--     pe `restaurant_memberships` A FOST RETRAS în 096C și înlocuit cu
+--     `trg_enforce_owner_membership_invariant` (CONSTRAINT TRIGGER DEFERRABLE
+--     INITIALLY DEFERRED, funcție `fn_enforce_owner_membership_invariant`)
+--     care fires la COMMIT. Scriptul ăsta NU mai face DISABLE/ENABLE pe el
+--     — invariantul deferred permite tranzitul intra-tranzacțional, validează
+--     starea finală la COMMIT. Singurul guard pe care îl mai dezactivează
+--     local este `trg_restaurants_owner_id_immutable` (BEFORE UPDATE pe
+--     `restaurants`, neschimbat de 096C), exact pentru ca scriptul să poată
+--     legitim seta `restaurants.owner_id` în cadrul remedierii.
+--   • Bypass per-trigger, sub lock, în aceeași tranzacție:
 --       ALTER TABLE … DISABLE TRIGGER trg_restaurants_owner_id_immutable
---     Re-enable-ul se face ÎNAINTE de invariant checks ca aceste să ruleze
---     împotriva guard-urilor active (fail-safe).
+--     Re-enable-ul se face ÎNAINTE de invariant checks ca acestea să ruleze
+--     împotriva guard-ului activ (fail-safe). Invariantul deferred din 096C
+--     verifică la COMMIT independent de DISABLE/ENABLE.
 --   • NU se folosește session_replication_role = 'replica' (V9.12 #6).
 --   • Există un singur `ON CONFLICT DO UPDATE`, justificat de comentariul de mai
 --     jos — restul codului este zero-upsert.
@@ -279,10 +289,17 @@ begin
   end loop;
 end$$;
 
--- ─── Apply: disable guard + immutability triggers, mutate, re-enable ───────
+-- ─── Apply: disable owner_id immutability trigger, mutate, re-enable ──────
 -- (Bypass per-trigger, NU global session_replication_role.)
-alter table public.restaurant_memberships
-  disable trigger trg_block_owner_membership_mutation;
+-- Post-096C: guardul per-statement `trg_block_owner_membership_mutation` pe
+-- `restaurant_memberships` a fost retras. Nu mai e nimic de dezactivat acolo
+-- — noul invariant `trg_enforce_owner_membership_invariant` e CONSTRAINT
+-- TRIGGER DEFERRABLE INITIALLY DEFERRED, deci permite tranzitul intra-tx și
+-- validează starea finală la COMMIT. DELETE-then-INSERT-then-UPSERT owner
+-- membership rulează liber în interiorul tranzacției; invariantul deferred
+-- verifică la sfârșit (defense-in-depth peste DO-block-urile locale de mai
+-- jos). Doar guardul de pe `restaurants` (owner_id immutable) trebuie
+-- dezactivat — exact pentru că scriptul setează legitim `owner_id`.
 alter table public.restaurants
   disable trigger trg_restaurants_owner_id_immutable;
 
@@ -309,11 +326,11 @@ begin
   end loop;
 end$$;
 
--- Re-enable guards ÎNAINTE de invariant checks. Asta forțează verificarea
--- finală cu guard-urile active — un eventual reziduu nereparat trebuie să fie
--- vizibil sub guard-uri, nu sub bypass.
-alter table public.restaurant_memberships
-  enable trigger trg_block_owner_membership_mutation;
+-- Re-enable owner_id immutability guard ÎNAINTE de invariant checks. Asta
+-- forțează verificarea finală cu guardul activ — un eventual reziduu nereparat
+-- pe owner_id trebuie să fie vizibil sub guard, nu sub bypass.
+-- Post-096C: `trg_block_owner_membership_mutation` nu mai există; invariantul
+-- de membership e CONSTRAINT TRIGGER care va valida automat la COMMIT.
 alter table public.restaurants
   enable trigger trg_restaurants_owner_id_immutable;
 
