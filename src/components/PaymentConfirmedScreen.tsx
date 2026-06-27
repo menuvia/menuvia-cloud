@@ -19,6 +19,19 @@ import LanguageSwitcher from './LanguageSwitcher'
 
 const PUB = { bg: '#F8F3EB', text: '#1A1208', muted: '#6B5A3F' } as const
 
+// Acceptă DOAR scheme http/https pentru href-uri provenite din date editabile de
+// restaurant (google_review_url). Blochează javascript:/data: etc. → anti-XSS pe
+// ecranul public de plată (audit P2). Returnează null pentru orice URL nesigur.
+function safeHttpUrl(u: string | null | undefined): string | null {
+  if (!u) return null
+  try {
+    const proto = new URL(u).protocol
+    return proto === 'https:' || proto === 'http:' ? u : null
+  } catch {
+    return null
+  }
+}
+
 interface PaymentConfirmedScreenProps {
   confirmation: OrderConfirmationPayload
   restaurantName: string
@@ -399,7 +412,8 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
   ]
     .filter((r): r is number => r !== null)
     .reduce((a, b, _, arr) => a + b / arr.length, 0)
-  const showGoogleCTA = step === 'complete' && avgRating >= 4 && googleReviewUrl
+  const safeReviewUrl = safeHttpUrl(googleReviewUrl)
+  const showGoogleCTA = step === 'complete' && avgRating >= 4 && safeReviewUrl
 
   return (
     <div
@@ -512,13 +526,13 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
       {/* Step: Complete + Google Review CTA */}
       {step === 'complete' && (
         <>
-          {showGoogleCTA && googleReviewUrl ? (
+          {showGoogleCTA && safeReviewUrl ? (
             <>
               <div style={{ fontSize: 13, color: PUB.muted, marginBottom: 16, lineHeight: 1.5 }}>
                 {t('feedback.googleCTAText', lang)} <strong>{restaurantName}</strong>.
               </div>
               <a
-                href={googleReviewUrl}
+                href={safeReviewUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{

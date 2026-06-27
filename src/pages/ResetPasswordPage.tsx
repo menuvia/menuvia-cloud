@@ -58,13 +58,11 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
       }
     })
 
-    // Also check immediately if there's already a session with recovery type
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        clearTimeout(timeout)
-        setTokenState(true)
-      }
-    })
+    // NU validăm pe baza unei sesiuni existente (audit P2): pe un device partajat/deja
+    // logat, orice sesiune ar fi fost tratată drept token de recovery valid → schimbare
+    // parolă fără re-autentificare (account takeover). Validarea se bazează EXCLUSIV pe
+    // evenimentul PASSWORD_RECOVERY (emis de Supabase la detectarea token-ului din URL);
+    // dacă nu apare în 4s → link invalid/expirat.
 
     return () => {
       clearTimeout(timeout)

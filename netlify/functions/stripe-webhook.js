@@ -161,7 +161,7 @@ exports.handler = async (event) => {
 
         const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
-          .select('id, plan')
+          .select('id, plan, stripe_subscription_id')
           .eq('stripe_customer_id', customerId)
           .single()
 
@@ -169,6 +169,15 @@ exports.handler = async (event) => {
           throw new Error(`No profile for customer ${customerId}: ${lookupErr?.message}`)
         }
         userId = profile.id
+
+        // Ignoră evenimentele unei subscriptii care NU e cea curentă a profilului (audit P2):
+        // checkout creează mereu o subscriptie NOUĂ, iar una veche poate rămâne activă pe
+        // același customer → un eveniment stale ar suprascrie planul (clobber). Dacă profilul
+        // are deja o subscriptie setată și diferită, sărim (200, idempotent).
+        if (profile.stripe_subscription_id && profile.stripe_subscription_id !== subscription.id) {
+          console.log(`[stripe-webhook] Skip stale subscription ${subscription.id} (current: ${profile.stripe_subscription_id})`)
+          break
+        }
 
         // Plan real din price.id-ul FACTURAT (subscription.items), NU din metadata.plan
         // care ramane stale la downgrade (audit P1: gate-leak — un downgrade Plan 3→2/1 nu
