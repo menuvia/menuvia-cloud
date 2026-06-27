@@ -200,7 +200,9 @@ export default function AfiliatPage() {
           nextPayoutAt={dashboard.next_payout_at}
         />
       ) : null}
-      {tab === 'restaurante' ? <RestauranteTab restaurants={restaurants} /> : null}
+      {tab === 'restaurante' ? (
+        <RestauranteTab restaurants={restaurants} currency={earnings?.currency || 'RON'} />
+      ) : null}
       {tab === 'subafiliati' ? (
         <SubafiliatiTab subs={subs} cascadeBps={aff.cascade_bps} code={aff.referral_code} toast={toast} />
       ) : null}
@@ -222,10 +224,19 @@ function AcasaTab({
   activeCount: number
   totalCount: number
   subsCount: number
-  earnings?: { total_cents: number; confirmed_cents: number; pending_cents: number; paid_cents: number }
+  earnings?: {
+    currency: string
+    total_cents: number
+    confirmed_cents: number
+    pending_cents: number
+    paid_cents: number
+    clawed_back_cents: number
+  }
   nextPayoutAt?: string | null
 }) {
   const e = earnings
+  // Moneda câștigurilor (default 'RON' dacă lipsește) — o pasăm la formatRON.
+  const cur = e?.currency || 'RON'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div
@@ -236,10 +247,14 @@ function AcasaTab({
         }}
       >
         <MetricCard label="Restaurante active" value={String(activeCount)} hint={`${totalCount} aduse în total`} accent />
-        <MetricCard label="Confirmat (de plată)" value={formatRON(e?.confirmed_cents)} accent />
-        <MetricCard label="În așteptare" value={formatRON(e?.pending_cents)} hint="trece de hold în curând" />
-        <MetricCard label="Total câștigat" value={formatRON(e?.total_cents)} />
-        <MetricCard label="Plătit" value={formatRON(e?.paid_cents)} />
+        <MetricCard label="Confirmat (de plată)" value={formatRON(e?.confirmed_cents, cur)} accent />
+        <MetricCard label="În așteptare" value={formatRON(e?.pending_cents, cur)} hint="trece de hold în curând" />
+        <MetricCard label="Total câștigat" value={formatRON(e?.total_cents, cur)} />
+        <MetricCard label="Plătit" value={formatRON(e?.paid_cents, cur)} />
+        {/* Stornat (clawback): afișat doar când e > 0, ca să nu apară 0 inutil. */}
+        {e && e.clawed_back_cents > 0 ? (
+          <MetricCard label="Stornat (clawback)" value={formatRON(e.clawed_back_cents, cur)} hint="comisioane retrase" />
+        ) : null}
         <MetricCard label="Sub-afiliați" value={String(subsCount)} />
       </div>
 
@@ -262,6 +277,7 @@ function AcasaTab({
 // ── Tab: Restaurante ─────────────────────────────────────────────────────────
 function RestauranteTab({
   restaurants,
+  currency,
 }: {
   restaurants: {
     attribution_id: string
@@ -271,6 +287,7 @@ function RestauranteTab({
     city: string | null
     commission_cents: number
   }[]
+  currency: string
 }) {
   if (restaurants.length === 0) {
     return (
@@ -295,7 +312,7 @@ function RestauranteTab({
               </div>
             </div>
             <div style={{ color: D.gold, fontFamily: 'Fraunces,serif', fontSize: '1.1rem', fontWeight: 700 }}>
-              {formatRON(r.commission_cents)}
+              {formatRON(r.commission_cents, currency)}
             </div>
           </div>
         )
@@ -564,8 +581,12 @@ function PayoutProfileForm({
   }, [affiliateId])
 
   const save = () => {
-    if (iban.trim().length < 15) {
-      toast.error('IBAN-ul pare incomplet.')
+    // Normalizăm IBAN-ul: scoatem spațiile (interne și de capăt) și uppercase.
+    // Trimitem forma normalizată; RPC-ul rămâne sursa de adevăr a validării.
+    const ibanNorm = iban.replace(/\s+/g, '').toUpperCase()
+    // Feedback rapid pe client: pattern RO de bază (RO + 2 cifre + 20 alfanumerice).
+    if (!/^RO\d{2}[A-Z0-9]{20}$/.test(ibanNorm)) {
+      toast.error('IBAN invalid. Format așteptat: RO urmat de 22 de caractere (ex: RO49AAAA1B31007593840000).')
       return
     }
     setSaving(true)
@@ -573,7 +594,7 @@ function PayoutProfileForm({
       .rpc('upsert_payout_profile', {
         p_legal_form: legalForm,
         p_cui: cui.trim() || null,
-        p_iban: iban.trim(),
+        p_iban: ibanNorm,
         p_beneficiary_name: beneficiary.trim() || null,
       })
       .then(

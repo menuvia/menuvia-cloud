@@ -227,6 +227,77 @@ begin
   raise notice 'PO10 OK: comision EUR → draft EUR 30000';
 end $$;
 
+-- ── T2: CLAWBACK DUPĂ PLATĂ → carry-forward (balanță negativă) ────────────────
+-- Findings T2: calea „refund pe o factură DEJA plătită ca payout" era netestată.
+-- Comportament așteptat (documentat aici):
+--   1. Comision setup (hold trecut, cu stripe_invoice_id) → draft → … → paid.
+--      La 'paid' se inserează debit ledger leg='payout' = -gross; balanța devine 0.
+--      (Clawback-ul vine DUPĂ 'paid' ca să NU declanșeze invariantul mig 106 —
+--       care ar bloca tranziția →paid dacă net-ul eligibil ar scădea înainte.)
+--   2. process_affiliate_refund pe acea factură → clawback -gross (hold=now()).
+--      Ledgerul are acum: setup +gross, payout -gross, clawback -gross.
+--      → v_affiliate_balance = -gross  (DATORIE reportată / carry-forward:
+--        afiliatul a fost plătit pentru un comision ulterior stornat).
+--   3. v_affiliate_payable: rândul setup are NET = setup+clawback = 0 → EXCLUS
+--      (filtrul `net > 0`). Deci eligible=0, dar gross-ul plătit rămâne committed
+--      → v_payable = 0 − gross = NEGATIV < prag → re-batch NU creează draft nou.
+--      (Recuperarea datoriei se face din comisioane viitoare, nu printr-un draft
+--       negativ — sistemul nu „plătește" o datorie.)
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000db','00db@aff.test'),
+  ('00000000-0000-0000-0000-0000000000eb','00eb@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-0000000000db','00db@aff.test'),
+  ('00000000-0000-0000-0000-0000000000eb','00eb@aff.test')
+  on conflict (id) do nothing;
+insert into public.affiliates (id, profile_id, referral_code) values
+  ('0a000000-0000-0000-0000-00000000000b','00000000-0000-0000-0000-0000000000db','aff00b');
+insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, status) values
+  ('0b000000-0000-0000-0000-00000000000b','0a000000-0000-0000-0000-00000000000b','00000000-0000-0000-0000-0000000000eb','active');
+-- Comision setup payable, cu stripe_invoice_id (necesar pentru refund ulterior).
+insert into public.affiliate_ledger
+  (affiliate_id, attribution_id, leg, base_cents, commission_bps, amount_cents, hold_until, stripe_invoice_id, stripe_event_id)
+  values ('0a000000-0000-0000-0000-00000000000b','0b000000-0000-0000-0000-00000000000b',
+          'setup',100000,3000,30000, now() - interval '1 day','in_t2','evt_t2');
+do $$
+declare v jsonb; v_balance bigint; v_debit bigint;
+begin
+  -- Parcurs valid până la 'paid' (clawback-ul NU a venit încă → invariant 106 OK).
+  v := public.run_affiliate_payout_batch('2027-03-01');
+  if (v->>'created')::int <> 1 then raise exception 'T2 FAIL: draft inițial necreat (%)', v; end if;
+  update public.affiliate_payouts set status='awaiting_invoice'
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  update public.affiliate_payouts set status='invoice_matched', invoice_number='F2027-T2'
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  update public.affiliate_payouts set status='processing', wise_transfer_id=200002
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  update public.affiliate_payouts set status='paid'
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  -- După 'paid': debit -30000, balanță 0.
+  select coalesce(sum(amount_cents),0) into v_debit from public.affiliate_ledger
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b' and leg='payout';
+  if v_debit <> -30000 then raise exception 'T2 FAIL: debit payout=% (așteptat -30000)', v_debit; end if;
+  select balance_cents into v_balance from public.v_affiliate_balance
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  if v_balance <> 0 then raise exception 'T2 FAIL: balanță post-paid=% (așteptat 0)', v_balance; end if;
+
+  -- Clawback DUPĂ plată: refund integral al facturii in_t2 (charge 100000, refund 100000).
+  perform public.process_affiliate_refund('evt_t2_ref','in_t2',100000,'re_t2',100000,now());
+  -- Balanța devine NEGATIVĂ = carry-forward (setup +30000, payout -30000, clawback -30000).
+  select balance_cents into v_balance from public.v_affiliate_balance
+   where affiliate_id='0a000000-0000-0000-0000-00000000000b';
+  if v_balance <> -30000 then
+    raise exception 'T2 FAIL: balanță post-clawback=% (așteptat -30000 carry-forward)', v_balance; end if;
+
+  -- Re-batch în lună nouă: v_payable = eligible(0) − committed(30000 paid) = -30000 < prag
+  -- → NU se creează draft (sistemul nu plătește o datorie negativă).
+  v := public.run_affiliate_payout_batch('2027-04-01');
+  if (v->>'created')::int <> 0 then
+    raise exception 'T2 FAIL: re-batch a creat draft pe sold negativ (%)', v; end if;
+  raise notice 'T2 OK: clawback după plată → carry-forward -30000, fără draft nou';
+end $$;
+
 do $$ begin raise notice '════ affiliate payout assertions: ALL PASS ════'; end $$;
 
 rollback;

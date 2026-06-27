@@ -108,15 +108,28 @@ export function getStoredReferral(): string | null {
 }
 
 // Formatare monedă RO din minor-units (cents). 87000 → „870,00 RON".
-const RON_FORMAT = new Intl.NumberFormat('ro-RO', {
-  style: 'currency',
-  currency: 'RON',
-  minimumFractionDigits: 2,
-})
+// Cache-uim formatter-ele per monedă (Intl.NumberFormat e relativ scump de creat).
+const formatterCache = new Map<string, Intl.NumberFormat>()
 
-/** Formatează o sumă în cents ca monedă RON în format românesc. */
-export function formatRON(cents: number | null | undefined): string {
-  return RON_FORMAT.format((cents ?? 0) / 100)
+function getFormatter(currency: string): Intl.NumberFormat {
+  let fmt = formatterCache.get(currency)
+  if (!fmt) {
+    fmt = new Intl.NumberFormat('ro-RO', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+    })
+    formatterCache.set(currency, fmt)
+  }
+  return fmt
+}
+
+/**
+ * Formatează o sumă în cents ca monedă în format românesc.
+ * `currency` e opțional (default 'RON') → apelurile existente rămân neschimbate.
+ */
+export function formatRON(cents: number | null | undefined, currency = 'RON'): string {
+  return getFormatter(currency).format((cents ?? 0) / 100)
 }
 
 /** Construiește URL-ul public de referral pentru un cod. */

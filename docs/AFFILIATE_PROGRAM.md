@@ -188,6 +188,14 @@ Cron lunar → draft → awaiting_invoice → invoice_matched → processing →
    NU tabel/RPC nou. Confirmă tratamentul contabil.
 5. **Plafon TVA.** Confirmă plafonul de scutire 2026 (395.000 RON, OG 22/2025) și
    pragul la care un afiliat PFA devine plătitor (impact pe +21% comision).
+6. **Granularitate CN 2202 / zahăr (maparea VAT default).** Care încadrări CN
+   ies din cota redusă 11% și intră la standard 21% pentru băuturile nealcoolice
+   (răcoritoarele CN 2202 cu adaos de zahăr/îndulcitori/arome, băuturile cu zahăr
+   ≥10g/100g — HG 602/2025)? Avem nevoie de lista exactă a CN-urilor „de graniță"
+   ca să configurăm corect grupele VAT implicite (grupa 1 = 11% fără aceste băuturi,
+   grupa 2 = 21% inclusiv ele) și, pe termen mediu, **maparea CN la nivel de produs**
+   (nu doar pe grupă) — astăzi încadrarea e per-grupă, lăsată în seama owner-ului.
+   Confirmă criteriul operațional (CN explicit vs. prag zahăr declarat de furnizor).
 
 ## 8. Plan de implementare (faze)
 
@@ -247,6 +255,14 @@ orice resubmit** — niciodată re-trimitere oarbă. Vezi auditul E7/D7.
   fix-ul real e seed 11/21, nu rescriere; (c) gate-ul payout e prin Oblio
   existent, nu client SPV bespoke; (d) idempotency Wise cere 2-faze +
   reconciliere-prin-GET, nu o singură cheie.
+- **Corectare descrieri-ghid VAT (FISCAL-1/FISCAL-3, mig 109):** descrierile
+  grupelor VAT implicite din mig 102 sugerau generic „băuturi nealcoolice ...
+  cotă redusă 11%", inducând owner-ul în eroare — sub L.141/2025 + HG 602/2025
+  răcoritoarele CN 2202 și băuturile cu zahăr ≥10g/100g sunt la cota standard 21%
+  (grupa 2), nu 11% (grupa 1). Fix = fișier nou (mig 109) care înlocuiește DOAR
+  textul-ghid (label/description) pe grupele 1/2/3; **cotele rămân neschimbate**
+  (11/21/11/0), deci `tests/sql/vat_rates_2025_assertions.sql` trece nemodificat.
+  Rămâne deschisă întrebarea de granularitate CN la nivel de produs (vezi §7.6).
 - **Decizia #4 (RLS own-only pe date sensibile, mig 103 + 104):** review-ul
   adversarial a prins o clasă de leak — policy-urile de SELECT pe
   `affiliate_payout_profile`, `affiliate_payouts` (mig 103) și apoi

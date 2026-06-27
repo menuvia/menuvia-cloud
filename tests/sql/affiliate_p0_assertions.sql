@@ -49,6 +49,68 @@ begin
   raise notice 'P0a OK: gate Plan 3 (growth+null respinse)';
 end $$;
 
+-- ── T4: gate Plan 3 EXHAUSTIV — toate non-Plan-3 skip, Plan 3 produce comision ─
+-- Findings T4: gate-ul era testat doar pe 'growth'+null. Extindem peste TOATE
+-- planurile non-Plan-3 {'free','starter','growth',null} → skipped='not_plan3',
+-- și complementar verificăm că 'pro' și 'enterprise' NU sunt skip-uite.
+-- Negative: folosesc 'cus_X' (gate-ul returnează ÎNAINTE de a atinge atribuirea,
+-- deci nu poluează ledgerul). Pozitive: atribuiri/customer DEDICATE (cus_PRO/cus_ENT)
+-- ca să nu coliziune cu setup-ul 'cus_X' din P0b (mig 105: un singur setup/atribuire).
+do $$
+declare v jsonb; v_plan text;
+begin
+  foreach v_plan in array array['free','starter','growth'] loop
+    v := public.process_affiliate_invoice_paid('evt_gate_'||v_plan,'cus_X','s','i_'||v_plan,
+           'subscription_cycle',2900,'RON','2026-07-01',now(),v_plan);
+    if v->>'skipped' is distinct from 'not_plan3' then
+      raise exception 'T4 FAIL: plan % negate-uit (%)', v_plan, v; end if;
+  end loop;
+  -- null tratat separat (nu intră în array text non-null).
+  v := public.process_affiliate_invoice_paid('evt_gate_null','cus_X','s','i_null',
+         'subscription_cycle',2900,'RON','2026-07-01',now(),null);
+  if v->>'skipped' is distinct from 'not_plan3' then
+    raise exception 'T4 FAIL: null negate-uit (%)', v; end if;
+  raise notice 'T4 OK: {free,starter,growth,null} → not_plan3';
+end $$;
+
+-- Afiliat + atribuiri DEDICATE pentru cazurile POZITIVE (pro/enterprise → comision).
+-- Afiliat separat (NU parent-ul 0a..0001) ca să NU polueze balanța verificată de
+-- P0f / payable-ul verificat de P0d. profil 005 = afiliatul, 006/00a = referiți.
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000005','0005@aff.test'),
+  ('00000000-0000-0000-0000-000000000006','0006@aff.test'),
+  ('00000000-0000-0000-0000-00000000000a','000a@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-000000000005','0005@aff.test'),
+  ('00000000-0000-0000-0000-000000000006','0006@aff.test'),
+  ('00000000-0000-0000-0000-00000000000a','000a@aff.test')
+  on conflict (id) do nothing;
+insert into public.affiliates (id, profile_id, referral_code) values
+  ('0a000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-000000000005','t4aff1');
+insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, stripe_customer_id, status) values
+  ('0b000000-0000-0000-0000-000000000005','0a000000-0000-0000-0000-000000000005',
+   '00000000-0000-0000-0000-000000000006','cus_PRO','pending'),
+  ('0b000000-0000-0000-0000-000000000006','0a000000-0000-0000-0000-000000000005',
+   '00000000-0000-0000-0000-00000000000a','cus_ENT','pending');
+do $$
+declare v jsonb;
+begin
+  -- 'pro' → NU skip; produce comision setup (30% din 2900 = 870).
+  v := public.process_affiliate_invoice_paid('evt_pro','cus_PRO','s','in_pro',
+         'subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
+  if v ? 'skipped' then raise exception 'T4 FAIL: pro a fost skip-uit (%)', v; end if;
+  if (v->>'commission_cents')::bigint <> 870 then
+    raise exception 'T4 FAIL: pro comision % (așteptat 870)', v->>'commission_cents'; end if;
+  -- 'enterprise' → NU skip; produce comision.
+  v := public.process_affiliate_invoice_paid('evt_ent','cus_ENT','s','in_ent',
+         'subscription_cycle',2900,'RON','2026-07-01',now(),'enterprise');
+  if v ? 'skipped' then raise exception 'T4 FAIL: enterprise a fost skip-uit (%)', v; end if;
+  if (v->>'commission_cents')::bigint <> 870 then
+    raise exception 'T4 FAIL: enterprise comision % (așteptat 870)', v->>'commission_cents'; end if;
+  raise notice 'T4 OK: pro+enterprise → comision (NU skip)';
+end $$;
+
 -- ── P0b: setup pe trial (primul event e subscription_cycle, NU create) ────────
 do $$
 declare v jsonb;
@@ -120,6 +182,59 @@ begin
    where affiliate_id='0a000000-0000-0000-0000-000000000001';
   if v_payable <> 435 then raise exception 'P0d FAIL: net payable % (așteptat 435)', v_payable; end if;
   raise notice 'P0d OK: refund parțial → net payable 435';
+end $$;
+
+-- ── T3(a): AL DOILEA refund parțial pe aceeași factură → 50%+50% = 100%, fără over-clawback ──
+-- Findings T3: refundurile parțiale CUMULATE pe aceeași factură erau netestate.
+-- P0d a stornat deja 50% din in_y (re_y, 1450/2900 → clawback -435).
+-- Acum un AL DOILEA refund parțial (alt refund_id re_y2, încă 1450) → clawback -435.
+-- Cumulat: 870 stornat din 870 comision → NET payable 0, FĂRĂ over-clawback
+-- (fiecare storno e mărginit la fracția lui; suma = exact 100%, nu peste).
+do $$
+declare v_payable bigint; v_claw_sum bigint;
+begin
+  perform public.process_affiliate_refund('evt_refy2','in_y',2900,'re_y2',1450,now());
+  -- Suma clawback-urilor pe in_y nu depășește comisionul original (-870).
+  select coalesce(sum(amount_cents),0) into v_claw_sum from public.affiliate_ledger
+   where stripe_invoice_id='in_y' and leg='clawback';
+  if v_claw_sum <> -870 then
+    raise exception 'T3a FAIL: clawback cumulat % (așteptat -870, fără over-clawback)', v_claw_sum; end if;
+  -- Net payable pe afiliat scade la 0 (comisionul in_y e complet stornat).
+  select coalesce(sum(amount_cents),0) into v_payable from public.v_affiliate_payable
+   where affiliate_id='0a000000-0000-0000-0000-000000000001';
+  if v_payable <> 0 then raise exception 'T3a FAIL: net payable % (așteptat 0)', v_payable; end if;
+  raise notice 'T3a OK: 50%%+50%% = 100%% storno → net payable 0, fără over-clawback';
+end $$;
+
+-- ── T3(b): 'dispute lost' → ACELAȘI process_affiliate_refund (charge integral) ──
+-- Documentare path: la dispute lost (chargeback) webhook-ul apelează aceeași RPC
+-- cu refund_id = 'dispute_<id>' și refund = charge-ul integral. Comisionul aferent
+-- e stornat complet (clawback = -comision), exact ca un refund full.
+-- Atribuire+comision dedicate (in_disp) ca să nu interfereze cu in_y.
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000007','0007@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values ('00000000-0000-0000-0000-000000000007','0007@aff.test')
+  on conflict (id) do nothing;
+insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, stripe_customer_id, status) values
+  ('0b000000-0000-0000-0000-000000000007','0a000000-0000-0000-0000-000000000001',
+   '00000000-0000-0000-0000-000000000007','cus_DISP','active');
+insert into public.affiliate_ledger
+  (affiliate_id, attribution_id, leg, base_cents, commission_bps, amount_cents, hold_until, stripe_invoice_id, stripe_event_id)
+  values ('0a000000-0000-0000-0000-000000000001','0b000000-0000-0000-0000-000000000007',
+          'setup',2900,3000,870, now() - interval '1 day','in_disp','evt_disp');
+do $$
+declare v_net bigint;
+begin
+  -- Dispute lost: refund_id = 'dispute_d1', charge integral (2900/2900).
+  perform public.process_affiliate_refund('evt_dispute_d1','in_disp',2900,'dispute_d1',2900,now());
+  -- Comisionul in_disp e complet stornat → NET 0 (nu mai apare în payable).
+  select coalesce((select sum(amount_cents) from public.v_affiliate_payable p
+                    where p.attribution_id='0b000000-0000-0000-0000-000000000007'),0) into v_net;
+  if v_net <> 0 then raise exception 'T3b FAIL: dispute lost net % (așteptat 0)', v_net; end if;
+  if not exists (select 1 from public.affiliate_ledger
+                  where stripe_refund_id='dispute_d1' and leg='clawback' and amount_cents=-870) then
+    raise exception 'T3b FAIL: dispute lost nu a generat clawback -870'; end if;
+  raise notice 'T3b OK: dispute lost → același RPC, clawback integral -870';
 end $$;
 
 do $$ begin raise notice '════ affiliate P0 assertions: ALL PASS ════'; end $$;

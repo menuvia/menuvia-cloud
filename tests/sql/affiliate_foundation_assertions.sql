@@ -78,7 +78,9 @@ begin
   begin
     update public.affiliate_ledger set amount_cents = 99999
       where id='0c000000-0000-0000-0000-000000000001';
-  exception when others then v_raised := true;
+  -- T5: trigger-ul WORM (mig 097) ridică errcode='restrict_violation' (SQLSTATE 2F004).
+  -- Prindem DOAR acel cod, nu `when others` (care ar masca alte erori reale).
+  exception when restrict_violation then v_raised := true;
   end;
   if not v_raised then raise exception 'AF3 FAIL: UPDATE pe ledger nu a fost respins'; end if;
   raise notice 'AF3 OK: WORM UPDATE respins';
@@ -90,7 +92,8 @@ declare v_raised boolean := false;
 begin
   begin
     delete from public.affiliate_ledger where id='0c000000-0000-0000-0000-000000000001';
-  exception when others then v_raised := true;
+  -- T5: același trigger WORM → errcode='restrict_violation'. Prindem DOAR acel cod.
+  exception when restrict_violation then v_raised := true;
   end;
   if not v_raised then raise exception 'AF4 FAIL: DELETE pe ledger nu a fost respins'; end if;
   raise notice 'AF4 OK: WORM DELETE respins';

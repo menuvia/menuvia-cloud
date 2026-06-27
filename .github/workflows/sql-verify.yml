@@ -1104,6 +1104,8 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_p0_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_profile_assertions.sql
+          # register_affiliate + get_affiliate_dashboard (mig 097D) + earnings currency=RON (mig 110, fix AFF-E2E-2).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_register_dashboard_assertions.sql
           # RLS own-only pe datele de payout (mig 103): rulează ca rol authenticated.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_rls_assertions.sql
 
