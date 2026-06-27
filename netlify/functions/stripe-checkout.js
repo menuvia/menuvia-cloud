@@ -41,6 +41,15 @@ exports.handler = async (event) => {
   // Determine price strictly by requested plan — NO silent fallback to pro.
   const body = event.body ? JSON.parse(event.body) : {}
   const requestedPlan = String(body.plan || '').toLowerCase()
+  // Cod de referral din cookie-ul de afiliere (trimis de frontend). Normalizat
+  // și mărginit defensiv; gol/invalid → ignorat fără efect.
+  const referralCode = String(body.referral_code || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 32)
+  // visitor_id corelează touch-ul (de la /r/:cod) cu această conversie pentru
+  // gate-ul de incrementality fail-closed (vezi capture_affiliate_attribution).
+  const visitorId = String(body.visitor_id || '').slice(0, 64)
   const priceId = PRICE_IDS[requestedPlan]
   if (!priceId) {
     return jsonResponse(400, {
@@ -83,6 +92,26 @@ exports.handler = async (event) => {
       .eq('id', user.id)
   }
 
+  // ── Afiliere: creează atribuirea (best-effort, nu blochează checkout-ul) ────
+  // Gate-urile (self-referral, incrementality, first-wins) sunt în RPC. Dacă
+  // ceva eșuază, lăsăm checkout-ul să continue — afilierea nu trebuie să rupă
+  // fluxul de plată.
+  if (referralCode) {
+    try {
+      const { error: attrErr } = await supabase.rpc('capture_affiliate_attribution', {
+        p_referral_code: referralCode,
+        p_referred_profile_id: user.id,
+        p_stripe_customer_id: customerId,
+        p_visitor_id: visitorId || null,
+      })
+      if (attrErr) {
+        console.warn('[stripe-checkout] affiliate capture failed:', attrErr.message)
+      }
+    } catch (e) {
+      console.warn('[stripe-checkout] affiliate capture threw:', e?.message)
+    }
+  }
+
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
 
   // Trial configurabil — default 30 zile (onorează promisiunea din landing).
@@ -98,7 +127,13 @@ exports.handler = async (event) => {
     cancel_url: `${appUrl}/pricing?checkout=cancelled`,
     subscription_data: {
       // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
-      metadata: { supabase_user_id: user.id, plan: requestedPlan },
+      // referral_code persistă pe subscription → disponibil în invoice.paid
+      // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
+      metadata: {
+        supabase_user_id: user.id,
+        plan: requestedPlan,
+        ...(referralCode ? { referral_code: referralCode } : {}),
+      },
       ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
     },
   })

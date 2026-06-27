@@ -78,7 +78,12 @@ export function toCsv<T extends Record<string, unknown>>(rows: T[]): string {
   const headers = Object.keys(rows[0]!)
   const esc = (v: unknown): string => {
     if (v == null) return ''
-    const s = typeof v === 'number' ? v.toString() : String(v)
+    if (typeof v === 'number') return v.toString() // numerele nu sunt injecție de formulă
+    let s = String(v)
+    // Anti formula-injection: o celulă care începe cu = + - @ (sau tab/CR) e
+    // interpretată ca formulă de Excel/Sheets (ex. un produs numit „=HYPERLINK(...)").
+    // O neutralizăm prefixând cu un apostrof, înainte de quoting-ul standard.
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
     if (/[,"\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
     return s
   }

@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
+import { getStoredReferral, getVisitorId } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
@@ -29,6 +30,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
+const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
@@ -49,6 +51,7 @@ type View =
   | 'legal-privacy'
   | 'legal-cookies'
   | 'legal-dpa'
+  | 'afiliat'
   | 'notfound'
 
 interface RouteState {
@@ -82,6 +85,7 @@ function parsePath(): RouteState {
   if (p === '/demo') return { view: 'demo' }
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
   if (p === '/dashboard') return { view: 'dashboard' }
+  if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/pricing') return { view: 'pricing' }
   if (p === '/termeni' || p === '/terms') return { view: 'legal-terms' }
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
@@ -1951,6 +1955,22 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
   )
 }
 
+// Ruta /afiliat: necesită user logat (NU rol de restaurant). Redirecționarea se
+// face într-un useEffect (nu în render) ca să evităm setState-în-render.
+function AffiliateRoute({ navigate }: { navigate: (p: string) => void }) {
+  const { user, loading: authLoading } = useAuth()
+  useEffect(() => {
+    if (authLoading) return
+    if (!user) navigate('/auth')
+  }, [user, authLoading]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (authLoading || !user) return <PageSpinner />
+  return (
+    <Suspense fallback={<PageSpinner />}>
+      <AfiliatPage />
+    </Suspense>
+  )
+}
+
 function ProtectedRoute({
   roles,
   children,
@@ -2071,6 +2091,7 @@ function AppRouter() {
         'demo',
         'notfound',
         'landing',
+        'afiliat',
       ].includes(state.view))
   )
     return <PageSpinner />
@@ -2158,13 +2179,21 @@ function AppRouter() {
             const {
               data: { session: s },
             } = await supabase.auth.getSession()
+            // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
+            // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
+            const referralCode = getStoredReferral()
+            const visitorId = getVisitorId()
             const res = await fetch('/.netlify/functions/stripe-checkout', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 Authorization: 'Bearer ' + (s?.access_token || ''),
               },
-              body: JSON.stringify({ plan }),
+              body: JSON.stringify({
+                plan,
+                ...(referralCode ? { referral_code: referralCode } : {}),
+                ...(visitorId ? { visitor_id: visitorId } : {}),
+              }),
             })
             const d = await res.json()
             if (d.url) window.location.href = d.url
@@ -2176,6 +2205,13 @@ function AppRouter() {
       />
     )
   if (state.view === 'notfound') return <NotFoundPage navigate={navigate} />
+
+  // ── Afiliere: necesită user logat, dar NU rol de restaurant ────────────────
+  // (un afiliat poate să nu aibă restaurant). Plasat înainte de gate-ul de
+  // onboarding ca să nu fie redirecționat la /dashboard onboarding.
+  if (state.view === 'afiliat') {
+    return <AffiliateRoute navigate={navigate} />
+  }
 
   // ── Role-protected routes ──────────────────────────────────
   if (state.view === 'kitchen')

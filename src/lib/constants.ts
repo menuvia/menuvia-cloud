@@ -59,6 +59,7 @@ export type OrderStatus =
   | 'served'
   | 'paid'
   | 'cancelled'
+  | 'closed'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
 export type PaymentMethod = 'cash' | 'card_pos' | 'other'
 export type MemberRole = 'owner' | 'manager' | 'waiter' | 'kitchen'
@@ -71,6 +72,7 @@ export const STATUS_META: Record<OrderStatus, { label: string; color: string; bg
   served: { label: 'Servit', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
   paid: { label: 'Plătit', color: D.t3, bg: D.s2 },
   cancelled: { label: 'Anulat', color: D.red, bg: 'rgba(224,85,85,0.10)' },
+  closed: { label: 'Închis', color: D.t3, bg: D.s2 },
 }
 
 export const TRANSITION_LABELS: Partial<Record<OrderStatus, string>> = {

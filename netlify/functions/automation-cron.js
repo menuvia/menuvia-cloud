@@ -28,11 +28,13 @@ exports.handler = async () => {
   const now = new Date()
   const fmtBuc = (d) => new Intl.DateTimeFormat('ro-RO', {
     timeZone: 'Europe/Bucharest',
+    year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', weekday: 'short',
   }).formatToParts(d).reduce((a, p) => ({ ...a, [p.type]: p.value }), {})
   const t = fmtBuc(now)
   const hour = parseInt(t.hour, 10)
   const minute = parseInt(t.minute, 10)
+  const day = parseInt(t.day, 10)
   const weekday = t.weekday // "lun.", "vin.", etc. (ro)
 
   const results = {}
@@ -66,6 +68,39 @@ exports.handler = async () => {
       results.rate_limits_cleaned = data
     } catch (e) {
       results.cleanup_error = e.message
+    }
+  }
+
+  // ── Job 3b: affiliate payout batch (lunar, catch-up robust) ──
+  //   Creează DOAR draft-uri de payout din soldul plătibil (eligibil − în-zbor).
+  //   NU mișcă bani — transferul efectiv (factură + Wise) e proces separat.
+  //   FEREASTRĂ LARGĂ (primele 2 zile, înainte de 06:00) ca un tick ratat de
+  //   Netlify să nu însemne „zero plăți luna asta". Un check ieftin de existență
+  //   asigură că batch-ul (care iterează toți afiliații) rulează o SINGURĂ dată
+  //   pe perioadă; restul tick-urilor sunt no-op.
+  if (day <= 2 && hour < 6) {
+    try {
+      const period = `${t.year}-${t.month}-01` // prima zi a lunii curente (Buc)
+      const { count, error: countErr } = await supabase
+        .from('affiliate_payouts')
+        .select('id', { count: 'exact', head: true })
+        .eq('period_month', period)
+      if (countErr) {
+        // Eroarea de citire nu mai dispare tăcut (OPS-4); RPC-ul e idempotent,
+        // deci continuăm, dar o logăm pentru observabilitate.
+        console.error(`[automation-cron] payout existence-check failed for ${period}:`, countErr.message)
+      }
+      if (!count) {
+        const { data, error } = await supabase.rpc('run_affiliate_payout_batch', {
+          p_period_month: period,
+        })
+        if (error) throw error
+        results.affiliate_payouts = data
+      }
+    } catch (e) {
+      // Batch ratat = afiliați neplătiți luna respectivă → vizibil în logs (OPS-1).
+      console.error('[automation-cron] payout batch FAILED:', e.message)
+      results.affiliate_payout_error = e.message
     }
   }
 

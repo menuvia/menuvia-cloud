@@ -59,11 +59,22 @@ export async function savePendingOrder(args: CreateOrderArgs): Promise<OrderConf
   const localId = crypto.randomUUID()
   const shortNum = String(Math.floor(Math.random() * 9000) + 1000) // 4 cifre random
 
+  // Cheie de idempotență STABILĂ, fixată la ENQUEUE (nu la trimitere).
+  // Serverul deduplică pe (restaurant_id, idempotency_key) — index UNIQUE,
+  // mig 088. Persistăm key-ul în payload și îl refolosim identic la fiecare
+  // retry, astfel încât un succes ne-confirmat urmat de reconectare NU creează
+  // o a doua comandă. Dacă apelantul a furnizat deja un key (ex. WaiterEntry),
+  // îl păstrăm; altfel generăm unul aici.
+  const payload: CreateOrderArgs = {
+    ...args,
+    idempotency_key: args.idempotency_key ?? crypto.randomUUID(),
+  }
+
   const entry: QueuedOrder = {
     localId,
     queuedAt: Date.now(),
     retries: 0,
-    payload: args,
+    payload,
   }
 
   queue.push(entry)

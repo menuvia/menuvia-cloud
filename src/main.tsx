@@ -4,10 +4,16 @@ import * as Sentry from '@sentry/react'
 import App from './App'
 import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
+import { captureReferralFromUrl } from './lib/affiliate'
 // Ordinea contează: tokens (variabile) → global (reset+body) → animații
 import './styles/tokens.css'
 import './styles/global.css'
 import './styles/animations.css'
+
+// Captură referral DE AFILIERE înainte de orice randare: dacă URL-ul e
+// `/r/:cod`, salvăm codul în cookie și rescriem la `/`. Trebuie să ruleze
+// înaintea router-ului (parsePath) ca să nu cadă pe ruta `notfound`.
+captureReferralFromUrl()
 
 function removeAppLoader() {
   document.getElementById('app-loader')?.remove()
