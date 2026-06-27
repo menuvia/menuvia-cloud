@@ -22,7 +22,17 @@ export interface QueuedOrder {
   queuedAt: number // timestamp ms
   retries: number // câte sync-uri au eșuat pentru asta
   lastError?: string // ultimul mesaj de eroare (debug)
+  queuedBy?: string // user.id care a pus comanda în coadă (anti mis-atribuire pe device partajat)
   payload: CreateOrderArgs
+}
+
+// Eroare PERMANENTĂ (business/DB) → comanda e invalidă, o eliminăm din coadă.
+// Doar SQLSTATE-uri clare: clasa 22 (data exception), 23 (integrity constraint),
+// P0 (raise din PL/pgSQL). ORICE altceva (rețea, gateway, JWT, necunoscut) e tratat
+// ca tranzitoriu → retry, ca să NU pierdem comenzi valide pe o eroare ambiguă.
+function isPermanentOrderError(error: { code?: string } | null | undefined): boolean {
+  const code = error?.code
+  return typeof code === 'string' && /^(22|23|P0)/.test(code)
 }
 
 // ─── IDB helpers ─────────────────────────────────────────────
@@ -70,10 +80,25 @@ export async function savePendingOrder(args: CreateOrderArgs): Promise<OrderConf
     idempotency_key: args.idempotency_key ?? crypto.randomUUID(),
   }
 
+  // Stampăm user.id-ul care a creat comanda offline. La sync, o comandă e trimisă
+  // DOAR dacă sesiunea curentă aparține aceluiași user — altfel pe un device partajat
+  // (ospătar A → logout → ospătar B) comenzile lui A s-ar crea sub sesiunea lui B.
+  // getSession() citește din storage local, deci funcționează și offline.
+  let queuedBy: string | undefined
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    queuedBy = session?.user?.id
+  } catch {
+    queuedBy = undefined
+  }
+
   const entry: QueuedOrder = {
     localId,
     queuedAt: Date.now(),
     retries: 0,
+    queuedBy,
     payload,
   }
 
@@ -156,6 +181,14 @@ export async function syncPendingOrders(): Promise<void> {
       continue
     }
 
+    // Anti mis-atribuire: nu trimitem comanda altui user sub sesiunea curentă.
+    // O lăsăm în coadă pentru când userul ei se reconectează. (Comenzile legacy
+    // fără queuedBy rămân compatibile — se trimit ca înainte.)
+    if (item.queuedBy && item.queuedBy !== session.user.id) {
+      console.warn('[offlineSync] Comandă a altui user — sărită până la reconectarea lui:', item.localId)
+      continue
+    }
+
     try {
       // Construim p_items exact ca în createOrder() din orders.ts
       const p_items = item.payload.cart.map((i) => ({
@@ -178,17 +211,17 @@ export async function syncPendingOrders(): Promise<void> {
       })
 
       if (error) {
-        const isNetworkErr = error.message?.includes('fetch') || error.code === '503'
-        if (isNetworkErr) {
-          // Eroare de rețea → oprim, vom relua la următorul 'online' event
-          console.warn('[offlineSync] Eroare rețea mid-sync:', error.message)
-          await markRetry(item.localId, error.message)
-          break
+        // Doar erorile clare de business/DB (SQLSTATE 22/23/P0) elimină comanda.
+        // Erorile ambigue/de rețea → retry, NU ștergem (anti pierdere de comenzi).
+        if (isPermanentOrderError(error)) {
+          console.error('[offlineSync] Eroare business logic, comandă eliminată:', error)
+          await removeFromQueue(item.localId)
+          continue
         }
-        // Eroare business logic (ex: produs șters) → log + elimină din queue
-        console.error('[offlineSync] Eroare business logic, comandă eliminată:', error)
-        await removeFromQueue(item.localId)
-        continue
+        // Tranzitoriu (rețea, gateway, JWT, necunoscut) → oprim, reluăm la 'online'.
+        console.warn('[offlineSync] Eroare tranzitorie mid-sync:', error.message)
+        await markRetry(item.localId, error.message ?? 'unknown')
+        break
       }
 
       // Succes ✓
