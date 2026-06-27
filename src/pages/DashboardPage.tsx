@@ -572,7 +572,7 @@ export default function DashboardPage({
   onPricing: () => void
   onSignOut: () => Promise<void>
 }) {
-  const { profile, user } = useAuth()
+  const { user } = useAuth()
   const { activeRole } = useRestaurantCtx()
   const { restaurants, loading: rLoading, update } = useRestaurants()
   const [tab, setTab] = useState<Tab>('home')
@@ -581,7 +581,6 @@ export default function DashboardPage({
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
-  const plan = profile?.plan || 'free'
   const isMobile = useIsMobile()
 
   // Sync selectedId when restaurants load: keep selection if still valid, else pick first
@@ -589,10 +588,14 @@ export default function DashboardPage({
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
-  // Tier comercial al RESTAURANTULUI (get_restaurant_features — corect și
-  // pentru manageri-staff, al căror profil personal n-are planul owner-ului).
-  // Fallback pe profile.plan cât timp features se încarcă (cazul owner).
-  const tier: PlanTier = planTier(features.features?.plan ?? plan)
+  // Planul aparține RESTAURANTULUI, nu user-ului (CLAUDE.md §3): citim
+  // get_restaurant_features, corect și pentru staff (un waiter pe restaurant
+  // 'free' care e owner 'pro' altundeva nu trebuie să vadă limite/tab-uri 'pro').
+  // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv).
+  const plan = features.features?.plan ?? 'free'
+
+  // Tier comercial derivat din planul restaurantului.
+  const tier: PlanTier = planTier(plan)
 
   // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
   // sub-tab vizibil dispare complet din sidebar.
