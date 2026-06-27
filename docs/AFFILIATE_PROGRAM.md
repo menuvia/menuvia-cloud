@@ -247,3 +247,11 @@ orice resubmit** — niciodată re-trimitere oarbă. Vezi auditul E7/D7.
   fix-ul real e seed 11/21, nu rescriere; (c) gate-ul payout e prin Oblio
   existent, nu client SPV bespoke; (d) idempotency Wise cere 2-faze +
   reconciliere-prin-GET, nu o singură cheie.
+- **Decizia #4 (payout RLS own-only, mig 103):** review-ul adversarial a prins
+  că policy-urile de SELECT pe `affiliate_payout_profile`/`affiliate_payouts`
+  refoloseau `affiliate_visible_ids()` (own + sub-afiliați), expunând IBAN/CUI și
+  sumele sub-afiliaților către părinte prin orice client PostgREST. Datele
+  bancare/fiscale sunt strict personale → restrânse la `profile_id = auth.uid()`.
+  `affiliate_visible_ids()` rămâne corect pentru agregatele din dashboard
+  (affiliates/attributions/ledger). Regresie acoperită de
+  `tests/sql/affiliate_payout_rls_assertions.sql`.

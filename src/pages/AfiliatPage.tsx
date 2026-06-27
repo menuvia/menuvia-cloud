@@ -318,6 +318,11 @@ function SubafiliatiTab({
 }) {
   // Cei pe care îi recrutezi se înscriu cu CODUL TĂU în câmpul „Cod de invitație".
   const copyCode = () => {
+    // navigator.clipboard e undefined pe context non-secure → guard ca să nu arunce sincron.
+    if (!navigator.clipboard) {
+      toast.error('Copierea nu e disponibilă în acest browser')
+      return
+    }
     void navigator.clipboard
       .writeText(code)
       .then(() => toast.success('Cod copiat'))

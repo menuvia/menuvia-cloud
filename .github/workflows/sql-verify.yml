@@ -1104,6 +1104,8 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_p0_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_profile_assertions.sql
+          # RLS own-only pe datele de payout (mig 103): rulează ca rol authenticated.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_rls_assertions.sql
 
       - name: "VAT rates 2025 (L.141/2025) assertions"
         if: ${{ hashFiles('supabase/migrations/20260626008000_migration_102_vat_rates_2025_law.sql') != '' }}

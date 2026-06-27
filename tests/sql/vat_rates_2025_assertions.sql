@@ -52,6 +52,34 @@ begin
   raise notice 'V2 OK: 4 grupe (3=rezervă 11, 4=scutit 0)';
 end $$;
 
+-- ── V3: cotele unui restaurant existent NU sunt suprascrise de seed ──────────
+-- mig 102 declară explicit „NU face UPDATE pe cotele existente". Trigger-ul e
+-- scopat la NEW.id, deci crearea unui restaurant nou nu atinge rândurile altuia.
+do $$
+declare v_g1 numeric;
+begin
+  -- owner-ul restaurantului e1 își ajustează manual grupa 1 (ex. cotă moștenită)
+  update public.vat_rates set rate_percent = 9.00
+   where restaurant_id='0c000000-0000-0000-0000-0000000000e1' and vat_group=1;
+  -- creăm un AL DOILEA restaurant → re-declanșează trigger-ul (pe NEW, nu pe e1)
+  insert into auth.users (id, email) values
+    ('00000000-0000-0000-0000-0000000000e2','00v2@vat.test') on conflict (id) do nothing;
+  insert into public.restaurants (id, owner_id, name, slug, city, is_active) values
+    ('0c000000-0000-0000-0000-0000000000e2','00000000-0000-0000-0000-0000000000e2',
+     'VAT Test R2','vat-test-2025-slug-2','Iași',true);
+  -- cota ajustată manual pe e1 trebuie să rămână 9.00 (neatinsă de seed-ul lui e2)
+  select rate_percent into v_g1 from public.vat_rates
+   where restaurant_id='0c000000-0000-0000-0000-0000000000e1' and vat_group=1;
+  if v_g1 is distinct from 9.00 then
+    raise exception 'V3 FAIL: cota manuală a restaurantului existent a fost suprascrisă (% )', v_g1; end if;
+  -- iar restaurantul nou (e2) primește totuși 11.00
+  select rate_percent into v_g1 from public.vat_rates
+   where restaurant_id='0c000000-0000-0000-0000-0000000000e2' and vat_group=1;
+  if v_g1 is distinct from 11.00 then
+    raise exception 'V3 FAIL: restaurantul nou nu a primit 11.00 (%)', v_g1; end if;
+  raise notice 'V3 OK: restaurant existent intact (9.00), restaurant nou seed-at (11.00)';
+end $$;
+
 do $$ begin raise notice '════ vat rates 2025 (L.141/2025) assertions: ALL PASS ════'; end $$;
 
 rollback;
