@@ -253,8 +253,6 @@ exports.handler = async (event) => {
       case 'invoice.paid': {
         // Sursa canonică de „bani efectiv încasați" — temelia comisioanelor
         // de afiliere (setup la prima factură, recurring la cicluri).
-        // În Faza 0 doar capturăm evenimentul (lifecycle + dedup durabil);
-        // logica de comision se adaugă într-o migrație/RPC separată.
         const invoice = stripeEvent.data.object
         const customerId = invoice.customer
         // billing_reason distinge prima factură (subscription_create) de
@@ -278,6 +276,42 @@ exports.handler = async (event) => {
           })
         } else {
           console.warn(`[stripe-webhook] invoice.paid: no profile for customer ${customerId}`)
+        }
+
+        // ── Afiliere: scrie comisionul (best-effort, idempotent în RPC) ──────
+        // Doar facturi cu bani reali (trial → amount_paid=0 → RPC skip-uiește).
+        // RPC-ul caută atribuirea după stripe_customer_id; dacă nu există
+        // afiliere pe acest customer, întoarce skip curat. NU aruncăm dacă
+        // eșuază — comisionul nu trebuie să rupă procesarea facturii.
+        if (invoice.amount_paid > 0) {
+          try {
+            // period_month = prima zi a lunii perioadei facturate (pentru cap-ul
+            // de 12 luni). Preferăm perioada liniei de subscription; fallback la
+            // period_start al facturii.
+            const periodStartUnix =
+              invoice.lines?.data?.[0]?.period?.start || invoice.period_start || null
+            let periodMonth = null
+            if (periodStartUnix) {
+              const d = new Date(periodStartUnix * 1000)
+              periodMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
+            }
+            const { error: commErr } = await supabase.rpc('process_affiliate_invoice_paid', {
+              p_event_id:               stripeEvent.id,
+              p_stripe_customer_id:     customerId,
+              p_stripe_subscription_id: invoice.subscription || null,
+              p_stripe_invoice_id:      invoice.id,
+              p_billing_reason:         billingReason,
+              p_amount_paid_cents:      invoice.amount_paid,
+              p_currency:               (invoice.currency || 'ron').toUpperCase(),
+              p_period_month:           periodMonth,
+              p_event_created_at:       new Date(stripeEvent.created * 1000).toISOString(),
+            })
+            if (commErr) {
+              console.warn('[stripe-webhook] affiliate commission failed:', commErr.message)
+            }
+          } catch (e) {
+            console.warn('[stripe-webhook] affiliate commission threw:', e?.message)
+          }
         }
         break
       }
