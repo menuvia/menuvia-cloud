@@ -30,6 +30,7 @@ const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
+const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
@@ -50,6 +51,7 @@ type View =
   | 'legal-privacy'
   | 'legal-cookies'
   | 'legal-dpa'
+  | 'afiliat'
   | 'notfound'
 
 interface RouteState {
@@ -83,6 +85,7 @@ function parsePath(): RouteState {
   if (p === '/demo') return { view: 'demo' }
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
   if (p === '/dashboard') return { view: 'dashboard' }
+  if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/pricing') return { view: 'pricing' }
   if (p === '/termeni' || p === '/terms') return { view: 'legal-terms' }
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
@@ -2072,6 +2075,7 @@ function AppRouter() {
         'demo',
         'notfound',
         'landing',
+        'afiliat',
       ].includes(state.view))
   )
     return <PageSpinner />
@@ -2180,6 +2184,21 @@ function AppRouter() {
       />
     )
   if (state.view === 'notfound') return <NotFoundPage navigate={navigate} />
+
+  // ── Afiliere: necesită user logat, dar NU rol de restaurant ────────────────
+  // (un afiliat poate să nu aibă restaurant). Plasat înainte de gate-ul de
+  // onboarding ca să nu fie redirecționat la /dashboard onboarding.
+  if (state.view === 'afiliat') {
+    if (!user) {
+      navigate('/auth')
+      return <PageSpinner />
+    }
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <AfiliatPage />
+      </Suspense>
+    )
+  }
 
   // ── Role-protected routes ──────────────────────────────────
   if (state.view === 'kitchen')

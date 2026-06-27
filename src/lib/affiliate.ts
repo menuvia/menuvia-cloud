@@ -74,3 +74,21 @@ export function getStoredReferral(): string | null {
   const code = sanitizeCode(raw)
   return isValidCode(code) ? code : null
 }
+
+// Formatare monedă RO din minor-units (cents). 87000 → „870,00 RON".
+const RON_FORMAT = new Intl.NumberFormat('ro-RO', {
+  style: 'currency',
+  currency: 'RON',
+  minimumFractionDigits: 2,
+})
+
+/** Formatează o sumă în cents ca monedă RON în format românesc. */
+export function formatRON(cents: number | null | undefined): string {
+  return RON_FORMAT.format((cents ?? 0) / 100)
+}
+
+/** Construiește URL-ul public de referral pentru un cod. */
+export function referralUrl(code: string): string {
+  const base = (import.meta.env.VITE_APP_URL as string | undefined) || window.location.origin
+  return `${base.replace(/\/$/, '')}/r/${code}`
+}
