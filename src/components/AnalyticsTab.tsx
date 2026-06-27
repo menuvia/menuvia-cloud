@@ -142,7 +142,9 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           }}
         >
           <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
-          <div style={{ marginBottom: 16 }}>Statisticile sunt disponibile din planul Meniu + Comenzi</div>
+          {/* Copy aliniat cu gate-ul real (hasAccess = pro/enterprise = Fiscalizare)
+              și cu butonul „Upgrade la Pro" — înainte spunea greșit „Meniu + Comenzi". */}
+          <div style={{ marginBottom: 16 }}>Statisticile avansate sunt disponibile din planul Fiscalizare (Pro)</div>
           <button
             onClick={onUpgrade}
             style={{
