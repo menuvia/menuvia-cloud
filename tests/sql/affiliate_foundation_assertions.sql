@@ -25,11 +25,20 @@
 begin;
 
 -- ── Seed izolat ──────────────────────────────────────────────────────────────
-insert into public.profiles (id) values
-  ('00000000-0000-0000-0000-000000000001'),
-  ('00000000-0000-0000-0000-000000000002'),
-  ('00000000-0000-0000-0000-000000000003'),
-  ('00000000-0000-0000-0000-000000000004');
+-- auth.users + profiles (în CI trigger-ul handle_new_user creează profiles din
+-- auth.users; explicit insert e on-conflict no-op. Local: explicit insert creează).
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000001','p1@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','p2@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','p3@aff.test'),
+  ('00000000-0000-0000-0000-000000000004','p4@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-000000000001','p1@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','p2@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','p3@aff.test'),
+  ('00000000-0000-0000-0000-000000000004','p4@aff.test')
+  on conflict (id) do nothing;
 
 insert into public.affiliates (id, profile_id, referral_code) values
   ('0a000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','testaf1');

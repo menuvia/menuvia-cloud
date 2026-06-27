@@ -20,10 +20,16 @@
 
 begin;
 
-insert into public.profiles (id) values
-  ('00000000-0000-0000-0000-000000000001'),
-  ('00000000-0000-0000-0000-000000000002'),
-  ('00000000-0000-0000-0000-000000000003');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
 insert into public.affiliates (id, profile_id, referral_code) values
   ('0a000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','ionpop');
 
@@ -94,8 +100,14 @@ do $$
 declare v jsonb;
 begin
   -- Profil creat acum 1 oră; touch acum → profil < touch − 5min → organic.
-  insert into public.profiles (id, created_at) values
-    ('00000000-0000-0000-0000-000000000009', now() - interval '1 hour');
+  insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000009','0009@aff.test')
+    on conflict (id) do nothing;
+  insert into public.profiles (id, email, created_at) values
+    ('00000000-0000-0000-0000-000000000009','0009@aff.test', now() - interval '1 hour')
+    on conflict (id) do nothing;
+  -- În CI trigger-ul creează profilul cu now(); forțăm created_at vechi.
+  update public.profiles set created_at = now() - interval '1 hour'
+   where id = '00000000-0000-0000-0000-000000000009';
   perform public.record_affiliate_touch('ionpop','vis_old');
   v := public.capture_affiliate_attribution('ionpop','00000000-0000-0000-0000-000000000009','cus_OLD','vis_old');
   if v->>'skipped' is distinct from 'organic_preexisting' then raise exception 'AT8 FAIL: profil vechi neגate-uit (%)', v; end if;

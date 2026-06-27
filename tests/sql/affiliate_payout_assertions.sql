@@ -19,10 +19,16 @@
 
 begin;
 
-insert into public.profiles (id) values
-  ('00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-0000000000b2'),
-  ('00000000-0000-0000-0000-0000000000c3');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-0000000000a1','00a1@aff.test'),
+  ('00000000-0000-0000-0000-0000000000b2','00b2@aff.test'),
+  ('00000000-0000-0000-0000-0000000000c3','00c3@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-0000000000a1','00a1@aff.test'),
+  ('00000000-0000-0000-0000-0000000000b2','00b2@aff.test'),
+  ('00000000-0000-0000-0000-0000000000c3','00c3@aff.test')
+  on conflict (id) do nothing;
 insert into public.affiliates (id, profile_id, referral_code) values
   ('0a000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-0000000000a1','aff001');
 insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, status) values

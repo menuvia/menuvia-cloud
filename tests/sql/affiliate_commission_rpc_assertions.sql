@@ -20,10 +20,16 @@
 begin;
 
 -- Seed: parent F1, child F2 (sub-afiliat), profil-referit P3 atribuit lui F2.
-insert into public.profiles (id) values
-  ('00000000-0000-0000-0000-000000000001'),
-  ('00000000-0000-0000-0000-000000000002'),
-  ('00000000-0000-0000-0000-000000000003');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
 insert into public.affiliates (id, profile_id, referral_code) values
   ('0a000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','parent1');
 insert into public.affiliates (id, profile_id, referral_code, parent_affiliate_id, recurring_cap_months) values

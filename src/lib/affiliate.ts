@@ -87,10 +87,13 @@ export function captureReferralFromUrl(): string | null {
   // visitor_id-ul cu această vizită reală pe /r/:cod. Fire-and-forget — nu
   // blocăm randarea și ignorăm erorile (cookie blocat, anon etc.).
   const visitorId = getOrCreateVisitorId()
+  // .rpc() întoarce un PromiseLike (fără .catch) → forma then(onOk, onErr).
   void supabase
     .rpc('record_affiliate_touch', { p_referral_code: code, p_visitor_id: visitorId })
-    .then(() => undefined)
-    .catch(() => undefined)
+    .then(
+      () => undefined,
+      () => undefined,
+    )
   // Rescriem la rădăcină — landing-ul decide de aici încolo. Codul rămâne în cookie.
   window.history.replaceState({}, '', '/')
   return code

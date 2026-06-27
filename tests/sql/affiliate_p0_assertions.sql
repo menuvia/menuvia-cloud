@@ -18,10 +18,16 @@
 
 begin;
 
-insert into public.profiles (id) values
-  ('00000000-0000-0000-0000-000000000001'),
-  ('00000000-0000-0000-0000-000000000002'),
-  ('00000000-0000-0000-0000-000000000003');
+insert into auth.users (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values
+  ('00000000-0000-0000-0000-000000000001','0001@aff.test'),
+  ('00000000-0000-0000-0000-000000000002','0002@aff.test'),
+  ('00000000-0000-0000-0000-000000000003','0003@aff.test')
+  on conflict (id) do nothing;
 insert into public.affiliates (id, profile_id, referral_code) values
   ('0a000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000001','parent1');
 insert into public.affiliates (id, profile_id, referral_code, parent_affiliate_id) values
@@ -93,7 +99,10 @@ end $$;
 
 -- ── P0d: refund parțial → net payable corect ─────────────────────────────────
 -- Atribuire+comision nou (profil 004, alt customer) cu hold trecut pentru payable.
-insert into public.profiles (id) values ('00000000-0000-0000-0000-000000000004');
+insert into auth.users (id, email) values ('00000000-0000-0000-0000-000000000004','0004@aff.test')
+  on conflict (id) do nothing;
+insert into public.profiles (id, email) values ('00000000-0000-0000-0000-000000000004','0004@aff.test')
+  on conflict (id) do nothing;
 insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, stripe_customer_id, status) values
   ('0b000000-0000-0000-0000-000000000002','0a000000-0000-0000-0000-000000000001',
    '00000000-0000-0000-0000-000000000004','cus_Y','active');
