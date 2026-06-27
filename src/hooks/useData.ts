@@ -182,13 +182,11 @@ export function useRestaurants() {
     if (!result.error) await load()
     return result
   }
-  const remove = async (id: string) => {
-    const result = await supabase.from('restaurants').delete().eq('id', id)
-    if (!result.error) await load()
-    return result
-  }
+  // useRestaurants.remove() retras: mig 096B REVOKE delete pe `restaurants`
+  // pentru anon/authenticated. Ștergerea restaurantelor nu există în UI;
+  // ar fi un flow admin separat, sub RPC dedicat dacă va apărea cândva.
 
-  return { restaurants, loading, error, refetch: load, create, update, remove }
+  return { restaurants, loading, error, refetch: load, create, update }
 }
 
 export function useCategories(restaurantId: string | null) {
