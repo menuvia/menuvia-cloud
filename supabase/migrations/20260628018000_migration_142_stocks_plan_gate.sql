@@ -24,17 +24,20 @@ end;
 $$;
 revoke all on function public.enforce_stocks_feature() from public;
 
+-- INSERT OR UPDATE: blocheaza si mutarea datelor de stoc existente dupa un downgrade
+-- (nu doar crearea de noi radacini). Tabelele copil (stock_movements/recipe_items/
+-- purchase_order_items) atarna de aceste radacini.
 drop trigger if exists trg_stocks_gate_ingredients on public.ingredients;
 create trigger trg_stocks_gate_ingredients
-  before insert on public.ingredients for each row execute function public.enforce_stocks_feature();
+  before insert or update on public.ingredients for each row execute function public.enforce_stocks_feature();
 
 drop trigger if exists trg_stocks_gate_suppliers on public.suppliers;
 create trigger trg_stocks_gate_suppliers
-  before insert on public.suppliers for each row execute function public.enforce_stocks_feature();
+  before insert or update on public.suppliers for each row execute function public.enforce_stocks_feature();
 
 drop trigger if exists trg_stocks_gate_purchase_orders on public.purchase_orders;
 create trigger trg_stocks_gate_purchase_orders
-  before insert on public.purchase_orders for each row execute function public.enforce_stocks_feature();
+  before insert or update on public.purchase_orders for each row execute function public.enforce_stocks_feature();
 
 do $$
 declare n int;

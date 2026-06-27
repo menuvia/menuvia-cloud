@@ -21,6 +21,14 @@ as $function$
 declare
   v_plan text; v_max integer; v_used integer; v_id uuid;
 begin
+  -- Anti-spoofing: un apelant AUTENTICAT (PostgREST direct) poate folosi DOAR propriul
+  -- uid. Apelul legitim din Netlify foloseste service_role (auth.uid() = NULL) si trimite
+  -- un p_user_id deja verificat prin getUser(JWT), deci e permis. Astfel se inchide IDOR-ul
+  -- prin care un user autentificat ar pasa UUID-ul altui membru.
+  if auth.uid() is not null and auth.uid() <> p_user_id then
+    return jsonb_build_object('allowed', false, 'used', 0, 'max', 0, 'plan', 'free', 'error', 'forbidden');
+  end if;
+
   -- Apartenenta obligatorie (anti IDOR/log-poisoning).
   if p_restaurant_id is null or not exists (
     select 1 from public.restaurant_memberships m

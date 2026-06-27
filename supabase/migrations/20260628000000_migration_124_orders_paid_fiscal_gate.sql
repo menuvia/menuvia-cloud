@@ -33,14 +33,17 @@ as $$
 begin
   -- Doar pe tranzitia efectiva spre 'paid' (INSERT direct cu paid, sau UPDATE
   -- din alta stare). Re-setarea 'paid'->'paid' nu re-declanseaza gate-ul.
+  -- Gate fiscal DOAR pe tranzitia efectiva spre 'paid' (INSERT direct cu paid, sau UPDATE
+  -- din alta stare). Re-setarea 'paid'->'paid' nu re-declanseaza gate-ul.
   if new.status = 'paid'
      and (tg_op = 'INSERT' or old.status is distinct from 'paid') then
-
-    -- Gate fiscal universal: bani + bon = Plan 3. Acopera PostgREST direct,
-    -- RPC-uri si orice cod viitor. Pe Plan 3 trece; altfel ridica feature_disabled.
+    -- bani + bon = Plan 3. Acopera PostgREST direct, RPC-uri si orice cod viitor.
     perform public.enforce_feature_for_restaurant(new.restaurant_id, 'fiscal_receipt');
+  end if;
 
-    -- Validare semn (oglinda advance_order mig 094) — sume negative corupteaza rapoartele.
+  -- Validare semn pe ORICE rand 'paid' (inclusiv editari ulterioare ale unui rand deja
+  -- paid) — sume negative corupteaza rapoartele indiferent de tranzitie.
+  if new.status = 'paid' then
     if coalesce(new.paid_amount, 0) < 0 then
       raise exception 'paid_amount nu poate fi negativ (primit: %)', new.paid_amount
         using errcode = 'P0001', hint = 'invalid_amount';

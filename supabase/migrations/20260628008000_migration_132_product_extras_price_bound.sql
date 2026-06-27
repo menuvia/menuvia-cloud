@@ -14,12 +14,20 @@ begin;
 set local lock_timeout      = '10s';
 set local statement_timeout = '120s';
 
-alter table public.product_extras
-  add constraint chk_product_extras_price_max
-  check (price <= 100000) not valid;
-
-alter table public.product_extras
-  validate constraint chk_product_extras_price_max;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'chk_product_extras_price_max'
+       and conrelid = 'public.product_extras'::regclass
+  ) then
+    alter table public.product_extras
+      add constraint chk_product_extras_price_max
+      check (price <= 100000) not valid;
+    alter table public.product_extras
+      validate constraint chk_product_extras_price_max;
+  end if;
+end $$;
 
 do $$
 begin

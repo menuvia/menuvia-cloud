@@ -39,6 +39,9 @@ exports.handler = async (event) => {
   // Conținut controlat de user, escapat pentru interpolarea în HTML-ul emailului.
   const safeRestaurantName = escapeHtml(restaurant_name)
   const safeInvitedBy = escapeHtml(invited_by_name || 'Cineva')
+  // Subiectul e text simplu (header), NU HTML — escaparea l-ar strica ("Fish & Chips"
+  // → "Fish &amp; Chips"). Doar curățăm newline-urile (anti header-injection).
+  const subjectRestaurantName = String(restaurant_name ?? '').replace(/[\r\n]+/g, ' ').trim()
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -89,7 +92,7 @@ exports.handler = async (event) => {
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('id')
-    .eq('email', cleanEmail)
+    .eq('email', email)
     .single()
 
   if (existingProfile) {
@@ -110,7 +113,7 @@ exports.handler = async (event) => {
     .from('invite_tokens')
     .delete()
     .eq('restaurant_id', restaurant_id)
-    .eq('email', cleanEmail)
+    .eq('email', email)
     .is('accepted_at', null)
 
   // Create invite token
@@ -118,7 +121,7 @@ exports.handler = async (event) => {
     .from('invite_tokens')
     .insert({
       restaurant_id,
-      email: cleanEmail,
+      email,
       role,
       invited_by: user.id,
     })
@@ -145,7 +148,7 @@ exports.handler = async (event) => {
     body: JSON.stringify({
       from:    'Menuvia <hello@menuvia.ro>',
       to:      [cleanEmail],
-      subject: `Ai fost invitat la ${safeRestaurantName} pe Menuvia`,
+      subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
       html: `
         <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
           <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>

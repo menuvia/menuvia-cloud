@@ -84,14 +84,19 @@ export async function savePendingOrder(args: CreateOrderArgs): Promise<OrderConf
   // DOAR dacă sesiunea curentă aparține aceluiași user — altfel pe un device partajat
   // (ospătar A → logout → ospătar B) comenzile lui A s-ar crea sub sesiunea lui B.
   // getSession() citește din storage local, deci funcționează și offline.
-  let queuedBy: string | undefined
+  // Fail-closed: o comandă nouă TREBUIE atribuită unui user. Dacă sesiunea nu e
+  // disponibilă, nu o punem în coadă cu queuedBy=undefined (ar putea fi sincronizată
+  // sub alt ospătar pe un device partajat). Toleranța pentru undefined rămâne DOAR în
+  // syncPendingOrders, pentru intrările vechi (legacy) deja existente în coadă.
+  let queuedBy: string
   try {
     const {
       data: { session },
     } = await supabase.auth.getSession()
-    queuedBy = session?.user?.id
+    if (!session?.user?.id) throw new Error('no-session')
+    queuedBy = session.user.id
   } catch {
-    queuedBy = undefined
+    throw new Error('Sesiune indisponibilă — reconectează-te înainte de a salva comanda offline.')
   }
 
   const entry: QueuedOrder = {
@@ -219,8 +224,10 @@ export async function syncPendingOrders(): Promise<void> {
           continue
         }
         // Tranzitoriu (rețea, gateway, JWT, necunoscut) → oprim, reluăm la 'online'.
+        // NU folosim markRetry: ar incrementa retries și după MAX_RETRIES comanda ar fi
+        // ștearsă — o pierdere de comandă validă pe o pană prelungită. Doar notăm eroarea.
         console.warn('[offlineSync] Eroare tranzitorie mid-sync:', error.message)
-        await markRetry(item.localId, error.message ?? 'unknown')
+        await markTransientError(item.localId, error.message ?? 'unknown')
         break
       }
 
@@ -228,9 +235,10 @@ export async function syncPendingOrders(): Promise<void> {
       console.log(`[offlineSync] Comandă sincronizată: ${item.localId}`)
       await removeFromQueue(item.localId)
     } catch (err) {
-      // TypeError de rețea → oprim sync-ul
+      // TypeError de rețea → oprim sync-ul. Tranzitoriu → NU incrementăm retries
+      // (altfel s-ar șterge după MAX_RETRIES la o pană prelungită).
       console.warn('[offlineSync] Excepție rețea:', err)
-      await markRetry(item.localId, err instanceof Error ? err.message : String(err))
+      await markTransientError(item.localId, err instanceof Error ? err.message : String(err))
       break
     }
   }
@@ -252,10 +260,14 @@ async function removeFromQueue(localId: string): Promise<void> {
   await saveQueue(queue.filter((q) => q.localId !== localId))
 }
 
-async function markRetry(localId: string, errMsg: string): Promise<void> {
+// Eroare TRANZITORIE (rețea/gateway/JWT/necunoscut): notăm doar lastError, FĂRĂ să
+// incrementăm retries — astfel o pană prelungită nu duce comanda în pragul MAX_RETRIES
+// (ștergere). Comenzile valide rămân în coadă până se sincronizează. Erorile permanente
+// de business sunt eliminate separat (isPermanentOrderError), iar MAX_QUEUE plafonează coada.
+async function markTransientError(localId: string, errMsg: string): Promise<void> {
   const queue = await getPendingOrders()
   const updated = queue.map((q) =>
-    q.localId === localId ? { ...q, retries: q.retries + 1, lastError: errMsg } : q,
+    q.localId === localId ? { ...q, lastError: errMsg } : q,
   )
   await saveQueue(updated)
 }

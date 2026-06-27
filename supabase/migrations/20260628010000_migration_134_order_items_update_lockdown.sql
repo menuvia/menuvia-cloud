@@ -20,15 +20,17 @@ set local statement_timeout = '60s';
 
 revoke update on public.order_items from authenticated;
 revoke update on public.order_items from anon;
+revoke update on public.order_items from public;
 
 do $$
 begin
   if exists (
     select 1 from information_schema.role_table_grants
      where table_schema = 'public' and table_name = 'order_items'
-       and grantee = 'authenticated' and privilege_type = 'UPDATE'
+       and grantee in ('authenticated', 'anon', 'PUBLIC')
+       and privilege_type = 'UPDATE'
   ) then
-    raise exception 'mig 134: authenticated inca are UPDATE pe order_items';
+    raise exception 'mig 134: exista inca UPDATE direct pe order_items';
   end if;
   raise notice 'mig 134: UPDATE direct pe order_items revocat (editare doar prin update_order_items RPC) OK';
 end $$;

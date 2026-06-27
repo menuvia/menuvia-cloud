@@ -33,11 +33,20 @@ begin
 
   select public.owner_plan(new.restaurant_id) into v_plan;
 
+  -- Fail-closed: lipsa randului de config NU inseamna nelimitat.
+  if not exists (
+    select 1 from public.plan_features
+     where plan = coalesce(v_plan, 'free') and feature = 'max_team_members'
+  ) then
+    raise exception 'Config lipsa: max_team_members pentru planul %.', coalesce(v_plan, 'free')
+      using errcode = 'P0001', hint = 'plan_config_missing';
+  end if;
+
   select limit_value into v_max
     from public.plan_features
    where plan = coalesce(v_plan, 'free') and feature = 'max_team_members';
 
-  -- null (pro/enterprise sau lipsa) => nelimitat.
+  -- DOAR un rand explicit cu limit_value IS NULL = nelimitat (pro/enterprise).
   if v_max is null then
     return new;
   end if;
@@ -64,6 +73,42 @@ create trigger trg_enforce_team_member_limit
   before insert on public.restaurant_memberships
   for each row
   execute function public.enforce_team_member_limit();
+
+-- Statement-level (anti bypass prin INSERT multi-row, ca mig 126 pe products):
+-- triggerul per-row vede acelasi count pentru randurile-frati dintr-un singur statement.
+create or replace function public.enforce_team_member_limit_stmt()
+returns trigger language plpgsql security definer set search_path = public
+as $$
+declare v_rec record; v_plan text; v_max integer; v_count integer;
+begin
+  for v_rec in select distinct restaurant_id from new_rows loop
+    perform pg_advisory_xact_lock(hashtext('team_limit_' || v_rec.restaurant_id::text));
+    select public.owner_plan(v_rec.restaurant_id) into v_plan;
+    if not exists (select 1 from public.plan_features
+                    where plan = coalesce(v_plan,'free') and feature = 'max_team_members') then
+      raise exception 'Config lipsa: max_team_members pentru planul %.', coalesce(v_plan,'free')
+        using errcode = 'P0001', hint = 'plan_config_missing';
+    end if;
+    select limit_value into v_max from public.plan_features
+     where plan = coalesce(v_plan,'free') and feature = 'max_team_members';
+    if v_max is null then continue; end if;  -- explicit unlimited
+    select count(*) into v_count from public.restaurant_memberships
+     where restaurant_id = v_rec.restaurant_id;
+    if v_count > v_max then
+      raise exception 'Limita de membri atinsa: maxim % pentru planul %.', v_max, coalesce(v_plan,'free')
+        using errcode = 'P0001', hint = 'team_member_limit';
+    end if;
+  end loop;
+  return null;
+end;
+$$;
+revoke all on function public.enforce_team_member_limit_stmt() from public;
+
+drop trigger if exists trg_enforce_team_member_limit_stmt on public.restaurant_memberships;
+create trigger trg_enforce_team_member_limit_stmt
+  after insert on public.restaurant_memberships
+  referencing new table as new_rows
+  for each statement execute function public.enforce_team_member_limit_stmt();
 
 do $$
 begin

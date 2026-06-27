@@ -8,12 +8,20 @@ begin;
 set local lock_timeout = '10s';
 set local statement_timeout = '120s';
 
-alter table public.happy_hour_rules
-  add constraint chk_hh_percent_max
-  check (discount_type <> 'percent' or discount_value <= 100) not valid;
-
-alter table public.happy_hour_rules
-  validate constraint chk_hh_percent_max;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'chk_hh_percent_max'
+       and conrelid = 'public.happy_hour_rules'::regclass
+  ) then
+    alter table public.happy_hour_rules
+      add constraint chk_hh_percent_max
+      check (discount_type <> 'percent' or discount_value <= 100) not valid;
+    alter table public.happy_hour_rules
+      validate constraint chk_hh_percent_max;
+  end if;
+end $$;
 
 do $$ begin
   if not exists (select 1 from pg_constraint where conname='chk_hh_percent_max'

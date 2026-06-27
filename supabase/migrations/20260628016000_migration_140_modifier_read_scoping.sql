@@ -39,6 +39,8 @@ grant execute on function public.is_member_of_modifier_group(uuid) to authentica
 
 -- ── modifier_groups ──────────────────────────────────────────────────────────
 drop policy if exists "modifier_groups: anon read" on public.modifier_groups;
+drop policy if exists "modifier_groups: anon read published" on public.modifier_groups;
+drop policy if exists "modifier_groups: member read" on public.modifier_groups;
 create policy "modifier_groups: anon read published"
   on public.modifier_groups for select to anon
   using (public.modifier_group_is_published(id));

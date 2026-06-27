@@ -938,7 +938,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Hourly heatmap ───────────────────────────────── */}
-          {hourlySales.some((h) => h.order_count > 0) && (
+          {fiscalReports && hourlySales.some((h) => h.order_count > 0) && (
             <div
               style={{
                 marginTop: 24,
@@ -1011,7 +1011,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Sales by waiter ──────────────────────────────── */}
-          {waiterSales.length > 0 && (
+          {fiscalReports && waiterSales.length > 0 && (
             <div
               style={{
                 marginBottom: 24,
@@ -1153,7 +1153,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Sales by category ────────────────────────────── */}
-          {categorySales.length > 0 && (
+          {fiscalReports && categorySales.length > 0 && (
             <div
               style={{
                 marginBottom: 24,

@@ -40,7 +40,12 @@ exports.handler = async (event) => {
     STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
   } = process.env
 
-  if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  if (
+    !STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY ||
+    // Fara price-id-urile reale, PLAN_BY_PRICE ar mapa totul la 'free' si un update Stripe
+    // ar downgrada tacut abonamentele platite → cerem si pe acestea (fail-fast).
+    !STRIPE_STARTER_PRICE_ID || !STRIPE_GROWTH_PRICE_ID || !STRIPE_PRO_PRICE_ID || !STRIPE_ENTERPRISE_PRICE_ID
+  ) {
     console.error('[stripe-webhook] Missing env vars')
     return jsonResponse(500, { error: 'Server config error' })
   }
@@ -213,7 +218,7 @@ exports.handler = async (event) => {
 
         const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
-          .select('id')
+          .select('id, stripe_subscription_id')
           .eq('stripe_customer_id', customerId)
           .single()
 
@@ -222,6 +227,13 @@ exports.handler = async (event) => {
           break
         }
         userId = profile.id
+
+        // Nu retrograda la 'free' daca Stripe sterge o subscriptie VECHE (nu cea curenta):
+        // checkout creeaza mereu una noua, iar una veche poate fi stearsa ulterior. (audit P2)
+        if (profile.stripe_subscription_id && profile.stripe_subscription_id !== subscription.id) {
+          console.log(`[stripe-webhook] Skip stale deleted subscription ${subscription.id} (current: ${profile.stripe_subscription_id})`)
+          break
+        }
 
         const { error } = await supabase
           .from('profiles')
