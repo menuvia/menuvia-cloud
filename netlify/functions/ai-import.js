@@ -51,22 +51,10 @@ exports.handler = async (event) => {
 
   const { imageBase64, imageType, textContent, restaurant_id } = body
 
-  // ── Plan + quota check ─────────────────────────────────────
-  // Uses check_ai_import_quota RPC (SECURITY DEFINER, runs as DB owner)
-  const { data: quota, error: quotaErr } = await supabase.rpc('check_ai_import_quota', {
-    p_user_id: user.id,
-  })
-
-  if (quotaErr) {
-    console.error('Quota check error:', quotaErr)
-    return jsonResponse(500, { error: 'Could not verify import quota' })
-  }
-
-  if (quota && !quota.allowed) {
-    return jsonResponse(429, {
-      error: `Limită AI imports atinsă: ${quota.used}/${quota.max} pentru planul ${quota.plan}. Upgrade pentru mai multe.`,
-    })
-  }
+  // NOTĂ: quota se REZERVĂ atomic (reserve_ai_import_slot) DOAR după validarea
+  // input-ului, chiar înainte de apelul AI — vezi mai jos. Astfel cererile
+  // malformate nu consumă cotă, iar cererile concurente nu pot depăși limita
+  // (anti check-then-act).
 
   // ── Input size limits ──────────────────────────────────────
   if (imageBase64 && imageBase64.length > 5 * 1024 * 1024) {
@@ -101,6 +89,27 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Missing imageBase64 or textContent' })
   }
 
+  // ── Rezervă atomic un slot de quota (anti-cursă) ÎNAINTE de apelul AI ──
+  const { data: quota, error: quotaErr } = await supabase.rpc('reserve_ai_import_slot', {
+    p_user_id:       user.id,
+    p_restaurant_id: restaurant_id || null,
+  })
+  if (quotaErr) {
+    console.error('Quota reserve error:', quotaErr)
+    return jsonResponse(500, { error: 'Could not verify import quota' })
+  }
+  if (quota && !quota.allowed) {
+    return jsonResponse(429, {
+      error: `Limită AI imports atinsă: ${quota.used}/${quota.max} pentru planul ${quota.plan}. Upgrade pentru mai multe.`,
+    })
+  }
+  const slotId = quota?.slot_id || null
+  // Eliberează slot-ul rezervat dacă apelul AI eșuează (best-effort), ca un eșec
+  // tranzitoriu să nu consume cota userului.
+  const refundSlot = async () => {
+    if (slotId) await supabase.from('ai_import_log').delete().eq('id', slotId)
+  }
+
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -118,6 +127,7 @@ exports.handler = async (event) => {
   if (!res.ok) {
     const err = await res.text()
     console.error('Anthropic error:', err)
+    await refundSlot()
     return jsonResponse(500, { error: 'AI request failed' })
   }
 
@@ -142,17 +152,19 @@ exports.handler = async (event) => {
         emoji: typeof p.emoji === 'string' ? p.emoji.slice(0, 8) : '',
       }))
 
-    // ── Log successful import ────────────────────────────────
+    // ── Finalizează slot-ul rezervat cu token-ii reali (best-effort) ─────────
+    // Slot-ul a fost deja REZERVAT (rândul există) → doar actualizăm token-ii,
+    // nu mai inserăm încă un rând (ar dubla cota). Quota se numără pe rânduri/lună.
     const tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
-    await supabase.rpc('log_ai_import', {
-      p_user_id: user.id,
-      p_restaurant_id: restaurant_id || null,
-      p_tokens_used: tokensUsed,
-    })
+    if (slotId) {
+      await supabase.from('ai_import_log').update({ tokens_used: tokensUsed }).eq('id', slotId)
+    }
 
     return jsonResponse(200, { products })
   } catch {
-    // NU returnăm output-ul brut al modelului către client (evită leak/confuzie).
+    // Output neparsabil = apel eșuat funcțional → eliberează slot-ul + NU
+    // returnăm output-ul brut al modelului (evită leak/confuzie).
+    await refundSlot()
     return jsonResponse(500, { error: 'Could not parse AI response' })
   }
 }
