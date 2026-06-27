@@ -1164,6 +1164,8 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/orders_paid_gate_assertions.sql
           # Limita de membri pe plan (max_team_members) impusa pe restaurant_memberships.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/team_member_limit_assertions.sql
+          # Gate universal Plan 3 pe coada fiscala terminala pending_receipts (mig 133).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/pending_receipts_fiscal_gate_assertions.sql
 
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
