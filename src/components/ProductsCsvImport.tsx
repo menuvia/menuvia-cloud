@@ -40,6 +40,70 @@ interface ParsedRow {
   rowNum: number // 1-indexed pentru afișare user
 }
 
+// ── Normalizare robustă preț ─────────────────────────────────
+// Acceptă formate variate: "1.299,50" (RO mii cu ., zecimal cu ,),
+// "1,299.50" (US/EN mii cu ,, zecimal cu .), "14.00", "14,00",
+// spații, NBSP, simbol monedă ("lei", "RON", "€", "$") etc.
+// Returnează number finit >= 0 sau null (= neparsabil → raportat userului,
+// NU tratat tăcut ca 0).
+function normalizePrice(raw: string): number | null {
+  // Curăță spații (inclusiv NBSP/spații înguste) și simboluri monedă/litere
+  let s = raw
+    .replace(/ /g, ' ') // NBSP → spațiu normal
+    .replace(/ /g, ' ') // narrow no-break space
+    .trim()
+  if (s.length === 0) return null
+
+  // Elimină tot ce nu e cifră, separator (. ,) sau semn minus
+  // (scapă de "lei", "RON", "€", "$", spații dintre cifre, etc.)
+  s = s.replace(/[^\d.,-]/g, '')
+  if (s.length === 0) return null
+
+  const lastComma = s.lastIndexOf(',')
+  const lastDot = s.lastIndexOf('.')
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    // Ambele separatoare prezente: cel care apare ULTIMUL e separatorul zecimal,
+    // celălalt e separator de mii și se elimină.
+    if (lastComma > lastDot) {
+      // Format RO: "1.299,50" → mii ".", zecimal ","
+      s = s.replace(/\./g, '').replace(',', '.')
+    } else {
+      // Format US/EN: "1,299.50" → mii ",", zecimal "."
+      s = s.replace(/,/g, '')
+    }
+  } else if (lastComma !== -1) {
+    // Doar virgulă prezentă.
+    const parts = s.split(',')
+    const decimals = parts[parts.length - 1] ?? ''
+    if (parts.length > 2 || decimals.length === 3) {
+      // Mai multe virgule, sau exact 3 cifre după ultima virgulă → separator de mii
+      // (ex. "1,299" sau "1,234,567"). Eliminăm toate virgulele.
+      s = s.replace(/,/g, '')
+    } else {
+      // O singură virgulă cu 1-2 (sau >3) zecimale → separator zecimal RO.
+      s = s.replace(',', '.')
+    }
+  } else if (lastDot !== -1) {
+    // Doar punct prezent.
+    const parts = s.split('.')
+    const decimals = parts[parts.length - 1] ?? ''
+    if (parts.length > 2 || decimals.length === 3) {
+      // Mai multe puncte, sau exact 3 cifre după ultimul punct → separator de mii
+      // (ex. "1.299" sau "1.234.567"). Eliminăm toate punctele.
+      s = s.replace(/\./g, '')
+    }
+    // altfel punctul e separator zecimal normal ("14.00") — lăsăm așa.
+  }
+
+  // Validare strictă: doar număr cu eventual semn și o singură parte zecimală
+  if (!/^-?\d+(\.\d+)?$/.test(s)) return null
+
+  const n = Number(s)
+  if (!Number.isFinite(n)) return null
+  return n
+}
+
 // ── CSV parser minimal (suportă quotes RFC4180) ──────────────
 function parseCsv(text: string): string[][] {
   // Detect delimiter
@@ -170,8 +234,8 @@ export default function ProductsCsvImport({
       const errs: string[] = []
       const nume = (r[idxNume] ?? '').trim()
       const categorie = (r[idxCategorie] ?? '').trim()
-      const pretRaw = (r[idxPret] ?? '').trim().replace(',', '.')
-      const pret = pretRaw.length > 0 ? parseFloat(pretRaw) : null
+      const pretRaw = (r[idxPret] ?? '').trim()
+      const pret = normalizePrice(pretRaw)
       const emoji = (r[idxEmoji] ?? '').trim() || '🍽️'
       const descriere = idxDescriere >= 0 ? (r[idxDescriere] ?? '').trim() : ''
       const tvaRaw = idxTva >= 0 ? (r[idxTva] ?? '').trim() : '1'
@@ -179,7 +243,14 @@ export default function ProductsCsvImport({
 
       if (!nume) errs.push('lipsește numele')
       if (!categorie) errs.push('lipsește categoria')
-      if (pret == null || isNaN(pret) || pret < 0) errs.push('preț invalid')
+      if (pretRaw.length === 0) {
+        errs.push('lipsește prețul')
+      } else if (pret == null || !Number.isFinite(pret)) {
+        // Valoare neparsabilă — raportăm explicit, NU o tratăm tăcut ca 0.
+        errs.push(`preț neparsabil ("${pretRaw}")`)
+      } else if (pret < 0) {
+        errs.push('preț negativ')
+      }
       if (![1, 2, 3, 4].includes(tva)) errs.push('TVA trebuie 1-4')
       if (nume.length > 100) errs.push('nume prea lung (>100)')
 

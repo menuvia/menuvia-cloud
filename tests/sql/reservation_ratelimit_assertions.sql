@@ -82,7 +82,7 @@ begin
       party_size, starts_at, ends_at, status, source
     ) values (
       '0aaa0000-0000-0000-0000-0000000000a1',
-      '0aaa0000-0000-0000-0000-00000000000a',
+      null,  -- table_id NULL: izolează rate-limit-ul de constrângerea de overlap (mig 121)
       'Client '||i, '0700000'||(100+i)::text,
       2, now() + interval '2 days', now() + interval '2 days' + interval '90 minutes',
       'confirmed', 'public'
@@ -124,7 +124,7 @@ begin
       party_size, starts_at, ends_at, status, source
     ) values (
       '0aaa0000-0000-0000-0000-0000000000a1',
-      '0aaa0000-0000-0000-0000-00000000000a',
+      null,  -- table_id NULL: izolează rate-limit-ul de constrângerea de overlap (mig 121)
       'Client 6', '0700000206',
       2, now() + interval '2 days', now() + interval '2 days' + interval '90 minutes',
       'confirmed', 'public'

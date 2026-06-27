@@ -1134,6 +1134,18 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/table_limit_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/reservation_ratelimit_assertions.sql
 
+      - name: "Platform P1 assertions batch 2 (mig 117-121)"
+        if: ${{ hashFiles('supabase/migrations/20260627006000_migration_117_create_order_fixes.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # create_order fixes + advance_order cancel guard + QR/sesiuni + modifier CHECK + rezervări overlap.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/create_order_fixes_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/advance_order_cancel_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/qr_session_guards_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/modifier_price_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/reservation_overlap_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
