@@ -10,6 +10,7 @@ import { useAffiliate } from '../hooks/useAffiliate'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { useToast } from '../components/ui/useToast'
 import { PageSpinner } from '../components/PageLoader'
+import { supabase } from '../lib/supabase'
 
 const card = {
   background: D.s2,
@@ -91,6 +92,7 @@ export default function AfiliatPage() {
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('acasa')
   const [registering, setRegistering] = useState(false)
+  const [parentCode, setParentCode] = useState('')
 
   if (loading) return <PageSpinner label="Se încarcă panoul de afiliat…" />
 
@@ -106,9 +108,10 @@ export default function AfiliatPage() {
   if (!dashboard || !dashboard.is_affiliate) {
     const join = async () => {
       setRegistering(true)
-      const res = await register()
+      const res = await register(parentCode.trim() || undefined)
       setRegistering(false)
       if (res.ok) toast.success('Bun venit în programul de afiliere!')
+      else if (res.reason === 'parent_not_found') toast.error('Codul celui care te-a invitat nu e valid.')
       else toast.error('Nu te-am putut înscrie. Încearcă din nou.')
     }
     return (
@@ -118,10 +121,28 @@ export default function AfiliatPage() {
           <h1 style={{ fontFamily: 'Fraunces,serif', color: D.t1, fontSize: '1.6rem', margin: '0 0 10px' }}>
             Devino afiliat Menuvia
           </h1>
-          <p style={{ color: D.t2, fontSize: '0.95rem', lineHeight: 1.5, margin: '0 0 24px' }}>
+          <p style={{ color: D.t2, fontSize: '0.95rem', lineHeight: 1.5, margin: '0 0 20px' }}>
             Recomandă Menuvia restaurantelor și câștigi comision din fiecare abonament adus —
             o singură dată la activare și apoi lunar, cât timp restaurantul rămâne client.
           </p>
+          {/* Cod opțional al celui care te-a invitat (sub-afiliere). */}
+          <input
+            value={parentCode}
+            onChange={(e) => setParentCode(e.target.value)}
+            placeholder="Cod de invitație (opțional)"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              background: D.s1,
+              border: `1px solid ${D.border}`,
+              borderRadius: 9,
+              padding: '10px 12px',
+              color: D.t1,
+              fontSize: '0.85rem',
+              marginBottom: 16,
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          />
           <button style={{ ...goldBtn, padding: '12px 22px' }} disabled={registering} onClick={() => void join()}>
             {registering ? 'Se înscrie…' : 'Înscrie-mă →'}
           </button>
@@ -180,8 +201,12 @@ export default function AfiliatPage() {
         />
       ) : null}
       {tab === 'restaurante' ? <RestauranteTab restaurants={restaurants} /> : null}
-      {tab === 'subafiliati' ? <SubafiliatiTab subs={subs} cascadeBps={aff.cascade_bps} /> : null}
-      {tab === 'unelte' ? <UnelteTab code={aff.referral_code} toast={toast} /> : null}
+      {tab === 'subafiliati' ? (
+        <SubafiliatiTab subs={subs} cascadeBps={aff.cascade_bps} code={aff.referral_code} toast={toast} />
+      ) : null}
+      {tab === 'unelte' ? (
+        <UnelteTab code={aff.referral_code} affiliateId={aff.id} toast={toast} />
+      ) : null}
     </div>
   )
 }
@@ -283,16 +308,66 @@ function RestauranteTab({
 function SubafiliatiTab({
   subs,
   cascadeBps,
+  code,
+  toast,
 }: {
   subs: { referral_code: string; status: string; joined_at: string; attributions_count: number }[]
   cascadeBps: number
+  code: string
+  toast: ReturnType<typeof useToast>
 }) {
+  // Cei pe care îi recrutezi se înscriu cu CODUL TĂU în câmpul „Cod de invitație".
+  const copyCode = () => {
+    void navigator.clipboard
+      .writeText(code)
+      .then(() => toast.success('Cod copiat'))
+      .catch(() => toast.error('Nu s-a putut copia codul'))
+  }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ ...card, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
         Primești <strong style={{ color: D.gold }}>{(cascadeBps / 100).toFixed(0)}%</strong> din comisioanele
         afiliaților pe care îi recomanzi tu (un singur nivel).
       </div>
+
+      {/* Recrutare: codul propriu, de pus de noul afiliat la înscriere. */}
+      <div style={card}>
+        <div
+          style={{
+            fontSize: '0.72rem',
+            color: D.t2,
+            textTransform: 'uppercase',
+            letterSpacing: '0.06em',
+            marginBottom: 8,
+          }}
+        >
+          Recrutează un afiliat
+        </div>
+        <div style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.5, marginBottom: 10 }}>
+          Dă-i codul tău. Când se înscrie ca afiliat, îl pune în câmpul „Cod de invitație" și intră
+          sub tine.
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <code
+            style={{
+              background: D.s1,
+              border: `1px solid ${D.border}`,
+              borderRadius: 9,
+              padding: '8px 14px',
+              color: D.gold,
+              fontSize: '1rem',
+              fontWeight: 700,
+              letterSpacing: '0.04em',
+            }}
+          >
+            {code}
+          </code>
+          <button style={goldBtn} onClick={copyCode}>
+            Copiază codul
+          </button>
+        </div>
+      </div>
+
       {subs.length === 0 ? (
         <div style={{ ...card, textAlign: 'center', padding: '32px 24px', color: D.t2 }}>
           N-ai încă sub-afiliați.
@@ -317,8 +392,16 @@ function SubafiliatiTab({
   )
 }
 
-// ── Tab: Unelte (link + QR + share) ──────────────────────────────────────────
-function UnelteTab({ code, toast }: { code: string; toast: ReturnType<typeof useToast> }) {
+// ── Tab: Unelte (link + QR + share + date de plată) ──────────────────────────
+function UnelteTab({
+  code,
+  affiliateId,
+  toast,
+}: {
+  code: string
+  affiliateId: string
+  toast: ReturnType<typeof useToast>
+}) {
   const url = referralUrl(code)
   const [qr, setQr] = useState<string | null>(null)
 
@@ -418,6 +501,165 @@ function UnelteTab({ code, toast }: { code: string; toast: ReturnType<typeof use
           </button>
         </div>
       </div>
+
+      <PayoutProfileForm affiliateId={affiliateId} toast={toast} />
+    </div>
+  )
+}
+
+// ── Date fiscale/bancare (payout) ────────────────────────────────────────────
+// Citire prin RLS (policy „read own payout profile", mig 098); scriere prin RPC
+// SECURITY DEFINER upsert_payout_profile (mig 101) — scrierile directe sunt REVOKE.
+function PayoutProfileForm({
+  affiliateId,
+  toast,
+}: {
+  affiliateId: string
+  toast: ReturnType<typeof useToast>
+}) {
+  const [legalForm, setLegalForm] = useState<'pfa' | 'srl' | 'other'>('pfa')
+  const [cui, setCui] = useState('')
+  const [iban, setIban] = useState('')
+  const [beneficiary, setBeneficiary] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void supabase
+      .from('affiliate_payout_profile')
+      .select('legal_form, cui, iban, beneficiary_name')
+      .eq('affiliate_id', affiliateId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled || !data) {
+          if (!cancelled) setLoading(false)
+          return
+        }
+        const row = data as {
+          legal_form: 'pfa' | 'srl' | 'other'
+          cui: string | null
+          iban: string | null
+          beneficiary_name: string | null
+        }
+        setLegalForm(row.legal_form ?? 'pfa')
+        setCui(row.cui ?? '')
+        setIban(row.iban ?? '')
+        setBeneficiary(row.beneficiary_name ?? '')
+        setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [affiliateId])
+
+  const save = () => {
+    if (iban.trim().length < 15) {
+      toast.error('IBAN-ul pare incomplet.')
+      return
+    }
+    setSaving(true)
+    void supabase
+      .rpc('upsert_payout_profile', {
+        p_legal_form: legalForm,
+        p_cui: cui.trim() || null,
+        p_iban: iban.trim(),
+        p_beneficiary_name: beneficiary.trim() || null,
+      })
+      .then(
+        ({ data, error }) => {
+          setSaving(false)
+          const res = data as { ok: boolean; reason?: string } | null
+          if (error || !res?.ok) {
+            if (res?.reason === 'invalid_iban') toast.error('IBAN invalid.')
+            else if (res?.reason === 'invalid_legal_form') toast.error('Formă juridică invalidă.')
+            else toast.error('Nu am putut salva datele de plată.')
+            return
+          }
+          toast.success('Date de plată salvate.')
+        },
+        () => {
+          setSaving(false)
+          toast.error('Nu am putut salva datele de plată.')
+        },
+      )
+  }
+
+  const inputStyle = {
+    width: '100%',
+    boxSizing: 'border-box',
+    background: D.s1,
+    border: `1px solid ${D.border}`,
+    borderRadius: 9,
+    padding: '10px 12px',
+    color: D.t1,
+    fontSize: '0.85rem',
+    fontFamily: 'DM Sans,sans-serif',
+  } as const
+  const labelStyle = { fontSize: '0.75rem', color: D.t2, marginBottom: 4, display: 'block' } as const
+
+  return (
+    <div style={card}>
+      <div
+        style={{
+          fontSize: '0.72rem',
+          color: D.t2,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 4,
+        }}
+      >
+        Date de plată
+      </div>
+      <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.5, marginBottom: 14 }}>
+        Comisioanele se plătesc pe baza facturii pe care o emiți către Menuvia. Completează datele
+        de facturare și IBAN-ul ca să putem face plata.
+      </div>
+      {loading ? (
+        <div style={{ color: D.t2, fontSize: '0.82rem', padding: 8 }}>Se încarcă…</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Formă juridică</label>
+            <select
+              value={legalForm}
+              onChange={(e) => setLegalForm(e.target.value as 'pfa' | 'srl' | 'other')}
+              style={inputStyle}
+            >
+              <option value="pfa">PFA / Întreprindere individuală</option>
+              <option value="srl">SRL</option>
+              <option value="other">Altă formă</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>CUI / CIF</label>
+            <input value={cui} onChange={(e) => setCui(e.target.value)} placeholder="RO12345678" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Nume beneficiar (cont)</label>
+            <input
+              value={beneficiary}
+              onChange={(e) => setBeneficiary(e.target.value)}
+              placeholder="Ex: Popescu Ion PFA"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>IBAN</label>
+            <input
+              value={iban}
+              onChange={(e) => setIban(e.target.value)}
+              placeholder="RO49 AAAA 1B31 0075 9384 0000"
+              style={inputStyle}
+            />
+          </div>
+          <div>
+            <button style={goldBtn} disabled={saving} onClick={save}>
+              {saving ? 'Se salvează…' : 'Salvează datele de plată'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

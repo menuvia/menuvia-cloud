@@ -1103,6 +1103,15 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_attribution_rpc_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_p0_assertions.sql
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_profile_assertions.sql
+
+      - name: "VAT rates 2025 (L.141/2025) assertions"
+        if: ${{ hashFiles('supabase/migrations/20260626008000_migration_102_vat_rates_2025_law.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Cotele TVA implicite pentru restaurantele noi: 11% redus / 21% standard.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_rates_2025_assertions.sql
 
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
