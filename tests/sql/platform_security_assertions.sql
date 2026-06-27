@@ -140,6 +140,12 @@ begin
   select count(*) into n from public.qr_tokens where restaurant_id='c5555555-5555-5555-5555-555555555555';
   if n < 1 then raise exception 'PS5 FAIL: owner A nu-și vede propriile token-uri (% )', n; end if;
   raise notice 'PS5 OK: token-urile QR ale altui restaurant ascunse de RLS';
+
+  -- PS7: view-urile de analitică (mig 116) — non-membru NU vede comenzile/venitul nimănui.
+  perform set_config('request.jwt.claim.sub','44444444-4444-4444-4444-444444444444', true);
+  select count(*) into n from public.v_daily_orders;
+  if n <> 0 then raise exception 'PS7 FAIL: LEAK — non-membru vede % rânduri din v_daily_orders', n; end if;
+  raise notice 'PS7 OK: v_daily_orders invizibil pentru non-membru (security_invoker)';
 end $$;
 
 reset role;
