@@ -100,6 +100,27 @@ begin
   raise notice 'PS3 OK: pro+owner încasează (control pozitiv)';
 end $$;
 
+-- ── PS6: comanda nu poate refere masa altui restaurant (mig 113) ─────────────
+do $$
+declare v_blocked boolean := false;
+begin
+  begin
+    -- restaurant A (Ra/pro) cu masa restaurantului B → trebuie respins.
+    insert into public.orders (restaurant_id, source, status, total, table_id)
+    values ('c5555555-5555-5555-5555-555555555555','waiter','served',50,
+            'e6666666-6666-6666-6666-666666666666');
+  exception when others then
+    if sqlerrm ilike '%aparține%' or sqlerrm ilike '%restaurant%' then v_blocked := true;
+    else raise exception 'PS6: eroare neașteptată: %', sqlerrm; end if;
+  end;
+  if not v_blocked then raise exception 'PS6 FAIL: comandă cu masa altui restaurant acceptată'; end if;
+  -- control pozitiv: masa proprie trece.
+  insert into public.orders (restaurant_id, source, status, total, table_id)
+  values ('c5555555-5555-5555-5555-555555555555','waiter','served',50,
+          'e5555555-5555-5555-5555-555555555555');
+  raise notice 'PS6 OK: masă străină respinsă, masă proprie acceptată';
+end $$;
+
 -- ── PS4 + PS5: izolare multi-tenant ca rol authenticated ─────────────────────
 set local role authenticated;
 
