@@ -49,8 +49,7 @@ interface ParsedRow {
 function normalizePrice(raw: string): number | null {
   // Curăță spații (inclusiv NBSP/spații înguste) și simboluri monedă/litere
   let s = raw
-    .replace(/ /g, ' ') // NBSP → spațiu normal
-    .replace(/ /g, ' ') // narrow no-break space
+    .replace(/[\u00A0\u202F\u2007\uFEFF\u2060]/g, ' ') // NBSP / narrow-NBSP / BOM etc -> spatiu normal
     .trim()
   if (s.length === 0) return null
 
