@@ -78,7 +78,7 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_at6','cus_A','sub_A','in_A','subscription_create',2900,'RON',null,now());
+  v := public.process_affiliate_invoice_paid('evt_at6','cus_A','sub_A','in_A','subscription_create',2900,'RON',null,now(),'pro');
   if (v->>'commission_cents')::bigint <> 870 then raise exception 'AT6 FAIL: comision % (870)', v->>'commission_cents'; end if;
   raise notice 'AT6 OK: flux complet → comision 870';
 end $$;

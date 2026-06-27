@@ -37,7 +37,7 @@ insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id
 do $$
 declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_setup','cus_X','sub_X','in_1','subscription_create',2900,'RON',null,now());
+  v := public.process_affiliate_invoice_paid('evt_setup','cus_X','sub_X','in_1','subscription_create',2900,'RON',null,now(),'pro');
   if (v->>'commission_cents')::bigint <> 870 then
     raise exception 'RC1 FAIL: setup commission % (așteptat 870)', v->>'commission_cents';
   end if;
@@ -54,7 +54,7 @@ do $$
 declare v_before int; v_after int;
 begin
   select count(*) into v_before from public.affiliate_ledger where stripe_event_id='evt_setup';
-  perform public.process_affiliate_invoice_paid('evt_setup','cus_X','sub_X','in_1','subscription_create',2900,'RON',null,now());
+  perform public.process_affiliate_invoice_paid('evt_setup','cus_X','sub_X','in_1','subscription_create',2900,'RON',null,now(),'pro');
   select count(*) into v_after from public.affiliate_ledger where stripe_event_id='evt_setup';
   if v_before <> v_after then
     raise exception 'RC2 FAIL: reprocesarea a creat rânduri noi (% → %)', v_before, v_after;
@@ -66,7 +66,7 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_rec1','cus_X','sub_X','in_2','subscription_cycle',2900,'RON','2026-07-01',now());
+  v := public.process_affiliate_invoice_paid('evt_rec1','cus_X','sub_X','in_2','subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
   if (v->>'commission_cents')::bigint <> 290 then
     raise exception 'RC3 FAIL: recurring % (așteptat 290)', v->>'commission_cents';
   end if;
@@ -81,7 +81,7 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_x','cus_UNKNOWN','sub_Z','in_9','subscription_create',2900,'RON',null,now());
+  v := public.process_affiliate_invoice_paid('evt_x','cus_UNKNOWN','sub_Z','in_9','subscription_create',2900,'RON',null,now(),'pro');
   if v->>'skipped' is distinct from 'no_attribution' then
     raise exception 'RC4 FAIL: customer necunoscut nu a fost skip-uit (%))', v;
   end if;
@@ -93,12 +93,12 @@ do $$
 declare v jsonb;
 begin
   -- al doilea ciclu (august) — atinge cap=2, trebuie acceptat
-  v := public.process_affiliate_invoice_paid('evt_rec2','cus_X','sub_X','in_3','subscription_cycle',2900,'RON','2026-08-01',now());
+  v := public.process_affiliate_invoice_paid('evt_rec2','cus_X','sub_X','in_3','subscription_cycle',2900,'RON','2026-08-01',now(),'pro');
   if v->>'leg' is distinct from 'recurring' then
     raise exception 'RC5 FAIL: al doilea recurring respins prematur (%)', v;
   end if;
   -- al treilea ciclu (septembrie) — peste cap=2, trebuie skip
-  v := public.process_affiliate_invoice_paid('evt_rec3','cus_X','sub_X','in_4','subscription_cycle',2900,'RON','2026-09-01',now());
+  v := public.process_affiliate_invoice_paid('evt_rec3','cus_X','sub_X','in_4','subscription_cycle',2900,'RON','2026-09-01',now(),'pro');
   if v->>'skipped' is distinct from 'recurring_cap_reached' then
     raise exception 'RC5 FAIL: al treilea recurring nu a fost plafonat (%)', v;
   end if;

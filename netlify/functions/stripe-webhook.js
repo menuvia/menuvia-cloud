@@ -34,11 +34,26 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
-  const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
+  const {
+    STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+    STRIPE_STARTER_PRICE_ID, STRIPE_GROWTH_PRICE_ID,
+    STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
+  } = process.env
 
   if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     console.error('[stripe-webhook] Missing env vars')
     return jsonResponse(500, { error: 'Server config error' })
+  }
+
+  // Mapă price_id → plan canonic, oglindind PRICE_IDS din stripe-checkout.js.
+  // Pentru gating-ul comisionului de afiliere folosim price.id (sursa de adevăr
+  // a ce s-a FACTURAT efectiv), NU subscription.metadata.plan (care rămâne stale
+  // la downgrade). Astfel comisionul se oprește automat la downgrade din Plan 3.
+  const PLAN_BY_PRICE = {
+    [STRIPE_STARTER_PRICE_ID]: 'starter',
+    [STRIPE_GROWTH_PRICE_ID]: 'growth',
+    [STRIPE_PRO_PRICE_ID]: 'pro',
+    [STRIPE_ENTERPRISE_PRICE_ID]: 'enterprise',
   }
 
   const stripe = new Stripe(STRIPE_SECRET_KEY)
@@ -295,6 +310,10 @@ exports.handler = async (event) => {
               const d = new Date(periodStartUnix * 1000)
               periodMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
             }
+            // Planul EFECTIV facturat din price.id (downgrade-safe). null →
+            // RPC-ul refuză comisionul (fail-closed pe Plan 3).
+            const billedPriceId = invoice.lines?.data?.[0]?.price?.id || null
+            const billedPlan = PLAN_BY_PRICE[billedPriceId] || null
             const { error: commErr } = await supabase.rpc('process_affiliate_invoice_paid', {
               p_event_id:               stripeEvent.id,
               p_stripe_customer_id:     customerId,
@@ -305,12 +324,60 @@ exports.handler = async (event) => {
               p_currency:               (invoice.currency || 'ron').toUpperCase(),
               p_period_month:           periodMonth,
               p_event_created_at:       new Date(stripeEvent.created * 1000).toISOString(),
+              p_plan:                   billedPlan,
             })
             if (commErr) {
               console.warn('[stripe-webhook] affiliate commission failed:', commErr.message)
             }
           } catch (e) {
             console.warn('[stripe-webhook] affiliate commission threw:', e?.message)
+          }
+        }
+        break
+      }
+
+      case 'charge.refunded': {
+        // Afiliere: clawback proporțional al comisionului pe factura refundată.
+        // Per refund.id (idempotent în RPC). Best-effort, nu rupe webhook-ul.
+        const charge = stripeEvent.data.object
+        try {
+          const refunds = charge.refunds?.data || []
+          for (const r of refunds) {
+            const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
+              p_event_id:            stripeEvent.id,
+              p_stripe_invoice_id:   charge.invoice || null,
+              p_charge_amount_cents: charge.amount,
+              p_refund_id:           r.id,
+              p_refund_amount_cents: r.amount,
+              p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
+            })
+            if (clawErr) console.warn('[stripe-webhook] affiliate clawback failed:', clawErr.message)
+          }
+        } catch (e) {
+          console.warn('[stripe-webhook] affiliate clawback threw:', e?.message)
+        }
+        break
+      }
+
+      case 'charge.dispute.closed': {
+        // Dispute PIERDUTĂ = clawback total (ca un refund). Câștigată = no-op
+        // (comisionul rămâne; pe durata disputei payout-ul e manual + în hold).
+        const dispute = stripeEvent.data.object
+        if (dispute.status === 'lost') {
+          try {
+            // Dispute-ul nu poartă invoice-ul direct → luăm charge-ul.
+            const charge = await stripe.charges.retrieve(dispute.charge)
+            const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
+              p_event_id:            stripeEvent.id,
+              p_stripe_invoice_id:   charge.invoice || null,
+              p_charge_amount_cents: charge.amount,
+              p_refund_id:           `dispute_${dispute.id}`, // cheie idempotentă stabilă
+              p_refund_amount_cents: charge.amount,            // dispute pierdută = total
+              p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
+            })
+            if (clawErr) console.warn('[stripe-webhook] dispute clawback failed:', clawErr.message)
+          } catch (e) {
+            console.warn('[stripe-webhook] dispute clawback threw:', e?.message)
           }
         }
         break
