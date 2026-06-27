@@ -247,11 +247,18 @@ orice resubmit** — niciodată re-trimitere oarbă. Vezi auditul E7/D7.
   fix-ul real e seed 11/21, nu rescriere; (c) gate-ul payout e prin Oblio
   existent, nu client SPV bespoke; (d) idempotency Wise cere 2-faze +
   reconciliere-prin-GET, nu o singură cheie.
-- **Decizia #4 (payout RLS own-only, mig 103):** review-ul adversarial a prins
-  că policy-urile de SELECT pe `affiliate_payout_profile`/`affiliate_payouts`
-  refoloseau `affiliate_visible_ids()` (own + sub-afiliați), expunând IBAN/CUI și
-  sumele sub-afiliaților către părinte prin orice client PostgREST. Datele
-  bancare/fiscale sunt strict personale → restrânse la `profile_id = auth.uid()`.
-  `affiliate_visible_ids()` rămâne corect pentru agregatele din dashboard
-  (affiliates/attributions/ledger). Regresie acoperită de
-  `tests/sql/affiliate_payout_rls_assertions.sql`.
+- **Decizia #4 (RLS own-only pe date sensibile, mig 103 + 104):** review-ul
+  adversarial a prins o clasă de leak — policy-urile de SELECT pe
+  `affiliate_payout_profile`, `affiliate_payouts` (mig 103) și apoi
+  `affiliate_attributions`, `affiliate_ledger` (mig 104) refoloseau
+  `affiliate_visible_ids()` (own + sub-afiliați), expunând către părinte prin
+  orice client PostgREST: IBAN/CUI + sumele de plată, dar și `stripe_customer_id`/
+  `referred_profile_id` (PII-ul clienților downline-ului) și ledger-ul (venitul
+  exact al sub-afiliatului). Comentariul din mig 097 recunoștea că aceste coloane
+  sunt sensibile, dar se baza pe „frontend-ul nu le citește" — nu o barieră reală.
+  Fix: SELECT restrâns la `profile_id = auth.uid()`. Dashboard-ul (SECURITY
+  DEFINER) expune deja exact cât trebuie pentru downline (doar `attributions_count`
+  agregat) ocolind RLS → zero impact UI. `affiliate_visible_ids()` rămâne pe
+  `affiliates` (enumerarea sub-afiliaților — fără PII). Regresie acoperită de
+  `tests/sql/affiliate_payout_rls_assertions.sql` (RLS1–RLS6, rulează ca rol
+  authenticated; cu control negativ verificat).
