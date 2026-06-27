@@ -258,7 +258,11 @@ create constraint trigger trg_affiliate_depth1
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- Sold per afiliat per monedă (suma simplă a ledger-ului semnat).
-create or replace view public.v_affiliate_balance as
+-- security_invoker=true: view-ul rulează cu privilegiile + RLS ale apelantului,
+-- NU ale definer-ului. Fără el, un afiliat autentificat ar citi soldurile
+-- TUTUROR (RLS-ul de pe affiliate_ledger ar fi ocolit). Pattern din mig 008.
+create or replace view public.v_affiliate_balance
+  with (security_invoker = true) as
   select affiliate_id,
          currency,
          sum(amount_cents) as balance_cents,
@@ -267,10 +271,11 @@ create or replace view public.v_affiliate_balance as
    group by affiliate_id, currency;
 
 comment on view public.v_affiliate_balance is
-  'Sold derivat din ledger (semnat). Cross-currency separat pe rânduri.';
+  'Sold derivat din ledger (semnat), cu security_invoker → RLS al apelantului.';
 
 -- Comisioane „payable": leg pozitiv, trecut de hold, ne-stornat de un clawback.
-create or replace view public.v_affiliate_payable as
+create or replace view public.v_affiliate_payable
+  with (security_invoker = true) as
   select l.id,
          l.affiliate_id,
          l.attribution_id,
@@ -289,7 +294,11 @@ create or replace view public.v_affiliate_payable as
      );
 
 comment on view public.v_affiliate_payable is
-  'Comisioane eligibile de plată: pozitive, trecute de hold, ne-stornate.';
+  'Comisioane eligibile de plată: pozitive, trecute de hold, ne-stornate (security_invoker).';
+
+-- Acces SELECT pe view-uri pentru rolul aplicației (RLS-ul subiacent scopează rândurile).
+grant select on public.v_affiliate_balance to authenticated;
+grant select on public.v_affiliate_payable to authenticated;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Sec 8. Privilegii — REVOKE IUD pentru roluri aplicație; SELECT prin RLS
@@ -307,44 +316,44 @@ revoke insert, update, delete on public.affiliate_attributions from public, anon
 revoke insert, update, delete on public.affiliate_touches      from public, anon, authenticated;
 revoke insert, update, delete on public.affiliate_ledger       from public, anon, authenticated;
 
+-- Helper SECURITY DEFINER: setul de afiliați vizibili apelantului (propriul rând
+-- + sub-afiliații direcți). RULEAZĂ CU BYPASS RLS (definer) → evită recursia
+-- infinită a politicii pe `affiliates` care altfel s-ar auto-declanșa când o
+-- politică citește `affiliates` în subquery. Pattern identic cu is_admin/is_member.
+create or replace function public.affiliate_visible_ids()
+returns setof uuid
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select a.id
+    from public.affiliates a
+   where a.profile_id = auth.uid()
+      or a.parent_affiliate_id = (
+        select s.id from public.affiliates s where s.profile_id = auth.uid() limit 1
+      )
+$$;
+
+revoke all on function public.affiliate_visible_ids() from public, anon;
+grant execute on function public.affiliate_visible_ids() to authenticated;
+
 -- RLS SELECT: afiliatul își vede propriul rând + (pentru parent) sub-afiliații
 -- direcți. Coloanele sensibile (cookie_value, stripe_customer_id) NU se expun
 -- în UI — frontend-ul citește prin RPC/view dedicat, nu direct din tabele.
+-- Toate politicile folosesc helper-ul SECURITY DEFINER → fără recursie.
 drop policy if exists "affiliate: read own" on public.affiliates;
 create policy "affiliate: read own" on public.affiliates
   for select to authenticated
-  using (
-    profile_id = auth.uid()
-    or parent_affiliate_id in (
-      select a.id from public.affiliates a where a.profile_id = auth.uid()
-    )
-  );
+  using (id in (select public.affiliate_visible_ids()));
 
 drop policy if exists "affiliate: read own attributions" on public.affiliate_attributions;
 create policy "affiliate: read own attributions" on public.affiliate_attributions
   for select to authenticated
-  using (
-    affiliate_id in (
-      select a.id from public.affiliates a
-       where a.profile_id = auth.uid()
-          or a.parent_affiliate_id in (
-            select p.id from public.affiliates p where p.profile_id = auth.uid()
-          )
-    )
-  );
+  using (affiliate_id in (select public.affiliate_visible_ids()));
 
 drop policy if exists "affiliate: read own ledger" on public.affiliate_ledger;
 create policy "affiliate: read own ledger" on public.affiliate_ledger
   for select to authenticated
-  using (
-    affiliate_id in (
-      select a.id from public.affiliates a
-       where a.profile_id = auth.uid()
-          or a.parent_affiliate_id in (
-            select p.id from public.affiliates p where p.profile_id = auth.uid()
-          )
-    )
-  );
+  using (affiliate_id in (select public.affiliate_visible_ids()));
 
 -- affiliate_touches: zero SELECT pentru roluri aplicație (date de fraud/audit).
 -- Nicio policy → blocat complet pentru anon/authenticated. Doar service_role.
@@ -393,6 +402,16 @@ begin
      and c.relrowsecurity;
   if v_count <> 4 then
     raise exception 'mig 097: RLS not enabled on all 4 tables (found %)', v_count;
+  end if;
+
+  -- 9e. View-urile au security_invoker=true (altfel ocolesc RLS-ul ledger-ului).
+  select count(*) into v_count from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+   where n.nspname = 'public'
+     and c.relname in ('v_affiliate_balance','v_affiliate_payable')
+     and c.reloptions @> array['security_invoker=true'];
+  if v_count <> 2 then
+    raise exception 'mig 097: views must have security_invoker=true (found %)', v_count;
   end if;
 
   raise notice 'mig 097: affiliate foundation OK';
