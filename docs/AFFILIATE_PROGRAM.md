@@ -197,8 +197,11 @@ Cron lunar → draft → awaiting_invoice → invoice_matched → processing →
 | **1** | Fundația contabilă: ledger append-only (WORM) + cents/currency + RPC comision (097/097B) | ✅ |
 | **2** | Atribuire profile-bound + anti-fraud economic (097C); checkout/webhook wiring; `/r/:cod` | ✅ |
 | **3** | UI panou afiliat: 4 tab-uri, dashboard RPC (097D), `useAffiliate`, `/afiliat`, QR | ✅ |
-| **4** | Legal + TVA (non-cod): contract avocat; seed VAT 11/21 | brief gata (acest doc) |
+| **4** | Legal + TVA: contract avocat (brief mai jos); seed VAT 11/21 implementat (mig 102) | brief gata; cod ✅ |
 | **5** | Payouts: schema + state machine + batch RPC (098). **Plată manuală** până la Wise sandbox | ✅ schema; Wise = backlog |
+| **P0** | Corectitudine financiară: clawback refund/dispute + setup pe prima factură reală + gate Plan 3 pe `price.id` (mig 099) | ✅ |
+| **P1** | Incrementality reală (touch server-side, mig 100) + cron payout catch-up + teste SQL în CI | ✅ |
+| **P2** | Recrutare sub-afiliați (parent_code în UI) + date de plată afiliat (`upsert_payout_profile`, mig 101) + seed VAT 11/21 (mig 102) | ✅ |
 | **6** | Doar dacă scalează: `restaurant_subscriptions`, Wise automat, Stripe Connect, fraud-graph CUI/IBAN | backlog |
 
 ## 10. Runbook payout (MVP manual)
