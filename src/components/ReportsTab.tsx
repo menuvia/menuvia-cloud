@@ -811,8 +811,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             </div>
           </div>
 
-          {/* Chart — only when > 1 day */}
-          {chartData.length > 1 && (
+          {/* Chart venit zilnic — doar pe Plan 3 (venit = fiscal). Pe Plan 1/2 ascuns. */}
+          {fiscalReports && chartData.length > 1 && (
             <div
               style={{
                 background: D.s2,
@@ -926,10 +926,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       {p.qty}
                     </div>
                     <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
-                      {p.revenue.toFixed(0)} lei
+                      {fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: D.t3 }}>
-                      {(p.revenue / p.qty).toFixed(2)} lei
+                      {fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
                     </div>
                   </div>
                 ))}
