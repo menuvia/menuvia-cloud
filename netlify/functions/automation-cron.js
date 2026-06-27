@@ -81,10 +81,15 @@ exports.handler = async () => {
   if (day <= 2 && hour < 6) {
     try {
       const period = `${t.year}-${t.month}-01` // prima zi a lunii curente (Buc)
-      const { count } = await supabase
+      const { count, error: countErr } = await supabase
         .from('affiliate_payouts')
         .select('id', { count: 'exact', head: true })
         .eq('period_month', period)
+      if (countErr) {
+        // Eroarea de citire nu mai dispare tăcut (OPS-4); RPC-ul e idempotent,
+        // deci continuăm, dar o logăm pentru observabilitate.
+        console.error(`[automation-cron] payout existence-check failed for ${period}:`, countErr.message)
+      }
       if (!count) {
         const { data, error } = await supabase.rpc('run_affiliate_payout_batch', {
           p_period_month: period,
@@ -93,6 +98,8 @@ exports.handler = async () => {
         results.affiliate_payouts = data
       }
     } catch (e) {
+      // Batch ratat = afiliați neplătiți luna respectivă → vizibil în logs (OPS-1).
+      console.error('[automation-cron] payout batch FAILED:', e.message)
       results.affiliate_payout_error = e.message
     }
   }

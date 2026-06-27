@@ -159,6 +159,23 @@ begin
   raise notice 'AF8 OK: sold derivat = %', v_balance;
 end $$;
 
+-- ── AF9: un singur setup per atribuire (mig 105, anti dublă-plată la race) ────
+do $$
+declare v_raised boolean := false;
+begin
+  -- A doua inserție de setup pe aceeași atribuire (event diferit) trebuie respinsă.
+  begin
+    insert into public.affiliate_ledger
+      (affiliate_id, attribution_id, leg, amount_cents, stripe_event_id)
+    values ('0a000000-0000-0000-0000-000000000001','0b000000-0000-0000-0000-000000000001',
+            'setup', 870, 'evt_dup_setup');
+    raise notice 'unexpected insert';
+  exception when unique_violation then v_raised := true;
+  end;
+  if not v_raised then raise exception 'AF9 FAIL: al doilea setup pe aceeași atribuire acceptat (dublă plată)'; end if;
+  raise notice 'AF9 OK: setup unic per atribuire';
+end $$;
+
 do $$ begin raise notice '════ affiliate foundation assertions: ALL PASS ════'; end $$;
 
 rollback;

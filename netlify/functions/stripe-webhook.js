@@ -303,8 +303,22 @@ exports.handler = async (event) => {
             // period_month = prima zi a lunii perioadei facturate (pentru cap-ul
             // de 12 luni). Preferăm perioada liniei de subscription; fallback la
             // period_start al facturii.
-            const periodStartUnix =
-              invoice.lines?.data?.[0]?.period?.start || invoice.period_start || null
+            // Selectează linia de subscription EXPLICIT — NU presupune data[0].
+            // La facturi cu proration/discount/multi-line, data[0] poate fi o
+            // linie de credit cu price.id-ul vechiului plan → plan/perioadă
+            // greșite (comision pierdut la upgrade, gate Plan 3 incorect).
+            // Preferăm linia cu price.id ∈ PLAN_BY_PRICE și cel mai mare
+            // period.end; fallback la liniile type==='subscription'.
+            const invoiceLines = invoice.lines?.data || []
+            const planLines = invoiceLines.filter((l) => l?.price?.id && PLAN_BY_PRICE[l.price.id])
+            const subPool = planLines.length
+              ? planLines
+              : invoiceLines.filter((l) => l?.type === 'subscription')
+            const subLine = subPool.reduce(
+              (best, l) => ((l?.period?.end || 0) > (best?.period?.end || 0) ? l : best),
+              subPool[0] || null,
+            )
+            const periodStartUnix = subLine?.period?.start || invoice.period_start || null
             let periodMonth = null
             if (periodStartUnix) {
               const d = new Date(periodStartUnix * 1000)
@@ -312,7 +326,7 @@ exports.handler = async (event) => {
             }
             // Planul EFECTIV facturat din price.id (downgrade-safe). null →
             // RPC-ul refuză comisionul (fail-closed pe Plan 3).
-            const billedPriceId = invoice.lines?.data?.[0]?.price?.id || null
+            const billedPriceId = subLine?.price?.id || null
             const billedPlan = PLAN_BY_PRICE[billedPriceId] || null
             const { error: commErr } = await supabase.rpc('process_affiliate_invoice_paid', {
               p_event_id:               stripeEvent.id,
@@ -338,7 +352,10 @@ exports.handler = async (event) => {
 
       case 'charge.refunded': {
         // Afiliere: clawback proporțional al comisionului pe factura refundată.
-        // Per refund.id (idempotent în RPC). Best-effort, nu rupe webhook-ul.
+        // Per refund.id (idempotent în RPC). Spre deosebire de comision (best-
+        // effort), clawback-ul RECUPEREAZĂ bani → un eșec NU trebuie înghițit:
+        // setăm processingError → 500 → Stripe retrimite (retry e sigur,
+        // idempotent pe refund_id), altfel comisionul pe venit stornat rămâne.
         const charge = stripeEvent.data.object
         try {
           const refunds = charge.refunds?.data || []
@@ -351,10 +368,14 @@ exports.handler = async (event) => {
               p_refund_amount_cents: r.amount,
               p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
             })
-            if (clawErr) console.warn('[stripe-webhook] affiliate clawback failed:', clawErr.message)
+            if (clawErr) {
+              console.error('[stripe-webhook] affiliate clawback failed:', clawErr.message)
+              processingError = `affiliate clawback failed: ${clawErr.message}`
+            }
           }
         } catch (e) {
-          console.warn('[stripe-webhook] affiliate clawback threw:', e?.message)
+          console.error('[stripe-webhook] affiliate clawback threw:', e?.message)
+          processingError = `affiliate clawback threw: ${e?.message || String(e)}`
         }
         break
       }
@@ -375,9 +396,14 @@ exports.handler = async (event) => {
               p_refund_amount_cents: charge.amount,            // dispute pierdută = total
               p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
             })
-            if (clawErr) console.warn('[stripe-webhook] dispute clawback failed:', clawErr.message)
+            if (clawErr) {
+              console.error('[stripe-webhook] dispute clawback failed:', clawErr.message)
+              processingError = `dispute clawback failed: ${clawErr.message}`
+            }
           } catch (e) {
-            console.warn('[stripe-webhook] dispute clawback threw:', e?.message)
+            // Inclusiv eșecul stripe.charges.retrieve (blip API) → retry, nu pierdem clawback-ul.
+            console.error('[stripe-webhook] dispute clawback threw:', e?.message)
+            processingError = `dispute clawback threw: ${e?.message || String(e)}`
           }
         }
         break

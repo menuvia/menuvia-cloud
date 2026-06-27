@@ -423,6 +423,11 @@ function UnelteTab({
   }, [url])
 
   const copy = () => {
+    // navigator.clipboard e undefined pe context non-secure → guard ca să nu arunce sincron.
+    if (!navigator.clipboard) {
+      toast.error('Copierea nu e disponibilă în acest browser')
+      return
+    }
     void navigator.clipboard
       .writeText(url)
       .then(() => toast.success('Link copiat'))

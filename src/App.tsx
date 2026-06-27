@@ -1955,6 +1955,22 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
   )
 }
 
+// Ruta /afiliat: necesită user logat (NU rol de restaurant). Redirecționarea se
+// face într-un useEffect (nu în render) ca să evităm setState-în-render.
+function AffiliateRoute({ navigate }: { navigate: (p: string) => void }) {
+  const { user, loading: authLoading } = useAuth()
+  useEffect(() => {
+    if (authLoading) return
+    if (!user) navigate('/auth')
+  }, [user, authLoading]) // eslint-disable-line react-hooks/exhaustive-deps
+  if (authLoading || !user) return <PageSpinner />
+  return (
+    <Suspense fallback={<PageSpinner />}>
+      <AfiliatPage />
+    </Suspense>
+  )
+}
+
 function ProtectedRoute({
   roles,
   children,
@@ -2194,15 +2210,7 @@ function AppRouter() {
   // (un afiliat poate să nu aibă restaurant). Plasat înainte de gate-ul de
   // onboarding ca să nu fie redirecționat la /dashboard onboarding.
   if (state.view === 'afiliat') {
-    if (!user) {
-      navigate('/auth')
-      return <PageSpinner />
-    }
-    return (
-      <Suspense fallback={<PageSpinner />}>
-        <AfiliatPage />
-      </Suspense>
-    )
+    return <AffiliateRoute navigate={navigate} />
   }
 
   // ── Role-protected routes ──────────────────────────────────

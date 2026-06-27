@@ -262,3 +262,16 @@ orice resubmit** — niciodată re-trimitere oarbă. Vezi auditul E7/D7.
   `affiliates` (enumerarea sub-afiliaților — fără PII). Regresie acoperită de
   `tests/sql/affiliate_payout_rls_assertions.sql` (RLS1–RLS6, rulează ca rol
   authenticated; cu control negativ verificat).
+- **Decizia #5 (audit expert end-to-end → corectitudine plăți, mig 105/106 + webhook):**
+  Audit pe 10 zone cu verificare adversarială → 1 P0 + mai multe P1 financiare, reparate:
+  (a) **PAYOUT-1** (P0) — decontarea insera `-gross` la →paid fără re-validare, deci un
+  clawback între draft și plată ducea la cash pe comision stornat → mig 106 impune
+  invariantul `eligibil_net ≥ deja_plătit + gross`; (b) **AFF-LEDGER-1** — setup fără
+  unicitate pe atribuire → dublă plată 30% la race → mig 105 index parțial unic; (c)
+  **PAYOUT-2/AFF-E2E-1** — payout 'failed' cu transfer inițiat elibera gross-ul și
+  'processing' se putea atinge fără `wise_transfer_id` → mig 106 impune `wise_transfer_id`
+  la processing și păstrează gross-ul angajat pentru on_hold + failed-cu-transfer
+  (eliberare doar prin →canceled); (d) **STRIPE-1** — eșecul clawback-ului era înghițit
+  → acum setează processingError → 500 → Stripe retrimite (idempotent); (e) **STRIPE-2** —
+  `invoice.lines[0]` ≠ linia de subscription la proration → selecție explicită prin
+  `PLAN_BY_PRICE`. RLS-ul a ieșit curat. Regresii: PO7b/PO8/PO9 + AF9.
