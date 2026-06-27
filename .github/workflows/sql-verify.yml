@@ -1155,13 +1155,15 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/reservation_overlap_assertions.sql
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/report_revenue_gate_assertions.sql
 
-      - name: "Platform audit round 2 assertions (mig 124-130)"
+      - name: "Platform audit round 2-3 assertions (mig 124-132)"
         if: ${{ hashFiles('supabase/migrations/20260628000000_migration_124_orders_paid_fiscal_gate.sql') != '' }}
         env:
           PGPASSWORD: postgres
         run: |
           # Gate universal Plan 3 pe orders.status=paid (inchidere gate-leak PostgREST direct).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/orders_paid_gate_assertions.sql
+          # Limita de membri pe plan (max_team_members) impusa pe restaurant_memberships.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/team_member_limit_assertions.sql
 
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
