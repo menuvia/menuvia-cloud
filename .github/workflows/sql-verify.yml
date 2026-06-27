@@ -1117,6 +1117,14 @@ jobs:
           # Cotele TVA implicite pentru restaurantele noi: 11% redus / 21% standard.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_rates_2025_assertions.sql
 
+      - name: "Platform security assertions (mig 111/112)"
+        if: ${{ hashFiles('supabase/migrations/20260627000000_migration_111_split_bill_gate.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # Regula de aur pe split bill + izolare multi-tenant (views + qr_tokens/tables).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/platform_security_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
