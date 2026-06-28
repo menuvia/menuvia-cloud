@@ -292,7 +292,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           }}
         >
           <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>📊</div>
-          <div>Nicio comandă plătită în perioada selectată.</div>
+          <div>Nicio comandă în perioada selectată.</div>
         </div>
       ) : (
         <>
