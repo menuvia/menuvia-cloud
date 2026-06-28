@@ -40,6 +40,15 @@ function ProductModal({
 
   async function handleImageUpload(file: File) {
     if (!file || uploading) return
+    // Validare client tip + dimensiune înainte de decode/resize pe canvas (eroare prietenoasă).
+    if (!file.type.startsWith('image/')) {
+      window.alert('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      window.alert('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.')
+      return
+    }
     setUploading(true)
     try {
       // Client-side resize
