@@ -37,6 +37,9 @@ function ProductModal({
 }) {
   const [uploading, setUploading] = useState(false)
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
+  // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
+  // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
+  const { toasts: pmToasts, toast: pmToast } = useToast()
 
   async function handleImageUpload(file: File) {
     if (!file || uploading) return
@@ -82,6 +85,10 @@ function ProductModal({
       setForm((f) => ({ ...f, image_url: publicUrl }))
     } catch (e) {
       console.error('Upload failed', e)
+      pmToast(
+        'Încărcarea imaginii a eșuat: ' + (e instanceof Error ? e.message : 'reîncearcă'),
+        'error',
+      )
     }
     setUploading(false)
   }
@@ -184,11 +191,13 @@ function ProductModal({
       .select()
       .single()
     if (!error && data) setExtras((prev) => [...prev, { ...data, price: Number(data.price) }])
+    else if (error) pmToast('Nu am putut adăuga extra-ul: ' + error.message, 'error')
   }
 
   async function removeExtra(id: string) {
     const { error } = await supabase.from('product_extras').delete().eq('id', id)
     if (!error) setExtras((prev) => prev.filter((e) => e.id !== id))
+    else pmToast('Nu am putut șterge extra-ul: ' + error.message, 'error')
   }
 
   // ── Recipe state (gestiune ingredients) ─────────
@@ -220,15 +229,30 @@ function ProductModal({
   async function setRecipeQty(ingredientId: string, quantity: number) {
     if (!product?.id) return
     if (quantity <= 0) return
-    await setRecipeItem(product.id, ingredientId, quantity)
-    const refreshed = await fetchRecipesForProduct(product.id)
-    setRecipeRows(refreshed)
+    try {
+      await setRecipeItem(product.id, ingredientId, quantity)
+      const refreshed = await fetchRecipesForProduct(product.id)
+      setRecipeRows(refreshed)
+    } catch (err) {
+      pmToast(
+        'Nu am putut salva rețeta: ' + (err instanceof Error ? err.message : 'eroare necunoscută'),
+        'error',
+      )
+    }
   }
 
   async function deleteRecipeItem(ingredientId: string) {
     if (!product?.id) return
-    await removeRecipeItem(product.id, ingredientId)
-    setRecipeRows((prev) => prev.filter((r) => r.ingredient_id !== ingredientId))
+    try {
+      await removeRecipeItem(product.id, ingredientId)
+      setRecipeRows((prev) => prev.filter((r) => r.ingredient_id !== ingredientId))
+    } catch (err) {
+      pmToast(
+        'Nu am putut șterge ingredientul: ' +
+          (err instanceof Error ? err.message : 'eroare necunoscută'),
+        'error',
+      )
+    }
   }
 
   async function togglePairing(pairedId: string) {
@@ -237,6 +261,7 @@ function ProductModal({
     if (existing) {
       const { error } = await supabase.from('product_pairings').delete().eq('id', existing.id)
       if (!error) setPairings((prev) => prev.filter((p) => p.id !== existing.id))
+      else pmToast('Nu am putut elimina perechea: ' + error.message, 'error')
     } else {
       if (pairings.length >= 3) return // limit 3 pairings
       const newOrder =
@@ -247,6 +272,7 @@ function ProductModal({
         .select()
         .single()
       if (!error && data) setPairings((prev) => [...prev, data])
+      else if (error) pmToast('Nu am putut adăuga perechea: ' + error.message, 'error')
     }
   }
   const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
@@ -1228,6 +1254,7 @@ function ProductModal({
           </button>
         </div>
       </div>
+      <Toast toasts={pmToasts} />
     </Modal>
   )
 }
