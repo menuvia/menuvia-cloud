@@ -85,6 +85,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       is_required: g.is_required as boolean,
       min_select: (g.min_select as number) ?? 0,
       max_select: g.max_select as number | null,
+      display_order: (g.display_order as number) ?? 0,
       modifier_options: opts
         .filter((o: Record<string, unknown>) => o.modifier_group_id === g.id)
         .map((o: Record<string, unknown>) => ({
