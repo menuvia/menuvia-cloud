@@ -126,6 +126,25 @@ begin
   end;
   if not v_blocked then raise exception 'UE4 FAIL: editarea a acceptat 2 opțiuni într-un grup single'; end if;
 
+  -- ─── UE5: comandă 'closed' nu poate fi editată (anti edit post-decontare) ──
+  update public.orders set status = 'closed' where id = v_oid;
+  v_blocked := false;
+  begin
+    perform public.update_order_items(
+      v_oid,
+      ('[{"product_id":"' || v_pid || '","quantity":1}]')::jsonb,
+      null
+    );
+  exception when others then
+    if sqlerrm like '%terminal%' then
+      v_blocked := true;
+      raise notice 'UE5 PASS: editarea unei comenzi closed respinsă: %', sqlerrm;
+    else
+      raise exception 'UE5 FAIL: eroare neașteptată (așteptam terminal state): %', sqlerrm;
+    end if;
+  end;
+  if not v_blocked then raise exception 'UE5 FAIL: comanda closed a fost editabilă (divergență bon)'; end if;
+
   raise notice 'ALL PASS';
 end$$;
 

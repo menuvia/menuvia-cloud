@@ -1062,10 +1062,15 @@ export default function WaiterPage() {
               onApplyHappyHour={async () => {
                 if (!happyHourSugg) return
                 try {
+                  // P1 fix: aplicăm SUMA fixă calculată server-side (computed_discount), nu
+                  // procentul brut. Pentru reguli scope category/product, un discount_type
+                  // 'percent' ar fi aplicat de _refresh_order_totals pe TOT subtotalul comenzii
+                  // (supra-reducere). computed_discount e deja reducerea corectă pe subtotalul
+                  // aplicabil (orice scope/tip) → o aplicăm ca 'amount'.
                   await applyOrderDiscount(
                     live.id,
-                    happyHourSugg.discount_type,
-                    happyHourSugg.discount_value,
+                    'amount',
+                    happyHourSugg.computed_discount,
                     `🎉 Happy Hour: ${happyHourSugg.rule_name}`,
                   )
                   setHappyHourSugg(null)

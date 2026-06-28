@@ -106,7 +106,10 @@ begin
     raise exception 'update_order_items: role % cannot edit orders', v_role;
   end if;
 
-  if v_order.status in ('paid', 'cancelled') then
+  -- Stari terminale: include 'closed' (nota deja decontata pe casa externa). Altfel un waiter
+  -- ar putea edita prin RPC direct produsele/totalul unei comenzi inchise dupa decontare,
+  -- divergand evidenta de bonul extern emis. advance_order blocheaza deja re-tranzitia din closed.
+  if v_order.status in ('paid', 'cancelled', 'closed') then
     raise exception 'update_order_items: order is % — cannot edit terminal state', v_order.status;
   end if;
 
