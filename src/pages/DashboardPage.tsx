@@ -1176,7 +1176,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'invoices' &&
-                (features.has('fiscal_receipt') ? (
+                (tier >= 3 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
                     <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
                   </Suspense>
@@ -1195,7 +1195,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'casa-marcat' &&
-                (features.has('fiscal_receipt') ? (
+                (tier >= 3 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                     <BridgeTab restaurantId={restaurant.id} />
                   </Suspense>
