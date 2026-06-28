@@ -305,7 +305,9 @@ export default function ProductsCsvImport({
             restaurant_id: restaurantId,
             name: original,
             emoji: '🍽️',
-            position: existingCategories.length + catMap.size,
+            // #27: meniul ordonează după `display_order` (NOT NULL), nu `position`. Scriem în
+            // coloana corectă, cu offset după categoriile existente (apar la coadă, în ordine).
+            display_order: existingCategories.length + catMap.size,
           })
           .select('id')
           .single()

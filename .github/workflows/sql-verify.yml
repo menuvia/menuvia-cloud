@@ -1193,6 +1193,15 @@ jobs:
           # pmg admin-write pe ambele tenanturi (#13) + reads scopate categories/vat_rates/modules (#18/#22/#29/#30).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/rls_scoping_batch2_assertions.sql
 
+      - name: "Platform audit round 4 BATCH 3 assertions (mig 154-157)"
+        if: ${{ hashFiles('supabase/migrations/20260628030000_migration_154_save_floor_layout_gate.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # save_floor_layout gate floor_plan + size (#24/#25), dezactivare masă (#21),
+          # products.category_id same-tenant (#26), happy_hour_rules tenant (#28).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/batch3_tenant_gates_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
