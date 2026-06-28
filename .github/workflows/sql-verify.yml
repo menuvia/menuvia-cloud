@@ -1183,6 +1183,14 @@ jobs:
           # raport TVA gate-uit pe fiscal_receipt (#6).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_report_fiscal_gate_assertions.sql
 
+      - name: "Platform audit round 5 BATCH A assertions (mig 158-159, P0 fiscal)"
+        if: ${{ hashFiles('supabase/migrations/20260628034000_migration_158_invoices_fiscal_gate.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # gate fiscal Plan 3 pe invoices/oblio_configs/cancel_invoice + analytics views venit.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/invoices_fiscal_gate_assertions.sql
+
       - name: "Platform audit round 4 BATCH 2 assertions (mig 151-153)"
         if: ${{ hashFiles('supabase/migrations/20260628027000_migration_151_reservation_duration_cap.sql') != '' }}
         env:
