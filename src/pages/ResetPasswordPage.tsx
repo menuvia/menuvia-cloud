@@ -22,13 +22,15 @@ function passwordStrength(p: string): 0 | 1 | 2 {
   const hasSym = /[^a-zA-Z0-9]/.test(p)
   const hasUpper = /[A-Z]/.test(p)
   const score = (hasNum ? 1 : 0) + (hasSym ? 1 : 0) + (hasUpper ? 1 : 0)
+  // O parolă lungă dar dintr-o singură clasă (ex. doar litere mici) NU e "Acceptabilă":
+  // cere cel puțin o clasă (cifră/simbol/majusculă) sau lungime ≥12 pentru nivelul 1.
   if (score >= 2) return 2
-  if (score >= 1) return 1
-  return 1 // length >= 8 is at least "ok"
+  if (score >= 1 || p.length >= 12) return 1
+  return 0
 }
 
 const STRENGTH_META = {
-  0: { label: 'Prea scurtă', color: D.red, width: '25%' },
+  0: { label: 'Slabă', color: D.red, width: '25%' },
   1: { label: 'Acceptabilă', color: D.amber, width: '60%' },
   2: { label: 'Puternică', color: D.green, width: '100%' },
 }

@@ -1156,31 +1156,58 @@ export default function DashboardPage({
                     onUpgrade={onPricing}
                   />
                 ))}
-              {tab === 'casa-tura' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <CashRegisterTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'casa-tura' &&
+                (features.has('shifts') ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                    <CashRegisterTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Casă & Tură"
+                    emoji="💰"
+                    description="Casă de bani, ture și încasări. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'happy-hour' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                   <HappyHourTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'invoices' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
-                  <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
-                </Suspense>
-              )}
+              {tab === 'invoices' &&
+                (features.has('fiscal_receipt') ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
+                    <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Facturi"
+                    emoji="🧾"
+                    description="Emitere facturi Oblio. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'reservations' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
                   <ReservationsTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'casa-marcat' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <BridgeTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'casa-marcat' &&
+                (features.has('fiscal_receipt') ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                    <BridgeTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Casă de marcat"
+                    emoji="🖨️"
+                    description="Conectează casa de marcat fiscală. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'settings' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă setările..." />}>
                   <SettingsTab
