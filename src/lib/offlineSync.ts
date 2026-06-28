@@ -206,6 +206,9 @@ export async function syncPendingOrders(): Promise<void> {
         notes: i.notes ?? null,
       }))
 
+      // B1 (mig 145): semnătura 7-arg a fost DROP-uită; trimitem semnătura 11-arg
+      // completă (null pt pickup/customer/session — comenzile offline sunt source='waiter',
+      // fără sesiune de masă), identic cu orders.ts. Un singur overload viu = fără ambiguitate.
       const { error } = await supabase.rpc('create_order', {
         p_restaurant_id: item.payload.restaurant_id,
         p_source: item.payload.source,
@@ -214,6 +217,10 @@ export async function syncPendingOrders(): Promise<void> {
         p_notes: item.payload.notes ?? null,
         p_items,
         p_idempotency_key: item.payload.idempotency_key ?? null,
+        p_pickup_time: null,
+        p_customer_name: null,
+        p_customer_phone: null,
+        p_session_id: null,
       })
 
       if (error) {

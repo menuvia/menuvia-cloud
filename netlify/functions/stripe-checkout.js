@@ -118,25 +118,64 @@ exports.handler = async (event) => {
   // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
   const trialDays = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    client_reference_id: user.id,
-    mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${appUrl}/dashboard?checkout=success`,
-    cancel_url: `${appUrl}/pricing?checkout=cancelled`,
-    subscription_data: {
-      // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
-      // referral_code persistă pe subscription → disponibil în invoice.paid
-      // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
-      metadata: {
-        supabase_user_id: user.id,
-        plan: requestedPlan,
-        ...(referralCode ? { referral_code: referralCode } : {}),
+  // ── Anti dublu-abonament (#5) + trial-once (#15) ───────────────────────────
+  // Self-contained în Stripe (fără coloană nouă în DB): citim istoricul de
+  // subscripții al clientului.
+  //   • dacă există deja una activă/în trial → 409 (schimbarea planului se face
+  //     din Portalul de facturare, nu printr-un nou checkout — altfel dublă plată);
+  //   • dacă a existat VREODATĂ un trial → nu mai acordăm altul (anti trial-farming).
+  let allowTrial = trialDays > 0
+  try {
+    const subs = await stripe.subscriptions.list({
+      customer: customerId,
+      status: 'all',
+      limit: 100,
+    })
+    const hasLive = subs.data.some(
+      (s) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due',
+    )
+    if (hasLive) {
+      return jsonResponse(409, {
+        error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
+        code: 'subscription_exists',
+      })
+    }
+    const hadTrial = subs.data.some((s) => s.trial_start != null || s.trial_end != null)
+    if (hadTrial) allowTrial = false
+  } catch (e) {
+    // Fail-closed pe trial: dacă nu putem verifica istoricul, NU acordăm trial
+    // (anti trial-farming pe eroare). Checkout-ul nou e lăsat să continue —
+    // un eventual abonament dublu e prins de webhook/Portal.
+    console.warn('[stripe-checkout] subscription history check failed:', e?.message)
+    allowTrial = false
+  }
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      customer: customerId,
+      client_reference_id: user.id,
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${appUrl}/dashboard?checkout=success`,
+      cancel_url: `${appUrl}/pricing?checkout=cancelled`,
+      subscription_data: {
+        // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
+        // referral_code persistă pe subscription → disponibil în invoice.paid
+        // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
+        metadata: {
+          supabase_user_id: user.id,
+          plan: requestedPlan,
+          ...(referralCode ? { referral_code: referralCode } : {}),
+        },
+        ...(allowTrial ? { trial_period_days: trialDays } : {}),
       },
-      ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
     },
-  })
+    {
+      // Idempotență pe (user, plan): click-uri repetate în fereastra de 24h
+      // întorc aceeași sesiune în loc să creeze checkout-uri duplicate.
+      idempotencyKey: `checkout_${user.id}_${requestedPlan}`,
+    },
+  )
 
   return jsonResponse(200, { url: session.url })
 }

@@ -1167,6 +1167,22 @@ jobs:
           # Gate universal Plan 3 pe coada fiscala terminala pending_receipts (mig 133).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/pending_receipts_fiscal_gate_assertions.sql
 
+      - name: "Platform audit round 4 BATCH 1 assertions (mig 145-150)"
+        if: ${{ hashFiles('supabase/migrations/20260628021000_migration_145_create_order_extras_options_fix.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # create_order: extras (#3) + dedup options (#1) + plafon grup (#9) + 1 overload.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/create_order_extras_options_assertions.sql
+          # update_order_items: extras (#2) + pastrare minimal-safe (M1).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/update_order_items_extras_assertions.sql
+          # slug case-insensitive end-to-end (#4).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/slug_case_insensitive_assertions.sql
+          # gate Plan 3 pe Casa/Tura (#7) + revoke helperi cash (#8) + gate bridge_devices (#17).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/shifts_cash_gate_assertions.sql
+          # raport TVA gate-uit pe fiscal_receipt (#6).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_report_fiscal_gate_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
