@@ -190,7 +190,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         .order('created_at', { ascending: true })
       if (oErr) throw oErr
 
-      const allOrders = (ordersRaw ?? []) as Record<string, unknown>[]
+      // `as unknown as` — select-ul condiționat (ternar) face ca tipul rândului dedus de
+      // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
+      const allOrders = (ordersRaw ?? []) as unknown as Record<string, unknown>[]
       const totalOrders = allOrders.length
       const revenue = allOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const cashRev = allOrders
@@ -241,7 +243,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           string,
           { name: string; qty: number; revenue: number; emoji: string; productId: string }
         >()
-        for (const item of (items ?? []) as Record<string, unknown>[]) {
+        for (const item of (items ?? []) as unknown as Record<string, unknown>[]) {
           const key = item.product_id as string
           const prev = map.get(key)
           const qty = Number(item.quantity || 1)
