@@ -16,6 +16,7 @@ interface ModifierGroup {
   is_required: boolean
   min_select: number
   max_select: number | null
+  display_order: number
   modifier_options: ModifierOption[]
 }
 

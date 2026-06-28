@@ -122,7 +122,10 @@ exports.handler = async (event) => {
 
   // Trial configurabil — default 30 zile (onorează promisiunea din landing).
   // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
-  const trialDays = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
+  // STRIPE_TRIAL_DAYS non-numeric (typo în env) ar da NaN → trial dezactivat silentios.
+  // Fallback la 30 dacă valoarea nu e un întreg valid.
+  const parsedTrial = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
+  const trialDays = Number.isFinite(parsedTrial) ? parsedTrial : 30
 
   // ── Anti dublu-abonament (#5) + trial-once (#15) ───────────────────────────
   // Self-contained în Stripe (fără coloană nouă în DB): citim istoricul de
