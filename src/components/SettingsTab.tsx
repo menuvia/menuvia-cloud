@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
@@ -53,6 +53,11 @@ export default function SettingsTab({
   const [uploadingLogo, setUploadingLogo] = useState(false)
   const { toasts, toast } = useToast()
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+  // Re-sincronizează formularul când prop-ul restaurant se schimbă (ex. după salvarea
+  // slug-ului prin RPC, care întoarce slug-ul normalizat) — altfel form-ul rămâne stale.
+  useEffect(() => {
+    setForm({ ...restaurant })
+  }, [restaurant])
 
   async function uploadImage(file: File, kind: 'cover' | 'logo'): Promise<string | null> {
     if (!user) return null

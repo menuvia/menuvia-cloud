@@ -535,9 +535,24 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     }
     setBulkBusy(true)
     try {
-      const rows = []
-      for (let i = tables.length + 1; i <= n; i++) {
-        rows.push({ restaurant_id: restaurant.id, name: `Masa ${i}`, slug: `masa-${i}` })
+      // Indici LIBERI pe baza slug-urilor existente masa-N (nu tables.length+1) — altfel, cu
+      // goluri (ex. Masa 3 ștearsă), am genera un slug care coliziează. Creăm exact
+      // (n - tables.length) mese, sărind peste numerele deja folosite.
+      const usedNums = new Set(
+        tables
+          .map((t) => {
+            const m = /^masa-(\d+)$/.exec(t.slug || '')
+            return m ? parseInt(m[1], 10) : null
+          })
+          .filter((x): x is number => x != null),
+      )
+      const rows: { restaurant_id: string; name: string; slug: string }[] = []
+      let idx = 1
+      while (tables.length + rows.length < n) {
+        if (!usedNums.has(idx)) {
+          rows.push({ restaurant_id: restaurant.id, name: `Masa ${idx}`, slug: `masa-${idx}` })
+        }
+        idx++
       }
       const { error } = await supabase.from('tables').insert(rows)
       if (error) throw error
