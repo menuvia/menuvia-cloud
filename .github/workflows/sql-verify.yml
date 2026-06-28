@@ -1199,6 +1199,14 @@ jobs:
           # order_items revoke + recipes/wta/po_supplier tenant guards.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/multitenant_write_guards_assertions.sql
 
+      - name: "Platform audit round 5 assertions (mig 167, email queue reclaim)"
+        if: ${{ hashFiles('supabase/migrations/20260628043000_migration_167_email_queue_reclaim_stale.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # reclaim al email-urilor blocate în 'sending' de un worker mort (claimed_at > 10 min).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/email_queue_reclaim_assertions.sql
+
       - name: "Platform audit round 4 BATCH 2 assertions (mig 151-153)"
         if: ${{ hashFiles('supabase/migrations/20260628027000_migration_151_reservation_duration_cap.sql') != '' }}
         env:
