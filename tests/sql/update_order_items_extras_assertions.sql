@@ -19,10 +19,13 @@ declare
   v_table uuid := '31111111-2222-3333-4444-555555555503'::uuid;
   v_pid   uuid;
   v_extra uuid;
+  v_gsgl  uuid;  -- grup single
+  v_s1 uuid; v_s2 uuid;
   v_res   jsonb;
   v_oid   uuid;
   v_total numeric;
   v_extras_cnt int;
+  v_blocked boolean;
 begin
   insert into auth.users (id, email) values (v_owner, 'uoi-extras@menuvia.ro');
   update public.profiles set plan = 'growth' where id = v_owner;
@@ -34,6 +37,14 @@ begin
     values (v_rest, null, 'Burger', 12.00, true) returning id into v_pid;
   insert into public.product_extras (product_id, name, price, is_available)
     values (v_pid, 'Cartofi', 5.00, true) returning id into v_extra;
+  insert into public.modifier_groups (restaurant_id, name, selection_type)
+    values (v_rest, 'Gătire', 'single') returning id into v_gsgl;
+  insert into public.modifier_options (modifier_group_id, name, price_delta, is_available)
+    values (v_gsgl, 'Mediu', 0.00, true) returning id into v_s1;
+  insert into public.modifier_options (modifier_group_id, name, price_delta, is_available)
+    values (v_gsgl, 'Bine făcut', 0.00, true) returning id into v_s2;
+  insert into public.product_modifier_groups (product_id, modifier_group_id)
+    values (v_pid, v_gsgl);
 
   perform set_config('request.jwt.claim.sub', v_owner::text, true);
   perform set_config('request.jwt.claim.role', 'authenticated', true);
@@ -96,6 +107,24 @@ begin
     raise exception 'UE3 FAIL: extras_added ar trebui golit, găsite: %', v_extras_cnt;
   end if;
   raise notice 'UE3 PASS: edit cu extra_ids=[] → extras golite, total=12.00';
+
+  -- ─── UE4: grup single cu 2 opțiuni → respins (oglindă create_order #9) ──
+  v_blocked := false;
+  begin
+    perform public.update_order_items(
+      v_oid,
+      ('[{"product_id":"' || v_pid || '","quantity":1,"option_ids":["' || v_s1 || '","' || v_s2 || '"]}]')::jsonb,
+      null
+    );
+  exception when others then
+    if sqlerrm like '%prea multe%' or sqlerrm like '%too_many%' then
+      v_blocked := true;
+      raise notice 'UE4 PASS: grup single cu 2 opțiuni respins la editare: %', sqlerrm;
+    else
+      raise exception 'UE4 FAIL: eroare neașteptată (așteptam too_many_in_group): %', sqlerrm;
+    end if;
+  end;
+  if not v_blocked then raise exception 'UE4 FAIL: editarea a acceptat 2 opțiuni într-un grup single'; end if;
 
   raise notice 'ALL PASS';
 end$$;

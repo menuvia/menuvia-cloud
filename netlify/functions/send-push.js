@@ -21,9 +21,16 @@ function json(statusCode, body) {
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method not allowed' }
 
-  // Validate webhook secret
+  // Validate webhook secret (fail-closed — oglindă welcome-email.js).
+  // Dacă WEBHOOK_SECRET nu e configurat, `secret !== undefined` ar fi false când lipsește
+  // și headerul (undefined !== undefined) → bypass de auth. Refuzăm explicit ambele cazuri.
+  const expectedSecret = process.env.WEBHOOK_SECRET
+  if (!expectedSecret) {
+    console.error('[send-push] WEBHOOK_SECRET neconfigurat — refuz (fail-closed)')
+    return json(503, { error: 'Webhook secret not configured' })
+  }
   const secret = event.headers['x-webhook-secret'] || event.headers['X-Webhook-Secret']
-  if (secret !== process.env.WEBHOOK_SECRET) return json(401, { error: 'Unauthorized' })
+  if (!secret || secret !== expectedSecret) return json(401, { error: 'Unauthorized' })
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL } = process.env
 

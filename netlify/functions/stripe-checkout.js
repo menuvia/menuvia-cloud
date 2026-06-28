@@ -125,30 +125,35 @@ exports.handler = async (event) => {
   //     din Portalul de facturare, nu printr-un nou checkout — altfel dublă plată);
   //   • dacă a existat VREODATĂ un trial → nu mai acordăm altul (anti trial-farming).
   let allowTrial = trialDays > 0
+  let subsAll
   try {
-    const subs = await stripe.subscriptions.list({
-      customer: customerId,
-      status: 'all',
-      limit: 100,
-    })
-    const hasLive = subs.data.some(
-      (s) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due',
-    )
-    if (hasLive) {
-      return jsonResponse(409, {
-        error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
-        code: 'subscription_exists',
-      })
-    }
-    const hadTrial = subs.data.some((s) => s.trial_start != null || s.trial_end != null)
-    if (hadTrial) allowTrial = false
+    // Paginăm TOATE subscripțiile clientului (nu doar prima pagină de 100), altfel o
+    // subscripție live/trial mai veche ar putea fi ratată → dublu abonament / trial repetat.
+    subsAll = await stripe.subscriptions
+      .list({ customer: customerId, status: 'all', limit: 100 })
+      .autoPagingToArray({ limit: 10000 })
   } catch (e) {
-    // Fail-closed pe trial: dacă nu putem verifica istoricul, NU acordăm trial
-    // (anti trial-farming pe eroare). Checkout-ul nou e lăsat să continue —
-    // un eventual abonament dublu e prins de webhook/Portal.
-    console.warn('[stripe-checkout] subscription history check failed:', e?.message)
-    allowTrial = false
+    // Fail-closed: dacă nu putem verifica istoricul de subscripții, NU pornim un checkout nou
+    // (altfel un eroare tranzitorie Stripe ar putea duce la al doilea abonament). 503 → retry.
+    console.error('[stripe-checkout] subscription history lookup failed:', e?.message)
+    return jsonResponse(503, {
+      error: 'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.',
+      code: 'subscription_lookup_failed',
+    })
   }
+
+  const hasLive = subsAll.some(
+    (s) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due',
+  )
+  if (hasLive) {
+    return jsonResponse(409, {
+      error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
+      code: 'subscription_exists',
+    })
+  }
+  // trial-once: dacă a existat VREODATĂ un trial, nu mai acordăm altul (anti trial-farming).
+  const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
+  if (hadTrial) allowTrial = false
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -171,9 +176,11 @@ exports.handler = async (event) => {
       },
     },
     {
-      // Idempotență pe (user, plan): click-uri repetate în fereastra de 24h
-      // întorc aceeași sesiune în loc să creeze checkout-uri duplicate.
-      idempotencyKey: `checkout_${user.id}_${requestedPlan}`,
+      // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
+      // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
+      // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
+      // sesiune (dedup); orice diferență → cheie nouă.
+      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}`,
     },
   )
 

@@ -375,6 +375,16 @@ begin
     v_extras_total := 0;
     v_extras_json  := '[]'::jsonb;
     if v_item ? 'extra_ids' and jsonb_array_length(v_item->'extra_ids') > 0 then
+      -- dedup extra_ids pe input brut (anti dublă-numărare, paritate cu update_order_items
+      -- și cu dedup-ul de option_ids de mai sus). Un extra repetat ar însuma prețul de N ori.
+      if jsonb_array_length(v_item->'extra_ids') <> (
+           select count(distinct t.v)
+           from jsonb_array_elements_text(v_item->'extra_ids') as t(v)
+         ) then
+        raise exception 'Extra-uri duplicate pentru produsul "%"', v_product.name
+          using errcode = 'P0001', hint = 'duplicate_extras';
+      end if;
+
       -- ── FIX #3 (mig 145): tenancy via pe.product_id = v_product.id (produsul deja
       -- validat să aparțină restaurantului). product_extras NU are coloana restaurant_id
       -- → predicatul vechi rupea orice comandă cu extras.

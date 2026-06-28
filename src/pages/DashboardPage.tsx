@@ -473,7 +473,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'casa-tura', label: 'Încasări', minTier: 3 },
       { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
       { id: 'invoices', label: 'Facturi', minTier: 3 },
-      { id: 'gestiune', label: 'Stocuri', minTier: 3 },
+      // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
+      { id: 'gestiune', label: 'Stocuri', minTier: 2 },
     ],
   },
   {
@@ -1135,7 +1136,7 @@ export default function DashboardPage({
                     currentPlan={plan}
                     featureName="Modul Gestiune"
                     emoji="📦"
-                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Fiscalizare."
+                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Meniu + Comenzi."
                     onUpgrade={onPricing}
                   />
                 ))}

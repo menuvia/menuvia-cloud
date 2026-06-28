@@ -42,12 +42,17 @@ begin
    where restaurant_id = new.restaurant_id and user_id = auth.uid();
 
   if v_role = 'waiter'::public.member_role then
-    if (to_jsonb(new) - 'status' - 'updated_at')
+    -- updated_at e owned de DB: îl normalizăm la valoarea veche ÎNAINTE de comparație, ca un
+    -- waiter să nu poată falsifica timestamp-ul rezervarii schimbând doar statusul. După ce
+    -- column-lock-ul trece, îl setăm server-side la now().
+    new.updated_at := old.updated_at;
+    if (to_jsonb(new) - 'status')
        is distinct from
-       (to_jsonb(old) - 'status' - 'updated_at') then
+       (to_jsonb(old) - 'status') then
       raise exception 'Un waiter poate schimba doar statusul rezervarii (nu PII/ora/masa)'
         using errcode = 'P0001', hint = 'waiter_field_locked';
     end if;
+    new.updated_at := now();
   end if;
   return new;
 end;

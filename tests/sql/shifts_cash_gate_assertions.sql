@@ -39,8 +39,11 @@ begin
   begin
     perform public.open_shift(v_rg, 100.00, null);
   exception when others then
+    if position('shifts' in lower(sqlerrm)) = 0 then
+      raise exception 'CS1 FAIL: open_shift a eșuat din alt motiv decât gate-ul shifts: %', sqlerrm;
+    end if;
     v_blocked := true;
-    raise notice 'CS1 PASS: growth open_shift respins: %', sqlerrm;
+    raise notice 'CS1 PASS: growth open_shift respins de gate-ul shifts: %', sqlerrm;
   end;
   if not v_blocked then raise exception 'CS1 FAIL: growth a putut deschide tură (gate shifts lipsește)'; end if;
 
@@ -76,8 +79,11 @@ begin
     insert into public.bridge_devices (restaurant_id, name, device_secret)
       values (v_rg, 'Casa 1', 'secret-xyz');
   exception when others then
+    if position('fiscal_receipt' in lower(sqlerrm)) = 0 then
+      raise exception 'CS6 FAIL: bridge_devices a eșuat din alt motiv decât gate-ul fiscal_receipt: %', sqlerrm;
+    end if;
     v_blocked := true;
-    raise notice 'CS6 PASS: bridge_devices direct pe growth respins: %', sqlerrm;
+    raise notice 'CS6 PASS: bridge_devices direct pe growth respins de gate-ul fiscal_receipt: %', sqlerrm;
   end;
   if not v_blocked then raise exception 'CS6 FAIL: bridge_devices direct acceptat pe growth (#17)'; end if;
 

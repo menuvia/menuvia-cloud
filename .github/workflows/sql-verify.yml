@@ -1183,6 +1183,16 @@ jobs:
           # raport TVA gate-uit pe fiscal_receipt (#6).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_report_fiscal_gate_assertions.sql
 
+      - name: "Platform audit round 4 BATCH 2 assertions (mig 151-153)"
+        if: ${{ hashFiles('supabase/migrations/20260628027000_migration_151_reservation_duration_cap.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # plafon durată rezervare publică (#12).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/reservation_duration_cap_assertions.sql
+          # pmg admin-write pe ambele tenanturi (#13) + reads scopate categories/vat_rates/modules (#18/#22/#29/#30).
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/rls_scoping_batch2_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:

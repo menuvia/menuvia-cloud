@@ -199,6 +199,26 @@ begin
         raise exception 'update_order_items: invalid options for product "%"', v_product.name;
       end if;
 
+      -- Plafon de selecție pe grup — oglindă create_order (#9): editarea nu poate
+      -- persista o combinație pe care calea de creare o respinge (max_select; single => 1).
+      if exists (
+        select 1
+        from public.modifier_options mo
+        join public.modifier_groups mg on mg.id = mo.modifier_group_id
+        join public.product_modifier_groups pmg on pmg.modifier_group_id = mg.id
+        where mo.id = any(v_option_ids)
+          and mo.is_available = true
+          and pmg.product_id = v_product.id
+          and mg.restaurant_id = v_order.restaurant_id
+        group by mg.id, mg.selection_type, mg.max_select
+        having count(*) > coalesce(
+                 case when mg.selection_type = 'single' then 1 else mg.max_select end,
+                 2147483647)
+      ) then
+        raise exception 'update_order_items: prea multe opțiuni selectate într-un grup pentru produsul "%"', v_product.name
+          using errcode = 'P0001', hint = 'too_many_in_group';
+      end if;
+
       select
         coalesce(sum(mo.price_delta), 0),
         coalesce(jsonb_agg(jsonb_build_object(

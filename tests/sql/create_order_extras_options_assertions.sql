@@ -169,6 +169,24 @@ begin
   end;
   if not v_blocked then raise exception 'EX5 FAIL: grup single a acceptat 2 opțiuni'; end if;
 
+  -- ─── EX7: extra_ids DUPLICATE → respins ────────────────────────
+  v_blocked := false;
+  begin
+    perform public.create_order(
+      v_rest, 'qr', v_table, v_tok, null,
+      ('[{"product_id":"' || v_pid || '","quantity":1,"extra_ids":["' || v_extra || '","' || v_extra || '"]}]')::jsonb,
+      null, null, null, null, v_sid
+    );
+  exception when others then
+    if sqlerrm like '%uplicate%' then
+      v_blocked := true;
+      raise notice 'EX7 PASS: extra_ids duplicate respinse: %', sqlerrm;
+    else
+      raise exception 'EX7 FAIL: eroare neașteptată (așteptam duplicate_extras): %', sqlerrm;
+    end if;
+  end;
+  if not v_blocked then raise exception 'EX7 FAIL: extra_ids duplicate acceptate (dublă-numărare)'; end if;
+
   -- ─── EX6: exact 1 overload create_order (B1) ───────────────────
   select count(*) into v_count
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
