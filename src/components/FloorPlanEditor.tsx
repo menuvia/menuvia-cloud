@@ -426,10 +426,20 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       p_layout: payload,
     })
     setSaving(false)
-    if (!error) {
-      setSavedOk(true)
-      setTimeout(() => setSavedOk(false), 2200)
+    if (error) {
+      // Nu mai înghițim eroarea în tăcere (audit P2): gate de plan respins, RLS denial sau
+      // layout prea mare trebuie să fie vizibile, altfel userul crede că a salvat.
+      console.error('[FloorPlanEditor] save failed', error)
+      const hint = /feature|fiscal|plan/i.test(error.message)
+        ? 'Harta sălii e disponibilă pe planul Fiscalizare.'
+        : /too large|prea mare/i.test(error.message)
+          ? 'Layout prea mare. Simplifică harta și reîncearcă.'
+          : error.message
+      window.alert(`Salvarea hărții a eșuat: ${hint}`)
+      return
     }
+    setSavedOk(true)
+    setTimeout(() => setSavedOk(false), 2200)
   }
 
   const selTable = sel?.type === 'table' ? floor.tables.find((t) => t.id === sel.id) : null

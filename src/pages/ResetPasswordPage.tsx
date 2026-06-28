@@ -43,11 +43,23 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   const [tokenState, setTokenState] = useState<null | true | false>(null)
 
   useEffect(() => {
+    // Dacă URL-ul nu conține DELOC un token de recovery, e clar invalid → marcăm imediat.
+    // Dacă tokenul E prezent dar SDK-ul e lent (rețea proastă / cold start), NU marcăm
+    // invalid prematur (audit P2: 4s era prea agresiv) — failsafe generos de 12s.
+    const hash = typeof window !== 'undefined' ? window.location.hash || '' : ''
+    const search = typeof window !== 'undefined' ? window.location.search || '' : ''
+    const hasRecoveryToken =
+      /access_token=|type=recovery|[?&]code=/.test(hash) || /[?&]code=|type=recovery/.test(search)
+
+    if (!hasRecoveryToken) {
+      setTokenState(false)
+      return
+    }
+
     // PASSWORD_RECOVERY fires when Supabase detects the recovery token in the URL hash.
-    // If it doesn't fire within 4s → token is missing/expired.
     const timeout = setTimeout(() => {
       setTokenState((prev) => (prev === null ? false : prev))
-    }, 4000)
+    }, 12000)
 
     const {
       data: { subscription },

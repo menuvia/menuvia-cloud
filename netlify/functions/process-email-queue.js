@@ -429,18 +429,13 @@ exports.handler = async () => {
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-  // Fetch up to 30 queued emails ready to send
-  const { data: pending, error } = await supabase
-    .from('email_queue')
-    .select('*')
-    .eq('status', 'queued')
-    .lte('scheduled_for', new Date().toISOString())
-    .lt('failed_attempts', 3)
-    .order('scheduled_for', { ascending: true })
-    .limit(30)
+  // Claim atomic până la 30 emailuri (UPDATE ... FOR UPDATE SKIP LOCKED via RPC) — rândurile
+  // sunt deja marcate 'sending' de RPC, deci două rulări suprapuse NU pot prinde același rând
+  // (anti dublu-trimitere). Înlocuiește vechiul select-then-update ne-atomic.
+  const { data: pending, error } = await supabase.rpc('claim_email_batch', { p_limit: 30 })
 
   if (error) {
-    console.error('[process-email-queue] Fetch failed:', error.message)
+    console.error('[process-email-queue] Claim failed:', error.message)
     return { statusCode: 500, body: error.message }
   }
 
@@ -451,8 +446,7 @@ exports.handler = async () => {
   let sent = 0, failed = 0
 
   for (const email of pending) {
-    // Mark as sending
-    await supabase.from('email_queue').update({ status: 'sending' }).eq('id', email.id)
+    // Deja claim-uit ('sending') de claim_email_batch — fără re-marcare aici.
 
     const template = TEMPLATES[email.template_kind]
     if (!template) {
