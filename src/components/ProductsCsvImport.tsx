@@ -296,7 +296,7 @@ export default function ProductsCsvImport({
       for (const c of existingCategories) {
         catMap.set(c.name.toLowerCase(), c.id)
       }
-      for (const newCatName of newCategories) {
+      for (const [index, newCatName] of newCategories.entries()) {
         const original =
           validRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
         const { data, error: catErr } = await supabase
@@ -305,9 +305,10 @@ export default function ProductsCsvImport({
             restaurant_id: restaurantId,
             name: original,
             emoji: '🍽️',
-            // #27: meniul ordonează după `display_order` (NOT NULL), nu `position`. Scriem în
-            // coloana corectă, cu offset după categoriile existente (apar la coadă, în ordine).
-            display_order: existingCategories.length + catMap.size,
+            // #27: meniul ordonează după `display_order` (NOT NULL), nu `position`. Offset =
+            // nr. categorii existente + indexul în lista nouă (catMap include deja existentele,
+            // deci NU folosim catMap.size — ar dubla offset-ul).
+            display_order: existingCategories.length + index,
           })
           .select('id')
           .single()

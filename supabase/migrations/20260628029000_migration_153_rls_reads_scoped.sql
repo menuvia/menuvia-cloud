@@ -94,9 +94,13 @@ begin
      where c.relname in ('categories','vat_rates','restaurant_modules')
        and p.polcmd in ('r','*')
   loop
-    -- read-uri publice (anon) nu mai au voie să fie `true`
-    if r.q = 'true' and (0 = any(r.polroles) or array_length(r.polroles,1) is null) then
-      raise exception 'mig 153: politică read `using(true)` PUBLIC rămasă pe % (%)', r.relname, r.polname;
+    -- read-uri publice nu mai au voie să fie `true` — tratăm ȘI PUBLIC (oid 0) ȘI anon explicit
+    if r.q = 'true' and (
+         0 = any(r.polroles)
+         or 'anon'::regrole = any(r.polroles)
+         or array_length(r.polroles, 1) is null
+       ) then
+      raise exception 'mig 153: politică read `using(true)` publică (PUBLIC/anon) rămasă pe % (%)', r.relname, r.polname;
     end if;
   end loop;
 

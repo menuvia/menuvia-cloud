@@ -1191,6 +1191,14 @@ jobs:
           # gate fiscal Plan 3 pe invoices/oblio_configs/cancel_invoice + analytics views venit.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/invoices_fiscal_gate_assertions.sql
 
+      - name: "Platform audit round 5 BATCH C assertions (mig 161, multi-tenant write)"
+        if: ${{ hashFiles('supabase/migrations/20260628037000_migration_161_multitenant_write_guards.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # order_items revoke + recipes/wta/po_supplier tenant guards.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/multitenant_write_guards_assertions.sql
+
       - name: "Platform audit round 4 BATCH 2 assertions (mig 151-153)"
         if: ${{ hashFiles('supabase/migrations/20260628027000_migration_151_reservation_duration_cap.sql') != '' }}
         env:

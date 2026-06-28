@@ -71,7 +71,7 @@ begin
     select pg_get_viewdef('public.v_daily_orders'::regclass) as d
     union all select pg_get_viewdef('public.v_product_performance'::regclass)
     union all select pg_get_viewdef('public.v_waiter_performance'::regclass)
-  ) x where x.d like '%restaurant_has_feature%';
+  ) x where x.d like '%restaurant_has_feature%' and x.d like '%fiscal_receipt%';
   if v_n <> 3 then
     raise exception 'mig 159: predicatul fiscal_receipt lipsește din % view-uri (așteptat 3)', 3 - v_n;
   end if;

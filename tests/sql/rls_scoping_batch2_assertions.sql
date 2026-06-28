@@ -51,6 +51,7 @@ set local role authenticated;
 do $$
 declare v_blocked boolean;
 begin
+  perform set_config('request.jwt.claim.role','authenticated', true);
   perform set_config('request.jwt.claim.sub','81111111-2222-3333-4444-555555555501', true); -- u_ra
 
   -- RS1: pmg(product RA, group RA) → OK
@@ -78,6 +79,8 @@ set local role anon;
 do $$
 declare n_a int; n_i int;
 begin
+  perform set_config('request.jwt.claim.role','anon', true);
+  perform set_config('request.jwt.claim.sub','', true);
   select count(*) into n_a from public.categories where restaurant_id='81111111-2222-3333-4444-5555555555a1';
   select count(*) into n_i from public.categories where restaurant_id='81111111-2222-3333-4444-5555555555a3';
   if n_a < 1 then raise exception 'RS3 FAIL: categoriile restaurantului activ invizibile (% )', n_a; end if;
@@ -91,6 +94,7 @@ set local role authenticated;
 do $$
 declare n_a int; n_i int; n_m int; n_o int;
 begin
+  perform set_config('request.jwt.claim.role','authenticated', true);
   -- RS4: non-membru vede module ale restaurantului ACTIV, nu ale celui inactiv
   perform set_config('request.jwt.claim.sub','81111111-2222-3333-4444-555555555504', true); -- u_other
   select count(*) into n_a from public.restaurant_modules where restaurant_id='81111111-2222-3333-4444-5555555555a1';
