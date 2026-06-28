@@ -61,13 +61,31 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Email invalid' }) }
   }
 
-  // Basic rate limiting by IP (best-effort, stored in Supabase)
-  // Not implementing here for simplicity — can be added via Netlify Edge or external service.
-
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   )
+
+  // Rate limit per IP (anti-spam pe endpoint public): max 5 / oră. Fail-OPEN pe eroare de
+  // infra (nu blocam lead-uri legitime daca serviciul de rate-limit pica), dar aplicam limita
+  // cand verificarea reuseste.
+  const clientIp =
+    event.headers['x-nf-client-connection-ip'] ||
+    (event.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    'unknown'
+  try {
+    const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
+      p_function_name:  'recrutare_contact',
+      p_scope_key:      clientIp,
+      p_max_requests:   5,
+      p_window_minutes: 60,
+    })
+    if (!rlErr && rlOk === false) {
+      return { statusCode: 429, body: JSON.stringify({ error: 'Prea multe cereri. Reîncearcă mai târziu.' }) }
+    }
+  } catch (e) {
+    console.warn('[recrutare-contact] rate limit check failed (fail-open):', e?.message)
+  }
 
   // Store in leads table (created via migration 037)
   try {

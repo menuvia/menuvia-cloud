@@ -39,7 +39,13 @@ exports.handler = async (event) => {
   }
 
   // Determine price strictly by requested plan — NO silent fallback to pro.
-  const body = event.body ? JSON.parse(event.body) : {}
+  // Parsare protejata: un corp non-JSON nu trebuie sa arunce SyntaxError neprins (crash).
+  let body = {}
+  try {
+    body = event.body ? JSON.parse(event.body) : {}
+  } catch {
+    return jsonResponse(400, { error: 'Invalid JSON body' })
+  }
   const requestedPlan = String(body.plan || '').toLowerCase()
   // Cod de referral din cookie-ul de afiliere (trimis de frontend). Normalizat
   // și mărginit defensiv; gol/invalid → ignorat fără efect.

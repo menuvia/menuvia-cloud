@@ -190,7 +190,10 @@ exports.handler = async (event) => {
         const subItems = subscription.items?.data || []
         const subPlanItems = subItems.filter((i) => i?.price?.id && PLAN_BY_PRICE[i.price.id])
         const subPlan = subPlanItems.length ? PLAN_BY_PRICE[subPlanItems[0].price.id] : 'free'
-        const activePlan = ['active', 'trialing'].includes(status) ? subPlan : 'free'
+        // Grace în dunning: past_due ține abonamentul VIU la Stripe (reîncearcă plata) — nu
+        // retrogradăm la 'free' (l-ar bloca + checkout-ul nou e respins 409 → utilizator captiv).
+        // Downgrade real doar la status terminal (canceled/unpaid/incomplete_expired).
+        const activePlan = ['active', 'trialing', 'past_due'].includes(status) ? subPlan : 'free'
 
         const { error } = await supabase
           .from('profiles')
