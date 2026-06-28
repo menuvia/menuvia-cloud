@@ -497,14 +497,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const rotateToken = async (t: TableRow) => {
     setRotating(t.id)
     try {
-      await supabase
-        .from('qr_tokens')
-        .update({ is_active: false })
-        .eq('table_id', t.id)
-        .eq('is_active', true)
-      const { error } = await supabase
-        .from('qr_tokens')
-        .insert({ restaurant_id: restaurant.id, table_id: t.id })
+      // Rotație ATOMICĂ prin RPC (dezactivare + insert într-o singură tranzacție) — fără
+      // fereastra în care masa rămânea fără token activ (mig 166).
+      const { error } = await supabase.rpc('rotate_qr_token', { p_table_id: t.id })
       if (error) throw error
       toast('Token reînnoit')
     } catch {
