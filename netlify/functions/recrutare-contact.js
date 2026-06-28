@@ -54,11 +54,12 @@ exports.handler = async (event) => {
   const email   = (body.email   || '').trim().toLowerCase().slice(0, 120)
   const message = (body.message || '').trim().slice(0, 2000)
 
+  const jsonHeaders = { ...corsHeaders(event), 'Content-Type': 'application/json' }
   if (!name || !cafe || !phone || !email) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Câmpuri obligatorii lipsă' }) }
+    return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'Câmpuri obligatorii lipsă' }) }
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Email invalid' }) }
+    return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'Email invalid' }) }
   }
 
   const supabase = createClient(
@@ -81,7 +82,14 @@ exports.handler = async (event) => {
       p_window_minutes: 60,
     })
     if (!rlErr && rlOk === false) {
-      return { statusCode: 429, body: JSON.stringify({ error: 'Prea multe cereri. Reîncearcă mai târziu.' }) }
+      return {
+        statusCode: 429,
+        headers: { ...corsHeaders(event), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Prea multe cereri. Reîncearcă mai târziu.' }),
+      }
+    }
+    if (rlErr) {
+      console.warn('[recrutare-contact] rate limit RPC failed (fail-open):', rlErr?.message)
     }
   } catch (e) {
     console.warn('[recrutare-contact] rate limit check failed (fail-open):', e?.message)

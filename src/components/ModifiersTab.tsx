@@ -144,7 +144,12 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
         max_select: maxSelect,
         display_order: maxOrder + 1,
       })
-      if (e) setError(e.message)
+      // La eroare păstrăm modalul deschis (input-ul userului rămâne pentru corectare).
+      if (e) {
+        setError(e.message)
+        setSaving(false)
+        return
+      }
     } else if (editGroup && typeof editGroup !== 'string') {
       const { error: e } = await supabase
         .from('modifier_groups')
@@ -156,7 +161,11 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
           max_select: maxSelect,
         })
         .eq('id', editGroup.id)
-      if (e) setError(e.message)
+      if (e) {
+        setError(e.message)
+        setSaving(false)
+        return
+      }
     }
     setSaving(false)
     setEditGroup(null)

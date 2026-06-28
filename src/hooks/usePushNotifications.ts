@@ -68,14 +68,9 @@ export function usePushNotifications(restaurantId: string | null) {
         return false
       }
 
-      const reg = await navigator.serviceWorker.ready
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
-      })
-
       // user_id e NOT NULL si face parte din onConflict — fara el upsert-ul esua tacut
-      // (P1: notificarile nu se salvau niciodata).
+      // (P1: notificarile nu se salvau niciodata). Verificam autentificarea ÎNAINTE de a crea
+      // subscripția în browser, ca să nu rămânem abonați local fără rând în push_subscriptions.
       const {
         data: { user },
       } = await supabase.auth.getUser()
@@ -84,6 +79,12 @@ export function usePushNotifications(restaurantId: string | null) {
         setLoading(false)
         return false
       }
+
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
+      })
 
       // Save to Supabase (upsert — one subscription per user per restaurant)
       const { error } = await supabase.from('push_subscriptions').upsert(
@@ -96,6 +97,9 @@ export function usePushNotifications(restaurantId: string | null) {
       )
 
       if (error) {
+        // Upsert-ul a eșuat → desfacem subscripția din browser ca să nu divergă starea
+        // client/server (browser abonat, DB fără rând).
+        await sub.unsubscribe().catch(() => undefined)
         console.error('Push subscription save error:', error)
         setLoading(false)
         return false

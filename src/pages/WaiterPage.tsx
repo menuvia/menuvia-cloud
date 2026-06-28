@@ -207,6 +207,10 @@ export default function WaiterPage() {
     } catch (err) {
       // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
       console.error('[WaiterPage] plata partiala a esuat', err)
+      const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
+      window.alert(
+        `Plata nu a fost înregistrată: ${msg}. Verifică și reîncearcă.`,
+      )
     }
     setSplitLoading(false)
   }

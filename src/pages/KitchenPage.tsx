@@ -210,6 +210,9 @@ export default function KitchenPage() {
     loading: ctxLoading,
   } = useRestaurantCtx()
   const prevOrderIds = useRef(new Set<string>())
+  // Primul snapshot hidratat NU e „comandă nouă" — altfel beep-ul suna la încărcarea
+  // paginii sau după schimbarea restaurantului. Sunăm doar de la al doilea snapshot.
+  const hasSeenInitialSnapshot = useRef(false)
 
   const { orders, loading, error, advance, byStatus, connectionStatus } = useOrders(
     restaurantId,
@@ -228,14 +231,23 @@ export default function KitchenPage() {
   } = usePushNotifications(restaurantId)
 
 
+  // Reset la schimbarea restaurantului — noul prim snapshot nu trebuie să sune.
+  useEffect(() => {
+    prevOrderIds.current = new Set<string>()
+    hasSeenInitialSnapshot.current = false
+  }, [restaurantId])
+
   useEffect(() => {
     const currentIds = new Set(orders.map((o) => o.id))
-    for (const o of orders) {
-      if (o.status === 'new' && !prevOrderIds.current.has(o.id)) {
-        playSound(880, 200)
-        break
+    if (hasSeenInitialSnapshot.current) {
+      for (const o of orders) {
+        if (o.status === 'new' && !prevOrderIds.current.has(o.id)) {
+          playSound(880, 200)
+          break
+        }
       }
     }
+    hasSeenInitialSnapshot.current = true
     prevOrderIds.current = currentIds
   }, [orders])
 

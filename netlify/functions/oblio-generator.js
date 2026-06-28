@@ -162,9 +162,15 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     const vatPercent = vatMap[vatGroup] ?? 19  // fallback 19% if undefined
     // #6: pretul de linie = item_total/quantity (include modifier + extras deltas), nu doar
     // pretul de baza al produsului — altfel totalul facturii diverge de order.total.
-    const qty = Number(it.quantity) || 1
+    // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
+    // a trimite la Oblio (altfel price s-ar calcula cu un fallback iar payload-ul ar trimite
+    // cantitatea originală invalidă → total divergent).
+    const qty = Number(it.quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error(`Cantitate invalidă pe linia de comandă (produs: ${name})`)
+    }
     const lineUnitPrice =
-      it.item_total != null && qty > 0
+      it.item_total != null
         ? parseFloat(it.item_total) / qty
         : parseFloat(it.unit_price_snapshot)
     return {

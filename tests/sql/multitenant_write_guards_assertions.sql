@@ -51,11 +51,13 @@ begin
   insert into public.recipes (product_id, ingredient_id, quantity) values (v_pa, v_ia, 1);  -- same-tenant OK
   raise notice 'MT2 PASS: recipes same-tenant impus (#B)';
 
-  -- MT3: wta cross-tenant (masa B + user oarecare pe restaurant A)
+  -- MT3: wta cross-tenant (masa B pe restaurant A). Triggerul verifică masa ÎNAINTEA membership-ului,
+  -- deci acceptăm DOAR eroarea de tenant-masă — altfel un guard lipsă pe table_id ar putea fi mascat
+  -- de eroarea de membership (v_ua nu e membru explicit al v_ra în fixtură).
   v_blocked := false;
   begin
     insert into public.waiter_table_assignments (restaurant_id, table_id, user_id) values (v_ra, v_tb, v_ua);
-  exception when others then if sqlerrm like '%nu apartine%' or sqlerrm like '%not member%' or sqlerrm like '%nu e membru%' then v_blocked := true; end if;
+  exception when others then if sqlerrm like '%masa nu apartine%' then v_blocked := true; end if;
   end;
   if not v_blocked then raise exception 'MT3 FAIL: wta cross-tenant table acceptat (#C)'; end if;
   raise notice 'MT3 PASS: wta tenancy table/user impusa (#C)';

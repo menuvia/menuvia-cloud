@@ -430,11 +430,14 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       // Nu mai înghițim eroarea în tăcere (audit P2): gate de plan respins, RLS denial sau
       // layout prea mare trebuie să fie vizibile, altfel userul crede că a salvat.
       console.error('[FloorPlanEditor] save failed', error)
-      const hint = /feature|fiscal|plan/i.test(error.message)
+      // Nu expunem mesajul brut de la RPC/Postgres în UI (poate divulga tabele/politici);
+      // detaliile rămân doar în console.error de mai sus.
+      const rawMessage = error.message ?? ''
+      const hint = /feature|fiscal|plan/i.test(rawMessage)
         ? 'Harta sălii e disponibilă pe planul Fiscalizare.'
-        : /too large|prea mare/i.test(error.message)
+        : /too large|prea mare/i.test(rawMessage)
           ? 'Layout prea mare. Simplifică harta și reîncearcă.'
-          : error.message
+          : 'A apărut o eroare la salvare. Reîncearcă.'
       window.alert(`Salvarea hărții a eșuat: ${hint}`)
       return
     }

@@ -88,6 +88,10 @@ exports.handler = async (event) => {
     if (!rlErr && rlOk === false) {
       return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
     }
+    if (rlErr) {
+      // Fail-open, dar logăm — altfel un limiter rupt/lipsă trece neobservat.
+      console.warn('[stripe-checkout] rate limit RPC failed (fail-open):', rlErr.message)
+    }
   } catch (e) {
     console.warn('[stripe-checkout] rate limit check failed (fail-open):', e?.message)
   }

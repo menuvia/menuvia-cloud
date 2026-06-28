@@ -22,17 +22,20 @@ declare
   v_diff numeric;
   v_user_id uuid := auth.uid();
 begin
-  select * into v_ing from public.ingredients where id = p_ingredient_id for update;
+  -- Predicatul de autorizare e PARTE din SELECT-ul cu lock: un caller neautorizat care știe
+  -- un ingredient_id nu mai poate lua lock-ul `for update` înainte de check (SECURITY DEFINER).
+  select * into v_ing
+    from public.ingredients
+   where id = p_ingredient_id
+     and public.is_admin(restaurant_id)
+   for update;
   if v_ing is null then
-    raise exception 'Ingredient not found';
+    raise exception 'Ingredient not found or permission denied';
   end if;
 
-  if not public.is_admin(v_ing.restaurant_id) then
-    raise exception 'Permission denied';
-  end if;
-
-  if p_new_amount < 0 then
-    raise exception 'Stock cannot be negative';
+  -- NULL nu e prins de `< 0` → v_diff ar deveni NULL și am scrie stoc NULL. Respins explicit.
+  if p_new_amount is null or p_new_amount < 0 then
+    raise exception 'Stock cannot be null or negative';
   end if;
 
   v_diff := p_new_amount - v_ing.current_stock;

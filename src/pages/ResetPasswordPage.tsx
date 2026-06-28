@@ -76,7 +76,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
     // logat, orice sesiune ar fi fost tratată drept token de recovery valid → schimbare
     // parolă fără re-autentificare (account takeover). Validarea se bazează EXCLUSIV pe
     // evenimentul PASSWORD_RECOVERY (emis de Supabase la detectarea token-ului din URL);
-    // dacă nu apare în 4s → link invalid/expirat.
+    // dacă nu apare în 12s → link invalid/expirat.
 
     return () => {
       clearTimeout(timeout)
