@@ -117,11 +117,17 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
       setHourly(h.data || [])
       // Map user_id → nume (pentru tabelul „Performanță ospătar").
       const names: Record<string, { full_name: string | null; email: string }> = {}
-      for (const row of (m.data || []) as Array<{
+      // supabase-js tipează embed-ul ca array, dar la runtime FK-ul to-one întoarce
+      // un obiect (ca în TeamManager) — cast prin unknown + normalizare defensivă.
+      for (const row of (m.data || []) as unknown as Array<{
         user_id: string
-        user: { full_name: string | null; email: string } | null
+        user:
+          | { full_name: string | null; email: string }
+          | { full_name: string | null; email: string }[]
+          | null
       }>) {
-        if (row.user) names[row.user_id] = row.user
+        const u = Array.isArray(row.user) ? row.user[0] : row.user
+        if (u) names[row.user_id] = u
       }
       setStaffNames(names)
     } catch (e: unknown) {
