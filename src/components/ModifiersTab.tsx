@@ -121,7 +121,9 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
     setSaving(true)
     setError(null)
     if (editGroup === 'add') {
-      const maxOrder = groups.reduce((m, g) => Math.max(m, g.modifier_options.length), -1)
+      // display_order al noului GRUP = max(display_order al grupurilor) + 1, NU max(nr. opțiuni)
+      // (grupul nou ajungea aleatoriu în listă în funcție de câte opțiuni aveau alte grupuri).
+      const maxOrder = groups.reduce((m, g) => Math.max(m, g.display_order), -1)
       const { error: e } = await supabase.from('modifier_groups').insert({
         restaurant_id: restaurantId,
         name: gName.trim(),

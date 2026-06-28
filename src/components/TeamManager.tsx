@@ -205,11 +205,13 @@ export default function TeamManager({
     try {
       await removeMember({ membershipId: removeTarget.id })
       toast('Membru eliminat')
+      setRemoveTarget(null)
+      await load()
     } catch {
+      // Pe eroare păstrăm modalul deschis (userul poate reîncerca) — nu mai închidem +
+      // reîncărcăm ca și cum eliminarea a reușit.
       toast('Eroare la eliminare', 'error')
     }
-    setRemoveTarget(null)
-    await load()
   }
 
   const handleChangeRole = async (id: string, newRole: MemberRole) => {
