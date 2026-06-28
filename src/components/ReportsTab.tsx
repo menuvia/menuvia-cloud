@@ -176,7 +176,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Includes ALL non-cancelled orders, not just paid ones.
       const { data: ordersRaw, error: oErr } = await supabase
         .from('orders')
-        .select('id, source, status, total, paid_amount, payment_method, created_at')
+        // Pe Plan 1/2 (fiscalReports=false) NU aducem coloanele monetare in browser
+        // (defense-in-depth: venit = Plan 3). Doar count-ul operational ramane.
+        .select(
+          fiscalReports
+            ? 'id, source, status, total, paid_amount, payment_method, created_at'
+            : 'id, source, status, created_at',
+        )
         .eq('restaurant_id', restaurantId)
         .neq('status', 'cancelled')
         .gte('created_at', startISO)
@@ -184,7 +190,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         .order('created_at', { ascending: true })
       if (oErr) throw oErr
 
-      const allOrders = (ordersRaw ?? []) as Record<string, unknown>[]
+      // `as unknown as` — select-ul condiționat (ternar) face ca tipul rândului dedus de
+      // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
+      const allOrders = (ordersRaw ?? []) as unknown as Record<string, unknown>[]
       const totalOrders = allOrders.length
       const revenue = allOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const cashRev = allOrders
@@ -222,7 +230,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         // Step B: get order_items for those orders
         const { data: items, error: iErr } = await supabase
           .from('order_items')
-          .select('product_name_snapshot, quantity, unit_price_snapshot, product_id')
+          .select(
+            fiscalReports
+              ? 'product_name_snapshot, quantity, unit_price_snapshot, product_id'
+              : 'product_name_snapshot, quantity, product_id',
+          )
           .in('order_id', orderIds)
         if (iErr) throw iErr
 
@@ -231,7 +243,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           string,
           { name: string; qty: number; revenue: number; emoji: string; productId: string }
         >()
-        for (const item of (items ?? []) as Record<string, unknown>[]) {
+        for (const item of (items ?? []) as unknown as Record<string, unknown>[]) {
           const key = item.product_id as string
           const prev = map.get(key)
           const qty = Number(item.quantity || 1)
@@ -275,20 +287,27 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         setTopProducts([])
       }
 
-      // ── Extended reports (server-side RPCs, run in parallel) ──
-      const [ws, hs, cs] = await Promise.all([
-        fetchWaiterSales(restaurantId, startISO, endISO).catch(() => [] as WaiterSalesRow[]),
-        fetchHourlySales(restaurantId, startISO, endISO).catch(() => [] as HourlySalesRow[]),
-        fetchCategorySales(restaurantId, startISO, endISO).catch(() => [] as CategorySalesRow[]),
-      ])
-      setWaiterSales(ws)
-      setHourlySales(hs)
-      setCategorySales(cs)
+      // ── Extended reports (server-side RPCs) — DOAR pe Plan 3. Pe Plan 1/2 nu le
+      // mai cerem deloc (raportele de venit/ospatari/categorii nu se afiseaza oricum).
+      if (fiscalReports) {
+        const [ws, hs, cs] = await Promise.all([
+          fetchWaiterSales(restaurantId, startISO, endISO).catch(() => [] as WaiterSalesRow[]),
+          fetchHourlySales(restaurantId, startISO, endISO).catch(() => [] as HourlySalesRow[]),
+          fetchCategorySales(restaurantId, startISO, endISO).catch(() => [] as CategorySalesRow[]),
+        ])
+        setWaiterSales(ws)
+        setHourlySales(hs)
+        setCategorySales(cs)
+      } else {
+        setWaiterSales([])
+        setHourlySales([])
+        setCategorySales([])
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea raportului')
     }
     setLoading(false)
-  }, [restaurantId, period, custom.from, custom.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurantId, period, custom.from, custom.to, fiscalReports]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const range = periodRange(period, custom)
 
@@ -811,8 +830,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             </div>
           </div>
 
-          {/* Chart — only when > 1 day */}
-          {chartData.length > 1 && (
+          {/* Chart venit zilnic — doar pe Plan 3 (venit = fiscal). Pe Plan 1/2 ascuns. */}
+          {fiscalReports && chartData.length > 1 && (
             <div
               style={{
                 background: D.s2,
@@ -926,10 +945,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       {p.qty}
                     </div>
                     <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
-                      {p.revenue.toFixed(0)} lei
+                      {fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: D.t3 }}>
-                      {(p.revenue / p.qty).toFixed(2)} lei
+                      {fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
                     </div>
                   </div>
                 ))}
@@ -938,7 +957,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Hourly heatmap ───────────────────────────────── */}
-          {hourlySales.some((h) => h.order_count > 0) && (
+          {fiscalReports && hourlySales.some((h) => h.order_count > 0) && (
             <div
               style={{
                 marginTop: 24,
@@ -1011,7 +1030,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Sales by waiter ──────────────────────────────── */}
-          {waiterSales.length > 0 && (
+          {fiscalReports && waiterSales.length > 0 && (
             <div
               style={{
                 marginBottom: 24,
@@ -1153,7 +1172,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           )}
 
           {/* ── Sales by category ────────────────────────────── */}
-          {categorySales.length > 0 && (
+          {fiscalReports && categorySales.length > 0 && (
             <div
               style={{
                 marginBottom: 24,

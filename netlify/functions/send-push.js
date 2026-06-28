@@ -21,9 +21,16 @@ function json(statusCode, body) {
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method not allowed' }
 
-  // Validate webhook secret
+  // Validate webhook secret (fail-closed — oglindă welcome-email.js).
+  // Dacă WEBHOOK_SECRET nu e configurat, `secret !== undefined` ar fi false când lipsește
+  // și headerul (undefined !== undefined) → bypass de auth. Refuzăm explicit ambele cazuri.
+  const expectedSecret = process.env.WEBHOOK_SECRET
+  if (!expectedSecret) {
+    console.error('[send-push] WEBHOOK_SECRET neconfigurat — refuz (fail-closed)')
+    return json(503, { error: 'Webhook secret not configured' })
+  }
   const secret = event.headers['x-webhook-secret'] || event.headers['X-Webhook-Secret']
-  if (secret !== process.env.WEBHOOK_SECRET) return json(401, { error: 'Unauthorized' })
+  if (!secret || secret !== expectedSecret) return json(401, { error: 'Unauthorized' })
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL } = process.env
 
@@ -49,7 +56,7 @@ exports.handler = async (event) => {
   // Get all push subscriptions for this restaurant
   const { data: subs, error } = await supabase
     .from('push_subscriptions')
-    .select('subscription')
+    .select('id, subscription')
     .eq('restaurant_id', restaurantId)
 
   if (error || !subs?.length) return json(200, { ok: true, sent: 0 })
@@ -69,13 +76,14 @@ exports.handler = async (event) => {
   })
 
   const results = await Promise.allSettled(
-    subs.map(({ subscription }) =>
+    subs.map(({ id, subscription }) =>
       webpush.sendNotification(subscription, payload).catch((err) => {
-        // Remove expired/invalid subscriptions (410 Gone)
+        // Remove expired/invalid subscriptions (410 Gone) — ștergem după id (determinist),
+        // nu după obiectul jsonb serializat (match pe conținut, fragil).
         if (err.statusCode === 410 || err.statusCode === 404) {
           return supabase.from('push_subscriptions')
             .delete()
-            .eq('subscription', subscription)
+            .eq('id', id)
         }
         throw err
       })

@@ -92,7 +92,10 @@ export function captureReferralFromUrl(): string | null {
     .rpc('record_affiliate_touch', { p_referral_code: code, p_visitor_id: visitorId })
     .then(
       () => undefined,
-      () => undefined,
+      (err: unknown) => {
+        // Fire-and-forget, dar logăm eroarea (diagnosticabil când atribuirea pică în prod).
+        console.warn('[affiliate] record_affiliate_touch failed:', err)
+      },
     )
   // Rescriem la rădăcină — landing-ul decide de aici încolo. Codul rămâne în cookie.
   window.history.replaceState({}, '', '/')

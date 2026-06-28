@@ -129,9 +129,11 @@ async function getOblioToken(apiEmail, apiSecret, testMode) {
 
 // ── Fetch order line items from DB ───────────────────────────
 async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
+  // #4: coloana corecta e unit_price_snapshot (nu unit_price, inexistent). item_total include
+  // delta-urile de modificatori/extras → folosit pentru pretul real de linie (#6).
   const { data: items, error } = await supabase
     .from('order_items')
-    .select('quantity, unit_price, products(name, vat_group)')
+    .select('quantity, unit_price_snapshot, item_total, products(name, vat_group)')
     .eq('order_id', orderId)
 
   if (error) throw new Error(`Order items fetch: ${error.message}`)
@@ -158,10 +160,23 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     const name = it.products?.name || 'Produs'
     const vatGroup = it.products?.vat_group ?? 1
     const vatPercent = vatMap[vatGroup] ?? 19  // fallback 19% if undefined
+    // #6: pretul de linie = item_total/quantity (include modifier + extras deltas), nu doar
+    // pretul de baza al produsului — altfel totalul facturii diverge de order.total.
+    // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
+    // a trimite la Oblio (altfel price s-ar calcula cu un fallback iar payload-ul ar trimite
+    // cantitatea originală invalidă → total divergent).
+    const qty = Number(it.quantity)
+    if (!Number.isFinite(qty) || qty <= 0) {
+      throw new Error(`Cantitate invalidă pe linia de comandă (produs: ${name})`)
+    }
+    const lineUnitPrice =
+      it.item_total != null
+        ? parseFloat(it.item_total) / qty
+        : parseFloat(it.unit_price_snapshot)
     return {
       name,
       quantity: it.quantity,
-      price: parseFloat(it.unit_price),
+      price: lineUnitPrice,
       vatPercentage: vatPercent,
       vatIncluded,
     }

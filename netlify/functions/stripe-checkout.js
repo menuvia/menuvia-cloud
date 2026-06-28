@@ -39,7 +39,13 @@ exports.handler = async (event) => {
   }
 
   // Determine price strictly by requested plan — NO silent fallback to pro.
-  const body = event.body ? JSON.parse(event.body) : {}
+  // Parsare protejata: un corp non-JSON nu trebuie sa arunce SyntaxError neprins (crash).
+  let body = {}
+  try {
+    body = event.body ? JSON.parse(event.body) : {}
+  } catch {
+    return jsonResponse(400, { error: 'Invalid JSON body' })
+  }
   const requestedPlan = String(body.plan || '').toLowerCase()
   // Cod de referral din cookie-ul de afiliere (trimis de frontend). Normalizat
   // și mărginit defensiv; gol/invalid → ignorat fără efect.
@@ -68,6 +74,26 @@ exports.handler = async (event) => {
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
   if (authErr || !user) {
     return jsonResponse(401, { error: 'Invalid token' })
+  }
+
+  // Rate limit per user (endpoint autentificat dar abuzabil): max 10 checkout-uri / 5 min.
+  // Fail-open pe eroare de infra (nu blocăm plăți legitime dacă serviciul pică).
+  try {
+    const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
+      p_function_name:  'stripe_checkout',
+      p_scope_key:      user.id,
+      p_max_requests:   10,
+      p_window_minutes: 5,
+    })
+    if (!rlErr && rlOk === false) {
+      return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
+    }
+    if (rlErr) {
+      // Fail-open, dar logăm — altfel un limiter rupt/lipsă trece neobservat.
+      console.warn('[stripe-checkout] rate limit RPC failed (fail-open):', rlErr.message)
+    }
+  } catch (e) {
+    console.warn('[stripe-checkout] rate limit check failed (fail-open):', e?.message)
   }
 
   // Get or create Stripe customer
@@ -116,27 +142,76 @@ exports.handler = async (event) => {
 
   // Trial configurabil — default 30 zile (onorează promisiunea din landing).
   // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
-  const trialDays = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
+  // STRIPE_TRIAL_DAYS non-numeric (typo în env) ar da NaN → trial dezactivat silentios.
+  // Fallback la 30 dacă valoarea nu e un întreg valid.
+  const parsedTrial = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
+  const trialDays = Number.isFinite(parsedTrial) ? parsedTrial : 30
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    client_reference_id: user.id,
-    mode: 'subscription',
-    line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${appUrl}/dashboard?checkout=success`,
-    cancel_url: `${appUrl}/pricing?checkout=cancelled`,
-    subscription_data: {
-      // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
-      // referral_code persistă pe subscription → disponibil în invoice.paid
-      // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
-      metadata: {
-        supabase_user_id: user.id,
-        plan: requestedPlan,
-        ...(referralCode ? { referral_code: referralCode } : {}),
+  // ── Anti dublu-abonament (#5) + trial-once (#15) ───────────────────────────
+  // Self-contained în Stripe (fără coloană nouă în DB): citim istoricul de
+  // subscripții al clientului.
+  //   • dacă există deja una activă/în trial → 409 (schimbarea planului se face
+  //     din Portalul de facturare, nu printr-un nou checkout — altfel dublă plată);
+  //   • dacă a existat VREODATĂ un trial → nu mai acordăm altul (anti trial-farming).
+  let allowTrial = trialDays > 0
+  let subsAll
+  try {
+    // Paginăm TOATE subscripțiile clientului (nu doar prima pagină de 100), altfel o
+    // subscripție live/trial mai veche ar putea fi ratată → dublu abonament / trial repetat.
+    subsAll = await stripe.subscriptions
+      .list({ customer: customerId, status: 'all', limit: 100 })
+      .autoPagingToArray({ limit: 10000 })
+  } catch (e) {
+    // Fail-closed: dacă nu putem verifica istoricul de subscripții, NU pornim un checkout nou
+    // (altfel un eroare tranzitorie Stripe ar putea duce la al doilea abonament). 503 → retry.
+    console.error('[stripe-checkout] subscription history lookup failed:', e?.message)
+    return jsonResponse(503, {
+      error: 'Nu am putut verifica abonamentele existente. Reîncearcă în câteva momente.',
+      code: 'subscription_lookup_failed',
+    })
+  }
+
+  const hasLive = subsAll.some(
+    (s) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due',
+  )
+  if (hasLive) {
+    return jsonResponse(409, {
+      error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
+      code: 'subscription_exists',
+    })
+  }
+  // trial-once: dacă a existat VREODATĂ un trial, nu mai acordăm altul (anti trial-farming).
+  const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
+  if (hadTrial) allowTrial = false
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      customer: customerId,
+      client_reference_id: user.id,
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${appUrl}/dashboard?checkout=success`,
+      cancel_url: `${appUrl}/pricing?checkout=cancelled`,
+      subscription_data: {
+        // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
+        // referral_code persistă pe subscription → disponibil în invoice.paid
+        // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
+        metadata: {
+          supabase_user_id: user.id,
+          plan: requestedPlan,
+          ...(referralCode ? { referral_code: referralCode } : {}),
+        },
+        ...(allowTrial ? { trial_period_days: trialDays } : {}),
       },
-      ...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
     },
-  })
+    {
+      // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
+      // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
+      // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
+      // sesiune (dedup); orice diferență → cheie nouă.
+      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}`,
+    },
+  )
 
   return jsonResponse(200, { url: session.url })
 }

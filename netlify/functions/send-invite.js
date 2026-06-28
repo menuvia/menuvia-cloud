@@ -4,6 +4,17 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
+// Escapează conținut controlat de user înainte de interpolare în HTML-ul emailului
+// (audit P3: restaurant_name/invited_by_name puteau injecta markup într-un email brandat).
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' }
@@ -15,9 +26,25 @@ exports.handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) }
   }
 
+  // Validare format email (audit P3) — evită relay de email cu adrese malformate.
+  const cleanEmail = String(email).trim().toLowerCase()
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid email' }) }
+  }
+  // Pt DB folosim valoarea TRIMMED dar cu case-ul original (rezolvă mismatch-ul de
+  // spații semnalat de review, fără a sparge dedup-ul rândurilor legacy mixed-case).
+  const dbEmail = String(email).trim()
+
   if (!['manager', 'waiter', 'kitchen'].includes(role)) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid role' }) }
   }
+
+  // Conținut controlat de user, escapat pentru interpolarea în HTML-ul emailului.
+  const safeRestaurantName = escapeHtml(restaurant_name)
+  const safeInvitedBy = escapeHtml(invited_by_name || 'Cineva')
+  // Subiectul e text simplu (header), NU HTML — escaparea l-ar strica ("Fish & Chips"
+  // → "Fish &amp; Chips"). Doar curățăm newline-urile (anti header-injection).
+  const subjectRestaurantName = String(restaurant_name ?? '').replace(/[\r\n]+/g, ' ').trim()
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -65,10 +92,12 @@ exports.handler = async (event) => {
   }
 
   // Check if already a member
+  // Match case-insensitive (ilike) — un profil 'John@x.com' trebuie găsit și pentru 'john@x.com'
+  // fără a pierde rânduri legacy mixed-case.
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('id')
-    .eq('email', email)
+    .ilike('email', dbEmail)
     .single()
 
   if (existingProfile) {
@@ -84,12 +113,12 @@ exports.handler = async (event) => {
     }
   }
 
-  // Delete any existing pending invite for this email + restaurant
+  // Delete any existing pending invite for this email + restaurant (case-insensitive)
   await supabase
     .from('invite_tokens')
     .delete()
     .eq('restaurant_id', restaurant_id)
-    .eq('email', email)
+    .ilike('email', dbEmail)
     .is('accepted_at', null)
 
   // Create invite token
@@ -97,7 +126,7 @@ exports.handler = async (event) => {
     .from('invite_tokens')
     .insert({
       restaurant_id,
-      email,
+      email: dbEmail,
       role,
       invited_by: user.id,
     })
@@ -123,16 +152,16 @@ exports.handler = async (event) => {
     },
     body: JSON.stringify({
       from:    'Menuvia <hello@menuvia.ro>',
-      to:      [email],
-      subject: `Ai fost invitat la ${restaurant_name} pe Menuvia`,
+      to:      [cleanEmail],
+      subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
       html: `
         <div style="font-family:'DM Sans',sans-serif;max-width:520px;margin:0 auto;background:#0F0F0F;border-radius:16px;padding:40px;color:#F0EAE0;">
           <div style="font-family:Georgia,serif;font-size:24px;color:#C8963C;margin-bottom:24px;">Menuvia</div>
           <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">
-            Ai fost invitat la <strong>${restaurant_name}</strong>
+            Ai fost invitat la <strong>${safeRestaurantName}</strong>
           </h2>
           <p style="color:#9A9590;line-height:1.6;margin-bottom:8px;">
-            ${invited_by_name || 'Cineva'} te-a invitat ca <strong style="color:#E2B472">${ROLE_LABELS[role] || role}</strong> pe Menuvia.
+            ${safeInvitedBy} te-a invitat ca <strong style="color:#E2B472">${ROLE_LABELS[role] || role}</strong> pe Menuvia.
           </p>
           <p style="color:#9A9590;line-height:1.6;margin-bottom:28px;">
             Acceptă invitația pentru a accesa dashboardul restaurantului.

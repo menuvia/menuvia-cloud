@@ -37,6 +37,11 @@ values ('00000000-0000-4000-8000-00000000a602',
         'A6 Restaurant', 'a6-restaurant', '#C8963C')
 on conflict (id) do nothing;
 
+-- 3b) Plan cu echipă pe owner-ul de fixture: limita max_team_members (mig 131) ar
+--     bloca membrul non-owner de mai jos pe free (=1). 'pro' permite staff (=1000).
+update public.profiles set plan = 'pro'
+ where id = '00000000-0000-4000-8000-00000000a601';
+
 -- 4) Waiter membership pentru second user (non-owner; ON CONFLICT DO NOTHING
 --    e sigur — triggerul nu blochează inserarea non-owner).
 insert into public.restaurant_memberships (restaurant_id, user_id, role)

@@ -11,7 +11,6 @@ import type { Order, OrderStatus } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
 import { usePushNotifications } from '../hooks/usePushNotifications'
-import { supabase } from '../lib/supabase'
 
 // D imported from constants
 
@@ -210,11 +209,18 @@ export default function KitchenPage() {
     setActive,
     loading: ctxLoading,
   } = useRestaurantCtx()
-  // FIX: connected state este acum dinamic — verifică realtime channel status
-  const [connected, setConnected] = useState(false)
   const prevOrderIds = useRef(new Set<string>())
+  // Primul snapshot hidratat NU e „comandă nouă" — altfel beep-ul suna la încărcarea
+  // paginii sau după schimbarea restaurantului. Sunăm doar de la al doilea snapshot.
+  const hasSeenInitialSnapshot = useRef(false)
 
-  const { orders, loading, error, advance, byStatus } = useOrders(restaurantId, 'kitchen')
+  const { orders, loading, error, advance, byStatus, connectionStatus } = useOrders(
+    restaurantId,
+    'kitchen',
+  )
+  // Indicatorul reflectă starea REALĂ a canalului de comenzi (useOrders), nu un canal de
+  // prezență separat care putea arăta „Conectat" când realtime-ul comenzilor era căzut.
+  const connected = connectionStatus === 'connected'
   const {
     supported: pushSupported,
     permission: pushPerm,
@@ -224,28 +230,24 @@ export default function KitchenPage() {
     unsubscribe: pushUnsubscribe,
   } = usePushNotifications(restaurantId)
 
-  // Monitorizează statusul realtime channel-ului pentru a reflecta starea reală în UI
+
+  // Reset la schimbarea restaurantului — noul prim snapshot nu trebuie să sune.
   useEffect(() => {
-    if (!restaurantId) {
-      setConnected(false)
-      return
-    }
-    const ch = supabase.channel(`kitchen-presence:${restaurantId}`).subscribe((status) => {
-      setConnected(status === 'SUBSCRIBED')
-    })
-    return () => {
-      void ch.unsubscribe()
-    }
+    prevOrderIds.current = new Set<string>()
+    hasSeenInitialSnapshot.current = false
   }, [restaurantId])
 
   useEffect(() => {
     const currentIds = new Set(orders.map((o) => o.id))
-    for (const o of orders) {
-      if (o.status === 'new' && !prevOrderIds.current.has(o.id)) {
-        playSound(880, 200)
-        break
+    if (hasSeenInitialSnapshot.current) {
+      for (const o of orders) {
+        if (o.status === 'new' && !prevOrderIds.current.has(o.id)) {
+          playSound(880, 200)
+          break
+        }
       }
     }
+    hasSeenInitialSnapshot.current = true
     prevOrderIds.current = currentIds
   }, [orders])
 

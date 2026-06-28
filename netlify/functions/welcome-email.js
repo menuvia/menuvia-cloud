@@ -5,9 +5,19 @@
 // Set WEBHOOK_SECRET in both Netlify env vars AND Supabase webhook config.
 // If not set, ALL requests are rejected.
 
+const crypto = require('crypto')
+
 function esc(str) {
   if (!str) return ''
   return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+
+// Comparare constant-time a secretului (anti timing attack), cu verificare de lungime.
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a))
+  const bb = Buffer.from(String(b))
+  if (ab.length !== bb.length) return false
+  return crypto.timingSafeEqual(ab, bb)
 }
 
 exports.handler = async (event) => {
@@ -20,8 +30,8 @@ exports.handler = async (event) => {
   }
 
   // Validate webhook secret — prevents anonymous abuse
-  const secret = event.headers['x-webhook-secret'] || event.headers['authorization'] || ''
-  if (secret.replace('Bearer ', '') !== process.env.WEBHOOK_SECRET) {
+  const secret = (event.headers['x-webhook-secret'] || event.headers['authorization'] || '').replace('Bearer ', '')
+  if (!safeEqual(secret, process.env.WEBHOOK_SECRET)) {
     return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) }
   }
 
@@ -31,6 +41,10 @@ exports.handler = async (event) => {
   const email = (body.email || '').toLowerCase().trim()
   const name  = esc((body.name || '').trim())
   if (!email) return { statusCode: 400, body: 'Missing email' }
+  // Validare format email (paritate cu send-invite) — evită relay cu adrese malformate.
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid email' }) }
+  }
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',

@@ -40,7 +40,12 @@ exports.handler = async (event) => {
     STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
   } = process.env
 
-  if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+  if (
+    !STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY ||
+    // Fara price-id-urile reale, PLAN_BY_PRICE ar mapa totul la 'free' si un update Stripe
+    // ar downgrada tacut abonamentele platite → cerem si pe acestea (fail-fast).
+    !STRIPE_STARTER_PRICE_ID || !STRIPE_GROWTH_PRICE_ID || !STRIPE_PRO_PRICE_ID || !STRIPE_ENTERPRISE_PRICE_ID
+  ) {
     console.error('[stripe-webhook] Missing env vars')
     return jsonResponse(500, { error: 'Server config error' })
   }
@@ -161,7 +166,7 @@ exports.handler = async (event) => {
 
         const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
-          .select('id, plan')
+          .select('id, plan, stripe_subscription_id')
           .eq('stripe_customer_id', customerId)
           .single()
 
@@ -170,9 +175,25 @@ exports.handler = async (event) => {
         }
         userId = profile.id
 
-        // Plan real din metadata (active/trialing); altfel downgrade la free.
-        const subPlan = normalizePlan(subscription.metadata?.plan)
-        const activePlan = ['active', 'trialing'].includes(status) ? subPlan : 'free'
+        // Ignoră evenimentele unei subscriptii care NU e cea curentă a profilului (audit P2):
+        // checkout creează mereu o subscriptie NOUĂ, iar una veche poate rămâne activă pe
+        // același customer → un eveniment stale ar suprascrie planul (clobber). Dacă profilul
+        // are deja o subscriptie setată și diferită, sărim (200, idempotent).
+        if (profile.stripe_subscription_id && profile.stripe_subscription_id !== subscription.id) {
+          console.log(`[stripe-webhook] Skip stale subscription ${subscription.id} (current: ${profile.stripe_subscription_id})`)
+          break
+        }
+
+        // Plan real din price.id-ul FACTURAT (subscription.items), NU din metadata.plan
+        // care ramane stale la downgrade (audit P1: gate-leak — un downgrade Plan 3→2/1 nu
+        // retrograda gate-ul fiscal). Mapam prin PLAN_BY_PRICE; price nemapat → fail-closed 'free'.
+        const subItems = subscription.items?.data || []
+        const subPlanItems = subItems.filter((i) => i?.price?.id && PLAN_BY_PRICE[i.price.id])
+        const subPlan = subPlanItems.length ? PLAN_BY_PRICE[subPlanItems[0].price.id] : 'free'
+        // Grace în dunning: past_due ține abonamentul VIU la Stripe (reîncearcă plata) — nu
+        // retrogradăm la 'free' (l-ar bloca + checkout-ul nou e respins 409 → utilizator captiv).
+        // Downgrade real doar la status terminal (canceled/unpaid/incomplete_expired).
+        const activePlan = ['active', 'trialing', 'past_due'].includes(status) ? subPlan : 'free'
 
         const { error } = await supabase
           .from('profiles')
@@ -200,7 +221,7 @@ exports.handler = async (event) => {
 
         const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
-          .select('id')
+          .select('id, stripe_subscription_id')
           .eq('stripe_customer_id', customerId)
           .single()
 
@@ -209,6 +230,13 @@ exports.handler = async (event) => {
           break
         }
         userId = profile.id
+
+        // Nu retrograda la 'free' daca Stripe sterge o subscriptie VECHE (nu cea curenta):
+        // checkout creeaza mereu una noua, iar una veche poate fi stearsa ulterior. (audit P2)
+        if (profile.stripe_subscription_id && profile.stripe_subscription_id !== subscription.id) {
+          console.log(`[stripe-webhook] Skip stale deleted subscription ${subscription.id} (current: ${profile.stripe_subscription_id})`)
+          break
+        }
 
         const { error } = await supabase
           .from('profiles')
@@ -447,24 +475,25 @@ exports.handler = async (event) => {
 }
 
 // ── Helper: normalize plan string to canonical paid tier ──────────
-// Acceptă doar planurile plătite valide; orice altceva → 'pro' (safe default
-// pentru un abonament activ — nu lăsăm un plan necunoscut să devină 'free').
+// FAIL-CLOSED (audit P1): un plan necunoscut/lipsă → 'free', NU 'pro'. Altfel orice
+// valoare nemapată ar fi acordat Plan 3 (fiscalizare) gratuit — gate-leak. Planul
+// real se derivă oricum din price.id facturat, nu din string-uri arbitrare.
 const VALID_PAID_PLANS = ['starter', 'growth', 'pro', 'enterprise']
 function normalizePlan(plan) {
   const p = String(plan || '').toLowerCase()
-  return VALID_PAID_PLANS.includes(p) ? p : 'pro'
+  return VALID_PAID_PLANS.includes(p) ? p : 'free'
 }
 
 // ── Helper: resolve plan from subscription metadata ────────────────
-// Citește metadata.plan setat la checkout. Fallback 'pro' dacă lipsește.
+// Citește metadata.plan setat la checkout. Fail-CLOSED la 'free' dacă lipsește/eșuează.
 async function resolvePlan(stripe, subscriptionId) {
-  if (!subscriptionId) return 'pro'
+  if (!subscriptionId) return 'free'
   try {
     const sub = await stripe.subscriptions.retrieve(subscriptionId)
     return normalizePlan(sub.metadata?.plan)
   } catch (e) {
-    console.warn('[stripe-webhook] resolvePlan failed, defaulting pro:', e.message)
-    return 'pro'
+    console.warn('[stripe-webhook] resolvePlan failed, defaulting free:', e.message)
+    return 'free'
   }
 }
 

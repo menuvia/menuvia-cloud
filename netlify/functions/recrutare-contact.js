@@ -54,20 +54,46 @@ exports.handler = async (event) => {
   const email   = (body.email   || '').trim().toLowerCase().slice(0, 120)
   const message = (body.message || '').trim().slice(0, 2000)
 
+  const jsonHeaders = { ...corsHeaders(event), 'Content-Type': 'application/json' }
   if (!name || !cafe || !phone || !email) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Câmpuri obligatorii lipsă' }) }
+    return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'Câmpuri obligatorii lipsă' }) }
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Email invalid' }) }
+    return { statusCode: 400, headers: jsonHeaders, body: JSON.stringify({ error: 'Email invalid' }) }
   }
-
-  // Basic rate limiting by IP (best-effort, stored in Supabase)
-  // Not implementing here for simplicity — can be added via Netlify Edge or external service.
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
   )
+
+  // Rate limit per IP (anti-spam pe endpoint public): max 5 / oră. Fail-OPEN pe eroare de
+  // infra (nu blocam lead-uri legitime daca serviciul de rate-limit pica), dar aplicam limita
+  // cand verificarea reuseste.
+  const clientIp =
+    event.headers['x-nf-client-connection-ip'] ||
+    (event.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    'unknown'
+  try {
+    const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
+      p_function_name:  'recrutare_contact',
+      p_scope_key:      clientIp,
+      p_max_requests:   5,
+      p_window_minutes: 60,
+    })
+    if (!rlErr && rlOk === false) {
+      return {
+        statusCode: 429,
+        headers: { ...corsHeaders(event), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Prea multe cereri. Reîncearcă mai târziu.' }),
+      }
+    }
+    if (rlErr) {
+      console.warn('[recrutare-contact] rate limit RPC failed (fail-open):', rlErr?.message)
+    }
+  } catch (e) {
+    console.warn('[recrutare-contact] rate limit check failed (fail-open):', e?.message)
+  }
 
   // Store in leads table (created via migration 037)
   try {

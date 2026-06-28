@@ -22,13 +22,15 @@ function passwordStrength(p: string): 0 | 1 | 2 {
   const hasSym = /[^a-zA-Z0-9]/.test(p)
   const hasUpper = /[A-Z]/.test(p)
   const score = (hasNum ? 1 : 0) + (hasSym ? 1 : 0) + (hasUpper ? 1 : 0)
+  // O parolă lungă dar dintr-o singură clasă (ex. doar litere mici) NU e "Acceptabilă":
+  // cere cel puțin o clasă (cifră/simbol/majusculă) sau lungime ≥12 pentru nivelul 1.
   if (score >= 2) return 2
-  if (score >= 1) return 1
-  return 1 // length >= 8 is at least "ok"
+  if (score >= 1 || p.length >= 12) return 1
+  return 0
 }
 
 const STRENGTH_META = {
-  0: { label: 'Prea scurtă', color: D.red, width: '25%' },
+  0: { label: 'Slabă', color: D.red, width: '25%' },
   1: { label: 'Acceptabilă', color: D.amber, width: '60%' },
   2: { label: 'Puternică', color: D.green, width: '100%' },
 }
@@ -43,11 +45,23 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   const [tokenState, setTokenState] = useState<null | true | false>(null)
 
   useEffect(() => {
+    // Dacă URL-ul nu conține DELOC un token de recovery, e clar invalid → marcăm imediat.
+    // Dacă tokenul E prezent dar SDK-ul e lent (rețea proastă / cold start), NU marcăm
+    // invalid prematur (audit P2: 4s era prea agresiv) — failsafe generos de 12s.
+    const hash = typeof window !== 'undefined' ? window.location.hash || '' : ''
+    const search = typeof window !== 'undefined' ? window.location.search || '' : ''
+    const hasRecoveryToken =
+      /access_token=|type=recovery|[?&]code=/.test(hash) || /[?&]code=|type=recovery/.test(search)
+
+    if (!hasRecoveryToken) {
+      setTokenState(false)
+      return
+    }
+
     // PASSWORD_RECOVERY fires when Supabase detects the recovery token in the URL hash.
-    // If it doesn't fire within 4s → token is missing/expired.
     const timeout = setTimeout(() => {
       setTokenState((prev) => (prev === null ? false : prev))
-    }, 4000)
+    }, 12000)
 
     const {
       data: { subscription },
@@ -58,13 +72,11 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
       }
     })
 
-    // Also check immediately if there's already a session with recovery type
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        clearTimeout(timeout)
-        setTokenState(true)
-      }
-    })
+    // NU validăm pe baza unei sesiuni existente (audit P2): pe un device partajat/deja
+    // logat, orice sesiune ar fi fost tratată drept token de recovery valid → schimbare
+    // parolă fără re-autentificare (account takeover). Validarea se bazează EXCLUSIV pe
+    // evenimentul PASSWORD_RECOVERY (emis de Supabase la detectarea token-ului din URL);
+    // dacă nu apare în 12s → link invalid/expirat.
 
     return () => {
       clearTimeout(timeout)

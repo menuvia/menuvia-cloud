@@ -204,8 +204,13 @@ export default function WaiterPage() {
       const payments = await getOrderPayments(splitOrder.id)
       setSplitPayments(payments)
       setSplitAmount('')
-    } catch {
-      /* ignore */
+    } catch (err) {
+      // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
+      console.error('[WaiterPage] plata partiala a esuat', err)
+      const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
+      window.alert(
+        `Plata nu a fost înregistrată: ${msg}. Verifică și reîncearcă.`,
+      )
     }
     setSplitLoading(false)
   }
@@ -1062,10 +1067,15 @@ export default function WaiterPage() {
               onApplyHappyHour={async () => {
                 if (!happyHourSugg) return
                 try {
+                  // P1 fix: aplicăm SUMA fixă calculată server-side (computed_discount), nu
+                  // procentul brut. Pentru reguli scope category/product, un discount_type
+                  // 'percent' ar fi aplicat de _refresh_order_totals pe TOT subtotalul comenzii
+                  // (supra-reducere). computed_discount e deja reducerea corectă pe subtotalul
+                  // aplicabil (orice scope/tip) → o aplicăm ca 'amount'.
                   await applyOrderDiscount(
                     live.id,
-                    happyHourSugg.discount_type,
-                    happyHourSugg.discount_value,
+                    'amount',
+                    happyHourSugg.computed_discount,
                     `🎉 Happy Hour: ${happyHourSugg.rule_name}`,
                   )
                   setHappyHourSugg(null)

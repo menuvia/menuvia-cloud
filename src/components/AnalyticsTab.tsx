@@ -70,6 +70,12 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
   const [waiters, setWaiters] = useState<Record<string, unknown>[]>([])
+  // Nume ospătari pe user_id — embed-ul profiles din view-ul agregat nu rezolvă
+  // FK-ul, deci numele veneau „Anonim". Mapăm separat din restaurant_memberships
+  // (același embed care funcționează în TeamManager), fără migrație/RLS nou.
+  const [staffNames, setStaffNames] = useState<
+    Record<string, { full_name: string | null; email: string }>
+  >({})
   const [hourly, setHourly] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -85,7 +91,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
     try {
       const since = new Date()
       since.setDate(since.getDate() - days)
-      const [d, p, w, h] = await Promise.all([
+      const [d, p, w, h, m] = await Promise.all([
         supabase
           .from('v_daily_orders')
           .select('*')
@@ -98,16 +104,32 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           .eq('restaurant_id', restaurantId)
           .order('revenue', { ascending: false })
           .limit(10),
-        supabase
-          .from('v_waiter_performance')
-          .select('*,profile:profiles(full_name,email)')
-          .eq('restaurant_id', restaurantId),
+        supabase.from('v_waiter_performance').select('*').eq('restaurant_id', restaurantId),
         supabase.from('v_hourly_distribution').select('*').eq('restaurant_id', restaurantId),
+        supabase
+          .from('restaurant_memberships')
+          .select('user_id, user:profiles(full_name,email)')
+          .eq('restaurant_id', restaurantId),
       ])
       setDaily(d.data || [])
       setProducts(p.data || [])
       setWaiters(w.data || [])
       setHourly(h.data || [])
+      // Map user_id → nume (pentru tabelul „Performanță ospătar").
+      const names: Record<string, { full_name: string | null; email: string }> = {}
+      // supabase-js tipează embed-ul ca array, dar la runtime FK-ul to-one întoarce
+      // un obiect (ca în TeamManager) — cast prin unknown + normalizare defensivă.
+      for (const row of (m.data || []) as unknown as Array<{
+        user_id: string
+        user:
+          | { full_name: string | null; email: string }
+          | { full_name: string | null; email: string }[]
+          | null
+      }>) {
+        const u = Array.isArray(row.user) ? row.user[0] : row.user
+        if (u) names[row.user_id] = u
+      }
+      setStaffNames(names)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea statisticilor')
     }
@@ -292,7 +314,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           }}
         >
           <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>📊</div>
-          <div>Nicio comandă plătită în perioada selectată.</div>
+          <div>Nicio comandă în perioada selectată.</div>
         </div>
       ) : (
         <>
@@ -622,7 +644,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                   ))}
                 </div>
                 {waiters.map((w, i) => {
-                  const p = w.profile as { full_name: string | null; email: string } | null
+                  const p = staffNames[w.user_id as string] ?? null
                   return (
                     <div
                       key={i}

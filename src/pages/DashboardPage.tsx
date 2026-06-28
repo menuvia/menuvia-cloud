@@ -457,7 +457,9 @@ const NAV_GROUPS: NavGroup[] = [
     icon: '🪑',
     subTabs: [
       { id: 'mese', label: 'Mese & QR-uri' },
-      { id: 'arhitectura', label: 'Hartă sală', minTier: 2 },
+      // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
+      // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
+      { id: 'arhitectura', label: 'Hartă sală', minTier: 3 },
     ],
   },
   {
@@ -473,7 +475,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'casa-tura', label: 'Încasări', minTier: 3 },
       { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
       { id: 'invoices', label: 'Facturi', minTier: 3 },
-      { id: 'gestiune', label: 'Stocuri', minTier: 3 },
+      // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
+      { id: 'gestiune', label: 'Stocuri', minTier: 2 },
     ],
   },
   {
@@ -1135,7 +1138,7 @@ export default function DashboardPage({
                     currentPlan={plan}
                     featureName="Modul Gestiune"
                     emoji="📦"
-                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Fiscalizare."
+                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Meniu + Comenzi."
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -1153,31 +1156,58 @@ export default function DashboardPage({
                     onUpgrade={onPricing}
                   />
                 ))}
-              {tab === 'casa-tura' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <CashRegisterTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'casa-tura' &&
+                (features.has('shifts') ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                    <CashRegisterTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Casă & Tură"
+                    emoji="💰"
+                    description="Casă de bani, ture și încasări. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'happy-hour' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                   <HappyHourTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'invoices' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
-                  <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
-                </Suspense>
-              )}
+              {tab === 'invoices' &&
+                (tier >= 3 ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
+                    <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Facturi"
+                    emoji="🧾"
+                    description="Emitere facturi Oblio. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'reservations' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
                   <ReservationsTab restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'casa-marcat' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <BridgeTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'casa-marcat' &&
+                (tier >= 3 ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                    <BridgeTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Casă de marcat"
+                    emoji="🖨️"
+                    description="Conectează casa de marcat fiscală. Disponibil pe planul Fiscalizare."
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'settings' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă setările..." />}>
                   <SettingsTab

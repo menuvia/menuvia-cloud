@@ -48,6 +48,19 @@ exports.handler = async () => {
     results.lifecycle_error = e.message
   }
 
+  // ── Job 1b: expiră sesiunile de masă inactive (orar) ──
+  // Sesiunile QR rămase deschise (clientul a plecat fără a închide) blochează masa pentru
+  // următorii clienți. Le expirăm orar (inactiv > 3h). Idempotent — un tick ratat se reia.
+  if (minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
+      if (error) throw error
+      results.sessions_expired = data
+    } catch (e) {
+      results.sessions_expire_error = e.message
+    }
+  }
+
   // ── Job 2: compute health scores (every 30 min) ──
   if (minute < 15 || (minute >= 30 && minute < 45)) {
     try {

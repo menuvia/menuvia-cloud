@@ -16,6 +16,7 @@ interface ModifierGroup {
   is_required: boolean
   min_select: number
   max_select: number | null
+  display_order: number
   modifier_options: ModifierOption[]
 }
 
@@ -55,6 +56,9 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   const [gName, setGName] = useState('')
   const [gType, setGType] = useState<'single' | 'multiple'>('single')
   const [gRequired, setGRequired] = useState(false)
+  // Plafon de selecții pentru grupurile „multiple" — string în input, gol = nelimitat.
+  // Serverul (create_order, mig 145) respinge depășirea; aici owner-ul îl poate seta.
+  const [gMaxSelect, setGMaxSelect] = useState('')
   const [saving, setSaving] = useState(false)
   const [optName, setOptName] = useState('')
   const [optPrice, setOptPrice] = useState('0')
@@ -84,6 +88,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       is_required: g.is_required as boolean,
       min_select: (g.min_select as number) ?? 0,
       max_select: g.max_select as number | null,
+      display_order: (g.display_order as number) ?? 0,
       modifier_options: opts
         .filter((o: Record<string, unknown>) => o.modifier_group_id === g.id)
         .map((o: Record<string, unknown>) => ({
@@ -108,10 +113,12 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       setGName('')
       setGType('single')
       setGRequired(false)
+      setGMaxSelect('')
     } else {
       setGName(g.name)
       setGType(g.selection_type)
       setGRequired(g.is_required)
+      setGMaxSelect(g.max_select != null ? String(g.max_select) : '')
     }
     setError(null)
   }
@@ -120,17 +127,29 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
     if (!gName.trim()) return
     setSaving(true)
     setError(null)
+    // max_select se aplică DOAR la „multiple"; gol/0/negativ = nelimitat (null).
+    // La „single" serverul plafonează oricum la 1 → trimitem null.
+    const parsedMax = parseInt(gMaxSelect, 10)
+    const maxSelect = gType === 'multiple' && parsedMax > 0 ? parsedMax : null
     if (editGroup === 'add') {
-      const maxOrder = groups.reduce((m, g) => Math.max(m, g.modifier_options.length), -1)
+      // display_order al noului GRUP = max(display_order al grupurilor) + 1, NU max(nr. opțiuni)
+      // (grupul nou ajungea aleatoriu în listă în funcție de câte opțiuni aveau alte grupuri).
+      const maxOrder = groups.reduce((m, g) => Math.max(m, g.display_order), -1)
       const { error: e } = await supabase.from('modifier_groups').insert({
         restaurant_id: restaurantId,
         name: gName.trim(),
         selection_type: gType,
         is_required: gRequired,
         min_select: gRequired ? 1 : 0,
+        max_select: maxSelect,
         display_order: maxOrder + 1,
       })
-      if (e) setError(e.message)
+      // La eroare păstrăm modalul deschis (input-ul userului rămâne pentru corectare).
+      if (e) {
+        setError(e.message)
+        setSaving(false)
+        return
+      }
     } else if (editGroup && typeof editGroup !== 'string') {
       const { error: e } = await supabase
         .from('modifier_groups')
@@ -139,9 +158,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
           selection_type: gType,
           is_required: gRequired,
           min_select: gRequired ? 1 : 0,
+          max_select: maxSelect,
         })
         .eq('id', editGroup.id)
-      if (e) setError(e.message)
+      if (e) {
+        setError(e.message)
+        setSaving(false)
+        return
+      }
     }
     setSaving(false)
     setEditGroup(null)
@@ -430,6 +454,26 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   : 'Ex: "Topping-uri" \u2014 client poate alege mai multe deodat\u0103'}
               </div>
             </div>
+            {gType === 'multiple' && (
+              <div style={{ marginBottom: 14 }}>
+                <label
+                  style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
+                >
+                  Num\u0103r maxim de op\u021biuni
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={gMaxSelect}
+                  onChange={(e) => setGMaxSelect(e.target.value)}
+                  placeholder="Nelimitat"
+                  style={inp}
+                />
+                <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
+                  C\u00e2te op\u021biuni poate bifa clientul. Las\u0103 gol pentru nelimitat.
+                </div>
+              </div>
+            )}
             <div style={{ marginBottom: 20 }}>
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
