@@ -42,9 +42,9 @@ begin
    where restaurant_id = new.restaurant_id and user_id = auth.uid();
 
   if v_role = 'waiter'::public.member_role then
-    if (to_jsonb(new) - 'status' - 'updated_at' - 'reminder_sent_at')
+    if (to_jsonb(new) - 'status' - 'updated_at')
        is distinct from
-       (to_jsonb(old) - 'status' - 'updated_at' - 'reminder_sent_at') then
+       (to_jsonb(old) - 'status' - 'updated_at') then
       raise exception 'Un waiter poate schimba doar statusul rezervarii (nu PII/ora/masa)'
         using errcode = 'P0001', hint = 'waiter_field_locked';
     end if;

@@ -31,6 +31,9 @@ exports.handler = async (event) => {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid email' }) }
   }
+  // Pt DB folosim valoarea TRIMMED dar cu case-ul original (rezolvă mismatch-ul de
+  // spații semnalat de review, fără a sparge dedup-ul rândurilor legacy mixed-case).
+  const dbEmail = String(email).trim()
 
   if (!['manager', 'waiter', 'kitchen'].includes(role)) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid role' }) }
@@ -92,7 +95,7 @@ exports.handler = async (event) => {
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('id')
-    .eq('email', email)
+    .eq('email', dbEmail)
     .single()
 
   if (existingProfile) {
@@ -113,7 +116,7 @@ exports.handler = async (event) => {
     .from('invite_tokens')
     .delete()
     .eq('restaurant_id', restaurant_id)
-    .eq('email', email)
+    .eq('email', dbEmail)
     .is('accepted_at', null)
 
   // Create invite token
@@ -121,7 +124,7 @@ exports.handler = async (event) => {
     .from('invite_tokens')
     .insert({
       restaurant_id,
-      email,
+      email: dbEmail,
       role,
       invited_by: user.id,
     })

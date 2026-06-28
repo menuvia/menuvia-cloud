@@ -172,6 +172,7 @@ export async function syncPendingOrders(): Promise<void> {
   isSyncing = true
   console.log(`[offlineSync] Start sync: ${queue.length} comenzi în queue`)
 
+  try {
   for (const item of queue) {
     // Dacă s-a pierdut conexiunea în mijlocul loop-ului, oprim
     if (!navigator.onLine) {
@@ -242,8 +243,11 @@ export async function syncPendingOrders(): Promise<void> {
       break
     }
   }
-
-  isSyncing = false
+  } finally {
+    // isSyncing se reseteaza MEREU — chiar daca markTransientError/IDB arunca, altfel
+    // flag-ul ar ramane true si ar bloca permanent sync-ul in acest tab.
+    isSyncing = false
+  }
 
   // Notifică UI că sync-ul s-a terminat
   const remaining = await getPendingOrders()

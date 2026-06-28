@@ -176,7 +176,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Includes ALL non-cancelled orders, not just paid ones.
       const { data: ordersRaw, error: oErr } = await supabase
         .from('orders')
-        .select('id, source, status, total, paid_amount, payment_method, created_at')
+        // Pe Plan 1/2 (fiscalReports=false) NU aducem coloanele monetare in browser
+        // (defense-in-depth: venit = Plan 3). Doar count-ul operational ramane.
+        .select(
+          fiscalReports
+            ? 'id, source, status, total, paid_amount, payment_method, created_at'
+            : 'id, source, status, created_at',
+        )
         .eq('restaurant_id', restaurantId)
         .neq('status', 'cancelled')
         .gte('created_at', startISO)
@@ -222,7 +228,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         // Step B: get order_items for those orders
         const { data: items, error: iErr } = await supabase
           .from('order_items')
-          .select('product_name_snapshot, quantity, unit_price_snapshot, product_id')
+          .select(
+            fiscalReports
+              ? 'product_name_snapshot, quantity, unit_price_snapshot, product_id'
+              : 'product_name_snapshot, quantity, product_id',
+          )
           .in('order_id', orderIds)
         if (iErr) throw iErr
 
@@ -275,20 +285,27 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         setTopProducts([])
       }
 
-      // ── Extended reports (server-side RPCs, run in parallel) ──
-      const [ws, hs, cs] = await Promise.all([
-        fetchWaiterSales(restaurantId, startISO, endISO).catch(() => [] as WaiterSalesRow[]),
-        fetchHourlySales(restaurantId, startISO, endISO).catch(() => [] as HourlySalesRow[]),
-        fetchCategorySales(restaurantId, startISO, endISO).catch(() => [] as CategorySalesRow[]),
-      ])
-      setWaiterSales(ws)
-      setHourlySales(hs)
-      setCategorySales(cs)
+      // ── Extended reports (server-side RPCs) — DOAR pe Plan 3. Pe Plan 1/2 nu le
+      // mai cerem deloc (raportele de venit/ospatari/categorii nu se afiseaza oricum).
+      if (fiscalReports) {
+        const [ws, hs, cs] = await Promise.all([
+          fetchWaiterSales(restaurantId, startISO, endISO).catch(() => [] as WaiterSalesRow[]),
+          fetchHourlySales(restaurantId, startISO, endISO).catch(() => [] as HourlySalesRow[]),
+          fetchCategorySales(restaurantId, startISO, endISO).catch(() => [] as CategorySalesRow[]),
+        ])
+        setWaiterSales(ws)
+        setHourlySales(hs)
+        setCategorySales(cs)
+      } else {
+        setWaiterSales([])
+        setHourlySales([])
+        setCategorySales([])
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea raportului')
     }
     setLoading(false)
-  }, [restaurantId, period, custom.from, custom.to]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurantId, period, custom.from, custom.to, fiscalReports]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const range = periodRange(period, custom)
 
