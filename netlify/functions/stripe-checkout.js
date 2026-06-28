@@ -76,6 +76,22 @@ exports.handler = async (event) => {
     return jsonResponse(401, { error: 'Invalid token' })
   }
 
+  // Rate limit per user (endpoint autentificat dar abuzabil): max 10 checkout-uri / 5 min.
+  // Fail-open pe eroare de infra (nu blocăm plăți legitime dacă serviciul pică).
+  try {
+    const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
+      p_function_name:  'stripe_checkout',
+      p_scope_key:      user.id,
+      p_max_requests:   10,
+      p_window_minutes: 5,
+    })
+    if (!rlErr && rlOk === false) {
+      return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
+    }
+  } catch (e) {
+    console.warn('[stripe-checkout] rate limit check failed (fail-open):', e?.message)
+  }
+
   // Get or create Stripe customer
   const stripe = new Stripe(STRIPE_SECRET_KEY)
 

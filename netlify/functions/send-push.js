@@ -56,7 +56,7 @@ exports.handler = async (event) => {
   // Get all push subscriptions for this restaurant
   const { data: subs, error } = await supabase
     .from('push_subscriptions')
-    .select('subscription')
+    .select('id, subscription')
     .eq('restaurant_id', restaurantId)
 
   if (error || !subs?.length) return json(200, { ok: true, sent: 0 })
@@ -76,13 +76,14 @@ exports.handler = async (event) => {
   })
 
   const results = await Promise.allSettled(
-    subs.map(({ subscription }) =>
+    subs.map(({ id, subscription }) =>
       webpush.sendNotification(subscription, payload).catch((err) => {
-        // Remove expired/invalid subscriptions (410 Gone)
+        // Remove expired/invalid subscriptions (410 Gone) — ștergem după id (determinist),
+        // nu după obiectul jsonb serializat (match pe conținut, fragil).
         if (err.statusCode === 410 || err.statusCode === 404) {
           return supabase.from('push_subscriptions')
             .delete()
-            .eq('subscription', subscription)
+            .eq('id', id)
         }
         throw err
       })

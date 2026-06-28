@@ -92,10 +92,12 @@ exports.handler = async (event) => {
   }
 
   // Check if already a member
+  // Match case-insensitive (ilike) — un profil 'John@x.com' trebuie găsit și pentru 'john@x.com'
+  // fără a pierde rânduri legacy mixed-case.
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('id')
-    .eq('email', dbEmail)
+    .ilike('email', dbEmail)
     .single()
 
   if (existingProfile) {
@@ -111,12 +113,12 @@ exports.handler = async (event) => {
     }
   }
 
-  // Delete any existing pending invite for this email + restaurant
+  // Delete any existing pending invite for this email + restaurant (case-insensitive)
   await supabase
     .from('invite_tokens')
     .delete()
     .eq('restaurant_id', restaurant_id)
-    .eq('email', dbEmail)
+    .ilike('email', dbEmail)
     .is('accepted_at', null)
 
   // Create invite token
