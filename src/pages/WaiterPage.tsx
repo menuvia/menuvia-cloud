@@ -204,8 +204,9 @@ export default function WaiterPage() {
       const payments = await getOrderPayments(splitOrder.id)
       setSplitPayments(payments)
       setSplitAmount('')
-    } catch {
-      /* ignore */
+    } catch (err) {
+      // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
+      console.error('[WaiterPage] plata partiala a esuat', err)
     }
     setSplitLoading(false)
   }

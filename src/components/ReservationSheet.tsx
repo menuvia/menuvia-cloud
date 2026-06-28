@@ -207,6 +207,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(lang === 'ro' ? 'Telefonul este obligatoriu' : 'Phone is required')
       return
     }
+    // Email opțional, dar dacă e completat trebuie să fie valid (altfel se stoca orice string).
+    if (email.trim().length > 0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+      setError(lang === 'ro' ? 'Email invalid' : 'Invalid email')
+      return
+    }
     setSubmitting(true)
     const startsAt = isoIsoForLocalDateTime(chosenDateYmd, timeSlot)
     const { data, error: rpcErr } = await supabase.rpc('create_reservation_public', {

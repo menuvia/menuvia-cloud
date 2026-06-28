@@ -457,7 +457,9 @@ const NAV_GROUPS: NavGroup[] = [
     icon: '🪑',
     subTabs: [
       { id: 'mese', label: 'Mese & QR-uri' },
-      { id: 'arhitectura', label: 'Hartă sală', minTier: 2 },
+      // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
+      // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
+      { id: 'arhitectura', label: 'Hartă sală', minTier: 3 },
     ],
   },
   {
