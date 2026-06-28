@@ -227,7 +227,24 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     })
     setSubmitting(false)
     if (rpcErr) {
-      setError(rpcErr.message)
+      // Mapăm erorile DB cunoscute la mesaje prietenoase (nu expunem text brut Postgres).
+      const m = rpcErr.message || ''
+      const friendly = /overlap|exclusion/i.test(m)
+        ? lang === 'ro'
+          ? 'Intervalul ales se suprapune cu altă rezervare. Alege altă oră.'
+          : 'That time overlaps another reservation. Pick another slot.'
+        : /rate.?limit|prea multe|too many/i.test(m)
+          ? lang === 'ro'
+            ? 'Prea multe rezervări într-un interval scurt. Reîncearcă mai târziu.'
+            : 'Too many reservations in a short time. Try again later.'
+          : /module|not activ|dezactiv|disabled/i.test(m)
+            ? lang === 'ro'
+              ? 'Rezervările nu sunt active pentru acest restaurant.'
+              : 'Reservations are not enabled for this restaurant.'
+            : lang === 'ro'
+              ? 'Nu am putut salva rezervarea. Verifică datele și reîncearcă.'
+              : 'Could not save the reservation. Check the details and try again.'
+      setError(friendly)
       return
     }
     const row = Array.isArray(data) ? data[0] : data
