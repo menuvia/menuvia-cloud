@@ -1,6 +1,10 @@
-// QrCartSheet — coșul de cumpărături la masă (QR flow).
-// Extras din QrMenuPage pentru code-splitting.
-// Lazy-loaded: apare doar când clientul deschide coșul.
+// QrCartSheet — coșul la masă (QR flow), redesign „Masa ta".
+// Extras din QrMenuPage pentru code-splitting; lazy-loaded.
+// Vizual aliniat la mockup: header „Masa ta", secțiune ÎN COȘ · DE TRIMIS cu
+// thumbnail-uri, RECOMANDATE ALĂTURI pe orizontală, CTA cu prețul în buton.
+// Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
+// clasele din animations.css (reduced-motion respectat global).
+import { useMemo, type CSSProperties } from 'react'
 import type { CartItem } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 
@@ -42,6 +46,18 @@ export interface QrCartSheetProps {
   onAddToCart: (item: CartItem) => void
 }
 
+// Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
+function sectionLabelStyle(color: string): React.CSSProperties {
+  return {
+    fontFamily: 'DM Sans, sans-serif',
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '0.12em',
+    textTransform: 'uppercase',
+    color,
+  }
+}
+
 export default function QrCartSheet({
   cart,
   cartTotal,
@@ -62,9 +78,64 @@ export default function QrCartSheet({
   onOpenProduct,
   onAddToCart,
 }: QrCartSheetProps) {
+  // Index produs → pentru thumbnail-uri în rândurile de coș.
+  const productById = useMemo(() => {
+    const map = new Map<string, Product>()
+    for (const c of categories) {
+      for (const p of c.products ?? []) map.set(p.id, p)
+    }
+    return map
+  }, [categories])
+
+  // Recomandate alături — produse din categorii neacoperite de coș.
+  const suggestions = useMemo<Product[]>(() => {
+    if (!(checkoutSuggestionSettings?.enabled ?? false)) return []
+    const maxSugg = checkoutSuggestionSettings?.max_suggestions ?? 4
+    const cartProductIds = new Set(cart.map((c) => c.product_id))
+    const cartCategoryIds = new Set(
+      cart.map((item) => productById.get(item.product_id)?.category_id).filter(Boolean),
+    )
+    const out: Product[] = []
+    for (const cat of categories) {
+      if (cartCategoryIds.has(cat.id)) continue
+      for (const prod of cat.products ?? []) {
+        if (out.length >= maxSugg) break
+        if (prod.is_sold_out || cartProductIds.has(prod.id)) continue
+        out.push(prod)
+      }
+      if (out.length >= maxSugg) break
+    }
+    return out
+  }, [categories, cart, checkoutSuggestionSettings, productById])
+
+  const suggestionMsg =
+    checkoutSuggestionSettings?.message ?? 'Ai vrea ceva în plus înainte să trimiți?'
+
+  function handleAddSuggestion(s: Product): void {
+    const hasRequired = (s.modifier_groups ?? []).some((g) => g.is_required)
+    if (hasRequired) {
+      onClose()
+      onOpenProduct(s)
+      return
+    }
+    onAddToCart({
+      _key: crypto.randomUUID(),
+      product_id: s.id,
+      product_name_snapshot: s.name,
+      unit_price_snapshot: s.price,
+      quantity: 1,
+      selected_modifiers: [],
+      notes: null,
+      upsell_source: 'checkout_suggestion',
+    })
+  }
+
+  const canSubmit = cart.length > 0 && !submitting
+
   return (
     <div
       onClick={onClose}
+      className="animate-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -77,267 +148,370 @@ export default function QrCartSheet({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="animate-sheet"
         style={{
           background: PUB.bg,
-          borderRadius: '20px 20px 0 0',
+          borderRadius: '22px 22px 0 0',
           width: '100%',
           maxWidth: 480,
-          maxHeight: '85vh',
+          maxHeight: '88vh',
           overflowY: 'auto',
-          padding: '8px 20px 32px',
+          WebkitOverflowScrolling: 'touch',
+          padding: '8px 20px 28px',
           display: 'flex',
           flexDirection: 'column',
-          gap: 14,
+          gap: 16,
+          position: 'relative',
+          boxShadow: '0 -10px 40px rgba(26,18,8,0.18)',
         }}
       >
+        {/* Drag handle */}
         <div
           style={{
             width: 40,
             height: 4,
             borderRadius: 2,
             background: PUB.borderStrong,
-            margin: '8px auto 4px',
+            margin: '8px auto 0',
+            flexShrink: 0,
           }}
         />
 
-        <div
+        {/* X close — afordanță explicită (cerere UX) */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Închide"
+          className="pressable"
           style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 20,
-            fontWeight: 700,
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            border: `1px solid ${accent}`,
+            background: PUB.bg,
             color: PUB.text,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 3,
+            boxShadow: '0 2px 8px rgba(26,18,8,0.18)',
           }}
         >
-          Coșul tău
-        </div>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
 
-        {cart.map((item) => (
-          <div
-            key={item._key}
+        {/* Header — „Masa ta" */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
+          <h2
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: 10,
-              borderBottom: '1px solid #E8DFD0',
-              paddingBottom: 12,
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontSize: 28,
+              fontWeight: 600,
+              color: PUB.text,
+              margin: 0,
+              lineHeight: 1.1,
             }}
           >
-            <div style={{ flex: 1 }}>
-              <div style={{ color: PUB.text, fontSize: 14, fontWeight: 600 }}>
-                {item.product_name_snapshot}
-              </div>
-              <div style={{ color: accent, fontSize: 13 }}>{onLineTotal(item).toFixed(2)} lei</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button
-                onClick={() => onUpdateQty(item._key, -1)}
-                style={{
-                  background: '#EDE7D9',
-                  border: 'none',
-                  color: PUB.text,
-                  borderRadius: '50%',
-                  width: 28,
-                  height: 28,
-                  cursor: 'pointer',
-                }}
-              >
-                −
-              </button>
-              <span style={{ color: PUB.text, minWidth: 16, textAlign: 'center' }}>
-                {item.quantity}
-              </span>
-              <button
-                onClick={() => onUpdateQty(item._key, 1)}
-                style={{
-                  background: '#EDE7D9',
-                  border: 'none',
-                  color: PUB.text,
-                  borderRadius: '50%',
-                  width: 28,
-                  height: 28,
-                  cursor: 'pointer',
-                }}
-              >
-                +
-              </button>
-              <button
-                onClick={() => onRemove(item._key)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#c0392b',
-                  fontSize: 16,
-                  cursor: 'pointer',
-                }}
-              >
-                ✕
-              </button>
-            </div>
+            Masa ta
+          </h2>
+          <div
+            style={{
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontStyle: 'italic',
+              fontSize: 14,
+              color: PUB.text2,
+            }}
+          >
+            Adaugă oricând, plătești când vrei.
           </div>
-        ))}
+        </div>
 
-        <textarea
-          placeholder="Mențiuni pentru bucătărie (opțional)"
-          value={notes}
-          onChange={(e) => onNotesChange(e.target.value)}
-          rows={2}
-          style={{
-            background: '#EDE7D9',
-            border: '1px solid #D4C8B8',
-            borderRadius: 8,
-            color: PUB.text,
-            fontFamily: 'DM Sans, sans-serif',
-            fontSize: 14,
-            padding: '10px 12px',
-            resize: 'none',
-          }}
-        />
+        {/* Secțiune: ÎN COȘ · DE TRIMIS */}
+        <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>
 
-        {/* Checkout suggestions */}
-        {(checkoutSuggestionSettings?.enabled ?? false) &&
-          (() => {
-            const maxSugg = checkoutSuggestionSettings?.max_suggestions ?? 2
-            const customMsg =
-              checkoutSuggestionSettings?.message ??
-              '🍰 Înainte să trimiți... ai vrea ceva în plus?'
-            const cartCategoryIds = new Set(
-              cart
-                .map((item) => {
-                  const allProds = categories.flatMap((c) => c.products)
-                  return allProds.find((p) => p.id === item.product_id)?.category_id
-                })
-                .filter(Boolean),
-            )
-            const cartProductIds = new Set(cart.map((c) => c.product_id))
-            const suggestions: Product[] = []
-            for (const cat of categories) {
-              if (cartCategoryIds.has(cat.id)) continue
-              for (const prod of cat.products) {
-                if (suggestions.length >= maxSugg) break
-                if (prod.is_sold_out || cartProductIds.has(prod.id)) continue
-                suggestions.push(prod)
-              }
-              if (suggestions.length >= maxSugg) break
-            }
-            if (suggestions.length === 0) return null
-
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {cart.map((item) => {
+            const prod = productById.get(item.product_id)
             return (
               <div
+                key={item._key}
                 style={{
-                  background: '#FDF8F2',
-                  border: `1px solid ${PUB.border}`,
-                  borderRadius: 12,
-                  padding: '14px 16px',
                   display: 'flex',
-                  flexDirection: 'column',
+                  alignItems: 'center',
                   gap: 12,
+                  borderBottom: `1px solid ${PUB.border}`,
+                  padding: '12px 0',
                 }}
               >
+                {prod?.image_url ? (
+                  <img
+                    src={prod.image_url}
+                    alt={item.product_name_snapshot}
+                    loading="lazy"
+                    decoding="async"
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 12,
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                      background: PUB.surface,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 12,
+                      flexShrink: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 24,
+                      background: accentGradient,
+                    }}
+                  >
+                    🍽️
+                  </div>
+                )}
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      color: PUB.text,
+                      fontSize: 16,
+                      fontWeight: 600,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {item.product_name_snapshot}
+                  </div>
+                  <div style={{ color: PUB.text2, fontSize: 13, fontStyle: 'italic' }}>
+                    {onLineTotal(item).toFixed(2)} lei
+                  </div>
+                </div>
+
+                {/* Stepper pill */}
                 <div
                   style={{
-                    fontFamily: 'DM Sans, sans-serif',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: PUB.text,
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
+                    gap: 4,
+                    background: PUB.surface,
+                    border: `1px solid ${PUB.border}`,
+                    borderRadius: 999,
+                    padding: '3px 4px',
                   }}
                 >
-                  <span>{customMsg}</span>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateQty(item._key, -1)}
+                    aria-label="Scade cantitatea"
+                    className="pressable"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: PUB.text,
+                      borderRadius: '50%',
+                      width: 30,
+                      height: 30,
+                      fontSize: 18,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    −
+                  </button>
+                  <span
+                    style={{
+                      color: PUB.text,
+                      minWidth: 20,
+                      textAlign: 'center',
+                      fontWeight: 600,
+                      fontSize: 14,
+                    }}
+                  >
+                    {item.quantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onUpdateQty(item._key, 1)}
+                    aria-label="Crește cantitatea"
+                    className="pressable"
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: PUB.text,
+                      borderRadius: '50%',
+                      width: 30,
+                      height: 30,
+                      fontSize: 18,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    +
+                  </button>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {suggestions.map((s) => (
+
+                <button
+                  type="button"
+                  onClick={() => onRemove(item._key)}
+                  aria-label={`Elimină ${item.product_name_snapshot}`}
+                  className="pressable"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: PUB.text3,
+                    fontSize: 18,
+                    cursor: 'pointer',
+                    lineHeight: 1,
+                    flexShrink: 0,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Notă pentru bucătărie */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={sectionLabelStyle(PUB.text3)}>Notă pentru bucătărie</div>
+          <textarea
+            placeholder="Fără ceapă, vă rog..."
+            value={notes}
+            onChange={(e) => onNotesChange(e.target.value)}
+            rows={2}
+            style={{
+              background: PUB.surface,
+              border: `1px solid ${PUB.border}`,
+              borderRadius: 14,
+              color: PUB.text,
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 14,
+              padding: '12px 14px',
+              resize: 'none',
+              width: '100%',
+            }}
+          />
+        </div>
+
+        {/* Recomandate alături — carusel orizontal */}
+        {suggestions.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={sectionLabelStyle(PUB.text3)}>{suggestionMsg}</div>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                paddingBottom: 4,
+                margin: '0 -20px',
+                paddingInline: 20,
+              }}
+            >
+              {suggestions.map((s) => (
+                <div
+                  key={s.id}
+                  style={{
+                    width: 150,
+                    flexShrink: 0,
+                    background: PUB.surface,
+                    border: `1px solid ${PUB.border}`,
+                    borderRadius: 16,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                  }}
+                >
+                  {s.image_url ? (
+                    <img
+                      src={s.image_url}
+                      alt={s.name}
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: '100%', height: 96, objectFit: 'cover' }}
+                    />
+                  ) : (
                     <div
-                      key={s.id}
+                      style={{
+                        width: '100%',
+                        height: 96,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 30,
+                        background: accentGradient,
+                      }}
+                    >
+                      🍽️
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      padding: '10px 12px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                      flex: 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontFamily: 'Fraunces, Georgia, serif',
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: PUB.text,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {s.name}
+                    </div>
+                    <div
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 10,
-                        padding: '8px 10px',
-                        background: '#fff',
-                        border: `1px solid ${PUB.border}`,
-                        borderRadius: 10,
+                        justifyContent: 'space-between',
+                        marginTop: 'auto',
                       }}
                     >
-                      {s.image_url ? (
-                        <img
-                          src={s.image_url}
-                          alt={s.name}
-                          loading="lazy"
-                          decoding="async"
-                          style={{
-                            width: 40,
-                            height: 40,
-                            objectFit: 'cover',
-                            borderRadius: 8,
-                            flexShrink: 0,
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: 8,
-                            flexShrink: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 22,
-                            background: accentGradient,
-                          }}
-                        >
-                          🍽️
-                        </div>
-                      )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontFamily: 'DM Sans, sans-serif',
-                            fontSize: 13,
-                            fontWeight: 600,
-                            color: PUB.text,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {s.name}
-                        </div>
-                        <div
-                          style={{
-                            fontSize: 12,
-                            color: accent,
-                            fontWeight: 600,
-                            fontFamily: 'Fraunces, Georgia, serif',
-                          }}
-                        >
-                          {s.price.toFixed(2)} lei
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const hasRequired = (s.modifier_groups ?? []).some((g) => g.is_required)
-                          if (hasRequired) {
-                            onClose()
-                            onOpenProduct(s)
-                          } else {
-                            const newItem: CartItem = {
-                              _key: crypto.randomUUID(),
-                              product_id: s.id,
-                              product_name_snapshot: s.name,
-                              unit_price_snapshot: s.price,
-                              quantity: 1,
-                              selected_modifiers: [],
-                              notes: null,
-                              upsell_source: 'checkout_suggestion',
-                            }
-                            onAddToCart(newItem)
-                          }
+                      <span
+                        style={{
+                          fontFamily: 'Fraunces, Georgia, serif',
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: accent,
                         }}
+                      >
+                        {s.price.toFixed(2)} lei
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleAddSuggestion(s)}
                         aria-label={`Adaugă ${s.name}`}
+                        className="pressable"
                         style={{
                           width: 32,
                           height: 32,
@@ -358,30 +532,45 @@ export default function QrCartSheet({
                         +
                       </button>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })()}
+              ))}
+            </div>
+          </div>
+        )}
 
+        {/* Total */}
         <div
           style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 20,
-            fontWeight: 700,
-            color: PUB.text,
+            display: 'flex',
+            alignItems: 'baseline',
+            justifyContent: 'space-between',
+            borderTop: `1px solid ${PUB.border}`,
+            paddingTop: 14,
           }}
         >
-          Total: {cartTotal.toFixed(2)} lei
+          <span
+            style={{
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontSize: 18,
+              fontWeight: 600,
+              color: PUB.text,
+            }}
+          >
+            Total
+          </span>
+          <span
+            style={{
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontSize: 26,
+              fontWeight: 600,
+              color: PUB.text,
+            }}
+          >
+            {cartTotal.toFixed(2)} <span style={{ fontSize: 14, color: PUB.text2 }}>lei</span>
+          </span>
         </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: '#8A7E6C',
-            textAlign: 'right',
-            marginTop: 2,
-          }}
-        >
+        <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'right', marginTop: -8 }}>
           Totalul final este confirmat de restaurant.
         </div>
 
@@ -390,7 +579,7 @@ export default function QrCartSheet({
             style={{
               background: 'rgba(192,57,43,0.1)',
               border: '1px solid rgba(192,57,43,0.25)',
-              borderRadius: 10,
+              borderRadius: 12,
               padding: '12px 14px',
               textAlign: 'center',
             }}
@@ -399,7 +588,9 @@ export default function QrCartSheet({
               {submitError}
             </div>
             <button
+              type="button"
               onClick={onSubmit}
+              className="pressable"
               style={{
                 background: 'rgba(192,57,43,0.15)',
                 border: '1px solid rgba(192,57,43,0.3)',
@@ -417,23 +608,27 @@ export default function QrCartSheet({
           </div>
         )}
 
+        {/* CTA primar — prețul în buton (stil mockup) */}
         <button
-          disabled={cart.length === 0 || submitting}
+          type="button"
+          disabled={!canSubmit}
           onClick={onSubmit}
+          className={canSubmit ? 'pressable' : ''}
           style={{
             background: accent,
             color: '#fff',
             border: 'none',
-            borderRadius: 12,
-            padding: '14px 0',
+            borderRadius: 16,
+            padding: '16px 0',
             fontFamily: 'DM Sans, sans-serif',
-            fontSize: 15,
+            fontSize: 16,
             fontWeight: 700,
-            cursor: cart.length > 0 && !submitting ? 'pointer' : 'not-allowed',
+            cursor: canSubmit ? 'pointer' : 'not-allowed',
             opacity: submitting ? 0.7 : 1,
+            boxShadow: canSubmit ? '0 6px 18px rgba(26,18,8,0.18)' : 'none',
           }}
         >
-          {submitting ? 'Se trimite...' : 'Trimite comanda'}
+          {submitting ? 'Se trimite...' : `Trimite comanda · ${cartTotal.toFixed(2)} lei`}
         </button>
       </div>
     </div>
