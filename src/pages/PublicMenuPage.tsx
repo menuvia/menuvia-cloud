@@ -7,6 +7,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useMemo, useDeferredValue, lazy, Suspense } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
+import { useInView, revealStyle } from '../lib/motion'
 import {
   fetchRestaurantBySlug,
   fetchMenuForRestaurant,
@@ -511,39 +512,46 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             }}
           />
         )}
-        {filteredByCat.map(({ cat, products }) => (
-          <div key={cat?.id ?? 'flat'} style={{ display: 'flex', flexDirection: 'column' }}>
-            {cat && activeCat === 'all' && (
-              <SectionHeader title={cat.name} metaText={cat.meta_text} theme={theme} PUB={PUB} />
-            )}
+        {filteredByCat.map(({ cat, products }, sectionIdx) => (
+          <RevealItem
+            key={cat?.id ?? 'flat'}
+            // Stagger mic și plafonat — primele secțiuni primesc un delay
+            // ușor, restul intră fără întârziere ca să nu animăm un meniu lung.
+            delay={Math.min(sectionIdx, 3) * 50}
+          >
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {products.map((product) => (
-                <ProductCardEditorial
-                  key={product.id}
-                  product={product}
-                  accent={accent}
-                  theme={theme}
-                  PUB={PUB}
-                  pickupEnabled={pickupEnabled}
-                  happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                  onOpen={() => {
-                    if (!product.is_sold_out) setActiveProduct(product)
-                  }}
-                  onQuickAdd={() => {
-                    addToCart({
-                      _key: crypto.randomUUID(),
-                      product_id: product.id,
-                      product_name_snapshot: product.name,
-                      unit_price_snapshot: product.price,
-                      quantity: 1,
-                      selected_modifiers: [],
-                      notes: null,
-                    })
-                  }}
-                />
-              ))}
+              {cat && activeCat === 'all' && (
+                <SectionHeader title={cat.name} metaText={cat.meta_text} theme={theme} PUB={PUB} />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                {products.map((product) => (
+                  <ProductCardEditorial
+                    key={product.id}
+                    product={product}
+                    accent={accent}
+                    theme={theme}
+                    PUB={PUB}
+                    pickupEnabled={pickupEnabled}
+                    happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                    onOpen={() => {
+                      if (!product.is_sold_out) setActiveProduct(product)
+                    }}
+                    onQuickAdd={() => {
+                      addToCart({
+                        _key: crypto.randomUUID(),
+                        product_id: product.id,
+                        product_name_snapshot: product.name,
+                        unit_price_snapshot: product.price,
+                        quantity: 1,
+                        selected_modifiers: [],
+                        notes: null,
+                      })
+                    }}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
+          </RevealItem>
         ))}
 
         {/* FOOTER brand */}
@@ -870,6 +878,59 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// REVEAL ITEM — wrapper care apelează useInView intern (hooks NU pot
+// rula în .map()) și aplică revealStyle. Sub reduced-motion/headless
+// useInView întoarce true din start → conținutul rămâne vizibil.
+// ═══════════════════════════════════════════════════════════════
+function RevealItem({
+  children,
+  delay = 0,
+  y = 12,
+}: {
+  children: ReactNode
+  delay?: number
+  y?: number
+}) {
+  const [ref, inView] = useInView<HTMLDivElement>()
+  return (
+    <div ref={ref} style={revealStyle(inView, { delay, y })}>
+      {children}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BLUR IMAGE — thumbnail cu blur-up. Pornește blurat, devine clar la
+// `onLoad` adăugând clasa `.is-loaded` (vezi utilitarele globale).
+// ═══════════════════════════════════════════════════════════════
+function BlurImage({
+  src,
+  alt,
+  style,
+}: {
+  src: string
+  alt: string
+  style?: CSSProperties
+}) {
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      decoding="async"
+      className="blur-up"
+      // Imaginile din cache pot fi deja `complete` la montare (fără event
+      // `load`) — ref callback-ul le marchează imediat ca încărcate.
+      ref={(el) => {
+        if (el?.complete) el.classList.add('is-loaded')
+      }}
+      onLoad={(e) => e.currentTarget.classList.add('is-loaded')}
+      style={style}
+    />
+  )
+}
+
+// ═══════════════════════════════════════════════════════════════
 // HERO SECTION — full-bleed cover/gradient + glass pills overlay
 // ═══════════════════════════════════════════════════════════════
 interface HeroProps {
@@ -920,13 +981,26 @@ function HeroSection({
         paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)',
       }}
     >
-      {/* Overlay dark garantat — funcționează pe orice cover sau gradient */}
+      {/* Scrim întărit — garantează lizibilitatea textului alb peste ORICE
+          cover (inclusiv poze deschise care altfel ar spăla albul). Două
+          straturi: un wash vertical + o concentrare suplimentară jos. */}
       <div
         style={{
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(180deg, rgba(0,0,0,0.18) 0%, rgba(0,0,0,0.35) 45%, rgba(0,0,0,0.72) 100%)',
+            'linear-gradient(180deg, rgba(0,0,0,0.22) 0%, rgba(0,0,0,0.30) 38%, rgba(0,0,0,0.62) 78%, rgba(0,0,0,0.82) 100%)',
+          pointerEvents: 'none',
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: '45%',
+          background: 'linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.45) 100%)',
           pointerEvents: 'none',
         }}
       />
@@ -973,7 +1047,7 @@ function HeroSection({
             color: '#fff',
             lineHeight: 1.02,
             letterSpacing: '-0.02em',
-            textShadow: '0 2px 12px rgba(0,0,0,0.3)',
+            textShadow: '0 1px 2px rgba(0,0,0,0.5), 0 2px 18px rgba(0,0,0,0.45)',
           }}
         >
           {restaurant.name}
@@ -984,9 +1058,10 @@ function HeroSection({
               fontFamily: theme.fonts.heading,
               fontStyle: 'italic',
               fontSize: 14,
-              color: 'rgba(255,255,255,0.85)',
+              color: 'rgba(255,255,255,0.88)',
               marginTop: 6,
               fontWeight: 400,
+              textShadow: '0 1px 8px rgba(0,0,0,0.5)',
             }}
           >
             {restaurant.tagline}
@@ -1169,6 +1244,7 @@ function TabButton({ label, active, accent, theme, text, text3, onClick }: TabPr
     <button
       onClick={onClick}
       type="button"
+      className="pressable"
       style={{
         background: 'none',
         border: 'none',
@@ -1182,7 +1258,7 @@ function TabButton({ label, active, accent, theme, text, text3, onClick }: TabPr
         borderBottom: `2px solid ${active ? accent : 'transparent'}`,
         marginBottom: -1,
         letterSpacing: active ? '-0.005em' : 0,
-        transition: 'color 120ms',
+        transition: 'color 120ms ease, border-color 160ms ease',
       }}
     >
       {label}
@@ -1283,6 +1359,7 @@ function FilterChipsRow({ activeFilters, onToggle, theme, PUB }: FilterChipsProp
           <button
             key={tag.id}
             type="button"
+            className="pressable"
             onClick={() => onToggle(tag.id)}
             data-testid={`filter-${tag.id}`}
             style={{
@@ -1300,6 +1377,7 @@ function FilterChipsRow({ activeFilters, onToggle, theme, PUB }: FilterChipsProp
               display: 'inline-flex',
               alignItems: 'center',
               gap: 5,
+              transition: 'background 160ms ease, border-color 160ms ease, color 160ms ease',
             }}
           >
             <span style={{ fontSize: 12 }}>{tag.emoji}</span>
@@ -1425,16 +1503,14 @@ function ProductCardEditorial({
       }}
     >
       {product.image_url && (
-        <img
+        <BlurImage
           src={product.image_url}
           alt={product.name}
-          loading="lazy"
-          decoding="async"
           style={{
             width: 92,
             height: 92,
             objectFit: 'cover',
-            borderRadius: 8,
+            borderRadius: 10,
             flexShrink: 0,
             background: PUB.surface,
           }}
