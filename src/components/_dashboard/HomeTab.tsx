@@ -5,7 +5,7 @@
 // upgrade card (doar tier 1, ultimul). Gating-ul real e server-side;
 // aici doar decidem ce merită văzut pe fiecare plan.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { D } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
 import type { PlanTier } from '../../lib/features'
@@ -17,10 +17,27 @@ import {
   getActionableSuggestions,
   type HealthScore,
 } from '../../lib/health'
+import { Card } from '../ui/Card'
+import { useInView, revealStyle } from '../../lib/motion'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
 import { InlineSpinner } from '../PageLoader'
+
+// Reveal local: fiecare instanță are PROPRIUL hook useInView (regula hooks —
+// niciodată în .map()). Folosit pentru stagger-ul secțiunilor de pe Acasă.
+function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
+  const [ref, inView] = useInView<HTMLDivElement>()
+  return (
+    <div ref={ref} style={revealStyle(inView, { delay })}>
+      {children}
+    </div>
+  )
+}
+
+// Scală de tipografie pentru cifre (serif display). Numărul dominant e mult
+// mai mare/greu decât metricele secundare — ierarhie clară, nu grid identic.
+const displayFont = 'var(--font-display)'
 
 const QuickSetupTab = lazy(() => import('../QuickSetupTab'))
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
@@ -65,27 +82,62 @@ function wasMenuChecked(restaurantId: string): boolean {
   }
 }
 
-function MetricCard({
-  label,
-  value,
-  hint,
-  big,
-  accent,
-}: {
-  label: string
-  value: string
-  hint?: string
-  big?: boolean
-  accent?: boolean
-}) {
+// Metrica DOMINANTĂ — cifra cea mai importantă a zilei (comenzi azi).
+// Mare, serif, accent gold, ocupă o coloană proprie lângă cele secundare.
+function HeroMetric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div style={{ ...card, ...(accent ? { border: `1px solid ${D.gold}44` } : null) }}>
+    <Card
+      variant="raised"
+      padding="22px 24px"
+      radius={16}
+      style={{
+        border: `1px solid ${D.gold}44`,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        minHeight: 156,
+      }}
+    >
       <div
         style={{
           fontSize: '0.7rem',
+          color: D.goldL,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          fontWeight: 700,
+          marginBottom: 8,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: displayFont,
+          fontSize: '3.6rem',
+          color: D.gold,
+          fontWeight: 700,
+          lineHeight: 0.95,
+          letterSpacing: '-0.02em',
+        }}
+      >
+        {value}
+      </div>
+      {hint && <div style={{ fontSize: '0.74rem', color: D.t3, marginTop: 8 }}>{hint}</div>}
+    </Card>
+  )
+}
+
+// Metrică SECUNDARĂ — număr mai mic, etichetă discretă. Ierarhie sub hero.
+function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <Card variant="flat" padding="16px 18px" radius={14}>
+      <div
+        style={{
+          fontSize: '0.66rem',
           color: D.t3,
           textTransform: 'uppercase',
-          letterSpacing: '0.06em',
+          letterSpacing: '0.07em',
+          fontWeight: 600,
           marginBottom: 6,
         }}
       >
@@ -93,17 +145,18 @@ function MetricCard({
       </div>
       <div
         style={{
-          fontFamily: 'Fraunces,serif',
-          fontSize: big ? '2.4rem' : '1.7rem',
-          color: accent ? D.gold : D.t1,
-          fontWeight: 700,
+          fontFamily: displayFont,
+          fontSize: '1.8rem',
+          color: D.t1,
+          fontWeight: 600,
           lineHeight: 1,
+          letterSpacing: '-0.01em',
         }}
       >
         {value}
       </div>
-      {hint && <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 6 }}>{hint}</div>}
-    </div>
+      {hint && <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 6 }}>{hint}</div>}
+    </Card>
   )
 }
 
@@ -111,6 +164,7 @@ function QuickAction({ icon, label, onClick }: { icon: string; label: string; on
   return (
     <button
       onClick={onClick}
+      className="pressable hover-lift"
       style={{
         ...card,
         display: 'flex',
@@ -285,58 +339,86 @@ export default function HomeTab({
 
   const healthSuggestions = health ? getActionableSuggestions(health).slice(0, 2) : []
 
+  // Metricele secundare — aceeași importanță între ele, sub hero.
+  const secondaryMetrics = [
+    { label: 'Produse active', value: String(productCount), hint: undefined as string | undefined },
+    {
+      label: 'QR-uri active',
+      value: tablesCount == null ? '…' : String(tablesCount),
+      hint: 'mese scanabile',
+    },
+    {
+      label: 'Setup',
+      value: `${setupDone}/${setupTotal}`,
+      hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
+    },
+  ]
+
   return (
     <div style={{ maxWidth: 1000, display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Header */}
-      <div>
-        <h1
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.6rem',
-            fontWeight: 600,
-            color: D.t1,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Bun venit, {restaurantName}
-        </h1>
-        <p style={{ color: D.t3, fontSize: '0.82rem', marginTop: 4 }}>
-          Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi.
-        </p>
-      </div>
+      <RevealItem>
+        <div>
+          <h1
+            style={{
+              fontFamily: displayFont,
+              fontSize: '1.7rem',
+              fontWeight: 600,
+              color: D.t1,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Bun venit, {restaurantName}
+          </h1>
+          <p style={{ color: D.t3, fontSize: '0.82rem', marginTop: 5 }}>
+            Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi.
+          </p>
+        </div>
+      </RevealItem>
 
-      {/* Cifrele zilei — Comenzi azi domină pe planurile cu comenzi */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
-          gap: 10,
-        }}
-      >
-        {tier >= 2 && (
-          <MetricCard
-            label="Comenzi azi"
-            value={ordersToday == null ? '…' : String(ordersToday)}
-            hint="fără cele anulate"
-            big
-            accent
-          />
+      {/* Cifrele zilei — „Comenzi azi" domină vizual (hero), restul secundare.
+          Tier 1 (fără comenzi): grid uniform de metrici, fără hero gol. */}
+      <RevealItem delay={60}>
+        {tier >= 2 ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ flex: '1 1 220px', minWidth: 200 }}>
+              <HeroMetric
+                label="Comenzi azi"
+                value={ordersToday == null ? '…' : String(ordersToday)}
+                hint="fără cele anulate"
+              />
+            </div>
+            <div
+              style={{
+                flex: '2 1 320px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))',
+                gap: 12,
+              }}
+            >
+              {secondaryMetrics.map((m) => (
+                <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+              gap: 12,
+            }}
+          >
+            {secondaryMetrics.map((m) => (
+              <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
+            ))}
+          </div>
         )}
-        <MetricCard label="Produse active" value={String(productCount)} />
-        <MetricCard
-          label="QR-uri active"
-          value={tablesCount == null ? '…' : String(tablesCount)}
-          hint="mese scanabile"
-        />
-        <MetricCard
-          label="Setup"
-          value={`${setupDone}/${setupTotal}`}
-          hint={setupComplete ? 'totul e gata ✓' : 'pași completați'}
-        />
-      </div>
+      </RevealItem>
 
       {/* Setup restaurant — progres cu bară + pași compacți */}
       {isAdmin && !setupComplete && (
+        <RevealItem delay={120}>
         <div style={card}>
           <div
             style={{
@@ -372,7 +454,7 @@ export default function HomeTab({
               }}
             />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {setupItems.map((it) => (
               <button
                 key={it.label}
@@ -381,13 +463,16 @@ export default function HomeTab({
                   if (it.target) onNavigate(it.target)
                   else handleViewMenu()
                 }}
+                className={it.done ? undefined : 'pressable'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
                   background: 'transparent',
                   border: 'none',
-                  padding: '5px 0',
+                  borderRadius: 8,
+                  padding: '7px 8px',
+                  margin: '0 -8px',
                   cursor: it.done ? 'default' : 'pointer',
                   fontFamily: 'DM Sans,sans-serif',
                   fontSize: '0.85rem',
@@ -434,43 +519,71 @@ export default function HomeTab({
             </ExpandableCard>
           </div>
         </div>
+        </RevealItem>
       )}
 
-      {/* Scor meniu — badge + sugestii practice (admin, tier 2+) */}
+      {/* Scor meniu — badge mare, color-codat după scor; sugestia secundară */}
       {isAdmin && tier >= 2 && (
+        <RevealItem delay={180}>
         <ExpandableCard
-          header={(open) => (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: '1.3rem' }}>🩺</span>
-              <div style={{ flex: 1 }}>
+          header={(open) => {
+            // Culoarea scorului dictează accentul: verde/gold/amber/roșu.
+            const sc = health ? scoreColor(health.score, scorePalette) : D.t3
+            return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              {/* Cifra scorului — proeminentă, în cerc color-codat */}
+              <div
+                style={{
+                  width: 54,
+                  height: 54,
+                  borderRadius: '50%',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: health ? `${sc}1A` : D.s3,
+                  border: `1.5px solid ${health ? `${sc}66` : D.border}`,
+                  fontFamily: displayFont,
+                  fontSize: '1.5rem',
+                  fontWeight: 700,
+                  color: sc,
+                  lineHeight: 1,
+                }}
+              >
+                {health ? health.score : '…'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
-                    marginBottom: healthSuggestions.length > 0 ? 4 : 0,
+                    marginBottom: healthSuggestions.length > 0 ? 5 : 0,
                   }}
                 >
-                  <span style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 700 }}>
+                  <span style={{ color: D.t1, fontSize: '0.98rem', fontWeight: 700 }}>
                     Scor meniu
                   </span>
                   {health && (
                     <span
                       style={{
-                        background: `${scoreColor(health.score, scorePalette)}22`,
-                        color: scoreColor(health.score, scorePalette),
-                        fontSize: '0.72rem',
+                        background: `${sc}22`,
+                        color: sc,
+                        fontSize: '0.7rem',
                         fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
                         borderRadius: 100,
                         padding: '2px 10px',
                       }}
                     >
-                      {scoreLabel(health.score)} · {health.score}
+                      {scoreLabel(health.score)}
                     </span>
                   )}
                 </div>
+                {/* Sugestia practică — clar secundară (text discret) */}
                 {healthSuggestions.map((s) => (
-                  <div key={s.component} style={{ color: D.t3, fontSize: '0.75rem', marginTop: 2 }}>
+                  <div key={s.component} style={{ color: D.t2, fontSize: '0.75rem', marginTop: 2 }}>
                     • {s.suggestion}
                   </div>
                 ))}
@@ -479,15 +592,18 @@ export default function HomeTab({
                 {open ? '▲' : '▼'}
               </span>
             </div>
-          )}
+            )
+          }}
         >
           <Suspense fallback={<InlineSpinner label="Se încarcă scorul..." />}>
             <HealthScoreTab />
           </Suspense>
         </ExpandableCard>
+        </RevealItem>
       )}
 
       {/* Acțiuni rapide */}
+      <RevealItem delay={240}>
       <div>
         <div style={sectionTitle}>Acțiuni rapide</div>
         <div
@@ -508,30 +624,44 @@ export default function HomeTab({
           )}
         </div>
       </div>
+      </RevealItem>
 
       {/* Upgrade — doar tier 1, mereu ultimul */}
       {isAdmin && tier < 2 && (
-        <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '1.5rem' }}>{growthPlan.emoji}</span>
+        <RevealItem delay={300}>
+        <Card
+          variant="raised"
+          padding="18px 20px"
+          radius={14}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            flexWrap: 'wrap',
+            border: `1px solid ${D.gold}33`,
+          }}
+        >
+          <span style={{ fontSize: '1.6rem' }}>{growthPlan.emoji}</span>
           <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ color: D.t1, fontSize: '0.9rem', fontWeight: 600 }}>
+            <div style={{ color: D.t1, fontSize: '0.92rem', fontWeight: 600 }}>
               Vrei să primești comenzi direct de la masă?
             </div>
-            <div style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.5 }}>
+            <div style={{ color: D.t3, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
               Activează {growthPlan.name} și clienții pot comanda prin QR, iar bucătăria primește
               instant.
             </div>
           </div>
           <button
             onClick={onPricing}
+            className="pressable"
             style={{
               background: D.gold,
               color: '#000',
               border: 'none',
               borderRadius: 9,
-              padding: '10px 16px',
+              padding: '11px 18px',
               fontSize: '0.82rem',
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: 'pointer',
               fontFamily: 'DM Sans,sans-serif',
               whiteSpace: 'nowrap',
@@ -539,7 +669,8 @@ export default function HomeTab({
           >
             Activează {growthPlan.name} →
           </button>
-        </div>
+        </Card>
+        </RevealItem>
       )}
     </div>
   )

@@ -12,6 +12,7 @@ import { D, PLAN_LABELS } from '../lib/constants'
 import { usePlanLimits } from '../hooks/usePlanLimits'
 import { InlineSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
+import { MOTION, useInView, revealStyle } from '../lib/motion'
 import React from 'react'
 
 // ── Lazy-loaded tab components ────────────────────────────────
@@ -498,6 +499,18 @@ function isSubTabVisible(st: SubTab, isAdmin: boolean, tier: PlanTier): boolean 
   return true
 }
 
+// Fade subtil la schimbarea tab-ului. Keyed pe `tab` (remount) → useInView
+// pornește de la „ascuns" și revine instant când e în viewport. Safe pe
+// reduced-motion (useInView întoarce true din start). Un singur hook, nu în map.
+function TabFade({ children }: { children: React.ReactNode }) {
+  const [ref, inView] = useInView<HTMLDivElement>({ amount: 0 })
+  return (
+    <div ref={ref} style={revealStyle(inView, { y: 8 })}>
+      {children}
+    </div>
+  )
+}
+
 // Hub-ul „Comenzi": carduri către fluxurile live — fără embed/refactor al
 // paginilor /waiter și /kitchen (deliberat low-risk; embed real = etapă viitoare).
 function OrdersHub({
@@ -540,6 +553,7 @@ function OrdersHub({
           <button
             key={c.title}
             onClick={c.fn}
+            className="hover-lift pressable"
             style={{
               background: D.s2,
               border: `1px solid ${D.border}`,
@@ -771,12 +785,13 @@ export default function DashboardPage({
                 setTab(g.subTabs[0].id)
                 setSidebarOpen(false)
               }}
+              className="pressable"
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,
                 width: '100%',
-                padding: '11px 12px',
+                padding: '10px 12px',
                 borderRadius: 9,
                 border: 'none',
                 cursor: 'pointer',
@@ -784,9 +799,10 @@ export default function DashboardPage({
                 color: active ? D.goldL : D.t2,
                 marginBottom: 2,
                 fontSize: '0.875rem',
-                fontWeight: active ? 500 : 400,
+                fontWeight: active ? 600 : 400,
                 fontFamily: 'DM Sans,sans-serif',
                 textAlign: 'left',
+                transition: `background ${MOTION.fast}ms ${MOTION.standard}, color ${MOTION.fast}ms ${MOTION.standard}`,
               }}
               onMouseEnter={(e) => !active && (e.currentTarget.style.background = D.s2)}
               onMouseLeave={(e) => !active && (e.currentTarget.style.background = 'transparent')}
@@ -1012,40 +1028,60 @@ export default function DashboardPage({
             </div>
           ) : (
             <>
-              {/* Sub-navigație internă a grupului activ (chips) */}
+              {/* Sub-navigație internă a grupului activ (chips).
+                  Tab-ul activ e clar evidențiat (fundal gold + bordură).
+                  Numele grupului peste chips dă context ierarhic. */}
               {activeGroup != null && activeGroup.subTabs.length > 1 && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    overflowX: 'auto',
-                    marginBottom: 18,
-                    paddingBottom: 2,
-                  }}
-                >
-                  {activeGroup.subTabs.map((st) => (
-                    <button
-                      key={st.id}
-                      onClick={() => setTab(st.id)}
-                      style={{
-                        flexShrink: 0,
-                        padding: '7px 14px',
-                        fontSize: '0.8rem',
-                        fontFamily: 'DM Sans,sans-serif',
-                        fontWeight: tab === st.id ? 600 : 400,
-                        border: `1px solid ${tab === st.id ? D.gold + '55' : D.border}`,
-                        borderRadius: 100,
-                        cursor: 'pointer',
-                        background: tab === st.id ? D.goldA : 'transparent',
-                        color: tab === st.id ? D.goldL : D.t2,
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {st.label}
-                    </button>
-                  ))}
+                <div style={{ marginBottom: 20 }}>
+                  <div
+                    style={{
+                      fontFamily: 'Fraunces,serif',
+                      fontSize: '1.05rem',
+                      color: D.t1,
+                      letterSpacing: '-0.01em',
+                      marginBottom: 10,
+                    }}
+                  >
+                    {activeGroup.label}
+                  </div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 6,
+                      overflowX: 'auto',
+                      paddingBottom: 2,
+                    }}
+                  >
+                    {activeGroup.subTabs.map((st) => {
+                      const active = tab === st.id
+                      return (
+                        <button
+                          key={st.id}
+                          onClick={() => setTab(st.id)}
+                          className="pressable"
+                          style={{
+                            flexShrink: 0,
+                            padding: '7px 14px',
+                            fontSize: '0.8rem',
+                            fontFamily: 'DM Sans,sans-serif',
+                            fontWeight: active ? 600 : 400,
+                            border: `1px solid ${active ? D.gold + '55' : D.border}`,
+                            borderRadius: 100,
+                            cursor: 'pointer',
+                            background: active ? D.goldA : 'transparent',
+                            color: active ? D.goldL : D.t2,
+                            whiteSpace: 'nowrap',
+                            transition: `background ${MOTION.fast}ms ${MOTION.standard}, color ${MOTION.fast}ms ${MOTION.standard}, border-color ${MOTION.fast}ms ${MOTION.standard}`,
+                          }}
+                        >
+                          {st.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
+              <TabFade key={tab}>
               {tab === 'home' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                   <HomeTab
@@ -1219,6 +1255,7 @@ export default function DashboardPage({
                   />
                 </Suspense>
               )}
+              </TabFade>
             </>
           )}
         </div>
