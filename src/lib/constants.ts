@@ -14,14 +14,24 @@ export const D_RAW = {
   goldA: 'rgba(200,150,60,0.12)',
   t1: '#F0EAE0',
   t2: '#9A9590',
-  t3: '#4A4844',
+  t3: '#7C766C', // FIX AA (~4.6:1 pe s1); fostul #4A4844 → tDisabled
+  tDisabled: '#4A4844',
   green: '#4CAF6E',
   greenA: 'rgba(76,175,110,0.12)',
+  greenText: '#6FCB8E',
   red: '#E05555',
   redA: 'rgba(224,85,85,0.12)',
+  redText: '#F08080',
   amber: '#E8A020',
-  border: 'rgba(255,255,255,0.07)',
-  bHov: 'rgba(255,255,255,0.13)',
+  amberA: 'rgba(232,160,32,0.12)',
+  info: '#7EB8F7',
+  infoA: 'rgba(126,184,247,0.12)',
+  border: 'rgba(255,255,255,0.10)',
+  bHov: 'rgba(255,255,255,0.16)',
+  borderStrong: 'rgba(255,255,255,0.14)',
+  surfaceHover: 'rgba(255,255,255,0.04)',
+  onGold: '#1A1208',
+  goldBorder: 'rgba(200,150,60,0.32)',
 } as const
 
 // Helper: citește o CSS variable (cu fallback la valoarea brută din D_RAW).
@@ -44,11 +54,25 @@ export const D = {
   t3: cssVar('--color-text-3', D_RAW.t3),
   green: cssVar('--color-success', D_RAW.green),
   greenA: cssVar('--color-success-bg', D_RAW.greenA),
+  greenText: cssVar('--color-success-text', D_RAW.greenText),
   red: cssVar('--color-danger', D_RAW.red),
   redA: cssVar('--color-danger-bg', D_RAW.redA),
+  redText: cssVar('--color-danger-text', D_RAW.redText),
   amber: cssVar('--color-warning', D_RAW.amber),
+  amberA: cssVar('--color-warning-bg', D_RAW.amberA),
+  info: cssVar('--color-info', D_RAW.info),
+  infoA: cssVar('--color-info-bg', D_RAW.infoA),
   border: cssVar('--color-border', D_RAW.border),
   bHov: cssVar('--color-border-hover', D_RAW.bHov),
+  borderStrong: cssVar('--color-border-strong', D_RAW.borderStrong),
+  surfaceHover: cssVar('--color-surface-hover', D_RAW.surfaceHover),
+  tDisabled: cssVar('--color-text-disabled', D_RAW.tDisabled),
+  onGold: cssVar('--color-on-gold', D_RAW.onGold),
+  goldBorder: cssVar('--color-gold-border', D_RAW.goldBorder),
+  // Fonturi ca tokens (elimină 'Fraunces'/'DM Sans' hardcodate în componente)
+  fontDisplay: cssVar('--font-display', "'Fraunces', Georgia, serif"),
+  fontBody: cssVar('--font-body', "'DM Sans', system-ui, sans-serif"),
+  fontMono: cssVar('--font-mono', "'JetBrains Mono', ui-monospace, monospace"),
 } as const
 
 export type OrderStatus =
@@ -66,13 +90,13 @@ export type MemberRole = 'owner' | 'manager' | 'waiter' | 'kitchen'
 
 export const STATUS_META: Record<OrderStatus, { label: string; color: string; bg: string }> = {
   new: { label: 'Nou', color: D.t2, bg: D.s3 },
-  confirmed: { label: 'Confirmat', color: D.amber, bg: 'rgba(232,160,32,0.12)' },
+  confirmed: { label: 'Confirmat', color: D.amber, bg: D.amberA },
   preparing: { label: 'În preparare', color: D.goldL, bg: D.goldA },
-  ready: { label: 'Gata de servit', color: D.green, bg: 'rgba(76,175,110,0.12)' },
-  served: { label: 'Servit', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
-  paid: { label: 'Plătit', color: D.t3, bg: D.s2 },
-  cancelled: { label: 'Anulat', color: D.red, bg: 'rgba(224,85,85,0.10)' },
-  closed: { label: 'Închis', color: D.t3, bg: D.s2 },
+  ready: { label: 'Gata de servit', color: D.green, bg: D.greenA },
+  served: { label: 'Servit', color: D.info, bg: D.infoA },
+  paid: { label: 'Plătit', color: D.t2, bg: D.s2 },
+  cancelled: { label: 'Anulat', color: D.red, bg: D.redA },
+  closed: { label: 'Închis', color: D.t2, bg: D.s2 },
 }
 
 export const TRANSITION_LABELS: Partial<Record<OrderStatus, string>> = {
