@@ -33,7 +33,6 @@ export default function AiBulkGenerate({
   const [doImages, setDoImages] = useState(true)
   const [doNutrition, setDoNutrition] = useState(true)
   const [running, setRunning] = useState(false)
-  const [stopped, setStopped] = useState(false)
   const [done, setDone] = useState(false)
   const [progress, setProgress] = useState(0)
   const [okImg, setOkImg] = useState(0)
@@ -53,7 +52,6 @@ export default function AiBulkGenerate({
 
   async function run() {
     setRunning(true)
-    setStopped(false)
     setDone(false)
     setProgress(0)
     setOkImg(0)
@@ -116,7 +114,6 @@ export default function AiBulkGenerate({
       setProgress(i + 1)
     }
 
-    setStopped(stop)
     setDone(true)
     setRunning(false)
     setCurrent('')
