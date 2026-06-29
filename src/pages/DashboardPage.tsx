@@ -43,6 +43,7 @@ const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
+import { Icon, type IconName } from '../components/ui/Icon'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -431,18 +432,18 @@ interface SubTab {
 interface NavGroup {
   id: string
   label: string
-  icon: string
+  icon: IconName
   adminOnly?: boolean
   minTier?: PlanTier
   subTabs: SubTab[]
 }
 
 const NAV_GROUPS: NavGroup[] = [
-  { id: 'acasa', label: 'Acasă', icon: '🏠', subTabs: [{ id: 'home', label: 'Acasă' }] },
+  { id: 'acasa', label: 'Acasă', icon: 'home', subTabs: [{ id: 'home', label: 'Acasă' }] },
   {
     id: 'meniu',
     label: 'Meniu',
-    icon: '🍽',
+    icon: 'menu',
     subTabs: [
       { id: 'products', label: 'Produse' },
       { id: 'categories', label: 'Categorii' },
@@ -453,7 +454,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: 'comenzi',
     label: 'Comenzi',
-    icon: '🛎',
+    icon: 'orders',
     minTier: 2,
     // Rezervările sunt complet ascunse din nav-ul MVP (componenta există,
     // modulul se gestionează din Setări; expunere = decizie viitoare).
@@ -462,7 +463,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: 'mese-qr',
     label: 'Mese & QR',
-    icon: '🪑',
+    icon: 'table',
     subTabs: [
       { id: 'mese', label: 'Mese & QR-uri' },
       // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
@@ -473,7 +474,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: 'rapoarte',
     label: 'Rapoarte',
-    icon: '📊',
+    icon: 'chart',
     adminOnly: true,
     minTier: 2,
     subTabs: [
@@ -490,7 +491,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: 'setari',
     label: 'Setări',
-    icon: '⚙',
+    icon: 'settings',
     adminOnly: true,
     subTabs: [
       { id: 'settings', label: 'General' },
@@ -830,7 +831,7 @@ export default function DashboardPage({
               onMouseEnter={(e) => !active && (e.currentTarget.style.background = D.s2)}
               onMouseLeave={(e) => !active && (e.currentTarget.style.background = 'transparent')}
             >
-              <span style={{ fontSize: '1rem' }}>{g.icon}</span>
+              <Icon name={g.icon} size={18} />
               {g.label}
             </button>
           )
@@ -1352,7 +1353,7 @@ export default function DashboardPage({
                 transition: 'color .15s',
               }}
             >
-              <span style={{ fontSize: '1.1rem' }}>{g.icon}</span>
+              <Icon name={g.icon} size={20} />
               <span
                 style={{
                   fontSize: '0.6rem',
