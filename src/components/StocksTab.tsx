@@ -8,6 +8,7 @@
 //   • Profitabilitate — view product margin
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { confirm as confirmDialog } from './ui/confirm'
 import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
@@ -597,6 +598,7 @@ function IngredientModal({
   const [category, setCategory] = useState(ingredient?.category ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   async function save() {
     if (name.trim().length === 0) {
@@ -676,7 +678,7 @@ function IngredientModal({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <label style={lbl}>Unitate de măsură</label>
               <select
@@ -706,7 +708,7 @@ function IngredientModal({
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <label style={lbl}>Stoc curent ({unit})</label>
               <input
@@ -1311,6 +1313,7 @@ function NirCreateModal({
   const [invoiceNumber, setInvoiceNumber] = useState('')
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10))
   const [notes, setNotes] = useState('')
+  const isMobile = useIsMobile()
   const [items, setItems] = useState<NirItem[]>([
     { ingredient_id: '', quantity: '', unit_price: '', vat_rate: 19 },
   ])
@@ -1430,7 +1433,7 @@ function NirCreateModal({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Header info */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <label style={lbl}>Furnizor (opțional)</label>
               <Autocomplete

@@ -35,6 +35,7 @@ function ProductModal({
   restaurantId: string
   userId: string
 }) {
+  const isMobile = useIsMobile()
   const [uploading, setUploading] = useState(false)
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
@@ -305,7 +306,7 @@ function ProductModal({
             placeholder="Spaghete Carbonara"
           />
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
               Preț (lei) *
@@ -351,7 +352,7 @@ function ProductModal({
             </div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 6 }}>
                 {vatRates.map((rate) => {
                   const isSel = (form.vat_group ?? 1) === rate.vat_group
                   return (
@@ -422,7 +423,7 @@ function ProductModal({
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
             Status
           </label>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {(
               [
                 ['is_active', 'Activ', 'Apare in meniu'],
@@ -688,7 +689,7 @@ function ProductModal({
               }}
             >
               {/* Timp pregătire + Porție */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
                 <div>
                   <label
                     style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}

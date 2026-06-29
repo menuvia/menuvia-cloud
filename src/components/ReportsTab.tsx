@@ -17,6 +17,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { D, D_RAW } from '../lib/constants'
 import { QueryError } from './PageLoader'
+import { useIsMobile } from '../hooks/useIsMobile'
 import {
   fetchWaiterSales,
   fetchHourlySales,
@@ -142,6 +143,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const isMobile = useIsMobile()
 
   // Aggregated metrics
   const [metrics, setMetrics] = useState({
@@ -723,7 +725,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
 
           {/* QR vs Waiter */}
           <div
-            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+              gap: 10,
+              marginBottom: 20,
+            }}
           >
             <div
               style={{
@@ -888,7 +895,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   background: D.s2,
                   border: `1px solid ${D.border}`,
                   borderRadius: 14,
-                  overflow: 'hidden',
+                  // Pe mobil tabelul cu 5 coloane scrollează orizontal intern, nu sparge pagina
+                  overflowX: 'auto',
                   marginBottom: 24,
                 }}
               >
@@ -897,6 +905,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   style={{
                     display: 'grid',
                     gridTemplateColumns: '28px 1fr 60px 90px 90px',
+                    minWidth: 360,
                     padding: '8px 16px',
                     background: D.s3,
                     borderBottom: `1px solid ${D.border}`,
@@ -923,6 +932,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     style={{
                       display: 'grid',
                       gridTemplateColumns: '28px 1fr 60px 90px 90px',
+                      minWidth: 360,
                       padding: '11px 16px',
                       borderBottom: i < topProducts.length - 1 ? `1px solid ${D.border}` : 'none',
                       alignItems: 'center',

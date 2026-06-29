@@ -8,6 +8,7 @@ import VatRatesEditor from './VatRatesEditor'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 // ── Constants for hours_structured editor ──
 
@@ -47,6 +48,8 @@ export default function SettingsTab({
   modulesState?: ReturnType<typeof useRestaurantModules>
 }) {
   const { user } = useAuth()
+  // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
+  const isMobile = useIsMobile()
   const [form, setForm] = useState({ ...restaurant })
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
@@ -196,7 +199,7 @@ export default function SettingsTab({
           {saving ? 'Se salvează...' : 'Salvează'}
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
         <div
           style={{
             background: D.s2,
@@ -677,7 +680,7 @@ export default function SettingsTab({
                     key={day}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '80px 1fr 88px 88px',
+                      gridTemplateColumns: isMobile ? '1fr' : '80px 1fr 88px 88px',
                       gap: 8,
                       alignItems: 'center',
                     }}
@@ -1094,7 +1097,7 @@ export default function SettingsTab({
             </div>
             {form.pickup_settings?.enabled && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                   <div>
                     <label
                       style={{
@@ -1154,7 +1157,7 @@ export default function SettingsTab({
                     />
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                   <div>
                     <label
                       style={{

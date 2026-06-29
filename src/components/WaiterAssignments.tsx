@@ -16,7 +16,7 @@ interface Props {
 interface WaiterMember {
   user_id: string
   role: string
-  profile: { full_name: string | null; email: string } | null
+  profile: { full_name: string | null; email: string | null } | null
 }
 interface Table {
   id: string
@@ -76,10 +76,13 @@ export default function WaiterAssignments({ restaurantId }: Props) {
     setError(null)
     try {
       const [membRes, tabRes, assignRes] = await Promise.all([
-        // Waiter + kitchen members
+        // Membri waiter/manager — FĂRĂ embed pe profiles. Embed-ul
+        // `profile:profiles(...)` depinde de relația PostgREST, care poate eșua
+        // după lockdown-ul de autorizare (mig 096) → arunca „Eroare la încărcare"
+        // pe tot tab-ul. Luăm profilurile separat (vezi mai jos), non-fatal.
         supabase
           .from('restaurant_memberships')
-          .select('user_id, role, profile:profiles(full_name, email)')
+          .select('user_id, role')
           .eq('restaurant_id', restaurantId)
           .in('role', ['waiter', 'manager']),
         // All active tables
@@ -98,11 +101,32 @@ export default function WaiterAssignments({ restaurantId }: Props) {
 
       if (membRes.error) throw membRes.error
       if (tabRes.error) throw tabRes.error
+      if (assignRes.error) throw assignRes.error
 
-      const waiterList = (membRes.data ?? []).map((m) => ({
-        user_id: m.user_id as string,
-        role: m.role as string,
-        profile: (Array.isArray(m.profile) ? m.profile[0] : m.profile) as WaiterMember['profile'],
+      const memberRows = (membRes.data ?? []) as { user_id: string; role: string }[]
+
+      // Profiluri (nume/email pt afișare) — interogare separată. Dacă eșuează
+      // (RLS pe profiluri etc.), NU blocăm pagina: cădem pe fallback fără nume.
+      const userIds = memberRows.map((m) => m.user_id)
+      const profileMap = new Map<string, { full_name: string | null; email: string | null }>()
+      if (userIds.length > 0) {
+        const profRes = await supabase
+          .from('profiles')
+          .select('id, full_name, email')
+          .in('id', userIds)
+        for (const p of (profRes.data ?? []) as Array<{
+          id: string
+          full_name: string | null
+          email: string | null
+        }>) {
+          profileMap.set(p.id, { full_name: p.full_name, email: p.email })
+        }
+      }
+
+      const waiterList = memberRows.map((m) => ({
+        user_id: m.user_id,
+        role: m.role,
+        profile: profileMap.get(m.user_id) ?? null,
       }))
       setWaiters(waiterList)
       setTables((tabRes.data ?? []) as Table[])
