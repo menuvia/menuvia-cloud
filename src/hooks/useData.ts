@@ -91,6 +91,14 @@ export interface Product {
   prep_time_minutes: number | null
   portion_size: string | null
   vat_group: number
+  // ── Nutriție (estimabilă cu AI) + marker câmpuri generate de AI ──
+  calories: number | null
+  protein_g: number | null
+  carbs_g: number | null
+  fat_g: number | null
+  // Lista câmpurilor generate de AI și NEverificate încă (ex. ['image_url','calories']).
+  // UI afișează badge „generat de AI — verifică"; editarea manuală scoate câmpul.
+  ai_generated_fields: string[]
 }
 
 export function useRestaurants() {

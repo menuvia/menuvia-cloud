@@ -319,6 +319,52 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
               </p>
             )}
 
+            {/* Valori nutriționale (estimative) — afișate doar dacă există */}
+            {(product.calories != null ||
+              product.protein_g != null ||
+              product.carbs_g != null ||
+              product.fat_g != null) && (
+              <div
+                style={{
+                  background: PUB.surface,
+                  border: `1px solid ${PUB.border}`,
+                  borderRadius: 12,
+                  padding: '11px 14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 16,
+                    flexWrap: 'wrap',
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
+                >
+                  {([
+                    ['Calorii', product.calories, 'kcal'],
+                    ['Proteine', product.protein_g, 'g'],
+                    ['Carbo', product.carbs_g, 'g'],
+                    ['Grăsimi', product.fat_g, 'g'],
+                  ] as Array<[string, number | null, string]>)
+                    .filter(([, v]) => v != null)
+                    .map(([label, v, unit]) => (
+                      <div key={label}>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: PUB.text }}>
+                          {v}
+                          <span style={{ fontSize: 11, fontWeight: 400, color: PUB.text2, marginLeft: 2 }}>
+                            {unit}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: PUB.text2 }}>{label}</div>
+                      </div>
+                    ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: PUB.text2, marginTop: 8, opacity: 0.8 }}>
+                  Valori estimative, per porție
+                </div>
+              </div>
+            )}
+
             {/* Quick info card — chips for at-a-glance info */}
             {topBadges.length > 0 && (
               <div

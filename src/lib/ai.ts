@@ -6,6 +6,7 @@
 // cotă/admin din mig 168. Cheia API NU trece niciodată prin client în clar
 // la citire — se trimite o singură dată la salvare și se întoarce mascată.
 import { supabase } from './supabase'
+import { ALLERGENS, DIETARY_TAGS } from './constants'
 
 // ── Tipuri ───────────────────────────────────────────────────
 export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'custom'
@@ -169,6 +170,80 @@ export async function setAiLimit(
   })
   if (error) throw error
   return data as { restaurant_id: string; included_tokens: number }
+}
+
+// ── Generare imagine produs (OpenAI/Gemini) ──────────────────
+export async function generateProductImage(input: {
+  restaurant_id: string
+  product_id: string
+  name: string
+  description?: string | null
+  category?: string | null
+}): Promise<{ image_url: string }> {
+  return postFn('ai-generate-image', input)
+}
+
+// ── Estimare macronutrienți + sugestii alergeni/tag-uri ──────
+export interface NutritionResult {
+  calories: number | null
+  protein_g: number | null
+  carbs_g: number | null
+  fat_g: number | null
+  allergens: string[]
+  dietary_tags: string[]
+}
+
+function parseNutrition(text: string): NutritionResult {
+  const clean = text.replace(/```json|```/g, '').trim()
+  let raw: unknown
+  try {
+    raw = JSON.parse(clean)
+  } catch {
+    const m = clean.match(/\{[\s\S]*\}/)
+    if (!m) throw new Error('Răspuns AI neparsabil')
+    raw = JSON.parse(m[0])
+  }
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const num = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null)
+  const allergenIds = new Set(ALLERGENS.map((a) => a.id as string))
+  const tagIds = new Set(DIETARY_TAGS.map((t) => t.id as string))
+  const arr = (v: unknown, allowed: Set<string>): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && allowed.has(x)) : []
+  return {
+    calories: num(o.calories),
+    protein_g: num(o.protein_g),
+    carbs_g: num(o.carbs_g),
+    fat_g: num(o.fat_g),
+    allergens: arr(o.allergens, allergenIds),
+    dietary_tags: arr(o.dietary_tags, tagIds),
+  }
+}
+
+export async function generateNutrition(input: {
+  restaurant_id: string
+  name: string
+  description?: string | null
+  category?: string | null
+}): Promise<NutritionResult> {
+  const allergenList = ALLERGENS.map((a) => a.id).join(', ')
+  const tagList = DIETARY_TAGS.map((t) => t.id).join(', ')
+  const system = [
+    'Ești un asistent culinar care estimează valori nutriționale pentru produse de meniu.',
+    'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) de forma:',
+    '{"calories": number, "protein_g": number, "carbs_g": number, "fat_g": number, "allergens": string[], "dietary_tags": string[]}',
+    'Valorile nutriționale sunt per porție, estimate rezonabil. Numere, fără unități.',
+    `allergens: alege DOAR din [${allergenList}]. dietary_tags: alege DOAR din [${tagList}].`,
+    'Dacă nu ești sigur de un câmp, pune null (la numere) sau [] (la liste). NU inventa alergeni.',
+  ].join('\n')
+  const userText = `Produs: „${input.name}"${input.category ? ` (categoria: ${input.category})` : ''}${input.description ? `. Descriere: ${input.description}` : ''}`
+  const res = await postFn<AiProxyResponse>('ai-proxy', {
+    feature: 'nutrition' as AiFeature,
+    restaurant_id: input.restaurant_id,
+    system,
+    messages: [{ role: 'user', content: userText }],
+    max_tokens: 500,
+  })
+  return parseNutrition(res.text)
 }
 
 // ── Top-up credite (Faza F) ──────────────────────────────────
