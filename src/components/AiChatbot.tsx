@@ -160,6 +160,9 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
   }
 
   async function applyAction(turnIdx: number, actionId: string, edited: AiAction) {
+    // Guard: nu re-executa o acțiune deja aplicată/respinsă/eronată.
+    const existing = turns[turnIdx]?.actions?.find((a) => a.id === actionId)
+    if (existing && existing.status !== 'pending') return
     const setStatus = (status: PendingAction['status'], errorMsg?: string) =>
       setTurns((prev) =>
         prev.map((t, i) =>
@@ -261,7 +264,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
       {/* Mesaje */}
       <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
         {turns.length === 0 && (
-          <div style={{ color: D.t3, fontSize: '0.85rem', lineHeight: 1.6, textAlign: 'center', marginTop: 20 }}>
+          <div style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6, textAlign: 'center', marginTop: 20 }}>
             Salut! Sunt asistentul tău. Pot răspunde la întrebări și pot propune modificări pe meniul QR.
             <br /><br />
             Încearcă: <em>„Adaugă o pizza Margherita la 32 lei"</em> sau <em>„Marchează Tiramisu ca epuizat"</em>.
@@ -295,7 +298,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
             ))}
           </div>
         ))}
-        {busy && <div style={{ color: D.t3, fontSize: '0.85rem' }}>Asistentul scrie…</div>}
+        {busy && <div style={{ color: D.t2, fontSize: '0.85rem' }}>Asistentul scrie…</div>}
         {error && (
           <div style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '9px 12px', fontSize: '0.82rem' }}>{error}</div>
         )}
@@ -309,13 +312,14 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
           placeholder="Scrie un mesaj…"
           disabled={busy}
-          style={{ flex: 1, background: D.s3, border: `1px solid ${D.border}`, borderRadius: 10, color: D.t1, padding: '10px 13px', fontSize: '0.88rem', fontFamily: 'DM Sans,sans-serif', outline: 'none' }}
+          style={{ flex: 1, minHeight: 44, background: D.s3, border: `1px solid ${D.border}`, borderRadius: 10, color: D.t1, padding: '10px 13px', fontSize: '0.88rem', fontFamily: 'DM Sans,sans-serif' }}
         />
         <button
           onClick={() => void send()}
           disabled={busy || !input.trim()}
+          aria-label="Trimite mesajul"
           className="pressable"
-          style={{ background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '0 16px', fontSize: '0.88rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy || !input.trim() ? 0.5 : 1 }}
+          style={{ minWidth: 44, height: 44, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '0 16px', fontSize: '0.88rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy || !input.trim() ? 0.5 : 1 }}
         >
           ➤
         </button>
@@ -341,7 +345,7 @@ function ActionCard({
 
   const findCatName = (id?: string) => categories.find((c) => c.id === id)?.name ?? '—'
   const small = { fontSize: '0.72rem', color: D.t3, marginBottom: 3, display: 'block' as const }
-  const field = { width: '100%', background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', outline: 'none', boxSizing: 'border-box' as const }
+  const field = { width: '100%', background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', boxSizing: 'border-box' as const }
 
   const done = pending.status !== 'pending'
 

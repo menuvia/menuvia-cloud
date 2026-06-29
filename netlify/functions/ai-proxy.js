@@ -19,6 +19,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
+const dns = require('dns').promises
 
 function jsonResponse(statusCode, body) {
   return {
@@ -26,6 +27,52 @@ function jsonResponse(statusCode, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }
+}
+
+// ── Anti-SSRF: re-validează base_url 'custom' la request (oglindă ai-config) ──
+// Rândurile salvate înainte de validarea de la save ar putea conține host-uri
+// periculoase → re-validăm AICI înainte de fetch, plus redirect:'manual'.
+function isPrivateIp(ip) {
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const a = Number(v4[1]), b = Number(v4[2])
+    if (a === 10 || a === 127 || a === 0) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true
+    if (a >= 224) return true
+    return false
+  }
+  const lower = ip.toLowerCase()
+  if (lower === '::1' || lower === '::' || lower === '0:0:0:0:0:0:0:1') return true
+  if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return true
+  if (lower.startsWith('::ffff:')) return isPrivateIp(lower.slice(7))
+  return false
+}
+async function assertSafeBaseUrl(raw) {
+  let u
+  try {
+    u = new URL(String(raw))
+  } catch {
+    throw new Error('URL invalid')
+  }
+  if (u.protocol !== 'https:') throw new Error('base_url trebuie să fie https')
+  if (u.port && u.port !== '443') throw new Error('port nepermis')
+  const host = u.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
+    throw new Error('host intern interzis')
+  }
+  let addrs
+  try {
+    addrs = await dns.lookup(host, { all: true })
+  } catch {
+    throw new Error('host nerezolvabil')
+  }
+  for (const a of addrs) {
+    if (isPrivateIp(a.address)) throw new Error('host către rețea internă interzis')
+  }
+  return u.toString().replace(/\/+$/, '')
 }
 
 // ── Decriptare cheie (oglindă față de encrypt() din ai-config.js) ──────
@@ -52,18 +99,22 @@ const DEFAULT_MODEL = {
 }
 
 // Estimare grosieră de tokens pentru pre-check-ul de cotă (~4 char/token).
+// Imaginile (vision) costă realist ~1500 tokens de input fiecare — le contabilizăm
+// direct în tokens, nu în „chars", ca pre-gate-ul ai_can_use să nu subevalueze.
+const IMAGE_INPUT_TOKENS = 1500
 function estimateTokens(messages, maxTokens) {
   let chars = 0
+  let imageTokens = 0
   for (const m of messages) {
     if (typeof m.content === 'string') chars += m.content.length
     else if (Array.isArray(m.content)) {
       for (const part of m.content) {
         if (part.type === 'text') chars += (part.text || '').length
-        else if (part.type === 'image') chars += 1200 // cost fix aproximativ / imagine
+        else if (part.type === 'image') imageTokens += IMAGE_INPUT_TOKENS
       }
     }
   }
-  return Math.ceil(chars / 4) + (maxTokens || 1024)
+  return Math.ceil(chars / 4) + imageTokens + (maxTokens || 1024)
 }
 
 // ── Adaptoare per provider ────────────────────────────────────────────
@@ -80,6 +131,7 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
   }
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
+    redirect: 'manual',
     headers: {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
@@ -92,7 +144,11 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
       messages: messages.map((m) => ({ role: m.role, content: toContent(m.content) })),
     }),
   })
-  if (!res.ok) throw new Error(`anthropic ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    // Logăm corpul DOAR server-side; nu-l propagăm (poate conține ecou de payload).
+    console.error('[ai-proxy] anthropic error', res.status, (await res.text().catch(() => '')).slice(0, 500))
+    throw new Error(`anthropic_${res.status}`)
+  }
   const data = await res.json()
   const text = (data.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('') || ''
   return {
@@ -118,10 +174,14 @@ async function callOpenAI({ apiKey, model, system, messages, maxTokens, baseUrl 
   const base = (baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
+    redirect: 'manual', // anti-SSRF: nu urmări redirect-uri către host-uri nevalidate
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, max_tokens: maxTokens || 1024, messages: oaMessages }),
   })
-  if (!res.ok) throw new Error(`openai ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    console.error('[ai-proxy] openai error', res.status, (await res.text().catch(() => '')).slice(0, 500))
+    throw new Error(`openai_${res.status}`)
+  }
   const data = await res.json()
   const text = data.choices?.[0]?.message?.content || ''
   return {
@@ -148,6 +208,7 @@ async function callGemini({ apiKey, model, system, messages, maxTokens }) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`
   const res = await fetch(url, {
     method: 'POST',
+    redirect: 'manual',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents,
@@ -155,7 +216,10 @@ async function callGemini({ apiKey, model, system, messages, maxTokens }) {
       generationConfig: { maxOutputTokens: maxTokens || 1024 },
     }),
   })
-  if (!res.ok) throw new Error(`gemini ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    console.error('[ai-proxy] gemini error', res.status, (await res.text().catch(() => '')).slice(0, 500))
+    throw new Error(`gemini_${res.status}`)
+  }
   const data = await res.json()
   const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('') || ''
   return {
@@ -173,6 +237,10 @@ exports.handler = async (event) => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, AI_CONFIG_SECRET } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
     console.error('[ai-proxy] Missing env vars')
+    return jsonResponse(500, { error: 'Server config error' })
+  }
+  if (AI_CONFIG_SECRET.length < 32) {
+    console.error('[ai-proxy] AI_CONFIG_SECRET prea scurt (<32)')
     return jsonResponse(500, { error: 'Server config error' })
   }
 
@@ -253,6 +321,18 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Lipsește modelul în configurație.' })
   }
 
+  // Anti-SSRF: re-validează base_url-ul stocat (custom) ÎNAINTE de fetch —
+  // rândurile salvate înainte de validarea de la save ar putea fi periculoase.
+  let safeBaseUrl = null
+  if (provider === 'custom') {
+    try {
+      safeBaseUrl = await assertSafeBaseUrl(config.base_url)
+    } catch (e) {
+      console.error('[ai-proxy] base_url respins la request:', e instanceof Error ? e.message : e)
+      return jsonResponse(400, { error: 'Endpoint-ul AI configurat nu este permis. Verifică setările.' })
+    }
+  }
+
   // ── Pre-check cotă hibridă (anti check-then-act atenuat: re-verificăm
   //     consumul real după apel prin ai_record_usage) ─────────
   const estTokens = estimateTokens(messages, maxTokens)
@@ -274,7 +354,7 @@ exports.handler = async (event) => {
   // ── Apel provider ──────────────────────────────────────────
   let result
   try {
-    const argsAI = { apiKey, model, system, messages, maxTokens, baseUrl: config.base_url }
+    const argsAI = { apiKey, model, system, messages, maxTokens, baseUrl: safeBaseUrl }
     if (provider === 'anthropic') result = await callAnthropic(argsAI)
     else if (provider === 'gemini') result = await callGemini(argsAI)
     else result = await callOpenAI(argsAI) // openai + custom (OpenAI-compatible)
@@ -296,7 +376,9 @@ exports.handler = async (event) => {
   }
 
   // ── Înregistrează consumul (scade cota la succes) ──────────
-  const { data: usage } = await supabase.rpc('ai_record_usage', {
+  // Capturăm și eroarea: dacă metering-ul eșuează, costul a fost deja suportat
+  // dar cota NU s-a scăzut → logăm explicit (consum „gratuit" altfel invizibil).
+  const { data: usage, error: usageErr } = await supabase.rpc('ai_record_usage', {
     p_restaurant_id: restaurant_id,
     p_feature: feature,
     p_provider: provider,
@@ -307,6 +389,9 @@ exports.handler = async (event) => {
     p_success: true,
     p_error: null,
   })
+  if (usageErr) {
+    console.error('[ai-proxy] ai_record_usage FAILED (cost suportat, cotă NEscăzută):', usageErr.message, { restaurant_id, feature })
+  }
 
   return jsonResponse(200, {
     text: result.text,

@@ -65,6 +65,10 @@ exports.handler = async (event) => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
     return jsonResponse(500, { error: 'Server config error' })
   }
+  if (AI_CONFIG_SECRET.length < 32) {
+    console.error('[ai-generate-image] AI_CONFIG_SECRET prea scurt (<32)')
+    return jsonResponse(500, { error: 'Server config error' })
+  }
 
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
@@ -188,12 +192,16 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Nu am putut actualiza produsul.' })
   }
 
-  // Metering (scade cota)
-  await supabase.rpc('ai_record_usage', {
+  // Metering (scade cota). Capturăm eroarea: imaginea e deja salvată, dar dacă
+  // metering-ul pică, cota nu s-a scăzut → logăm explicit.
+  const { error: usageErr } = await supabase.rpc('ai_record_usage', {
     p_restaurant_id: restaurant_id, p_feature: 'image_gen', p_provider: config.provider,
     p_model: config.model || '', p_input_tokens: 0, p_output_tokens: IMAGE_TOKEN_COST,
     p_cost: IMAGE_COST_USD, p_success: true, p_error: null,
   })
+  if (usageErr) {
+    console.error('[ai-generate-image] ai_record_usage FAILED (imagine generată, cotă NEscăzută):', usageErr.message, { restaurant_id })
+  }
 
   return jsonResponse(200, { image_url: imageUrl })
 }
