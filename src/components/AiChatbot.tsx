@@ -303,10 +303,11 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           </div>
         ))}
         {busy && (
-          <div style={{ color: D.t2, display: 'flex', alignItems: 'center', gap: 5, padding: '2px 2px' }} aria-label="Asistentul scrie">
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="typing-dot" />
+          <div role="status" aria-live="polite" style={{ color: D.t2, display: 'flex', alignItems: 'center', gap: 5, padding: '2px 2px' }}>
+            <span className="visually-hidden">Asistentul scrie…</span>
+            <span aria-hidden="true" className="typing-dot" />
+            <span aria-hidden="true" className="typing-dot" />
+            <span aria-hidden="true" className="typing-dot" />
           </div>
         )}
         {error && (

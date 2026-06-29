@@ -110,3 +110,17 @@ button {
 body[data-modal-open] {
   overflow: hidden;
 }
+
+/* ── Icon (src/components/ui/Icon.tsx) ── */
+.ui-icon {
+  flex-shrink: 0;
+  display: block;
+}
+/* non-scaling-stroke se aplică pe forme, nu pe <svg> root */
+.ui-icon path,
+.ui-icon rect,
+.ui-icon circle,
+.ui-icon line,
+.ui-icon polyline {
+  vector-effect: non-scaling-stroke;
+}

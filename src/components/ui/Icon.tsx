@@ -8,7 +8,6 @@
 //
 // Emoji rămâne DOAR pentru conținut semantic al userului (categorii, produse),
 // niciodată pentru iconografia de interfață.
-import type { CSSProperties } from 'react'
 
 export type IconName =
   | 'home'
@@ -122,7 +121,6 @@ export function Icon({
   color = 'currentColor',
   strokeWidth = 1.75,
   label,
-  style,
   className,
 }: {
   name: IconName
@@ -130,9 +128,10 @@ export function Icon({
   color?: string
   strokeWidth?: number
   label?: string
-  style?: CSSProperties
   className?: string
 }) {
+  // Stilurile fixe (flex-shrink/display) + non-scaling-stroke pe forme vin din
+  // clasa .ui-icon (global.css) — fără escape hatch de style inline arbitrar.
   return (
     <svg
       width={size}
@@ -143,9 +142,7 @@ export function Icon({
       strokeWidth={strokeWidth}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={className}
-      style={{ flexShrink: 0, display: 'block', ...style }}
-      vectorEffect="non-scaling-stroke"
+      className={className ? `ui-icon ${className}` : 'ui-icon'}
       {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
     >
       {PATHS[name]}
