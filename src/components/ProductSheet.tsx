@@ -180,6 +180,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
           maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
+          position: 'relative',
           boxShadow: '0 -10px 40px rgba(26,18,8,0.18)',
         }}
       >
@@ -194,6 +195,45 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             flexShrink: 0,
           }}
         />
+
+        {/* Buton de închidere — X clar (cerere UX: înapoi la meniu).
+            Backdrop-ul + drag handle rămân; ăsta e afordanța vizibilă. */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Închide"
+          className="pressable"
+          style={{
+            position: 'absolute',
+            top: 12,
+            right: 12,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            border: `1px solid ${accent}`,
+            background: PUB.bg,
+            color: PUB.text,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 3,
+            boxShadow: '0 2px 8px rgba(26,18,8,0.18)',
+          }}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
 
         {/* Scrollable content */}
         <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>

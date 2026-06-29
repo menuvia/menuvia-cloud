@@ -4,13 +4,14 @@
 // Restaurant selection via RestaurantContext — no local membership query.
 // =============================================================
 
-import { useState, useEffect, useRef, CSSProperties } from 'react'
+import { useState, useEffect, useRef, CSSProperties, ReactNode } from 'react'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import type { Order, OrderStatus } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import { useInView, revealStyle } from '../lib/motion'
 
 // D imported from constants
 
@@ -31,25 +32,67 @@ const COLUMNS: { statuses: OrderStatus[]; label: string }[] = [
 
 // elapsed, urgencyColor, playSound — imported from ../lib/utils
 
+// Nivel de urgență derivat din vârsta comenzii. Refolosește exact pragurile
+// din `urgencyColor` (10m → amber, 20m → red), dar le mapează la un nivel
+// semantic ca să putem escalada întreg cardul, nu doar o dungă subțire.
+type UrgencyLevel = 'calm' | 'warn' | 'late'
+function urgencyLevel(createdAt: string): UrgencyLevel {
+  const c = urgencyColor(createdAt)
+  if (c === D.red) return 'late'
+  if (c === D.amber) return 'warn'
+  return 'calm'
+}
+
+// Wrapper mic pentru reveal per-card — hook-ul useInView e apelat înăuntru,
+// nu în .map() (regula hooks). Comanda nouă „aterizează" lin în coloană.
+function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
+  const [ref, inView] = useInView<HTMLDivElement>({ amount: 0.05 })
+  return (
+    <div ref={ref} style={revealStyle(inView, { delay, y: 10 })}>
+      {children}
+    </div>
+  )
+}
+
+// Timer mare, citibil de la distanță. Culoarea + intensitatea cresc cu vârsta.
 function ElapsedTimer({ createdAt }: { createdAt: string }) {
   const [val, setVal] = useState(() => elapsed(createdAt))
   useEffect(() => {
     const id = setInterval(() => setVal(elapsed(createdAt)), 10_000)
     return () => clearInterval(id)
   }, [createdAt])
-  const urg = urgencyColor(createdAt)
+  const level = urgencyLevel(createdAt)
+  const color = level === 'late' ? D.red : level === 'warn' ? D.amber : D.t2
+  const calm = level === 'calm'
   return (
     <span
       style={{
-        background: `${urg}22`,
-        color: urg,
-        borderRadius: 20,
-        padding: '3px 9px',
-        fontSize: 12,
-        fontWeight: 600,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        background: calm ? D.s3 : `${color}1F`,
+        color: calm ? D.t2 : color,
+        border: `1px solid ${calm ? D.border : `${color}55`}`,
+        borderRadius: 10,
+        padding: '5px 10px',
+        fontSize: 18,
+        fontWeight: 800,
+        lineHeight: 1,
         fontVariantNumeric: 'tabular-nums',
+        whiteSpace: 'nowrap',
       }}
     >
+      {!calm && (
+        <span
+          aria-hidden
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: '50%',
+            background: color,
+          }}
+        />
+      )}
       {val}
     </span>
   )
@@ -61,38 +104,36 @@ interface OrderCardProps {
 }
 function OrderCard({ order, onAdvance }: OrderCardProps) {
   const next = KITCHEN_NEXT[order.status]
-  const urg = urgencyColor(order.created_at)
+  const level = urgencyLevel(order.created_at)
+  const urgColor = level === 'late' ? D.red : level === 'warn' ? D.amber : null
+  const isNew = order.status === 'new'
+  // Urgența îmbracă TOT cardul (border + tentă de fundal), nu o dungă laterală.
+  // Calm → border auriu doar pentru comenzi noi neconfirmate. Warn/late escaladează.
+  const accent = urgColor ?? (isNew ? D.gold : null)
   const card: CSSProperties = {
-    background: D.s2,
-    // Comenzile noi ies în evidență — border auriu până sunt confirmate
-    border: `1px solid ${order.status === 'new' ? D.gold + '88' : D.s3}`,
+    background:
+      level === 'late'
+        ? `${D.red}14`
+        : level === 'warn'
+          ? `${D.amber}10`
+          : D.s2,
+    border: `1.5px solid ${accent != null ? `${accent}99` : D.s3}`,
+    boxShadow: level === 'late' ? `0 0 0 1px ${D.red}33, 0 4px 16px ${D.red}1A` : 'none',
     borderRadius: 12,
     padding: 16,
     display: 'flex',
     flexDirection: 'column',
     gap: 12,
     position: 'relative',
-    overflow: 'hidden',
   }
   return (
     <div style={card}>
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 3,
-          background: urg,
-          borderRadius: '12px 0 0 12px',
-        }}
-      />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           <div
             style={{
               fontFamily: 'Fraunces, Georgia, serif',
-              fontSize: 18,
+              fontSize: 20,
               fontWeight: 700,
               color: D.t1,
             }}
@@ -115,7 +156,7 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {order.order_items.map((item) => (
           <div key={item.id}>
-            <div style={{ fontSize: 14, color: D.t1 }}>
+            <div style={{ fontSize: 15, color: D.t1, fontWeight: 600 }}>
               {item.product_name_snapshot} × {item.quantity}
             </div>
             {/* Fără prețuri în bucătărie — bucătarul nu are nevoie de bani pe ecran */}
@@ -143,18 +184,26 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
       )}
       {next != null && (
         <button
-          onClick={() => onAdvance(order.id, order.status, next.status)}
+          className="pressable"
+          onClick={(e) => {
+            // Feedback tactil scurt pe tap — bucătarul vede că butonul a „prins".
+            e.currentTarget.classList.remove('animate-bump')
+            void e.currentTarget.offsetWidth
+            e.currentTarget.classList.add('animate-bump')
+            onAdvance(order.id, order.status, next.status)
+          }}
           style={{
             background: D.gold,
             color: D.bg,
             border: 'none',
-            borderRadius: 8,
-            padding: '10px 0',
+            borderRadius: 10,
+            padding: '14px 0',
             fontFamily: 'DM Sans, sans-serif',
-            fontSize: 14,
-            fontWeight: 600,
+            fontSize: 15,
+            fontWeight: 700,
             cursor: 'pointer',
             width: '100%',
+            minHeight: 48,
           }}
         >
           {next.label}
@@ -476,21 +525,46 @@ export default function KitchenPage() {
                   gap: 10,
                 }}
               >
-                {colOrders.map((order) => (
-                  <OrderCard key={order.id} order={order} onAdvance={handleAdvance} />
+                {colOrders.map((order, i) => (
+                  <RevealItem key={order.id} delay={Math.min(i, 4) * 40}>
+                    <OrderCard order={order} onAdvance={handleAdvance} />
+                  </RevealItem>
                 ))}
                 {colOrders.length === 0 && (
-                  <div style={{ color: D.t3, fontSize: 13, textAlign: 'center', marginTop: 24 }}>
-                    {orders.length === 0 && col.label === 'Comenzi noi' ? (
-                      <>
-                        Nu sunt comenzi în bucătărie.
-                        <br />
-                        <span style={{ fontSize: 12 }}>
-                          Comenzile prin QR vor apărea aici automat.
-                        </span>
-                      </>
-                    ) : (
-                      'Nicio comandă'
+                  <div
+                    style={{
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 10,
+                      color: D.t3,
+                      textAlign: 'center',
+                      padding: '40px 16px',
+                      minHeight: 160,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: '50%',
+                        border: `1.5px dashed ${D.s4}`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 20,
+                        opacity: 0.7,
+                      }}
+                    >
+                      {col.label === 'Gata de servit' ? '✓' : col.label === 'În pregătire' ? '🍳' : '🍽️'}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: D.t2 }}>Nicio comandă</div>
+                    {orders.length === 0 && col.label === 'Comenzi noi' && (
+                      <span style={{ fontSize: 12, color: D.t3, maxWidth: 200, lineHeight: 1.4 }}>
+                        Comenzile prin QR vor apărea aici automat.
+                      </span>
                     )}
                   </div>
                 )}

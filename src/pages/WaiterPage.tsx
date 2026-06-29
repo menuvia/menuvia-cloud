@@ -11,8 +11,10 @@ import { useFeatures } from '../hooks/useFeatures'
 import { planTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
 import type { Order, PaymentMethod } from '../lib/orders'
-import { D } from '../lib/constants'
+import { D, STATUS_META } from '../lib/constants'
 import { playSound } from '../lib/utils'
+import { useInView, revealStyle } from '../lib/motion'
+import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import ManualOrderSheet from '../components/ManualOrderSheet'
 import EditOrderSheet from '../components/EditOrderSheet'
@@ -32,6 +34,60 @@ import { PayModal, OrderCard } from '../components/WaiterOrderCard'
 import DiscountModal from '../components/DiscountModal'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
+
+// ── Helpers vizuale ───────────────────────────────────────────
+
+// Wrapper de reveal per-item — hook-ul useInView e apelat înăuntru, nu în
+// .map() (regula hooks). Folosit pentru carduri ready / apeluri.
+function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
+  const [ref, inView] = useInView<HTMLDivElement>({ amount: 0.05 })
+  return (
+    <div ref={ref} style={revealStyle(inView, { delay, y: 8 })}>
+      {children}
+    </div>
+  )
+}
+
+// Titlu de secțiune consistent (cu pastilă de count colorată).
+function SectionHeading({
+  label,
+  count,
+  color,
+}: {
+  label: string
+  count: number
+  color: string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <span
+        style={{
+          fontFamily: 'DM Sans, sans-serif',
+          fontSize: 12,
+          fontWeight: 700,
+          color,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+        }}
+      >
+        {label}
+      </span>
+      <span
+        style={{
+          background: `${color}1F`,
+          color,
+          borderRadius: 20,
+          padding: '1px 8px',
+          fontSize: 11,
+          fontWeight: 700,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {count}
+      </span>
+    </div>
+  )
+}
 
 // ── WaiterPage ────────────────────────────────────────────────
 
@@ -797,78 +853,78 @@ export default function WaiterPage() {
         {/* Section 1 — Ready */}
         {readyOrders.length > 0 && (
           <div>
-            <div
-              style={{
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 12,
-                fontWeight: 600,
-                color: D.green,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                marginBottom: 12,
-              }}
-            >
-              Gata de servit ({readyOrders.length})
-            </div>
+            <SectionHeading label="Gata de servit" count={readyOrders.length} color={D.green} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {readyOrders.map((order) => (
-                <div
-                  key={order.id}
-                  style={{
-                    background: 'rgba(76,175,110,0.08)',
-                    border: `1px solid ${D.green}44`,
-                    borderRadius: 12,
-                    padding: 16,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 16,
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
-                        fontSize: 16,
-                        fontWeight: 700,
-                        color: D.t1,
-                      }}
-                    >
-                      {order.table?.name ?? 'Fără masă'}
-                    </div>
-                    <div style={{ fontSize: 13, color: D.t2, marginTop: 2 }}>
-                      {order.order_items.map((i) => i.product_name_snapshot).join(', ')}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
-                        fontSize: 16,
-                        fontWeight: 700,
-                        color: D.t1,
-                        marginTop: 4,
-                      }}
-                    >
-                      {order.total.toFixed(2)} lei
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleServit(order)}
+              {readyOrders.map((order, i) => (
+                <RevealItem key={order.id} delay={Math.min(i, 5) * 40}>
+                  <div
+                    className="hover-lift"
                     style={{
-                      background: D.green,
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 8,
-                      padding: '10px 20px',
-                      fontFamily: 'DM Sans, sans-serif',
-                      fontSize: 14,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
+                      background: STATUS_META.ready.bg,
+                      border: `1px solid ${D.green}55`,
+                      borderRadius: 12,
+                      padding: 16,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 16,
                     }}
                   >
-                    Servit
-                  </button>
-                </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontFamily: 'Fraunces, Georgia, serif',
+                          fontSize: 18,
+                          fontWeight: 700,
+                          color: D.t1,
+                        }}
+                      >
+                        {order.table?.name ?? 'Fără masă'}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          color: D.t2,
+                          marginTop: 2,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {order.order_items.map((it) => it.product_name_snapshot).join(', ')}
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: 'Fraunces, Georgia, serif',
+                          fontSize: 17,
+                          fontWeight: 700,
+                          color: D.t1,
+                          marginTop: 6,
+                        }}
+                      >
+                        {order.total.toFixed(2)} lei
+                      </div>
+                    </div>
+                    <button
+                      className="pressable"
+                      onClick={() => handleServit(order)}
+                      style={{
+                        background: D.green,
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 10,
+                        padding: '12px 22px',
+                        fontFamily: 'DM Sans, sans-serif',
+                        fontSize: 14,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                        minHeight: 46,
+                      }}
+                    >
+                      Servit
+                    </button>
+                  </div>
+                </RevealItem>
               ))}
             </div>
           </div>
@@ -877,19 +933,7 @@ export default function WaiterPage() {
         {/* Section 0 - Waiter Calls */}
         {waiterCalls.length > 0 && (
           <div>
-            <div
-              style={{
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 12,
-                fontWeight: 600,
-                color: D.amber,
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                marginBottom: 12,
-              }}
-            >
-              Apeluri ospatar ({waiterCalls.length})
-            </div>
+            <SectionHeading label="Apeluri ospătar" count={waiterCalls.length} color={D.amber} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {/* „Cere nota" înaintea chemărilor simple — clientul care vrea
                   să plătească e mai urgent decât cel care vrea să întrebe ceva */}
@@ -902,6 +946,7 @@ export default function WaiterPage() {
                 .map((call) => (
                 <div
                   key={call.id}
+                  className="hover-lift"
                   style={{
                     background: 'rgba(232,160,32,0.08)',
                     border: '1px solid rgba(232,160,32,0.3)',
@@ -949,18 +994,20 @@ export default function WaiterPage() {
                     </div>
                   </div>
                   <button
+                    className="pressable"
                     onClick={() => handleResolveCall(call.id)}
                     style={{
                       background: D.amber,
                       color: '#000',
                       border: 'none',
-                      borderRadius: 8,
-                      padding: '10px 20px',
+                      borderRadius: 10,
+                      padding: '12px 22px',
                       fontFamily: 'DM Sans, sans-serif',
                       fontSize: 14,
-                      fontWeight: 600,
+                      fontWeight: 700,
                       cursor: 'pointer',
                       whiteSpace: 'nowrap',
+                      minHeight: 46,
                     }}
                   >
                     Preiau
@@ -973,19 +1020,11 @@ export default function WaiterPage() {
 
         {/* Section 2 — All open orders */}
         <div>
-          <div
-            style={{
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 12,
-              fontWeight: 600,
-              color: D.t2,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginBottom: 12,
-            }}
-          >
-            Toate comenzile deschise ({openOrders.length})
-          </div>
+          <SectionHeading
+            label="Toate comenzile deschise"
+            count={openOrders.length}
+            color={D.t2}
+          />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* Grupare pe masă: ospătarul gândește în mese, nu în comenzi.
                 Fără refactor — doar render-ul e grupat; cardurile rămân identice. */}
@@ -1003,14 +1042,14 @@ export default function WaiterPage() {
                   style={{
                     display: 'flex',
                     alignItems: 'baseline',
-                    gap: 8,
-                    marginBottom: 8,
+                    gap: 10,
+                    marginBottom: 10,
                   }}
                 >
                   <span
                     style={{
                       fontFamily: 'Fraunces, Georgia, serif',
-                      fontSize: 15,
+                      fontSize: 18,
                       fontWeight: 700,
                       color: D.t1,
                     }}
@@ -1039,8 +1078,35 @@ export default function WaiterPage() {
               </div>
             ))}
             {openOrders.length === 0 && (
-              <div style={{ color: D.t3, fontSize: 14, textAlign: 'center', padding: 32 }}>
-                Nicio comandă deschisă
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 10,
+                  color: D.t3,
+                  textAlign: 'center',
+                  padding: 48,
+                }}
+              >
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '50%',
+                    border: `1.5px dashed ${D.s4}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 22,
+                    opacity: 0.7,
+                  }}
+                >
+                  🍽️
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: D.t2 }}>
+                  Nicio comandă deschisă
+                </div>
               </div>
             )}
           </div>
@@ -1110,6 +1176,7 @@ export default function WaiterPage() {
       {/* Split Bill Modal */}
       {splitOrder != null && paymentsEnabled && (
         <div
+          className="animate-backdrop"
           onClick={() => setSplitOrder(null)}
           style={{
             position: 'fixed',
@@ -1119,9 +1186,11 @@ export default function WaiterPage() {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 200,
+            padding: 16,
           }}
         >
           <div
+            className="animate-sheet"
             onClick={(e) => e.stopPropagation()}
             style={{
               background: D.s2,
@@ -1129,6 +1198,8 @@ export default function WaiterPage() {
               borderRadius: 16,
               padding: 28,
               width: 400,
+              maxWidth: '100%',
+              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
               display: 'flex',
               flexDirection: 'column',
               gap: 16,
@@ -1207,6 +1278,7 @@ export default function WaiterPage() {
               {(['cash', 'card_pos', 'other'] as PaymentMethod[]).map((m) => (
                 <button
                   key={m}
+                  className="pressable"
                   onClick={() => setSplitMethod(m)}
                   style={{
                     flex: 1,
@@ -1248,6 +1320,7 @@ export default function WaiterPage() {
             </div>
 
             <button
+              className="pressable"
               onClick={() => {
                 void handlePartialPay()
               }}
@@ -1256,27 +1329,30 @@ export default function WaiterPage() {
                 background: D.green,
                 color: '#fff',
                 border: 'none',
-                borderRadius: 8,
-                padding: '12px 0',
+                borderRadius: 10,
+                padding: '14px 0',
                 fontFamily: 'DM Sans, sans-serif',
                 fontSize: 15,
                 fontWeight: 700,
-                cursor: 'pointer',
-                opacity: splitLoading ? 0.7 : 1,
+                cursor: splitLoading || !splitAmount ? 'not-allowed' : 'pointer',
+                opacity: splitLoading || !splitAmount ? 0.6 : 1,
+                minHeight: 48,
               }}
             >
               {splitLoading ? 'Se proceseaza...' : 'Adauga plata'}
             </button>
             <button
+              className="pressable"
               onClick={() => setSplitOrder(null)}
               style={{
                 background: 'transparent',
                 color: D.t2,
                 border: '1px solid ' + D.s3,
-                borderRadius: 8,
-                padding: '10px 0',
+                borderRadius: 10,
+                padding: '11px 0',
                 fontFamily: 'DM Sans, sans-serif',
                 fontSize: 14,
+                fontWeight: 600,
                 cursor: 'pointer',
               }}
             >

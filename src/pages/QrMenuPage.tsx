@@ -1248,6 +1248,16 @@ export default function QrMenuPage({ token }: Props) {
               setActiveProduct(product)
             }}
             onAddToCart={(item) => setCart((prev) => [...prev, item])}
+            sentOrders={previousOrders}
+            // „Plătește masa" = cere nota DOAR pentru ce e deja trimis la bucătărie
+            // (request-bill nu trimite coșul). Afișăm strict totalul comandat, ca
+            // suma de pe buton să corespundă cu ce se facturează (regula de aur).
+            tableTotal={previousOrders.reduce((s, o) => s + o.total, 0)}
+            onPayTable={
+              previousOrders.length > 0 ? () => void handleRequestBill() : undefined
+            }
+            payDisabled={requestingBill || billRequested}
+            payLabel={billRequested ? 'Nota a fost cerută ✓' : 'Plătește masa'}
           />
         </Suspense>
       )}

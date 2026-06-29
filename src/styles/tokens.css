@@ -112,3 +112,20 @@
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
+
+/* ───────────────────────────────────────────────────────────────
+ * Adăugiri redesign (ADITIV — nu modifică valorile de mai sus).
+ * Spacing extins, easing expresiv, umbră aurie soft pt marketing.
+ * ─────────────────────────────────────────────────────────────── */
+:root {
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* Easing „aterizare" lină pentru intrări / sheet-uri / reveal */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Umbră aurie soft pentru CTA-uri pe fundal deschis (registru marketing) */
+  --shadow-gold-soft: 0 6px 20px rgba(200, 150, 60, 0.25);
+}
