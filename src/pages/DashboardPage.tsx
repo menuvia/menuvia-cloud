@@ -534,11 +534,11 @@ function OrdersHub({
   onViewKitchen: () => void
   onHistory: () => void
 }) {
-  const cards = [
-    { icon: '🔴', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
-    { icon: '👨‍🍳', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
-    { icon: '🤵', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
-    { icon: '🕘', title: 'Istoric comenzi', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
+  const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
+    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
+    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
+    { icon: 'users', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
+    { icon: 'history', title: 'Istoric comenzi', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -576,7 +576,7 @@ function OrdersHub({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            <div style={{ fontSize: '1.6rem', marginBottom: 10 }}>{c.icon}</div>
+            <div style={{ marginBottom: 10, color: D.gold }}><Icon name={c.icon} size={26} /></div>
             <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>
               {c.title}
             </div>
@@ -881,7 +881,7 @@ export default function DashboardPage({
             e.currentTarget.style.borderColor = D.border
           }}
         >
-          👁 Previzualizează meniu
+          <Icon name="eye" size={16} /> Previzualizează meniu
         </button>
         {isAdminRole && (
           <button
@@ -909,7 +909,7 @@ export default function DashboardPage({
               e.currentTarget.style.background = `${D.gold}11`
             }}
           >
-            🍽 Vezi ca ospătar
+            <Icon name="utensils" size={16} /> Vezi ca ospătar
           </button>
         )}
       </div>
@@ -1015,7 +1015,7 @@ export default function DashboardPage({
                   fontSize: 16,
                 }}
               >
-                🍽
+                <Icon name="utensils" size={18} />
               </button>
             )}
             <button
@@ -1030,8 +1030,9 @@ export default function DashboardPage({
                 borderRadius: 8,
                 fontSize: 18,
               }}
+              aria-label="Previzualizează meniu"
             >
-              👁
+              <Icon name="eye" size={18} />
             </button>
           </div>
         </div>
