@@ -99,3 +99,83 @@
 .stagger > *:nth-child(n + 6) {
   animation-delay: 250ms;
 }
+
+/* ───────────────────────────────────────────────────────────────
+ * Adăugiri redesign — vocabular de motion (zero dependențe)
+ * Tot transform/opacity/filter (GPU). reduced-motion: zero-uit global.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Bottom-sheet: intrare de jos cu „aterizare" lină */
+@keyframes sheetUp {
+  from {
+    opacity: 0;
+    transform: translateY(8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-sheet {
+  animation: sheetUp 320ms var(--ease-out-expo, cubic-bezier(0.22, 1, 0.36, 1)) forwards;
+}
+
+/* Backdrop / scrim — fade in */
+@keyframes backdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-backdrop {
+  animation: backdropIn 240ms ease forwards;
+}
+
+/* Bump — feedback când o valoare crește (ex: contorul coșului) */
+@keyframes bump {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.animate-bump {
+  animation: bump 280ms var(--ease-out-expo, cubic-bezier(0.22, 1, 0.36, 1));
+}
+
+/* Feedback la apăsare — scale subtil pe :active (HIG/MD state layers) */
+.pressable {
+  transition: transform 120ms var(--transition-fast, cubic-bezier(0.4, 0, 0.2, 1));
+}
+.pressable:active {
+  transform: scale(0.97);
+}
+
+/* Hover lift pentru carduri/CTA interactive (desktop) */
+.hover-lift {
+  transition:
+    transform 200ms var(--ease-out-expo, cubic-bezier(0.22, 1, 0.36, 1)),
+    box-shadow 200ms var(--ease-out-expo, cubic-bezier(0.22, 1, 0.36, 1));
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Blur-up pentru imagini — skeleton borțos → clar la load */
+.blur-up {
+  filter: blur(12px);
+  transform: scale(1.02);
+  transition:
+    filter 400ms ease,
+    transform 400ms ease;
+}
+.blur-up.is-loaded {
+  filter: blur(0);
+  transform: none;
+}
