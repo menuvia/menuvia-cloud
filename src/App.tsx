@@ -13,6 +13,7 @@ import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
+import { useInView, revealStyle, MOTION } from './lib/motion'
 
 // ── Eager: tiny, always-needed pages ─────────────────────────
 import AuthPage from './pages/AuthPage'
@@ -128,6 +129,28 @@ function pushPlanIntent(planId: string): void {
   }
 }
 
+// Wrapper mic pentru reveal per-element dintr-o listă: hook-ul useInView NU
+// poate fi apelat în .map(), așa că îl izolăm într-un component dedicat.
+// `revealStyle` e vizibil by-default sub reduced-motion/headless — nu ascunde.
+function RevealItem({
+  children,
+  delay = 0,
+  y = 14,
+  style,
+}: {
+  children: React.ReactNode
+  delay?: number
+  y?: number
+  style?: React.CSSProperties
+}) {
+  const [ref, inView] = useInView<HTMLDivElement>()
+  return (
+    <div ref={ref} style={{ ...revealStyle(inView, { delay, y }), ...style }}>
+      {children}
+    </div>
+  )
+}
+
 // ── Landing page (unauthenticated visitors) ──────────────────
 // Obiectiv: vizitatorul înțelege în 10 secunde ce e Menuvia, pentru cine e,
 // de ce Meniu + Comenzi e planul recomandat și cât de simplu e setup-ul.
@@ -189,10 +212,10 @@ function LandingPage({
     fontSize: 16,
     cursor: 'pointer',
     fontFamily: 'DM Sans,sans-serif',
-    boxShadow: '0 4px 14px rgba(200,150,60,0.3)',
+    boxShadow: 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))',
   }
   const ghostBtn: React.CSSProperties = {
-    background: 'transparent',
+    background: M.surface,
     color: M.text,
     border: `1.5px solid ${M.border}`,
     borderRadius: 12,
@@ -313,12 +336,13 @@ function LandingPage({
         <h1
           style={{
             fontFamily: 'Fraunces,serif',
-            fontSize: 'clamp(2rem, 5.5vw, 3.2rem)',
+            fontSize: 'clamp(2rem, 5.2vw, 3.4rem)',
             color: M.text,
             fontWeight: 700,
-            lineHeight: 1.12,
+            lineHeight: 1.1,
             letterSpacing: '-0.03em',
-            marginBottom: 18,
+            marginBottom: 20,
+            textWrap: 'balance',
           }}
         >
           Meniu QR și comenzi de la masă pentru restaurante moderne
@@ -326,19 +350,24 @@ function LandingPage({
         <p
           style={{
             color: M.text2,
-            fontSize: 'clamp(1rem, 2.4vw, 1.2rem)',
-            maxWidth: 560,
-            margin: '0 auto 30px',
+            fontSize: 'clamp(1.05rem, 2.2vw, 1.2rem)',
+            maxWidth: 540,
+            margin: '0 auto 32px',
             lineHeight: 1.65,
+            textWrap: 'balance',
           }}
         >
           Clienții scanează codul QR, comandă de pe telefon, iar bucătăria primește instant.
         </p>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => onStartPlan('growth')} style={ctaBtn}>
+          <button onClick={() => onStartPlan('growth')} className="pressable" style={ctaBtn}>
             Începe cu Meniu + Comenzi
           </button>
-          <button onClick={() => scrollTo('cum-functioneaza')} style={ghostBtn}>
+          <button
+            onClick={() => scrollTo('cum-functioneaza')}
+            className="pressable"
+            style={ghostBtn}
+          >
             Vezi cum funcționează
           </button>
         </div>
@@ -362,6 +391,7 @@ function LandingPage({
       >
         {/* Telefon: meniul QR */}
         <div
+          className="hover-lift"
           style={{
             background: M.surface,
             border: `1px solid ${M.border}`,
@@ -425,6 +455,7 @@ function LandingPage({
 
         {/* Card comandă bucătărie */}
         <div
+          className="hover-lift"
           style={{
             background: M.surface,
             border: `1px solid ${M.border}`,
@@ -484,6 +515,7 @@ function LandingPage({
 
         {/* Card QR pe masă */}
         <div
+          className="hover-lift"
           style={{
             background: M.surface,
             border: `1px solid ${M.border}`,
@@ -514,21 +546,24 @@ function LandingPage({
       </div>
 
       {/* Benefits */}
-      <div id="functii" style={{ background: M.surface2, padding: '64px 24px' }}>
+      <div id="functii" style={{ background: M.surface2, padding: '72px 24px' }}>
         <div style={{ maxWidth: 1040, margin: '0 auto' }}>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: 'clamp(1.5rem, 3.5vw, 2.1rem)',
-              color: M.text,
-              fontWeight: 700,
-              textAlign: 'center',
-              marginBottom: 36,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Tot ce are nevoie un restaurant. Nimic în plus.
-          </h2>
+          <RevealItem>
+            <h2
+              style={{
+                fontFamily: 'Fraunces,serif',
+                fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
+                color: M.text,
+                fontWeight: 700,
+                textAlign: 'center',
+                marginBottom: 40,
+                letterSpacing: '-0.02em',
+                textWrap: 'balance',
+              }}
+            >
+              Tot ce are nevoie un restaurant. Nimic în plus.
+            </h2>
+          </RevealItem>
           <div
             style={{
               display: 'grid',
@@ -536,42 +571,49 @@ function LandingPage({
               gap: 16,
             }}
           >
-            {BENEFITS.map((b) => (
-              <div
-                key={b.title}
-                style={{
-                  background: M.surface,
-                  border: `1px solid ${M.border}`,
-                  borderRadius: 16,
-                  padding: '22px 22px',
-                }}
-              >
-                <div style={{ fontSize: 26, marginBottom: 10 }}>{b.icon}</div>
-                <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
-                  {b.title}
+            {BENEFITS.map((b, i) => (
+              <RevealItem key={b.title} delay={(i % 3) * 70}>
+                <div
+                  className="hover-lift"
+                  style={{
+                    background: M.surface,
+                    border: `1px solid ${M.border}`,
+                    borderRadius: 16,
+                    padding: '24px 22px',
+                    height: '100%',
+                    boxShadow: '0 1px 3px rgba(26,18,8,0.03)',
+                  }}
+                >
+                  <div style={{ fontSize: 26, marginBottom: 12 }}>{b.icon}</div>
+                  <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                    {b.title}
+                  </div>
+                  <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{b.desc}</div>
                 </div>
-                <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{b.desc}</div>
-              </div>
+              </RevealItem>
             ))}
           </div>
         </div>
       </div>
 
       {/* How it works */}
-      <div id="cum-functioneaza" style={{ maxWidth: 880, margin: '0 auto', padding: '72px 24px' }}>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 'clamp(1.5rem, 3.5vw, 2.1rem)',
-            color: M.text,
-            fontWeight: 700,
-            textAlign: 'center',
-            marginBottom: 40,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Pornești în 3 pași
-        </h2>
+      <div id="cum-functioneaza" style={{ maxWidth: 880, margin: '0 auto', padding: '80px 24px' }}>
+        <RevealItem>
+          <h2
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
+              color: M.text,
+              fontWeight: 700,
+              textAlign: 'center',
+              marginBottom: 44,
+              letterSpacing: '-0.02em',
+              textWrap: 'balance',
+            }}
+          >
+            Pornești în 3 pași
+          </h2>
+        </RevealItem>
         <div
           style={{
             display: 'grid',
@@ -579,48 +621,53 @@ function LandingPage({
             gap: 18,
           }}
         >
-          {STEPS.map((st) => (
-            <div key={st.n} style={{ textAlign: 'center', padding: '0 8px' }}>
-              <div
-                style={{
-                  width: 48,
-                  height: 48,
-                  borderRadius: '50%',
-                  background: M.accentSoft,
-                  color: M.accent,
-                  fontFamily: 'Fraunces,serif',
-                  fontSize: 22,
-                  fontWeight: 700,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  margin: '0 auto 14px',
-                }}
-              >
-                {st.n}
+          {STEPS.map((st, i) => (
+            <RevealItem key={st.n} delay={i * 90}>
+              <div style={{ textAlign: 'center', padding: '0 8px' }}>
+                <div
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: '50%',
+                    background: M.accentSoft,
+                    color: M.accent,
+                    fontFamily: 'Fraunces,serif',
+                    fontSize: 23,
+                    fontWeight: 700,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                    border: `1px solid ${M.border}`,
+                  }}
+                >
+                  {st.n}
+                </div>
+                <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                  {st.title}
+                </div>
+                <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{st.desc}</div>
               </div>
-              <div style={{ color: M.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
-                {st.title}
-              </div>
-              <div style={{ color: M.text2, fontSize: 14, lineHeight: 1.6 }}>{st.desc}</div>
-            </div>
+            </RevealItem>
           ))}
         </div>
-        <div style={{ textAlign: 'center', marginTop: 36 }}>
-          <button onClick={onDemo} style={ghostBtn}>
+        <div style={{ textAlign: 'center', marginTop: 40 }}>
+          <button onClick={onDemo} className="pressable" style={ghostBtn}>
             Vezi demo live
           </button>
         </div>
       </div>
 
       {/* Plan highlight — Meniu + Comenzi e vedeta */}
-      <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 24px 72px' }}>
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 24px 80px' }}>
+        <RevealItem>
         <div
+          className="hover-lift"
           style={{
             background: M.surface,
             border: `1.5px solid ${M.accent}`,
             borderRadius: 20,
-            padding: '32px 28px',
+            padding: '36px 28px',
             textAlign: 'center',
             boxShadow: '0 8px 32px rgba(200,150,60,0.14)',
           }}
@@ -664,105 +711,138 @@ function LandingPage({
             Alegerea potrivită pentru restaurantele care vor să reducă timpul pierdut cu preluarea
             comenzilor. Plata și bonul rămân pe casa ta actuală.
           </p>
-          <button onClick={onPricing} style={ctaBtn}>
+          <button onClick={onPricing} className="pressable" style={ctaBtn}>
             Vezi planurile
           </button>
         </div>
+        </RevealItem>
       </div>
 
       {/* FAQ light */}
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 24px 72px' }}>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: M.text,
-            fontWeight: 700,
-            textAlign: 'center',
-            marginBottom: 24,
-          }}
-        >
-          Întrebări frecvente
-        </h2>
-        {FAQ.map((f, i) => (
-          <div
-            key={f.q}
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: '0 24px 80px' }}>
+        <RevealItem>
+          <h2
             style={{
-              background: M.surface,
-              border: `1px solid ${M.border}`,
-              borderRadius: 12,
-              marginBottom: 8,
-              overflow: 'hidden',
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.4rem, 3vw, 1.6rem)',
+              color: M.text,
+              fontWeight: 700,
+              textAlign: 'center',
+              marginBottom: 28,
+              textWrap: 'balance',
             }}
           >
-            <button
-              onClick={() => setOpenFaq(openFaq === i ? null : i)}
+            Întrebări frecvente
+          </h2>
+        </RevealItem>
+        {FAQ.map((f, i) => {
+          const isOpen = openFaq === i
+          return (
+            <div
+              key={f.q}
               style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                width: '100%',
-                padding: '15px 18px',
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                fontFamily: 'DM Sans,sans-serif',
-                fontSize: 14.5,
-                fontWeight: 600,
-                color: M.text,
-                textAlign: 'left',
-                gap: 12,
+                background: M.surface,
+                border: `1px solid ${isOpen ? M.accent : M.border}`,
+                borderRadius: 12,
+                marginBottom: 8,
+                overflow: 'hidden',
+                transition: `border-color ${MOTION.normal}ms ${MOTION.easeOut}`,
               }}
             >
-              {f.q}
-              <span style={{ color: M.text3, flexShrink: 0 }}>{openFaq === i ? '−' : '+'}</span>
-            </button>
-            {openFaq === i && (
-              <div
+              <button
+                onClick={() => setOpenFaq(isOpen ? null : i)}
+                aria-expanded={isOpen}
                 style={{
-                  padding: '0 18px 15px',
-                  color: M.text2,
-                  fontSize: 14,
-                  lineHeight: 1.65,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  width: '100%',
+                  padding: '16px 18px',
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'DM Sans,sans-serif',
+                  fontSize: 14.5,
+                  fontWeight: 600,
+                  color: M.text,
+                  textAlign: 'left',
+                  gap: 12,
                 }}
               >
-                {f.a}
+                {f.q}
+                <span
+                  style={{
+                    color: isOpen ? M.accent : M.text3,
+                    flexShrink: 0,
+                    fontSize: 18,
+                    fontWeight: 300,
+                    transition: `transform ${MOTION.normal}ms ${MOTION.easeOut}, color ${MOTION.normal}ms ${MOTION.easeOut}`,
+                    transform: isOpen ? 'rotate(45deg)' : 'none',
+                    lineHeight: 1,
+                  }}
+                >
+                  +
+                </span>
+              </button>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateRows: isOpen ? '1fr' : '0fr',
+                  opacity: isOpen ? 1 : 0,
+                  transition: `grid-template-rows ${MOTION.normal}ms ${MOTION.easeOut}, opacity ${MOTION.normal}ms ${MOTION.easeOut}`,
+                }}
+              >
+                <div style={{ overflow: 'hidden' }}>
+                  <div
+                    style={{
+                      padding: '0 18px 16px',
+                      color: M.text2,
+                      fontSize: 14,
+                      lineHeight: 1.65,
+                    }}
+                  >
+                    {f.a}
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
-        ))}
+            </div>
+          )
+        })}
       </div>
 
       {/* Final CTA */}
       <div
         style={{
           background: M.surface2,
-          padding: '64px 24px',
+          padding: '72px 24px',
           textAlign: 'center',
         }}
       >
-        <h3
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.7rem',
-            color: M.text,
-            fontWeight: 700,
-            marginBottom: 10,
-          }}
-        >
-          Gata să începi?
-        </h3>
-        <p style={{ color: M.text2, fontSize: 15, marginBottom: 26 }}>
-          30 de zile gratuite. Setup în 10 minute. Anulezi oricând.
-        </p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => onStartPlan('growth')} style={ctaBtn}>
-            Începe cu Meniu + Comenzi
-          </button>
-          <button onClick={onPricing} style={ghostBtn}>
-            Vezi prețurile
-          </button>
-        </div>
+        <RevealItem>
+          <h3
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.5rem, 3vw, 1.9rem)',
+              color: M.text,
+              fontWeight: 700,
+              marginBottom: 12,
+              textWrap: 'balance',
+            }}
+          >
+            Gata să începi?
+          </h3>
+          <p style={{ color: M.text2, fontSize: 15, marginBottom: 28 }}>
+            30 de zile gratuite. Setup în 10 minute. Anulezi oricând.
+          </p>
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={() => onStartPlan('growth')} className="pressable" style={ctaBtn}>
+              Începe cu Meniu + Comenzi
+            </button>
+            <button onClick={onPricing} className="pressable" style={ghostBtn}>
+              Vezi prețurile
+            </button>
+          </div>
+        </RevealItem>
       </div>
       <LegalFooter />
     </div>
@@ -1092,16 +1172,17 @@ function PricingPage({
         </div>
 
         {/* Hero */}
-        <div style={{ textAlign: 'center', maxWidth: 720, margin: '0 auto 56px' }}>
+        <div style={{ textAlign: 'center', maxWidth: 700, margin: '0 auto 56px' }}>
           <h1
             style={{
               fontFamily: 'Fraunces,serif',
-              fontSize: 'clamp(2.2rem, 6vw, 3.4rem)',
+              fontSize: 'clamp(2.1rem, 5.5vw, 3.4rem)',
               color: L.text,
-              fontWeight: 600,
+              fontWeight: 700,
               marginBottom: 16,
               letterSpacing: '-0.03em',
-              lineHeight: 1.1,
+              lineHeight: 1.08,
+              textWrap: 'balance',
             }}
           >
             Prețuri simple pentru restaurante care vor meniu QR și comenzi la masă
@@ -1113,6 +1194,7 @@ function PricingPage({
               marginBottom: 32,
               lineHeight: 1.6,
               fontWeight: 400,
+              textWrap: 'balance',
             }}
           >
             30 de zile gratuite pe orice plan. Anulezi cu un click, fără penalizări.
@@ -1235,6 +1317,7 @@ function PricingPage({
             return (
               <button
                 onClick={() => window.open(url, '_blank')}
+                className="pressable"
                 style={{
                   background: L.accent,
                   color: '#fff',
@@ -1255,7 +1338,7 @@ function PricingPage({
         </div>
 
         {/* Plans grid */}
-        <div
+        <RevealItem
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
@@ -1263,24 +1346,31 @@ function PricingPage({
             marginBottom: 24,
           }}
         >
-          {PLANS.map((p) => {
+          {PLANS.map((p, idx) => {
             const price = yearly ? p.priceYearly : p.price
             const isContact = p.price === null
             const isHighlight = p.highlight
+            // Tier 1 (primul plan, ne-highlight): tratament demn — bordură și
+            // umbră mai prezente decât un card secundar oarecare, ca să nu
+            // pară dezactivat lângă „Recomandat".
+            const isTierOne = idx === 0 && !isHighlight
             return (
               <div
                 key={p.id}
+                className="hover-lift"
                 style={{
                   background: L.surface,
                   borderRadius: 18,
                   padding: '32px 26px',
-                  border: `1px solid ${isHighlight ? L.accent : L.border}`,
+                  border: `1px solid ${isHighlight ? L.accent : isTierOne ? L.text3 : L.border}`,
                   display: 'flex',
                   flexDirection: 'column',
                   position: 'relative',
                   boxShadow: isHighlight
                     ? '0 8px 32px rgba(200,150,60,0.18), 0 2px 8px rgba(26,18,8,0.05)'
-                    : '0 1px 3px rgba(26,18,8,0.04)',
+                    : isTierOne
+                      ? '0 4px 16px rgba(26,18,8,0.07)'
+                      : '0 1px 3px rgba(26,18,8,0.04)',
                   transform: isHighlight ? 'translateY(-8px)' : 'none',
                   transition: 'transform 0.2s, box-shadow 0.2s',
                 }}
@@ -1442,6 +1532,7 @@ function PricingPage({
                 </div>
 
                 <button
+                  className="pressable"
                   disabled={loadingPlan === p.id}
                   onClick={async () => {
                     setLoadingPlan(p.id)
@@ -1456,11 +1547,17 @@ function PricingPage({
                     fontWeight: 700,
                     fontSize: '0.95rem',
                     cursor: 'pointer',
-                    border: isHighlight ? 'none' : `1.5px solid ${L.border}`,
-                    background: isHighlight ? L.accent : L.surface,
-                    color: isHighlight ? '#fff' : L.text,
+                    border: isHighlight
+                      ? 'none'
+                      : isTierOne
+                        ? `1.5px solid ${L.accent}`
+                        : `1.5px solid ${L.border}`,
+                    background: isHighlight ? L.accent : isTierOne ? L.accentSoft : L.surface,
+                    color: isHighlight ? '#fff' : isTierOne ? L.accent : L.text,
                     opacity: loadingPlan === p.id ? 0.6 : 1,
-                    boxShadow: isHighlight ? '0 4px 14px rgba(200,150,60,0.3)' : 'none',
+                    boxShadow: isHighlight
+                      ? 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))'
+                      : 'none',
                     transition: 'all 0.15s',
                   }}
                 >
@@ -1469,7 +1566,7 @@ function PricingPage({
               </div>
             )
           })}
-        </div>
+        </RevealItem>
 
         {/* Trust signals — adevăruri verificabile, fără promisiuni vagi */}
         <div
@@ -1813,103 +1910,121 @@ function PricingPage({
             Întrebări frecvente
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {FAQ.map((item, i) => (
-              <div
-                key={i}
-                style={{
-                  background: L.surface,
-                  border: `1px solid ${L.border}`,
-                  borderRadius: 12,
-                  overflow: 'hidden',
-                }}
-              >
-                <button
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+            {FAQ.map((item, i) => {
+              const isOpen = openFaq === i
+              return (
+                <div
+                  key={i}
                   style={{
-                    width: '100%',
-                    padding: '17px 20px',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 14,
-                    textAlign: 'left',
-                    fontFamily: 'DM Sans,sans-serif',
+                    background: L.surface,
+                    border: `1px solid ${isOpen ? L.accent : L.border}`,
+                    borderRadius: 12,
+                    overflow: 'hidden',
+                    transition: `border-color ${MOTION.normal}ms ${MOTION.easeOut}`,
                   }}
                 >
-                  <span style={{ fontSize: '0.95rem', color: L.text, fontWeight: 600 }}>
-                    {item.q}
-                  </span>
-                  <span
+                  <button
+                    onClick={() => setOpenFaq(isOpen ? null : i)}
+                    aria-expanded={isOpen}
                     style={{
-                      color: L.text3,
-                      fontSize: '1.1rem',
-                      transition: 'transform .2s',
-                      transform: openFaq === i ? 'rotate(45deg)' : 'none',
-                      flexShrink: 0,
-                      fontWeight: 300,
+                      width: '100%',
+                      padding: '17px 20px',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 14,
+                      textAlign: 'left',
+                      fontFamily: 'DM Sans,sans-serif',
                     }}
                   >
-                    +
-                  </span>
-                </button>
-                {openFaq === i && (
+                    <span style={{ fontSize: '0.95rem', color: L.text, fontWeight: 600 }}>
+                      {item.q}
+                    </span>
+                    <span
+                      style={{
+                        color: isOpen ? L.accent : L.text3,
+                        fontSize: '1.1rem',
+                        transition: `transform ${MOTION.normal}ms ${MOTION.easeOut}, color ${MOTION.normal}ms ${MOTION.easeOut}`,
+                        transform: isOpen ? 'rotate(45deg)' : 'none',
+                        flexShrink: 0,
+                        fontWeight: 300,
+                      }}
+                    >
+                      +
+                    </span>
+                  </button>
                   <div
                     style={{
-                      padding: '0 20px 18px',
-                      fontSize: '0.9rem',
-                      color: L.text2,
-                      lineHeight: 1.7,
+                      display: 'grid',
+                      gridTemplateRows: isOpen ? '1fr' : '0fr',
+                      opacity: isOpen ? 1 : 0,
+                      transition: `grid-template-rows ${MOTION.normal}ms ${MOTION.easeOut}, opacity ${MOTION.normal}ms ${MOTION.easeOut}`,
                     }}
                   >
-                    {item.a}
+                    <div style={{ overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          padding: '0 20px 18px',
+                          fontSize: '0.9rem',
+                          color: L.text2,
+                          lineHeight: 1.7,
+                        }}
+                      >
+                        {item.a}
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                </div>
+              )
+            })}
           </div>
         </div>
       </div>
 
       {/* Final CTA */}
-      <div style={{ padding: '60px 20px 80px', textAlign: 'center', background: L.bg }}>
-        <h3
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 'clamp(1.5rem, 3vw, 2rem)',
-            color: L.text,
-            fontWeight: 600,
-            marginBottom: 14,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Gata să începi?
-        </h3>
-        <p style={{ color: L.text2, fontSize: '1rem', marginBottom: 28, lineHeight: 1.6 }}>
-          30 zile gratuite. Setup în 10 minute.
-        </p>
-        <button
-          onClick={() => {
-            pushPlanIntent('growth')
-            void onCheckout('growth')
-          }}
-          style={{
-            background: L.accent,
-            color: '#fff',
-            border: 'none',
-            borderRadius: 12,
-            padding: '16px 36px',
-            fontSize: '1rem',
-            fontWeight: 700,
-            fontFamily: 'DM Sans,sans-serif',
-            cursor: 'pointer',
-            boxShadow: '0 4px 14px rgba(200,150,60,0.3)',
-          }}
-        >
-          Începe gratuit Meniu + Comenzi →
-        </button>
+      <div style={{ padding: '64px 20px 88px', textAlign: 'center', background: L.bg }}>
+        <RevealItem>
+          <h3
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.5rem, 3vw, 2rem)',
+              color: L.text,
+              fontWeight: 700,
+              marginBottom: 14,
+              letterSpacing: '-0.02em',
+              textWrap: 'balance',
+            }}
+          >
+            Gata să începi?
+          </h3>
+          <p style={{ color: L.text2, fontSize: '1rem', marginBottom: 28, lineHeight: 1.6 }}>
+            30 zile gratuite. Setup în 10 minute.
+          </p>
+          <button
+            onClick={() => {
+              pushPlanIntent('growth')
+              void onCheckout('growth')
+            }}
+            className="pressable"
+            style={{
+              background: L.accent,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 12,
+              padding: '16px 36px',
+              fontSize: '1rem',
+              fontWeight: 700,
+              fontFamily: 'DM Sans,sans-serif',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))',
+            }}
+          >
+            Începe gratuit Meniu + Comenzi →
+          </button>
+        </RevealItem>
       </div>
     </div>
   )
