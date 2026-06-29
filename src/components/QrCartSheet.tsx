@@ -484,7 +484,22 @@ export default function QrCartSheet({
         {/* Recomandate alături — carusel orizontal */}
         {suggestions.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <div style={sectionLabelStyle(PUB.text3)}>{suggestionMsg}</div>
+            {/* Eticheta de secțiune (eyebrow) + mesajul de upsell lizibil:
+                mesajul e nudge de conversie → contrast/dimensiune de body,
+                nu stilul mic-tracked de etichetă. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div style={sectionLabelStyle(PUB.text3)}>Recomandate alături</div>
+              <div
+                style={{
+                  fontFamily: 'DM Sans, sans-serif',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: PUB.text2,
+                }}
+              >
+                {suggestionMsg}
+              </div>
+            </div>
             <div
               style={{
                 display: 'flex',
