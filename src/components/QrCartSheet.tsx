@@ -5,7 +5,7 @@
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
 import { useMemo, type CSSProperties } from 'react'
-import type { CartItem } from '../lib/orders'
+import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 
 interface PUBColors {
@@ -44,6 +44,13 @@ export interface QrCartSheetProps {
   onSubmit: () => void
   onOpenProduct: (product: Product) => void
   onAddToCart: (item: CartItem) => void
+  // Opțional — modul „Masa ta" complet: comenzi deja trimise (La bucătărie) +
+  // plata mesei. Dacă lipsesc, sheet-ul rămâne coș simplu (backward-compatible).
+  sentOrders?: OrderConfirmationPayload[]
+  tableTotal?: number
+  onPayTable?: () => void
+  payDisabled?: boolean
+  payLabel?: string
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -77,7 +84,13 @@ export default function QrCartSheet({
   onSubmit,
   onOpenProduct,
   onAddToCart,
+  sentOrders,
+  tableTotal,
+  onPayTable,
+  payDisabled = false,
+  payLabel = 'Plătește masa',
 }: QrCartSheetProps) {
+  const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
@@ -240,6 +253,59 @@ export default function QrCartSheet({
             Adaugă oricând, plătești când vrei.
           </div>
         </div>
+
+        {/* Secțiune: LA BUCĂTĂRIE (comenzi deja trimise în sesiune) */}
+        {hasSent && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={sectionLabelStyle(PUB.text3)}>La bucătărie · {sentOrders?.length}</div>
+            {sentOrders?.map((o) => (
+              <div
+                key={o.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: 10,
+                  background: PUB.surface,
+                  border: `1px solid ${PUB.border}`,
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                  <span
+                    style={{
+                      fontFamily: 'DM Sans, sans-serif',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      color: PUB.text2,
+                    }}
+                  >
+                    #{o.short_id} ·{' '}
+                    {new Date(o.created_at).toLocaleTimeString('ro-RO', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                  <span style={{ fontSize: 12, color: PUB.text3, fontStyle: 'italic' }}>
+                    Trimisă la bucătărie
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontFamily: 'Fraunces, Georgia, serif',
+                    fontWeight: 600,
+                    color: PUB.text,
+                    flexShrink: 0,
+                  }}
+                >
+                  {o.total.toFixed(2)} lei
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Secțiune: ÎN COȘ · DE TRIMIS */}
         <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>
@@ -628,8 +694,35 @@ export default function QrCartSheet({
             boxShadow: canSubmit ? '0 6px 18px rgba(26,18,8,0.18)' : 'none',
           }}
         >
-          {submitting ? 'Se trimite...' : `Trimite comanda · ${cartTotal.toFixed(2)} lei`}
+          {submitting
+            ? 'Se trimite...'
+            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${cartTotal.toFixed(2)} lei`}
         </button>
+
+        {/* CTA secundar — Plătește masa (cere nota; doar când există comenzi trimise) */}
+        {onPayTable && (
+          <button
+            type="button"
+            onClick={onPayTable}
+            disabled={payDisabled}
+            className={payDisabled ? '' : 'pressable'}
+            style={{
+              background: 'transparent',
+              color: PUB.text,
+              border: `1px solid ${PUB.borderStrong}`,
+              borderRadius: 16,
+              padding: '14px 0',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: payDisabled ? 'default' : 'pointer',
+              opacity: payDisabled ? 0.6 : 1,
+            }}
+          >
+            {payLabel}
+            {typeof tableTotal === 'number' ? ` · ${tableTotal.toFixed(2)} lei` : ''}
+          </button>
+        )}
       </div>
     </div>
   )

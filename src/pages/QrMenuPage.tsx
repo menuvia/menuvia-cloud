@@ -1248,6 +1248,13 @@ export default function QrMenuPage({ token }: Props) {
               setActiveProduct(product)
             }}
             onAddToCart={(item) => setCart((prev) => [...prev, item])}
+            sentOrders={previousOrders}
+            tableTotal={cartTotal + previousOrders.reduce((s, o) => s + o.total, 0)}
+            onPayTable={
+              previousOrders.length > 0 ? () => void handleRequestBill() : undefined
+            }
+            payDisabled={requestingBill || billRequested}
+            payLabel={billRequested ? 'Nota a fost cerută ✓' : 'Plătește masa'}
           />
         </Suspense>
       )}
