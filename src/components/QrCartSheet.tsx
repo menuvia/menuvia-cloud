@@ -47,7 +47,7 @@ export interface QrCartSheetProps {
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
-function sectionLabelStyle(color: string): React.CSSProperties {
+function sectionLabelStyle(color: string): CSSProperties {
   return {
     fontFamily: 'DM Sans, sans-serif',
     fontSize: 11,
