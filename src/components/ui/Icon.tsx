@@ -36,6 +36,8 @@ export type IconName =
   | 'qr'
   | 'receipt'
   | 'clock'
+  | 'utensils'
+  | 'history'
   | 'chevronRight'
   | 'chevronDown'
 
@@ -109,6 +111,13 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <path d="M12 7v5l3.5 2" />
+    </>
+  ),
+  utensils: <path d="M6 3v7a2 2 0 0 0 4 0V3M8 3v18M17 3c-1.5 0-2.5 1.8-2.5 4.5S15.5 12 17 12v9" />,
+  history: (
+    <>
+      <path d="M3.5 9a8.5 8.5 0 1 1-1.2 5" />
+      <path d="M2 5v5h5M12 8v4.5l3 1.8" />
     </>
   ),
   chevronRight: <path d="M9 6l6 6-6 6" />,
