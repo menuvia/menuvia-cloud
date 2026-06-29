@@ -16,9 +16,11 @@ import {
 import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../lib/stocks'
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
+import { generateNutrition, generateProductImage } from '../lib/ai'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
+const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 
 // ── Product Modal ─────────────────────────────────────────────
 function ProductModal({
@@ -114,8 +116,93 @@ function ProductModal({
       prep_time_minutes: null,
       portion_size: null,
       vat_group: 1,
+      calories: null,
+      protein_g: null,
+      carbs_g: null,
+      fat_g: null,
+      ai_generated_fields: [],
     },
   )
+
+  // ── AI: generare imagine + nutriție ──────────────────────────
+  // Câmpurile generate de AI sunt marcate în form.ai_generated_fields și
+  // afișează badge „verifică"; editarea manuală a unui câmp îl scoate din listă.
+  const aiFields = form.ai_generated_fields ?? []
+  const isAiField = (f: string) => aiFields.includes(f)
+  const clearAiFlag = (f: string) =>
+    setForm((prev) => ({
+      ...prev,
+      ai_generated_fields: (prev.ai_generated_fields ?? []).filter((x) => x !== f),
+    }))
+  const markAiFields = (fields: string[]) =>
+    setForm((prev) => ({
+      ...prev,
+      ai_generated_fields: Array.from(new Set([...(prev.ai_generated_fields ?? []), ...fields])),
+    }))
+  const [aiNutriBusy, setAiNutriBusy] = useState(false)
+  const [aiImgBusy, setAiImgBusy] = useState(false)
+
+  async function handleGenerateNutrition() {
+    if (!form.name?.trim()) {
+      pmToast('Adaugă întâi numele produsului.', 'error')
+      return
+    }
+    setAiNutriBusy(true)
+    try {
+      const catName = categories.find((c) => c.id === form.category_id)?.name ?? null
+      const n = await generateNutrition({
+        restaurant_id: restaurantId,
+        name: form.name.trim(),
+        description: form.description ?? null,
+        category: catName,
+      })
+      setForm((prev) => ({
+        ...prev,
+        calories: n.calories,
+        protein_g: n.protein_g,
+        carbs_g: n.carbs_g,
+        fat_g: n.fat_g,
+        // Alergenii/tag-urile sunt SUGESTII — le adăugăm fără să suprascriem ce există deja.
+        allergens: Array.from(new Set([...(prev.allergens ?? []), ...n.allergens])),
+        dietary_tags: Array.from(new Set([...(prev.dietary_tags ?? []), ...n.dietary_tags])),
+      }))
+      const marked = ['calories', 'protein_g', 'carbs_g', 'fat_g']
+      if (n.allergens.length) marked.push('allergens')
+      if (n.dietary_tags.length) marked.push('dietary_tags')
+      markAiFields(marked)
+      pmToast('Valori generate de AI — verifică-le înainte de salvare.', 'success')
+    } catch (e) {
+      pmToast(e instanceof Error ? e.message : 'Eroare la generarea nutriției.', 'error')
+    } finally {
+      setAiNutriBusy(false)
+    }
+  }
+
+  async function handleGenerateImage() {
+    if (!product?.id) {
+      pmToast('Salvează întâi produsul, apoi generează imaginea.', 'error')
+      return
+    }
+    setAiImgBusy(true)
+    try {
+      const catName = categories.find((c) => c.id === form.category_id)?.name ?? null
+      const { image_url } = await generateProductImage({
+        restaurant_id: restaurantId,
+        product_id: product.id,
+        name: (form.name ?? product.name ?? '').trim(),
+        description: form.description ?? null,
+        category: catName,
+      })
+      setImgPreview(image_url)
+      setForm((prev) => ({ ...prev, image_url }))
+      markAiFields(['image_url'])
+      pmToast('Imagine generată de AI — verifică-o.', 'success')
+    } catch (e) {
+      pmToast(e instanceof Error ? e.message : 'Eroare la generarea imaginii.', 'error')
+    } finally {
+      setAiImgBusy(false)
+    }
+  }
   const [showOptional, setShowOptional] = useState(false)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
@@ -279,21 +366,25 @@ function ProductModal({
   }
   const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
 
-  // Allergen toggle helpers
-  const toggleAllergen = (id: string) =>
+  // Allergen toggle helpers — orice editare manuală scoate flag-ul „AI".
+  const toggleAllergen = (id: string) => {
     setForm((f) => ({
       ...f,
       allergens: (f.allergens || []).includes(id)
         ? (f.allergens || []).filter((a) => a !== id)
         : [...(f.allergens || []), id],
     }))
-  const toggleDiet = (id: string) =>
+    clearAiFlag('allergens')
+  }
+  const toggleDiet = (id: string) => {
     setForm((f) => ({
       ...f,
       dietary_tags: (f.dietary_tags || []).includes(id)
         ? (f.dietary_tags || []).filter((d) => d !== id)
         : [...(f.dietary_tags || []), id],
     }))
+    clearAiFlag('dietary_tags')
+  }
   return (
     <Modal title={product ? 'Editează produs' : 'Adaugă produs'} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
@@ -529,11 +620,39 @@ function ProductModal({
               {uploading ? 'Se încarcă...' : '+ Imagine'}
             </label>
           )}
+          {/* Generare imagine cu AI (doar OpenAI/Gemini; necesită produs salvat) */}
+          <div style={{ marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => void handleGenerateImage()}
+              disabled={aiImgBusy || !product?.id}
+              title={!product?.id ? 'Salvează întâi produsul' : 'Generează o imagine cu AI'}
+              style={btn({
+                background: 'transparent',
+                color: D.gold,
+                border: `1px solid ${D.gold}55`,
+                height: 34,
+                fontSize: '0.78rem',
+                padding: '0 12px',
+                opacity: aiImgBusy || !product?.id ? 0.5 : 1,
+              })}
+            >
+              {aiImgBusy ? 'Se generează…' : '✨ Generează imagine'}
+            </button>
+            {isAiField('image_url') && (
+              <span style={{ display: 'inline-block', marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>
+                ✨ generată de AI — verifică
+              </span>
+            )}
+          </div>
         </div>
         {/* Taguri dietetice */}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 4 }}>
             Etichete dietetice
+            {isAiField('dietary_tags') && (
+              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ sugerat de AI — verifică</span>
+            )}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
             Op\u021bional. Ajut\u0103 clien\u021bii s\u0103 g\u0103seasc\u0103 produse potrivite cu
@@ -571,6 +690,9 @@ function ProductModal({
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 4 }}>
             Alergeni
+            {isAiField('allergens') && (
+              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ sugerat de AI — confirmă obligatoriu</span>
+            )}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
             Bifeaz\u0103 dac\u0103 produsul con\u021bine. Cerin\u021b\u0103 legal\u0103 (EU
@@ -727,6 +849,59 @@ function ProductModal({
                   <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 5 }}>
                     Ex: 350g, 500ml, 2 buc
                   </div>
+                </div>
+              </div>
+
+              {/* ── Valori nutriționale (estimabile cu AI) ──────── */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
+                  <label style={{ fontSize: '0.78rem', color: D.t2 }}>
+                    Valori nutriționale
+                    {(isAiField('calories') || isAiField('protein_g') || isAiField('carbs_g') || isAiField('fat_g')) && (
+                      <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ estimate de AI — verifică</span>
+                    )}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateNutrition()}
+                    disabled={aiNutriBusy}
+                    style={btn({
+                      background: 'transparent',
+                      color: D.gold,
+                      border: `1px solid ${D.gold}55`,
+                      height: 32,
+                      fontSize: '0.76rem',
+                      padding: '0 12px',
+                      opacity: aiNutriBusy ? 0.5 : 1,
+                    })}
+                  >
+                    {aiNutriBusy ? 'Se generează…' : '✨ Generează cu AI'}
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
+                  {([
+                    { key: 'calories', label: 'Calorii (kcal)', int: true },
+                    { key: 'protein_g', label: 'Proteine (g)', int: false },
+                    { key: 'carbs_g', label: 'Carbohidrați (g)', int: false },
+                    { key: 'fat_g', label: 'Grăsimi (g)', int: false },
+                  ] as const).map((nf) => (
+                    <div key={nf.key}>
+                      <label style={{ display: 'block', fontSize: '0.7rem', color: D.t3, marginBottom: 4 }}>{nf.label}</label>
+                      <Inp
+                        type="number"
+                        value={form[nf.key] == null ? '' : String(form[nf.key])}
+                        onChange={(v) => {
+                          const parsed = v.length > 0 ? (nf.int ? parseInt(v) : parseFloat(v)) : NaN
+                          upd(nf.key, Number.isFinite(parsed) ? parsed : null)
+                          clearAiFlag(nf.key) // editare manuală → nu mai e „AI"
+                        }}
+                        placeholder="—"
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: '0.68rem', color: D.t3, marginTop: 6 }}>
+                  Valori per porție. Cele generate de AI sunt estimative — corectează-le dacă e nevoie.
                 </div>
               </div>
 
@@ -1445,6 +1620,7 @@ export default function ProductsTab({
   const [delId, setDelId] = useState<string | null>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [aiImportOpen, setAiImportOpen] = useState(false)
+  const [aiBulkOpen, setAiBulkOpen] = useState(false)
   const [activeCat, setActiveCat] = useState('all')
   const [search, setSearch] = useState('')
   const canAdd = canAddProduct(products.length)
@@ -1522,6 +1698,20 @@ export default function ProductsTab({
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setAiBulkOpen(true)}
+            title="Generează imagini + nutriție cu AI pentru tot meniul"
+            style={btn({
+              background: D.s2,
+              color: D.gold,
+              border: `1px solid ${D.gold}55`,
+              height: mob ? 38 : 44,
+              fontSize: mob ? '0.78rem' : '0.85rem',
+              padding: mob ? '0 10px' : '0 14px',
+            })}
+          >
+            {mob ? '✨' : '✨ Generează AI'}
+          </button>
           <button
             onClick={() => setAiImportOpen(true)}
             title="Import meniu din poză (AI)"
@@ -2049,6 +2239,17 @@ export default function ProductsTab({
               setAiImportOpen(false)
               refetchProducts()
             }}
+          />
+        </Suspense>
+      )}
+      {aiBulkOpen && (
+        <Suspense fallback={null}>
+          <AiBulkGenerate
+            restaurantId={restaurantId}
+            products={products}
+            categories={categories}
+            onClose={() => setAiBulkOpen(false)}
+            onDone={() => refetchProducts()}
           />
         </Suspense>
       )}

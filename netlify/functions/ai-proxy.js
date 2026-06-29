@@ -198,7 +198,7 @@ exports.handler = async (event) => {
   const { restaurant_id, feature, system, messages, max_tokens } = body
 
   if (!restaurant_id) return jsonResponse(400, { error: 'Missing restaurant_id' })
-  if (!['chat', 'menu_import'].includes(feature)) {
+  if (!['chat', 'menu_import', 'nutrition'].includes(feature)) {
     return jsonResponse(400, { error: 'Invalid feature' })
   }
   if (!Array.isArray(messages) || messages.length === 0) {

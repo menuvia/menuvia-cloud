@@ -61,6 +61,11 @@ export const PRODUCT_UPDATE_FIELDS = [
   'prep_time_minutes',
   'portion_size',
   'vat_group',
+  'calories',
+  'protein_g',
+  'carbs_g',
+  'fat_g',
+  'ai_generated_fields',
 ] as const satisfies readonly (keyof Product)[]
 
 export function pickAllowed<T extends object, K extends keyof T>(

@@ -128,6 +128,10 @@ export interface Product {
   prep_time_minutes: number | null
   portion_size: string | null
   vat_group: number
+  calories: number | null
+  protein_g: number | null
+  carbs_g: number | null
+  fat_g: number | null
   extras: ProductExtra[]
   pairings: ProductPairing[]
 }
@@ -221,6 +225,10 @@ interface RawProductRow {
   prep_time_minutes: number | null
   portion_size: string | null
   vat_group: number
+  calories: number | null
+  protein_g: number | null
+  carbs_g: number | null
+  fat_g: number | null
   extras: ProductExtra[]
   pairings: ProductPairing[]
 }
@@ -261,7 +269,7 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
   const { data: prodRows, error: prodErr } = await supabase
     .from('products')
     .select(
-      'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group',
+      'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group, calories, protein_g, carbs_g, fat_g',
     )
     .eq('restaurant_id', restaurantId)
     .eq('is_draft', false)
