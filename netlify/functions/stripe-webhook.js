@@ -129,6 +129,34 @@ exports.handler = async (event) => {
     switch (stripeEvent.type) {
       case 'checkout.session.completed': {
         const session = stripeEvent.data.object
+
+        // ── Top-up credite AI (plată unică, mode='payment') ───────────
+        // Fulfilment idempotent per session.id (RPC mig 169) → un retry
+        // Stripe nu poate dubla creditele. NU intră în logica de abonament.
+        if (session.mode === 'payment' && session.metadata?.type === 'ai_credits') {
+          const aiRestaurantId = session.metadata.restaurant_id
+          const aiTokens = parseInt(session.metadata.tokens, 10)
+          // Onorăm doar sesiunile plătite.
+          if (session.payment_status !== 'paid') {
+            console.warn(`[stripe-webhook] ai_credits session ${session.id} not paid (${session.payment_status})`)
+            break
+          }
+          if (!aiRestaurantId || !Number.isFinite(aiTokens) || aiTokens <= 0) {
+            throw new Error(`ai_credits: metadata invalidă (restaurant_id/tokens) pe ${session.id}`)
+          }
+          const { error: creditErr } = await supabase.rpc('ai_add_credits_for_event', {
+            p_ref:           session.id,
+            p_restaurant_id: aiRestaurantId,
+            p_tokens:        aiTokens,
+          })
+          if (creditErr) {
+            // Bani încasați dar credit neacordat → 500 ca Stripe să reia (idempotent pe ref).
+            throw new Error(`ai_credits fulfilment failed: ${creditErr.message}`)
+          }
+          console.log(`[stripe-webhook] AI credits +${aiTokens} pentru restaurant ${aiRestaurantId} (${session.id})`)
+          break
+        }
+
         const refUserId = session.client_reference_id
         const customerId = session.customer
         const subscriptionId = session.subscription

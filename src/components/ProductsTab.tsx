@@ -18,6 +18,7 @@ import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
+const AiMenuImport = lazy(() => import('./AiMenuImport'))
 
 // ── Product Modal ─────────────────────────────────────────────
 function ProductModal({
@@ -1443,6 +1444,7 @@ export default function ProductsTab({
   const [modal, setModal] = useState<Product | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
+  const [aiImportOpen, setAiImportOpen] = useState(false)
   const [activeCat, setActiveCat] = useState('all')
   const [search, setSearch] = useState('')
   const canAdd = canAddProduct(products.length)
@@ -1520,6 +1522,20 @@ export default function ProductsTab({
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setAiImportOpen(true)}
+            title="Import meniu din poză (AI)"
+            style={btn({
+              background: D.s2,
+              color: D.t1,
+              border: `1px solid ${D.border}`,
+              height: mob ? 38 : 44,
+              fontSize: mob ? '0.78rem' : '0.85rem',
+              padding: mob ? '0 10px' : '0 14px',
+            })}
+          >
+            {mob ? '📸' : '📸 Import din poză'}
+          </button>
           <button
             onClick={() => setCsvImportOpen(true)}
             style={btn({
@@ -2021,6 +2037,17 @@ export default function ProductsTab({
               toast(`✓ ${n} produse importate`)
               refetchProducts()
               refetchCats()
+            }}
+          />
+        </Suspense>
+      )}
+      {aiImportOpen && (
+        <Suspense fallback={null}>
+          <AiMenuImport
+            restaurantId={restaurantId}
+            onClose={() => {
+              setAiImportOpen(false)
+              refetchProducts()
             }}
           />
         </Suspense>
