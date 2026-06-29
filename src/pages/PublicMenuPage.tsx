@@ -1600,6 +1600,8 @@ function ProductCardEditorial({
 
       {pickupEnabled && !isSoldOut && (
         <button
+          type="button"
+          className="pressable"
           onClick={(e) => {
             e.stopPropagation()
             if (hasRequiredMods) onOpen()
