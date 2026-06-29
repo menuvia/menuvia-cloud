@@ -38,6 +38,10 @@ export default function FounderAiPanel() {
       setError('Limita trebuie să fie un număr pozitiv.')
       return
     }
+    if (n > 1_000_000_000) {
+      setError('Limita e prea mare (max 1 miliard de tokens).')
+      return
+    }
     setSavingId(restaurantId)
     setError(null)
     try {
@@ -110,7 +114,7 @@ export default function FounderAiPanel() {
                         type="number"
                         value={draftLimit}
                         onChange={(e) => setDraftLimit(e.target.value)}
-                        style={{ width: 100, background: D.s3, border: `1px solid ${D.gold}55`, borderRadius: 6, color: D.t1, padding: '5px 7px', fontSize: '0.82rem', outline: 'none' }}
+                        style={{ width: 100, background: D.s3, border: `1px solid ${D.gold}55`, borderRadius: 6, color: D.t1, padding: '5px 7px', fontSize: '0.82rem' }}
                       />
                     ) : (
                       (r.included_tokens ?? 50000).toLocaleString('ro-RO')

@@ -239,19 +239,41 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
         <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {/* Hero image / emoji fallback — 16:9 */}
           {product.image_url ? (
-            <img
-              src={product.image_url}
-              alt={product.name}
-              loading="lazy"
-              decoding="async"
-              style={{
-                width: '100%',
-                aspectRatio: '16/9',
-                objectFit: 'cover',
-                marginTop: 12,
-                background: PUB.surface,
-              }}
-            />
+            <div style={{ position: 'relative', marginTop: 12 }}>
+              <img
+                src={product.image_url}
+                alt={product.name}
+                loading="lazy"
+                decoding="async"
+                style={{
+                  width: '100%',
+                  aspectRatio: '16/9',
+                  objectFit: 'cover',
+                  display: 'block',
+                  background: PUB.surface,
+                }}
+              />
+              {/* Disclaimer transparență: imagine generată de AI = ilustrativă. */}
+              {(product.ai_generated_fields ?? []).includes('image_url') && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    bottom: 8,
+                    right: 8,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    color: '#fff',
+                    background: 'rgba(0,0,0,0.55)',
+                    backdropFilter: 'blur(4px)',
+                    padding: '3px 8px',
+                    borderRadius: 100,
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
+                >
+                  Imagine ilustrativă
+                </span>
+              )}
+            </div>
           ) : (
             <div
               style={{

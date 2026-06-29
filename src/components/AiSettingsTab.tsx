@@ -149,7 +149,6 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
     padding: '11px 13px',
     fontSize: '0.9rem',
     fontFamily: 'DM Sans,sans-serif',
-    outline: 'none',
     boxSizing: 'border-box' as const,
   }
 
@@ -173,7 +172,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
             <span style={{ color: D.t1, fontSize: '1.1rem', fontWeight: 600 }}>
-              {quota.used_tokens.toLocaleString('ro-RO')} <span style={{ color: D.t3, fontSize: '0.85rem', fontWeight: 400 }}>/ {quota.included_tokens.toLocaleString('ro-RO')} incluse</span>
+              {quota.used_tokens.toLocaleString('ro-RO')} <span style={{ color: D.t2, fontSize: '0.85rem', fontWeight: 400 }}>/ {quota.included_tokens.toLocaleString('ro-RO')} incluse</span>
             </span>
             {quota.credit_balance > 0 && (
               <span style={{ color: D.gold, fontSize: '0.82rem' }}>
@@ -268,7 +267,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
             placeholder={hasKey ? '•••••••• (lasă gol pentru a păstra cheia)' : 'Lipește cheia aici'}
             style={input}
           />
-          <p style={{ color: D.t3, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{meta.hint}</p>
+          <p style={{ color: D.t2, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{meta.hint}</p>
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 4 }}>

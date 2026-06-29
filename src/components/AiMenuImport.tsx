@@ -116,7 +116,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...p } : d)))
   }
 
-  const field = { background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', outline: 'none', boxSizing: 'border-box' as const }
+  const field = { background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', boxSizing: 'border-box' as const }
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
@@ -144,7 +144,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
           {step === 'review' && (
             <>
               <p style={{ color: D.t1, fontSize: '0.92rem', marginBottom: 4, fontWeight: 600 }}>Am găsit {drafts.length} produse. E totul corect?</p>
-              <p style={{ color: D.t3, fontSize: '0.8rem', marginBottom: 16 }}>Corectează ce e greșit, debifează ce nu vrei, apoi salvează.</p>
+              <p style={{ color: D.t2, fontSize: '0.8rem', marginBottom: 16 }}>Corectează ce e greșit, debifează ce nu vrei, apoi salvează.</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {drafts.map((d, i) => (
                   <div key={i} style={{ background: d.include ? D.s2 : D.s1, border: `1px solid ${D.border}`, borderRadius: 10, padding: 12, opacity: d.include ? 1 : 0.55 }}>
@@ -173,7 +173,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
             <div style={{ textAlign: 'center', padding: '24px 0' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
               <p style={{ color: D.t1, fontSize: '1rem', fontWeight: 600, marginBottom: 6 }}>{imported} produse adăugate!</p>
-              <p style={{ color: D.t3, fontSize: '0.85rem' }}>Le găsești în tab-ul Produse.</p>
+              <p style={{ color: D.t2, fontSize: '0.85rem' }}>Le găsești în tab-ul Produse.</p>
             </div>
           )}
         </div>

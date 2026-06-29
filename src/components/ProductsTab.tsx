@@ -86,7 +86,12 @@ function ProductModal({
         data: { publicUrl },
       } = supabase.storage.from('product-images').getPublicUrl(path)
       setImgPreview(publicUrl)
-      setForm((f) => ({ ...f, image_url: publicUrl }))
+      // Upload manual = imagine reală a owner-ului → scoatem marcajul „AI".
+      setForm((f) => ({
+        ...f,
+        image_url: publicUrl,
+        ai_generated_fields: (f.ai_generated_fields ?? []).filter((x) => x !== 'image_url'),
+      }))
     } catch (e) {
       console.error('Upload failed', e)
       pmToast(
@@ -99,7 +104,12 @@ function ProductModal({
 
   function removeImage() {
     setImgPreview(null)
-    setForm((f) => ({ ...f, image_url: null }))
+    // La ștergere manuală, scoatem și marcajul „generat de AI" pentru imagine.
+    setForm((f) => ({
+      ...f,
+      image_url: null,
+      ai_generated_fields: (f.ai_generated_fields ?? []).filter((x) => x !== 'image_url'),
+    }))
   }
 
   const [form, setForm] = useState<Partial<Product>>(
@@ -141,6 +151,9 @@ function ProductModal({
     }))
   const [aiNutriBusy, setAiNutriBusy] = useState(false)
   const [aiImgBusy, setAiImgBusy] = useState(false)
+  // Alergenii sugerați de AI NU se aplică automat (răspundere legală EU 1169/2011)
+  // — rămân sugestii pe care owner-ul le confirmă manual prin click.
+  const [aiAllergenSuggestions, setAiAllergenSuggestions] = useState<string[]>([])
 
   async function handleGenerateNutrition() {
     if (!form.name?.trim()) {
@@ -162,15 +175,15 @@ function ProductModal({
         protein_g: n.protein_g,
         carbs_g: n.carbs_g,
         fat_g: n.fat_g,
-        // Alergenii/tag-urile sunt SUGESTII — le adăugăm fără să suprascriem ce există deja.
-        allergens: Array.from(new Set([...(prev.allergens ?? []), ...n.allergens])),
+        // Tag-urile dietetice (vegan etc.) sunt comerciale, nu safety-critical → le sugerăm direct.
         dietary_tags: Array.from(new Set([...(prev.dietary_tags ?? []), ...n.dietary_tags])),
       }))
       const marked = ['calories', 'protein_g', 'carbs_g', 'fat_g']
-      if (n.allergens.length) marked.push('allergens')
       if (n.dietary_tags.length) marked.push('dietary_tags')
       markAiFields(marked)
-      pmToast('Valori generate de AI — verifică-le înainte de salvare.', 'success')
+      // Alergenii: DOAR sugestii de confirmat manual (nu se publică fără click explicit).
+      setAiAllergenSuggestions(n.allergens)
+      pmToast('Valori generate de AI — verifică-le. Alergenii necesită confirmare manuală.', 'success')
     } catch (e) {
       pmToast(e instanceof Error ? e.message : 'Eroare la generarea nutriției.', 'error')
     } finally {
@@ -690,9 +703,6 @@ function ProductModal({
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 4 }}>
             Alergeni
-            {isAiField('allergens') && (
-              <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ sugerat de AI — confirmă obligatoriu</span>
-            )}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
             Bifeaz\u0103 dac\u0103 produsul con\u021bine. Cerin\u021b\u0103 legal\u0103 (EU
@@ -737,6 +747,44 @@ function ProductModal({
               )
             })}
           </div>
+          {/* Sugestii AI de alergeni — de confirmat manual (NU se publică automat). */}
+          {aiAllergenSuggestions.filter((id) => !(form.allergens || []).includes(id)).length > 0 && (
+            <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amber}44`, borderRadius: 8 }}>
+              <div style={{ fontSize: '0.7rem', color: D.amber, marginBottom: 6, fontWeight: 600 }}>
+                ✨ Sugerat de AI — confirmă doar ce e corect (răspundere legală):
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {aiAllergenSuggestions
+                  .filter((id) => !(form.allergens || []).includes(id))
+                  .map((id) => {
+                    const a = ALLERGENS.find((x) => x.id === id)
+                    if (!a) return null
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => {
+                          toggleAllergen(id) // confirmare explicită = adăugare în lista oficială
+                          setAiAllergenSuggestions((prev) => prev.filter((x) => x !== id))
+                        }}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 100,
+                          fontSize: '0.74rem',
+                          fontFamily: 'DM Sans,sans-serif',
+                          cursor: 'pointer',
+                          background: 'transparent',
+                          color: D.amber,
+                          border: `1px dashed ${D.amber}88`,
+                        }}
+                      >
+                        + {a.emoji} {a.label}
+                      </button>
+                    )
+                  })}
+              </div>
+            </div>
+          )}
           {(form.allergens || []).length > 0 && (
             <div
               style={{

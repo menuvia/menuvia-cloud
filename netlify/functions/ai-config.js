@@ -14,6 +14,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
+const dns = require('dns').promises
 
 function jsonResponse(statusCode, body) {
   return {
@@ -21,6 +22,60 @@ function jsonResponse(statusCode, body) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }
+}
+
+// ── Anti-SSRF: validează un base_url 'custom' controlat de tenant ──────
+// Blochează loopback / link-local / metadata cloud / rețele private, atât pe
+// IP-literal cât și pe rezultatul DNS (anti-rebind parțial). Folosit la salvare
+// (aici) ȘI la request (ai-proxy) — rândurile vechi nu trec prin validarea de save.
+function isPrivateIp(ip) {
+  const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const a = Number(v4[1]), b = Number(v4[2])
+    if (a === 10 || a === 127 || a === 0) return true
+    if (a === 169 && b === 254) return true          // link-local + metadata 169.254.169.254
+    if (a === 172 && b >= 16 && b <= 31) return true // 172.16/12
+    if (a === 192 && b === 168) return true          // 192.168/16
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT 100.64/10
+    if (a >= 224) return true                         // multicast/reserved
+    return false
+  }
+  const lower = ip.toLowerCase()
+  if (lower === '::1' || lower === '::' || lower === '0:0:0:0:0:0:0:1') return true
+  if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return true
+  if (lower.startsWith('::ffff:')) return isPrivateIp(lower.slice(7)) // IPv4-mapped
+  return false
+}
+
+// Întoarce base_url normalizat (fără slash final) sau aruncă Error cu mesaj clar.
+async function assertSafeBaseUrl(raw) {
+  let u
+  try {
+    u = new URL(String(raw))
+  } catch {
+    throw new Error('URL invalid')
+  }
+  if (u.protocol !== 'https:') throw new Error('base_url trebuie să fie https')
+  if (u.port && u.port !== '443') throw new Error('port nepermis (doar 443)')
+  const host = u.hostname.toLowerCase()
+  if (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.internal') ||
+    host.endsWith('.local')
+  ) {
+    throw new Error('host intern interzis')
+  }
+  let addrs
+  try {
+    addrs = await dns.lookup(host, { all: true })
+  } catch {
+    throw new Error('host nerezolvabil')
+  }
+  for (const a of addrs) {
+    if (isPrivateIp(a.address)) throw new Error('host către rețea internă interzis')
+  }
+  return u.toString().replace(/\/+$/, '')
 }
 
 const PROVIDERS = ['openai', 'anthropic', 'gemini', 'custom']
@@ -56,6 +111,11 @@ exports.handler = async (event) => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, AI_CONFIG_SECRET } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
     console.error('[ai-config] Missing env vars')
+    return jsonResponse(500, { error: 'Server config error' })
+  }
+  // Secretul de criptare trebuie să aibă entropie suficientă (>=32 caractere).
+  if (AI_CONFIG_SECRET.length < 32) {
+    console.error('[ai-config] AI_CONFIG_SECRET prea scurt (<32)')
     return jsonResponse(500, { error: 'Server config error' })
   }
 
@@ -110,10 +170,14 @@ exports.handler = async (event) => {
   // base_url obligatoriu doar pentru 'custom' (OpenAI-compatible)
   let cleanBaseUrl = null
   if (provider === 'custom') {
-    if (typeof base_url !== 'string' || !/^https:\/\//i.test(base_url.trim())) {
+    if (typeof base_url !== 'string' || base_url.trim().length === 0) {
       return jsonResponse(400, { error: 'custom provider requires an https base_url' })
     }
-    cleanBaseUrl = base_url.trim().replace(/\/+$/, '')
+    try {
+      cleanBaseUrl = await assertSafeBaseUrl(base_url.trim())
+    } catch (e) {
+      return jsonResponse(400, { error: `base_url respins: ${e instanceof Error ? e.message : 'invalid'}` })
+    }
   }
   if (api_key != null && typeof api_key !== 'string') {
     return jsonResponse(400, { error: 'api_key must be a string' })
