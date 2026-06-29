@@ -8,6 +8,7 @@ import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProducts, useCategories, type Product } from '../hooks/useData'
 import { aiChat, type AiMessage } from '../lib/ai'
+import { Icon } from './ui/Icon'
 
 // ── Protocolul de acțiuni ────────────────────────────────────
 type AiAction =
@@ -224,9 +225,12 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           cursor: 'pointer',
           fontSize: 24,
           boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        ✨
+        <Icon name="sparkle" size={24} color={D.onGold} />
       </button>
     )
   }
@@ -255,7 +259,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
       {/* Header */}
       <div style={{ padding: '14px 16px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>✨</span>
+          <Icon name="sparkle" size={18} color={D.gold} />
           <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1rem', color: D.t1 }}>Asistent AI</span>
         </div>
         <button onClick={() => setOpen(false)} aria-label="Închide" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18, padding: 4 }}>✕</button>
@@ -298,7 +302,13 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
             ))}
           </div>
         ))}
-        {busy && <div style={{ color: D.t2, fontSize: '0.85rem' }}>Asistentul scrie…</div>}
+        {busy && (
+          <div style={{ color: D.t2, display: 'flex', alignItems: 'center', gap: 5, padding: '2px 2px' }} aria-label="Asistentul scrie">
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+            <span className="typing-dot" />
+          </div>
+        )}
         {error && (
           <div style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '9px 12px', fontSize: '0.82rem' }}>{error}</div>
         )}
@@ -319,9 +329,9 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           disabled={busy || !input.trim()}
           aria-label="Trimite mesajul"
           className="pressable"
-          style={{ minWidth: 44, height: 44, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '0 16px', fontSize: '0.88rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy || !input.trim() ? 0.5 : 1 }}
+          style={{ minWidth: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: D.gold, color: D.onGold, border: 'none', borderRadius: 10, padding: '0 16px', cursor: busy ? 'default' : 'pointer', opacity: busy || !input.trim() ? 0.5 : 1 }}
         >
-          ➤
+          <Icon name="send" size={18} />
         </button>
       </div>
     </div>
