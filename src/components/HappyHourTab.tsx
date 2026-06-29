@@ -10,6 +10,7 @@
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useCallback } from 'react'
 import { D } from '../lib/constants'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { InlineSpinner } from './PageLoader'
 import {
   fetchHappyHourRules,
@@ -523,6 +524,7 @@ function RuleEditor({
   )
   const [isActive, setIsActive] = useState(rule?.is_active ?? true)
   const [err, setErr] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   function toggleDay(d: number) {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()))
@@ -618,7 +620,7 @@ function RuleEditor({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
               <div style={lbl}>De la</div>
               <input
@@ -759,7 +761,7 @@ function RuleEditor({
                 Sumă fixă (lei)
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
               <div>
                 <input
                   type="number"

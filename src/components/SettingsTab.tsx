@@ -680,7 +680,7 @@ export default function SettingsTab({
                     key={day}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '80px 1fr 88px 88px',
+                      gridTemplateColumns: isMobile ? '1fr' : '80px 1fr 88px 88px',
                       gap: 8,
                       alignItems: 'center',
                     }}

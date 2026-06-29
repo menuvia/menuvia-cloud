@@ -4,6 +4,7 @@
 // =============================================================
 import { useEffect, useState, useCallback } from 'react'
 import { D } from '../lib/constants'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Skeleton } from './ui/Skeleton'
@@ -460,6 +461,7 @@ function OblioConfigModal({
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   async function save() {
     if (!form.api_email || !form.api_secret || !form.company_cif || !form.company_name) {
@@ -601,7 +603,7 @@ function OblioConfigModal({
             />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
             <div>
               <label style={labelStyle}>CIF firmă *</label>
               <input

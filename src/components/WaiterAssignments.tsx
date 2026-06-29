@@ -16,7 +16,7 @@ interface Props {
 interface WaiterMember {
   user_id: string
   role: string
-  profile: { full_name: string | null; email: string } | null
+  profile: { full_name: string | null; email: string | null } | null
 }
 interface Table {
   id: string
@@ -126,7 +126,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       const waiterList = memberRows.map((m) => ({
         user_id: m.user_id,
         role: m.role,
-        profile: (profileMap.get(m.user_id) ?? null) as WaiterMember['profile'],
+        profile: profileMap.get(m.user_id) ?? null,
       }))
       setWaiters(waiterList)
       setTables((tabRes.data ?? []) as Table[])
