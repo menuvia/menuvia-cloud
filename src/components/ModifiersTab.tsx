@@ -176,36 +176,79 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function deleteGroup(id: string) {
-    await supabase.from('modifier_groups').delete().eq('id', id)
+    setError(null)
+    const { error: e } = await supabase.from('modifier_groups').delete().eq('id', id)
+    // Nu mai înghițim tăcut un refuz RLS / eroare de rețea: dacă pică, anunțăm
+    // și NU re-încărcăm cu impresia că s-a șters (UI rămânea desincronizat).
+    if (e) {
+      setError(e.message)
+      return
+    }
     await load()
   }
 
   async function addOption(groupId: string) {
     if (!optName.trim()) return
+    setError(null)
     const maxOrder = groups.find((g) => g.id === groupId)?.modifier_options.length ?? 0
-    await supabase.from('modifier_options').insert({
+    const { error: e } = await supabase.from('modifier_options').insert({
       modifier_group_id: groupId,
       name: optName.trim(),
       price_delta: parseFloat(optPrice) || 0,
       display_order: maxOrder,
     })
+    if (e) {
+      setError(e.message)
+      return
+    }
     setOptName('')
     setOptPrice('0')
     await load()
   }
 
   async function toggleOption(id: string, current: boolean) {
-    await supabase.from('modifier_options').update({ is_available: !current }).eq('id', id)
+    setError(null)
+    const { error: e } = await supabase
+      .from('modifier_options')
+      .update({ is_available: !current })
+      .eq('id', id)
+    if (e) {
+      setError(e.message)
+      return
+    }
     await load()
   }
 
   async function deleteOption(id: string) {
-    await supabase.from('modifier_options').delete().eq('id', id)
+    setError(null)
+    const { error: e } = await supabase.from('modifier_options').delete().eq('id', id)
+    if (e) {
+      setError(e.message)
+      return
+    }
     await load()
   }
 
   return (
     <div>
+      {/* Banner de eroare la nivel de listă (operațiile delete/toggle/add se fac
+          fără modal deschis, deci eroarea lor n-ar fi vizibilă altfel). */}
+      {error && !editGroup && (
+        <div
+          role="alert"
+          style={{
+            color: D.red,
+            fontSize: 13,
+            marginBottom: 14,
+            padding: '10px 12px',
+            background: D.red + '14',
+            border: `1px solid ${D.red}55`,
+            borderRadius: 8,
+          }}
+        >
+          {error}
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -339,6 +382,8 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 <button
                   aria-label={o.is_available ? 'Marchează indisponibil' : 'Marchează disponibil'}
                   onClick={() => void toggleOption(o.id, o.is_available)}
+                  aria-label={o.is_available ? 'Marchează indisponibil' : 'Marchează disponibil'}
+                  title={o.is_available ? 'Disponibil' : 'Indisponibil'}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -347,7 +392,9 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     color: o.is_available ? D.green : D.t3,
                   }}
                 >
-                  {o.is_available ? '&#x25cf;' : '&#x25cb;'}
+                  {/* Caracterele ●/○ direct — entitatea HTML NU se decodează într-o
+                      expresie JSX {} de tip string, ar fi randată literal „&#x25cf;". */}
+                  {o.is_available ? '●' : '○'}
                 </button>
                 <button
                   aria-label="Șterge opțiune"

@@ -688,8 +688,12 @@ function MovementModal({
   const [sendFiscal, setSendFiscal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Corecția de numărare poate fi în plus SAU în minus (sertar mai gol/mai plin
+  // decât așteptat). Pentru ea lăsăm utilizatorul să aleagă semnul.
+  const [correctionPositive, setCorrectionPositive] = useState(true)
 
   const meta = MOVEMENT_LABELS[type]
+  const isCorrection = type === 'correction'
 
   async function go() {
     const n = Number(amount.replace(',', '.'))
@@ -701,7 +705,7 @@ function MovementModal({
       setErr('Motivul e obligatoriu')
       return
     }
-    const finalAmount = meta.isPositive ? n : -n
+    const finalAmount = isCorrection ? (correctionPositive ? n : -n) : meta.isPositive ? n : -n
     setBusy(true)
     setErr(null)
     try {
@@ -744,15 +748,44 @@ function MovementModal({
               </button>
             ))}
           </div>
-          <div
-            style={{
-              fontSize: '0.74rem',
-              color: meta.isPositive ? D.green : D.amber,
-              marginTop: 6,
-            }}
-          >
-            {meta.isPositive ? '+ adăugat în sertar' : '− scos din sertar'}
-          </div>
+          {isCorrection ? (
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              {[
+                { pos: true, label: '+ în plus în sertar' },
+                { pos: false, label: '− în minus în sertar' },
+              ].map((opt) => (
+                <button
+                  key={String(opt.pos)}
+                  onClick={() => setCorrectionPositive(opt.pos)}
+                  style={btn({
+                    flex: 1,
+                    background: correctionPositive === opt.pos ? D.goldA : D.s3,
+                    color:
+                      correctionPositive === opt.pos
+                        ? opt.pos
+                          ? D.green
+                          : D.amber
+                        : D.t2,
+                    border: `1px solid ${correctionPositive === opt.pos ? D.gold : D.border}`,
+                    fontSize: '0.78rem',
+                    height: 36,
+                  })}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div
+              style={{
+                fontSize: '0.74rem',
+                color: meta.isPositive ? D.green : D.amber,
+                marginTop: 6,
+              }}
+            >
+              {meta.isPositive ? '+ adăugat în sertar' : '− scos din sertar'}
+            </div>
+          )}
         </div>
 
         <div>

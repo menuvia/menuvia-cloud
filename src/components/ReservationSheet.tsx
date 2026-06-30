@@ -84,10 +84,23 @@ function buildSlots(dateYmd: string, settings: PublicSettings, minAdvanceMs: num
   return slots
 }
 
-function isoIsoForLocalDateTime(dateYmd: string, hhmm: string): string {
+// Convertește ora aleasă (oră de perete) în UTC ISO, interpretată ÎN fusul
+// restaurantului — NU în fusul browserului vizitatorului. Fără asta, un client
+// din diaspora care alege 19:00 pentru un restaurant din București trimitea o
+// oră greșită (interpretată în fusul lui). Trucul standard fără librării:
+// calculează offset-ul fusului la acel instant și aplică-l.
+function isoIsoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): string {
   const [y, mo, d] = dateYmd.split('-').map(Number)
   const t = parseTime(hhmm)
-  return new Date(y!, mo! - 1, d!, t.h, t.m, 0, 0).toISOString()
+  const asUtc = Date.UTC(y!, mo! - 1, d!, t.h, t.m, 0, 0)
+  try {
+    // Cum arată instantul „asUtc" afișat în fusul restaurantului → diferența e offset-ul.
+    const back = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone })).getTime()
+    if (Number.isFinite(back)) return new Date(asUtc + (asUtc - back)).toISOString()
+  } catch {
+    /* fus invalid → fallback la UTC brut (comportamentul vechi) */
+  }
+  return new Date(asUtc).toISOString()
 }
 
 function formatDateRo(dateYmd: string, lang: string): string {
@@ -213,7 +226,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       return
     }
     setSubmitting(true)
-    const startsAt = isoIsoForLocalDateTime(chosenDateYmd, timeSlot)
+    const startsAt = isoIsoForLocalDateTime(chosenDateYmd, timeSlot, restaurant.timezone || 'Europe/Bucharest')
     const { data, error: rpcErr } = await supabase.rpc('create_reservation_public', {
       p_slug: restaurant.slug,
       p_customer_name: name.trim(),
@@ -249,7 +262,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
     const row = Array.isArray(data) ? data[0] : data
     setResult(row as CreateResult)
-  }, [chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, restaurant.slug, lang])
+  }, [chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, restaurant.slug, restaurant.timezone, lang])
 
   const maxParty = settings?.max_party_size ?? 20
 

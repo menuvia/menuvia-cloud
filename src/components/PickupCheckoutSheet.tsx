@@ -91,6 +91,14 @@ export default function PickupCheckoutSheet({
       setError('Te rog completează numele')
       return
     }
+    // Telefonul e OBLIGATORIU pentru pickup: create_order (mig 145) respinge
+    // comenzile pickup fără telefon valid (7-15 cifre). Validăm client-side
+    // ca să nu eșueze tăcut cu mesaj generic.
+    const phoneDigits = phone.match(/\d/g)?.length ?? 0
+    if (phoneDigits < 7 || phoneDigits > 15) {
+      setError('Te rog completează un număr de telefon valid (7–15 cifre)')
+      return
+    }
     if (!pickupTime) {
       setError('Te rog alege un interval')
       return
@@ -109,7 +117,7 @@ export default function PickupCheckoutSheet({
         idempotency_key: idempotencyKeyRef.current,
         pickup_time: pickupTime || null,
         customer_name: name.trim(),
-        customer_phone: phone.trim().length > 0 ? phone.trim() : null,
+        customer_phone: phone.trim(),
       })
       // Rotește cheia înainte de a propaga succesul: dacă părintele lasă
       // sheet-ul montat și user-ul mai trimite o comandă, a doua nu va fi
@@ -118,7 +126,21 @@ export default function PickupCheckoutSheet({
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
-      setError('Comanda nu s-a trimis. Încearcă din nou.')
+      // Mapăm hint-urile cunoscute din create_order (mig 145) la mesaje clare,
+      // în loc să afișăm același text generic pentru orice eșec.
+      const msg = err instanceof Error ? err.message : ''
+      const friendly = /invalid_customer_phone|valid customer_phone/i.test(msg)
+        ? 'Număr de telefon invalid. Verifică-l și încearcă din nou.'
+        : /pickup_disabled|dezactivate/i.test(msg)
+          ? 'Comenzile pickup nu sunt disponibile momentan.'
+          : /pickup_time_too_soon|min.?lead|too soon/i.test(msg)
+            ? 'Intervalul ales e prea aproape. Alege unul mai târziu.'
+            : /missing_pickup_time/i.test(msg)
+              ? 'Te rog alege un interval de ridicare.'
+              : /rate.?limit|too many|prea multe/i.test(msg)
+                ? 'Prea multe comenzi într-un timp scurt. Reîncearcă în câteva minute.'
+                : 'Comanda nu s-a trimis. Încearcă din nou.'
+      setError(friendly)
       setSubmitting(false)
     }
   }
@@ -215,7 +237,7 @@ export default function PickupCheckoutSheet({
                 marginBottom: 6,
               }}
             >
-              Telefon (opțional)
+              Telefon
             </label>
             <input
               value={phone}
@@ -236,7 +258,7 @@ export default function PickupCheckoutSheet({
               }}
             />
             <div style={{ fontSize: 11, color: PUB.text3, marginTop: 5 }}>
-              Pentru a putea fi sunat dacă întârzii
+              Obligatoriu — pentru a putea fi sunat dacă întârzii
             </div>
           </div>
 

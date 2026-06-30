@@ -53,14 +53,47 @@ function addDays(d: Date, n: number) {
   return r
 }
 
+// Granița de zi (00:00:00 sau 23:59:59.999) pentru o dată YYYY-MM-DD, exprimată
+// ca instant UTC ISO, interpretată în fusul României — DST-aware (EET/EEST).
+// Calculează offset-ul real al fusului la acel instant (fără librării), ca să nu
+// hardcodăm +03:00 (greșit iarna). Trucul: ce offset are Europe/Bucharest față de
+// UTC la momentul respectiv = diferența dintre wall-time-ul redat în TZ și în UTC.
+function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
+  const [y, mo, d] = ymd.split('-').map(Number)
+  const h = endOfDay ? 23 : 0
+  const mi = endOfDay ? 59 : 0
+  const s = endOfDay ? 59 : 0
+  const ms = endOfDay ? 999 : 0
+  const guess = Date.UTC(y!, mo! - 1, d!, h, mi, s, ms)
+  const at = new Date(guess)
+  const asUtc = new Date(at.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+  const asBuc = new Date(at.toLocaleString('en-US', { timeZone: 'Europe/Bucharest' })).getTime()
+  const offsetMs = asBuc - asUtc // +7200000 iarna, +10800000 vara
+  return new Date(guess - offsetMs).toISOString()
+}
+
+// Data calendaristică (YYYY-MM-DD) a unui instant ÎN fusul României. `toISO`
+// folosea UTC → lângă miezul nopții „Azi" putea cădea pe ziua românească anterioară.
+function toRomaniaYMD(d: Date): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Bucharest',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d)
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
 function periodRange(
   p: Period,
   custom: { from: string; to: string },
 ): { from: string; to: string } {
   const today = new Date()
-  if (p === 'today') return { from: toISO(today), to: toISO(today) }
-  if (p === 'week') return { from: toISO(addDays(today, -6)), to: toISO(today) }
-  if (p === 'month') return { from: toISO(addDays(today, -29)), to: toISO(today) }
+  const todayYMD = toRomaniaYMD(today)
+  if (p === 'today') return { from: todayYMD, to: todayYMD }
+  if (p === 'week') return { from: toRomaniaYMD(addDays(today, -6)), to: todayYMD }
+  if (p === 'month') return { from: toRomaniaYMD(addDays(today, -29)), to: todayYMD }
   return custom
 }
 
@@ -173,9 +206,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     setLoading(true)
     setError(null)
     try {
-      // Explicit Romania timezone boundaries — avoids UTC drift on day edges
-      const startISO = range.from + 'T00:00:00+03:00'
-      const endISO = range.to + 'T23:59:59.999+03:00'
+      // Granițe de zi în fusul României, DST-aware (EET +02:00 iarna / EEST +03:00 vara).
+      // Hardcodarea lui +03:00 muta granița cu o oră iarna și pierdea/dubla comenzi pe margini.
+      const startISO = romaniaDayBoundaryISO(range.from, false)
+      const endISO = romaniaDayBoundaryISO(range.to, true)
 
       // ── Single source of truth: orders table (not v_daily_orders) ──
       // Includes ALL non-cancelled orders, not just paid ones.
@@ -199,30 +233,57 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
       const allOrders = (ordersRaw ?? []) as unknown as Record<string, unknown>[]
       const totalOrders = allOrders.length
-      const revenue = allOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cashRev = allOrders
+
+      // Venitul se calculează pe comenzile PLĂTITE, bucketate după `paid_at`
+      // (momentul încasării), NU după created_at: o comandă creată ieri și plătită
+      // azi trebuie să intre în venitul de azi. Query separat, mărginit pe paid_at.
+      // Coloanele monetare rămân gate-uite pe Plan 3 (fiscalReports).
+      let paidOrders: Record<string, unknown>[] = []
+      if (fiscalReports) {
+        const { data: paidRaw, error: pErr } = await supabase
+          .from('orders')
+          .select('id, total, paid_amount, payment_method, paid_at')
+          .eq('restaurant_id', restaurantId)
+          .eq('status', 'paid')
+          .gte('paid_at', startISO)
+          .lte('paid_at', endISO)
+          .order('paid_at', { ascending: true })
+        if (pErr) throw pErr
+        paidOrders = (paidRaw ?? []) as unknown as Record<string, unknown>[]
+      }
+      const revenue = paidOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      const cashRev = paidOrders
         .filter((o) => o.payment_method === 'cash')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cardRev = allOrders
+      const cardRev = paidOrders
         .filter((o) => o.payment_method === 'card_pos')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
-      const avgTicket = totalOrders > 0 ? revenue / totalOrders : 0
+      // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
+      const avgTicket = paidOrders.length > 0 ? revenue / paidOrders.length : 0
 
       setMetrics({ totalOrders, revenue, cashRev, cardRev, qrOrders, waiterOrders, avgTicket })
 
       // ── Build daily chart data (client-side aggregation) ──
-      const dayMap = new Map<string, { comenzi: number; revenue: number }>()
-      for (const o of allOrders) {
-        const d = new Date(o.created_at as string)
-        const key = d.toLocaleDateString('ro-RO', {
+      // Comenzile (count) se grupează după created_at; venitul după paid_at
+      // (consecvent cu metricile de mai sus). Cheia zilei = în fusul României.
+      const dayKey = (iso: string) =>
+        new Date(iso).toLocaleDateString('ro-RO', {
           day: '2-digit',
           month: '2-digit',
           timeZone: 'Europe/Bucharest',
         })
+      const dayMap = new Map<string, { comenzi: number; revenue: number }>()
+      for (const o of allOrders) {
+        const key = dayKey(o.created_at as string)
         const prev = dayMap.get(key) ?? { comenzi: 0, revenue: 0 }
         prev.comenzi += 1
+        dayMap.set(key, prev)
+      }
+      for (const o of paidOrders) {
+        const key = dayKey(o.paid_at as string)
+        const prev = dayMap.get(key) ?? { comenzi: 0, revenue: 0 }
         prev.revenue += Number(o.paid_amount ?? o.total ?? 0)
         dayMap.set(key, prev)
       }

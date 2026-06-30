@@ -408,16 +408,23 @@ export default function WaiterPage() {
     void advance(order.id, 'ready', { status: 'served', served_by: user.id })
   }
 
-  function handlePay(method: PaymentMethod, amount: number, tips: number): void {
+  async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<void> {
     if (payOrder == null || user == null) return
-    void advance(payOrder.id, 'served', {
+    // Cale de bani: NU închidem optimist modalul. Așteptăm rezultatul și
+    // închidem doar la succes; la refuz (rol/gate/rețea) ținem modalul deschis
+    // și anunțăm ospătarul în loc să-i lăsăm impresia că plata a trecut.
+    const ok = await advance(payOrder.id, 'served', {
       status: 'paid',
       paid_by: user.id,
       payment_method: method,
       paid_amount: amount,
       tips_amount: tips,
     })
-    setPayOrder(null)
+    if (ok) {
+      setPayOrder(null)
+    } else {
+      window.alert('Plata nu a fost înregistrată. Verifică și reîncearcă.')
+    }
   }
 
   // Plan 1/2: închidere NON-fiscală (served → closed). Fără sumă, fără metodă
@@ -1387,12 +1394,13 @@ export default function WaiterPage() {
         <CancelOrderDialog
           order={cancelOrder}
           onClose={() => setCancelOrder(null)}
-          onConfirm={(reason) => {
-            void advance(cancelOrder.id, cancelOrder.status, {
+          onConfirm={async (reason) => {
+            const ok = await advance(cancelOrder.id, cancelOrder.status, {
               status: 'cancelled',
               cancel_reason: reason,
             })
-            setCancelOrder(null)
+            if (ok) setCancelOrder(null)
+            return ok
           }}
         />
       )}

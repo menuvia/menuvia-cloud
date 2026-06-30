@@ -30,11 +30,14 @@ interface UseOrdersResult {
   loading: boolean
   error: string | null
   connectionStatus: RealtimeConnectionStatus
+  // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea).
+  // Apelanții pe căi de bani (plată) trebuie să verifice rezultatul înainte de a
+  // închide optimist modalul.
   advance: (
     orderId: string,
     currentStatus: OrderStatus,
     payload: AdvanceOrderPayload,
-  ) => Promise<void>
+  ) => Promise<boolean>
   byStatus: (statuses: OrderStatus[]) => Order[]
 }
 
@@ -175,6 +178,7 @@ export function useOrders(
           _currentStatus: currentStatus,
         })
         upsertOrder(updated)
+        return true
       } catch (e: unknown) {
         if (previous !== undefined) {
           const snap = previous
@@ -187,6 +191,7 @@ export function useOrders(
           })
         }
         setError(e instanceof Error ? e.message : 'Failed to update order')
+        return false
       } finally {
         pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)
       }
