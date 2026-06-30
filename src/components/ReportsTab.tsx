@@ -17,6 +17,9 @@ import {
 import { supabase } from '../lib/supabase'
 import { D, D_RAW } from '../lib/constants'
 import { QueryError } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
 import {
   fetchWaiterSales,
@@ -568,7 +571,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               whiteSpace: 'nowrap',
             }}
           >
-            📊 Export CSV
+            <Icon name="download" size={16} />
+            Export CSV
           </button>
           <button
             onClick={() => void exportPdf()}
@@ -591,7 +595,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               whiteSpace: 'nowrap',
             }}
           >
-            {exporting ? 'Se generează...' : '📄 Export PDF'}
+            {exporting ? (
+              'Se generează...'
+            ) : (
+              <>
+                <Icon name="receipt" size={16} color="#000" />
+                Export PDF
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -650,23 +661,24 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       </div>
 
       {loading ? (
-        <div style={{ padding: '60px', textAlign: 'center', color: D.t3, fontSize: '0.875rem' }}>
-          Se încarcă...
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
+              gap: 10,
+            }}
+          >
+            <Skeleton variant="card" count={4} />
+          </div>
+          <Skeleton variant="card" />
         </div>
       ) : totalOrders === 0 ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            padding: '60px 20px',
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>📊</div>
-          <div>Nicio comandă în această perioadă.</div>
-        </div>
+        <EmptyState
+          icon="chart"
+          title="Nicio comandă în această perioadă."
+          description="Schimbă perioada selectată pentru a vedea datele de vânzări."
+        />
       ) : (
         <>
           {/* Plan 1/2: evidență operațională — niciun număr nu e document fiscal */}

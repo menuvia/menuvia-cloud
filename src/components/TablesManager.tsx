@@ -10,6 +10,9 @@ import { getPlanByInternalId } from '../lib/plans'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 import type { Restaurant } from '../hooks/useData'
 
 interface QrTokenRow {
@@ -758,7 +761,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'Descarcă toate QR-urile'}
+                <Icon name="download" size={16} />
+                {downloading ? '...' : 'Descarcă toate QR-urile'}
               </button>
               <button
                 onClick={() => downloadPdf('tent')}
@@ -771,7 +775,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'Carduri pliabile'}
+                <Icon name="download" size={16} />
+                {downloading ? '...' : 'Carduri pliabile'}
               </button>
               <button
                 onClick={() => downloadPdf('poster')}
@@ -784,7 +789,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   opacity: downloading ? 0.7 : 1,
                 })}
               >
-                ⬇ {downloading ? '...' : 'Poster A4'}
+                <Icon name="download" size={16} />
+                {downloading ? '...' : 'Poster A4'}
               </button>
             </>
           )}
@@ -792,7 +798,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             onClick={() => setModal('add')}
             style={btn({ background: D.gold, color: '#000' })}
           >
-            + Adaugă masă
+            <Icon name="plus" size={16} />
+            Adaugă masă
           </button>
         </div>
       </div>
@@ -817,7 +824,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               gap: 10,
             }}
           >
-            <span style={{ fontSize: 18 }}>⚠️</span>
+            <Icon name="alert" size={18} color="#E8A020" />
             <div style={{ fontSize: '0.78rem', color: '#E8A020', lineHeight: 1.5 }}>
               {isPreview
                 ? 'VITE_APP_URL nu e setat — QR-urile generate vor conține URL-ul de preview, nu domeniul final.'
@@ -922,18 +929,24 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       )}
 
       {loading ? (
-        <div style={{ padding: '48px 0', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
-      ) : loadError ? (
-        <div style={{ padding: '48px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 28, marginBottom: 8 }}>⚠️</div>
-          <div style={{ color: D.t2, fontSize: 14, marginBottom: 16 }}>{loadError}</div>
-          <button
-            onClick={load}
-            style={btn({ background: D.s2, color: D.gold, border: `1px solid ${D.border}` })}
-          >
-            Reîncearcă
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <Skeleton variant="card" count={4} height={72} />
         </div>
+      ) : loadError ? (
+        <EmptyState
+          icon="alert"
+          title="Nu s-au putut încărca mesele"
+          description={loadError}
+          action={
+            <button
+              onClick={load}
+              style={btn({ background: D.s2, color: D.gold, border: `1px solid ${D.border}` })}
+            >
+              <Icon name="refresh" size={16} />
+              Reîncearcă
+            </button>
+          }
+        />
       ) : tables.length === 0 ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {tables.map((t) => (
