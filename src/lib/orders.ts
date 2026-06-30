@@ -141,18 +141,25 @@ export async function fetchKitchenOrders(restaurantId: string): Promise<Order[]>
     .eq('restaurant_id', restaurantId)
     .in('status', ['new', 'confirmed', 'preparing', 'ready'])
     .order('created_at', { ascending: true })
-  if (error) throw error
+  // Aruncăm un Error REAL (nu obiectul Supabase) ca mesajul să ajungă în UI;
+  // altfel `e instanceof Error` din useOrders e false și se afișează „Unknown error".
+  if (error) throw new Error(error.message)
   return (data ?? []) as unknown as Order[]
 }
 
 export async function fetchWaiterOrders(restaurantId: string): Promise<Order[]> {
+  // Statusurile „deschise" pentru ospătar = tot ce nu e paid/cancelled/closed.
+  // Folosim lista POZITIVĂ `.in()` (ca fetchKitchenOrders, care funcționează) în
+  // loc de `.not('status','in','(...)')` — acel pattern eșua, iar comenzile nu se
+  // încărcau deloc (UI: „Unknown error" + 0 comenzi). Include `served` (ospătarul
+  // vede și comenzile servite neîncasate), spre deosebire de bucătărie.
   const { data, error } = await supabase
     .from('orders')
     .select(ORDER_SELECT)
     .eq('restaurant_id', restaurantId)
-    .not('status', 'in', '("paid","cancelled","closed")')
+    .in('status', ['new', 'confirmed', 'preparing', 'ready', 'served'])
     .order('created_at', { ascending: true })
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return (data ?? []) as unknown as Order[]
 }
 
@@ -162,7 +169,7 @@ export async function fetchOrderById(orderId: string): Promise<Order> {
     .select(ORDER_SELECT)
     .eq('id', orderId)
     .single()
-  if (error) throw error
+  if (error) throw new Error(error.message)
   return data as unknown as Order
 }
 

@@ -82,7 +82,16 @@ export function useOrders(
         setLoading(false)
       })
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : 'Unknown error')
+        // Surfacing real al erorii: Supabase aruncă uneori un obiect simplu
+        // ({ message, code, ... }) care NU e instanceof Error → nu masca mesajul
+        // ca „Unknown error", ci citește `.message` și din obiect.
+        const msg =
+          e instanceof Error
+            ? e.message
+            : e && typeof e === 'object' && 'message' in e
+              ? String((e as { message: unknown }).message)
+              : 'Unknown error'
+        setError(msg)
         setLoading(false)
       })
   }, [restaurantId, view])
