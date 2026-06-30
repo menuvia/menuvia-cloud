@@ -271,7 +271,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
             Opțiuni produse
           </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            Grupuri de op\u021biuni (ex: Extra sos, M\u0103rime)
+            Grupuri de opțiuni (ex: Extra sos, Mărime)
           </p>
         </div>
         <button
@@ -288,8 +288,8 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       ) : groups.length === 0 ? (
         <EmptyState
           icon="tag"
-          title="Niciun grup de op\u021biuni"
-          description="Adaug\u0103 primul grup ca s\u0103 oferi extra-op\u021biuni la produse (ex: M\u0103rime, Topping-uri)."
+          title="Niciun grup de opțiuni"
+          description="Adaugă primul grup ca să oferi extra-opțiuni la produse (ex: Mărime, Topping-uri)."
           action={
             <button
               onClick={() => openEdit('add')}
@@ -324,8 +324,8 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 <div style={{ fontSize: '0.95rem', fontWeight: 600, color: D.t1 }}>{g.name}</div>
                 <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                   {g.selection_type === 'single'
-                    ? 'Selec\u021bie unic\u0103'
-                    : 'Selec\u021bie multipl\u0103'}
+                    ? 'Selecție unică'
+                    : 'Selecție multiplă'}
                   {g.is_required && (
                     <span style={{ color: D.gold, marginLeft: 6 }}>Obligatoriu</span>
                   )}
@@ -415,7 +415,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               <input
                 value={optName}
                 onChange={(e) => setOptName(e.target.value)}
-                placeholder="Nume op\u021biune"
+                placeholder="Nume opțiune"
                 style={{ ...inp, flex: '1 1 120px', height: 36, fontSize: '0.82rem' }}
               />
               <input
@@ -437,7 +437,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 })}
               >
                 <Icon name="plus" size={14} />
-                Ad\u0103ug\u0103
+                Adaugă
               </button>
             </div>
           </div>
@@ -477,7 +477,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 marginBottom: 20,
               }}
             >
-              {editGroup === 'add' ? 'Grup nou' : 'Editeaz\u0103 grup'}
+              {editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
             </div>
             <div style={{ marginBottom: 14 }}>
               <label
@@ -511,14 +511,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                       height: 36,
                     })}
                   >
-                    {t === 'single' ? 'O singur\u0103 op\u021biune' : 'Mai multe op\u021biuni'}
+                    {t === 'single' ? 'O singură opțiune' : 'Mai multe opțiuni'}
                   </button>
                 ))}
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
                 {gType === 'single'
-                  ? 'Ex: "M\u0103rime" \u2014 client alege Mic\u0103 SAU Medie SAU Mare'
-                  : 'Ex: "Topping-uri" \u2014 client poate alege mai multe deodat\u0103'}
+                  ? 'Ex: "Mărime" — client alege Mică SAU Medie SAU Mare'
+                  : 'Ex: "Topping-uri" — client poate alege mai multe deodată'}
               </div>
             </div>
             {gType === 'multiple' && (
@@ -526,7 +526,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 <label
                   style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
                 >
-                  Num\u0103r maxim de op\u021biuni
+                  Număr maxim de opțiuni
                 </label>
                 <input
                   type="number"
@@ -537,7 +537,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   style={inp}
                 />
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
-                  C\u00e2te op\u021biuni poate bifa clientul. Las\u0103 gol pentru nelimitat.
+                  Câte opțiuni poate bifa clientul. Lasă gol pentru nelimitat.
                 </div>
               </div>
             )}
@@ -545,7 +545,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
               >
-                Trebuie clientul s\u0103 aleag\u0103?
+                Trebuie clientul să aleagă?
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
@@ -570,13 +570,13 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     height: 36,
                   })}
                 >
-                  Nu, op\u021bional
+                  Nu, opțional
                 </button>
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 5 }}>
                 {gRequired
-                  ? 'Clientul nu poate ad\u0103uga produsul \u00een co\u0219 f\u0103r\u0103 s\u0103 aleag\u0103 ceva'
-                  : 'Clientul poate s\u0103ri peste aceast\u0103 sec\u021biune'}
+                  ? 'Clientul nu poate adăuga produsul în coș fără să aleagă ceva'
+                  : 'Clientul poate sări peste această secțiune'}
               </div>
             </div>
             {error && <div style={{ color: D.red, fontSize: 13, marginBottom: 14 }}>{error}</div>}
@@ -585,14 +585,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 onClick={() => setEditGroup(null)}
                 style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
               >
-                Anuleaz\u0103
+                Anulează
               </button>
               <button
                 onClick={() => void saveGroup()}
                 disabled={saving}
                 style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
               >
-                {saving ? 'Se salveaz\u0103...' : 'Salveaz\u0103'}
+                {saving ? 'Se salvează...' : 'Salvează'}
               </button>
             </div>
           </div>

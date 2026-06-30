@@ -13,7 +13,7 @@ const center: CSSProperties = {
 }
 const spinKeyframes = `@keyframes mvia-spin{to{transform:rotate(360deg)}}`
 
-export function PageSpinner({ label = 'Se \xeencarc\u0103\u2026' }: { label?: string }) {
+export function PageSpinner({ label = 'Se încarcă…' }: { label?: string }) {
   return (
     <div style={center}>
       <div style={{ textAlign: 'center' }}>
@@ -115,10 +115,10 @@ export function ConfigError() {
             fontWeight: 700,
           }}
         >
-          Menuvia &mdash; configurare necesar\u0103
+          Menuvia &mdash; configurare necesară
         </h1>
         <p style={{ color: D.t2, fontSize: 14, lineHeight: 1.7, marginBottom: 20 }}>
-          Variabilele de mediu lipsesc. Seteaz\u0103-le &icirc;n{' '}
+          Variabilele de mediu lipsesc. Setează-le &icirc;n{' '}
           <strong style={{ color: '#E2B472' }}>
             Netlify &rarr; Site config &rarr; Environment variables
           </strong>
@@ -183,7 +183,7 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
                 fontSize: 14,
               }}
             >
-              Re&icirc;ncarc\u0103 pagina
+              Re&icirc;ncarcă pagina
             </button>
           </div>
         </div>

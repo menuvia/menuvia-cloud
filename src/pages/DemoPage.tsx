@@ -5,15 +5,15 @@ import { useToast } from '../components/ui/useToast'
 const ACCENT = '#C8963C'
 const DEMO_RESTAURANT = {
   name: 'La Bella Trattoria',
-  tagline: 'Buc\u0103t\u0103rie italian\u0103 autentic\u0103',
+  tagline: 'Bucătărie italiană autentică',
 }
 
 const DEMO_CATEGORIES = [
-  { id: '1', name: 'Aperitive', emoji: '\ud83e\uddc0' },
-  { id: '2', name: 'Paste', emoji: '\ud83c\udf5d' },
-  { id: '3', name: 'Pizza', emoji: '\ud83c\udf55' },
-  { id: '4', name: 'Deserturi', emoji: '\ud83c\udf70' },
-  { id: '5', name: 'B\u0103uturi', emoji: '\ud83c\udf77' },
+  { id: '1', name: 'Aperitive', emoji: '🧀' },
+  { id: '2', name: 'Paste', emoji: '🍝' },
+  { id: '3', name: 'Pizza', emoji: '🍕' },
+  { id: '4', name: 'Deserturi', emoji: '🍰' },
+  { id: '5', name: 'Băuturi', emoji: '🍷' },
 ]
 
 const DEMO_PRODUCTS = [
@@ -21,7 +21,7 @@ const DEMO_PRODUCTS = [
     id: '1',
     cat: '1',
     name: 'Bruschette Pomodoro',
-    desc: 'P\u00e2ine pr\u0103jit\u0103 cu ro\u0219ii cherry, busuioc \u0219i ulei de m\u0103sline',
+    desc: 'Pâine prăjită cu roșii cherry, busuioc și ulei de măsline',
     price: 24,
     special: false,
     soldOut: false,
@@ -30,7 +30,7 @@ const DEMO_PRODUCTS = [
     id: '2',
     cat: '1',
     name: 'Carpaccio di Manzo',
-    desc: 'Carpaccio de vit\u0103 cu rucola, parmezan \u0219i l\u0103m\u00e2ie',
+    desc: 'Carpaccio de vită cu rucola, parmezan și lămâie',
     price: 38,
     special: true,
     soldOut: false,
@@ -48,7 +48,7 @@ const DEMO_PRODUCTS = [
     id: '4',
     cat: '2',
     name: 'Penne Arrabbiata',
-    desc: 'Sos de ro\u0219ii picant cu usturoi \u0219i p\u0103trunjel',
+    desc: 'Sos de roșii picant cu usturoi și pătrunjel',
     price: 29,
     special: false,
     soldOut: false,
@@ -66,7 +66,7 @@ const DEMO_PRODUCTS = [
     id: '6',
     cat: '3',
     name: 'Margherita',
-    desc: 'Sos de ro\u0219ii, mozzarella, busuioc',
+    desc: 'Sos de roșii, mozzarella, busuioc',
     price: 28,
     special: false,
     soldOut: false,
@@ -93,7 +93,7 @@ const DEMO_PRODUCTS = [
     id: '9',
     cat: '4',
     name: 'Tiramisu',
-    desc: 'Re\u021bet\u0103 clasic\u0103 cu mascarpone \u0219i cafea',
+    desc: 'Rețetă clasică cu mascarpone și cafea',
     price: 22,
     special: false,
     soldOut: false,
@@ -102,7 +102,7 @@ const DEMO_PRODUCTS = [
     id: '10',
     cat: '4',
     name: 'Panna Cotta',
-    desc: 'Cu sos de fructe de p\u0103dure',
+    desc: 'Cu sos de fructe de pădure',
     price: 19,
     special: false,
     soldOut: false,
@@ -111,7 +111,7 @@ const DEMO_PRODUCTS = [
     id: '11',
     cat: '5',
     name: 'Limonada casei',
-    desc: 'L\u0103m\u00e2ie proasp\u0103t\u0103, ment\u0103, ap\u0103 mineral\u0103',
+    desc: 'Lămâie proaspătă, mentă, apă minerală',
     price: 14,
     special: false,
     soldOut: false,
@@ -120,7 +120,7 @@ const DEMO_PRODUCTS = [
     id: '12',
     cat: '5',
     name: 'Espresso',
-    desc: 'Cafea italian\u0103 100% arabica',
+    desc: 'Cafea italiană 100% arabica',
     price: 8,
     special: false,
     soldOut: false,
@@ -271,7 +271,7 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
                 )}
                 {p.special && (
                   <span style={{ color: ACCENT, fontSize: 12, marginLeft: 8 }}>
-                    {'\u2b50'} Specialitate
+                    {'⭐'} Specialitate
                   </span>
                 )}
               </div>
@@ -313,7 +313,7 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
           <button
             onClick={() => {
               toast.info(
-                'Acesta este modul demo. Creeaz\u0103 un cont pentru a trimite comenzi reale!',
+                'Acesta este modul demo. Creează un cont pentru a trimite comenzi reale!',
               )
               setCartCount(0)
             }}

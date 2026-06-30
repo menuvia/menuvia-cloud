@@ -475,17 +475,18 @@ export default function WaiterPage() {
         style={{
           background: D.s1,
           borderBottom: `1px solid ${D.s3}`,
-          padding: '0 24px',
-          height: 56,
+          padding: '8px 16px',
+          minHeight: 56,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 10,
           position: 'sticky',
           top: 0,
           zIndex: 100,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 auto' }}>
           {isAdminRole && (
             <button
               onClick={() => {
@@ -506,24 +507,25 @@ export default function WaiterPage() {
                 display: 'flex',
                 alignItems: 'center',
                 gap: 5,
+                flexShrink: 0,
               }}
             >
               <Icon name="arrowLeft" size={14} />
               Dashboard
             </button>
           )}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <span
                 style={{
                   fontFamily: 'Fraunces, Georgia, serif',
                   fontSize: 18,
                   fontWeight: 700,
                   color: D.t1,
+                  whiteSpace: 'nowrap',
                 }}
               >
                 {isAdminRole ? 'Comenzi live' : 'Ospătar'}
-                {restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
               </span>
               <span
                 title={
@@ -548,7 +550,8 @@ export default function WaiterPage() {
                 }}
               />
             </div>
-            {assignedTableIds instanceof Set && (
+            {/* Subtitlu: numele restaurantului + context — pe un singur rând, cu „…" la depășire */}
+            {assignedTableIds instanceof Set ? (
               <div
                 style={{
                   fontSize: 11,
@@ -557,21 +560,36 @@ export default function WaiterPage() {
                   display: 'flex',
                   alignItems: 'center',
                   gap: 5,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
                 <Icon name="table" size={12} />
                 {assignedTableIds.size}{' '}
                 {assignedTableIds.size === 1 ? 'masă alocată' : 'mese alocate'} · Comenzile tale
               </div>
-            )}
-            {isAdminRole && !(assignedTableIds instanceof Set) && (
-              <div style={{ fontSize: 11, color: D.t2, marginTop: 1 }}>
-                Vizualizare admin · vezi tot live
+            ) : (
+              <div
+                style={{
+                  fontSize: 11,
+                  color: D.t2,
+                  marginTop: 1,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {restaurantName.length > 0
+                  ? restaurantName
+                  : isAdminRole
+                    ? 'Vizualizare admin · vezi tot live'
+                    : ''}
               </div>
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
           {/* Restaurant selector — only visible for multi-restaurant users */}
           {memberships.length > 1 && (
             <select
