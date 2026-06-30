@@ -555,13 +555,19 @@ function Step3Table({
 
   useEffect(() => {
     let cancelled = false
-    void fetchRestaurantFeatures(restaurantId).then((f) => {
-      if (cancelled) return
-      const lim = getLimit(f, 'max_tables') // null = nelimitat
-      setMaxTables(lim)
-      // Clamp valoarea inițială (5) la limită ca să nu pornim peste plafon.
-      if (lim !== null) setCount((c) => Math.min(c, Math.max(1, lim)))
-    })
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (cancelled) return
+        const lim = getLimit(f, 'max_tables') // null = nelimitat
+        setMaxTables(lim)
+        // Clamp valoarea inițială (5) la limită ca să nu pornim peste plafon.
+        if (lim !== null) setCount((c) => Math.min(c, Math.max(1, lim)))
+      })
+      .catch((e) => {
+        // Eșec de transport: lăsăm UI-ul pe plafonul implicit (50) și logăm;
+        // serverul (mig 114) rămâne plasa de siguranță. Fără setState post-unmount.
+        if (!cancelled) console.error('[Onboarding] fetch features failed:', e)
+      })
     return () => {
       cancelled = true
     }

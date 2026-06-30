@@ -94,8 +94,9 @@ export default function PickupCheckoutSheet({
     // Telefonul e OBLIGATORIU pentru pickup: create_order (mig 145) respinge
     // comenzile pickup fără telefon valid (7-15 cifre). Validăm client-side
     // ca să nu eșueze tăcut cu mesaj generic.
-    if ((phone.match(/\d/g)?.length ?? 0) < 7) {
-      setError('Te rog completează un număr de telefon valid (minim 7 cifre)')
+    const phoneDigits = phone.match(/\d/g)?.length ?? 0
+    if (phoneDigits < 7 || phoneDigits > 15) {
+      setError('Te rog completează un număr de telefon valid (7–15 cifre)')
       return
     }
     if (!pickupTime) {

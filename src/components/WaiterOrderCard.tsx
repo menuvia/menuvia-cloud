@@ -54,6 +54,9 @@ function PayModal({
   onApplyHappyHour,
 }: PayModalProps) {
   const [method, setMethod] = useState<PaymentMethod>('cash')
+  // Cale de bani: blocăm butonul cât timp plata e în curs, ca un dublu-click
+  // rapid să nu trimită plata de două ori.
+  const [submitting, setSubmitting] = useState(false)
   const [tipsMode, setTipsMode] = useState<'none' | '5' | '10' | '15' | 'custom'>('none')
   const [tipsCustom, setTipsCustom] = useState('')
   const orderTotal = order.total
@@ -364,7 +367,16 @@ function PayModal({
         </div>
 
         <button
-          onClick={() => onConfirm(method, parseFloat(amount) || grandTotal, tipsAmount)}
+          disabled={submitting}
+          onClick={() => {
+            if (submitting) return
+            setSubmitting(true)
+            // Așteptăm finalizarea; dacă onConfirm e sincron, Promise.resolve îl
+            // normalizează. La eșec (părintele ține modalul deschis) redeblocăm.
+            void Promise.resolve(
+              onConfirm(method, parseFloat(amount) || grandTotal, tipsAmount),
+            ).finally(() => setSubmitting(false))
+          }}
           style={{
             background: D.green,
             color: '#fff',
@@ -374,10 +386,11 @@ function PayModal({
             fontFamily: 'DM Sans, sans-serif',
             fontSize: 15,
             fontWeight: 700,
-            cursor: 'pointer',
+            cursor: submitting ? 'wait' : 'pointer',
+            opacity: submitting ? 0.7 : 1,
           }}
         >
-          Confirmă plata
+          {submitting ? 'Se procesează…' : 'Confirmă plata'}
         </button>
 
         <button
