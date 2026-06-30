@@ -380,7 +380,6 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   {o.price_delta > 0 ? '+' + o.price_delta + ' lei' : 'Inclus'}
                 </span>
                 <button
-                  aria-label={o.is_available ? 'Marchează indisponibil' : 'Marchează disponibil'}
                   onClick={() => void toggleOption(o.id, o.is_available)}
                   aria-label={o.is_available ? 'Marchează indisponibil' : 'Marchează disponibil'}
                   title={o.is_available ? 'Disponibil' : 'Indisponibil'}
