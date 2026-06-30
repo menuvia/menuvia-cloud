@@ -114,6 +114,10 @@ export default function WaiterPage() {
   const paymentsEnabled = planTier(restaurantFeatures.features?.plan) >= 3
 
   const [payOrder, setPayOrder] = useState<Order | null>(null)
+  // Suma deja încasată în plăți parțiale pe comanda din PayModal — ca „Plata
+  // integrală" să ceară DOAR restul, nu totalul (altfel server-ul respinge cu
+  // overpayment și oricum ar fi dublă-încasare). Vezi mig 172.
+  const [payOrderPaid, setPayOrderPaid] = useState(0)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
   const [auditOrder, setAuditOrder] = useState<Order | null>(null)
@@ -125,7 +129,10 @@ export default function WaiterPage() {
   // Returnează rule activă curentă care dă cea mai mare reducere pe această
   // comandă. Reset când modal-ul se închide.
   useEffect(() => {
-    if (payOrder == null) return
+    if (payOrder == null) {
+      setPayOrderPaid(0)
+      return
+    }
     let alive = true
     void suggestHappyHourForOrder(payOrder.id)
       .then((s) => {
@@ -133,6 +140,14 @@ export default function WaiterPage() {
       })
       .catch(() => {
         if (alive) setHappyHourSugg(null)
+      })
+    // Cât s-a încasat deja în plăți parțiale pe această comandă.
+    void getOrderPayments(payOrder.id)
+      .then((ps) => {
+        if (alive) setPayOrderPaid(ps.reduce((s, p) => s + p.amount, 0))
+      })
+      .catch(() => {
+        if (alive) setPayOrderPaid(0)
       })
     return () => {
       alive = false
@@ -1143,6 +1158,7 @@ export default function WaiterPage() {
           return (
             <PayModal
               order={live}
+              alreadyPaid={payOrderPaid}
               onConfirm={handlePay}
               onClose={() => {
                 setPayOrder(null)
