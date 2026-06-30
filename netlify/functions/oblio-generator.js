@@ -169,14 +169,23 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new Error(`Cantitate invalidă pe linia de comandă (produs: ${name})`)
     }
-    const lineUnitPrice =
+    // item_total / unit_price_snapshot sunt GROSS (prețul plătit de client, TVA INCLUS;
+    // order.total = Σ item_total). Oblio interpretează `price` în funcție de `vatIncluded`:
+    //   - vatIncluded=true  → price e gross, Oblio nu mai adaugă TVA;
+    //   - vatIncluded=false → price e NET, Oblio adaugă TVA pe deasupra.
+    // Trimiteam mereu gross-ul, dar cu vatIncluded din config → când config-ul cere
+    // prețuri fără TVA, Oblio adăuga TVA peste gross și totalul facturii ieșea
+    // order.total*(1+TVA), divergent de suma încasată. Fix: derivă NET-ul când
+    // vatIncluded=false, ca totalul facturii să rămână = gross-ul plătit în ambele cazuri.
+    const grossUnit =
       it.item_total != null
         ? parseFloat(it.item_total) / qty
         : parseFloat(it.unit_price_snapshot)
+    const price = vatIncluded ? grossUnit : grossUnit / (1 + vatPercent / 100)
     return {
       name,
       quantity: it.quantity,
-      price: lineUnitPrice,
+      price,
       vatPercentage: vatPercent,
       vatIncluded,
     }
@@ -259,10 +268,17 @@ async function postOblioInvoice(payload, token, testMode) {
   let data
   try { data = JSON.parse(text) } catch { data = { raw: text } }
 
-  if (!res.ok || data.status >= 400 || data.statusMessage?.toLowerCase().includes('error')) {
+  // Succesul Oblio se confirmă POZITIV, nu prin absența substringului „error"
+  // (care marca greșit mesaje gen „No errors"). Cerem: HTTP ok + status 200 (dacă
+  // e prezent) + un NUMĂR de factură real în data.data — altfel un răspuns ambiguu
+  // putea fi marcat `issued` cu number gol.
+  const httpOk = res.ok && (data.status == null || Number(data.status) === 200)
+  const invoiceNumber = data?.data?.number
+  const hasNumber = invoiceNumber != null && String(invoiceNumber).trim().length > 0
+  if (!httpOk || !hasNumber) {
     throw new Error(`Oblio invoice ${res.status}: ${data.statusMessage || text.slice(0, 200)}`)
   }
 
   // Successful response: { status: 200, statusMessage: 'Success', data: { seriesName, number, link, ... } }
-  return data.data || {}
+  return data.data
 }
