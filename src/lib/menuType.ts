@@ -24,6 +24,10 @@ export interface MenuTypeScale {
   /** eyebrow all-caps, tracking — etichete de secțiune */
   label: CSSProperties
   body: CSSProperties
+  /** etichetă tab categorie din bara orizontală sticky */
+  tab: CSSProperties
+  /** badge numeric mic (ex. numărul de produse din tab) */
+  badge: CSSProperties
 }
 
 export function menuType(fonts: MenuFonts): MenuTypeScale {
@@ -74,6 +78,19 @@ export function menuType(fonts: MenuFonts): MenuTypeScale {
       fontFamily: body,
       fontSize: 14,
       lineHeight: 1.55,
+    },
+    tab: {
+      fontFamily: body,
+      fontSize: 13.5,
+      lineHeight: 1.2,
+      letterSpacing: '-0.005em',
+    },
+    badge: {
+      fontFamily: body,
+      fontSize: 10.5,
+      fontWeight: 700,
+      lineHeight: 1,
+      letterSpacing: '0.02em',
     },
   }
 }
