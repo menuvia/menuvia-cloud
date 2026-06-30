@@ -674,7 +674,7 @@ function ProductModal({
             )}
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
-            Op\u021bional. Ajut\u0103 clien\u021bii s\u0103 g\u0103seasc\u0103 produse potrivite cu
+            Opțional. Ajută clienții să găsească produse potrivite cu
             dieta lor (vegetarian, picant, etc).
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -711,8 +711,8 @@ function ProductModal({
             Alergeni
           </label>
           <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 8, lineHeight: 1.5 }}>
-            Bifeaz\u0103 dac\u0103 produsul con\u021bine. Cerin\u021b\u0103 legal\u0103 (EU
-            1169/2011) \u2014 protejeaz\u0103 clien\u021bii cu alergii.
+            Bifează dacă produsul conține. Cerință legală (EU
+            1169/2011) — protejează clienții cu alergii.
           </div>
           <div
             style={{
