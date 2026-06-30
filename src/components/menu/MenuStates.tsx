@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import { Skeleton } from '../ui/Skeleton'
 import { Icon } from '../ui/Icon'
+import { readableTextOn } from '../../lib/themes'
 
 // ─────────────────────────────────────────────────────────────
 // Stări pentru MENIU (client) — skeleton la încărcare + eroare premium,
@@ -140,7 +141,8 @@ export function MenuError({
           style={{
             marginTop: 16,
             background: accent,
-            color: '#fff',
+            // Text lizibil pe accent (alb pică AA pe accente deschise).
+            color: readableTextOn(accent, PUB.text),
             border: 'none',
             borderRadius: 12,
             padding: '12px 28px',
