@@ -957,8 +957,9 @@ export default function QrMenuPage({ token }: Props) {
         </button>
       )}
 
-      {/* Cart bar — only when ordering is allowed and cart has items */}
-      {cart.length > 0 && orderingAllowed && (
+      {/* Bară „Comanda mea" — PERSISTENTĂ când comanda e permisă (chiar cu coș gol),
+          ca să fie clar din prima că se poate comanda; cu produse devine bara cu total. */}
+      {orderingAllowed && (
         <div
           style={{
             position: 'fixed',
@@ -975,10 +976,11 @@ export default function QrMenuPage({ token }: Props) {
         >
           <button
             onClick={() => setShowCart(true)}
+            aria-label="Comanda mea"
             style={{
-              background: accent,
-              color: '#fff',
-              border: 'none',
+              background: cart.length > 0 ? accent : PUB.surface,
+              color: cart.length > 0 ? '#fff' : PUB.text,
+              border: cart.length > 0 ? 'none' : `1px solid ${PUB.borderStrong}`,
               borderRadius: 12,
               padding: '14px 20px',
               width: '100%',
@@ -988,21 +990,30 @@ export default function QrMenuPage({ token }: Props) {
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
+              justifyContent: cart.length > 0 ? 'space-between' : 'center',
+              gap: 10,
             }}
           >
-            <span
-              style={{
-                background: 'rgba(255,255,255,0.25)',
-                borderRadius: 20,
-                padding: '2px 10px',
-                fontSize: 13,
-              }}
-            >
-              {cart.length} {cart.length === 1 ? 'produs' : 'produse'}
-            </span>
-            <span>Vezi coșul</span>
-            <span>{cartTotal.toFixed(2)} lei</span>
+            {cart.length > 0 ? (
+              <>
+                <span
+                  style={{
+                    background: 'rgba(255,255,255,0.25)',
+                    borderRadius: 20,
+                    padding: '2px 10px',
+                    fontSize: 13,
+                  }}
+                >
+                  {cart.length} {cart.length === 1 ? 'produs' : 'produse'}
+                </span>
+                <span>Vezi comanda</span>
+                <span>{cartTotal.toFixed(2)} lei</span>
+              </>
+            ) : (
+              <span style={{ color: PUB.text2, fontWeight: 600 }}>
+                Comanda mea · atinge un produs ca să începi
+              </span>
+            )}
           </button>
         </div>
       )}

@@ -310,7 +310,15 @@ export default function QrCartSheet({
         )}
 
         {/* Secțiune: ÎN COȘ · DE TRIMIS */}
-        <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>
+        {cart.length > 0 && <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>}
+
+        {cart.length === 0 && (
+          <div style={{ fontSize: 13, color: PUB.text3, padding: '8px 0 4px', lineHeight: 1.5 }}>
+            {hasSent
+              ? 'Coșul e gol. Atinge un produs din meniu ca să mai comanzi.'
+              : 'Coșul e gol. Atinge un produs din meniu ca să-l adaugi aici.'}
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {cart.map((item) => {
