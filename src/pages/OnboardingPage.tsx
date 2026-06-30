@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
+import { fetchRestaurantFeatures, getLimit } from '../lib/features'
 
 // ─── Helpers ─────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -544,13 +545,40 @@ function Step3Table({
   onNext: () => void
   onSkip: () => void
 }) {
+  // Limita de mese a planului (free=3). Citim de la server ca să nu trimitem
+  // by-default mai multe mese decât permite planul — altfel trigger-ul (mig 114)
+  // făcea rollback cu eroare brută și onboarding-ul standard pica pentru free.
+  const [maxTables, setMaxTables] = useState<number | null>(null)
   const [count, setCount] = useState(5)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    let cancelled = false
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (cancelled) return
+        const lim = getLimit(f, 'max_tables') // null = nelimitat
+        setMaxTables(lim)
+        // Clamp valoarea inițială (5) la limită ca să nu pornim peste plafon.
+        if (lim !== null) setCount((c) => Math.min(c, Math.max(1, lim)))
+      })
+      .catch((e) => {
+        // Eșec de transport: lăsăm UI-ul pe plafonul implicit (50) și logăm;
+        // serverul (mig 114) rămâne plasa de siguranță. Fără setState post-unmount.
+        if (!cancelled) console.error('[Onboarding] fetch features failed:', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  const cap = maxTables ?? 50 // plafon efectiv pe UI (nelimitat → 50, ca înainte)
+  const quickPicks = [4, 8, 12, 20, 30].filter((n) => n <= cap)
+
   const handleCreate = async () => {
-    if (count < 1 || count > 50) {
-      setError('Numărul de mese trebuie să fie între 1 și 50.')
+    if (count < 1 || count > cap) {
+      setError(`Numărul de mese trebuie să fie între 1 și ${cap}.`)
       return
     }
     setSaving(true)
@@ -568,18 +596,24 @@ function Step3Table({
       .from('tables')
       .insert(tables)
       .select('id')
-    if (tErr) {
-      setError(tErr.message)
+    if (tErr || !createdTables) {
+      // Nu expunem textul brut Postgres; mapăm cazurile cunoscute.
+      const m = tErr?.message || ''
+      setError(
+        /limit|maxim|plan/i.test(m)
+          ? `Planul tău permite maximum ${cap} mese. Alege mai puține sau fă upgrade pentru mai multe.`
+          : 'Nu am putut crea mesele. Reîncearcă.',
+      )
       setSaving(false)
       return
     }
 
-    // Create qr_tokens for each table
+    // Create qr_tokens for each table. Verificăm eroarea: dacă eșuează, NU marcăm
+    // qr_generated ca să nu raportăm o stare inconsistentă (mese fără QR).
     const tokens = createdTables.map((t) => ({ restaurant_id: restaurantId, table_id: t.id }))
-    await supabase.from('qr_tokens').insert(tokens)
+    const { error: qrErr } = await supabase.from('qr_tokens').insert(tokens)
 
-    // Mark onboarding
-    await markOnboarding(restaurantId, { table_created: true, qr_generated: true })
+    await markOnboarding(restaurantId, { table_created: true, qr_generated: !qrErr })
     onNext()
   }
 
@@ -645,7 +679,7 @@ function Step3Table({
           <div style={{ fontSize: '0.78rem', color: D.t3, marginTop: 4 }}>mese</div>
         </div>
         <button
-          onClick={() => setCount((c) => Math.min(50, c + 1))}
+          onClick={() => setCount((c) => Math.min(cap, c + 1))}
           style={{
             width: 44,
             height: 44,
@@ -664,9 +698,32 @@ function Step3Table({
         </button>
       </div>
 
-      {/* Quick picks */}
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 24 }}>
-        {[4, 8, 12, 20, 30].map((n) => (
+      {/* Hint plafon plan (free=3 mese) */}
+      {maxTables !== null && (
+        <div
+          style={{
+            textAlign: 'center',
+            fontSize: '0.78rem',
+            color: D.t3,
+            marginBottom: 16,
+            lineHeight: 1.5,
+          }}
+        >
+          Planul tău include până la <strong style={{ color: D.t2 }}>{maxTables} mese</strong>. Poți
+          adăuga mai multe oricând cu un upgrade.
+        </div>
+      )}
+
+      {/* Quick picks (ascunse dacă planul permite prea puține mese ca să aibă sens) */}
+      <div
+        style={{
+          display: quickPicks.length > 0 ? 'flex' : 'none',
+          gap: 8,
+          justifyContent: 'center',
+          marginBottom: 24,
+        }}
+      >
+        {quickPicks.map((n) => (
           <button
             key={n}
             onClick={() => setCount(n)}

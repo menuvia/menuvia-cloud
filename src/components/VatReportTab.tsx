@@ -88,9 +88,20 @@ export default function VatReportTab({ restaurantId }: Props) {
   function exportCsv() {
     // CSV with header + rows + totals
     const sep = ';' // semicolon for Romanian Excel
+    // Sanitizare per-celulă: (1) neutralizează formula injection — un câmp
+    // free-text (ex. vat_label din editor) care începe cu = + - @ sau tab/CR
+    // e prefixat cu ' ca Excel/Sheets să nu-l execute ca formulă;
+    // (2) escaping de separator/ghilimele/newline prin încadrare în ghilimele.
+    const csvCell = (val: string | number): string => {
+      let s = String(val ?? '')
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s
+      if (/[";\n\r]/.test(s)) s = '"' + s.replace(/"/g, '""') + '"'
+      return s
+    }
+    const row = (cells: (string | number)[]): string => cells.map(csvCell).join(sep)
     const lines: string[] = []
     lines.push(
-      [
+      row([
         'Data',
         'Cota TVA',
         'Etichetă',
@@ -98,12 +109,12 @@ export default function VatReportTab({ restaurantId }: Props) {
         'Total brut (lei)',
         'TVA (lei)',
         'Total net (lei)',
-      ].join(sep),
+      ]),
     )
 
     for (const r of rows) {
       lines.push(
-        [
+        row([
           r.report_date,
           `${r.vat_rate_percent}%`,
           r.vat_label,
@@ -111,16 +122,16 @@ export default function VatReportTab({ restaurantId }: Props) {
           Number(r.gross_total).toFixed(2).replace('.', ','),
           Number(r.vat_amount).toFixed(2).replace('.', ','),
           Number(r.net_total).toFixed(2).replace('.', ','),
-        ].join(sep),
+        ]),
       )
     }
 
     // Aggregated totals
     lines.push('')
-    lines.push(['TOTAL PER COTA TVA', '', '', '', '', '', ''].join(sep))
+    lines.push(row(['TOTAL PER COTA TVA', '', '', '', '', '', '']))
     for (const agg of [...byVatGroup.values()].sort((a, b) => a.rate - b.rate)) {
       lines.push(
-        [
+        row([
           '',
           `${agg.rate}%`,
           agg.label,
@@ -128,12 +139,12 @@ export default function VatReportTab({ restaurantId }: Props) {
           agg.gross.toFixed(2).replace('.', ','),
           agg.vat.toFixed(2).replace('.', ','),
           agg.net.toFixed(2).replace('.', ','),
-        ].join(sep),
+        ]),
       )
     }
     lines.push('')
     lines.push(
-      [
+      row([
         'GRAND TOTAL',
         '',
         '',
@@ -141,7 +152,7 @@ export default function VatReportTab({ restaurantId }: Props) {
         totalGross.toFixed(2).replace('.', ','),
         totalVat.toFixed(2).replace('.', ','),
         totalNet.toFixed(2).replace('.', ','),
-      ].join(sep),
+      ]),
     )
 
     const csv = lines.join('\n')
