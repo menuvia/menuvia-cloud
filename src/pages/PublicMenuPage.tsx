@@ -38,6 +38,9 @@ import {
   IconSearch,
 } from '../components/icons/MenuIcons'
 import { Icon } from '../components/ui/Icon'
+// Componente comune de meniu (Lot A): stări premium + bară categorii unificată
+import { MenuLoading, MenuError } from '../components/menu/MenuStates'
+import { CategoryTabs } from '../components/menu/CategoryTabs'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -271,60 +274,21 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     setCart((prev) => prev.filter((i) => i._key !== key))
   }
 
-  if (loading)
-    return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: PUB.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontFamily: theme.fonts.body,
-        }}
-      >
-        <span style={{ color: PUB.text2 }}>Se încarcă...</span>
-      </div>
-    )
+  // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
+  // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
+  if (loading) return <MenuLoading PUB={PUB} />
 
+  // Eroare / restaurant negăsit: ecran premium cu icon + mesaj + reîncercare.
   if (error || !restaurant)
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: PUB.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 24,
-          fontFamily: theme.fonts.body,
-        }}
-      >
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
-            <Icon name="alert" size={32} color={PUB.text2} />
-          </div>
-          <div style={{ color: PUB.text2, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-            {error ?? 'Restaurant negăsit'}
-          </div>
-          <button
-            onClick={() => void loadMenu()}
-            style={{
-              background: accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 10,
-              padding: '10px 24px',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: theme.fonts.body,
-            }}
-          >
-            Reîncearcă
-          </button>
-        </div>
-      </div>
+      <MenuError
+        PUB={PUB}
+        accent={accent}
+        fonts={theme.fonts}
+        onRetry={() => void loadMenu()}
+        title={error ? 'Nu am putut încărca meniul' : 'Restaurant negăsit'}
+        message={error ?? 'Verifică linkul sau încearcă din nou.'}
+      />
     )
 
   return (
@@ -435,51 +399,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
 
-      {/* STICKY TABS UNDERLINE */}
-      <div
-        style={{
-          position: 'sticky',
-          top: 'env(safe-area-inset-top, 0px)',
-          zIndex: 20,
-          background: PUB.bg,
-          padding: '14px 20px 8px',
-          marginTop: 18,
-          borderBottom: `1px solid ${PUB.border}`,
-          flexShrink: 0,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            overflowX: 'auto',
-            gap: 22,
-            scrollbarWidth: 'none',
-          }}
-          data-testid="category-tabs"
-        >
-          <TabButton
-            label={T(lang, 'all_categories')}
-            active={activeCat === 'all'}
-            accent={accent}
-            theme={theme}
-            text={PUB.text}
-            text3={PUB.text3}
-            onClick={() => setActiveCat('all')}
-          />
-          {categories.map((c) => (
-            <TabButton
-              key={c.id}
-              label={c.name}
-              active={activeCat === c.id}
-              accent={accent}
-              theme={theme}
-              text={PUB.text}
-              text3={PUB.text3}
-              onClick={() => setActiveCat(c.id)}
-            />
-          ))}
-        </div>
-      </div>
+      {/* BARĂ CATEGORII — componentă comună: sticky, auto-center pe tabul activ,
+          underline animat, badge-uri count per categorie, role=tablist (a11y). */}
+      <CategoryTabs
+        items={[
+          { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
+          ...categories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
+        ]}
+        activeId={activeCat}
+        onSelect={setActiveCat}
+        accent={accent}
+        PUB={PUB}
+        theme={theme}
+      />
 
       {/* SEARCH + FILTERS */}
       <div style={{ padding: '14px 20px 6px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -1336,45 +1268,10 @@ function InfoPill({ children, isDark }: { children: ReactNode; isDark: boolean }
   )
 }
 
-// ═══════════════════════════════════════════════════════════════
-// STICKY TAB — underline coral pe activ, fără pill
-// ═══════════════════════════════════════════════════════════════
-interface TabProps {
-  label: string
-  active: boolean
-  accent: string
-  theme: MenuTheme
-  text: string
-  text3: string
-  onClick: () => void
-}
-
-function TabButton({ label, active, accent, theme, text, text3, onClick }: TabProps) {
-  return (
-    <button
-      onClick={onClick}
-      type="button"
-      className="pressable"
-      style={{
-        background: 'none',
-        border: 'none',
-        padding: '6px 0',
-        cursor: 'pointer',
-        fontSize: 13.5,
-        fontWeight: active ? 700 : 500,
-        color: active ? text : text3,
-        whiteSpace: 'nowrap',
-        fontFamily: theme.fonts.body,
-        borderBottom: `2px solid ${active ? accent : 'transparent'}`,
-        marginBottom: -1,
-        letterSpacing: active ? '-0.005em' : 0,
-        transition: 'color 120ms ease, border-color 160ms ease',
-      }}
-    >
-      {label}
-    </button>
-  )
-}
+// Bara de categorii a fost mutată în componenta comună `CategoryTabs`
+// (src/components/menu/CategoryTabs.tsx) — sticky, underline animat,
+// auto-center, badge-uri count și role=tablist. Vechiul `TabButton` local
+// a fost eliminat ca să nu existe două stiluri divergente de tab.
 
 // ═══════════════════════════════════════════════════════════════
 // SEARCH INPUT
