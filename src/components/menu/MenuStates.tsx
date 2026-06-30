@@ -59,6 +59,10 @@ export function MenuListSkeleton({ PUB, count = 5 }: { PUB: PubColors; count?: n
 export function MenuLoading({ PUB }: { PUB: PubColors }) {
   return (
     <div
+      // Skeleton-urile sunt aria-hidden → fără asta, cititoarele de ecran n-ar
+      // anunța nimic la încărcare. role=status + aria-busy + mesaj vizual-ascuns.
+      role="status"
+      aria-busy="true"
       style={{
         minHeight: '100vh',
         background: PUB.bg,
@@ -67,6 +71,7 @@ export function MenuLoading({ PUB }: { PUB: PubColors }) {
         padding: '16px 14px',
       }}
     >
+      <span className="visually-hidden">Se încarcă meniul…</span>
       <Skeleton variant="title" width="55%" height={26} style={{ marginBottom: 18 }} />
       <MenuListSkeleton PUB={PUB} count={5} />
     </div>

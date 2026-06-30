@@ -39,9 +39,11 @@ export function BlurImage({
       decoding="async"
       className={className ? `blur-up ${className}` : 'blur-up'}
       // Imaginile din cache pot fi deja `complete` la montare (fără event
-      // `load`) — ref callback-ul le marchează imediat ca încărcate.
+      // `load`) — ref callback-ul le marchează imediat ca încărcate. `complete`
+      // e true ȘI pentru imagini sparte → cerem `naturalWidth > 0` ca să nu
+      // ascundem skeleton-ul pentru o imagine eșuată.
       ref={(el) => {
-        if (el?.complete) {
+        if (el?.complete && el.naturalWidth > 0) {
           el.classList.add('is-loaded')
           if (!loaded) setLoaded(true)
         }
@@ -50,6 +52,8 @@ export function BlurImage({
         e.currentTarget.classList.add('is-loaded')
         setLoaded(true)
       }}
+      // Imagine eșuată (404/rețea): nu mai ținem skeleton-ul la infinit.
+      onError={() => setLoaded(true)}
       style={{
         display: 'block',
         width: '100%',
