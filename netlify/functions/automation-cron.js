@@ -8,6 +8,7 @@
 //   1. process_lifecycle_events       (every tick)
 //   2. compute_health_scores          (only at HH:00, HH:30 — every 30 min)
 //   3. cleanup_old_rate_limits        (only daily at 03:15)
+//   3c. process_account_deletions     (only daily at 03:30 — GDPR)
 //   4. weekly_report dispatch         (only Friday 18:00 ish)
 //   5. detect_winback_inactive        (only daily at 09:00 Bucharest)
 //   6. detect_nps_due                 (only daily at 10:00 Bucharest)
@@ -81,6 +82,23 @@ exports.handler = async () => {
       results.rate_limits_cleaned = data
     } catch (e) {
       results.cleanup_error = e.message
+    }
+  }
+
+  // ── Job 3c: procesează ștergerile de cont GDPR (zilnic 03:30-03:45) ──
+  // Conturile marcate cu deletion_requested_at și trecute de fereastra de
+  // grație de 30 zile se șterg definitiv (cascade). RPC service_role-only,
+  // proiectat pentru cron (vezi mig 042/055). Idempotent — un tick ratat se
+  // reia a doua zi. Batch de 100/rulare ca să nu blocheze cron-ul.
+  if (hour === 3 && minute >= 30 && minute < 45) {
+    try {
+      const { data, error } = await supabase.rpc('process_account_deletions')
+      if (error) throw error
+      results.account_deletions_processed = (data || []).length
+    } catch (e) {
+      // Eșec = conturi GDPR neșterse la termen → vizibil în logs (conformitate).
+      console.error('[automation-cron] account deletions FAILED:', e.message)
+      results.account_deletions_error = e.message
     }
   }
 
