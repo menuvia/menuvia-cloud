@@ -10,7 +10,9 @@ import { D } from '../lib/constants'
 
 interface Props {
   order: Order
-  onConfirm: (reason: string | undefined) => void
+  // Întoarce true dacă anularea a reușit. La false, dialogul rămâne deschis
+  // (RPC respins — ex. rol insuficient / motiv obligatoriu) în loc să se închidă optimist.
+  onConfirm: (reason: string | undefined) => Promise<boolean>
   onClose: () => void
 }
 
@@ -112,7 +114,11 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
           <button
             onClick={() => {
               setSubmitting(true)
-              onConfirm(reason.trim() ? reason.trim() : undefined)
+              void onConfirm(reason.trim() ? reason.trim() : undefined).then((ok) => {
+                // La eșec deblocăm butonul ca utilizatorul să poată reîncerca;
+                // la succes părintele demontează dialogul.
+                if (!ok) setSubmitting(false)
+              })
             }}
             disabled={submitting}
             style={{

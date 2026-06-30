@@ -50,6 +50,25 @@ function addDays(d: Date, n: number) {
   return r
 }
 
+// Granița de zi (00:00:00 sau 23:59:59.999) pentru o dată YYYY-MM-DD, exprimată
+// ca instant UTC ISO, interpretată în fusul României — DST-aware (EET/EEST).
+// Calculează offset-ul real al fusului la acel instant (fără librării), ca să nu
+// hardcodăm +03:00 (greșit iarna). Trucul: ce offset are Europe/Bucharest față de
+// UTC la momentul respectiv = diferența dintre wall-time-ul redat în TZ și în UTC.
+function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
+  const [y, mo, d] = ymd.split('-').map(Number)
+  const h = endOfDay ? 23 : 0
+  const mi = endOfDay ? 59 : 0
+  const s = endOfDay ? 59 : 0
+  const ms = endOfDay ? 999 : 0
+  const guess = Date.UTC(y!, mo! - 1, d!, h, mi, s, ms)
+  const at = new Date(guess)
+  const asUtc = new Date(at.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+  const asBuc = new Date(at.toLocaleString('en-US', { timeZone: 'Europe/Bucharest' })).getTime()
+  const offsetMs = asBuc - asUtc // +7200000 iarna, +10800000 vara
+  return new Date(guess - offsetMs).toISOString()
+}
+
 function periodRange(
   p: Period,
   custom: { from: string; to: string },
@@ -170,9 +189,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     setLoading(true)
     setError(null)
     try {
-      // Explicit Romania timezone boundaries — avoids UTC drift on day edges
-      const startISO = range.from + 'T00:00:00+03:00'
-      const endISO = range.to + 'T23:59:59.999+03:00'
+      // Granițe de zi în fusul României, DST-aware (EET +02:00 iarna / EEST +03:00 vara).
+      // Hardcodarea lui +03:00 muta granița cu o oră iarna și pierdea/dubla comenzi pe margini.
+      const startISO = romaniaDayBoundaryISO(range.from, false)
+      const endISO = romaniaDayBoundaryISO(range.to, true)
 
       // ── Single source of truth: orders table (not v_daily_orders) ──
       // Includes ALL non-cancelled orders, not just paid ones.
@@ -196,16 +216,22 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
       const allOrders = (ordersRaw ?? []) as unknown as Record<string, unknown>[]
       const totalOrders = allOrders.length
-      const revenue = allOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cashRev = allOrders
+      // Venitul se calculează DOAR pe comenzile plătite — o comandă deschisă
+      // (new/preparing/served) avea paid_amount null și cădea pe `total`,
+      // umflând încasările cu bani neîncasați încă. Count-ul operațional
+      // rămâne pe toate comenzile non-cancelled.
+      const paidOrders = allOrders.filter((o) => o.status === 'paid')
+      const revenue = paidOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      const cashRev = paidOrders
         .filter((o) => o.payment_method === 'cash')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cardRev = allOrders
+      const cardRev = paidOrders
         .filter((o) => o.payment_method === 'card_pos')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
-      const avgTicket = totalOrders > 0 ? revenue / totalOrders : 0
+      // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
+      const avgTicket = paidOrders.length > 0 ? revenue / paidOrders.length : 0
 
       setMetrics({ totalOrders, revenue, cashRev, cardRev, qrOrders, waiterOrders, avgTicket })
 
@@ -220,7 +246,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         })
         const prev = dayMap.get(key) ?? { comenzi: 0, revenue: 0 }
         prev.comenzi += 1
-        prev.revenue += Number(o.paid_amount ?? o.total ?? 0)
+        // Venitul din grafic, ca și metricile, doar pe comenzile plătite.
+        if (o.status === 'paid') prev.revenue += Number(o.paid_amount ?? o.total ?? 0)
         dayMap.set(key, prev)
       }
       setChartData(Array.from(dayMap.entries()).map(([zi, v]) => ({ zi, ...v })))

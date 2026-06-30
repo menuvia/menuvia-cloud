@@ -33,7 +33,7 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 
 interface PayModalProps {
   order: Order
-  onConfirm: (method: PaymentMethod, amount: number, tips: number) => void
+  onConfirm: (method: PaymentMethod, amount: number, tips: number) => void | Promise<void>
   onClose: () => void
   onDiscountClick?: (() => void) | undefined
   happyHourSuggestion?: {
