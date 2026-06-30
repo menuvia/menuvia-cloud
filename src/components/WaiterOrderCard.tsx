@@ -33,6 +33,9 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 
 interface PayModalProps {
   order: Order
+  // Suma deja încasată în plăți parțiale (split). „Plata integrală" cere DOAR
+  // restul (order.total − alreadyPaid), nu totalul — altfel ar fi dublă-încasare.
+  alreadyPaid?: number
   onConfirm: (method: PaymentMethod, amount: number, tips: number) => void | Promise<void>
   onClose: () => void
   onDiscountClick?: (() => void) | undefined
@@ -47,6 +50,7 @@ interface PayModalProps {
 
 function PayModal({
   order,
+  alreadyPaid = 0,
   onConfirm,
   onClose,
   onDiscountClick,
@@ -59,7 +63,8 @@ function PayModal({
   const [submitting, setSubmitting] = useState(false)
   const [tipsMode, setTipsMode] = useState<'none' | '5' | '10' | '15' | 'custom'>('none')
   const [tipsCustom, setTipsCustom] = useState('')
-  const orderTotal = order.total
+  // Restul de achitat = total − plăți parțiale deja încasate (mig 172).
+  const orderTotal = Math.max(0, order.total - alreadyPaid)
 
   // Calculează tips în funcție de mod
   const tipsAmount: number = (() => {
@@ -186,6 +191,29 @@ function PayModal({
               }}
             >
               {order.total.toFixed(2)} lei
+            </div>
+          )}
+
+          {alreadyPaid > 0 && (
+            <div
+              style={{
+                marginTop: 8,
+                background: D.s3,
+                borderRadius: 10,
+                padding: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: D.t2 }}>
+                <span>Plătit parțial:</span>
+                <span style={{ color: D.t1 }}>− {alreadyPaid.toFixed(2)} lei</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 700 }}>
+                <span style={{ color: D.t1 }}>Rest de plată:</span>
+                <span style={{ color: D.green }}>{orderTotal.toFixed(2)} lei</span>
+              </div>
             </div>
           )}
 
