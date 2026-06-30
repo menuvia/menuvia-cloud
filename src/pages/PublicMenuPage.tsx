@@ -112,7 +112,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       /* localStorage indisponibil / JSON corupt → ignorăm */
     }
     // doar la (re)montare per restaurant
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listMode, listKey])
 
   useEffect(() => {
