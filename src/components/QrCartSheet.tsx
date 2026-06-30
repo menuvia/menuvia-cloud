@@ -5,6 +5,7 @@
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
 import { useMemo, type CSSProperties } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 
@@ -92,6 +93,7 @@ export default function QrCartSheet({
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
+  useBodyScrollLock(true)
   const productById = useMemo(() => {
     const map = new Map<string, Product>()
     for (const c of categories) {

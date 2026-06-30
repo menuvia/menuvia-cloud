@@ -5,6 +5,7 @@
 // =============================================================
 
 import { useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
 import { D } from '../lib/constants'
@@ -38,6 +39,7 @@ export default function ModifierSheet({
 }: ModifierSheetProps) {
   const groups = product.modifier_groups
 
+  useBodyScrollLock(true)
   const [selections, setSelections] = useState<Selections>(() => {
     const init: Selections = {}
     for (const g of groups) {

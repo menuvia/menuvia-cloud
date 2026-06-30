@@ -8,6 +8,7 @@
 //   • Sticky bottom CTA cu prețul actualizat live
 // ─────────────────────────────────────────────────────────────
 import { useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Product } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
@@ -38,6 +39,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
     borderStrong: theme.colors.borderStrong,
   }
   const accentGradient = theme.colors.accentGradient
+  useBodyScrollLock(true)
   const [selections, setSelections] = useState<Selections>({})
   const [qty, setQty] = useState(1)
   const [notes, setNotes] = useState('')

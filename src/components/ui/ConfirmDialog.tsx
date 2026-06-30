@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from './Button'
 import { _setConfirmHandler, type ConfirmOptions } from './confirm'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import '../../styles/components/confirm-dialog.css'
 
 interface DialogState extends ConfirmOptions {
@@ -15,6 +16,8 @@ interface DialogState extends ConfirmOptions {
  */
 export function ConfirmRoot() {
   const [state, setState] = useState<DialogState>({ open: false, title: '' })
+  // Host-ul rămâne montat mereu → blocăm scroll-ul doar cât dialogul e deschis.
+  useBodyScrollLock(state.open)
 
   useEffect(() => {
     _setConfirmHandler(

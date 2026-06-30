@@ -1,4 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -43,6 +44,7 @@ function ProductModal({
   userId: string
 }) {
   const isMobile = useIsMobile()
+  useBodyScrollLock(true)
   const [uploading, setUploading] = useState(false)
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
