@@ -22,6 +22,10 @@ import ProductSheet from '../components/ProductSheet'
 import { resolveTheme } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
+// Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
+import { CategoryTabs } from '../components/menu/CategoryTabs'
+import ProductCard from '../components/menu/ProductCard'
+import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 
@@ -302,107 +306,33 @@ export default function QrMenuPage({ token }: Props) {
     : (categories.find((c) => c.id === activeCatId)?.products ?? [])
   const orderingAllowed = ctx?.orderingAllowed ?? false
 
-  if (resolving) {
-    return (
-      <div
-        style={{
-          background: PUB.bg,
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <span style={{ color: '#5C4A2A', fontFamily: 'DM Sans, sans-serif' }}>Se încarcă...</span>
-      </div>
-    )
-  }
+  // Încărcare: schelet de listă premium (componentă comună), nu text gol.
+  if (resolving) return <MenuLoading PUB={PUB} />
 
-  if (invalid) {
+  // QR invalid: ecran de eroare premium fără reîncercare (QR-ul nu se „repară").
+  if (invalid)
     return (
-      <div
-        style={{
-          background: PUB.bg,
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-          padding: 32,
-        }}
-      >
-        <Icon name="alert" size={44} color="#C0392B" label="QR invalid" />
-        <div
-          style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 22,
-            fontWeight: 700,
-            color: PUB.text,
-            textAlign: 'center',
-          }}
-        >
-          Acest QR nu mai este activ
-        </div>
-        <div style={{ fontSize: 14, color: PUB.text2, textAlign: 'center' }}>
-          Te rugăm să ceri personalului un QR nou.
-        </div>
-      </div>
+      <MenuError
+        PUB={PUB}
+        accent={accent}
+        fonts={theme.fonts}
+        title="Acest QR nu mai este activ"
+        message="Te rugăm să ceri personalului un QR nou."
+      />
     )
-  }
 
-  if (networkError) {
+  // Eroare de rețea: același ecran premium, dar cu „Reîncearcă".
+  if (networkError)
     return (
-      <div
-        style={{
-          background: PUB.bg,
-          minHeight: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 12,
-          padding: 32,
-        }}
-      >
-        <Icon name="wifi" size={44} color={accent} label="Conexiune slabă" />
-        <div
-          style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 22,
-            fontWeight: 700,
-            color: PUB.text,
-            textAlign: 'center',
-          }}
-        >
-          Conexiune slabă
-        </div>
-        <div style={{ fontSize: 14, color: PUB.text2, textAlign: 'center', marginBottom: 8 }}>
-          Nu s-a putut încărca meniul. Verifică internetul și încearcă din nou.
-        </div>
-        <button
-          onClick={loadQr}
-          style={{
-            background: '#C8963C',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 10,
-            padding: '12px 28px',
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: 'pointer',
-            fontFamily: 'DM Sans,sans-serif',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-        >
-          <Icon name="refresh" size={16} color="#fff" />
-          Reîncearcă
-        </button>
-      </div>
+      <MenuError
+        PUB={PUB}
+        accent={accent}
+        fonts={theme.fonts}
+        onRetry={loadQr}
+        title="Conexiune slabă"
+        message="Nu s-a putut încărca meniul. Verifică internetul și încearcă din nou."
+      />
     )
-  }
 
   if (confirmation != null) {
     return (
@@ -515,42 +445,20 @@ export default function QrMenuPage({ token }: Props) {
         </div>
       )}
 
-      {/* Category tabs */}
-      <div
-        style={{
-          display: 'flex',
-          overflowX: 'auto',
-          padding: '16px 0 0',
-          borderBottom: `1px solid ${PUB.borderStrong}`,
-          position: 'sticky',
-          top: 0,
-          background: PUB.bg,
-          zIndex: 10,
-          flexShrink: 0,
-        }}
-      >
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => setActiveCatId(cat.id)}
-            style={{
-              background: 'transparent',
-              borderBottom:
-                activeCatId === cat.id ? `2px solid ${accent}` : '2px solid transparent',
-              border: 'none',
-              padding: '10px 16px',
-              color: activeCatId === cat.id ? accent : '#5C4A2A',
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 14,
-              fontWeight: activeCatId === cat.id ? 700 : 400,
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
+      {/* Category tabs — componentă comună (parity cu meniul digital):
+          sticky, auto-center pe activ, underline animat, counts, tablist a11y. */}
+      <CategoryTabs
+        items={categories.map((cat) => ({
+          id: cat.id,
+          name: cat.name,
+          count: cat.products?.length ?? 0,
+        }))}
+        activeId={activeCatId}
+        onSelect={setActiveCatId}
+        accent={accent}
+        PUB={PUB}
+        theme={theme}
+      />
 
       {/* Search — sub tab-uri, peste tot meniul */}
       <div style={{ padding: '12px 16px 0' }}>
@@ -600,289 +508,43 @@ export default function QrMenuPage({ token }: Props) {
             </div>
           </div>
         )}
-        {activeProducts.map((product) => {
-          const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
-          const isUnavailable = product.is_sold_out || !orderingAllowed
-          const hhPct = happyHourPercentForProduct(product, happyHour)
-          const hhPrice = hhPct > 0 ? product.price * (1 - hhPct / 100) : null
-          // Compact badges: max 2 (priority: daily_special > dietary)
-          const badges: string[] = []
-          if (product.is_daily_special) badges.push('⭐')
-          if (product.dietary_tags?.includes('vegan')) badges.push('🌱')
-          else if (product.dietary_tags?.includes('vegetarian')) badges.push('🥗')
-
-          return (
-            <div
-              key={product.id}
-              role="button"
-              tabIndex={isUnavailable ? -1 : 0}
-              aria-label={product.name}
-              aria-disabled={isUnavailable || undefined}
-              onClick={() => {
-                if (isUnavailable) return
-                setActiveProduct(product)
-              }}
-              onKeyDown={(e) => {
-                if (isUnavailable) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  setActiveProduct(product)
-                }
-              }}
-              style={{
-                background: '#FDF8F2',
-                border: '1px solid #EDE3D4',
-                borderRadius: 14,
-                padding: 14,
-                cursor: isUnavailable ? 'default' : 'pointer',
-                opacity: product.is_sold_out ? 0.55 : 1,
-                display: 'flex',
-                gap: 14,
-                alignItems: 'stretch',
-                position: 'relative',
-                transition: 'transform 0.1s ease',
-                boxShadow: '0 1px 3px rgba(26,18,8,0.04)',
-              }}
-              onMouseDown={(e) => {
-                if (!isUnavailable) e.currentTarget.style.transform = 'scale(0.985)'
-              }}
-              onMouseUp={(e) => {
-                e.currentTarget.style.transform = 'scale(1)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)'
-              }}
-            >
-              {/* Image or emoji fallback — 88×88 */}
-              {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt={product.name}
-                  loading="lazy"
-                  decoding="async"
-                  style={{
-                    width: 88,
-                    height: 88,
-                    objectFit: 'cover',
-                    borderRadius: 12,
-                    flexShrink: 0,
-                    background: PUB.surface,
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 88,
-                    height: 88,
-                    borderRadius: 12,
-                    flexShrink: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 38,
-                    background: accentGradient,
-                  }}
-                >
-                  🍽️
-                </div>
-              )}
-
-              {/* Content */}
-              <div
-                style={{
-                  flex: 1,
-                  minWidth: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                  gap: 6,
-                }}
-              >
-                {/* Name + badges */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div
-                    style={{
-                      fontFamily: 'Fraunces, Georgia, serif',
-                      fontSize: 16,
-                      fontWeight: 600,
-                      color: PUB.text,
-                      lineHeight: 1.25,
-                      letterSpacing: '-0.01em',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 1,
-                      WebkitBoxOrient: 'vertical',
-                    }}
-                  >
-                    {product.name}
-                    {badges.length > 0 && (
-                      <span style={{ marginLeft: 6, fontSize: 13 }}>
-                        {badges.slice(0, 2).join(' ')}
-                      </span>
-                    )}
-                  </div>
-                  {product.description && product.description.length > 0 && (
-                    <div
-                      style={{
-                        fontSize: 12.5,
-                        color: '#7A6A52',
-                        lineHeight: 1.35,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 1,
-                        WebkitBoxOrient: 'vertical',
-                      }}
-                    >
-                      {product.description}
-                    </div>
-                  )}
-                </div>
-
-                {/* Price + Add button row */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                    {hasRequiredMods && (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: '#9A8C7A',
-                          fontFamily: 'DM Sans, sans-serif',
-                        }}
-                      >
-                        de la
-                      </span>
-                    )}
-                    {hhPrice != null && (
-                      <span
-                        style={{
-                          fontFamily: 'Fraunces, Georgia, serif',
-                          fontSize: 14,
-                          fontWeight: 600,
-                          color: '#9b8e7d',
-                          textDecoration: 'line-through',
-                          marginRight: 2,
-                        }}
-                      >
-                        {product.price.toFixed(2)}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
-                        fontSize: 17,
-                        fontWeight: 700,
-                        color: hhPrice != null ? '#2e7d32' : accent,
-                        letterSpacing: '-0.01em',
-                      }}
-                    >
-                      {(hhPrice ?? product.price).toFixed(2)}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: hhPrice != null ? '#2e7d32' : accent,
-                        fontFamily: 'DM Sans, sans-serif',
-                      }}
-                    >
-                      lei
-                    </span>
-                    {hhPrice != null && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          color: '#fff',
-                          background: '#2e7d32',
-                          borderRadius: 6,
-                          padding: '2px 6px',
-                          marginLeft: 4,
-                          fontFamily: 'DM Sans, sans-serif',
-                        }}
-                      >
-                        -{hhPct}%
-                      </span>
-                    )}
-                  </div>
-
-                  {product.is_sold_out ? (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: '#c0392b',
-                        fontFamily: 'DM Sans, sans-serif',
-                        padding: '4px 10px',
-                        borderRadius: 100,
-                        background: 'rgba(192,57,43,0.08)',
-                      }}
-                    >
-                      Epuizat
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (!orderingAllowed) return
-                        // If has required modifiers → open ProductSheet (forced selection)
-                        // Otherwise → quick add directly to cart
-                        if (hasRequiredMods) {
-                          setActiveProduct(product)
-                        } else {
-                          // Quick add: no modifiers needed, no extras to pick
-                          const newItem = {
-                            _key: crypto.randomUUID(),
-                            product_id: product.id,
-                            product_name_snapshot: product.name,
-                            unit_price_snapshot: product.price,
-                            quantity: 1,
-                            selected_modifiers: [],
-                            notes: null,
-                          }
-                          setCart((prev) => [...prev, newItem])
-                        }
-                      }}
-                      aria-label={`Adaugă ${product.name}`}
-                      style={{
-                        width: 36,
-                        height: 36,
-                        borderRadius: '50%',
-                        background: accent,
-                        color: '#fff',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 22,
-                        fontWeight: 400,
-                        lineHeight: 1,
-                        paddingBottom: 2,
-                        flexShrink: 0,
-                        boxShadow: '0 2px 6px rgba(200,150,60,0.35)',
-                        transition: 'transform 0.1s, box-shadow 0.1s',
-                      }}
-                      onMouseDown={(e) => (e.currentTarget.style.transform = 'scale(0.92)')}
-                      onMouseUp={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-                    >
-                      +
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )
-        })}
+        {activeProducts.map((product) => (
+          // Card unificat (componenta comună) — același limbaj vizual ca meniul
+          // digital: thumbnail blur-up, quick-add 44px (era 36px), buton real
+          // (nu role=button pe div), fundal din temă (nu hardcodat #FDF8F2).
+          <ProductCard
+            key={product.id}
+            product={product}
+            accent={accent}
+            PUB={PUB}
+            theme={theme}
+            // „+" rapid doar când comanda e permisă (sesiune de masă activă).
+            canAdd={orderingAllowed}
+            happyHourPct={happyHourPercentForProduct(product, happyHour)}
+            // Deschidem detaliile doar dacă se poate comanda (paritate cu vechiul
+            // gate isUnavailable = sold_out || !orderingAllowed; sold_out e tratat
+            // intern de ProductCard prin dezactivarea butonului).
+            onOpen={() => {
+              if (orderingAllowed) setActiveProduct(product)
+            }}
+            // Quick-add: adăugare directă în coș (fără pairing popup — la fel ca
+            // butonul „+" anterior, care folosea setCart, nu addToCart).
+            onQuickAdd={() =>
+              setCart((prev) => [
+                ...prev,
+                {
+                  _key: crypto.randomUUID(),
+                  product_id: product.id,
+                  product_name_snapshot: product.name,
+                  unit_price_snapshot: product.price,
+                  quantity: 1,
+                  selected_modifiers: [],
+                  notes: null,
+                },
+              ])
+            }
+          />
+        ))}
       </div>
 
       {/* Call waiter button */}
