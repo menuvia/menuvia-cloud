@@ -17,6 +17,10 @@ import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 import { generateNutrition, generateProductImage } from '../lib/ai'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
+import { Button } from './ui/Button'
+import { Icon } from './ui/Icon'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -1894,13 +1898,37 @@ export default function ProductsTab({
           </div>
         )}
         {loading ? (
-          <div style={{ padding: '32px 20px', textAlign: 'center', color: D.t3 }}>
-            Se încarcă...
+          <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <Skeleton variant="table-row" count={5} />
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: '40px 20px', textAlign: 'center', color: D.t3 }}>
-            {search ? 'Niciun produs găsit' : 'Adaugă primul produs!'}
-          </div>
+          <EmptyState
+            icon={search ? 'search' : 'menu'}
+            title={search ? 'Niciun produs găsit' : 'Niciun produs încă'}
+            description={
+              search
+                ? 'Încearcă alt termen de căutare sau șterge filtrul.'
+                : 'Adaugă primul produs din meniu — manual, din poză sau prin CSV.'
+            }
+            action={
+              !search ? (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Icon name="plus" size={16} />}
+                  onClick={() => {
+                    if (!canAdd) {
+                      onUpgrade()
+                      return
+                    }
+                    setModal('add')
+                  }}
+                >
+                  Adaugă produs
+                </Button>
+              ) : undefined
+            }
+          />
         ) : (
           filtered.map((p, i) =>
             mob ? (
