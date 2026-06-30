@@ -8,6 +8,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
 import { QueryError } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 
 interface Props {
   restaurantId: string
@@ -28,7 +31,7 @@ interface Table {
 const sLabel: React.CSSProperties = {
   fontSize: '0.7rem',
   fontWeight: 700,
-  color: D.t3,
+  color: D.t2,
   textTransform: 'uppercase',
   letterSpacing: '0.08em',
   marginBottom: 8,
@@ -256,7 +259,9 @@ export default function WaiterAssignments({ restaurantId }: Props) {
         >
           Ture & Alocări
         </h2>
-        <div style={{ padding: '48px', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Skeleton variant="card" count={2} />
+        </div>
       </div>
     )
 
@@ -309,7 +314,9 @@ export default function WaiterAssignments({ restaurantId }: Props) {
           gap: 10,
         }}
       >
-        <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>💡</span>
+        <span style={{ flexShrink: 0, marginTop: 1, color: D.gold }}>
+          <Icon name="info" size={16} />
+        </span>
         <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.7 }}>
           <strong style={{ color: D.t1 }}>Fără alocare</strong> — ospătarul vede toate comenzile
           (comportament implicit).
@@ -320,22 +327,15 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       </div>
 
       {waiters.length === 0 ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            padding: '48px 20px',
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>👥</div>
-          <div style={{ marginBottom: 8 }}>Niciun ospătar adăugat.</div>
-          <div style={{ fontSize: '0.78rem' }}>
-            Adaugă membri din tab-ul <strong style={{ color: D.t1 }}>Echipă</strong>.
-          </div>
-        </div>
+        <EmptyState
+          icon="users"
+          title="Niciun ospătar adăugat."
+          description={
+            <>
+              Adaugă membri din tab-ul <strong style={{ color: D.t1 }}>Echipă</strong>.
+            </>
+          }
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {waiters.map((waiter) => {
@@ -467,6 +467,9 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                             disabled={isSaving}
                             title={`${table.name}${table.seats ? ` · ${table.seats} loc.` : ''}`}
                             style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
                               padding: '6px 12px',
                               borderRadius: 8,
                               cursor: isSaving ? 'wait' : 'pointer',
@@ -481,7 +484,8 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                               opacity: isSaving ? 0.6 : 1,
                             }}
                           >
-                            🪑 {table.name}
+                            <Icon name="table" size={14} />
+                            {table.name}
                           </button>
                         )
                       })}
@@ -509,9 +513,13 @@ export default function WaiterAssignments({ restaurantId }: Props) {
             fontSize: '0.875rem',
             color: D.t1,
             boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
           }}
         >
-          <span style={{ color: D.green }}>✓</span> {toast}
+          <Icon name="check" size={15} color={D.green} />
+          {toast}
         </div>
       )}
     </div>

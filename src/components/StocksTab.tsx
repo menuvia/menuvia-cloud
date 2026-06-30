@@ -12,6 +12,8 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { confirm as confirmDialog } from './ui/confirm'
 import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
+import { Icon, type IconName } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 import {
   fetchIngredients,
   createIngredient,
@@ -146,28 +148,28 @@ export default function StocksTab({ restaurantId }: Props) {
             value={String(stats.ingredientsCount)}
             sub={stats.lowStockCount > 0 ? `${stats.lowStockCount} sub prag` : 'toate ok'}
             color={stats.lowStockCount > 0 ? '#E0A050' : D.t1}
-            emoji="🥬"
+            icon="leaf"
           />
           <StatCard
             label="Valoare stoc"
             value={`${stats.totalStockValue.toFixed(0)} lei`}
             sub="total ingrediente"
             color={D.t1}
-            emoji="💰"
+            icon="tag"
           />
           <StatCard
             label="Furnizori"
             value={String(stats.suppliersCount)}
             sub={stats.suppliersCount === 0 ? 'niciunul' : 'activi'}
             color={D.t1}
-            emoji="🚚"
+            icon="box"
           />
           <StatCard
             label="NIR-uri"
             value={String(stats.pendingNirs)}
             sub={stats.pendingNirs > 0 ? 'în așteptare' : 'toate ok'}
             color={stats.pendingNirs > 0 ? D.gold : D.t1}
-            emoji="📋"
+            icon="receipt"
           />
         </div>
       )}
@@ -190,9 +192,13 @@ export default function StocksTab({ restaurantId }: Props) {
               color: D.t1,
               marginBottom: 6,
               letterSpacing: '-0.01em',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
             }}
           >
-            👋 Bun venit în Stocuri
+            <Icon name="sparkle" size={18} />
+            Bun venit în Stocuri
           </div>
           <div style={{ fontSize: '0.85rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
             Modulul de gestiune îți permite să urmărești stocul de ingrediente, să definești rețete
@@ -296,10 +302,10 @@ export default function StocksTab({ restaurantId }: Props) {
       >
         {(
           [
-            { id: 'ingredients', label: 'Ingrediente', emoji: '🥬' },
-            { id: 'suppliers', label: 'Furnizori', emoji: '🚚' },
-            { id: 'purchases', label: 'NIR', emoji: '📋' },
-            { id: 'profitability', label: 'Profitabilitate', emoji: '💰' },
+            { id: 'ingredients', label: 'Ingrediente', icon: 'leaf' },
+            { id: 'suppliers', label: 'Furnizori', icon: 'box' },
+            { id: 'purchases', label: 'NIR', icon: 'receipt' },
+            { id: 'profitability', label: 'Profitabilitate', icon: 'tag' },
           ] as const
         ).map((t) => (
           <button
@@ -320,7 +326,7 @@ export default function StocksTab({ restaurantId }: Props) {
               gap: 6,
             }}
           >
-            <span>{t.emoji}</span>
+            <Icon name={t.icon} size={15} />
             <span>{t.label}</span>
           </button>
         ))}
@@ -381,7 +387,9 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
             alignItems: 'center',
           }}
         >
-          <span style={{ fontSize: '1.4rem' }}>⚠️</span>
+          <span style={{ color: '#E0A050', display: 'inline-flex', flexShrink: 0 }}>
+            <Icon name="alert" size={22} />
+          </span>
           <div style={{ flex: 1 }}>
             <div
               style={{ fontSize: '0.88rem', fontWeight: 700, color: '#E0A050', marginBottom: 2 }}
@@ -407,29 +415,17 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
             : `${items.length} ingrediente active`}
         </div>
         <button onClick={() => setShowAdd(true)} style={btn({ background: D.gold, color: '#000' })}>
-          + Adaugă ingredient
+          <Icon name="plus" size={15} />
+          Adaugă ingredient
         </button>
       </div>
 
       {items.length === 0 ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px dashed ${D.border}`,
-            borderRadius: 12,
-            padding: 32,
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🥬</div>
-          <div style={{ fontSize: '0.88rem', marginBottom: 4 }}>
-            Niciun ingredient configurat încă
-          </div>
-          <div style={{ fontSize: '0.75rem' }}>
-            Începe cu cele mai folosite (făină, ulei, lapte) și adaugă rețetele la produse
-          </div>
-        </div>
+        <EmptyState
+          icon="leaf"
+          title="Niciun ingredient configurat încă"
+          description="Începe cu cele mai folosite (făină, ulei, lapte) și adaugă rețetele la produse"
+        />
       ) : (
         <div
           style={{
@@ -963,24 +959,13 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '0.85rem', color: D.t3 }}>{items.length} furnizori</div>
         <button onClick={() => setShowAdd(true)} style={btn({ background: D.gold, color: '#000' })}>
-          + Adaugă furnizor
+          <Icon name="plus" size={15} />
+          Adaugă furnizor
         </button>
       </div>
 
       {items.length === 0 ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px dashed ${D.border}`,
-            borderRadius: 12,
-            padding: 32,
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>🚚</div>
-          <div style={{ fontSize: '0.88rem' }}>Niciun furnizor încă</div>
-        </div>
+        <EmptyState icon="box" title="Niciun furnizor încă" />
       ) : (
         <div
           style={{
@@ -1007,8 +992,32 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                   CUI: {s.vat_id}
                 </div>
               )}
-              {s.phone && <div style={{ fontSize: '0.78rem', color: D.t2 }}>📞 {s.phone}</div>}
-              {s.email && <div style={{ fontSize: '0.78rem', color: D.t2 }}>📧 {s.email}</div>}
+              {s.phone && (
+                <div
+                  style={{
+                    fontSize: '0.78rem',
+                    color: D.t2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Icon name="phone" size={13} /> {s.phone}
+                </div>
+              )}
+              {s.email && (
+                <div
+                  style={{
+                    fontSize: '0.78rem',
+                    color: D.t2,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Icon name="mail" size={13} /> {s.email}
+                </div>
+              )}
               {s.payment_terms_days > 0 && (
                 <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 4 }}>
                   Termen plată: {s.payment_terms_days} zile
@@ -1145,7 +1154,8 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
             opacity: canCreate ? 1 : 0.6,
           })}
         >
-          + NIR nou
+          <Icon name="plus" size={15} />
+          NIR nou
         </button>
       </div>
 
@@ -1159,29 +1169,24 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
             fontSize: '0.78rem',
             color: D.t2,
             lineHeight: 1.5,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 8,
           }}
         >
-          ℹ️ Pentru a crea un NIR, adaugă mai întâi cel puțin 1 ingredient în tab-ul Ingrediente.
+          <span style={{ color: D.gold, flexShrink: 0, display: 'inline-flex', marginTop: 1 }}>
+            <Icon name="info" size={15} />
+          </span>
+          Pentru a crea un NIR, adaugă mai întâi cel puțin 1 ingredient în tab-ul Ingrediente.
         </div>
       )}
 
       {items.length === 0 && canCreate ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px dashed ${D.border}`,
-            borderRadius: 12,
-            padding: 32,
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📋</div>
-          <div style={{ fontSize: '0.88rem', marginBottom: 4 }}>Niciun NIR încă</div>
-          <div style={{ fontSize: '0.74rem' }}>
-            Click „+ NIR nou" când primești marfă de la furnizor
-          </div>
-        </div>
+        <EmptyState
+          icon="receipt"
+          title="Niciun NIR încă"
+          description="Click „+ NIR nou” când primești marfă de la furnizor"
+        />
       ) : items.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {items.map((po) => {
@@ -1518,20 +1523,23 @@ function NirCreateModal({
                         type="button"
                         onClick={() => removeRow(idx)}
                         disabled={items.length === 1}
+                        aria-label="Șterge rândul"
                         style={{
-                          width: 36,
-                          height: 36,
+                          width: 44,
+                          height: 44,
                           borderRadius: 7,
                           background: 'transparent',
                           border: `1px solid ${D.border}`,
                           color: '#c0392b',
                           cursor: items.length === 1 ? 'not-allowed' : 'pointer',
-                          fontSize: '0.95rem',
                           opacity: items.length === 1 ? 0.3 : 1,
                           flexShrink: 0,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                         }}
                       >
-                        ✕
+                        <Icon name="trash" size={16} />
                       </button>
                     </div>
                     {/* Row 2: Qty + Price + VAT + Total */}
@@ -1623,9 +1631,13 @@ function NirCreateModal({
                 borderRadius: 7,
                 cursor: 'pointer',
                 fontFamily: 'DM Sans,sans-serif',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
               }}
             >
-              + Adaugă rând
+              <Icon name="plus" size={14} />
+              Adaugă rând
             </button>
           </div>
 
@@ -1782,9 +1794,15 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
           fontSize: '0.82rem',
           color: D.t2,
           lineHeight: 1.55,
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 8,
         }}
       >
-        💡 Pentru ca un produs să apară aici cu cost calculat, trebuie să-i adaugi rețeta (Editare
+        <span style={{ color: D.gold, flexShrink: 0, display: 'inline-flex', marginTop: 1 }}>
+          <Icon name="info" size={15} />
+        </span>
+        Pentru ca un produs să apară aici cu cost calculat, trebuie să-i adaugi rețeta (Editare
         produs → Rețetă).
       </div>
 
@@ -1893,13 +1911,13 @@ function StatCard({
   value,
   sub,
   color,
-  emoji,
+  icon,
 }: {
   label: string
   value: string
   sub?: string
   color?: string
-  emoji?: string
+  icon?: IconName
 }) {
   return (
     <div
@@ -1927,7 +1945,11 @@ function StatCard({
         >
           {label}
         </span>
-        {emoji && <span style={{ fontSize: '0.95rem', opacity: 0.7 }}>{emoji}</span>}
+        {icon && (
+          <span style={{ color: D.t3, display: 'inline-flex' }}>
+            <Icon name={icon} size={15} />
+          </span>
+        )}
       </div>
       <div
         style={{

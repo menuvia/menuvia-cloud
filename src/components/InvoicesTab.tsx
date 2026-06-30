@@ -8,6 +8,8 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Skeleton } from './ui/Skeleton'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -79,7 +81,16 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
     return (
       <div style={{ maxWidth: 720, margin: '40px auto', padding: 24 }}>
         <div style={{ textAlign: 'center', padding: 40 }}>
-          <div style={{ fontSize: 56, marginBottom: 16 }}>📄</div>
+          <div
+            style={{
+              marginBottom: 16,
+              color: D.gold,
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="receipt" size={48} />
+          </div>
           <h2
             style={{
               fontFamily: 'Fraunces,serif',
@@ -208,9 +219,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               padding: '8px 14px',
               fontSize: 13,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            ⚙ Configurare
+            <Icon name="settings" size={15} />
+            Configurare
           </button>
         </div>
       </div>
@@ -232,16 +247,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
 
       {/* Invoices list */}
       {invoices.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: D.t2 }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-          <div style={{ fontFamily: 'Fraunces,serif', fontSize: 18, color: D.t1, marginBottom: 8 }}>
-            Nicio factură emisă încă
-          </div>
-          <p style={{ fontSize: 14, maxWidth: 460, margin: '0 auto' }}>
-            Pentru a emite o factură, mergi la o comandă plătită și apasă "Emite factură" în
-            detalii.
-          </p>
-        </div>
+        <EmptyState
+          icon="receipt"
+          title="Nicio factură emisă încă"
+          description={
+            'Pentru a emite o factură, mergi la o comandă plătită și apasă "Emite factură" în detalii.'
+          }
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {invoices.map((inv) => (
@@ -359,8 +371,9 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
         </div>
         <div style={{ fontSize: 12, color: D.t3, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           {invoice.oblio_series && invoice.oblio_number ? (
-            <span>
-              📋 {invoice.oblio_series}-{invoice.oblio_number}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="receipt" size={12} />
+              {invoice.oblio_series}-{invoice.oblio_number}
             </span>
           ) : (
             <span style={{ color, fontWeight: 600 }}>{invoiceStatusLabel(invoice.status)}</span>

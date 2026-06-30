@@ -543,7 +543,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           >
             Rapoarte
           </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             {periodLabel(period, range.from, range.to)}
           </p>
         </div>
@@ -693,11 +693,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 color: D.amber,
                 fontSize: 13,
                 lineHeight: 1.5,
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
               }}
             >
-              ⚠️ <strong>Evidență operațională</strong> — ce s-a comandat (cantități, mix
-              produse). Estimare, <strong>nu este raport fiscal</strong>. Plata și bonul se
-              înregistrează pe casa de marcat existentă.
+              <Icon name="alert" size={16} color={D.amber} />
+              <span>
+                <strong>Evidență operațională</strong> — ce s-a comandat (cantități, mix
+                produse). Estimare, <strong>nu este raport fiscal</strong>. Plata și bonul se
+                înregistrează pe casa de marcat existentă.
+              </span>
             </div>
           )}
 
@@ -759,9 +765,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   textTransform: 'uppercase',
                   letterSpacing: '0.06em',
                   marginBottom: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
               >
-                📱 Comenzi QR
+                <Icon name="qr" size={14} color={D.t3} />
+                Comenzi QR
               </div>
               <div
                 style={{
@@ -811,9 +821,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   textTransform: 'uppercase',
                   letterSpacing: '0.06em',
                   marginBottom: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
               >
-                🧑‍💼 Comenzi ospătar
+                <Icon name="users" size={14} color={D.t3} />
+                Comenzi ospătar
               </div>
               <div
                 style={{
@@ -896,9 +910,20 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           {/* Top products */}
           {topProducts.length > 0 && (
             <>
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                🏆 Top {topProducts.length} produse
-                <span style={{ fontSize: '0.72rem', color: D.t3, fontWeight: 400, marginLeft: 6 }}>
+              <div
+                style={{
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: D.t1,
+                  marginBottom: 10,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <Icon name="star" size={16} color={D.gold} />
+                Top {topProducts.length} produse
+                <span style={{ fontSize: '0.72rem', color: D.t2, fontWeight: 400, marginLeft: 2 }}>
                   după cantitate comandată
                 </span>
               </div>
@@ -997,11 +1022,15 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     fontSize: '0.95rem',
                     color: D.t1,
                     fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
                   }}
                 >
-                  🕒 Vânzări pe oră
+                  <Icon name="clock" size={16} color={D.gold} />
+                  Vânzări pe oră
                 </div>
-                <div style={{ fontSize: '0.74rem', color: D.t3, marginTop: 2 }}>
+                <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
                   Când vinde localul. Identifică peak hours.
                 </div>
               </div>
@@ -1069,11 +1098,15 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     fontSize: '0.95rem',
                     color: D.t1,
                     fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
                   }}
                 >
-                  👥 Vânzări pe ospătar
+                  <Icon name="users" size={16} color={D.gold} />
+                  Vânzări pe ospătar
                 </div>
-                <div style={{ fontSize: '0.74rem', color: D.t3, marginTop: 2 }}>
+                <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
                   Atribuire prin servit → plătit → creat.
                 </div>
               </div>
@@ -1148,8 +1181,16 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         }}
                       >
                         <td style={{ padding: '10px 18px', color: w.waiter_id ? D.t1 : D.t3 }}>
-                          {w.waiter_id ? '👤 ' : '🔲 '}
-                          {w.waiter_name}
+                          <span
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}
+                          >
+                            <Icon
+                              name={w.waiter_id ? 'users' : 'box'}
+                              size={14}
+                              color={w.waiter_id ? D.t2 : D.t3}
+                            />
+                            {w.waiter_name}
+                          </span>
                         </td>
                         <td
                           style={{
@@ -1211,11 +1252,15 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     fontSize: '0.95rem',
                     color: D.t1,
                     fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
                   }}
                 >
-                  🍔 Vânzări pe categorie
+                  <Icon name="utensils" size={16} color={D.gold} />
+                  Vânzări pe categorie
                 </div>
-                <div style={{ fontSize: '0.74rem', color: D.t3, marginTop: 2 }}>
+                <div style={{ fontSize: '0.74rem', color: D.t2, marginTop: 2 }}>
                   Ce mănâncă mai mult clienții. Reducerile NU se împart proporțional.
                 </div>
               </div>

@@ -15,6 +15,8 @@ import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { confirm as confirmDialog } from './ui/confirm'
 import { InlineSpinner } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 
 interface BridgeDevice {
   id: string
@@ -350,6 +352,9 @@ export default function BridgeTab({ restaurantId }: Props) {
         <div>
           <h1
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
               fontSize: '1.4rem',
               fontWeight: 600,
               color: D.t1,
@@ -357,7 +362,8 @@ export default function BridgeTab({ restaurantId }: Props) {
               fontFamily: 'Fraunces,serif',
             }}
           >
-            📟 Casă de marcat
+            <Icon name="receipt" size={24} color={D.gold} />
+            Casă de marcat
           </h1>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
             Integrare FiscalNet (Datecs / Activa / Tremol). Bonurile fiscale se tipăresc automat la
@@ -369,13 +375,15 @@ export default function BridgeTab({ restaurantId }: Props) {
             onClick={openVatMap}
             style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
           >
-            🧾 Mapare TVA
+            <Icon name="percent" size={15} />
+            Mapare TVA
           </button>
           <button
             onClick={() => setShowRegister(true)}
             style={btn({ background: D.gold, color: '#0a0a0a' })}
           >
-            + Înregistrează casă
+            <Icon name="plus" size={15} />
+            Înregistrează casă
           </button>
         </div>
       </div>
@@ -393,15 +401,21 @@ export default function BridgeTab({ restaurantId }: Props) {
           {err}
           <button
             onClick={() => setErr(null)}
+            aria-label="Închide eroarea"
             style={{
               float: 'right',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 28,
+              minHeight: 28,
               background: 'transparent',
               border: 'none',
               color: D.red,
               cursor: 'pointer',
             }}
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
       )}
@@ -424,28 +438,20 @@ export default function BridgeTab({ restaurantId }: Props) {
       <div style={card}>
         <h2 style={h2}>Case de marcat înregistrate</h2>
         {devices.length === 0 ? (
-          <div
-            style={{
-              padding: '24px 16px',
-              background: D.s2,
-              borderRadius: 10,
-              border: `1px dashed ${D.border}`,
-              textAlign: 'center',
-            }}
-          >
-            <div style={{ fontSize: '0.92rem', color: D.t1, marginBottom: 6 }}>
-              Nu ai înregistrat nicio casă de marcat.
-            </div>
-            <div style={{ fontSize: '0.82rem', color: D.t2, marginBottom: 14 }}>
-              Înregistrează prima casă ca să primești cheia de instalare pentru Bridge-ul Menuvia.
-            </div>
-            <button
-              onClick={() => setShowRegister(true)}
-              style={btn({ background: D.gold, color: '#0a0a0a' })}
-            >
-              + Înregistrează casă
-            </button>
-          </div>
+          <EmptyState
+            icon="receipt"
+            title="Nu ai înregistrat nicio casă de marcat."
+            description="Înregistrează prima casă ca să primești cheia de instalare pentru Bridge-ul Menuvia."
+            action={
+              <button
+                onClick={() => setShowRegister(true)}
+                style={btn({ background: D.gold, color: '#0a0a0a' })}
+              >
+                <Icon name="plus" size={15} />
+                Înregistrează casă
+              </button>
+            }
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {devices.map((d) => {
@@ -670,7 +676,7 @@ export default function BridgeTab({ restaurantId }: Props) {
                       <td
                         style={{
                           padding: '10px 8px',
-                          color: D.t3,
+                          color: D.t2,
                           fontSize: '0.76rem',
                           maxWidth: 220,
                           overflow: 'hidden',
@@ -795,7 +801,7 @@ export default function BridgeTab({ restaurantId }: Props) {
             setRegName('Casa de marcat principală')
             setRegModel('')
           }}
-          title="✓ Casă înregistrată"
+          title="Casă înregistrată"
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontSize: '0.88rem', color: D.t1, lineHeight: 1.55 }}>
@@ -821,10 +827,14 @@ export default function BridgeTab({ restaurantId }: Props) {
               }
               style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
             >
-              📋 Copiază cheia
+              <Icon name="copy" size={15} />
+              Copiază cheia
             </button>
             <div
               style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 8,
                 fontSize: '0.78rem',
                 color: D.amber,
                 background: 'rgba(232,160,32,0.08)',
@@ -833,8 +843,13 @@ export default function BridgeTab({ restaurantId }: Props) {
                 lineHeight: 1.5,
               }}
             >
-              ⚠ Salvează cheia acum. După închiderea acestei ferestre nu mai poate fi recuperată.
-              Dacă o pierzi, șterge device-ul și înregistrează unul nou.
+              <span style={{ flexShrink: 0, marginTop: 1 }}>
+                <Icon name="alert" size={15} />
+              </span>
+              <span>
+                Salvează cheia acum. După închiderea acestei ferestre nu mai poate fi recuperată.
+                Dacă o pierzi, șterge device-ul și înregistrează unul nou.
+              </span>
             </div>
             <button
               onClick={() => {
@@ -1007,17 +1022,22 @@ function Modal({
           </h2>
           <button
             onClick={onClose}
+            aria-label="Închide"
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 32,
+              minHeight: 32,
               background: 'transparent',
               border: 'none',
               color: D.t2,
               cursor: 'pointer',
-              fontSize: '1.3rem',
               lineHeight: 1,
               padding: 4,
             }}
           >
-            ×
+            <Icon name="close" size={18} />
           </button>
         </div>
         {children}

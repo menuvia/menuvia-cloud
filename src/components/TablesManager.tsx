@@ -292,7 +292,7 @@ function TableModal({
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
-          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
+          <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
             Identificator unic în URL-ul QR
           </div>
         </div>
@@ -332,7 +332,7 @@ function TableModal({
               ))}
             </datalist>
           )}
-          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
+          <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
             Filtru pentru sheet-ul de rezervări publice (Terasa vs Interior)
           </div>
         </div>
@@ -743,7 +743,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           >
             Mese & QR
           </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             {tables.filter((t) => t.is_active).length} active · {tables.length} total
           </p>
         </div>
@@ -864,7 +864,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               ? 'Nu ai mese configurate încă'
               : 'Generează QR-urile pentru mese'}
           </div>
-          <p style={{ color: D.t3, fontSize: '0.8rem', marginBottom: 14, lineHeight: 1.5 }}>
+          <p style={{ color: D.t2, fontSize: '0.8rem', marginBottom: 14, lineHeight: 1.5 }}>
             {tables.length === 0
               ? 'Adaugă numărul de mese, iar Menuvia îți generează automat QR-urile.'
               : 'Spune-ne câte mese ai, iar Menuvia creează automat QR-urile pentru fiecare masă.'}
@@ -922,7 +922,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               {limitMsg}
             </div>
           )}
-          <p style={{ color: D.t3, fontSize: '0.72rem', marginTop: 10 }}>
+          <p style={{ color: D.t2, fontSize: '0.72rem', marginTop: 10 }}>
             Poți edita, dezactiva sau regenera orice QR mai târziu.
           </p>
         </div>
@@ -972,11 +972,11 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  fontSize: '1.1rem',
                   flexShrink: 0,
+                  color: D.t2,
                 }}
               >
-                🪑
+                <Icon name="table" size={20} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1016,14 +1016,25 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   style={{
                     fontSize: '0.72rem',
                     marginTop: 2,
-                    color: t.active_token && t.is_active ? D.green : D.t3,
+                    color: t.active_token && t.is_active ? D.green : D.t2,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
                   }}
                 >
-                  {!t.active_token
-                    ? '⚠️ Fără QR — apasă ↻ pentru a genera'
-                    : t.is_active
-                      ? '● QR activ'
-                      : '○ QR dezactivat'}
+                  {!t.active_token ? (
+                    <>
+                      <Icon name="alert" size={13} color={D.t2} />
+                      Fără QR — apasă reînnoire pentru a genera
+                    </>
+                  ) : t.is_active ? (
+                    <>
+                      <Icon name="check" size={13} color={D.green} />
+                      QR activ
+                    </>
+                  ) : (
+                    'QR dezactivat'
+                  )}
                 </div>
               </div>
               {/* FIX: QRImage generates locally — no api.qrserver.com */}
@@ -1037,9 +1048,12 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   <button
                     onClick={() => void downloadPng(t)}
                     title="Descarcă QR (PNG)"
+                    aria-label="Descarcă QR (PNG)"
                     style={{
-                      width: 32,
-                      height: 32,
+                      width: 36,
+                      height: 36,
+                      minWidth: 36,
+                      minHeight: 36,
                       borderRadius: 7,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -1050,16 +1064,19 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                       cursor: 'pointer',
                     }}
                   >
-                    ⬇
+                    <Icon name="download" size={16} />
                   </button>
                 )}
                 {t.active_token && (
                   <button
                     onClick={() => copyLink(t)}
                     title="Copiază link"
+                    aria-label="Copiază link"
                     style={{
-                      width: 32,
-                      height: 32,
+                      width: 36,
+                      height: 36,
+                      minWidth: 36,
+                      minHeight: 36,
                       borderRadius: 7,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -1070,7 +1087,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                       cursor: 'pointer',
                     }}
                   >
-                    🔗
+                    <Icon name="link" size={16} />
                   </button>
                 )}
                 <button
@@ -1081,9 +1098,12 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   }}
                   disabled={rotating === t.id}
                   title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
+                  aria-label={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    minHeight: 36,
                     borderRadius: 7,
                     background: D.s3,
                     border: `1px solid ${D.border}`,
@@ -1095,14 +1115,17 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     opacity: rotating === t.id ? 0.5 : 1,
                   }}
                 >
-                  ↻
+                  <Icon name="refresh" size={16} />
                 </button>
                 <button
                   onClick={() => toggleActive(t)}
                   title={t.is_active ? 'Dezactivează' : 'Activează'}
+                  aria-label={t.is_active ? 'Dezactivează masă' : 'Activează masă'}
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    minHeight: 36,
                     borderRadius: 7,
                     background: t.is_active ? 'rgba(76,175,110,0.12)' : D.s3,
                     border: `1px solid ${t.is_active ? 'rgba(76,175,110,0.3)' : D.border}`,
@@ -1113,13 +1136,17 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     cursor: 'pointer',
                   }}
                 >
-                  {t.is_active ? '✓' : '○'}
+                  <Icon name="check" size={16} />
                 </button>
                 <button
                   onClick={() => setModal(t)}
+                  title="Editează masă"
+                  aria-label="Editează masă"
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    minHeight: 36,
                     borderRadius: 7,
                     background: D.s3,
                     border: `1px solid ${D.border}`,
@@ -1130,13 +1157,17 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     cursor: 'pointer',
                   }}
                 >
-                  ✏
+                  <Icon name="edit" size={16} />
                 </button>
                 <button
                   onClick={() => setDelId(t.id)}
+                  title="Șterge masă"
+                  aria-label="Șterge masă"
                   style={{
-                    width: 32,
-                    height: 32,
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    minHeight: 36,
                     borderRadius: 7,
                     background: 'rgba(224,85,85,0.1)',
                     border: `1px solid rgba(224,85,85,0.2)`,
@@ -1147,7 +1178,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     cursor: 'pointer',
                   }}
                 >
-                  🗑
+                  <Icon name="trash" size={16} />
                 </button>
               </div>
             </div>

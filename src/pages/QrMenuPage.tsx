@@ -21,6 +21,7 @@ import { callWaiter } from '../lib/orders'
 import ProductSheet from '../components/ProductSheet'
 import { resolveTheme } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
+import { Icon } from '../components/ui/Icon'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 
@@ -331,7 +332,7 @@ export default function QrMenuPage({ token }: Props) {
           padding: 32,
         }}
       >
-        <div style={{ fontSize: 48 }}>❌</div>
+        <Icon name="alert" size={44} color="#C0392B" label="QR invalid" />
         <div
           style={{
             fontFamily: 'Fraunces, Georgia, serif',
@@ -343,7 +344,7 @@ export default function QrMenuPage({ token }: Props) {
         >
           Acest QR nu mai este activ
         </div>
-        <div style={{ fontSize: 14, color: '#5C4A2A', textAlign: 'center' }}>
+        <div style={{ fontSize: 14, color: PUB.text2, textAlign: 'center' }}>
           Te rugăm să ceri personalului un QR nou.
         </div>
       </div>
@@ -364,7 +365,7 @@ export default function QrMenuPage({ token }: Props) {
           padding: 32,
         }}
       >
-        <div style={{ fontSize: 48 }}>📶</div>
+        <Icon name="wifi" size={44} color={accent} label="Conexiune slabă" />
         <div
           style={{
             fontFamily: 'Fraunces, Georgia, serif',
@@ -376,7 +377,7 @@ export default function QrMenuPage({ token }: Props) {
         >
           Conexiune slabă
         </div>
-        <div style={{ fontSize: 14, color: '#5C4A2A', textAlign: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 14, color: PUB.text2, textAlign: 'center', marginBottom: 8 }}>
           Nu s-a putut încărca meniul. Verifică internetul și încearcă din nou.
         </div>
         <button
@@ -391,8 +392,12 @@ export default function QrMenuPage({ token }: Props) {
             fontWeight: 600,
             cursor: 'pointer',
             fontFamily: 'DM Sans,sans-serif',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
           }}
         >
+          <Icon name="refresh" size={16} color="#fff" />
           Reîncearcă
         </button>
       </div>
@@ -491,7 +496,7 @@ export default function QrMenuPage({ token }: Props) {
             alignItems: 'center',
           }}
         >
-          <span style={{ fontSize: 16 }}>🎉</span>
+          <Icon name="sparkle" size={16} color="#fff" />
           <span>Happy Hour activ:</span>
           {happyHour.map((r) => (
             <span
@@ -581,8 +586,10 @@ export default function QrMenuPage({ token }: Props) {
       >
         {/* Empty states: meniu gol vs. căutare fără rezultate */}
         {activeProducts.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '48px 16px', color: '#5C4A2A' }}>
-            <div style={{ fontSize: 36, marginBottom: 10 }}>{searchQuery ? '🔍' : '🍽️'}</div>
+          <div style={{ textAlign: 'center', padding: '48px 16px', color: PUB.text2 }}>
+            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
+              <Icon name={searchQuery ? 'search' : 'utensils'} size={36} color={PUB.text3} />
+            </div>
             <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
               {searchQuery
                 ? `Niciun produs găsit pentru „${search.trim()}"`
@@ -901,13 +908,17 @@ export default function QrMenuPage({ token }: Props) {
             zIndex: 49,
             boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
             opacity: callingWaiter ? 0.7 : 1,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
           }}
         >
+          <Icon name={waiterCalled ? 'check' : 'bell'} size={16} color="#fff" />
           {waiterCalled
-            ? '\u2713 Am anunțat ospătarul'
+            ? 'Am anunțat ospătarul'
             : callingWaiter
-              ? 'Se cheam\u0103...'
-              : '\ud83d\udc4b Cheam\u0103 ospătarul'}
+              ? 'Se cheamă...'
+              : 'Cheamă ospătarul'}
         </button>
       )}
       {ctx && orderingAllowed && !confirmation && (
@@ -932,13 +943,17 @@ export default function QrMenuPage({ token }: Props) {
             zIndex: 49,
             boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
             opacity: requestingBill ? 0.7 : 1,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 7,
           }}
         >
+          <Icon name={billRequested ? 'check' : 'receipt'} size={16} color="#fff" />
           {billRequested
-            ? '\u2713 Nota e pe drum'
+            ? 'Nota e pe drum'
             : requestingBill
               ? 'Se trimite...'
-              : '\ud83e\uddfe Cere nota'}
+              : 'Cere nota'}
         </button>
       )}
 
@@ -1042,7 +1057,7 @@ export default function QrMenuPage({ token }: Props) {
             />
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 20 }}>✓</span>
+              <Icon name="check" size={18} color="#4CAF6E" />
               <span
                 style={{
                   fontSize: 14,
@@ -1063,9 +1078,13 @@ export default function QrMenuPage({ token }: Props) {
                 color: PUB.text,
                 letterSpacing: '-0.01em',
                 lineHeight: 1.3,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
               }}
             >
-              🎉 Merge perfect cu...
+              <Icon name="sparkle" size={18} color={accent} />
+              Merge perfect cu...
             </div>
 
             <div

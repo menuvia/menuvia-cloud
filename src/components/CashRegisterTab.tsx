@@ -27,6 +27,8 @@ import {
   type CashMovementType,
 } from '../lib/cashShifts'
 import { InlineSpinner } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 
 interface Props {
   restaurantId: string
@@ -149,6 +151,9 @@ export default function CashRegisterTab({ restaurantId }: Props) {
       <div style={{ marginBottom: 18 }}>
         <h1
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
             fontSize: '1.4rem',
             fontWeight: 600,
             color: D.t1,
@@ -156,7 +161,8 @@ export default function CashRegisterTab({ restaurantId }: Props) {
             fontFamily: 'Fraunces,serif',
           }}
         >
-          💰 Încasări
+          <Icon name="receipt" size={24} color={D.gold} />
+          Încasări
         </h1>
         <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
           Gestiune fond casă, depuneri/retrageri și închidere zi cu Raport Z automat.
@@ -168,15 +174,21 @@ export default function CashRegisterTab({ restaurantId }: Props) {
           {err}
           <button
             onClick={() => setErr(null)}
+            aria-label="Închide eroarea"
             style={{
               float: 'right',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 44,
+              minHeight: 44,
               background: 'transparent',
               border: 'none',
               color: D.red,
               cursor: 'pointer',
             }}
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
       )}
@@ -197,9 +209,12 @@ export default function CashRegisterTab({ restaurantId }: Props) {
       <div style={card}>
         <h2 style={h2}>Istoric ture</h2>
         {recent.length === 0 ? (
-          <div style={{ color: D.t2, fontSize: '0.88rem', padding: '12px 0' }}>
-            Nicio tură înregistrată încă.
-          </div>
+          <EmptyState
+            compact
+            icon="history"
+            title="Nicio tură înregistrată încă"
+            description="Turele închise vor apărea aici."
+          />
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
@@ -407,7 +422,16 @@ export default function CashRegisterTab({ restaurantId }: Props) {
 function NoShiftCard({ onOpen }: { onOpen: () => void }) {
   return (
     <div style={{ ...card, textAlign: 'center', padding: '32px 20px' }}>
-      <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>🌅</div>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'center',
+          marginBottom: 10,
+          color: D.gold,
+        }}
+      >
+        <Icon name="clock" size={36} />
+      </div>
       <h2 style={{ ...h2, marginBottom: 6 }}>Nicio tură deschisă</h2>
       <div
         style={{
@@ -425,7 +449,8 @@ function NoShiftCard({ onOpen }: { onOpen: () => void }) {
         onClick={onOpen}
         style={btn({ background: D.gold, color: '#0a0a0a', height: 44, padding: '0 24px' })}
       >
-        🔓 Deschide tură
+        <Icon name="plus" size={17} />
+        Deschide tură
       </button>
     </div>
   )
@@ -485,7 +510,8 @@ function CurrentShiftCard({
             💵 Mișcare cash
           </button>
           <button onClick={onClose} style={btn({ background: D.gold, color: '#0a0a0a' })}>
-            🔒 Închide tură
+            <Icon name="lock" size={16} />
+            Închide tură
           </button>
         </div>
       </div>
@@ -599,7 +625,7 @@ function OpenShiftModal({
             style={inp}
             autoFocus
           />
-          <div style={{ fontSize: '0.76rem', color: D.t3, marginTop: 4 }}>
+          <div style={{ fontSize: '0.76rem', color: D.t2, marginTop: 4 }}>
             Numerarul cu care începi (mărunțiș pentru rest, fond de bază).
           </div>
         </div>
@@ -886,6 +912,9 @@ function CloseShiftModal({
           {confirmation.z_sent && (
             <div
               style={{
+                display: 'flex',
+                gap: 8,
+                alignItems: 'flex-start',
                 background: D.greenA,
                 border: `1px solid ${D.green}`,
                 borderRadius: 8,
@@ -894,7 +923,12 @@ function CloseShiftModal({
                 color: D.green,
               }}
             >
-              ✓ Raport Z trimis la casa de marcat. Verifică tab-ul "Fiscalizare" pentru confirmare.
+              <span style={{ flexShrink: 0, marginTop: 1 }}>
+                <Icon name="check" size={15} />
+              </span>
+              <span>
+                Raport Z trimis la casa de marcat. Verifică tab-ul "Fiscalizare" pentru confirmare.
+              </span>
             </div>
           )}
           <button
@@ -982,7 +1016,8 @@ function CloseShiftModal({
           }}
         >
           <input type="checkbox" checked={sendZ} onChange={(e) => setSendZ(e.target.checked)} />
-          <span>📟 Trimite automat Raport Z la casa de marcat</span>
+          <Icon name="printer" size={16} />
+          <span>Trimite automat Raport Z la casa de marcat</span>
         </label>
 
         {err && (
@@ -1238,17 +1273,22 @@ function Modal({
           </h2>
           <button
             onClick={onClose}
+            aria-label="Închide"
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 44,
+              minHeight: 44,
               background: 'transparent',
               border: 'none',
               color: D.t2,
               cursor: 'pointer',
-              fontSize: '1.3rem',
               lineHeight: 1,
               padding: 4,
             }}
           >
-            ×
+            <Icon name="close" size={18} />
           </button>
         </div>
         {children}

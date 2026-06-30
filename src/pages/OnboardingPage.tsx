@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
+import { Icon } from '../components/ui/Icon'
+import type { IconName } from '../components/ui/Icon'
 
 // ─── Helpers ─────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -125,7 +127,7 @@ function Progress({ step, total = 4 }: { step: number; total?: number }) {
                 transition: 'all .3s',
               }}
             >
-              {i + 1 < step ? '✓' : i + 1}
+              {i + 1 < step ? <Icon name="check" size={12} /> : i + 1}
             </div>
           </div>
         ))}
@@ -240,7 +242,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
       >
         Configurează restaurantul
       </h1>
-      <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
+      <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
         Informații de bază — le poți schimba oricând din Setări.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -416,7 +418,7 @@ function Step2Menu({
       >
         Adaugă primul produs
       </h1>
-      <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
+      <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
         Un produs e de ajuns acum. Adaugi restul din dashboard.
       </p>
 
@@ -597,7 +599,7 @@ function Step3Table({
       >
         Câte mese are restaurantul?
       </h1>
-      <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
+      <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
         Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le
         redenumești din dashboard.
       </p>
@@ -614,6 +616,7 @@ function Step3Table({
       >
         <button
           onClick={() => setCount((c) => Math.max(1, c - 1))}
+          aria-label="Scade numărul de mese"
           style={{
             width: 44,
             height: 44,
@@ -621,14 +624,13 @@ function Step3Table({
             background: D.s3,
             border: `1px solid ${D.border}`,
             color: D.t1,
-            fontSize: '1.4rem',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          −
+          <Icon name="minus" size={20} />
         </button>
         <div style={{ textAlign: 'center' }}>
           <div
@@ -646,6 +648,7 @@ function Step3Table({
         </div>
         <button
           onClick={() => setCount((c) => Math.min(50, c + 1))}
+          aria-label="Crește numărul de mese"
           style={{
             width: 44,
             height: 44,
@@ -653,14 +656,13 @@ function Step3Table({
             background: D.s3,
             border: `1px solid ${D.border}`,
             color: D.t1,
-            fontSize: '1.4rem',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          +
+          <Icon name="plus" size={20} />
         </button>
       </div>
 
@@ -696,10 +698,25 @@ function Step3Table({
           border: `1px solid ${D.border}`,
         }}
       >
-        <div style={{ fontSize: '0.8rem', color: D.t2, lineHeight: 1.7 }}>
-          ✓ Se creează <strong style={{ color: D.t1 }}>{count} mese</strong> cu QR-uri unice
-          <br />✓ PDF gata de printat din tab-ul <strong style={{ color: D.t1 }}>Mese</strong>
-          <br />✓ Le redenumești sau stergi oricând
+        <div
+          style={{ display: 'flex', flexDirection: 'column', gap: 7, fontSize: '0.8rem', color: D.t2 }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="check" size={14} color={D.green} />
+            <span>
+              Se creează <strong style={{ color: D.t1 }}>{count} mese</strong> cu QR-uri unice
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="check" size={14} color={D.green} />
+            <span>
+              PDF gata de printat din tab-ul <strong style={{ color: D.t1 }}>Mese</strong>
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="check" size={14} color={D.green} />
+            <span>Le redenumești sau ștergi oricând</span>
+          </div>
         </div>
       </div>
 
@@ -739,18 +756,32 @@ function Step4Done({
     onComplete()
   }
 
-  const achievements = [
-    { icon: '🏠', title: 'Restaurant creat', done: true },
-    { icon: '📋', title: 'Meniu configurat', done: true },
-    { icon: '🪑', title: 'Mese și QR-uri', done: true },
-    { icon: '📱', title: 'Gata de comenzi', done: true },
+  const achievements: { icon: IconName; title: string; done: boolean }[] = [
+    { icon: 'home', title: 'Restaurant creat', done: true },
+    { icon: 'menu', title: 'Meniu configurat', done: true },
+    { icon: 'table', title: 'Mese și QR-uri', done: true },
+    { icon: 'qr', title: 'Gata de comenzi', done: true },
   ]
 
   return (
     <Shell>
       <Progress step={4} />
       <div style={{ textAlign: 'center', marginBottom: 28 }}>
-        <div style={{ fontSize: '3rem', marginBottom: 12 }}>🎉</div>
+        <div
+          style={{
+            width: 64,
+            height: 64,
+            borderRadius: '50%',
+            background: D.goldA,
+            border: `1px solid ${D.gold}44`,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: 12,
+          }}
+        >
+          <Icon name="sparkle" size={30} color={D.gold} />
+        </div>
         <h1
           style={{
             fontFamily: 'Fraunces,serif',
@@ -762,7 +793,7 @@ function Step4Done({
         >
           Ești gata!
         </h1>
-        <p style={{ color: D.t3, fontSize: '0.85rem', lineHeight: 1.6 }}>
+        <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6 }}>
           Restaurantul tău e configurat și live.
         </p>
       </div>
@@ -782,9 +813,9 @@ function Step4Done({
               border: `1px solid ${D.border}`,
             }}
           >
-            <span style={{ fontSize: '1.2rem' }}>{a.icon}</span>
+            <Icon name={a.icon} size={18} color={D.gold} />
             <span style={{ fontSize: '0.875rem', color: D.t1, flex: 1 }}>{a.title}</span>
-            <span style={{ color: D.green, fontSize: '0.85rem', fontWeight: 600 }}>✓</span>
+            <Icon name="check" size={16} color={D.green} label="finalizat" />
           </div>
         ))}
       </div>
@@ -827,8 +858,13 @@ function Step4Done({
           </a>
           <button
             onClick={() => navigator.clipboard?.writeText(menuUrl)}
+            aria-label="Copiază link-ul meniului"
             style={{
-              padding: '4px 10px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              padding: '6px 11px',
+              minHeight: 32,
               fontSize: '0.72rem',
               background: D.goldA,
               color: D.goldL,
@@ -839,6 +875,7 @@ function Step4Done({
               flexShrink: 0,
             }}
           >
+            <Icon name="copy" size={13} />
             Copiază
           </button>
         </div>
@@ -854,17 +891,28 @@ function Step4Done({
           border: `1px solid ${D.border}`,
         }}
       >
-        <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.8 }}>
-          <strong style={{ color: D.t1, display: 'block', marginBottom: 4 }}>
+        <div style={{ fontSize: '0.78rem', color: D.t2 }}>
+          <strong style={{ color: D.t1, display: 'block', marginBottom: 8 }}>
             Următori pași în dashboard:
           </strong>
-          📄 Adaugă restul produselor din meniu
-          <br />
-          🖨️ Printează QR-urile din tab-ul Mese
-          <br />
-          👥 Invită ospătarul și bucătarul din tab-ul Echipă
-          <br />
-          📊 Urmărește comenzile live din Kitchen
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="orders" size={15} color={D.t3} />
+              <span>Adaugă restul produselor din meniu</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="printer" size={15} color={D.t3} />
+              <span>Printează QR-urile din tab-ul Mese</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="users" size={15} color={D.t3} />
+              <span>Invită ospătarul și bucătarul din tab-ul Echipă</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="chart" size={15} color={D.t3} />
+              <span>Urmărește comenzile live din Kitchen</span>
+            </div>
+          </div>
         </div>
       </div>
 
