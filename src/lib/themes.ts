@@ -330,3 +330,34 @@ export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTh
     },
   }
 }
+
+// Alege culoarea textului (alb vs. un text închis) care are contrast bun peste
+// un fundal dat — folosit pentru text/iconuri PESTE `accent`, fiindcă accentele
+// deschise (galben/lime/gold) pică AA cu albul. Întoarce `darkText` când fundalul
+// e deschis, altfel alb. Acceptă '#rgb' și '#rrggbb'; pe input neparsabil cade pe
+// alb (comportament conservator). Helper partajat de meniu (ProductCard, MenuStates,
+// MenuHeader) — un singur calcul de luminanță WCAG, fără duplicate.
+export function readableTextOn(bg: string, darkText: string): string {
+  const hex = bg.trim().replace(/^#/, '')
+  let r: number
+  let g: number
+  let b: number
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    r = parseInt(hex.slice(0, 2), 16)
+    g = parseInt(hex.slice(2, 4), 16)
+    b = parseInt(hex.slice(4, 6), 16)
+  } else if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    r = parseInt(hex[0]! + hex[0]!, 16)
+    g = parseInt(hex[1]! + hex[1]!, 16)
+    b = parseInt(hex[2]! + hex[2]!, 16)
+  } else {
+    return '#FFFFFF'
+  }
+  const lin = (c: number) => {
+    const s = c / 255
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  }
+  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  // Prag ~0.45: peste el fundalul e prea deschis pentru text alb (AA).
+  return luminance > 0.45 ? darkText : '#FFFFFF'
+}

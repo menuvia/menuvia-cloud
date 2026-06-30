@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
+import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { BlurImage } from '../ui/BlurImage'
 import { DIETARY_TAGS } from '../../lib/constants'
@@ -123,7 +124,10 @@ export default function ProductCard({
         onClick={() => {
           if (!isSoldOut) onOpen()
         }}
-        aria-label={`Vezi detalii ${product.name}`}
+        // Fără `aria-label` aici: ar fi suprascris tot subtree-ul, ascunzând de
+        // screen-reader descrierea, tag-urile dietetice (vegan/fără gluten) și
+        // badge-ul „Epuizat". Numele accesibil al butonului se compune acum din
+        // conținutul real (nume + preț etichetat + descriere + badge-uri).
         style={{
           flex: 1,
           minWidth: 0,
@@ -214,7 +218,11 @@ export default function ProductCard({
                 fontFamily: theme.fonts.heading,
                 fontSize: FS_SMALL,
                 fontWeight: 600,
-                color: priceMain,
+                // Zecimalele (13px) rămân pe `priceUnit` (PUB.text), ca sufixul
+                // „lei": sub 14px pragul AA e 4.5:1, iar `priceMain` (accent sau
+                // success) nu-l garantează pe toate temele. Întregul (20px) e
+                // large-text, deci rămâne colorat.
+                color: priceUnit,
                 lineHeight: 1,
               }}
             >
@@ -320,7 +328,10 @@ export default function ProductCard({
             height: 44,
             borderRadius: '50%',
             background: accent,
-            color: '#fff',
+            // „+"-ul alb pică AA pe accente deschise (gold/galben/lime, inclusiv
+            // accent_override): folosim text lizibil calculat din luminanța
+            // accentului (alb pe accent închis, text închis pe accent deschis).
+            color: readableTextOn(accent, PUB.text),
             border: 'none',
             cursor: 'pointer',
             display: 'flex',

@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import BlurImage from '../ui/BlurImage'
 import { menuType } from '../../lib/menuType'
 import type { MenuTheme } from '../../lib/themes'
+import { readableTextOn } from '../../lib/themes'
 
 // ─────────────────────────────────────────────────────────────
 // MenuHeader — header de meniu reutilizabil pe ambele suprafețe
@@ -35,35 +36,7 @@ const SPACE_6 = 24
 const STATUS_OK = '#4CAF6E'
 const STATUS_OFF = '#C0392B'
 
-// Alege culoarea textului (alb vs. text închis al temei) care are contrast bun
-// peste un fundal dat — folosit pentru badge-ul compact pe `accent`, fiindcă
-// accentele deschise (galben/lime) pică AA cu albul. Întoarce darkText când
-// fundalul e deschis, altfel alb. Acceptă '#rgb' și '#rrggbb'; pe input
-// neparsabil cade pe alb (comportamentul anterior).
-function readableTextOn(bg: string, darkText: string): string {
-  const hex = bg.trim().replace(/^#/, '')
-  let r: number
-  let g: number
-  let b: number
-  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-    r = parseInt(hex.slice(0, 2), 16)
-    g = parseInt(hex.slice(2, 4), 16)
-    b = parseInt(hex.slice(4, 6), 16)
-  } else if (/^[0-9a-fA-F]{3}$/.test(hex)) {
-    r = parseInt(hex[0]! + hex[0]!, 16)
-    g = parseInt(hex[1]! + hex[1]!, 16)
-    b = parseInt(hex[2]! + hex[2]!, 16)
-  } else {
-    return '#FFFFFF'
-  }
-  const lin = (c: number) => {
-    const s = c / 255
-    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
-  }
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-  // Prag ~0.45: peste el fundalul e prea deschis pentru text alb (AA).
-  return luminance > 0.45 ? darkText : '#FFFFFF'
-}
+// `readableTextOn` e acum partajat din `lib/themes.ts` (un singur calcul WCAG).
 
 // Paleta publică a temei, primită prin prop (subset din MenuTheme.colors).
 export interface PublicPalette {

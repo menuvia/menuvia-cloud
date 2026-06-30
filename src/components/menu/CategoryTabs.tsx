@@ -271,8 +271,11 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
                       ...t.badge,
                       padding: '3px 6px',
                       borderRadius: 999,
-                      // contrast AA: inactiv = text2 (text3 + 10.5px pică AA).
-                      color: active ? accent : PUB.text2,
+                      // contrast AA la 10.5px: NU folosim `accent` pe tintul de
+                      // accent (pică AA pe teme light/gold). Textul rămâne pe
+                      // tokenul de text al temei; emfaza „activ" vine din fundalul
+                      // tintat + border-ul de accent, nu din culoarea cifrei.
+                      color: active ? PUB.text : PUB.text2,
                       background: active ? accent + '1A' : PUB.surface,
                       border: `1px solid ${active ? accent + '40' : PUB.border}`,
                       transition: reduced
