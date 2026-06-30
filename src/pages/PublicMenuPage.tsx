@@ -5,7 +5,7 @@
 //   • View only — when pickup is disabled (just browse menu)
 //   • Order for pickup — when pickup_settings.enabled = true
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useDeferredValue, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, useDeferredValue, lazy, Suspense } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import { useInView, revealStyle } from '../lib/motion'
 import {
@@ -87,6 +87,46 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   const pickupEnabled = restaurant?.pickup_settings?.enabled ?? false
   const lang = restaurant?.language ?? 'ro'
+
+  // „Lista mea" — meniu digital (fără comenzi/pickup): coșul devine o listă LOCALĂ
+  // pe care NU o trimiți nicăieri, doar confort ca să ții minte ce vrei să iei.
+  // Persistată în localStorage per restaurant, ca să supraviețuiască refresh-ului.
+  const listMode = restaurant != null && !pickupEnabled
+  const listKey = restaurant ? `menuvia.lista.${restaurant.slug}` : null
+  // Sărim PRIMA salvare după hidratare ca să nu suprascriem lista salvată cu [] gol
+  // în același commit (load programează setCart, dar closure-ul de save are cart vechi).
+  const skipNextSaveRef = useRef(false)
+
+  useEffect(() => {
+    if (!listMode || !listKey) return
+    try {
+      const raw = localStorage.getItem(listKey)
+      if (raw) {
+        const saved = JSON.parse(raw) as CartItem[]
+        if (Array.isArray(saved) && saved.length > 0) {
+          skipNextSaveRef.current = true
+          setCart(saved)
+        }
+      }
+    } catch {
+      /* localStorage indisponibil / JSON corupt → ignorăm */
+    }
+    // doar la (re)montare per restaurant
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listMode, listKey])
+
+  useEffect(() => {
+    if (!listMode || !listKey) return
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false
+      return
+    }
+    try {
+      localStorage.setItem(listKey, JSON.stringify(cart))
+    } catch {
+      /* quota / indisponibil → ignorăm */
+    }
+  }, [cart, listMode, listKey])
 
   // Live update is_open la fiecare 60s (când treci ora închiderii fără refresh)
   useEffect(() => {
@@ -537,7 +577,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     accent={accent}
                     theme={theme}
                     PUB={PUB}
-                    pickupEnabled={pickupEnabled}
+                    // Butonul rapid „+" apare și pentru pickup, și pentru „Lista mea"
+                    // (meniu digital) — în ambele cazuri adaugă în coșul/lista locală.
+                    pickupEnabled={pickupEnabled || listMode}
                     happyHourPct={happyHourPercentForProduct(product, happyHour)}
                     onOpen={() => {
                       if (!product.is_sold_out) setActiveProduct(product)
@@ -564,10 +606,13 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         <FooterBrand restaurant={restaurant} theme={theme} accent={accent} PUB={PUB} lang={lang} />
       </div>
 
-      {/* Cart bar (sticky bottom — only if pickupEnabled and cart > 0) */}
-      {pickupEnabled && cart.length > 0 && !showCart && (
+      {/* Bară sticky — coș (pickup) sau „Lista mea" (meniu digital). Pentru „Lista
+          mea" e PERSISTENTĂ (chiar goală), ca să fie descoperită din prima. Pentru
+          pickup apare doar când ai produse. */}
+      {((listMode || cart.length > 0) && !showCart) && (
         <button
           onClick={() => setShowCart(true)}
+          aria-label={listMode ? 'Lista mea' : 'Vezi coșul'}
           style={{
             position: 'fixed',
             bottom: 0,
@@ -576,24 +621,33 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             maxWidth: 480,
             width: '100%',
             padding: '14px 20px',
-            background: accent,
-            color: '#fff',
-            border: 'none',
+            background: cart.length > 0 ? accent : PUB.surface,
+            color: cart.length > 0 ? '#fff' : PUB.text,
+            border: cart.length > 0 ? 'none' : `1px solid ${PUB.borderStrong}`,
             cursor: 'pointer',
             fontFamily: theme.fonts.body,
             fontSize: 15,
             fontWeight: 700,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
-            boxShadow: `0 -4px 20px ${accent}55`,
+            justifyContent: cart.length > 0 ? 'space-between' : 'center',
+            gap: 10,
+            boxShadow: cart.length > 0 ? `0 -4px 20px ${accent}55` : 'none',
           }}
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-            <IconBag size={16} color="#fff" /> {cartCount} {cartCount === 1 ? 'produs' : 'produse'}{' '}
-            în coș
-          </span>
-          <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
+          {cart.length > 0 ? (
+            <>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <IconBag size={16} color="#fff" /> {cartCount}{' '}
+                {cartCount === 1 ? 'produs' : 'produse'} {listMode ? 'în lista mea' : 'în coș'}
+              </span>
+              <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
+            </>
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: PUB.text2 }}>
+              <IconBag size={16} color={PUB.text2} /> Lista mea · atinge un produs ca să adaugi
+            </span>
+          )}
         </button>
       )}
 
@@ -656,8 +710,18 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   letterSpacing: '-0.01em',
                 }}
               >
-                Comanda ta
+                {listMode ? 'Lista mea' : 'Comanda ta'}
               </div>
+              {listMode && (
+                <div style={{ fontSize: 13, color: PUB.text2, marginTop: -8, marginBottom: 14 }}>
+                  Ce vrei să iei — salvat pe telefonul tău. Arată-i ospătarului când comanzi.
+                </div>
+              )}
+              {cart.length === 0 && (
+                <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
+                  Lista e goală. Atinge un produs din meniu ca să-l adaugi aici.
+                </div>
+              )}
               {cart.map((item) => (
                 <div
                   key={item._key}
@@ -744,27 +808,51 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {cartTotal.toFixed(2)} lei
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  setShowCart(false)
-                  setShowPickup(true)
-                }}
-                style={{
-                  width: '100%',
-                  padding: '15px',
-                  background: accent,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 12,
-                  fontFamily: theme.fonts.body,
-                  fontSize: 15,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: `0 4px 14px ${accent}55`,
-                }}
-              >
-                Continuă la ridicare →
-              </button>
+              {listMode ? (
+                // „Lista mea" nu se trimite nicăieri — o poți goli sau închide.
+                <button
+                  onClick={() => {
+                    if (cart.length > 0) setCart([])
+                    setShowCart(false)
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '15px',
+                    background: 'transparent',
+                    color: PUB.text2,
+                    border: `1px solid ${PUB.borderStrong}`,
+                    borderRadius: 12,
+                    fontFamily: theme.fonts.body,
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {cart.length > 0 ? 'Golește lista' : 'Închide'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setShowCart(false)
+                    setShowPickup(true)
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '15px',
+                    background: accent,
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 12,
+                    fontFamily: theme.fonts.body,
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: `0 4px 14px ${accent}55`,
+                  }}
+                >
+                  Continuă la ridicare →
+                </button>
+              )}
             </div>
           </div>
         </div>
