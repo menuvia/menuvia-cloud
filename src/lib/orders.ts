@@ -97,8 +97,10 @@ export interface Order {
   discount_applied_at: string | null
   table: RestaurantTable | null
   order_items: OrderItem[]
-  _created_by_profile: { full_name: string | null } | null
-  _served_by_profile: { full_name: string | null } | null
+  // Atribuire ospătar — neîncărcată momentan (vezi nota de la ORDER_SELECT).
+  // Opțional ca să rămână type-safe când lipsește din payload.
+  _created_by_profile?: { full_name: string | null } | null
+  _served_by_profile?: { full_name: string | null } | null
 }
 
 export interface OrderConfirmationPayload {
@@ -126,12 +128,17 @@ export interface OrderRealtimePayload {
   old: Record<string, unknown>
 }
 
+// NU embeda `profiles` pe orders: `orders.created_by`/`served_by` referă
+// `auth.users(id)`, NU `public.profiles` (vezi mig 003) — embed-ul
+// `profiles!orders_created_by_fkey` e invalid și PostgREST întoarce
+// „Could not find a relationship between 'orders' and 'profiles'", ceea ce
+// pică ÎNTREAGA interogare → comenzile live nu se mai încărcau pe Ospătar.
+// În plus, RLS `profiles_self` oricum ar fi întors doar numele user-ului curent.
+// Atribuirea „Preluat de / Servit de" rămâne ascunsă până la un RPC/view dedicat.
 const ORDER_SELECT = `
   *,
   table:tables(id, name, slug, seats),
-  order_items(id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total, selected_modifiers, notes),
-  _created_by_profile:profiles!orders_created_by_fkey(full_name),
-  _served_by_profile:profiles!orders_served_by_fkey(full_name)
+  order_items(id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total, selected_modifiers, notes)
 ` as const
 
 export async function fetchKitchenOrders(restaurantId: string): Promise<Order[]> {
