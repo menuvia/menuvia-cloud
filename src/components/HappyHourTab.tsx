@@ -12,6 +12,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { InlineSpinner } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 import {
   fetchHappyHourRules,
   createHappyHourRule,
@@ -199,9 +201,13 @@ export default function HappyHourTab({ restaurantId }: Props) {
               color: D.t1,
               margin: 0,
               fontFamily: 'Fraunces,serif',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 10,
             }}
           >
-            🎉 Promoții
+            <Icon name="percent" size={22} />
+            Promoții
           </h1>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
             Reguli automate de reducere pe interval orar și zile săptămână. Ospătarul va vedea un
@@ -212,7 +218,8 @@ export default function HappyHourTab({ restaurantId }: Props) {
           onClick={() => setEditing('new')}
           style={btn({ background: D.gold, color: '#000', height: 40 })}
         >
-          + Regulă nouă
+          <Icon name="plus" size={16} />
+          Regulă nouă
         </button>
       </div>
 
@@ -229,15 +236,21 @@ export default function HappyHourTab({ restaurantId }: Props) {
           {err}
           <button
             onClick={() => setErr(null)}
+            aria-label="Închide eroarea"
             style={{
               float: 'right',
               background: 'transparent',
               border: 'none',
               color: D.red,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minWidth: 44,
+              minHeight: 44,
             }}
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
       )}
@@ -252,8 +265,19 @@ export default function HappyHourTab({ restaurantId }: Props) {
             marginBottom: 18,
           }}
         >
-          <div style={{ fontSize: '0.86rem', color: D.gold, fontWeight: 600, marginBottom: 8 }}>
-            🎉 ACTIVE ACUM ({active.length})
+          <div
+            style={{
+              fontSize: '0.86rem',
+              color: D.gold,
+              fontWeight: 600,
+              marginBottom: 8,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Icon name="sparkle" size={15} />
+            ACTIVE ACUM ({active.length})
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {active.map((r) => (
@@ -278,29 +302,22 @@ export default function HappyHourTab({ restaurantId }: Props) {
 
       {/* Rules list */}
       {rules.length === 0 ? (
-        <div style={{ ...card, textAlign: 'center', padding: '40px 20px' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 10 }}>🍹</div>
-          <h2
-            style={{
-              fontSize: '1.1rem',
-              color: D.t1,
-              fontFamily: 'Fraunces,serif',
-              marginBottom: 6,
-            }}
-          >
-            Nicio regulă încă
-          </h2>
-          <div style={{ fontSize: '0.86rem', color: D.t2, maxWidth: 480, margin: '0 auto 16px' }}>
-            Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și sistemul va sugera automat
-            reducerea la plată în acest interval.
-          </div>
-          <button
-            onClick={() => setEditing('new')}
-            style={btn({ background: D.gold, color: '#000', height: 40 })}
-          >
-            + Prima regulă
-          </button>
-        </div>
+        <EmptyState
+          icon="percent"
+          title="Nicio regulă încă"
+          description={
+            'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și sistemul va sugera automat reducerea la plată în acest interval.'
+          }
+          action={
+            <button
+              onClick={() => setEditing('new')}
+              style={btn({ background: D.gold, color: '#000', height: 40 })}
+            >
+              <Icon name="plus" size={16} />
+              Prima regulă
+            </button>
+          }
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {rules.map((r) => (
@@ -361,11 +378,19 @@ function RuleCard({
       ? 'Toate zilele'
       : rule.days_of_week.map((d) => DAY_LABELS[d - 1] ?? '?').join(' ')
   const scope =
-    rule.scope === 'all'
-      ? '🌐 Pe tot'
-      : rule.scope === 'category'
-        ? `📁 ${cat?.emoji || ''} ${cat?.name || '?'}`
-        : `🍽️ ${prod?.emoji || ''} ${prod?.name || '?'}`
+    rule.scope === 'all' ? (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="tag" size={13} /> Pe tot
+      </span>
+    ) : rule.scope === 'category' ? (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="box" size={13} /> {cat?.emoji || ''} {cat?.name || '?'}
+      </span>
+    ) : (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <Icon name="utensils" size={13} /> {prod?.emoji || ''} {prod?.name || '?'}
+      </span>
+    )
 
   return (
     <div
@@ -436,10 +461,12 @@ function RuleCard({
               color: D.t2,
             }}
           >
-            <span>
-              ⏰ {rule.starts_at.slice(0, 5)}–{rule.ends_at.slice(0, 5)}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="clock" size={13} /> {rule.starts_at.slice(0, 5)}–{rule.ends_at.slice(0, 5)}
             </span>
-            <span>📅 {days}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="calendar" size={13} /> {days}
+            </span>
             <span>{scope}</span>
             <span style={{ color: D.gold, fontWeight: 600 }}>
               −{rule.discount_value}
@@ -460,7 +487,7 @@ function RuleCard({
               fontSize: '0.78rem',
             })}
           >
-            {rule.is_active ? '⏸ Oprește' : '▶ Pornește'}
+            {rule.is_active ? 'Oprește' : 'Pornește'}
           </button>
           <button
             onClick={onEdit}
@@ -477,16 +504,18 @@ function RuleCard({
           </button>
           <button
             onClick={onDelete}
+            aria-label={`Șterge regula ${rule.name}`}
             style={btn({
               background: 'transparent',
               color: D.red,
               border: `1px solid ${D.red}33`,
               height: 32,
+              minWidth: 44,
               padding: '0 10px',
               fontSize: '0.78rem',
             })}
           >
-            🗑
+            <Icon name="trash" size={15} />
           </button>
         </div>
       </div>
@@ -701,7 +730,11 @@ function RuleEditor({
                     fontSize: '0.82rem',
                   })}
                 >
-                  {s === 'all' ? '🌐 Pe tot' : s === 'category' ? '📁 Categorie' : '🍽️ Produs'}
+                  <Icon
+                    name={s === 'all' ? 'tag' : s === 'category' ? 'box' : 'utensils'}
+                    size={14}
+                  />
+                  {s === 'all' ? 'Pe tot' : s === 'category' ? 'Categorie' : 'Produs'}
                 </button>
               ))}
             </div>

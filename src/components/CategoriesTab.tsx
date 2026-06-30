@@ -4,6 +4,9 @@ import type { Category } from '../hooks/useData'
 import { D } from '../lib/constants'
 import { QueryError } from './PageLoader'
 import { btn, useToast, Toast, Modal, Inp } from './_dashboard/sharedUI'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 
 function CategoryModal({
   category,
@@ -65,7 +68,7 @@ function CategoryModal({
               boxSizing: 'border-box',
             }}
           />
-          <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 4 }}>
+          <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
             Afișat pe meniul public sub numele categoriei.
           </div>
         </div>
@@ -172,27 +175,31 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
             height: 40,
             padding: '0 16px',
             fontSize: '0.85rem',
+            gap: 7,
           })}
         >
-          + Adaugă categorie
+          <Icon name="plus" size={16} />
+          Adaugă categorie
         </button>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {loading ? (
-          <div style={{ padding: '32px 0', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
+          <Skeleton variant="card" count={3} />
         ) : categories.length === 0 ? (
-          <div
-            style={{
-              padding: '40px',
-              textAlign: 'center',
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              color: D.t3,
-            }}
-          >
-            Nicio categorie. Adaugă prima!
-          </div>
+          <EmptyState
+            icon="menu"
+            title="Nicio categorie"
+            description="Adaugă prima categorie ca să-ți organizezi meniul."
+            action={
+              <button
+                onClick={() => setModal('add')}
+                style={btn({ background: D.gold, color: '#000', gap: 7 })}
+              >
+                <Icon name="plus" size={16} />
+                Adaugă categorie
+              </button>
+            }
+          />
         ) : (
           categories.map((cat) => {
             const count = products.filter((p) => p.category_id === cat.id).length
@@ -226,12 +233,13 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: '0.9rem', fontWeight: 500, color: D.t1 }}>{cat.name}</div>
-                  <div style={{ fontSize: '0.75rem', color: D.t3, marginTop: 2 }}>
+                  <div style={{ fontSize: '0.75rem', color: D.t2, marginTop: 2 }}>
                     {count} produs{count !== 1 ? 'e' : ''}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
+                    aria-label="Mută mai sus"
                     onClick={() => {
                       const idx = categories.indexOf(cat)
                       if (idx > 0) {
@@ -241,8 +249,8 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                       }
                     }}
                     style={{
-                      width: 34,
-                      height: 34,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 8,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -256,6 +264,7 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                     ↑
                   </button>
                   <button
+                    aria-label="Mută mai jos"
                     onClick={() => {
                       const idx = categories.indexOf(cat)
                       if (idx < categories.length - 1) {
@@ -265,8 +274,8 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                       }
                     }}
                     style={{
-                      width: 34,
-                      height: 34,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 8,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -280,10 +289,11 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                     ↓
                   </button>
                   <button
+                    aria-label="Editează categorie"
                     onClick={() => setModal(cat)}
                     style={{
-                      width: 34,
-                      height: 34,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 8,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -294,13 +304,14 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                       cursor: 'pointer',
                     }}
                   >
-                    ✏
+                    <Icon name="edit" size={16} />
                   </button>
                   <button
+                    aria-label="Șterge categorie"
                     onClick={() => setDelId(cat.id)}
                     style={{
-                      width: 34,
-                      height: 34,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 8,
                       background: D.redA,
                       border: `1px solid rgba(224,85,85,0.2)`,
@@ -311,7 +322,7 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
                       cursor: 'pointer',
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={16} />
                   </button>
                 </div>
               </div>

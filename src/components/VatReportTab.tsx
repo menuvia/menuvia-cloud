@@ -8,6 +8,8 @@ import { useState, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { InlineSpinner } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
 
 interface VatRow {
   restaurant_id: string
@@ -182,7 +184,7 @@ export default function VatReportTab({ restaurantId }: Props) {
         >
           Raport TVA
         </h2>
-        <div style={{ fontSize: '0.85rem', color: D.t3, lineHeight: 1.5 }}>
+        <div style={{ fontSize: '0.85rem', color: D.t2, lineHeight: 1.5 }}>
           Vânzări grupate pe cota TVA și zi. Export CSV pentru contabil.
         </div>
       </div>
@@ -294,6 +296,9 @@ export default function VatReportTab({ restaurantId }: Props) {
             onClick={exportCsv}
             disabled={rows.length === 0}
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
               padding: '8px 16px',
               background: rows.length === 0 ? D.s3 : D.gold,
               color: rows.length === 0 ? D.t3 : '#000',
@@ -306,7 +311,8 @@ export default function VatReportTab({ restaurantId }: Props) {
               opacity: rows.length === 0 ? 0.6 : 1,
             }}
           >
-            📥 Export CSV
+            <Icon name="download" size={16} />
+            Export CSV
           </button>
         </div>
       </div>
@@ -326,24 +332,11 @@ export default function VatReportTab({ restaurantId }: Props) {
           Eroare: {error}
         </div>
       ) : rows.length === 0 ? (
-        <div
-          style={{
-            background: D.s2,
-            border: `1px dashed ${D.border}`,
-            borderRadius: 12,
-            padding: 32,
-            textAlign: 'center',
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '2.5rem', marginBottom: 8 }}>📊</div>
-          <div style={{ fontSize: '0.88rem', marginBottom: 4 }}>
-            Nu există vânzări în intervalul selectat
-          </div>
-          <div style={{ fontSize: '0.75rem' }}>
-            Schimbă datele sau înregistrează prima comandă plătită
-          </div>
-        </div>
+        <EmptyState
+          icon="receipt"
+          title="Nu există vânzări în intervalul selectat"
+          description="Schimbă datele sau înregistrează prima comandă plătită."
+        />
       ) : (
         <>
           {/* Aggregated summary cards */}
@@ -520,17 +513,24 @@ export default function VatReportTab({ restaurantId }: Props) {
 
           <div
             style={{
+              display: 'flex',
+              gap: 8,
               fontSize: '0.74rem',
-              color: D.t3,
+              color: D.t2,
               padding: '10px 14px',
               background: D.s2,
               borderRadius: 8,
               lineHeight: 1.6,
             }}
           >
-            💡 <strong>Ce face contabilul cu acest raport:</strong> introduce sumele în softul de
-            contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se deschide
-            direct în Excel sau Google Sheets.
+            <span style={{ flexShrink: 0, color: D.gold, marginTop: 1 }}>
+              <Icon name="info" size={15} />
+            </span>
+            <span>
+              <strong>Ce face contabilul cu acest raport:</strong> introduce sumele în softul de
+              contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se deschide
+              direct în Excel sau Google Sheets.
+            </span>
           </div>
         </>
       )}

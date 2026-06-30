@@ -12,6 +12,9 @@ import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useInView, revealStyle } from '../lib/motion'
+import { Icon, type IconName } from '../components/ui/Icon'
+import { EmptyState } from '../components/ui/EmptyState'
+import { Skeleton } from '../components/ui/Skeleton'
 
 // D imported from constants
 
@@ -144,10 +147,26 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
             #{order.id.slice(-6).toUpperCase()} ·{' '}
             <span
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                verticalAlign: 'middle',
                 color: order.source === 'qr' ? D.goldL : order.source === 'pickup' ? D.green : D.t2,
               }}
             >
-              {order.source === 'qr' ? 'QR' : order.source === 'pickup' ? '📦 Pickup' : 'Ospătar'}
+              {order.source === 'qr' ? (
+                <>
+                  <Icon name="qr" size={13} />
+                  QR
+                </>
+              ) : order.source === 'pickup' ? (
+                <>
+                  <Icon name="box" size={13} />
+                  Pickup
+                </>
+              ) : (
+                'Ospătar'
+              )}
             </span>
           </div>
         </div>
@@ -310,12 +329,18 @@ export default function KitchenPage() {
         style={{
           background: D.bg,
           minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 1,
+          padding: 12,
         }}
       >
-        <span style={{ color: D.t2, fontFamily: 'DM Sans, sans-serif' }}>Se încarcă...</span>
+        {[0, 1, 2].map((col) => (
+          <div key={col} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+            <Skeleton variant="title" width="50%" />
+            <Skeleton variant="card" count={3} />
+          </div>
+        ))}
       </div>
     )
   }
@@ -361,6 +386,11 @@ export default function KitchenPage() {
                   void (pushSubscribed ? pushUnsubscribe() : pushSubscribe())
                 }}
                 disabled={pushLoading}
+                aria-label={
+                  pushSubscribed
+                    ? 'Notificări active — dezactivează'
+                    : 'Activează notificările pentru comenzi noi'
+                }
                 title={
                   pushSubscribed
                     ? 'Notificări active — click pentru a dezactiva'
@@ -373,19 +403,18 @@ export default function KitchenPage() {
                   border: `1px solid ${pushSubscribed ? D.gold + '55' : D.border}`,
                   borderRadius: 8,
                   padding: '5px 10px',
+                  minHeight: 44,
                   cursor: pushPerm === 'denied' ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
-                  color: pushSubscribed ? D.gold : D.t3,
+                  color: pushSubscribed ? D.gold : D.t2,
                   fontSize: 13,
                   fontFamily: 'DM Sans,sans-serif',
                   opacity: pushLoading ? 0.6 : 1,
                 }}
               >
-                <span style={{ fontSize: 16 }}>
-                  {pushSubscribed ? '🔔' : pushPerm === 'denied' ? '🔕' : '🔔'}
-                </span>
+                <Icon name="bell" size={16} />
                 <span style={{ fontSize: 12 }}>{pushSubscribed ? 'Activ' : 'Notificări'}</span>
               </button>
             )}
@@ -421,7 +450,7 @@ export default function KitchenPage() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 18 }}>🔔</span>
+            <Icon name="bell" size={18} color={D.gold} />
             <span style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.4 }}>
               Activează notificările ca să primești alerte pentru comenzi noi, chiar și cu tab-ul
               închis.
@@ -531,41 +560,23 @@ export default function KitchenPage() {
                   </RevealItem>
                 ))}
                 {colOrders.length === 0 && (
-                  <div
-                    style={{
-                      flex: 1,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 10,
-                      color: D.t3,
-                      textAlign: 'center',
-                      padding: '40px 16px',
-                      minHeight: 160,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: '50%',
-                        border: `1.5px dashed ${D.s4}`,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 20,
-                        opacity: 0.7,
-                      }}
-                    >
-                      {col.label === 'Gata de servit' ? '✓' : col.label === 'În pregătire' ? '🍳' : '🍽️'}
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: D.t2 }}>Nicio comandă</div>
-                    {orders.length === 0 && col.label === 'Comenzi noi' && (
-                      <span style={{ fontSize: 12, color: D.t3, maxWidth: 200, lineHeight: 1.4 }}>
-                        Comenzile prin QR vor apărea aici automat.
-                      </span>
-                    )}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <EmptyState
+                      compact
+                      icon={
+                        (col.label === 'Gata de servit'
+                          ? 'check'
+                          : col.label === 'În pregătire'
+                            ? 'utensils'
+                            : 'receipt') satisfies IconName
+                      }
+                      title="Nicio comandă"
+                      description={
+                        orders.length === 0 && col.label === 'Comenzi noi'
+                          ? 'Comenzile prin QR vor apărea aici automat.'
+                          : undefined
+                      }
+                    />
                   </div>
                 )}
               </div>

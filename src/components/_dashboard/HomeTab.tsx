@@ -18,6 +18,7 @@ import {
   type HealthScore,
 } from '../../lib/health'
 import { Card } from '../ui/Card'
+import { Icon, type IconName } from '../ui/Icon'
 import { useInView, revealStyle } from '../../lib/motion'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
@@ -160,7 +161,15 @@ function MetricCard({ label, value, hint }: { label: string; value: string; hint
   )
 }
 
-function QuickAction({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+function QuickAction({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: IconName
+  label: string
+  onClick: () => void
+}) {
   return (
     <button
       onClick={onClick}
@@ -178,7 +187,7 @@ function QuickAction({ icon, label, onClick }: { icon: string; label: string; on
         textAlign: 'left',
       }}
     >
-      <span style={{ fontSize: '1.2rem' }}>{icon}</span>
+      <Icon name={icon} size={20} color={D.gold} />
       {label}
     </button>
   )
@@ -370,7 +379,7 @@ export default function HomeTab({
           >
             Bun venit, {restaurantName}
           </h1>
-          <p style={{ color: D.t3, fontSize: '0.82rem', marginTop: 5 }}>
+          <p style={{ color: D.t2, fontSize: '0.82rem', marginTop: 5 }}>
             Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi.
           </p>
         </div>
@@ -428,8 +437,18 @@ export default function HomeTab({
               marginBottom: 10,
             }}
           >
-            <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 700 }}>
-              🪄 Setup restaurant
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: D.t1,
+                fontSize: '0.95rem',
+                fontWeight: 700,
+              }}
+            >
+              <Icon name="sparkle" size={18} color={D.gold} />
+              Setup restaurant
             </div>
             <div style={{ color: D.gold, fontSize: '0.82rem', fontWeight: 700 }}>
               {setupDone}/{setupTotal} pași completați
@@ -496,20 +515,33 @@ export default function HomeTab({
                     flexShrink: 0,
                   }}
                 >
-                  {it.done ? '✓' : ''}
+                  {it.done && <Icon name="check" size={12} color={D.green} />}
                 </span>
                 <span style={{ textDecoration: it.done ? 'line-through' : 'none' }}>
                   {it.label}
                 </span>
-                {!it.done && <span style={{ color: D.t3, marginLeft: 'auto' }}>→</span>}
+                {!it.done && (
+                  <span style={{ marginLeft: 'auto', display: 'flex' }}>
+                    <Icon name="chevronRight" size={16} color={D.t3} />
+                  </span>
+                )}
               </button>
             ))}
           </div>
           <div style={{ marginTop: 12 }}>
             <ExpandableCard
               header={(open) => (
-                <span style={{ color: D.t3, fontSize: '0.78rem' }}>
-                  {open ? '▲ Închide asistentul detaliat' : '▼ Deschide asistentul detaliat'}
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    color: D.t2,
+                    fontSize: '0.78rem',
+                  }}
+                >
+                  <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} color={D.t2} />
+                  {open ? 'Închide asistentul detaliat' : 'Deschide asistentul detaliat'}
                 </span>
               )}
             >
@@ -588,8 +620,8 @@ export default function HomeTab({
                   </div>
                 ))}
               </div>
-              <span style={{ color: D.t3, fontSize: '0.8rem', flexShrink: 0 }}>
-                {open ? '▲' : '▼'}
+              <span style={{ display: 'flex', flexShrink: 0 }}>
+                <Icon name={open ? 'chevronDown' : 'chevronRight'} size={16} color={D.t3} />
               </span>
             </div>
             )
@@ -613,14 +645,14 @@ export default function HomeTab({
             gap: 10,
           }}
         >
-          <QuickAction icon="➕" label="Adaugă produs" onClick={() => onNavigate('products')} />
-          <QuickAction icon="🔲" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
-          <QuickAction icon="👁" label="Vezi meniul public" onClick={handleViewMenu} />
+          <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
+          <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
+          <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
           {tier >= 2 && (
-            <QuickAction icon="🛎" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />
+            <QuickAction icon="bell" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />
           )}
           {tier >= 2 && isAdmin && (
-            <QuickAction icon="👥" label="Invită ospătar" onClick={() => onNavigate('echipa')} />
+            <QuickAction icon="users" label="Invită ospătar" onClick={() => onNavigate('echipa')} />
           )}
         </div>
       </div>
@@ -646,7 +678,7 @@ export default function HomeTab({
             <div style={{ color: D.t1, fontSize: '0.92rem', fontWeight: 600 }}>
               Vrei să primești comenzi direct de la masă?
             </div>
-            <div style={{ color: D.t3, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
+            <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
               Activează {growthPlan.name} și clienții pot comanda prin QR, iar bucătăria primește
               instant.
             </div>
@@ -655,6 +687,9 @@ export default function HomeTab({
             onClick={onPricing}
             className="pressable"
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
               background: D.gold,
               color: '#000',
               border: 'none',
@@ -667,7 +702,8 @@ export default function HomeTab({
               whiteSpace: 'nowrap',
             }}
           >
-            Activează {growthPlan.name} →
+            Activează {growthPlan.name}
+            <Icon name="chevronRight" size={16} color="#000" />
           </button>
         </Card>
         </RevealItem>

@@ -34,6 +34,8 @@ import { PayModal, OrderCard } from '../components/WaiterOrderCard'
 import DiscountModal from '../components/DiscountModal'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
+import { Icon } from '../components/ui/Icon'
+import { EmptyState } from '../components/ui/EmptyState'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -486,9 +488,13 @@ export default function WaiterPage() {
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
               }}
             >
-              ← Dashboard
+              <Icon name="arrowLeft" size={14} />
+              Dashboard
             </button>
           )}
           <div>
@@ -528,13 +534,23 @@ export default function WaiterPage() {
               />
             </div>
             {assignedTableIds instanceof Set && (
-              <div style={{ fontSize: 11, color: D.gold, marginTop: 1 }}>
-                🪑 {assignedTableIds.size}{' '}
+              <div
+                style={{
+                  fontSize: 11,
+                  color: D.gold,
+                  marginTop: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <Icon name="table" size={12} />
+                {assignedTableIds.size}{' '}
                 {assignedTableIds.size === 1 ? 'masă alocată' : 'mese alocate'} · Comenzile tale
               </div>
             )}
             {isAdminRole && !(assignedTableIds instanceof Set) && (
-              <div style={{ fontSize: 11, color: D.t3, marginTop: 1 }}>
+              <div style={{ fontSize: 11, color: D.t2, marginTop: 1 }}>
                 Vizualizare admin · vezi tot live
               </div>
             )}
@@ -582,7 +598,8 @@ export default function WaiterPage() {
               gap: 5,
             }}
           >
-            🧑‍💼 Manual
+            <Icon name="users" size={15} />
+            Manual
           </button>
           <button
             onClick={() => setShowEntry(true)}
@@ -596,9 +613,13 @@ export default function WaiterPage() {
               fontSize: 14,
               fontWeight: 600,
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
             }}
           >
-            + Comandă nouă
+            <Icon name="plus" size={16} />
+            Comandă nouă
           </button>
         </div>
       </div>
@@ -618,10 +639,11 @@ export default function WaiterPage() {
             alignItems: 'center',
           }}
         >
-          <span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name={isOffline ? 'wifi' : 'refresh'} size={14} />
             {isOffline
-              ? '📡 Mod Offline — Comenzile se salvează local (se vor trimite când revine conexiunea).'
-              : '🔄 Conexiune restabilită — Se sincronizează comenzile...'}
+              ? 'Mod Offline — Comenzile se salvează local (se vor trimite când revine conexiunea).'
+              : 'Conexiune restabilită — Se sincronizează comenzile...'}
           </span>
           {pendingSyncCount > 0 && (
             <span style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: 12 }}>
@@ -662,9 +684,13 @@ export default function WaiterPage() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.08em',
                 marginBottom: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
               }}
             >
-              📅 Rezervări azi ({activeReservations.length})
+              <Icon name="calendar" size={14} />
+              Rezervări azi ({activeReservations.length})
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {activeReservations.map((r) => {
@@ -736,10 +762,13 @@ export default function WaiterPage() {
                           padding: '4px 8px',
                           background: 'rgba(232,160,32,0.08)',
                           borderRadius: 6,
-                          display: 'inline-block',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
                         }}
                       >
-                        🌿 Cere zona: {r.requested_zone}
+                        <Icon name="leaf" size={13} />
+                        Cere zona: {r.requested_zone}
                       </div>
                     )}
                     {r.special_requests && (
@@ -972,9 +1001,18 @@ export default function WaiterPage() {
                         fontSize: 16,
                         fontWeight: 700,
                         color: D.t1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {call.call_type === 'bill' ? '🧾 ' : '👋 '}
+                      <Icon
+                        name={call.call_type === 'bill' ? 'receipt' : 'bell'}
+                        size={16}
+                        color={D.amber}
+                        label={call.call_type === 'bill' ? 'Cere nota' : 'Apel ospătar'}
+                      />
                       {call.table?.name ?? 'Masa necunoscuta'}
                       {call.call_type === 'bill' && (
                         <span
@@ -1048,7 +1086,7 @@ export default function WaiterPage() {
                 <div
                   style={{
                     display: 'flex',
-                    alignItems: 'baseline',
+                    alignItems: 'center',
                     gap: 10,
                     marginBottom: 10,
                   }}
@@ -1059,11 +1097,15 @@ export default function WaiterPage() {
                       fontSize: 18,
                       fontWeight: 700,
                       color: D.t1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
                     }}
                   >
-                    🪑 {tableName}
+                    <Icon name="table" size={17} color={D.t2} />
+                    {tableName}
                   </span>
-                  <span style={{ fontSize: 12, color: D.t3 }}>
+                  <span style={{ fontSize: 12, color: D.t2 }}>
                     {tableOrders.length === 1 ? '1 comandă' : `${tableOrders.length} comenzi`}
                   </span>
                 </div>
@@ -1085,36 +1127,7 @@ export default function WaiterPage() {
               </div>
             ))}
             {openOrders.length === 0 && (
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: 10,
-                  color: D.t3,
-                  textAlign: 'center',
-                  padding: 48,
-                }}
-              >
-                <div
-                  style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: '50%',
-                    border: `1.5px dashed ${D.s4}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 22,
-                    opacity: 0.7,
-                  }}
-                >
-                  🍽️
-                </div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: D.t2 }}>
-                  Nicio comandă deschisă
-                </div>
-              </div>
+              <EmptyState icon="utensils" title="Nicio comandă deschisă" />
             )}
           </div>
         </div>
@@ -1238,7 +1251,7 @@ export default function WaiterPage() {
 
             {splitPayments.length > 0 && (
               <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 12, color: D.t3, marginBottom: 8 }}>
+                <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
                   Plati inregistrate:
                 </div>
                 {splitPayments.map((p) => (
@@ -1432,17 +1445,22 @@ export default function WaiterPage() {
           }}
         >
           {lastManualOrder.shortId.startsWith('LOCAL-') ? (
-            <>
-              <span style={{ color: D.amber }}>⏳</span> Comandă salvată local{' '}
-              <strong>#{lastManualOrder.shortId}</strong> — va fi trimisă când revine conexiunea
-            </>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="clock" size={14} color={D.amber} />
+              <span>
+                Comandă salvată local <strong>#{lastManualOrder.shortId}</strong> — va fi trimisă
+                când revine conexiunea
+              </span>
+            </span>
           ) : (
-            <>
-              <span style={{ color: D.green }}>✓</span> Comanda{' '}
-              <strong>#{lastManualOrder.shortId}</strong> trimisă
-            </>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="check" size={14} color={D.green} />
+              <span>
+                Comanda <strong>#{lastManualOrder.shortId}</strong> trimisă
+              </span>
+            </span>
           )}
-          <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 3 }}>
+          <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 3 }}>
             Click pentru a închide
           </div>
         </div>

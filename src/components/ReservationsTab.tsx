@@ -13,6 +13,8 @@ import {
   type ReservationSettings,
 } from '../hooks/useReservations'
 import { Skeleton } from './ui/Skeleton'
+import { EmptyState } from './ui/EmptyState'
+import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
 
 const STATUS_LABEL: Record<ReservationStatus, string> = {
@@ -168,6 +170,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
         <button
           onClick={() => void refetch()}
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
             padding: '8px 12px',
             border: `1px solid ${D.border}`,
             borderRadius: 8,
@@ -177,7 +182,8 @@ export default function ReservationsTab({ restaurantId }: Props) {
             fontSize: 13,
           }}
         >
-          ↻ Reîmprospătează
+          <Icon name="refresh" size={15} />
+          Reîmprospătează
         </button>
       </div>
 
@@ -202,21 +208,11 @@ export default function ReservationsTab({ restaurantId }: Props) {
           <Skeleton variant="card" />
         </div>
       ) : filtered.length === 0 ? (
-        <div
-          style={{
-            padding: '40px 20px',
-            textAlign: 'center',
-            border: `1px dashed ${D.border}`,
-            borderRadius: 12,
-            color: D.t2,
-          }}
-        >
-          <div style={{ fontSize: 40, marginBottom: 8 }}>📅</div>
-          <div style={{ fontSize: 15, marginBottom: 4 }}>Nicio rezervare în intervalul ales</div>
-          <div style={{ fontSize: 12, color: D.t3 }}>
-            Schimbă filtrul de dată sau verifică setările
-          </div>
-        </div>
+        <EmptyState
+          icon="calendar"
+          title="Nicio rezervare în intervalul ales"
+          description="Schimbă filtrul de dată sau verifică setările"
+        />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           {[...grouped.entries()].map(([dayKey, list]) => (
@@ -343,12 +339,32 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
         </div>
       </div>
       <div style={{ display: 'flex', gap: 14, fontSize: 12, color: D.t2, marginBottom: 10 }}>
-        <a href={'tel:' + r.customer_phone} style={{ color: D.t2, textDecoration: 'none' }}>
-          📞 {r.customer_phone}
+        <a
+          href={'tel:' + r.customer_phone}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
+            color: D.t2,
+            textDecoration: 'none',
+          }}
+        >
+          <Icon name="phone" size={13} />
+          {r.customer_phone}
         </a>
         {r.customer_email && (
-          <a href={'mailto:' + r.customer_email} style={{ color: D.t2, textDecoration: 'none' }}>
-            ✉ {r.customer_email}
+          <a
+            href={'mailto:' + r.customer_email}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              color: D.t2,
+              textDecoration: 'none',
+            }}
+          >
+            <Icon name="mail" size={13} />
+            {r.customer_email}
           </a>
         )}
         <span style={{ color: D.t3, fontFamily: 'monospace' }}>{r.confirmation_code}</span>
@@ -477,8 +493,11 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
           fontWeight: 600,
         }}
       >
-        <span>⚙ Setări rezervări</span>
-        <span style={{ color: D.t2 }}>{open ? '▾' : '▸'}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <Icon name="settings" size={16} />
+          Setări rezervări
+        </span>
+        <Icon name={open ? 'chevronDown' : 'chevronRight'} size={16} color={D.t2} />
       </button>
       {open && (
         <div

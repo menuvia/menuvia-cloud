@@ -9,6 +9,7 @@ import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { Icon } from './ui/Icon'
 
 // ── Constants for hours_structured editor ──
 
@@ -187,7 +188,7 @@ export default function SettingsTab({
           >
             Setări
           </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             Informații afișate pe meniul public
           </p>
         </div>
@@ -315,7 +316,7 @@ export default function SettingsTab({
             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
               Tema meniului QR
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
               Alege stilul vizual pentru meniul tău. Se aplică instant pe pagina pe care o văd
               clienții.
             </div>
@@ -455,10 +456,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              🖼️ Imagine cover
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="image" size={16} color={D.t2} />
+              Imagine cover
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
               Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime. Dacă
               lipsește, folosim un gradient generat din tema ta.
             </div>
@@ -544,10 +556,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              🏷️ Logo
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="tag" size={16} color={D.t2} />
+              Logo
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 14, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
               Logo pătrat. Opțional, folosit ca avatar / favicon viitor.
             </div>
             <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
@@ -567,6 +590,7 @@ export default function SettingsTab({
                   />
                   <button
                     onClick={() => upd('logo_url', null)}
+                    aria-label="Șterge logo"
                     style={{
                       position: 'absolute',
                       top: -6,
@@ -578,11 +602,13 @@ export default function SettingsTab({
                       border: `1px solid ${D.border}`,
                       borderRadius: '50%',
                       cursor: 'pointer',
-                      fontSize: 12,
-                      lineHeight: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
                     }}
                   >
-                    ×
+                    <Icon name="close" size={12} color={D.t2} />
                   </button>
                 </div>
               ) : (
@@ -644,8 +670,18 @@ export default function SettingsTab({
                 marginBottom: 6,
               }}
             >
-              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
-                🕒 Program detaliat
+              <div
+                style={{
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: D.t1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Icon name="clock" size={16} color={D.t2} />
+                Program detaliat
               </div>
               <button
                 onClick={copyMondayToAll}
@@ -662,7 +698,7 @@ export default function SettingsTab({
                 Copiază luni → toate
               </button>
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
               Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul
               public.
             </div>
@@ -752,7 +788,7 @@ export default function SettingsTab({
               <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
                 🧩 Module opționale
               </div>
-              <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 16, lineHeight: 1.5 }}>
+              <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
                 Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici
                 clienții, nici angajații nu pot crea date pe ele.
               </div>
@@ -766,10 +802,20 @@ export default function SettingsTab({
                   }}
                 >
                   <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                      📅 Rezervări
+                    <div
+                      style={{
+                        fontSize: '0.85rem',
+                        fontWeight: 500,
+                        color: D.t1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <Icon name="calendar" size={15} color={D.t2} />
+                      Rezervări
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
+                    <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                       Permite clienților să rezerve mese din meniul public. Vei avea tabul Rezervări
                       în dashboard pentru gestionare.
                     </div>
@@ -801,10 +847,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              ✨ Facilități
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="sparkle" size={16} color={D.t2} />
+              Facilități
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
               Afișate ca pills în hero-ul meniului public.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -842,10 +899,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              📶 Parolă WiFi (opțional)
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="wifi" size={16} color={D.t2} />
+              Parolă WiFi (opțional)
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
               Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici.
             </div>
             <Inp
@@ -864,8 +932,19 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 12 }}>
-              🌐 Social media
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="link" size={16} color={D.t2} />
+              Social media
             </div>
             {(
               [
@@ -907,10 +986,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              🧾 Cote TVA
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="receipt" size={16} color={D.t2} />
+              Cote TVA
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginBottom: 14 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 14 }}>
               Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul
               schimbă cotele — produsele își păstrează automat grupa.
             </div>
@@ -926,10 +1016,21 @@ export default function SettingsTab({
               padding: 22,
             }}
           >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              ⭐ Google Reviews (recenzii automate)
+            <div
+              style={{
+                fontSize: '0.875rem',
+                fontWeight: 500,
+                color: D.t1,
+                marginBottom: 6,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <Icon name="star" size={16} color={D.t2} />
+              Google Reviews (recenzii automate)
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginBottom: 12 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 12 }}>
               După ce clientul finalizează plata și dă feedback pozitiv (rating ≥ 4), îi vom afișa
               un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business.
               Cel mai rapid mod să crești numărul de recenzii.
@@ -943,7 +1044,7 @@ export default function SettingsTab({
               onChange={(v) => upd('google_place_id', v.trim() || null)}
               placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
             />
-            <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 6, lineHeight: 1.5 }}>
+            <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 6, lineHeight: 1.5 }}>
               Găsești Place ID-ul aici:{' '}
               <a
                 href="https://developers.google.com/maps/documentation/places/web-service/place-id"
@@ -967,7 +1068,18 @@ export default function SettingsTab({
                   color: D.t2,
                 }}
               >
-                <div style={{ color: '#4CAF6E', marginBottom: 4 }}>✓ Configurat</div>
+                <div
+                  style={{
+                    color: '#4CAF6E',
+                    marginBottom: 4,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Icon name="check" size={13} color="#4CAF6E" />
+                  Configurat
+                </div>
                 <div>
                   URL preview:{' '}
                   <a
@@ -1018,7 +1130,7 @@ export default function SettingsTab({
                 }
               />
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginBottom: 8 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
               Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal
               dar n-a luat desert).
             </div>
@@ -1071,8 +1183,18 @@ export default function SettingsTab({
                 marginBottom: 8,
               }}
             >
-              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
-                📦 Comenzi pentru ridicare (click-and-collect)
+              <div
+                style={{
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  color: D.t1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Icon name="box" size={16} color={D.t2} />
+                Comenzi pentru ridicare (click-and-collect)
               </div>
               <Toggle
                 value={form.pickup_settings?.enabled ?? false}
@@ -1089,7 +1211,7 @@ export default function SettingsTab({
                 }
               />
             </div>
-            <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginBottom: 8 }}>
+            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
               Activează pagina ta publică{' '}
               <span style={{ color: D.gold }}>menuvia.ro/r/{form.slug || 'slug'}</span>. Clienții
               pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la

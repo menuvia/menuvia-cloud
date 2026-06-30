@@ -38,6 +38,25 @@ export type IconName =
   | 'clock'
   | 'utensils'
   | 'history'
+  | 'bell'
+  | 'percent'
+  | 'calendar'
+  | 'leaf'
+  | 'printer'
+  | 'box'
+  | 'tag'
+  | 'info'
+  | 'image'
+  | 'copy'
+  | 'more'
+  | 'arrowLeft'
+  | 'minus'
+  | 'lock'
+  | 'mail'
+  | 'phone'
+  | 'mapPin'
+  | 'wifi'
+  | 'filter'
   | 'chevronRight'
   | 'chevronDown'
 
@@ -120,6 +139,83 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M2 5v5h5M12 8v4.5l3 1.8" />
     </>
   ),
+  bell: <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0" />,
+  percent: (
+    <>
+      <path d="M5 19 19 5" />
+      <circle cx="7.5" cy="7.5" r="2" />
+      <circle cx="16.5" cy="16.5" r="2" />
+    </>
+  ),
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="16" rx="2" />
+      <path d="M3.5 9.5h17M8 3v4M16 3v4" />
+    </>
+  ),
+  leaf: <path d="M5 19c0-8 6-13 14-13 0 8-5 14-13 14-1 0-1-1-1-1ZM5 19c2-4 5-6 8-7" />,
+  printer: (
+    <>
+      <path d="M6 9V3h12v6M6 18H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-1" />
+      <rect x="7" y="15" width="10" height="6" rx="1" />
+    </>
+  ),
+  box: <path d="M12 2.5 21 7v10l-9 4.5L3 17V7l9-4.5ZM3 7l9 4.5M21 7l-9 4.5M12 11.5V21" />,
+  tag: (
+    <>
+      <path d="M3 11.5V4.5a1 1 0 0 1 1-1h7l9 9-8 8-9-9Z" />
+      <circle cx="7.5" cy="8" r="1.4" />
+    </>
+  ),
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5M12 7.5h.01" />
+    </>
+  ),
+  image: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.6" />
+      <path d="M21 16l-5-5L4.5 19.5" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1.4" />
+      <circle cx="12" cy="12" r="1.4" />
+      <circle cx="19" cy="12" r="1.4" />
+    </>
+  ),
+  arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,
+  minus: <path d="M5 12h14" />,
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3.5 6.5 12 13l8.5-6.5" />
+    </>
+  ),
+  phone: <path d="M6.5 3h3l1.5 5-2 1.5a12 12 0 0 0 5.5 5.5L16 13l5 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 5a2 2 0 0 1 2-2Z" />,
+  mapPin: (
+    <>
+      <path d="M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </>
+  ),
+  wifi: <path d="M2.5 9a15 15 0 0 1 19 0M5.5 12.5a10 10 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01" />,
+  filter: <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />,
   chevronRight: <path d="M9 6l6 6-6 6" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
 }

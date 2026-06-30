@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 
 interface ModifierOption {
   id: string
@@ -267,32 +270,36 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
           >
             Opțiuni produse
           </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             Grupuri de op\u021biuni (ex: Extra sos, M\u0103rime)
           </p>
         </div>
-        <button onClick={() => openEdit('add')} style={btn({ background: D.gold, color: '#000' })}>
-          + Grup nou
+        <button
+          onClick={() => openEdit('add')}
+          style={btn({ background: D.gold, color: '#000', gap: 7 })}
+        >
+          <Icon name="plus" size={16} />
+          Grup nou
         </button>
       </div>
 
       {loading ? (
-        <div style={{ padding: '32px', textAlign: 'center', color: D.t3 }}>
-          Se \u00eencarc\u0103...
-        </div>
+        <Skeleton variant="card" count={2} />
       ) : groups.length === 0 ? (
-        <div
-          style={{
-            padding: '40px 20px',
-            textAlign: 'center',
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            color: D.t3,
-          }}
-        >
-          Niciun grup de modificatori. Adaug\u0103 primul!
-        </div>
+        <EmptyState
+          icon="tag"
+          title="Niciun grup de op\u021biuni"
+          description="Adaug\u0103 primul grup ca s\u0103 oferi extra-op\u021biuni la produse (ex: M\u0103rime, Topping-uri)."
+          action={
+            <button
+              onClick={() => openEdit('add')}
+              style={btn({ background: D.gold, color: '#000', gap: 7 })}
+            >
+              <Icon name="plus" size={16} />
+              Grup nou
+            </button>
+          }
+        />
       ) : (
         groups.map((g) => (
           <div
@@ -315,7 +322,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
             >
               <div>
                 <div style={{ fontSize: '0.95rem', fontWeight: 600, color: D.t1 }}>{g.name}</div>
-                <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
+                <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                   {g.selection_type === 'single'
                     ? 'Selec\u021bie unic\u0103'
                     : 'Selec\u021bie multipl\u0103'}
@@ -333,15 +340,24 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     border: `1px solid ${D.border}`,
                     height: 32,
                     fontSize: '0.78rem',
+                    gap: 5,
                   })}
                 >
-                  Edit
+                  <Icon name="edit" size={14} />
+                  Editează
                 </button>
                 <button
+                  aria-label="Șterge grup"
                   onClick={() => void deleteGroup(g.id)}
-                  style={btn({ background: D.redA, color: D.red, height: 32, fontSize: '0.78rem' })}
+                  style={btn({
+                    background: D.redA,
+                    color: D.red,
+                    height: 32,
+                    minWidth: 44,
+                    fontSize: '0.78rem',
+                  })}
                 >
-                  &#x1f5d1;
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             </div>
@@ -380,16 +396,18 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   {o.is_available ? '●' : '○'}
                 </button>
                 <button
+                  aria-label="Șterge opțiune"
                   onClick={() => void deleteOption(o.id)}
                   style={{
                     background: 'none',
                     border: 'none',
                     cursor: 'pointer',
-                    fontSize: 12,
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     color: D.red,
                   }}
                 >
-                  &#x2715;
+                  <Icon name="trash" size={14} />
                 </button>
               </div>
             ))}
@@ -415,9 +433,11 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   height: 36,
                   fontSize: '0.78rem',
                   border: `1px solid ${D.border}`,
+                  gap: 5,
                 })}
               >
-                + Ad\u0103ug\u0103
+                <Icon name="plus" size={14} />
+                Ad\u0103ug\u0103
               </button>
             </div>
           </div>

@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { D, D_RAW } from '../lib/constants'
 import { QueryError } from './PageLoader'
+import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { Skeleton } from './ui/Skeleton'
 import {
   LineChart,
   Line,
@@ -160,10 +163,19 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             borderRadius: 14,
             padding: '60px 20px',
             textAlign: 'center',
-            color: D.t3,
+            color: D.t2,
           }}
         >
-          <div style={{ fontSize: '2rem', marginBottom: 12 }}>📊</div>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              marginBottom: 12,
+              color: D.gold,
+            }}
+          >
+            <Icon name="chart" size={32} />
+          </div>
           {/* Copy aliniat cu gate-ul real (hasAccess = pro/enterprise = Fiscalizare)
               și cu butonul „Upgrade la Pro" — înainte spunea greșit „Meniu + Comenzi". */}
           <div style={{ marginBottom: 16 }}>Statisticile avansate sunt disponibile din planul Fiscalizare (Pro)</div>
@@ -221,7 +233,17 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         >
           Analytics
         </h2>
-        <div style={{ padding: '48px', textAlign: 'center', color: D.t3 }}>Se încarcă...</div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
+            gap: 10,
+            marginBottom: 20,
+          }}
+        >
+          <Skeleton variant="card" count={4} />
+        </div>
+        <Skeleton variant="card" />
       </div>
     )
   if (error)
@@ -264,7 +286,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           >
             Analytics
           </h2>
-          <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
+          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>
           {[7, 14, 30].map((d) => (
@@ -303,19 +325,11 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
       </div>
 
       {daily.length === 0 ? (
-        <div
-          style={{
-            padding: '48px 20px',
-            textAlign: 'center',
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            color: D.t3,
-          }}
-        >
-          <div style={{ fontSize: '1.5rem', marginBottom: 10 }}>📊</div>
-          <div>Nicio comandă în perioada selectată.</div>
-        </div>
+        <EmptyState
+          icon="chart"
+          title="Nicio comandă în perioada selectată"
+          description="Schimbă intervalul de zile sau așteaptă primele comenzi."
+        />
       ) : (
         <>
           {/* Revenue chart */}

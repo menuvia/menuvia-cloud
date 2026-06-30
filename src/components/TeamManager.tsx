@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
+import { Icon } from './ui/Icon'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
@@ -246,7 +247,7 @@ export default function TeamManager({
         >
           Echipă
         </h2>
-        <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
+        <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
           {members.length} membr{members.length === 1 ? 'u' : 'i'} · Invitații expiră în 7 zile
         </p>
       </div>
@@ -307,7 +308,14 @@ export default function TeamManager({
               opacity: sending ? 0.7 : 1,
             })}
           >
-            {sending ? 'Se trimite...' : 'Trimite invitație'}
+            {sending ? (
+              'Se trimite...'
+            ) : (
+              <>
+                <Icon name="send" size={15} />
+                Trimite invitație
+              </>
+            )}
           </button>
         </form>
         {invErr && (
@@ -358,7 +366,7 @@ export default function TeamManager({
               >
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1 }}>{inv.email}</div>
-                  <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 2 }}>
+                  <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                     {ROLE_LABELS[inv.role]} · expiră{' '}
                     {new Date(inv.expires_at).toLocaleDateString('ro-RO')}
                   </div>
@@ -487,9 +495,12 @@ export default function TeamManager({
                   {!isOwner && !isSelf && (
                     <button
                       onClick={() => setRemoveTarget(m)}
+                      aria-label={`Elimină ${name} din echipă`}
                       style={{
                         width: 32,
                         height: 32,
+                        minWidth: 44,
+                        minHeight: 44,
                         borderRadius: 7,
                         background: D.redA,
                         border: `1px solid rgba(224,85,85,0.2)`,
@@ -501,7 +512,7 @@ export default function TeamManager({
                         flexShrink: 0,
                       }}
                     >
-                      🗑
+                      <Icon name="trash" size={16} />
                     </button>
                   )}
                 </div>

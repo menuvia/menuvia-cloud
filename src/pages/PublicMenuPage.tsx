@@ -37,6 +37,7 @@ import {
   IconGlobe,
   IconSearch,
 } from '../components/icons/MenuIcons'
+import { Icon } from '../components/ui/Icon'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -261,7 +262,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         }}
       >
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🍽️</div>
+          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'center' }}>
+            <Icon name="alert" size={32} color={PUB.text2} />
+          </div>
           <div style={{ color: PUB.text2, fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
             {error ?? 'Restaurant negăsit'}
           </div>
@@ -318,9 +321,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           padding: '8px 14px',
           borderRadius: 100,
           fontFamily: theme.fonts.body,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
         }}
       >
-        ← {T(lang, 'back')}
+        <Icon name="arrowLeft" size={15} color="#fff" /> {T(lang, 'back')}
       </button>
 
       {/* HERO editorial — full-bleed cover/gradient + glass pills */}
@@ -385,7 +391,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               </div>
               <div style={{ fontSize: 12, color: PUB.text2 }}>{T(lang, 'reserve_trust')}</div>
             </div>
-            <span style={{ color: accent, fontSize: 18 }}>›</span>
+            <Icon name="chevronRight" size={18} color={accent} />
           </button>
         </div>
       )}
@@ -479,7 +485,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               alignItems: 'center',
             }}
           >
-            <span style={{ fontSize: 16 }}>🎉</span>
+            <Icon name="sparkle" size={16} color="#fff" />
             <span>Happy Hour activ:</span>
             {happyHour.map((r) => (
               <span
@@ -698,10 +704,14 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                         border: 'none',
                         color: PUB.text3,
                         cursor: 'pointer',
-                        fontSize: 14,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 44,
+                        minHeight: 44,
                       }}
                     >
-                      ✕
+                      <Icon name="close" size={16} color={PUB.text3} />
                     </button>
                   </div>
                 </div>
@@ -820,7 +830,20 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               textAlign: 'center',
             }}
           >
-            <div style={{ fontSize: 56, marginBottom: 12 }}>✅</div>
+            <div
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                background: accent + '18',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 12px',
+              }}
+            >
+              <Icon name="check" size={32} color={accent} />
+            </div>
             <div
               style={{
                 fontFamily: theme.fonts.heading,
