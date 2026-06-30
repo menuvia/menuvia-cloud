@@ -2,6 +2,7 @@
 // Submit prin RPC create_reservation_public (SECURITY DEFINER, advisory lock).
 // Layout inspirat de design ialoc.ro: chip-pills orizontale + trust strip.
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
 import { T } from '../lib/constants'
@@ -114,6 +115,7 @@ function formatDateRo(dateYmd: string, lang: string): string {
 }
 
 export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
+  useBodyScrollLock(true)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [zones, setZones] = useState<string[]>([])
   const [partySize, setPartySize] = useState<number>(2)

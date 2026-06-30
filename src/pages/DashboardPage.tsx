@@ -1,4 +1,5 @@
-import { useState, useEffect, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
 import { planTier, type PlanTier } from '../lib/features'
@@ -58,6 +59,7 @@ function UpgradeModal({
 }) {
   // Comparația comercială citește limitele DIRECT din plans.ts ca să nu
   // diverge de pagina de pricing. Numele coloanelor = numele comerciale.
+  useBodyScrollLock(true)
   const starter = getCommercialPlan('starter')
   const growth = getCommercialPlan('growth')
   const COMPARE = [
@@ -606,6 +608,13 @@ export default function DashboardPage({
   const { restaurants, loading: rLoading, update } = useRestaurants()
   const [tab, setTab] = useState<Tab>('home')
 
+  // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
+  // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo(0, 0)
+  }, [tab])
+
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -1037,7 +1046,10 @@ export default function DashboardPage({
           </div>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px 12px' : '28px 32px' }}>
+        <div
+          ref={contentScrollRef}
+          style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px 12px' : '28px 32px' }}
+        >
           {!restaurant ? (
             <div
               style={{

@@ -3,6 +3,7 @@
 // extrage produsele → ecran de REVIZUIRE editabil („e totul corect?") →
 // inserare în bulk prin hook-ul useProducts (respectă RLS).
 import { useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProducts, useCategories } from '../hooks/useData'
@@ -57,6 +58,7 @@ function parseDrafts(text: string): DraftProduct[] {
 }
 
 export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+  useBodyScrollLock(true)
   const isMobile = useIsMobile()
   const products = useProducts(restaurantId)
   const categories = useCategories(restaurantId)

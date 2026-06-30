@@ -13,6 +13,7 @@
 // cu buton de ștergere + opțiunea de a-l modifica.
 // ─────────────────────────────────────────────────────────────
 import { useState, useMemo } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order } from '../lib/orders'
 import { applyOrderDiscount, removeOrderDiscount, orderSubtotal } from '../lib/orders'
 import { D } from '../lib/constants'
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function DiscountModal({ order, onClose, onApplied }: Props) {
+  useBodyScrollLock(true)
   const subtotal = useMemo(() => orderSubtotal(order), [order])
   const hasExisting = order.discount_type != null && order.discount_value != null
 

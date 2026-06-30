@@ -2,6 +2,7 @@
 // PayModal + OrderCard — extracted from WaiterPage
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
@@ -57,6 +58,7 @@ function PayModal({
   happyHourSuggestion,
   onApplyHappyHour,
 }: PayModalProps) {
+  useBodyScrollLock(true)
   const [method, setMethod] = useState<PaymentMethod>('cash')
   // Cale de bani: blocăm butonul cât timp plata e în curs, ca un dublu-click
   // rapid să nu trimită plata de două ori.

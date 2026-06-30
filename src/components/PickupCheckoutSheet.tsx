@@ -1,6 +1,7 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
 import { useState, useMemo, useRef } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
 import type { Restaurant } from '../lib/qr'
@@ -37,6 +38,7 @@ export default function PickupCheckoutSheet({
   onClose,
   onSuccess,
 }: PickupCheckoutProps) {
+  useBodyScrollLock(true)
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [pickupTime, setPickupTime] = useState<string>('')

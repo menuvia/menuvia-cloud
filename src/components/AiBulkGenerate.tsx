@@ -4,6 +4,7 @@
 // → owner-ul vede badge „verifică" în fiecare produs. Se oprește la depășirea
 // cotei (429) și raportează clar.
 import { useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
@@ -29,6 +30,7 @@ export default function AiBulkGenerate({
   onClose: () => void
   onDone: () => void
 }) {
+  useBodyScrollLock(true)
   const isMobile = useIsMobile()
   const [doImages, setDoImages] = useState(true)
   const [doNutrition, setDoNutrition] = useState(true)

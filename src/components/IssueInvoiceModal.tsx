@@ -4,6 +4,7 @@
 // Admin alege ordin, completează date client, enqueue → cron face restul.
 // =============================================================
 import { useEffect, useState } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { enqueueInvoice } from '../lib/invoices'
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: Props) {
+  useBodyScrollLock(true)
   const [orders, setOrders] = useState<PaidOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOrderId, setSelectedOrderId] = useState<string>('')
