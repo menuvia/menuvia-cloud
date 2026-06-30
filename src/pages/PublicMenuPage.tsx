@@ -41,6 +41,7 @@ import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A): stări premium + bară categorii unificată
 import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+import ProductCard from '../components/menu/ProductCard'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -502,7 +503,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               )}
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {products.map((product) => (
-                  <ProductCardEditorial
+                  <ProductCard
                     key={product.id}
                     product={product}
                     accent={accent}
@@ -510,7 +511,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     PUB={PUB}
                     // Butonul rapid „+" apare și pentru pickup, și pentru „Lista mea"
                     // (meniu digital) — în ambele cazuri adaugă în coșul/lista locală.
-                    pickupEnabled={pickupEnabled || listMode}
+                    canAdd={pickupEnabled || listMode}
                     happyHourPct={happyHourPercentForProduct(product, happyHour)}
                     onOpen={() => {
                       if (!product.is_sold_out) setActiveProduct(product)
@@ -938,37 +939,6 @@ function RevealItem({
     <div ref={ref} style={revealStyle(inView, { delay, y })}>
       {children}
     </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// BLUR IMAGE — thumbnail cu blur-up. Pornește blurat, devine clar la
-// `onLoad` adăugând clasa `.is-loaded` (vezi utilitarele globale).
-// ═══════════════════════════════════════════════════════════════
-function BlurImage({
-  src,
-  alt,
-  style,
-}: {
-  src: string
-  alt: string
-  style?: CSSProperties
-}) {
-  return (
-    <img
-      src={src}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      className="blur-up"
-      // Imaginile din cache pot fi deja `complete` la montare (fără event
-      // `load`) — ref callback-ul le marchează imediat ca încărcate.
-      ref={(el) => {
-        if (el?.complete) el.classList.add('is-loaded')
-      }}
-      onLoad={(e) => e.currentTarget.classList.add('is-loaded')}
-      style={style}
-    />
   )
 }
 
@@ -1452,293 +1422,6 @@ function SectionHeader({ title, metaText, theme, PUB }: SectionHeaderProps) {
         </div>
       )}
     </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════════
-// PRODUCT CARD EDITORIAL — list, no card bg, serif italic descr
-// ═══════════════════════════════════════════════════════════════
-interface CardProps {
-  product: Product
-  accent: string
-  theme: MenuTheme
-  PUB: {
-    bg: string
-    surface: string
-    text: string
-    text2: string
-    text3: string
-    border: string
-    borderStrong: string
-  }
-  pickupEnabled: boolean
-  happyHourPct?: number
-  onOpen: () => void
-  onQuickAdd: () => void
-}
-
-function ProductCardEditorial({
-  product,
-  accent,
-  theme,
-  PUB,
-  pickupEnabled,
-  happyHourPct = 0,
-  onOpen,
-  onQuickAdd,
-}: CardProps) {
-  const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
-  const tags = (product.dietary_tags ?? []).slice(0, 3)
-  const isSoldOut = product.is_sold_out
-  const effectivePrice = happyHourPct > 0 ? product.price * (1 - happyHourPct / 100) : product.price
-  const priceInt = Math.floor(effectivePrice)
-  const priceFrac = (effectivePrice - priceInt).toFixed(2).slice(2) // "50" pentru 32.50
-
-  return (
-    <div
-      data-testid="product-card"
-      onClick={() => {
-        if (!isSoldOut) onOpen()
-      }}
-      style={{
-        display: 'flex',
-        gap: 14,
-        padding: '16px 0',
-        borderBottom: `1px solid ${PUB.border}`,
-        cursor: isSoldOut ? 'default' : 'pointer',
-        opacity: isSoldOut ? 0.55 : 1,
-      }}
-    >
-      {product.image_url && (
-        <BlurImage
-          src={product.image_url}
-          alt={product.name}
-          style={{
-            width: 92,
-            height: 92,
-            objectFit: 'cover',
-            borderRadius: 10,
-            flexShrink: 0,
-            background: PUB.surface,
-          }}
-        />
-      )}
-
-      <div
-        style={{
-          flex: 1,
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 5,
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
-            gap: 10,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontSize: 16.5,
-              fontWeight: 600,
-              color: PUB.text,
-              lineHeight: 1.2,
-              letterSpacing: '-0.01em',
-              flex: 1,
-              minWidth: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {product.name}
-          </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 2,
-              flexShrink: 0,
-            }}
-          >
-            {hasRequiredMods && (
-              <span
-                style={{
-                  fontSize: 10,
-                  color: PUB.text3,
-                  marginRight: 4,
-                  fontStyle: 'italic',
-                }}
-              >
-                de la
-              </span>
-            )}
-            {happyHourPct > 0 && (
-              <span
-                style={{
-                  fontFamily: theme.fonts.heading,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: PUB.text3,
-                  textDecoration: 'line-through',
-                  marginRight: 4,
-                  lineHeight: 1,
-                }}
-              >
-                {product.price.toFixed(2)}
-              </span>
-            )}
-            <span
-              style={{
-                fontFamily: theme.fonts.heading,
-                fontSize: 20,
-                fontWeight: 700,
-                color: happyHourPct > 0 ? '#2e7d32' : accent,
-                letterSpacing: '-0.02em',
-                lineHeight: 1,
-              }}
-            >
-              {priceInt}
-            </span>
-            <span
-              style={{
-                fontFamily: theme.fonts.heading,
-                fontSize: 13,
-                fontWeight: 600,
-                color: happyHourPct > 0 ? '#2e7d32' : accent,
-                lineHeight: 1,
-              }}
-            >
-              .{priceFrac}
-            </span>
-            <span
-              style={{
-                fontSize: 10.5,
-                color: accent,
-                marginLeft: 3,
-                fontWeight: 500,
-                letterSpacing: '0.04em',
-              }}
-            >
-              lei
-            </span>
-          </div>
-        </div>
-        {product.description && (
-          <div
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontStyle: 'italic',
-              fontSize: 12.5,
-              color: PUB.text2,
-              lineHeight: 1.4,
-              fontWeight: 400,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            }}
-          >
-            {product.description}
-          </div>
-        )}
-        {(tags.length > 0 || isSoldOut) && (
-          <div
-            style={{
-              display: 'flex',
-              gap: 5,
-              flexWrap: 'wrap',
-              marginTop: 3,
-              alignItems: 'center',
-            }}
-          >
-            {tags.map((tagId) => (
-              <TagBadge key={tagId} tagId={tagId} />
-            ))}
-            {isSoldOut && (
-              <span
-                style={{
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  color: '#c0392b',
-                  padding: '3px 8px',
-                  borderRadius: 100,
-                  border: '1px solid #c0392b55',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.08em',
-                }}
-              >
-                Epuizat
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {pickupEnabled && !isSoldOut && (
-        <button
-          type="button"
-          className="pressable"
-          onClick={(e) => {
-            e.stopPropagation()
-            if (hasRequiredMods) onOpen()
-            else onQuickAdd()
-          }}
-          aria-label={`Adaugă ${product.name}`}
-          style={{
-            alignSelf: 'center',
-            flexShrink: 0,
-            width: 36,
-            height: 36,
-            borderRadius: '50%',
-            background: accent,
-            color: '#fff',
-            border: 'none',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 20,
-            lineHeight: 1,
-            paddingBottom: 2,
-            boxShadow: `0 2px 8px ${accent}55`,
-          }}
-        >
-          +
-        </button>
-      )}
-    </div>
-  )
-}
-
-function TagBadge({ tagId }: { tagId: string }) {
-  const tag = DIETARY_TAGS.find((t) => t.id === tagId)
-  if (!tag) return null
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        fontWeight: 600,
-        color: tag.color,
-        padding: '3px 8px',
-        borderRadius: 100,
-        border: `1px solid ${tag.color}55`,
-        textTransform: 'uppercase',
-        letterSpacing: '0.08em',
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-      }}
-    >
-      <span style={{ fontSize: 10 }}>{tag.emoji}</span>
-      {tag.label}
-    </span>
   )
 }
 
