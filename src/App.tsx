@@ -111,9 +111,13 @@ const M = {
   surface2: '#F5F1EA',
   text: '#1A1208',
   text2: '#5C4A2A',
-  text3: '#9A8C7A',
+  // AA: #9A8C7A pe bg/surface = ~3.1:1 (sub 4.5). Întunecat la ~5.9:1.
+  text3: '#6E5F4A',
   border: '#E8E0D2',
   accent: '#C8963C',
+  // Text închis pe auriu: alb pe #C8963C = 2.66:1 (pică AA). Aurul brand rămâne
+  // viu, dar textul de pe butoanele aurii e închis (~8:1, look premium).
+  onAccent: '#241A0A',
   accentSoft: '#FAF3E5',
   success: '#2D8659',
 }
@@ -204,7 +208,7 @@ function LandingPage({
 
   const ctaBtn: React.CSSProperties = {
     background: M.accent,
-    color: '#fff',
+    color: M.onAccent,
     border: 'none',
     borderRadius: 12,
     padding: '15px 30px',
@@ -307,7 +311,7 @@ function LandingPage({
               onClick={onLogin}
               style={{
                 background: M.accent,
-                color: '#fff',
+                color: M.onAccent,
                 border: 'none',
                 borderRadius: 10,
                 padding: '9px 18px',
@@ -441,7 +445,7 @@ function LandingPage({
             style={{
               marginTop: 12,
               background: M.accent,
-              color: '#fff',
+              color: M.onAccent,
               borderRadius: 10,
               padding: '10px 0',
               fontSize: 13,
@@ -676,7 +680,7 @@ function LandingPage({
             style={{
               display: 'inline-block',
               background: M.accent,
-              color: '#fff',
+              color: M.onAccent,
               fontSize: 11,
               fontWeight: 700,
               padding: '5px 14px',
@@ -919,9 +923,10 @@ function PricingPage({
     surface2: '#F5F1EA', // subtle differentiation for sections
     text: '#1A1208', // near-black warm
     text2: '#5C4A2A', // body text
-    text3: '#9A8C7A', // muted text
+    text3: '#6E5F4A', // muted text — AA: ~5.9:1 pe bg (era #9A8C7A = 3.1:1)
     border: '#E8E0D2', // subtle warm border
     accent: '#C8963C', // gold — RESERVED for primary CTA only
+    onAccent: '#241A0A', // text închis pe auriu (alb pe auriu = 2.66:1, pică AA)
     accentSoft: '#FAF3E5', // accent background (for badges)
     success: '#2D8659',
     successSoft: '#E8F2EC',
@@ -1320,7 +1325,7 @@ function PricingPage({
                 className="pressable"
                 style={{
                   background: L.accent,
-                  color: '#fff',
+                  color: L.onAccent,
                   border: 'none',
                   borderRadius: 100,
                   padding: '10px 18px',
@@ -1383,7 +1388,7 @@ function PricingPage({
                       left: '50%',
                       transform: 'translateX(-50%)',
                       background: L.accent,
-                      color: '#fff',
+                      color: L.onAccent,
                       fontSize: '0.7rem',
                       fontWeight: 700,
                       padding: '5px 16px',
@@ -2011,7 +2016,7 @@ function PricingPage({
             className="pressable"
             style={{
               background: L.accent,
-              color: '#fff',
+              color: L.onAccent,
               border: 'none',
               borderRadius: 12,
               padding: '16px 36px',
