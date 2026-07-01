@@ -43,6 +43,7 @@ import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
+import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -534,6 +535,23 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 >
                   {products.map((product) => (
                     <ProductGridCard
+                      key={product.id}
+                      product={product}
+                      accent={accent}
+                      theme={theme}
+                      PUB={PUB}
+                      canAdd={pickupEnabled || listMode}
+                      happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                      onOpen={() => openProduct(product)}
+                      onQuickAdd={() => quickAddProduct(product)}
+                    />
+                  ))}
+                </div>
+              ) : menuLayout === 'minimal' ? (
+                // Layout „Minimal": rânduri text fără poză, aer editorial.
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {products.map((product) => (
+                    <ProductMinimalRow
                       key={product.id}
                       product={product}
                       accent={accent}

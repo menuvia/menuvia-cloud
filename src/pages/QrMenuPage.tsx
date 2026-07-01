@@ -26,6 +26,7 @@ import { Icon } from '../components/ui/Icon'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
+import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
@@ -531,6 +532,23 @@ export default function QrMenuPage({ token }: Props) {
           >
             {activeProducts.map((product) => (
               <ProductGridCard
+                key={product.id}
+                product={product}
+                accent={accent}
+                PUB={PUB}
+                theme={theme}
+                canAdd={orderingAllowed}
+                happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                onOpen={() => openProductQr(product)}
+                onQuickAdd={() => quickAddProductQr(product)}
+              />
+            ))}
+          </div>
+        ) : menuLayout === 'minimal' ? (
+          // Minimal: rânduri text fără poză, aer editorial.
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {activeProducts.map((product) => (
+              <ProductMinimalRow
                 key={product.id}
                 product={product}
                 accent={accent}
