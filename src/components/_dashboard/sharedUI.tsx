@@ -9,7 +9,9 @@
 
 import { useState, useCallback } from 'react'
 import type React from 'react'
+import { createPortal } from 'react-dom'
 import { D } from '../../lib/constants'
+import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 
 // ── Style helpers ──
 
@@ -112,7 +114,15 @@ export function Modal({
   children: React.ReactNode
   width?: number
 }) {
-  return (
+  // Blocăm scroll-ul paginii cât modalul e deschis (fix #74) — hook ref-counted,
+  // deci e sigur chiar dacă un caller îl mai apelează o dată în afară.
+  useBodyScrollLock(true)
+  // Portal la <body>: overlay-ul `position:fixed` e ancorat la viewport, nu la
+  // containerul de scroll al tab-ului (`contentScrollRef` are overflow:auto).
+  // Fără portal, un ancestor cu transform/overflow ar putea deplasa modalul în
+  // afara ecranului → userul trebuia să dea scroll ca să-l vadă.
+  if (typeof document === 'undefined') return null
+  return createPortal(
     <div
       onClick={onClose}
       style={{
@@ -168,7 +178,8 @@ export function Modal({
         </div>
         <div style={{ padding: 22 }}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

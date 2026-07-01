@@ -481,12 +481,25 @@ export default function WaiterPage() {
           alignItems: 'center',
           justifyContent: 'space-between',
           gap: 10,
+          // La lățimi mici (ex. 375px) grupul de acțiuni trece pe rândul lui,
+          // în loc să se suprapună peste titlu.
+          flexWrap: 'wrap',
           position: 'sticky',
           top: 0,
           zIndex: 100,
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 auto' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            // `flex: 1 1 220px` → titlul ocupă rândul întâi și forțează wrap-ul
+            // grupului de butoane sub el când nu mai încape.
+            flex: '1 1 220px',
+            minWidth: 0,
+          }}
+        >
           {isAdminRole && (
             <button
               onClick={() => {
@@ -508,13 +521,15 @@ export default function WaiterPage() {
                 alignItems: 'center',
                 gap: 5,
                 flexShrink: 0,
+                minHeight: 44,
+                whiteSpace: 'nowrap',
               }}
             >
               <Icon name="arrowLeft" size={14} />
               Dashboard
             </button>
           )}
-          <div style={{ minWidth: 0 }}>
+          <div style={{ minWidth: 0, flex: '1 1 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <span
                 style={{
@@ -523,6 +538,10 @@ export default function WaiterPage() {
                   fontWeight: 700,
                   color: D.t1,
                   whiteSpace: 'nowrap',
+                  // Titlul se scurtează cu „…" în loc să treacă peste butoane.
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  minWidth: 0,
                 }}
               >
                 {isAdminRole ? 'Comenzi live' : 'Ospătar'}
@@ -589,7 +608,18 @@ export default function WaiterPage() {
             )}
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexShrink: 0,
+            // Când grupul ajunge pe rândul lui (wrap la 375px), butoanele înseși
+            // pot da wrap și se aliniază la dreapta, fără să se calce între ele.
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
           {/* Restaurant selector — only visible for multi-restaurant users */}
           {memberships.length > 1 && (
             <select
@@ -628,7 +658,12 @@ export default function WaiterPage() {
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 5,
+              // Nu se comprimă sub ținta de atingere de 44px.
+              flexShrink: 0,
+              minHeight: 44,
+              whiteSpace: 'nowrap',
             }}
           >
             <Icon name="users" size={15} />
@@ -648,7 +683,11 @@ export default function WaiterPage() {
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 5,
+              flexShrink: 0,
+              minHeight: 44,
+              whiteSpace: 'nowrap',
             }}
           >
             <Icon name="plus" size={16} />

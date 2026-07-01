@@ -18,6 +18,7 @@
 // Acceptă atât , cât și ; ca delimitator (auto-detect).
 // ─────────────────────────────────────────────────────────────
 import { useState, useMemo } from 'react'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 
@@ -184,6 +185,9 @@ const card: React.CSSProperties = {
   maxHeight: '92vh',
   display: 'flex',
   flexDirection: 'column',
+  // Scroll INTERN al modalului: conținutul înalt derulează în card, nu în afara
+  // viewport-ului (înainte lipsea → trebuia scroll pe pagină ca să vezi modalul).
+  overflowY: 'auto',
 }
 const btn = (extra: React.CSSProperties = {}): React.CSSProperties => ({
   display: 'inline-flex',
@@ -208,6 +212,9 @@ export default function ProductsCsvImport({
   onClose,
   onDone,
 }: Props) {
+  // Blochează scroll-ul paginii cât modalul e deschis (altfel pagina din spate
+  // rămâne scrollabilă și modalul pare deplasat / cere scroll manual — fix #74).
+  useBodyScrollLock(true)
   const [step, setStep] = useState<'paste' | 'preview' | 'importing'>('paste')
   const [csvText, setCsvText] = useState('')
   const [progress, setProgress] = useState(0)

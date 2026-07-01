@@ -957,12 +957,16 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                 border: `1px solid ${D.border}`,
                 borderRadius: 12,
                 padding: '14px 16px',
+                // Coloană: rândul info (icon + nume + QR) sus, rândul de acțiuni jos.
+                // Evită overflow-ul orizontal care tăia butoanele pe 375px.
                 display: 'flex',
-                alignItems: 'center',
-                gap: 14,
+                flexDirection: 'column',
+                gap: 12,
                 opacity: t.is_active ? 1 : 0.6,
               }}
             >
+              {/* Rând info: icon + nume/status (flexibil) + QR pe dreapta */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <div
                 style={{
                   width: 40,
@@ -1043,17 +1047,19 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   <QRImage token={t.active_token.token} size={48} />
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+              </div>
+              {/* Rând acțiuni: wrap pe mai multe rânduri ca să nu se taie butoanele pe mobil */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {t.active_token && (
                   <button
                     onClick={() => void downloadPng(t)}
                     title="Descarcă QR (PNG)"
                     aria-label="Descarcă QR (PNG)"
                     style={{
-                      width: 36,
-                      height: 36,
-                      minWidth: 36,
-                      minHeight: 36,
+                      width: 44,
+                      height: 44,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 7,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -1073,10 +1079,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     title="Copiază link"
                     aria-label="Copiază link"
                     style={{
-                      width: 36,
-                      height: 36,
-                      minWidth: 36,
-                      minHeight: 36,
+                      width: 44,
+                      height: 44,
+                      minWidth: 44,
+                      minHeight: 44,
                       borderRadius: 7,
                       background: D.s3,
                       border: `1px solid ${D.border}`,
@@ -1100,10 +1106,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   aria-label={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   style={{
-                    width: 36,
-                    height: 36,
-                    minWidth: 36,
-                    minHeight: 36,
+                    width: 44,
+                    height: 44,
+                    minWidth: 44,
+                    minHeight: 44,
                     borderRadius: 7,
                     background: D.s3,
                     border: `1px solid ${D.border}`,
@@ -1122,10 +1128,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   title={t.is_active ? 'Dezactivează' : 'Activează'}
                   aria-label={t.is_active ? 'Dezactivează masă' : 'Activează masă'}
                   style={{
-                    width: 36,
-                    height: 36,
-                    minWidth: 36,
-                    minHeight: 36,
+                    width: 44,
+                    height: 44,
+                    minWidth: 44,
+                    minHeight: 44,
                     borderRadius: 7,
                     background: t.is_active ? 'rgba(76,175,110,0.12)' : D.s3,
                     border: `1px solid ${t.is_active ? 'rgba(76,175,110,0.3)' : D.border}`,
@@ -1143,10 +1149,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   title="Editează masă"
                   aria-label="Editează masă"
                   style={{
-                    width: 36,
-                    height: 36,
-                    minWidth: 36,
-                    minHeight: 36,
+                    width: 44,
+                    height: 44,
+                    minWidth: 44,
+                    minHeight: 44,
                     borderRadius: 7,
                     background: D.s3,
                     border: `1px solid ${D.border}`,
@@ -1164,10 +1170,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   title="Șterge masă"
                   aria-label="Șterge masă"
                   style={{
-                    width: 36,
-                    height: 36,
-                    minWidth: 36,
-                    minHeight: 36,
+                    width: 44,
+                    height: 44,
+                    minWidth: 44,
+                    minHeight: 44,
                     borderRadius: 7,
                     background: 'rgba(224,85,85,0.1)',
                     border: `1px solid rgba(224,85,85,0.2)`,
