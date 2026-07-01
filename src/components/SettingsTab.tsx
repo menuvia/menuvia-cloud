@@ -513,6 +513,85 @@ export default function SettingsTab({
             </div>
           </div>
 
+          {/* Elemente meniu — ce se vede pe hero-ul clienților. Toate ON implicit. */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              Elemente meniu
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
+              Alege ce se vede pe meniul clienților. Toate sunt pornite implicit.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {(
+                [
+                  {
+                    key: 'cover',
+                    name: 'Copertă',
+                    desc: 'Imaginea de copertă din partea de sus. Dezactivată, se afișează un gradient.',
+                  },
+                  {
+                    key: 'tagline',
+                    name: 'Slogan',
+                    desc: 'Sloganul restaurantului afișat sub nume.',
+                  },
+                  {
+                    key: 'status',
+                    name: 'Status deschis / închis',
+                    desc: 'Pastila care arată dacă restaurantul e deschis acum.',
+                  },
+                  {
+                    key: 'amenities',
+                    name: 'WiFi & Vegan',
+                    desc: 'Pile cu facilitățile WiFi și opțiuni vegan.',
+                  },
+                  {
+                    key: 'social',
+                    name: 'Social',
+                    desc: 'Pile cu link-uri Instagram, TikTok, Facebook și website.',
+                  },
+                ] as const
+              ).map((el) => {
+                const value = form.theme_settings?.elements?.[el.key] ?? true
+                return (
+                  <div
+                    key={el.key}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                        {el.name}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
+                    </div>
+                    <Toggle
+                      value={value}
+                      onChange={(v) =>
+                        upd('theme_settings', {
+                          // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
+                          ...(form.theme_settings ?? {}),
+                          preset_id: form.theme_settings?.preset_id ?? 'cafe',
+                          elements: { ...(form.theme_settings?.elements ?? {}), [el.key]: v },
+                        })
+                      }
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
           <div
             style={{
               background: D.s2,

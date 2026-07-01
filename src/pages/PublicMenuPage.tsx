@@ -19,11 +19,11 @@ import {
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import type { CartItem } from '../lib/orders'
-import { resolveTheme, isDarkTheme, resolveMenuLayout } from '../lib/themes'
+import { resolveTheme, isDarkTheme, resolveMenuLayout, resolveMenuElements } from '../lib/themes'
 
 import { DIETARY_TAGS, T } from '../lib/constants'
 import { supabase } from '../lib/supabase'
-import type { MenuTheme } from '../lib/themes'
+import type { MenuTheme, MenuElements } from '../lib/themes'
 import {
   IconBag,
   IconCalendar,
@@ -81,6 +81,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
   // Layout ales de restaurant (listă / galerie foto / minimal) — implicit 'list'.
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
+  // Elementele opționale de hero pe care restaurantul le afișează — implicit toate ON.
+  const elements = useMemo(() => resolveMenuElements(restaurant?.theme_settings), [restaurant])
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -364,6 +366,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         isOpen={isOpen}
         todayHours={todayHours}
         lang={lang}
+        elements={elements}
       />
 
       {pickupEnabled && (
@@ -1006,6 +1009,7 @@ interface HeroProps {
   isOpen: boolean | null
   todayHours: string | null
   lang: string
+  elements: MenuElements
 }
 
 function HeroSection({
@@ -1016,6 +1020,7 @@ function HeroSection({
   isOpen,
   todayHours,
   lang,
+  elements,
 }: HeroProps) {
   const hasWifi = restaurant.amenities?.includes('wifi') ?? false
   const hasVegan = restaurant.amenities?.includes('vegan_options') ?? false
@@ -1023,6 +1028,9 @@ function HeroSection({
   const tiktok = restaurant.socials?.tiktok
   const facebook = restaurant.socials?.facebook
   const website = restaurant.socials?.website
+  // Coperta se afișează doar dacă e activată din setări ȘI există o poză —
+  // altfel hero-ul cade pe gradientul de accent (ca fallback-ul fără cover).
+  const showCover = elements.cover && restaurant.cover_url != null
 
   return (
     <div
@@ -1035,8 +1043,8 @@ function HeroSection({
         marginRight: 0,
         borderRadius: '0 0 24px 24px',
         overflow: 'hidden',
-        background: restaurant.cover_url ? '#0a0a0a' : undefined,
-        backgroundImage: restaurant.cover_url ? `url(${restaurant.cover_url})` : accentGradient,
+        background: showCover ? '#0a0a0a' : undefined,
+        backgroundImage: showCover ? `url(${restaurant.cover_url})` : accentGradient,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         display: 'flex',
@@ -1070,7 +1078,7 @@ function HeroSection({
         }}
       />
       <div style={{ position: 'relative', zIndex: 2 }}>
-        {isOpen !== null && (
+        {elements.status && isOpen !== null && (
           <div
             data-testid="status-pill"
             style={{
@@ -1117,7 +1125,7 @@ function HeroSection({
         >
           {restaurant.name}
         </div>
-        {restaurant.tagline && (
+        {elements.tagline && restaurant.tagline && (
           <div
             style={{
               fontFamily: theme.fonts.heading,
@@ -1152,32 +1160,32 @@ function HeroSection({
               <IconClock /> {todayHours}
             </InfoPill>
           )}
-          {hasWifi && (
+          {elements.amenities && hasWifi && (
             <InfoPill isDark={isDark}>
               <IconWifi /> WiFi
             </InfoPill>
           )}
-          {hasVegan && (
+          {elements.amenities && hasVegan && (
             <InfoPill isDark={isDark}>
               <IconLeaf /> Vegan
             </InfoPill>
           )}
-          {instagram && (
+          {elements.social && instagram && (
             <SocialPill isDark={isDark} href={socialUrl('instagram', instagram)}>
               <IconInstagram /> {'@' + socialHandle(instagram)}
             </SocialPill>
           )}
-          {tiktok && (
+          {elements.social && tiktok && (
             <SocialPill isDark={isDark} href={socialUrl('tiktok', tiktok)}>
               <IconTikTok /> {'@' + socialHandle(tiktok)}
             </SocialPill>
           )}
-          {facebook && (
+          {elements.social && facebook && (
             <SocialPill isDark={isDark} href={socialUrl('facebook', facebook)}>
               <IconFacebook /> Facebook
             </SocialPill>
           )}
-          {website && (
+          {elements.social && website && (
             <SocialPill isDark={isDark} href={socialUrl('website', website)}>
               <IconGlobe /> Website
             </SocialPill>

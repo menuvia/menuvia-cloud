@@ -53,6 +53,13 @@ export interface Restaurant {
     preset_id: string
     accent_override?: string | null
     menu_layout?: 'list' | 'grid' | 'minimal' | null
+    elements?: {
+      cover?: boolean
+      tagline?: boolean
+      status?: boolean
+      amenities?: boolean
+      social?: boolean
+    } | null
   } | null
   pickup_settings: {
     enabled: boolean
