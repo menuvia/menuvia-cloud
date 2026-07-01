@@ -101,15 +101,29 @@ exports.handler = async () => {
   }
 
   // 3. Reset slack_alerted_at pentru rândurile eșuate → re-încercare next tick.
+  // Dacă RPC-ul eșuează, restaurantele rămân cu slack_alerted_at deja setat de
+  // claim_pending_slack_alerts (pas 1) și NU vor mai fi re-alertate în 24h, deși
+  // POST-ul Slack a eșuat. O singură reîncercare imediată (fără backoff — cron-ul
+  // rulează oricum la 15 min, nu merită complexitate suplimentară) acoperă eșecuri
+  // tranzitorii de rețea; dacă și reîncercarea eșuează, doar logăm (given up).
   if (failedIds.length > 0) {
-    const { error: resetErr } = await supabase.rpc('mark_slack_alert_failed', {
+    let resetErr = (await supabase.rpc('mark_slack_alert_failed', {
       p_restaurant_ids: failedIds,
-    })
+    })).error
     if (resetErr) {
       console.error(
-        '[send-health-slack-alerts] mark_slack_alert_failed failed:',
+        '[send-health-slack-alerts] mark_slack_alert_failed failed, retrying once:',
         resetErr,
       )
+      resetErr = (await supabase.rpc('mark_slack_alert_failed', {
+        p_restaurant_ids: failedIds,
+      })).error
+      if (resetErr) {
+        console.error(
+          '[send-health-slack-alerts] mark_slack_alert_failed retry failed, giving up:',
+          resetErr,
+        )
+      }
     }
   }
 

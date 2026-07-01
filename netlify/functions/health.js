@@ -81,14 +81,20 @@ exports.handler = async (event) => {
   })
 
   let dbOk = false
+  // AbortController anulează efectiv cererea HTTP către Supabase la timeout —
+  // spre deosebire de Promise.race cu un setTimeout, care doar ignoră promisiunea
+  // lentă în JS, dar lasă request-ul să continue în fundal (leak de conexiune/timp
+  // de execuție Netlify Function irosit pe un răspuns pe care nu-l mai așteaptă nimeni).
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), DB_PING_TIMEOUT_MS)
   try {
     // Ping minimal: 1 rând, o singură coloană, pe o tabelă stabilă. Nu ne
     // interesează conținutul — doar că DB-ul răspunde fără eroare la timp.
-    const ping = supabase.from('restaurants').select('id').limit(1)
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('db_ping_timeout')), DB_PING_TIMEOUT_MS),
-    )
-    const { error } = await Promise.race([ping, timeout])
+    const { error } = await supabase
+      .from('restaurants')
+      .select('id')
+      .limit(1)
+      .abortSignal(controller.signal)
     dbOk = !error
     if (error) {
       console.error('[health] db ping error:', error.message)
@@ -96,6 +102,8 @@ exports.handler = async (event) => {
   } catch (e) {
     console.error('[health] db ping failed:', e.message)
     dbOk = false
+  } finally {
+    clearTimeout(timer)
   }
 
   return jsonResponse(dbOk ? 200 : 503, {
