@@ -21,6 +21,20 @@ const { createClient } = require('@supabase/supabase-js')
 const OBLIO_BASE = 'https://www.oblio.eu/api'
 const OBLIO_TEST_BASE = 'https://test.oblio.eu/api'  // sandbox dacă există
 
+const FETCH_TIMEOUT_MS = 9000
+
+// Fetch cu timeout explicit via AbortController — un Oblio agățat nu trebuie
+// să blocheze cron-ul (rulează la fiecare 2 min) peste durata funcției Netlify.
+async function fetchWithTimeout(url, options) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 exports.handler = async () => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -41,19 +55,24 @@ exports.handler = async () => {
     return { statusCode: 200, body: 'No queued invoices' }
   }
 
-  // Token cache per (api_email) for batch
+  // Token cache per (api_email + test_mode) for batch — o cheie compusă previne
+  // reutilizarea unui token sandbox pe API-ul live (sau invers) când aceeași
+  // adresă de email are atât credențiale test, cât și live în coadă.
   const tokenCache = new Map()
 
   let issued = 0, failed = 0
 
   for (const inv of queued) {
     try {
-      // Get / refresh access token
-      let token = tokenCache.get(inv.api_email)
-      if (!token) {
-        token = await getOblioToken(inv.api_email, inv.api_secret, inv.test_mode)
-        tokenCache.set(inv.api_email, token)
+      // Get / refresh access token — cache-uit cu expirare; re-autentificăm
+      // proactiv dacă tokenul curent a expirat (sau e pe cale să expire).
+      const tokenCacheKey = `${inv.api_email}:${inv.test_mode}`
+      let cached = tokenCache.get(tokenCacheKey)
+      if (!cached || Date.now() >= cached.expiresAt) {
+        cached = await getOblioToken(inv.api_email, inv.api_secret, inv.test_mode)
+        tokenCache.set(tokenCacheKey, cached)
       }
+      const token = cached.token
 
       // Fetch order details for line items
       const lineItems = await fetchOrderLineItems(supabase, inv.order_id, inv.vat_included)
@@ -87,22 +106,33 @@ exports.handler = async () => {
 
       // If auth failed, drop token cache (force re-auth next iteration)
       if (errMsg.includes('401') || errMsg.includes('Unauthorized')) {
-        tokenCache.delete(inv.api_email)
+        tokenCache.delete(`${inv.api_email}:${inv.test_mode}`)
       }
     }
   }
 
+  // Status code reflectă rezultatul batch-ului, ca monitorizarea externă bazată
+  // pe status code (nu doar pe body) să vadă problema:
+  //   - eșec total (toate facturile din batch au eșuat) → 500
+  //   - eșec parțial → 200, cu detaliile issued/failed în body
+  //   - succes total → 200
+  const allFailed = failed > 0 && failed === queued.length
+  const statusCode = allFailed ? 500 : 200
+
   return {
-    statusCode: 200,
+    statusCode,
     body: JSON.stringify({ processed: queued.length, issued, failed }),
   }
 }
 
 // ── Oblio API: get access token ───────────────────────────────
+// Întoarce { token, expiresAt } — expiresAt e un timestamp (ms epoch) calculat
+// din data.expires_in, folosit de apelant pentru a re-autentifica proactiv
+// înainte de expirare (vezi tokenCache în handler).
 async function getOblioToken(apiEmail, apiSecret, testMode) {
   const base = testMode ? OBLIO_TEST_BASE : OBLIO_BASE
 
-  const res = await fetch(`${base}/authorize/token`, {
+  const res = await fetchWithTimeout(`${base}/authorize/token`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -124,7 +154,16 @@ async function getOblioToken(apiEmail, apiSecret, testMode) {
   if (!data.access_token) {
     throw new Error(`Oblio auth response missing access_token: ${JSON.stringify(data).slice(0, 200)}`)
   }
-  return data.access_token
+
+  // expires_in e în secunde; scădem o marjă de siguranță de 30s ca să nu
+  // trimitem un POST cu un token care expiră chiar în timpul cererii.
+  const expiresInSec = Number(data.expires_in)
+  const safetyMarginMs = 30_000
+  const expiresAt = Number.isFinite(expiresInSec)
+    ? Date.now() + expiresInSec * 1000 - safetyMarginMs
+    : Date.now() + 5 * 60_000 - safetyMarginMs  // fallback conservator: 5 min dacă lipsește expires_in
+
+  return { token: data.access_token, expiresAt }
 }
 
 // ── Fetch order line items from DB ───────────────────────────
@@ -159,7 +198,14 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
   return items.map((it) => {
     const name = it.products?.name || 'Produs'
     const vatGroup = it.products?.vat_group ?? 1
-    const vatPercent = vatMap[vatGroup] ?? 19  // fallback 19% if undefined
+    // Aliniat cu src/lib/vat.ts getVatRate: o grupă TVA lipsă din configurație e un
+    // gap de configurare, NU 0%/19% implicit. Calculul silențios cu o cotă presupusă
+    // ar produce subdeclarare/supradeclarare TVA pe bonul fiscal — eșuăm explicit,
+    // handler-ul prinde eroarea și marchează factura `failed` cu mesaj clar.
+    if (!Object.prototype.hasOwnProperty.call(vatMap, vatGroup)) {
+      throw new Error(`Grupă TVA ${vatGroup} lipsă din configurație pentru produsul ${name}`)
+    }
+    const vatPercent = vatMap[vatGroup]
     // #6: pretul de linie = item_total/quantity (include modifier + extras deltas), nu doar
     // pretul de baza al produsului — altfel totalul facturii diverge de order.total.
     // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
@@ -236,7 +282,15 @@ function composeOblioInvoice(inv, lineItems) {
     issuerName:   '',
     issuerId:     '',
     noticeNumber: '',
-    internalNote: '',
+    // Trasabilitate/dedup pe partea Oblio: legăm factura de order_id-ul intern.
+    // LIMITARE: Oblio API nu expune (după research curent) un endpoint de căutare
+    // după internalNote/idempotency key înainte de creare — deci acest câmp NU
+    // previne activ un duplicat dacă primul POST a reușit la Oblio dar răspunsul
+    // s-a pierdut înainte de mark_issued (retry va crea totuși un doc nou).
+    // E doar trasabilitate manuală (căutare/reconciliere ulterioară în Oblio după
+    // internalNote). Dedup real ar necesita un research suplimentar pe API-ul
+    // Oblio (ex. verificare existență document pe seriesName+client înainte de POST).
+    internalNote: `order:${inv.order_id}`,
     deputyName:   '',
     deputyIdentityCard: '',
     deputyAuto:   '',
@@ -254,7 +308,7 @@ function composeOblioInvoice(inv, lineItems) {
 async function postOblioInvoice(payload, token, testMode) {
   const base = testMode ? OBLIO_TEST_BASE : OBLIO_BASE
 
-  const res = await fetch(`${base}/docs/invoice`, {
+  const res = await fetchWithTimeout(`${base}/docs/invoice`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
