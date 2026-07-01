@@ -28,11 +28,15 @@ async function postCronAlert(jobName, message) {
   if (!slackWebhook) return // env lipsă → no-op silent
   try {
     const text = `🔴 Cron job ${jobName} a eșuat: ${message}`
-    await fetch(slackWebhook, {
+    const resp = await fetch(slackWebhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '')
+      console.error('[automation-cron] postCronAlert slack post failed:', resp.status, body.slice(0, 200))
+    }
   } catch (e) {
     // Alertarea e best-effort — o eroare aici nu trebuie să propage în cron.
     console.error('[automation-cron] postCronAlert failed:', e.message)
@@ -132,12 +136,14 @@ exports.handler = async () => {
     }
   }
 
-  // ── Job 3c: procesează ștergerile de cont GDPR (zilnic 03:30-03:45) ──
+  // ── Job 3c: procesează ștergerile de cont GDPR (zilnic 03:30-04:30) ──
   // Conturile marcate cu deletion_requested_at și trecute de fereastra de
   // grație de 30 zile se șterg definitiv (cascade). RPC service_role-only,
   // proiectat pentru cron (vezi mig 042/055). Idempotent — un tick ratat se
   // reia a doua zi. Batch de 100/rulare ca să nu blocheze cron-ul.
-  if (hour === 3 && minute >= 30 && minute < 45) {
+  // FEREASTRĂ LĂRGITĂ (03:30–04:30, o oră) ca un tick Netlify ratat exact la
+  // 03:30 să nu amâne ștergerea GDPR cu o zi întreagă.
+  if ((hour === 3 && minute >= 30) || (hour === 4 && minute < 30)) {
     try {
       const { data, error } = await supabase.rpc('process_account_deletions')
       if (error) throw error
@@ -194,9 +200,11 @@ exports.handler = async () => {
     }
   }
 
-  // ── Job 4: weekly reports (Friday 18:00-18:15) ──
+  // ── Job 4: weekly reports (Friday 18:00-20:00) ──
   // "vin." = Friday in Romanian
-  if (weekday.startsWith('vin') && hour === 18 && minute < 15) {
+  // FEREASTRĂ LĂRGITĂ (2h) ca un tick ratat la 18:00 să nu amâne raportul
+  // săptămânal cu o săptămână întreagă — se recuperează în aceeași seară.
+  if (weekday.startsWith('vin') && hour >= 18 && hour < 20) {
     try {
       const reportsDispatched = await dispatchWeeklyReports(supabase)
       results.weekly_reports_dispatched = reportsDispatched
@@ -238,10 +246,12 @@ exports.handler = async () => {
     }
   }
 
-  // ── Job 7: daily report (daily 08:00-08:15 Bucharest) ──
+  // ── Job 7: daily report (daily 08:00-09:00 Bucharest) ──
   // Raport pentru ieri către owner-ul fiecărui restaurant activ care a avut
   // comenzi. Dedup_key zilnic — re-run în aceeași zi nu duplică.
-  if (hour === 8 && minute < 15) {
+  // FEREASTRĂ LĂRGITĂ (1h) ca un tick ratat la 08:00 să se recupereze în
+  // aceeași dimineață, nu să sară complet ziua respectivă.
+  if (hour === 8 && minute < 60) {
     try {
       results.daily_reports_dispatched = await dispatchDailyReports(supabase)
     } catch (e) {
@@ -262,6 +272,12 @@ exports.handler = async () => {
   }
 }
 
+// Prag de eșecuri CONSECUTIVE la care oprim bucla per-restaurant și alertăm.
+// Un șir lung de eșecuri identice (ex. coloană inexistentă într-un RPC) e
+// aproape sigur un bug sistemic, nu o problemă izolată per restaurant —
+// mai bine oprim devreme și alertăm decât să irosim tot batch-ul degeaba.
+const MAX_CONSECUTIVE_REPORT_FAILURES = 10
+
 // ── Dispatch weekly reports for all active restaurants ──────────
 async function dispatchWeeklyReports(supabase) {
   const { data: restaurants, error } = await supabase
@@ -273,6 +289,7 @@ async function dispatchWeeklyReports(supabase) {
   if (!restaurants || restaurants.length === 0) return 0
 
   let dispatched = 0
+  let consecutiveFailures = 0
   for (const r of restaurants) {
     try {
       // Compute report data
@@ -283,8 +300,17 @@ async function dispatchWeeklyReports(supabase) {
 
       if (repErr) {
         console.warn(`[automation-cron] Report failed for ${r.id}:`, repErr.message)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+          await postCronAlert(
+            'weekly-reports',
+            `${consecutiveFailures} eșecuri consecutive la compute_weekly_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+          )
+          break
+        }
         continue
       }
+      consecutiveFailures = 0
 
       // Skip if zero activity (no point spamming)
       if (!report || report.orders === 0) continue
@@ -304,6 +330,14 @@ async function dispatchWeeklyReports(supabase) {
       dispatched++
     } catch (e) {
       console.warn(`[automation-cron] Weekly report exception for ${r.id}:`, e.message)
+      consecutiveFailures++
+      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+        await postCronAlert(
+          'weekly-reports',
+          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+        )
+        break
+      }
     }
   }
 
@@ -328,6 +362,7 @@ async function dispatchDailyReports(supabase) {
   }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
 
   let dispatched = 0
+  let consecutiveFailures = 0
   for (const r of restaurants) {
     try {
       const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
@@ -337,8 +372,17 @@ async function dispatchDailyReports(supabase) {
 
       if (repErr) {
         console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+          await postCronAlert(
+            'daily-reports',
+            `${consecutiveFailures} eșecuri consecutive la compute_daily_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+          )
+          break
+        }
         continue
       }
+      consecutiveFailures = 0
 
       if (!report || report.orders === 0) continue
 
@@ -355,6 +399,14 @@ async function dispatchDailyReports(supabase) {
       dispatched++
     } catch (e) {
       console.warn(`[automation-cron] Daily report exception for ${r.id}:`, e.message)
+      consecutiveFailures++
+      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+        await postCronAlert(
+          'daily-reports',
+          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+        )
+        break
+      }
     }
   }
 
