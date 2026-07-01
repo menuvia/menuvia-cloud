@@ -18,6 +18,45 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
+// ── Alertă Slack pe eșec de cron ────────────────────────────────
+// Trimite founderului un mesaj scurt când un sub-job moare. Best-effort:
+// dacă SLACK_WEBHOOK_URL lipsește → no-op; orice eroare de rețea/Slack e
+// înghițită intern ca alertarea să NU doboare cron-ul. Nu aruncă niciodată.
+// Pattern POST identic cu send-health-slack-alerts.js.
+async function postCronAlert(jobName, message) {
+  const slackWebhook = process.env.SLACK_WEBHOOK_URL
+  if (!slackWebhook) return // env lipsă → no-op silent
+  try {
+    const text = `🔴 Cron job ${jobName} a eșuat: ${message}`
+    await fetch(slackWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+  } catch (e) {
+    // Alertarea e best-effort — o eroare aici nu trebuie să propage în cron.
+    console.error('[automation-cron] postCronAlert failed:', e.message)
+  }
+}
+
+// ── Reminder Slack pentru founder (non-eroare) ──────────────────
+// Folosit pentru semnale de tip „acțiune necesară" (ex. draft-uri de payout
+// create). Best-effort, no-op fără webhook, nu aruncă niciodată.
+async function postCronNotice(jobName, message) {
+  const slackWebhook = process.env.SLACK_WEBHOOK_URL
+  if (!slackWebhook) return
+  try {
+    const text = `🟡 Cron ${jobName}: ${message}`
+    await fetch(slackWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+  } catch (e) {
+    console.error('[automation-cron] postCronNotice failed:', e.message)
+  }
+}
+
 exports.handler = async () => {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -46,6 +85,8 @@ exports.handler = async () => {
     if (error) throw error
     results.lifecycle_processed = data
   } catch (e) {
+    console.error('[automation-cron] lifecycle events FAILED:', e.message)
+    await postCronAlert('lifecycle-events', e.message)
     results.lifecycle_error = e.message
   }
 
@@ -58,6 +99,8 @@ exports.handler = async () => {
       if (error) throw error
       results.sessions_expired = data
     } catch (e) {
+      console.error('[automation-cron] expire sessions FAILED:', e.message)
+      await postCronAlert('expire-sessions', e.message)
       results.sessions_expire_error = e.message
     }
   }
@@ -70,6 +113,8 @@ exports.handler = async () => {
       results.health_scores_computed = (data || []).length
       results.health_alerts = (data || []).filter(r => r.alert_needed).length
     } catch (e) {
+      console.error('[automation-cron] health scores FAILED:', e.message)
+      await postCronAlert('health-scores', e.message)
       results.health_error = e.message
     }
   }
@@ -81,6 +126,8 @@ exports.handler = async () => {
       if (error) throw error
       results.rate_limits_cleaned = data
     } catch (e) {
+      console.error('[automation-cron] rate limit cleanup FAILED:', e.message)
+      await postCronAlert('cleanup-rate-limits', e.message)
       results.cleanup_error = e.message
     }
   }
@@ -98,6 +145,7 @@ exports.handler = async () => {
     } catch (e) {
       // Eșec = conturi GDPR neșterse la termen → vizibil în logs (conformitate).
       console.error('[automation-cron] account deletions FAILED:', e.message)
+      await postCronAlert('account-deletions', e.message)
       results.account_deletions_error = e.message
     }
   }
@@ -127,10 +175,21 @@ exports.handler = async () => {
         })
         if (error) throw error
         results.affiliate_payouts = data
+        // Reminder founder: dacă batch-ul a creat draft-uri (data.created > 0),
+        // ele stau în status 'draft' și necesită procesare manuală (factură + Wise).
+        // Fără această notificare, payout-urile pot rămâne tăcut neprocesate.
+        const created = (data && typeof data.created === 'number') ? data.created : 0
+        if (created > 0) {
+          await postCronNotice(
+            'affiliate-payout',
+            `${created} draft-uri de plată create, necesită procesare Wise`,
+          )
+        }
       }
     } catch (e) {
       // Batch ratat = afiliați neplătiți luna respectivă → vizibil în logs (OPS-1).
       console.error('[automation-cron] payout batch FAILED:', e.message)
+      await postCronAlert('affiliate-payout', e.message)
       results.affiliate_payout_error = e.message
     }
   }
@@ -142,6 +201,8 @@ exports.handler = async () => {
       const reportsDispatched = await dispatchWeeklyReports(supabase)
       results.weekly_reports_dispatched = reportsDispatched
     } catch (e) {
+      console.error('[automation-cron] weekly reports FAILED:', e.message)
+      await postCronAlert('weekly-reports', e.message)
       results.weekly_error = e.message
     }
   }
@@ -156,6 +217,8 @@ exports.handler = async () => {
       results.winback_7d = row.enqueued_7d ?? 0
       results.winback_30d = row.enqueued_30d ?? 0
     } catch (e) {
+      console.error('[automation-cron] winback detect FAILED:', e.message)
+      await postCronAlert('winback-inactive', e.message)
       results.winback_error = e.message
     }
   }
@@ -169,6 +232,8 @@ exports.handler = async () => {
       if (error) throw error
       results.nps_enqueued = data ?? 0
     } catch (e) {
+      console.error('[automation-cron] nps detect FAILED:', e.message)
+      await postCronAlert('nps-due', e.message)
       results.nps_error = e.message
     }
   }
@@ -180,6 +245,8 @@ exports.handler = async () => {
     try {
       results.daily_reports_dispatched = await dispatchDailyReports(supabase)
     } catch (e) {
+      console.error('[automation-cron] daily reports FAILED:', e.message)
+      await postCronAlert('daily-reports', e.message)
       results.daily_error = e.message
     }
   }
