@@ -65,6 +65,9 @@ exports.handler = async () => {
   // 2. POST la Slack per restaurant
   let ok = 0
   let fail = 0
+  // restaurant_id-urile pentru care POST-ul a eșuat — le resetăm la final ca
+  // să re-încercăm la următorul tick (RPC-ul deja marcase slack_alerted_at).
+  const failedIds = []
   for (const r of claimed) {
     try {
       const payload = buildSlackPayload(r)
@@ -75,6 +78,7 @@ exports.handler = async () => {
       })
       if (!resp.ok) {
         fail++
+        failedIds.push(r.restaurant_id)
         const body = await resp.text().catch(() => '')
         console.error(
           '[send-health-slack-alerts] slack post failed',
@@ -87,10 +91,24 @@ exports.handler = async () => {
       }
     } catch (e) {
       fail++
+      failedIds.push(r.restaurant_id)
       console.error(
         '[send-health-slack-alerts] exception for',
         r.restaurant_id,
         e.message,
+      )
+    }
+  }
+
+  // 3. Reset slack_alerted_at pentru rândurile eșuate → re-încercare next tick.
+  if (failedIds.length > 0) {
+    const { error: resetErr } = await supabase.rpc('mark_slack_alert_failed', {
+      p_restaurant_ids: failedIds,
+    })
+    if (resetErr) {
+      console.error(
+        '[send-health-slack-alerts] mark_slack_alert_failed failed:',
+        resetErr,
       )
     }
   }
