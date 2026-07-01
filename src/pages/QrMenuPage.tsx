@@ -4,7 +4,7 @@
 // Mobile-first, max-width 480px.
 // =============================================================
 
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useDeferredValue, lazy, Suspense } from 'react'
 import {
   resolveQrToken,
   fetchMenuForRestaurant,
@@ -281,31 +281,44 @@ export default function QrMenuPage({ token }: Props) {
   }
 
   // ── Resolve theme from restaurant settings ──────────────────
-  const theme = resolveTheme(ctx?.restaurant.theme_settings)
-  const PUB = {
-    bg: theme.colors.bg,
-    surface: theme.colors.surface,
-    text: theme.colors.text,
-    text2: theme.colors.text2,
-    text3: theme.colors.text3,
-    border: theme.colors.border,
-    borderStrong: theme.colors.borderStrong,
-  }
+  const theme = useMemo(() => resolveTheme(ctx?.restaurant.theme_settings), [ctx])
+  // Memoizat: obiect nou la fiecare render înainte → prop instabil pentru
+  // carduri/stări. Recalculat doar când se schimbă tema.
+  const PUB = useMemo(
+    () => ({
+      bg: theme.colors.bg,
+      surface: theme.colors.surface,
+      text: theme.colors.text,
+      text2: theme.colors.text2,
+      text3: theme.colors.text3,
+      border: theme.colors.border,
+      borderStrong: theme.colors.borderStrong,
+    }),
+    [theme],
+  )
   // Backward-compat: primary_color from old DB column → override accent if set
   const accent = ctx?.restaurant.primary_color ?? theme.colors.accent
   const accentGradient = theme.colors.accentGradient
+  // `searchQuery` (imediat) rămâne pentru textul stărilor goale; filtrarea
+  // rulează pe valoarea AMÂNATĂ ca să nu blocheze input-ul la fiecare tastă.
+  const searchQuery = search.trim().toLowerCase()
+  const deferredSearch = useDeferredValue(search)
   // Search activ → căutăm în TOT meniul (toate categoriile), nu doar în cea
   // selectată — altfel clientul nu găsește produsul dacă e pe alt tab.
-  const searchQuery = search.trim().toLowerCase()
-  const activeProducts = searchQuery
-    ? categories
-        .flatMap((c) => c.products ?? [])
-        .filter(
-          (p) =>
-            p.name.toLowerCase().includes(searchQuery) ||
-            (p.description ?? '').toLowerCase().includes(searchQuery),
-        )
-    : (categories.find((c) => c.id === activeCatId)?.products ?? [])
+  // Memoizat pe deps complete: recalculăm doar la schimbare de meniu, tab activ
+  // sau termen de căutare amânat. Rezultatul e IDENTIC cu filtrarea sincronă.
+  const activeProducts = useMemo(() => {
+    const q = deferredSearch.trim().toLowerCase()
+    return q
+      ? categories
+          .flatMap((c) => c.products ?? [])
+          .filter(
+            (p) =>
+              p.name.toLowerCase().includes(q) ||
+              (p.description ?? '').toLowerCase().includes(q),
+          )
+      : (categories.find((c) => c.id === activeCatId)?.products ?? [])
+  }, [categories, activeCatId, deferredSearch])
   const orderingAllowed = ctx?.orderingAllowed ?? false
   // Layout ales de restaurant (listă / galerie foto) — implicit 'list'.
   const menuLayout = resolveMenuLayout(ctx?.restaurant.theme_settings)
@@ -389,7 +402,8 @@ export default function QrMenuPage({ token }: Props) {
             src={ctx.restaurant.logo_url}
             alt={ctx.restaurant.name}
             decoding="async"
-            style={{ height: 48, objectFit: 'contain', marginBottom: 4 }}
+            // Dimensiuni rezervate (h fix + lățime max) → fără CLS la primul paint.
+            style={{ width: 'auto', maxWidth: 160, height: 48, objectFit: 'contain', marginBottom: 4 }}
           />
         ) : (
           <div
