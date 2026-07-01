@@ -33,13 +33,17 @@ export const SCORE_MAX = {
   engagement: 15,
 } as const
 
-/** Read cached score for current restaurant (admin only). */
+/** Read cached score for current restaurant (admin only).
+ *  Aruncă excepție pe eroare reală RPC (rețea, permisiuni, DB jos) — funcția
+ *  SQL `get_health_score` întoarce 0 rânduri (nu eroare) atât când scorul nu
+ *  a fost încă calculat, cât și când `is_admin` respinge apelantul, deci
+ *  `data` gol e mereu cazul legitim „fără scor", nu o eroare de mascat. */
 export async function fetchHealthScore(restaurantId: string): Promise<HealthScore | null> {
   const { data, error } = await supabase.rpc('get_health_score', { p_restaurant_id: restaurantId })
 
   if (error) {
     console.error('[health] fetch failed:', error.message)
-    return null
+    throw new Error(`Nu s-a putut încărca scorul: ${error.message}`)
   }
   if (!data || (Array.isArray(data) && data.length === 0)) return null
   const row = Array.isArray(data) ? data[0] : data

@@ -36,15 +36,20 @@ export default function HealthScoreTab() {
   const [loading, setLoading] = useState(true)
   const [recomputing, setRecomputing] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(async () => {
     if (!activeId) return
     setLoading(true)
     setErr(null)
+    setLoadError(false)
     try {
       const s = await fetchHealthScore(activeId)
       setScore(s)
     } catch (e) {
+      // Eroare reală de fetch (rețea/permisiuni) — distinctă de „scor inexistent",
+      // care e reprezentat de `score === null` fără excepție.
+      setLoadError(true)
       setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
     } finally {
       setLoading(false)
@@ -77,6 +82,38 @@ export default function HealthScoreTab() {
         <Skeleton variant="text" count={3} />
       </div>
     )
+
+  // Eroare reală la încărcare (rețea/permisiuni/DB) — distinctă de „fără scor
+  // calculat încă", ca să nu inducem în eroare adminul cu un ecran gol.
+  if (loadError) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center', color: D.t2 }}>
+        <div style={{ fontSize: 32, marginBottom: 8 }}>⚠️</div>
+        <div style={{ fontFamily: 'Fraunces,serif', fontSize: 20, color: D.t1, marginBottom: 8 }}>
+          Nu am putut încărca scorul
+        </div>
+        <p style={{ maxWidth: 480, margin: '0 auto 16px' }}>
+          A apărut o eroare la comunicarea cu serverul. Încearcă din nou în câteva momente.
+        </p>
+        {err && <div style={{ color: D.red, fontSize: 13, marginBottom: 16 }}>{err}</div>}
+        <button
+          onClick={() => void load()}
+          style={{
+            background: 'transparent',
+            color: D.t1,
+            border: `1px solid ${D.border}`,
+            borderRadius: 8,
+            padding: '10px 20px',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Reîncearcă
+        </button>
+      </div>
+    )
+  }
 
   if (!score) {
     return (
