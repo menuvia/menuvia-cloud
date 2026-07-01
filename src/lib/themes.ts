@@ -317,12 +317,29 @@ export type MenuLayout = 'list' | 'grid' | 'minimal'
 
 const MENU_LAYOUTS: readonly MenuLayout[] = ['list', 'grid', 'minimal']
 
+// ── Elemente opționale de meniu ──────────────────────────────
+// Bucăți din hero-ul meniului client pe care restaurantul le poate ascunde.
+// Toate implicit ON = comportamentul actual păstrat pentru meniurile existente.
+//  • cover     → imaginea de copertă din hero (fallback: gradient de accent)
+//  • tagline   → sloganul restaurantului
+//  • status    → pastila deschis/închis
+//  • amenities → pile WiFi / opțiuni vegan
+//  • social    → pile social (Instagram/TikTok/Facebook/Website)
+export interface MenuElements {
+  cover: boolean // imaginea de copertă din hero
+  tagline: boolean // sloganul restaurantului
+  status: boolean // pastila deschis/închis
+  amenities: boolean // pile WiFi / opțiuni vegan
+  social: boolean // pile social (Instagram/TikTok/Facebook/Website)
+}
+
 // ── Custom theme override ────────────────────────────────────
 // User can override `accent` color on Growth+ — others stay theme-default
 export interface ThemeSettings {
   preset_id: string // one of THEMES ids
   accent_override?: string | null // hex color override (Growth+)
   menu_layout?: MenuLayout | null // aspectul listei de produse (implicit 'list')
+  elements?: Partial<MenuElements> | null // elemente vizibile în hero (implicit toate ON)
 }
 
 // Layout-ul de meniu ales, cu fallback sigur la 'list' pentru valori
@@ -330,6 +347,19 @@ export interface ThemeSettings {
 export function resolveMenuLayout(settings: ThemeSettings | null | undefined): MenuLayout {
   const l = settings?.menu_layout
   return l != null && MENU_LAYOUTS.includes(l) ? l : 'list'
+}
+
+// Elementele opționale ale meniului, cu default `true` per câmp (comportament
+// actual păstrat pentru setările existente), suprascris de `settings.elements`.
+export function resolveMenuElements(settings: ThemeSettings | null | undefined): MenuElements {
+  const e = settings?.elements
+  return {
+    cover: e?.cover ?? true,
+    tagline: e?.tagline ?? true,
+    status: e?.status ?? true,
+    amenities: e?.amenities ?? true,
+    social: e?.social ?? true,
+  }
 }
 
 export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTheme {
