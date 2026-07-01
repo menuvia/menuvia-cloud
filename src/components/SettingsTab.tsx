@@ -5,6 +5,7 @@ import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES } from '../lib/themes'
 import VatRatesEditor from './VatRatesEditor'
+import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
@@ -304,6 +305,27 @@ export default function SettingsTab({
               ))}
             </div>
           </div>
+          {/* Previzualizare live — se actualizează instant la orice schimbare de
+              temă / layout / elemente (form.theme_settings e state React). */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              Previzualizare
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
+              Așa arată meniul clienților — se actualizează pe măsură ce schimbi.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <MenuPreview themeSettings={form.theme_settings} restaurantName={form.name} />
+            </div>
+          </div>
+
           {/* Theme picker — 8 preset themes for QR menu */}
           <div
             style={{
