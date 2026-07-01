@@ -243,6 +243,97 @@ const TEMPLATES = {
       `,
     }
   },
+
+  // ── Handlere minimale adăugate pentru sincronizare cu enumul email_template_kind (mig 039+) ──
+
+  onboarding_no_orders: (d) => ({
+    subject: '👀 Meniul e gata — hai să prindem prima comandă',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">${esc(d.owner_name || 'Bună')}, meniul e configurat!</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Văd că ai produse în meniu dar încă n-a intrat nicio comandă. Cel mai probabil lipsește QR-ul pe masă sau clienții nu știu de el.</p>
+        <a href="${APP_URL}/dashboard" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Generează QR-uri →</a>
+        <p style="color:#666;font-size:13px;margin-top:24px">Scrie-mi pe WhatsApp dacă ai nevoie de ajutor.<br/>— Radu</p>
+      </div>
+    `,
+  }),
+
+  trial_ending_1d: (d) => ({
+    subject: '⏰ Trial-ul se termină mâine',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Trial-ul tău Menuvia se termină mâine</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')}!</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Mâine se încheie perioada de trial. Pentru a continua fără întreruperi, actualizează cardul în setări.</p>
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Continuă cu Pro →</a>
+        <p style="color:#666;font-size:13px;margin-top:24px">Dacă ai întrebări despre planuri, scrie-mi direct.</p>
+      </div>
+    `,
+  }),
+
+  payment_recovered: (d) => ({
+    subject: '✅ Plata s-a procesat cu succes',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Plata s-a procesat cu succes</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Vestea bună: plata abonamentului a reușit, iar contul rămâne activ fără întreruperi. Mulțumesc pentru încredere.</p>
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Vezi detalii facturare →</a>
+      </div>
+    `,
+  }),
+
+  subscription_cancelled: (d) => ({
+    subject: 'Abonamentul Menuvia a fost anulat',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Abonamentul tău a fost anulat</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Confirmăm că abonamentul Menuvia pentru <b>${esc(d.restaurant_name || 'restaurantul tău')}</b> a fost anulat. Nu vei mai fi taxat.</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Dacă te răzgândești, poți reactiva oricând din dashboard. Dacă anularea are legătură cu ceva ce am putea îmbunătăți, aș aprecia un răspuns la acest email.</p>
+        <p style="color:#666;font-size:13px;margin-top:24px">Mulțumesc că ai încercat Menuvia.<br/>— Radu</p>
+      </div>
+    `,
+  }),
+
+  monthly_recap: (d) => ({
+    subject: `📈 Recap lunar: ${formatLei(d.revenue)} venit`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:26px">Recap lunar</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')}, iată un rezumat al lunii pentru <b>${esc(d.restaurant_name || '')}</b>:</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr><td style="padding:6px 0;color:#666">Venit total:</td><td style="text-align:right;font-weight:600">${formatLei(d.revenue)}</td></tr>
+          <tr><td style="padding:6px 0;color:#666">Comenzi:</td><td style="text-align:right;font-weight:600">${d.orders || 0}</td></tr>
+        </table>
+        <a href="${APP_URL}/dashboard?tab=analytics" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Vezi raport detaliat →</a>
+      </div>
+    `,
+  }),
+
+  invoice_ready: (d) => ({
+    subject: '🧾 Factura ta Menuvia este disponibilă',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Factura ta este disponibilă</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Factura pentru abonamentul Menuvia (${formatLei(d.amount)}) este acum disponibilă în dashboard.</p>
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Descarcă factura →</a>
+      </div>
+    `,
+  }),
+
+  // Template generic pentru emailuri ad-hoc: html/subject vin din template_data
+  // (sau din subject_override la nivel de coadă). Fallback minimal dacă lipsesc.
+  custom: (d) => ({
+    subject: d.subject || 'Menuvia',
+    html: d.html || `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <p style="color:#333;font-size:16px;line-height:1.55">${esc(d.body || '')}</p>
+        <p style="color:#666;font-size:13px;margin-top:24px">— Radu, Menuvia</p>
+      </div>
+    `,
+  }),
 }
 
 function formatDateTimeRo(iso) {
@@ -450,10 +541,17 @@ exports.handler = async () => {
 
     const template = TEMPLATES[email.template_kind]
     if (!template) {
+      // Template necunoscut aici ≠ eroare permanentă: enumul email_template_kind poate fi
+      // extins într-o migrație fără ca deploy-ul acestui fișier să fi prins încă handler-ul.
+      // Tratăm identic cu eșecul tranzitoriu Resend (retry cu backoff), ca să nu pierdem
+      // emailul definitiv înainte de următorul deploy.
+      const attempts = email.failed_attempts + 1
       await supabase.from('email_queue').update({
-        status: 'failed',
+        status: attempts >= 3 ? 'failed' : 'queued',
+        failed_attempts: attempts,
         last_error: `Unknown template: ${email.template_kind}`,
-        failed_attempts: email.failed_attempts + 1,
+        // Backoff: wait 10min × attempts before retry
+        scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
       }).eq('id', email.id)
       failed++
       continue
@@ -492,7 +590,11 @@ exports.handler = async () => {
 
       if (!res.ok) {
         const errText = await res.text()
-        throw new Error(`Resend ${res.status}: ${errText.slice(0, 200)}`)
+        const resendErr = new Error(`Resend ${res.status}: ${errText.slice(0, 200)}`)
+        // 4xx = eroare permanentă (adresă invalidă, payload respins de Resend) — retry-ul
+        // nu schimbă rezultatul. 5xx/network rămân tranzitorii și merg pe backoff normal.
+        resendErr.permanent = res.status >= 400 && res.status < 500
+        throw resendErr
       }
 
       await supabase.from('email_queue').update({
@@ -502,13 +604,22 @@ exports.handler = async () => {
       sent++
     } catch (err) {
       const attempts = email.failed_attempts + 1
-      await supabase.from('email_queue').update({
-        status: attempts >= 3 ? 'failed' : 'queued',
-        failed_attempts: attempts,
-        last_error: String(err.message || err).slice(0, 500),
-        // Backoff: wait 10min × attempts before retry
-        scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
-      }).eq('id', email.id)
+      if (err.permanent) {
+        // Eroare 4xx de la Resend: fără backoff, marcăm direct 'failed'.
+        await supabase.from('email_queue').update({
+          status: 'failed',
+          failed_attempts: attempts,
+          last_error: String(err.message || err).slice(0, 500),
+        }).eq('id', email.id)
+      } else {
+        await supabase.from('email_queue').update({
+          status: attempts >= 3 ? 'failed' : 'queued',
+          failed_attempts: attempts,
+          last_error: String(err.message || err).slice(0, 500),
+          // Backoff: wait 10min × attempts before retry
+          scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
+        }).eq('id', email.id)
+      }
       failed++
     }
   }
