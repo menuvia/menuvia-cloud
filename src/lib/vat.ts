@@ -42,7 +42,7 @@ export function getVatLabel(rates: VatRate[], vatGroup: number): string {
   return r ? `${r.rate_percent}% (${r.label})` : `Grupa ${vatGroup}`
 }
 
-// Get rate percent for vat_group from rates list.
+// Obține procentul TVA pentru vat_group din lista de cote.
 // Întoarce `null` când grupa NU există în config (gap de configurare),
 // ca să nu confundăm o grupă lipsă cu 0% real (ex: grupa 4 = neimpozabil).
 // Consumatorii trebuie să trateze `null` ca eroare de config, nu ca 0%.

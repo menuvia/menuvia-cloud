@@ -5,7 +5,7 @@
 // numele comercial văzut pe AuthPage pill, Pricing, Upgrade.
 
 import { describe, it, expect } from 'vitest'
-import { planTier, PLAN_NAMES, suggestUpgrade } from '../features'
+import { planTier, planNameForTier, PLAN_NAMES, suggestUpgrade } from '../features'
 import { getPlanByInternalId, getPlan } from '../plans'
 
 describe('planTier — regula de aur (bani + bon = Plan 3)', () => {
@@ -72,6 +72,25 @@ describe('PLAN_NAMES — numele comerciale', () => {
 
   it('pro folosește „Fiscalizare"', () => {
     expect(PLAN_NAMES.pro).toContain('Fiscalizare')
+  })
+})
+
+describe('planNameForTier — tier comercial → nume public', () => {
+  // Blochează maparea tier → planul reprezentativ → numele comercial.
+  // Folosit de UpgradePrompt ca să indice planul-țintă corect.
+  it('tier 1 → numele comercial al lui starter (Meniu Digital)', () => {
+    expect(planNameForTier(1)).toBe(PLAN_NAMES.starter)
+    expect(planNameForTier(1)).toContain('Meniu Digital')
+  })
+
+  it('tier 2 → numele comercial al lui growth (Meniu + Comenzi)', () => {
+    expect(planNameForTier(2)).toBe(PLAN_NAMES.growth)
+    expect(planNameForTier(2)).toContain('Meniu + Comenzi')
+  })
+
+  it('tier 3 → numele comercial al lui pro (Fiscalizare)', () => {
+    expect(planNameForTier(3)).toBe(PLAN_NAMES.pro)
+    expect(planNameForTier(3)).toContain('Fiscalizare')
   })
 })
 

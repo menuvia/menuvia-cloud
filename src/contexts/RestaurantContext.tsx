@@ -50,6 +50,10 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     }
 
     async function loadMemberships() {
+      // Marcăm loading la începutul fetch-ului: fără asta, primul render cu
+      // user!=null (dar înainte de a avea date) ar arăta loading=false → flash
+      // de UI onboarding/gol cât `loadMemberships()` e încă în zbor.
+      setLoading(true)
       try {
         const { data } = await supabase
           .from('restaurant_memberships')
