@@ -379,33 +379,38 @@ export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTh
   }
 }
 
-// Alege culoarea textului (alb vs. un text închis) care are contrast bun peste
-// un fundal dat — folosit pentru text/iconuri PESTE `accent`, fiindcă accentele
-// deschise (galben/lime/gold) pică AA cu albul. Întoarce `darkText` când fundalul
-// e deschis, altfel alb. Acceptă '#rgb' și '#rrggbb'; pe input neparsabil cade pe
-// alb (comportament conservator). Helper partajat de meniu (ProductCard, MenuStates,
-// MenuHeader) — un singur calcul de luminanță WCAG, fără duplicate.
-export function readableTextOn(bg: string, darkText: string): string {
-  const hex = bg.trim().replace(/^#/, '')
-  let r: number
-  let g: number
-  let b: number
-  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
-    r = parseInt(hex.slice(0, 2), 16)
-    g = parseInt(hex.slice(2, 4), 16)
-    b = parseInt(hex.slice(4, 6), 16)
-  } else if (/^[0-9a-fA-F]{3}$/.test(hex)) {
-    r = parseInt(hex[0]! + hex[0]!, 16)
-    g = parseInt(hex[1]! + hex[1]!, 16)
-    b = parseInt(hex[2]! + hex[2]!, 16)
-  } else {
-    return '#FFFFFF'
-  }
+// Luminanța WCAG relativă a unui hex ('#rgb' sau '#rrggbb'); null pe input
+// neparsabil. Un singur calcul, refolosit de `isDarkTheme`/`readableTextOn`.
+function relativeLuminance(color: string): number | null {
+  const parsed = parseHexColor(color)
+  if (!parsed) return null
+  const [r255, g255, b255] = parsed
   const lin = (c: number) => {
     const s = c / 255
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
   }
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+  return 0.2126 * lin(r255) + 0.7152 * lin(g255) + 0.0722 * lin(b255)
+}
+
+// Alege culoarea textului (deschis vs. închis) care are contrast bun peste un
+// fundal dat — folosit pentru text/iconuri PESTE `accent`, fiindcă accentele
+// deschise (galben/lime/gold) pică AA cu albul. Acceptă '#rgb' și '#rrggbb'; pe
+// input neparsabil cade pe alb (comportament conservator). Helper partajat de
+// meniu (ProductCard, MenuStates, MenuHeader) — un singur calcul WCAG.
+//
+// IMPORTANT: `darkText` e pasat de obicei ca `PUB.text` (textul primar al temei).
+// Pe TEME DARK `PUB.text` e el însuși deschis (ex. fine-dining `#F5F1E8`), deci
+// pe un accent deschis (gold) ar produce alb-pe-galben (contrast ~1.8, sub AA).
+// De aceea, când fundalul e deschis dar `darkText` NU e suficient de întunecat,
+// cădem pe un near-black garantat lizibil în loc să respectăm orbește tokenul.
+export function readableTextOn(bg: string, darkText: string): string {
+  const luminance = relativeLuminance(bg)
+  if (luminance == null) return '#FFFFFF'
   // Prag ~0.45: peste el fundalul e prea deschis pentru text alb (AA).
-  return luminance > 0.45 ? darkText : '#FFFFFF'
+  if (luminance <= 0.45) return '#FFFFFF'
+  // Fundal deschis → vrem text închis. Dacă `darkText` e chiar deschis (temă
+  // dark), fallback pe near-black ca să nu picăm AA cu un „dark text" fals.
+  const darkLum = relativeLuminance(darkText)
+  if (darkLum == null || darkLum > 0.4) return '#1A1A1A'
+  return darkText
 }
