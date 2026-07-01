@@ -79,14 +79,20 @@ describe('getVatRate()', () => {
     expect(getVatRate(mockRates, 4)).toBe(0)
   })
 
-  it('returnează 0 pentru grupa inexistentă', () => {
-    expect(getVatRate(mockRates, 99)).toBe(0)
-    expect(getVatRate(mockRates, 0)).toBe(0)
-    expect(getVatRate(mockRates, -1)).toBe(0)
+  it('returnează null pentru grupa inexistentă (gap de config, NU 0% real)', () => {
+    expect(getVatRate(mockRates, 99)).toBeNull()
+    expect(getVatRate(mockRates, 0)).toBeNull()
+    expect(getVatRate(mockRates, -1)).toBeNull()
   })
 
-  it('gestionează array gol', () => {
-    expect(getVatRate([], 1)).toBe(0)
+  it('distinge grupa 4 (0% real) de grupa lipsă (null)', () => {
+    // Regresie fiscală: grupa 4 există cu rata 0 → 0, nu null
+    expect(getVatRate(mockRates, 4)).toBe(0)
+    expect(getVatRate(mockRates, 99)).toBeNull()
+  })
+
+  it('gestionează array gol (fără config = null, nu 0)', () => {
+    expect(getVatRate([], 1)).toBeNull()
   })
 
   it('returnează corect chiar și pentru grupele inactive', () => {

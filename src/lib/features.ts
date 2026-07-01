@@ -109,3 +109,19 @@ export function suggestUpgrade(currentPlan: string): string | null {
   if (idx < 0 || idx === order.length - 1) return null
   return order[idx + 1]
 }
+
+// Planul intern reprezentativ pentru fiecare tier comercial (oglindește
+// getPlanByInternalId din plans.ts): tier 1 → starter (Meniu Digital),
+// tier 2 → growth (Meniu + Comenzi), tier 3 → pro (Fiscalizare).
+const TIER_REPRESENTATIVE_PLAN: Record<PlanTier, string> = {
+  1: 'starter',
+  2: 'growth',
+  3: 'pro',
+}
+
+// Numele COMERCIAL al tier-ului minim care deblochează un feature.
+// Folosit de UpgradePrompt ca să indice planul-țintă CORECT (tier-ul
+// feature-ului blocat), nu următorul pas orb de pe scara de planuri.
+export function planNameForTier(tier: PlanTier): string {
+  return PLAN_NAMES[TIER_REPRESENTATIVE_PLAN[tier]]
+}

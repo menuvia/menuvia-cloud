@@ -62,7 +62,13 @@ export default function ModifierSheet({
     .every((g) => {
       const sel = selections[g.id]
       if (sel == null) return false
-      if (sel instanceof Set) return sel.size > 0
+      if (sel instanceof Set) {
+        // Paritate UX cu serverul (mig 145): grupurile multiple obligatorii
+        // cer cel puțin `min_select` opțiuni (min_select >= 1 pe required).
+        // Serverul NU respinge pe min, deci e doar validare de UX.
+        const min = Math.max(1, g.min_select)
+        return sel.size >= min
+      }
       return sel.length > 0
     })
 
@@ -121,10 +127,21 @@ export default function ModifierSheet({
   }
 
   function toggleMultiple(gid: string, oid: string): void {
+    const group = groups.find((g) => g.id === gid)
+    const maxSelect = group?.max_select ?? null
     setSelections((prev) => {
       const existing = prev[gid]
       const s = existing instanceof Set ? new Set(existing) : new Set<string>()
-      s.has(oid) ? s.delete(oid) : s.add(oid)
+      if (s.has(oid)) {
+        // Deselectarea e mereu permisă.
+        s.delete(oid)
+      } else {
+        // max_select client-side (paritate cu mig 145 care respinge întreaga
+        // comandă la depășire). La atingerea plafonului blocăm adăugarea —
+        // opțiunile la cap sunt oricum dezactivate vizual mai jos.
+        if (maxSelect != null && s.size >= maxSelect) return prev
+        s.add(oid)
+      }
       return { ...prev, [gid]: s }
     })
   }
@@ -177,46 +194,63 @@ export default function ModifierSheet({
             {unitTotal.toFixed(2)} lei
           </div>
 
-          {groups.map((g) => (
-            <div key={g.id}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>
-                {g.name}
-                {g.is_required && <span style={{ color: D.red }}> *</span>}
+          {groups.map((g) => {
+            const sel = selections[g.id]
+            // Nu randăm opțiuni indisponibile (serverul le respinge oricum).
+            const availableOptions = g.modifier_options.filter((o) => o.is_available)
+            // Plafon atins pe grup multiplu → dezactivăm opțiunile neselectate.
+            const multiCount = sel instanceof Set ? sel.size : 0
+            const atMax =
+              g.selection_type === 'multiple' &&
+              g.max_select != null &&
+              multiCount >= g.max_select
+            return (
+              <div key={g.id}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>
+                  {g.name}
+                  {g.is_required && <span style={{ color: D.red }}> *</span>}
+                  {g.selection_type === 'multiple' && g.max_select != null && (
+                    <span style={{ color: D.t3, fontWeight: 400 }}> · max {g.max_select}</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {availableOptions.map((opt) => {
+                    const isSelected =
+                      g.selection_type === 'single'
+                        ? isSingleSel(sel) && sel === opt.id
+                        : sel instanceof Set && sel.has(opt.id)
+                    // Blocăm opțiunile neselectate când grupul e la cap.
+                    const isDisabled = atMax && !isSelected
+                    return (
+                      <button
+                        key={opt.id}
+                        disabled={isDisabled}
+                        onClick={() =>
+                          g.selection_type === 'single'
+                            ? toggleSingle(g.id, opt.id)
+                            : toggleMultiple(g.id, opt.id)
+                        }
+                        style={{
+                          background: isSelected ? D.goldA : D.s3,
+                          border: `1px solid ${isSelected ? D.gold : D.s3}`,
+                          borderRadius: 20,
+                          padding: '6px 14px',
+                          color: isSelected ? D.gold : D.t2,
+                          fontFamily: 'DM Sans, sans-serif',
+                          fontSize: 13,
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isDisabled ? 0.4 : 1,
+                        }}
+                      >
+                        {opt.name}
+                        {opt.price_delta > 0 ? ` +${opt.price_delta}` : ''}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {g.modifier_options.map((opt) => {
-                  const sel = selections[g.id]
-                  const isSelected =
-                    g.selection_type === 'single'
-                      ? isSingleSel(sel) && sel === opt.id
-                      : sel instanceof Set && sel.has(opt.id)
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() =>
-                        g.selection_type === 'single'
-                          ? toggleSingle(g.id, opt.id)
-                          : toggleMultiple(g.id, opt.id)
-                      }
-                      style={{
-                        background: isSelected ? D.goldA : D.s3,
-                        border: `1px solid ${isSelected ? D.gold : D.s3}`,
-                        borderRadius: 20,
-                        padding: '6px 14px',
-                        color: isSelected ? D.gold : D.t2,
-                        fontFamily: 'DM Sans, sans-serif',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {opt.name}
-                      {opt.price_delta > 0 ? ` +${opt.price_delta}` : ''}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Quantity stepper */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
