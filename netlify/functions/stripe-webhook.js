@@ -96,25 +96,33 @@ exports.handler = async (event) => {
       // (rândul a rămas 'failed'). Vechiul cod ștergea rândul pe eroare ca
       // să permită retry; acum păstrăm rândul ca ancoră durabilă de
       // idempotență și deblocăm reprocesarea doar pentru stările ne-finale.
-      const { data: existing } = await supabase
-        .from('stripe_events')
-        .select('status')
-        .eq('event_id', stripeEvent.id)
-        .single()
-
-      if (existing?.status === 'completed') {
-        console.log(`[stripe-webhook] Duplicate event ${stripeEvent.id} ignored (completed)`)
-        return jsonResponse(200, { received: true, duplicate: true })
-      }
-
-      // status 'failed' / 'processing' / 'received' → retry Stripe: redeschidem
-      // pentru reprocesare. Efectele financiare downstream trebuie să fie
-      // idempotente per-efect (ON CONFLICT), nu să se bazeze pe acest rând.
-      await supabase
+      //
+      // ATOMIC (audit medium): SELECT-apoi-UPDATE avea o fereastră de race
+      // între citirea statusului și marcarea 'processing' — două cereri
+      // concurente puteau ambele citi 'failed' și ambele trece de gardă.
+      // Un singur UPDATE condiționat (WHERE status <> 'completed') e atomic:
+      // Postgres serializează rândul, deci doar UNA dintre cereri poate
+      // tranziționa efectiv statusul; RETURNING ne spune dacă am câștigat cursa.
+      const { data: reopened, error: reopenErr } = await supabase
         .from('stripe_events')
         .update({ status: 'processing', error_info: null })
         .eq('event_id', stripeEvent.id)
-      console.log(`[stripe-webhook] Reprocessing event ${stripeEvent.id} (prev status: ${existing?.status})`)
+        .neq('status', 'completed')
+        .select('status')
+
+      if (reopenErr) {
+        console.error('[stripe-webhook] Dedup reopen error:', reopenErr.message)
+        return jsonResponse(500, { error: 'Dedup storage failed' })
+      }
+
+      if (!reopened || reopened.length === 0) {
+        // Niciun rând actualizat → fie era deja 'completed', fie altă cerere
+        // concurentă a câștigat cursa (oricum tratăm ca duplicat, sigur idempotent).
+        console.log(`[stripe-webhook] Duplicate event ${stripeEvent.id} ignored (completed or already reprocessed)`)
+        return jsonResponse(200, { received: true, duplicate: true })
+      }
+
+      console.log(`[stripe-webhook] Reprocessing event ${stripeEvent.id}`)
     } else {
       console.error('[stripe-webhook] Dedup table error:', dedupErr.message)
       return jsonResponse(500, { error: 'Dedup storage failed' })
@@ -166,7 +174,26 @@ exports.handler = async (event) => {
 
         // Citește planul REAL din metadata subscription-ului (setat la
         // checkout). Fără asta, toate abonamentele deveneau 'pro' hardcodat.
-        const finalPlan = await resolvePlan(stripe, subscriptionId)
+        // resolvePlan aruncă la eroare Stripe (nu mai întoarce 'free' silențios,
+        // audit HIGH) — prindem aici explicit ca să NU aplicăm niciun downgrade
+        // pe un client care tocmai a plătit: lăsăm planul curent neschimbat și
+        // logăm clar (best-effort alert dacă există un mecanism; altfel console.error).
+        let finalPlan
+        try {
+          finalPlan = await resolvePlan(stripe, subscriptionId)
+        } catch (e) {
+          console.error(
+            `[stripe-webhook] ALERTĂ: resolvePlan a eșuat pentru subscription ${subscriptionId} ` +
+            `(user ${refUserId}) — NU aplicăm downgrade, planul curent rămâne neschimbat. Eroare:`,
+            e?.message || e,
+          )
+          // Nu marcăm eroarea ca fatală pentru webhook (nu vrem retry infinit pe
+          // un customer.id valid) — dar nici nu scriem 'free' peste un plan plătit.
+          // Ieșim din acest case fără update de plan; restul câmpurilor (customer_id/
+          // subscription_id) rămân neschimbate până la un eveniment ulterior reușit
+          // (ex. customer.subscription.updated) care va corecta planul.
+          break
+        }
 
         const { error } = await supabase
           .from('profiles')
@@ -286,11 +313,19 @@ exports.handler = async (event) => {
         const subscription = stripeEvent.data.object
         const customerId = subscription.customer
 
-        const { data: profile } = await supabase
+        const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
           .select('id')
           .eq('stripe_customer_id', customerId)
           .single()
+
+        if (lookupErr) {
+          // Distingem un eșec de infra (conexiune DB, timeout) de „profil
+          // inexistent" (PGRST116 la .single() fără rezultat) — audit medium:
+          // fără log aici, un eșec de DB pentru trial_will_end trecea neobservat
+          // (notificarea de trial nu se trimite, dar nimeni nu află de ce).
+          console.error(`[stripe-webhook] trial_will_end: lookup eșuat pentru customer ${customerId}:`, lookupErr.message)
+        }
 
         if (profile) {
           userId = profile.id
@@ -365,15 +400,23 @@ exports.handler = async (event) => {
             // greșite (comision pierdut la upgrade, gate Plan 3 incorect).
             // Preferăm linia cu price.id ∈ PLAN_BY_PRICE și cel mai mare
             // period.end; fallback la liniile type==='subscription'.
+            // La EGALITATE de period.end (audit medium) preferăm explicit linia
+            // cu amount pozitiv (charge-ul efectiv) față de o linie credit/reversal
+            // cu același period.end — altfel reduce() păstra prima întâlnită
+            // (posibil linia de credit), riscând un billedPlan/periodMonth greșit.
             const invoiceLines = invoice.lines?.data || []
             const planLines = invoiceLines.filter((l) => l?.price?.id && PLAN_BY_PRICE[l.price.id])
             const subPool = planLines.length
               ? planLines
               : invoiceLines.filter((l) => l?.type === 'subscription')
-            const subLine = subPool.reduce(
-              (best, l) => ((l?.period?.end || 0) > (best?.period?.end || 0) ? l : best),
-              subPool[0] || null,
-            )
+            const subLine = subPool.reduce((best, l) => {
+              if (!best) return l
+              const lEnd = l?.period?.end || 0
+              const bestEnd = best?.period?.end || 0
+              if (lEnd > bestEnd) return l
+              if (lEnd === bestEnd && (l?.amount || 0) > (best?.amount || 0)) return l
+              return best
+            }, subPool[0] || null)
             const periodStartUnix = subLine?.period?.start || invoice.period_start || null
             let periodMonth = null
             if (periodStartUnix) {
@@ -397,10 +440,20 @@ exports.handler = async (event) => {
               p_plan:                   billedPlan,
             })
             if (commErr) {
-              console.warn('[stripe-webhook] affiliate commission failed:', commErr.message)
+              // Rămâne best-effort (nu rupem procesarea facturii — vezi comentariul
+              // de mai sus), dar un eșec de comision e o pierdere financiară reală
+              // pentru afiliat, nu un „skip" normal → console.error + mesaj distinct
+              // (audit medium), ca la charge.refunded/charge.dispute.closed mai jos.
+              console.error(
+                `[stripe-webhook] EROARE COMISION AFILIERE: process_affiliate_invoice_paid a eșuat ` +
+                `pentru invoice ${invoice.id} (customer ${customerId}):`, commErr.message,
+              )
             }
           } catch (e) {
-            console.warn('[stripe-webhook] affiliate commission threw:', e?.message)
+            console.error(
+              `[stripe-webhook] EROARE COMISION AFILIERE: process_affiliate_invoice_paid a aruncat ` +
+              `pentru invoice ${invoice.id} (customer ${customerId}):`, e?.message || e,
+            )
           }
         }
         break

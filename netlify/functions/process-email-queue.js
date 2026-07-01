@@ -592,8 +592,16 @@ exports.handler = async () => {
         const errText = await res.text()
         const resendErr = new Error(`Resend ${res.status}: ${errText.slice(0, 200)}`)
         // 4xx = eroare permanentă (adresă invalidă, payload respins de Resend) — retry-ul
-        // nu schimbă rezultatul. 5xx/network rămân tranzitorii și merg pe backoff normal.
-        resendErr.permanent = res.status >= 400 && res.status < 500
+        // nu schimbă rezultatul. EXCEPȚIE: 429 (rate-limit Resend, 5 req/s per echipă) e
+        // TRANZITORIU — trebuie reîncercat, nu abandonat definitiv. 5xx/network/429 → backoff.
+        resendErr.permanent = res.status >= 400 && res.status < 500 && res.status !== 429
+        // Resend respectă standardul IETF: header `retry-after` (secunde) la 429 — dacă
+        // prezent, îl folosim ca bază de backoff în loc de backoff-ul liniar generic.
+        const retryAfterHeader = res.headers.get('retry-after')
+        const retryAfterSec = retryAfterHeader ? parseInt(retryAfterHeader, 10) : NaN
+        if (res.status === 429 && Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
+          resendErr.retryAfterMs = retryAfterSec * 1000
+        }
         throw resendErr
       }
 
@@ -612,12 +620,14 @@ exports.handler = async () => {
           last_error: String(err.message || err).slice(0, 500),
         }).eq('id', email.id)
       } else {
+        // Backoff: respectă `Retry-After` de la Resend (429) dacă e prezent, altfel
+        // backoff liniar generic (10min × attempts) pt. eșecuri 5xx/network.
+        const backoffMs = err.retryAfterMs ?? attempts * 10 * 60_000
         await supabase.from('email_queue').update({
           status: attempts >= 3 ? 'failed' : 'queued',
           failed_attempts: attempts,
           last_error: String(err.message || err).slice(0, 500),
-          // Backoff: wait 10min × attempts before retry
-          scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
+          scheduled_for: new Date(Date.now() + backoffMs).toISOString(),
         }).eq('id', email.id)
       }
       failed++
