@@ -43,7 +43,11 @@ export interface Restaurant {
     max_suggestions: number
     message: string
   } | null
-  theme_settings?: { preset_id: string; accent_override?: string | null } | null
+  theme_settings?: {
+    preset_id: string
+    accent_override?: string | null
+    menu_layout?: 'list' | 'grid' | 'minimal' | null
+  } | null
   pickup_settings?: {
     enabled: boolean
     min_lead_time_minutes: number

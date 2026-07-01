@@ -307,11 +307,29 @@ export function isValidHexColor(s: string | null | undefined): s is string {
   return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)
 }
 
+// ── Layout de meniu ──────────────────────────────────────────
+// Aspectul listei de produse pe meniul client (digital + QR), separat de temă
+// (culori/fonturi). Restaurantul îl alege din dashboard.
+//  • 'list'    → listă cu poză mică stânga + text (implicit, actual)
+//  • 'grid'    → galerie foto: 2 coloane cu poze mari (vizual)
+//  • 'minimal' → text elegant, majuscule spațiate, fără poze (rapid/clasic)
+export type MenuLayout = 'list' | 'grid' | 'minimal'
+
+const MENU_LAYOUTS: readonly MenuLayout[] = ['list', 'grid', 'minimal']
+
 // ── Custom theme override ────────────────────────────────────
 // User can override `accent` color on Growth+ — others stay theme-default
 export interface ThemeSettings {
   preset_id: string // one of THEMES ids
   accent_override?: string | null // hex color override (Growth+)
+  menu_layout?: MenuLayout | null // aspectul listei de produse (implicit 'list')
+}
+
+// Layout-ul de meniu ales, cu fallback sigur la 'list' pentru valori
+// vechi/absente/necunoscute (backward-compatible cu setările existente).
+export function resolveMenuLayout(settings: ThemeSettings | null | undefined): MenuLayout {
+  const l = settings?.menu_layout
+  return l != null && MENU_LAYOUTS.includes(l) ? l : 'list'
 }
 
 export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTheme {

@@ -19,7 +19,7 @@ import {
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import type { CartItem } from '../lib/orders'
-import { resolveTheme, isDarkTheme } from '../lib/themes'
+import { resolveTheme, isDarkTheme, resolveMenuLayout } from '../lib/themes'
 
 import { DIETARY_TAGS, T } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -42,6 +42,7 @@ import { Icon } from '../components/ui/Icon'
 import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
+import ProductGridCard from '../components/menu/ProductGridCard'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -77,6 +78,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   const theme = useMemo(() => resolveTheme(restaurant?.theme_settings), [restaurant])
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
+  // Layout ales de restaurant (listă / galerie foto / minimal) — implicit 'list'.
+  const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -273,6 +276,24 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   function removeFromCart(key: string): void {
     setCart((prev) => prev.filter((i) => i._key !== key))
+  }
+
+  // Handlere de produs partajate între layout-urile de meniu (listă / galerie),
+  // ca să nu duplicăm logica de deschidere/quick-add în fiecare ramură.
+  const openProduct = (p: Product): void => {
+    if (!p.is_sold_out) setActiveProduct(p)
+  }
+  const quickAddProduct = (p: Product): void => {
+    // „+" rapid: adaugă direct în coșul/lista locală (pickup sau „Lista mea").
+    addToCart({
+      _key: crypto.randomUUID(),
+      product_id: p.id,
+      product_name_snapshot: p.name,
+      unit_price_snapshot: p.price,
+      quantity: 1,
+      selected_modifiers: [],
+      notes: null,
+    })
   }
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
@@ -501,35 +522,49 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               {cat && activeCat === 'all' && (
                 <SectionHeader title={cat.name} metaText={cat.meta_text} theme={theme} PUB={PUB} />
               )}
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {products.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    accent={accent}
-                    theme={theme}
-                    PUB={PUB}
-                    // Butonul rapid „+" apare și pentru pickup, și pentru „Lista mea"
-                    // (meniu digital) — în ambele cazuri adaugă în coșul/lista locală.
-                    canAdd={pickupEnabled || listMode}
-                    happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                    onOpen={() => {
-                      if (!product.is_sold_out) setActiveProduct(product)
-                    }}
-                    onQuickAdd={() => {
-                      addToCart({
-                        _key: crypto.randomUUID(),
-                        product_id: product.id,
-                        product_name_snapshot: product.name,
-                        unit_price_snapshot: product.price,
-                        quantity: 1,
-                        selected_modifiers: [],
-                        notes: null,
-                      })
-                    }}
-                  />
-                ))}
-              </div>
+              {menuLayout === 'grid' ? (
+                // Layout „Galerie foto": grid de 2 coloane cu carduri foto-forward.
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                    gap: 12,
+                    padding: '6px 0 4px',
+                  }}
+                >
+                  {products.map((product) => (
+                    <ProductGridCard
+                      key={product.id}
+                      product={product}
+                      accent={accent}
+                      theme={theme}
+                      PUB={PUB}
+                      canAdd={pickupEnabled || listMode}
+                      happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                      onOpen={() => openProduct(product)}
+                      onQuickAdd={() => quickAddProduct(product)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                // Layout „Listă" (implicit): poză mică stânga + text.
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {products.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      accent={accent}
+                      theme={theme}
+                      PUB={PUB}
+                      // Butonul rapid „+" apare și pentru pickup, și pentru „Lista mea".
+                      canAdd={pickupEnabled || listMode}
+                      happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                      onOpen={() => openProduct(product)}
+                      onQuickAdd={() => quickAddProduct(product)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </RevealItem>
         ))}
