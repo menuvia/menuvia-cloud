@@ -303,19 +303,29 @@ exports.handler = async (event) => {
   if (!config.enabled) {
     return jsonResponse(400, { error: 'AI este dezactivat pentru acest restaurant.' })
   }
-  if (!config.api_key_encrypted) {
-    return jsonResponse(400, { error: 'Lipsește cheia API. Adaug-o în setări.' })
-  }
-
-  let apiKey
-  try {
-    apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
-  } catch (e) {
-    console.error('[ai-proxy] decrypt error:', e.message)
-    return jsonResponse(500, { error: 'Could not load API key' })
-  }
 
   const provider = config.provider
+
+  // ── Selecția cheii: BYO sau cheia gestionată de platformă ──
+  // Dacă restaurantul și-a salvat propria cheie (BYO), o decriptăm și o
+  // folosim. Altfel folosim cheia PLATFORMEI din env (PLATFORM_<PROVIDER>_KEY)
+  // — restaurantele non-tehnice nu trebuie să configureze nimic; metering-ul
+  // per-restaurant rămâne identic indiferent de sursa cheii.
+  let apiKey
+  if (config.api_key_encrypted) {
+    try {
+      apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
+    } catch (e) {
+      console.error('[ai-proxy] decrypt error:', e.message)
+      return jsonResponse(500, { error: 'Could not load API key' })
+    }
+  } else {
+    apiKey = process.env[`PLATFORM_${provider.toUpperCase()}_KEY`]
+    if (!apiKey) {
+      return jsonResponse(400, { error: 'Asistentul AI nu e configurat pentru acest furnizor.' })
+    }
+  }
+
   const model = (config.model && config.model.trim()) || DEFAULT_MODEL[provider]
   if (!model) {
     return jsonResponse(400, { error: 'Lipsește modelul în configurație.' })

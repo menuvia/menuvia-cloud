@@ -53,6 +53,16 @@ const PROVIDERS: ProviderMeta[] = [
   },
 ]
 
+// Model implicit per furnizor când userul nu completează nimic (flux simplu,
+// cheie gestionată de platformă). Oglindește `DEFAULT_MODEL` din ai-proxy.js —
+// backend-ul cere un model ne-gol, așa că trimitem unul rezonabil.
+const DEFAULT_MODEL: Record<AiProvider, string> = {
+  openai: 'gpt-4o-mini',
+  anthropic: 'claude-haiku-4-5',
+  gemini: 'gemini-1.5-flash',
+  custom: '',
+}
+
 const CREDIT_PACKS: { id: 'small' | 'medium' | 'large'; tokens: string; price: string }[] = [
   { id: 'small', tokens: '100.000 tokens', price: '19 lei' },
   { id: 'medium', tokens: '500.000 tokens', price: '79 lei' },
@@ -67,6 +77,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
   const [apiKey, setApiKey] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [hasKey, setHasKey] = useState(false) // există deja o cheie salvată
+  const [showAdvanced, setShowAdvanced] = useState(false) // secțiunea „Avansat (opțional)"
   const [quota, setQuota] = useState<AiQuota | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -95,31 +106,40 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
 
   async function handleSave() {
     setMsg(null)
-    if (!model.trim()) {
-      setMsg({ kind: 'err', text: 'Alege un model.' })
-      return
-    }
+    // Furnizorul personalizat rămâne strict: are nevoie de propriul endpoint https.
     if (meta.needsBaseUrl && !/^https:\/\//i.test(baseUrl.trim())) {
       setMsg({ kind: 'err', text: 'Furnizorul personalizat are nevoie de un URL https.' })
       return
     }
-    if (!hasKey && !apiKey.trim()) {
-      setMsg({ kind: 'err', text: 'Adaugă cheia API.' })
+    // Cheia proprie e obligatorie DOAR pentru furnizorul personalizat (nu avem
+    // cheie de platformă pentru un endpoint arbitrar). Pentru ceilalți furnizori
+    // platforma acoperă cheia — salvarea merge fără să introduci nimic.
+    if (meta.needsBaseUrl && !hasKey && !apiKey.trim()) {
+      setMsg({ kind: 'err', text: 'Furnizorul personalizat are nevoie de o cheie API.' })
       return
     }
+    // Dacă userul n-a atins „Avansat", trimitem provider-ul implicit ('openai')
+    // + model default (server-side) și fără cheie — platforma acoperă restul.
     setSaving(true)
     try {
       const res = await saveAiConfig({
         restaurant_id: restaurantId,
         provider,
-        model: model.trim(),
+        // Model completat de user, altfel default-ul furnizorului (backend-ul
+        // cere un model ne-gol; la runtime alege oricum DEFAULT_MODEL).
+        model: model.trim() || DEFAULT_MODEL[provider],
         base_url: meta.needsBaseUrl ? baseUrl.trim() : null,
         api_key: apiKey.trim() || undefined,
         enabled,
       })
       if (res.config.key_masked) setHasKey(true)
       setApiKey('')
-      setMsg({ kind: 'ok', text: 'Configurație salvată. Cheia este criptată și securizată.' })
+      setMsg({
+        kind: 'ok',
+        text: res.config.key_masked
+          ? 'Configurație salvată. Cheia ta este criptată și securizată.'
+          : 'Configurație salvată. Cheia este gestionată de Menuvia.',
+      })
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Eroare la salvare.' })
     } finally {
@@ -160,8 +180,8 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
         Asistent AI
       </h1>
       <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 24 }}>
-        Conectează-ți propria cheie API ca să folosești chatbot-ul din dashboard și importul de meniu din poze.
-        Cheia ta rămâne criptată pe server — nu o vedem și nu o stocăm în clar.
+        Activează asistentul AI ca să folosești chatbot-ul din dashboard și importul de meniu din poze.
+        Nu ai nevoie de nicio configurare tehnică — cheia e gestionată de Menuvia.
       </p>
 
       {/* Cotă */}
@@ -201,79 +221,112 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
 
       {/* Config formular */}
       <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 14, padding: 18, marginBottom: 22 }}>
-        <label style={label}>Furnizor</label>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr', gap: 8, marginBottom: 16 }}>
-          {PROVIDERS.map((p) => {
-            const active = provider === p.id
-            return (
-              <button
-                key={p.id}
-                onClick={() => { setProvider(p.id); if (!model || PROVIDERS.some((x) => x.modelExamples.includes(model))) setModel('') }}
-                className="pressable"
-                style={{
-                  textAlign: 'left',
-                  padding: '11px 13px',
-                  borderRadius: 10,
-                  border: `1px solid ${active ? D.gold + '88' : D.border}`,
-                  background: active ? D.goldA : D.s3,
-                  color: active ? D.goldL : D.t2,
-                  cursor: 'pointer',
-                  fontFamily: 'DM Sans,sans-serif',
-                  fontSize: '0.85rem',
-                  fontWeight: active ? 600 : 400,
-                }}
-              >
-                {p.label}
-              </button>
-            )
-          })}
-        </div>
+        {/* Toggle principal — singurul lucru necesar pentru non-tehnici */}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 8 }}>
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
+          <span style={{ color: D.t1, fontSize: '0.88rem', fontWeight: 600 }}>Activează asistentul AI pentru acest restaurant</span>
+        </label>
+        <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, margin: '0 0 4px 28px' }}>
+          Cheia e gestionată de Menuvia — nu ai nevoie de nicio configurare tehnică.
+          {quota && ` Ai ${quota.included_tokens.toLocaleString('ro-RO')} tokens incluși pe lună.`}
+        </p>
 
-        <div style={{ marginBottom: 16 }}>
-          <label style={label}>Model</label>
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder={`ex. ${meta.modelExamples.join(', ')}`}
-            list="ai-model-suggestions"
-            style={input}
-          />
-          <datalist id="ai-model-suggestions">
-            {meta.modelExamples.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
-        </div>
+        {/* Avansat (opțional) — pliat implicit; câmpurile BYO rămân neatinse */}
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="pressable"
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: D.t3,
+            cursor: 'pointer',
+            fontFamily: 'DM Sans,sans-serif',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            padding: '10px 0 0 28px',
+            display: 'block',
+          }}
+        >
+          {showAdvanced ? '▾' : '▸'} Avansat (opțional)
+        </button>
 
-        {meta.needsBaseUrl && (
-          <div style={{ marginBottom: 16 }}>
-            <label style={label}>URL endpoint (https)</label>
-            <input
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              placeholder="https://api.exemplu.ro/v1"
-              style={input}
-            />
+        {showAdvanced && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${D.border}` }}>
+            <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, marginTop: 0, marginBottom: 16 }}>
+              Doar dacă vrei să folosești propria cheie / alt furnizor.
+            </p>
+
+            <label style={label}>Furnizor</label>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr', gap: 8, marginBottom: 16 }}>
+              {PROVIDERS.map((p) => {
+                const active = provider === p.id
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setProvider(p.id); if (!model || PROVIDERS.some((x) => x.modelExamples.includes(model))) setModel('') }}
+                    className="pressable"
+                    style={{
+                      textAlign: 'left',
+                      padding: '11px 13px',
+                      borderRadius: 10,
+                      border: `1px solid ${active ? D.gold + '88' : D.border}`,
+                      background: active ? D.goldA : D.s3,
+                      color: active ? D.goldL : D.t2,
+                      cursor: 'pointer',
+                      fontFamily: 'DM Sans,sans-serif',
+                      fontSize: '0.85rem',
+                      fontWeight: active ? 600 : 400,
+                    }}
+                  >
+                    {p.label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={label}>Model</label>
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={`ex. ${meta.modelExamples.join(', ')}`}
+                list="ai-model-suggestions"
+                style={input}
+              />
+              <datalist id="ai-model-suggestions">
+                {meta.modelExamples.map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </div>
+
+            {meta.needsBaseUrl && (
+              <div style={{ marginBottom: 16 }}>
+                <label style={label}>URL endpoint (https)</label>
+                <input
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://api.exemplu.ro/v1"
+                  style={input}
+                />
+              </div>
+            )}
+
+            <div style={{ marginBottom: 4 }}>
+              <label style={label}>Cheie API {hasKey && <span style={{ color: D.green, textTransform: 'none', letterSpacing: 0 }}>· salvată ✓</span>}</label>
+              <input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                type="password"
+                autoComplete="off"
+                placeholder={hasKey ? '•••••••• (lasă gol pentru a păstra cheia)' : 'Lasă gol pentru cheia Menuvia'}
+                style={input}
+              />
+              <p style={{ color: D.t2, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{meta.hint}</p>
+            </div>
           </div>
         )}
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={label}>Cheie API {hasKey && <span style={{ color: D.green, textTransform: 'none', letterSpacing: 0 }}>· salvată ✓</span>}</label>
-          <input
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            type="password"
-            autoComplete="off"
-            placeholder={hasKey ? '•••••••• (lasă gol pentru a păstra cheia)' : 'Lipește cheia aici'}
-            style={input}
-          />
-          <p style={{ color: D.t2, fontSize: '0.75rem', marginTop: 6, marginBottom: 0 }}>{meta.hint}</p>
-        </div>
-
-        <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 4 }}>
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
-          <span style={{ color: D.t1, fontSize: '0.88rem' }}>Activează asistentul AI pentru acest restaurant</span>
-        </label>
       </div>
 
       {msg && (
