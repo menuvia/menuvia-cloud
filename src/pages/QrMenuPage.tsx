@@ -19,7 +19,7 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
 
 import ProductSheet from '../components/ProductSheet'
-import { resolveTheme, resolveMenuLayout } from '../lib/themes'
+import { resolveTheme, resolveMenuLayout, readableTextOn } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
@@ -394,7 +394,7 @@ export default function QrMenuPage({ token }: Props) {
         ) : (
           <div
             style={{
-              fontFamily: 'Fraunces, Georgia, serif',
+              fontFamily: theme.fonts.heading,
               fontSize: 22,
               fontWeight: 700,
               color: PUB.text,
@@ -442,7 +442,7 @@ export default function QrMenuPage({ token }: Props) {
             background: 'linear-gradient(90deg, #2e7d32, #43a047)',
             borderRadius: 12,
             color: '#fff',
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: theme.fonts.body,
             fontSize: 13,
             fontWeight: 600,
             display: 'flex',
@@ -492,15 +492,16 @@ export default function QrMenuPage({ token }: Props) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Caută în meniu..."
+          aria-label="Caută în meniu"
           style={{
             width: '100%',
-            background: '#FDF8F2',
-            border: '1px solid #EDE3D4',
+            background: PUB.surface,
+            border: `1px solid ${PUB.border}`,
             borderRadius: 12,
             padding: '11px 14px',
             fontSize: 15,
             color: PUB.text,
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: theme.fonts.body,
             outline: 'none',
             boxSizing: 'border-box',
           }}
@@ -600,7 +601,7 @@ export default function QrMenuPage({ token }: Props) {
             fontSize: 13,
             fontWeight: 600,
             cursor: callingWaiter || waiterCalled ? 'default' : 'pointer',
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: theme.fonts.body,
             zIndex: 49,
             boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
             opacity: callingWaiter ? 0.7 : 1,
@@ -635,7 +636,7 @@ export default function QrMenuPage({ token }: Props) {
             fontSize: 13,
             fontWeight: 600,
             cursor: requestingBill || billRequested ? 'default' : 'pointer',
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: theme.fonts.body,
             zIndex: 49,
             boxShadow: '0 2px 12px rgba(0,0,0,0.3)',
             opacity: requestingBill ? 0.7 : 1,
@@ -680,7 +681,7 @@ export default function QrMenuPage({ token }: Props) {
               borderRadius: 12,
               padding: '14px 20px',
               width: '100%',
-              fontFamily: 'DM Sans, sans-serif',
+              fontFamily: theme.fonts.body,
               fontSize: 15,
               fontWeight: 700,
               cursor: 'pointer',
@@ -770,7 +771,7 @@ export default function QrMenuPage({ token }: Props) {
                   fontSize: 14,
                   fontWeight: 600,
                   color: '#4CAF6E',
-                  fontFamily: 'DM Sans, sans-serif',
+                  fontFamily: theme.fonts.body,
                 }}
               >
                 {pairingPopup.sourceProduct.name} adăugat
@@ -779,7 +780,7 @@ export default function QrMenuPage({ token }: Props) {
 
             <div
               style={{
-                fontFamily: 'Fraunces, Georgia, serif',
+                fontFamily: theme.fonts.heading,
                 fontSize: 19,
                 fontWeight: 600,
                 color: PUB.text,
@@ -805,8 +806,8 @@ export default function QrMenuPage({ token }: Props) {
                 <div
                   key={p.id}
                   style={{
-                    background: '#FDF8F2',
-                    border: '1px solid #EDE3D4',
+                    background: PUB.surface,
+                    border: `1px solid ${PUB.border}`,
                     borderRadius: 12,
                     padding: 10,
                     display: 'flex',
@@ -830,7 +831,9 @@ export default function QrMenuPage({ token }: Props) {
                       }}
                     />
                   ) : (
+                    // Fără poză → monogramă (inițiala) pe gradientul temei (ca în ProductGridCard).
                     <div
+                      aria-hidden
                       style={{
                         width: '100%',
                         aspectRatio: '1/1',
@@ -839,15 +842,25 @@ export default function QrMenuPage({ token }: Props) {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        fontSize: 36,
                       }}
                     >
-                      🍽️
+                      <span
+                        style={{
+                          fontFamily: theme.fonts.heading,
+                          fontSize: 40,
+                          fontWeight: 600,
+                          color: PUB.text,
+                          opacity: 0.4,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {(p.name.trim().charAt(0) || '•').toUpperCase()}
+                      </span>
                     </div>
                   )}
                   <div
                     style={{
-                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontFamily: theme.fonts.heading,
                       fontSize: 13,
                       fontWeight: 600,
                       color: PUB.text,
@@ -872,14 +885,14 @@ export default function QrMenuPage({ token }: Props) {
                   >
                     <span
                       style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
+                        fontFamily: theme.fonts.heading,
                         fontSize: 14,
                         fontWeight: 700,
                         color: accent,
                       }}
                     >
                       {p.price.toFixed(2)}{' '}
-                      <span style={{ fontSize: 10, fontFamily: 'DM Sans, sans-serif' }}>lei</span>
+                      <span style={{ fontSize: 10, fontFamily: theme.fonts.body }}>lei</span>
                     </span>
                     <button
                       onClick={() => {
@@ -905,11 +918,12 @@ export default function QrMenuPage({ token }: Props) {
                       }}
                       aria-label={`Adaugă ${p.name}`}
                       style={{
-                        width: 30,
-                        height: 30,
+                        // 44x44 = țintă de atingere minimă (a11y).
+                        width: 44,
+                        height: 44,
                         borderRadius: '50%',
                         background: accent,
-                        color: '#fff',
+                        color: readableTextOn(accent, PUB.text),
                         border: 'none',
                         cursor: 'pointer',
                         display: 'flex',
@@ -935,7 +949,7 @@ export default function QrMenuPage({ token }: Props) {
                 border: `1px solid ${PUB.border}`,
                 borderRadius: 12,
                 padding: '12px 20px',
-                fontFamily: 'DM Sans, sans-serif',
+                fontFamily: theme.fonts.body,
                 fontSize: 14,
                 fontWeight: 600,
                 color: PUB.text2,

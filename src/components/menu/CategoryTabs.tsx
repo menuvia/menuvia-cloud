@@ -227,7 +227,11 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
                 role="tab"
                 id={`category-tab-${item.id}`}
                 aria-selected={active}
-                aria-controls={`category-panel-${item.id}`}
+                // Fără `aria-controls`: consumatorii au un singur panou care își
+                // schimbă conținutul (și cazul „Toate" agregă mai multe categorii),
+                // deci nu există un `category-panel-${id}` unic de referit — un
+                // aria-controls suspendat (către un id inexistent) e mai rău decât
+                // absența lui. tablist-ul rămâne valid prin role/aria-selected + săgeți.
                 aria-label={ariaLabel}
                 // roving tabindex: doar tabul activ e în ordinea de tab; restul
                 // se accesează cu săgeți (pattern WAI-ARIA tablist).
