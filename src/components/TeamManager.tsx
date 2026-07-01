@@ -127,10 +127,13 @@ export default function TeamManager({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [mr, ir] = await Promise.all([
+      const [mr, ir, namesRes] = await Promise.all([
+        // Membership rows — pentru `id` (necesar la schimbare rol / eliminare)
+        // și rol. FĂRĂ embed pe profiles: embed-ul `user:profiles(...)` eșua
+        // sub RLS `profiles_self`, deci numele colegilor apăreau ca UUID.
         supabase
           .from('restaurant_memberships')
-          .select('id,role,joined_at,user:profiles(id,email,full_name)')
+          .select('id,role,joined_at,user_id')
           .eq('restaurant_id', restaurant.id)
           .order('joined_at'),
         supabase
@@ -139,8 +142,39 @@ export default function TeamManager({
           .eq('restaurant_id', restaurant.id)
           .is('accepted_at', null)
           .gt('expires_at', new Date().toISOString()),
+        // Nume/email membri — prin RPC SECURITY DEFINER (mig 173), care ocolește
+        // RLS-ul de pe `profiles` pentru un apelant care e membru.
+        supabase.rpc('get_restaurant_members', { p_restaurant_id: restaurant.id }),
       ])
-      setMembers((mr.data || []) as unknown as Member[])
+
+      // Hartă user_id → nume/email din RPC.
+      const nameMap = new Map<string, { email: string; full_name: string | null }>()
+      for (const n of (namesRes.data || []) as Array<{
+        user_id: string
+        email: string | null
+        full_name: string | null
+      }>) {
+        nameMap.set(n.user_id, { email: n.email ?? '', full_name: n.full_name })
+      }
+
+      const memberRows = (mr.data || []) as Array<{
+        id: string
+        role: MemberRole
+        joined_at: string
+        user_id: string
+      }>
+      const merged: Member[] = memberRows.map((m) => {
+        const info = nameMap.get(m.user_id)
+        return {
+          id: m.id,
+          role: m.role,
+          joined_at: m.joined_at,
+          user: info
+            ? { id: m.user_id, email: info.email, full_name: info.full_name }
+            : { id: m.user_id, email: '', full_name: null },
+        }
+      })
+      setMembers(merged)
       setInvites((ir.data || []) as unknown as Invite[])
     } catch (err) {
       console.error('[TeamManager] load error:', err)

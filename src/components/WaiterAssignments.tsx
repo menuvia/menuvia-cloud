@@ -79,15 +79,12 @@ export default function WaiterAssignments({ restaurantId }: Props) {
     setError(null)
     try {
       const [membRes, tabRes, assignRes] = await Promise.all([
-        // Membri waiter/manager — FĂRĂ embed pe profiles. Embed-ul
-        // `profile:profiles(...)` depinde de relația PostgREST, care poate eșua
-        // după lockdown-ul de autorizare (mig 096) → arunca „Eroare la încărcare"
-        // pe tot tab-ul. Luăm profilurile separat (vezi mai jos), non-fatal.
-        supabase
-          .from('restaurant_memberships')
-          .select('user_id, role')
-          .eq('restaurant_id', restaurantId)
-          .in('role', ['waiter', 'manager']),
+        // Membrii restaurantului cu nume/email — prin RPC SECURITY DEFINER
+        // (mig 173). Interogarea directă `from('profiles')` eșua sub RLS
+        // `profiles_self` (doar propriul profil), deci numele colegilor cădeau
+        // pe user_id-ul brut („37853e71"). RPC-ul e read-only și autorizat
+        // (apelantul trebuie să fie membru).
+        supabase.rpc('get_restaurant_members', { p_restaurant_id: restaurantId }),
         // All active tables
         supabase
           .from('tables')
@@ -106,30 +103,21 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       if (tabRes.error) throw tabRes.error
       if (assignRes.error) throw assignRes.error
 
-      const memberRows = (membRes.data ?? []) as { user_id: string; role: string }[]
-
-      // Profiluri (nume/email pt afișare) — interogare separată. Dacă eșuează
-      // (RLS pe profiluri etc.), NU blocăm pagina: cădem pe fallback fără nume.
-      const userIds = memberRows.map((m) => m.user_id)
-      const profileMap = new Map<string, { full_name: string | null; email: string | null }>()
-      if (userIds.length > 0) {
-        const profRes = await supabase
-          .from('profiles')
-          .select('id, full_name, email')
-          .in('id', userIds)
-        for (const p of (profRes.data ?? []) as Array<{
-          id: string
-          full_name: string | null
-          email: string | null
-        }>) {
-          profileMap.set(p.id, { full_name: p.full_name, email: p.email })
-        }
-      }
+      // RPC-ul întoarce toți membrii; păstrăm doar waiter/manager pentru alocare.
+      const allMembers = (membRes.data ?? []) as Array<{
+        user_id: string
+        role: string
+        full_name: string | null
+        email: string | null
+      }>
+      const memberRows = allMembers.filter(
+        (m) => m.role === 'waiter' || m.role === 'manager',
+      )
 
       const waiterList = memberRows.map((m) => ({
         user_id: m.user_id,
         role: m.role,
-        profile: profileMap.get(m.user_id) ?? null,
+        profile: { full_name: m.full_name, email: m.email },
       }))
       setWaiters(waiterList)
       setTables((tabRes.data ?? []) as Table[])
