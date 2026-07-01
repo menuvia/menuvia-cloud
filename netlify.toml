@@ -6,6 +6,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+# Healthcheck extern (dead-man's-switch) — path frumos /health rutat la funcție.
+# TREBUIE înainte de catch-all-ul /* → /index.html (first-match wins), altfel SPA
+# shell-ul l-ar înghiți. Monitoarele de uptime (UptimeRobot etc.) lovesc /health.
+[[redirects]]
+  from   = "/health"
+  to     = "/.netlify/functions/health"
+  status = 200
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
