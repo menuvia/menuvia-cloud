@@ -460,6 +460,12 @@ export default function SettingsTab({
                     name: 'Galerie foto',
                     desc: 'Poze mari, 2 coloane. Cel mai vizual.',
                   },
+                  {
+                    id: 'minimal',
+                    emoji: '≡',
+                    name: 'Minimal elegant',
+                    desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
+                  },
                 ] as const
               ).map((l) => {
                 const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
