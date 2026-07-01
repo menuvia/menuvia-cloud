@@ -45,6 +45,9 @@ export default function ModifierSheet({
     for (const g of groups) {
       const optsForGroup = initialSelections
         .filter((s) => s.group_id === g.id)
+        // Excludem opțiunile devenite indisponibile: nu le prețuim/trimitem
+        // și nu ocupă slot din min/max (serverul le respinge oricum).
+        .filter((s) => g.modifier_options.some((o) => o.id === s.option_id && o.is_available))
         .map((s) => s.option_id)
       if (g.selection_type === 'single') {
         init[g.id] = optsForGroup[0] ?? null
@@ -57,13 +60,26 @@ export default function ModifierSheet({
   const [qty, setQty] = useState(initialQty)
   const [notes, setNotes] = useState(initialNotes)
 
+  // Numărul de opțiuni selectate ȘI încă disponibile dintr-un grup multiplu.
+  // O opțiune devenită indisponibilă NU trebuie să conteze la min/max.
+  function availableSelectedCount(g: (typeof groups)[number], sel: MultiSelection): number {
+    return g.modifier_options.filter((o) => o.is_available && sel.has(o.id)).length
+  }
+
   const canAdd = groups
     .filter((g) => g.is_required)
     .every((g) => {
       const sel = selections[g.id]
       if (sel == null) return false
-      if (sel instanceof Set) return sel.size > 0
-      return sel.length > 0
+      if (sel instanceof Set) {
+        // Paritate UX cu serverul (mig 145): grupurile multiple obligatorii
+        // cer cel puțin `min_select` opțiuni (min_select >= 1 pe required).
+        // Serverul NU respinge pe min, deci e doar validare de UX.
+        const min = Math.max(1, g.min_select)
+        return availableSelectedCount(g, sel) >= min
+      }
+      // Single: valid doar dacă opțiunea selectată e încă disponibilă.
+      return g.modifier_options.some((o) => o.id === sel && o.is_available)
     })
 
   function modDelta(): number {
@@ -71,13 +87,16 @@ export default function ModifierSheet({
       const sel = selections[g.id]
       if (sel == null) return sum
       if (g.selection_type === 'single' && isSingleSel(sel)) {
-        const opt = g.modifier_options.find((o) => o.id === sel)
+        // Prețuim doar dacă opțiunea e încă disponibilă.
+        const opt = g.modifier_options.find((o) => o.id === sel && o.is_available)
         return sum + (opt?.price_delta ?? 0)
       }
       if (sel instanceof Set) {
         return (
           sum +
-          g.modifier_options.filter((o) => sel.has(o.id)).reduce((s, o) => s + o.price_delta, 0)
+          g.modifier_options
+            .filter((o) => o.is_available && sel.has(o.id))
+            .reduce((s, o) => s + o.price_delta, 0)
         )
       }
       return sum
@@ -89,7 +108,8 @@ export default function ModifierSheet({
       const sel = selections[g.id]
       if (sel == null) return []
       if (g.selection_type === 'single' && isSingleSel(sel)) {
-        const opt = g.modifier_options.find((o) => o.id === sel)
+        // Trimitem doar opțiuni disponibile (serverul le respinge oricum).
+        const opt = g.modifier_options.find((o) => o.id === sel && o.is_available)
         if (opt == null) return []
         return [
           {
@@ -103,7 +123,7 @@ export default function ModifierSheet({
       }
       if (sel instanceof Set) {
         return g.modifier_options
-          .filter((o) => sel.has(o.id))
+          .filter((o) => o.is_available && sel.has(o.id))
           .map((o) => ({
             group_id: g.id,
             group_name: g.name,
@@ -121,10 +141,21 @@ export default function ModifierSheet({
   }
 
   function toggleMultiple(gid: string, oid: string): void {
+    const group = groups.find((g) => g.id === gid)
+    const maxSelect = group?.max_select ?? null
     setSelections((prev) => {
       const existing = prev[gid]
       const s = existing instanceof Set ? new Set(existing) : new Set<string>()
-      s.has(oid) ? s.delete(oid) : s.add(oid)
+      if (s.has(oid)) {
+        // Deselectarea e mereu permisă.
+        s.delete(oid)
+      } else {
+        // max_select client-side (paritate cu mig 145 care respinge întreaga
+        // comandă la depășire). La atingerea plafonului blocăm adăugarea —
+        // opțiunile la cap sunt oricum dezactivate vizual mai jos.
+        if (maxSelect != null && s.size >= maxSelect) return prev
+        s.add(oid)
+      }
       return { ...prev, [gid]: s }
     })
   }
@@ -177,46 +208,67 @@ export default function ModifierSheet({
             {unitTotal.toFixed(2)} lei
           </div>
 
-          {groups.map((g) => (
-            <div key={g.id}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>
-                {g.name}
-                {g.is_required && <span style={{ color: D.red }}> *</span>}
+          {groups.map((g) => {
+            const sel = selections[g.id]
+            // Nu randăm opțiuni indisponibile (serverul le respinge oricum).
+            const availableOptions = g.modifier_options.filter((o) => o.is_available)
+            // Plafon atins pe grup multiplu → dezactivăm opțiunile neselectate.
+            // Numărăm doar opțiunile disponibile (cele indisponibile nu ocupă slot).
+            const multiCount = sel instanceof Set ? availableSelectedCount(g, sel) : 0
+            const atMax =
+              g.selection_type === 'multiple' &&
+              g.max_select != null &&
+              multiCount >= g.max_select
+            return (
+              <div key={g.id}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>
+                  {g.name}
+                  {g.is_required && <span style={{ color: D.red }}> *</span>}
+                  {g.selection_type === 'multiple' && g.is_required && g.min_select > 0 && (
+                    <span style={{ color: D.t3, fontWeight: 400 }}> · min {g.min_select}</span>
+                  )}
+                  {g.selection_type === 'multiple' && g.max_select != null && (
+                    <span style={{ color: D.t3, fontWeight: 400 }}> · max {g.max_select}</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {availableOptions.map((opt) => {
+                    const isSelected =
+                      g.selection_type === 'single'
+                        ? isSingleSel(sel) && sel === opt.id
+                        : sel instanceof Set && sel.has(opt.id)
+                    // Blocăm opțiunile neselectate când grupul e la cap.
+                    const isDisabled = atMax && !isSelected
+                    return (
+                      <button
+                        key={opt.id}
+                        disabled={isDisabled}
+                        onClick={() =>
+                          g.selection_type === 'single'
+                            ? toggleSingle(g.id, opt.id)
+                            : toggleMultiple(g.id, opt.id)
+                        }
+                        style={{
+                          background: isSelected ? D.goldA : D.s3,
+                          border: `1px solid ${isSelected ? D.gold : D.s3}`,
+                          borderRadius: 20,
+                          padding: '6px 14px',
+                          color: isSelected ? D.gold : D.t2,
+                          fontFamily: 'DM Sans, sans-serif',
+                          fontSize: 13,
+                          cursor: isDisabled ? 'not-allowed' : 'pointer',
+                          opacity: isDisabled ? 0.4 : 1,
+                        }}
+                      >
+                        {opt.name}
+                        {opt.price_delta > 0 ? ` +${opt.price_delta}` : ''}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {g.modifier_options.map((opt) => {
-                  const sel = selections[g.id]
-                  const isSelected =
-                    g.selection_type === 'single'
-                      ? isSingleSel(sel) && sel === opt.id
-                      : sel instanceof Set && sel.has(opt.id)
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() =>
-                        g.selection_type === 'single'
-                          ? toggleSingle(g.id, opt.id)
-                          : toggleMultiple(g.id, opt.id)
-                      }
-                      style={{
-                        background: isSelected ? D.goldA : D.s3,
-                        border: `1px solid ${isSelected ? D.gold : D.s3}`,
-                        borderRadius: 20,
-                        padding: '6px 14px',
-                        color: isSelected ? D.gold : D.t2,
-                        fontFamily: 'DM Sans, sans-serif',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {opt.name}
-                      {opt.price_delta > 0 ? ` +${opt.price_delta}` : ''}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Quantity stepper */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>

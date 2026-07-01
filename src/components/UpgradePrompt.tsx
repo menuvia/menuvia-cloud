@@ -2,7 +2,7 @@
 // UpgradePrompt — Card cu mesaj de upgrade pentru features locked
 // ─────────────────────────────────────────────────────────────
 import { D } from '../lib/constants'
-import { PLAN_NAMES, suggestUpgrade } from '../lib/features'
+import { PLAN_NAMES, planNameForTier, suggestUpgrade, type PlanTier } from '../lib/features'
 
 interface Props {
   currentPlan: string
@@ -10,6 +10,11 @@ interface Props {
   description?: string // ex: "Urmărește stocul..."
   emoji?: string
   onUpgrade?: () => void // optional callback (ex: navigate to /pricing)
+  // Tier minim al feature-ului blocat (sursa de adevăr pentru planul-țintă).
+  // Când e prezent, mesajul indică EXACT planul care deblochează feature-ul,
+  // nu următorul pas orb de pe scara de planuri (ex: starter → pro pentru un
+  // feature de Fiscalizare, nu starter → growth care nu deblochează nimic).
+  requiredTier?: PlanTier
 }
 
 export default function UpgradePrompt({
@@ -18,9 +23,17 @@ export default function UpgradePrompt({
   description,
   emoji = '🔒',
   onUpgrade,
+  requiredTier,
 }: Props) {
-  const nextPlan = suggestUpgrade(currentPlan)
-  const nextPlanName = nextPlan ? PLAN_NAMES[nextPlan] : PLAN_NAMES.pro
+  // Planul-țintă: derivat din tier-ul feature-ului blocat dacă e cunoscut,
+  // altfel fallback backward-compatible la vechea euristică suggestUpgrade.
+  let targetPlanName: string
+  if (requiredTier !== undefined) {
+    targetPlanName = planNameForTier(requiredTier)
+  } else {
+    const nextPlan = suggestUpgrade(currentPlan)
+    targetPlanName = nextPlan ? PLAN_NAMES[nextPlan] : PLAN_NAMES.pro
+  }
 
   return (
     <div
@@ -64,7 +77,7 @@ export default function UpgradePrompt({
         }}
       >
         Această funcționalitate e disponibilă din planul{' '}
-        <strong style={{ color: D.gold }}>{nextPlanName}</strong>.
+        <strong style={{ color: D.gold }}>{targetPlanName}</strong>.
         <br />
         Planul tău curent: {PLAN_NAMES[currentPlan] ?? currentPlan}
       </div>

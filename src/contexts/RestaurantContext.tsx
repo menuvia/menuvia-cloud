@@ -33,19 +33,34 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Flag de anulare: previne ca un răspuns vechi (user A) să suprascrie
+    // state-ul după ce userul s-a schimbat (user B) la re-login rapid.
+    let cancelled = false
+
     if (!user) {
+      // Signout / user null: golim state-ul local și cheia din localStorage,
+      // ca un user nou să nu moștenească restaurantul activ al celui vechi.
+      localStorage.removeItem(STORAGE_KEY)
       setMemberships([])
       setActiveIdState(null)
       setLoading(false)
-      return
+      return () => {
+        cancelled = true
+      }
     }
 
     async function loadMemberships() {
+      // Marcăm loading la începutul fetch-ului: fără asta, primul render cu
+      // user!=null (dar înainte de a avea date) ar arăta loading=false → flash
+      // de UI onboarding/gol cât `loadMemberships()` e încă în zbor.
+      setLoading(true)
       try {
         const { data } = await supabase
           .from('restaurant_memberships')
           .select('restaurant_id, role, restaurant:restaurants(id, name, slug)')
           .eq('user_id', user!.id)
+
+        if (cancelled) return
 
         const rows: RestaurantMembership[] = (data ?? []).map((m) => {
           const raw = m as {
@@ -69,12 +84,18 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         const isValid = saved != null && rows.some((m) => m.restaurant_id === saved)
         setActiveIdState(isValid ? saved : (rows[0]?.restaurant_id ?? null))
       } catch (err) {
+        if (cancelled) return
         console.error('[RestaurantContext] Failed to load memberships:', err)
         // Continuăm cu memberships goale — userul vede onboarding
       }
+      if (cancelled) return
       setLoading(false)
     }
     void loadMemberships()
+
+    return () => {
+      cancelled = true
+    }
   }, [user])
 
   const setActive = useCallback((id: string) => {

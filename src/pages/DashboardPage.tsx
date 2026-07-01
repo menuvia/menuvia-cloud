@@ -1212,6 +1212,7 @@ export default function DashboardPage({
                     featureName="Modul Gestiune"
                     emoji="📦"
                     description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Meniu + Comenzi."
+                    requiredTier={2}
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -1226,6 +1227,7 @@ export default function DashboardPage({
                     featureName="Raport TVA"
                     emoji="🧾"
                     description="Raport TVA grupat pe cote și zile, export CSV pentru contabil. Disponibil pe planul Fiscalizare."
+                    requiredTier={3}
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -1240,6 +1242,7 @@ export default function DashboardPage({
                     featureName="Casă & Tură"
                     emoji="💰"
                     description="Casă de bani, ture și încasări. Disponibil pe planul Fiscalizare."
+                    requiredTier={3}
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -1259,6 +1262,7 @@ export default function DashboardPage({
                     featureName="Facturi"
                     emoji="🧾"
                     description="Emitere facturi Oblio. Disponibil pe planul Fiscalizare."
+                    requiredTier={3}
                     onUpgrade={onPricing}
                   />
                 ))}
@@ -1278,6 +1282,7 @@ export default function DashboardPage({
                     featureName="Casă de marcat"
                     emoji="🖨️"
                     description="Conectează casa de marcat fiscală. Disponibil pe planul Fiscalizare."
+                    requiredTier={3}
                     onUpgrade={onPricing}
                   />
                 ))}
