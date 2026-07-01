@@ -83,15 +83,20 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
   // Elementele opționale de hero pe care restaurantul le afișează — implicit toate ON.
   const elements = useMemo(() => resolveMenuElements(restaurant?.theme_settings), [restaurant])
-  const PUB = {
-    bg: theme.colors.bg,
-    surface: theme.colors.surface,
-    text: theme.colors.text,
-    text2: theme.colors.text2,
-    text3: theme.colors.text3,
-    border: theme.colors.border,
-    borderStrong: theme.colors.borderStrong,
-  }
+  // Memoizat: obiect nou la fiecare render înainte → prop instabil pentru
+  // carduri. Recalculat doar când se schimbă tema.
+  const PUB = useMemo(
+    () => ({
+      bg: theme.colors.bg,
+      surface: theme.colors.surface,
+      text: theme.colors.text,
+      text2: theme.colors.text2,
+      text3: theme.colors.text3,
+      border: theme.colors.border,
+      borderStrong: theme.colors.borderStrong,
+    }),
+    [theme],
+  )
   const accent = restaurant?.primary_color ?? theme.colors.accent
   const accentGradient = theme.colors.accentGradient
 
