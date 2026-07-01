@@ -19,12 +19,13 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
 
 import ProductSheet from '../components/ProductSheet'
-import { resolveTheme } from '../lib/themes'
+import { resolveTheme, resolveMenuLayout } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
+import ProductGridCard from '../components/menu/ProductGridCard'
 import { MenuLoading, MenuError } from '../components/menu/MenuStates'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
@@ -305,6 +306,29 @@ export default function QrMenuPage({ token }: Props) {
         )
     : (categories.find((c) => c.id === activeCatId)?.products ?? [])
   const orderingAllowed = ctx?.orderingAllowed ?? false
+  // Layout ales de restaurant (listă / galerie foto) — implicit 'list'.
+  const menuLayout = resolveMenuLayout(ctx?.restaurant.theme_settings)
+
+  // Handlere de produs partajate între layout-uri (listă / galerie), ca să nu
+  // duplicăm gate-ul de deschidere + quick-add-ul în fiecare ramură.
+  const openProductQr = (p: Product): void => {
+    // Deschidem detaliile doar dacă se poate comanda (sold-out tratat intern de card).
+    if (orderingAllowed) setActiveProduct(p)
+  }
+  const quickAddProductQr = (p: Product): void =>
+    // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
+    setCart((prev) => [
+      ...prev,
+      {
+        _key: crypto.randomUUID(),
+        product_id: p.id,
+        product_name_snapshot: p.name,
+        unit_price_snapshot: p.price,
+        quantity: 1,
+        selected_modifiers: [],
+        notes: null,
+      },
+    ])
 
   // Încărcare: schelet de listă premium (componentă comună), nu text gol.
   if (resolving) return <MenuLoading PUB={PUB} />
@@ -482,16 +506,8 @@ export default function QrMenuPage({ token }: Props) {
         />
       </div>
 
-      {/* Product list — clean compact card design */}
-      <div
-        style={{
-          flex: 1,
-          padding: '14px 16px 120px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
+      {/* Product list — layout ales de restaurant (listă / galerie foto) */}
+      <div style={{ flex: 1, padding: '14px 16px 120px' }}>
         {/* Empty states: meniu gol vs. căutare fără rezultate */}
         {activeProducts.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 16px', color: PUB.text2 }}>
@@ -508,43 +524,43 @@ export default function QrMenuPage({ token }: Props) {
             </div>
           </div>
         )}
-        {activeProducts.map((product) => (
-          // Card unificat (componenta comună) — același limbaj vizual ca meniul
-          // digital: thumbnail blur-up, quick-add 44px (era 36px), buton real
-          // (nu role=button pe div), fundal din temă (nu hardcodat #FDF8F2).
-          <ProductCard
-            key={product.id}
-            product={product}
-            accent={accent}
-            PUB={PUB}
-            theme={theme}
-            // „+" rapid doar când comanda e permisă (sesiune de masă activă).
-            canAdd={orderingAllowed}
-            happyHourPct={happyHourPercentForProduct(product, happyHour)}
-            // Deschidem detaliile doar dacă se poate comanda (paritate cu vechiul
-            // gate isUnavailable = sold_out || !orderingAllowed; sold_out e tratat
-            // intern de ProductCard prin dezactivarea butonului).
-            onOpen={() => {
-              if (orderingAllowed) setActiveProduct(product)
-            }}
-            // Quick-add: adăugare directă în coș (fără pairing popup — la fel ca
-            // butonul „+" anterior, care folosea setCart, nu addToCart).
-            onQuickAdd={() =>
-              setCart((prev) => [
-                ...prev,
-                {
-                  _key: crypto.randomUUID(),
-                  product_id: product.id,
-                  product_name_snapshot: product.name,
-                  unit_price_snapshot: product.price,
-                  quantity: 1,
-                  selected_modifiers: [],
-                  notes: null,
-                },
-              ])
-            }
-          />
-        ))}
+        {menuLayout === 'grid' ? (
+          // Galerie foto: grid 2 coloane cu carduri foto-forward.
+          <div
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}
+          >
+            {activeProducts.map((product) => (
+              <ProductGridCard
+                key={product.id}
+                product={product}
+                accent={accent}
+                PUB={PUB}
+                theme={theme}
+                canAdd={orderingAllowed}
+                happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                onOpen={() => openProductQr(product)}
+                onQuickAdd={() => quickAddProductQr(product)}
+              />
+            ))}
+          </div>
+        ) : (
+          // Listă (implicit): card unificat cu poză mică + text.
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {activeProducts.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                accent={accent}
+                PUB={PUB}
+                theme={theme}
+                canAdd={orderingAllowed}
+                happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                onOpen={() => openProductQr(product)}
+                onQuickAdd={() => quickAddProductQr(product)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Call waiter button */}

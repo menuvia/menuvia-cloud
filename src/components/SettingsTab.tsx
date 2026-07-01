@@ -335,6 +335,8 @@ export default function SettingsTab({
                     type="button"
                     onClick={() =>
                       upd('theme_settings', {
+                        // Păstrăm restul cheilor (menu_layout) când schimbăm tema.
+                        ...(form.theme_settings ?? {}),
                         preset_id: t.id,
                         accent_override: form.theme_settings?.accent_override ?? null,
                       })
@@ -418,6 +420,90 @@ export default function SettingsTab({
             >
               💡 După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
               meniului.
+            </div>
+          </div>
+
+          {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              Layout meniu
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
+              Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul
+              digital și pe meniul QR.
+            </div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+                gap: 8,
+              }}
+            >
+              {(
+                [
+                  {
+                    id: 'list',
+                    emoji: '☰',
+                    name: 'Listă',
+                    desc: 'Poză mică + text. Clasic și compact.',
+                  },
+                  {
+                    id: 'grid',
+                    emoji: '▦',
+                    name: 'Galerie foto',
+                    desc: 'Poze mari, 2 coloane. Cel mai vizual.',
+                  },
+                ] as const
+              ).map((l) => {
+                const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() =>
+                      upd('theme_settings', {
+                        // Păstrăm tema/accentul; schimbăm doar layout-ul.
+                        ...(form.theme_settings ?? {}),
+                        preset_id: form.theme_settings?.preset_id ?? 'cafe',
+                        menu_layout: l.id,
+                      })
+                    }
+                    style={{
+                      padding: '14px 12px',
+                      border: `2px solid ${isSelected ? D.gold : D.border}`,
+                      background: isSelected ? D.goldA : D.s3,
+                      borderRadius: 10,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 4,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: '1.1rem' }}>{l.emoji}</span>
+                      <span
+                        style={{
+                          fontSize: '0.82rem',
+                          fontWeight: 600,
+                          color: isSelected ? D.gold : D.t1,
+                        }}
+                      >
+                        {l.name}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.68rem', color: D.t3, lineHeight: 1.3 }}>{l.desc}</div>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
