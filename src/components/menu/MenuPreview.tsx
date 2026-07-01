@@ -126,7 +126,10 @@ function MiniHero({
         />
       )}
 
-      {/* Status: pastilă „Deschis acum" (verde). */}
+      {/* Status: pastilă „Deschis acum". Oglindește StatusPill-ul real (glass
+          întunecat + text alb + punct verde), NU alb-pe-verde: verzii de success
+          ai temei sunt mid-tone, iar albul la 10px pică AA pe unele teme
+          (cafe/fine-dining/mexican/healthy). */}
       {showStatus && (
         <span
           style={{
@@ -139,7 +142,8 @@ function MiniHero({
             fontSize: 10,
             fontWeight: 600,
             color: '#fff',
-            background: theme.colors.success,
+            background: 'rgba(0,0,0,0.5)',
+            border: '1px solid rgba(255,255,255,0.22)',
             padding: '3px 9px',
             borderRadius: 100,
             letterSpacing: '0.04em',
@@ -147,7 +151,7 @@ function MiniHero({
         >
           <span
             aria-hidden
-            style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }}
+            style={{ width: 6, height: 6, borderRadius: '50%', background: theme.colors.success }}
           />
           Deschis acum
         </span>
@@ -259,6 +263,13 @@ export default function MenuPreview({ themeSettings, restaurantName }: MenuPrevi
   return (
     <div
       aria-hidden
+      // `inert`: cardurile reale (ProductCard/etc.) conțin <button>-uri focusabile.
+      // `aria-hidden` singur NU le scoate din tab-order → un user cu tastatura ar
+      // tabula prin ~3-6 butoane moarte (onClick=noop) în dashboard. `inert` le
+      // scoate din tab-order ȘI din arborele de accesibilitate. React 18 nu
+      // tipizează prop-ul `inert`, iar boolean-ul `true` e ignorat; forma `""`
+      // (string gol) randează atributul corect. Baseline în browsere moderne.
+      {...({ inert: '' } as Record<string, string>)}
       style={{
         maxWidth: 340,
         border: `1px solid ${PUB.borderStrong}`,
