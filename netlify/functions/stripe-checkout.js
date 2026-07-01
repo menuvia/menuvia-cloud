@@ -34,7 +34,10 @@ exports.handler = async (event) => {
     enterprise: STRIPE_ENTERPRISE_PRICE_ID,
   }
 
-  if (!STRIPE_SECRET_KEY || !Object.values(PRICE_IDS).some(Boolean)) {
+  // .every(Boolean): lipsa ORICĂRUI price ID trebuie să eșueze vizibil la boot
+  // (aliniat cu validarea din stripe-webhook.js) — altfel un plan neconfigurat
+  // ar trece nedetectat până la primul checkout eșuat în producție.
+  if (!STRIPE_SECRET_KEY || !Object.values(PRICE_IDS).every(Boolean)) {
     return jsonResponse(500, { error: 'Stripe not configured' })
   }
 
@@ -77,7 +80,8 @@ exports.handler = async (event) => {
   }
 
   // Rate limit per user (endpoint autentificat dar abuzabil): max 10 checkout-uri / 5 min.
-  // Fail-open pe eroare de infra (nu blocăm plăți legitime dacă serviciul pică).
+  // Fail-closed pe eroare de infra (aliniat cu send-invite.js): dacă limiterul nu
+  // poate fi verificat, respingem cererea în loc s-o lăsăm să treacă nesupravegheat.
   try {
     const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
       p_function_name:  'stripe_checkout',
@@ -85,15 +89,16 @@ exports.handler = async (event) => {
       p_max_requests:   10,
       p_window_minutes: 5,
     })
-    if (!rlErr && rlOk === false) {
+    if (rlErr) {
+      console.error('[stripe-checkout] rate limit RPC failed (fail-closed):', rlErr.message)
+      return jsonResponse(503, { error: 'Rate limit service unavailable' })
+    }
+    if (rlOk === false) {
       return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
     }
-    if (rlErr) {
-      // Fail-open, dar logăm — altfel un limiter rupt/lipsă trece neobservat.
-      console.warn('[stripe-checkout] rate limit RPC failed (fail-open):', rlErr.message)
-    }
   } catch (e) {
-    console.warn('[stripe-checkout] rate limit check failed (fail-open):', e?.message)
+    console.error('[stripe-checkout] rate limit check threw (fail-closed):', e?.message)
+    return jsonResponse(503, { error: 'Rate limit service unavailable' })
   }
 
   // Get or create Stripe customer
@@ -113,9 +118,37 @@ exports.handler = async (event) => {
       metadata: { supabase_user_id: user.id },
     })
     customerId = customer.id
-    await supabase.from('profiles')
+
+    // Anti race la creare concurentă (2 cereri simultane fără stripe_customer_id
+    // ar crea 2 customeri Stripe pentru același user). UPDATE atomic condiționat
+    // pe .is('stripe_customer_id', null): doar cererea care câștigă cursa scrie.
+    const { data: updatedRows } = await supabase.from('profiles')
       .update({ stripe_customer_id: customerId })
       .eq('id', user.id)
+      .is('stripe_customer_id', null)
+      .select('stripe_customer_id')
+
+    if (!updatedRows || updatedRows.length === 0) {
+      // Altcineva a fost mai rapid — recitim customer_id-ul real și îl folosim
+      // pe acela, ca să nu rămânem cu 2 customeri Stripe pentru același user.
+      const { data: freshProfile } = await supabase
+        .from('profiles')
+        .select('stripe_customer_id')
+        .eq('id', user.id)
+        .single()
+
+      if (freshProfile?.stripe_customer_id) {
+        const orphanCustomerId = customerId
+        customerId = freshProfile.stripe_customer_id
+        // Best-effort cleanup al customer-ului orfan creat de noi — nu blocăm
+        // fluxul de checkout dacă ștergerea eșuează.
+        try {
+          await stripe.customers.del(orphanCustomerId)
+        } catch (e) {
+          console.warn('[stripe-checkout] cleanup orphan Stripe customer failed:', e?.message)
+        }
+      }
+    }
   }
 
   // ── Afiliere: creează atribuirea (best-effort, nu blochează checkout-ul) ────
@@ -131,10 +164,16 @@ exports.handler = async (event) => {
         p_visitor_id: visitorId || null,
       })
       if (attrErr) {
-        console.warn('[stripe-checkout] affiliate capture failed:', attrErr.message)
+        // Best-effort — nu blocăm checkout-ul, dar logăm cu context structurat
+        // ca eșecurile de atribuire să fie vizibile (nu doar un warn pierdut).
+        console.error('[stripe-checkout] affiliate capture failed:', {
+          referralCode, userId: user.id, customerId, error: attrErr.message,
+        })
       }
     } catch (e) {
-      console.warn('[stripe-checkout] affiliate capture threw:', e?.message)
+      console.error('[stripe-checkout] affiliate capture threw:', {
+        referralCode, userId: user.id, customerId, error: e?.message || String(e),
+      })
     }
   }
 
@@ -171,8 +210,11 @@ exports.handler = async (event) => {
     })
   }
 
+  // 'unpaid' și 'incomplete' acoperă fereastra dintre eșecul repetat de plată
+  // și anularea efectivă a subscripției — fără ele, un checkout nou ar putea
+  // porni un al doilea abonament pe o subscripție încă "vie" la Stripe.
   const hasLive = subsAll.some(
-    (s) => s.status === 'active' || s.status === 'trialing' || s.status === 'past_due',
+    (s) => ['active', 'trialing', 'past_due', 'unpaid', 'incomplete'].includes(s.status),
   )
   if (hasLive) {
     return jsonResponse(409, {
@@ -209,7 +251,9 @@ exports.handler = async (event) => {
       // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
       // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
       // sesiune (dedup); orice diferență → cheie nouă.
-      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}`,
+      // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
+      // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
+      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
     },
   )
 
