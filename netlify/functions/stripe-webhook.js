@@ -494,9 +494,32 @@ exports.handler = async (event) => {
         // (comisionul rămâne; pe durata disputei payout-ul e manual + în hold).
         const dispute = stripeEvent.data.object
         if (dispute.status === 'lost') {
+          // Dispute-ul nu poartă invoice-ul direct → luăm charge-ul. Separăm
+          // acest apel de restul try-ului (audit medium) ca să putem distinge
+          // o eroare PERMANENTĂ (charge-ul chiar nu (mai) există — resource_missing
+          // / 404 — necesită intervenție manuală, nu retry) de una TRANZITORIE
+          // (blip de rețea/API — un retry Stripe poate reuși).
+          let charge
           try {
-            // Dispute-ul nu poartă invoice-ul direct → luăm charge-ul.
-            const charge = await stripe.charges.retrieve(dispute.charge)
+            charge = await stripe.charges.retrieve(dispute.charge)
+          } catch (e) {
+            const isPermanent = e?.code === 'resource_missing' || e?.statusCode === 404
+            if (isPermanent) {
+              console.error(
+                `[stripe-webhook] EROARE CRITICĂ (necesită intervenție manuală): charge ${dispute.charge} ` +
+                `nu există (dispute ${dispute.id}, resource_missing/404):`, e?.message,
+              )
+              processingError = `dispute clawback: charge ${dispute.charge} inexistent (permanent): ${e?.message || String(e)}`
+            } else {
+              console.error(
+                `[stripe-webhook] eroare tranzitorie la stripe.charges.retrieve pentru dispute ${dispute.id} ` +
+                `(charge ${dispute.charge}) — retry posibil:`, e?.message,
+              )
+              processingError = `dispute clawback: charges.retrieve tranzitoriu eșuat: ${e?.message || String(e)}`
+            }
+            break
+          }
+          try {
             const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
               p_event_id:            stripeEvent.id,
               p_stripe_invoice_id:   charge.invoice || null,
@@ -510,7 +533,6 @@ exports.handler = async (event) => {
               processingError = `dispute clawback failed: ${clawErr.message}`
             }
           } catch (e) {
-            // Inclusiv eșecul stripe.charges.retrieve (blip API) → retry, nu pierdem clawback-ul.
             console.error('[stripe-webhook] dispute clawback threw:', e?.message)
             processingError = `dispute clawback threw: ${e?.message || String(e)}`
           }
@@ -566,27 +588,34 @@ function normalizePlan(plan) {
 }
 
 // ── Helper: resolve plan from subscription metadata ────────────────
-// Citește metadata.plan setat la checkout. Fail-CLOSED la 'free' dacă lipsește/eșuează.
+// Citește metadata.plan setat la checkout. Fail-CLOSED la 'free' doar dacă
+// subscription-ul chiar lipsește/nu are metadata (audit HIGH). O eroare
+// Stripe (ex. timeout tranzitoriu de rețea) NU înseamnă „plan free" —
+// înseamnă „nu știm" → aruncăm mai departe ca apelantul să NU aplice niciun
+// downgrade pe un client care a plătit efectiv (ar fi un downgrade greșit
+// cauzat de o eroare de infra, nu de starea reală a abonamentului).
 async function resolvePlan(stripe, subscriptionId) {
   if (!subscriptionId) return 'free'
-  try {
-    const sub = await stripe.subscriptions.retrieve(subscriptionId)
-    return normalizePlan(sub.metadata?.plan)
-  } catch (e) {
-    console.warn('[stripe-webhook] resolvePlan failed, defaulting free:', e.message)
-    return 'free'
-  }
+  const sub = await stripe.subscriptions.retrieve(subscriptionId)
+  return normalizePlan(sub.metadata?.plan)
 }
 
 // ── Helper: best-effort lifecycle event insert ────────────────────
 async function safeInsertLifecycleEvent(supabase, userId, eventType, data) {
   try {
-    await supabase.from('lifecycle_events').insert({
+    // supabase-js NU aruncă la eroare DB pe insert — întoarce { error } în
+    // rezultat. Fără verificare explicită (audit medium), un eșec de insert
+    // (ex. constraint/RLS/coloană lipsă) era înghițit silențios de catch-ul
+    // gol (care nu se declanșa niciodată pentru erori „soft"). Logăm explicit.
+    const { error } = await supabase.from('lifecycle_events').insert({
       user_id:    userId,
       event_type: eventType,
       event_data: data,
     })
+    if (error) {
+      console.error(`[stripe-webhook] Lifecycle event insert failed (${eventType}):`, error.message)
+    }
   } catch (e) {
-    console.warn(`[stripe-webhook] Lifecycle event insert failed (${eventType}):`, e.message)
+    console.warn(`[stripe-webhook] Lifecycle event insert threw (${eventType}):`, e.message)
   }
 }

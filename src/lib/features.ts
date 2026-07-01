@@ -43,7 +43,20 @@ export async function fetchRestaurantFeatures(
   const { data, error } = await supabase.rpc('get_restaurant_features', {
     p_restaurant_id: restaurantId,
   })
-  if (error || !data) return null
+  if (error) {
+    // Eroare de infrastructură (permission denied, network fail etc.) —
+    // NU e același lucru cu „restaurantul nu are acest feature". Logăm
+    // explicit ca să fie vizibilă în monitoring, distinctă de un „nu"
+    // legitim de business. Valoarea de retur rămâne null (backward-compat).
+    console.error(
+      '[features] fetchRestaurantFeatures RPC error:',
+      error.code,
+      error.message,
+      { restaurantId },
+    )
+    return null
+  }
+  if (!data) return null
   return data as RestaurantFeatures
 }
 
@@ -59,6 +72,29 @@ export function getLimit(features: RestaurantFeatures | null, name: FeatureName)
   const f = features.features[name]
   if (!f?.enabled) return 0
   return f.limit ?? null // null = unlimited
+}
+
+// Rezultat discriminat pentru getLimitDetailed — distinge explicit cele
+// 3 stări pe care getLimit() le comprimă în number | null:
+//   - 'disabled'  → feature-ul e complet dezactivat pt acest plan (getLimit → 0)
+//   - 'limited'   → feature-ul e activ, plafonat la `n` (getLimit → n)
+//   - 'unlimited' → feature-ul e activ, fără plafon      (getLimit → null)
+// Notă: getLimit() întoarce 0 și pt „dezactivat" ȘI pt „limitat la 0", ceea
+// ce e ambiguu pentru consumatori care vor să distingă cele două cazuri.
+export type LimitDetail =
+  | { kind: 'disabled' }
+  | { kind: 'limited'; n: number }
+  | { kind: 'unlimited' }
+
+export function getLimitDetailed(
+  features: RestaurantFeatures | null,
+  name: FeatureName,
+): LimitDetail {
+  if (!features) return { kind: 'disabled' }
+  const f = features.features[name]
+  if (!f?.enabled) return { kind: 'disabled' }
+  if (f.limit === null || f.limit === undefined) return { kind: 'unlimited' }
+  return { kind: 'limited', n: f.limit }
 }
 
 export function isWithinLimit(
@@ -102,12 +138,39 @@ export const PLAN_NAMES: Record<string, string> = {
   enterprise: '🏢 Custom / Lanțuri',
 }
 
-// Suggest upgrade path: from current plan, what's next
+// Suggest upgrade path: from current plan, what's next.
+// Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru
+// „plan necunoscut" (nu există în `order`) — semnătura publică rămâne
+// string | null (consumatori: UpgradePrompt.tsx are deja fallback tolerant
+// la null; testele din features.test.ts fixează acest contract). Pentru
+// diagnostic, distingem intern cele două cazuri printr-un warn — un plan
+// necunoscut e un semnal de date corupte/plan nou nemapat, nu un „normal".
 export function suggestUpgrade(currentPlan: string): string | null {
   const order = ['free', 'starter', 'growth', 'pro', 'enterprise']
   const idx = order.indexOf(currentPlan)
-  if (idx < 0 || idx === order.length - 1) return null
+  if (idx < 0) {
+    console.warn('[features] suggestUpgrade: plan necunoscut', { currentPlan })
+    return null
+  }
+  if (idx === order.length - 1) return null // deja la maxim (enterprise)
   return order[idx + 1]
+}
+
+// Variantă discriminată a suggestUpgrade — pentru consumatori noi care
+// vor să trateze diferit „deja la maxim" vs. „plan necunoscut" în UI
+// (ex: afișează mesaje diferite), fără să schimbe contractul funcției
+// existente (folosită de UpgradePrompt.tsx și de testele curente).
+export type UpgradeSuggestion =
+  | { kind: 'next'; plan: string }
+  | { kind: 'max' }
+  | { kind: 'unknown' }
+
+export function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {
+  const order = ['free', 'starter', 'growth', 'pro', 'enterprise']
+  const idx = order.indexOf(currentPlan)
+  if (idx < 0) return { kind: 'unknown' }
+  if (idx === order.length - 1) return { kind: 'max' }
+  return { kind: 'next', plan: order[idx + 1] }
 }
 
 // Planul intern reprezentativ pentru fiecare tier comercial (oglindește
