@@ -132,7 +132,6 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
         block: 'nearest',
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId, items, reduced])
 
   // Re-măsoară la resize + când fonturile web (Fraunces/DM Sans) se încarcă
@@ -159,7 +158,6 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
       window.removeEventListener('resize', remeasure)
       ro?.disconnect()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const wrapStyle: CSSProperties = {
