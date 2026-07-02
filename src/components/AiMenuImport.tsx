@@ -111,7 +111,10 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
       if (!d.include || !d.name.trim()) continue
       const r = await products.create({ name: d.name.trim(), description: d.description.trim() || null, price: d.price, emoji: d.emoji, category_id: d.category_id || null })
       if (!r.error) ok++
-      else failed.push(`${d.name.trim() || 'produs fără nume'}: ${r.error.message}`)
+      else {
+        console.error('confirmImport product create failed', r.error)
+        failed.push(`${d.name.trim() || 'produs fără nume'}: nu a putut fi salvat`)
+      }
     }
     setImported(ok)
     setImportErrors(failed)

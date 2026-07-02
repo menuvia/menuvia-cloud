@@ -390,7 +390,11 @@ exports.handler = async (event) => {
   // NU blocăm răspunsul către user dacă metering-ul eșuează. Facem o singură
   // reîncercare imediată (RPC-ul poate eșua tranzitoriu: timeout de rețea,
   // conexiune scurtă la pool etc.); dacă tot eșuează, logăm explicit toate
-  // detaliile necesare reconcilierii manuale a cotei.
+  // detaliile necesare reconcilierii manuale a cotei. `p_request_id` e generat
+  // O SINGURĂ dată per apel real către provider și refolosit IDENTIC la
+  // reîncercare — `ai_record_usage` (mig 185) e idempotentă pe acest id, deci
+  // o reîncercare după ce primul apel a comis efectiv nu mai dublează cota.
+  const requestId = crypto.randomUUID()
   const usageArgs = {
     p_restaurant_id: restaurant_id,
     p_feature: feature,
@@ -401,6 +405,7 @@ exports.handler = async (event) => {
     p_cost: 0,
     p_success: true,
     p_error: null,
+    p_request_id: requestId,
   }
   let { data: usage, error: usageErr } = await supabase.rpc('ai_record_usage', usageArgs)
   if (usageErr) {

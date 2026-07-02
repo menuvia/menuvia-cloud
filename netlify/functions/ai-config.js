@@ -211,11 +211,24 @@ exports.handler = async (event) => {
     // („Activează asistentul AI", fără „Avansat") trebuie permis fără cheie.
     const { data: existing } = await supabase
       .from('ai_provider_configs')
-      .select('api_key_encrypted')
+      .select('provider, api_key_encrypted')
       .eq('restaurant_id', restaurant_id)
       .single()
     if (payload.enabled && !existing?.api_key_encrypted) {
       return jsonResponse(400, { error: 'Trebuie să adaugi o cheie API înainte de a activa.' })
+    }
+  } else {
+    // Provider non-custom, fără cheie nouă: dacă restaurantul avea deja
+    // salvată o cheie pentru un ALT provider (ex. custom → openai), acea
+    // cheie nu mai e validă pentru noul provider — o ștergem explicit ca
+    // ai-proxy.js să cadă corect pe cheia platformei, nu pe cheia veche.
+    const { data: existing } = await supabase
+      .from('ai_provider_configs')
+      .select('provider')
+      .eq('restaurant_id', restaurant_id)
+      .single()
+    if (existing && existing.provider !== provider) {
+      payload.api_key_encrypted = null
     }
   }
 
