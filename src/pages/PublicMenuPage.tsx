@@ -113,6 +113,13 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const skipNextSaveRef = useRef(false)
 
   useEffect(() => {
+    // Componenta NU se remontează la schimbarea slug-ului (vezi App.tsx —
+    // <PublicMenuPage> nu are key={slug}), deci coșul din React state
+    // supraviețuiește navigării între restaurante. Resetăm explicit aici,
+    // altfel produsele restaurantului anterior rămân vizibile pentru cel
+    // nou dacă acesta nu are nicio listă salvată în localStorage.
+    setCart([])
+    skipNextSaveRef.current = false
     if (!listMode || !listKey) return
     try {
       const raw = localStorage.getItem(listKey)
@@ -126,7 +133,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     } catch {
       /* localStorage indisponibil / JSON corupt → ignorăm */
     }
-    // doar la (re)montare per restaurant
+    // la (re)montare ȘI la fiecare schimbare de restaurant — listKey conține
+    // deja restaurant.slug (unic per restaurant), deci surprinde tranziția.
   }, [listMode, listKey])
 
   useEffect(() => {
