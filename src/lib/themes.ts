@@ -334,10 +334,14 @@ export interface MenuElements {
 }
 
 // ── Custom theme override ────────────────────────────────────
-// User can override `accent` color on Growth+ — others stay theme-default
+// accent_override e disponibil pe TOATE planurile — nu există niciun gate pe
+// plan (plans.ts nu-l vinde ca feature, SettingsTab nu-l gate-uiește, iar
+// resolveTheme validează doar formatul hex). Dacă vreodată devine feature
+// plătit, gate-ul trebuie aplicat server-side (RPC/RLS), nu doar în UI sau
+// în comentarii. Celelalte culori rămân theme-default.
 export interface ThemeSettings {
   preset_id: string // one of THEMES ids
-  accent_override?: string | null // hex color override (Growth+)
+  accent_override?: string | null // override culoare accent (hex) — toate planurile
   menu_layout?: MenuLayout | null // aspectul listei de produse (implicit 'list')
   elements?: Partial<MenuElements> | null // elemente vizibile în hero (implicit toate ON)
 }
