@@ -323,6 +323,13 @@ export default function QrCartSheet({
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {cart.map((item) => {
             const prod = productById.get(item.product_id)
+            // Personalizările item-ului (modificatori + extra), afișate discret
+            // sub nume — clientul trebuie să poată verifica ce a ales („fără
+            // ceapă", extra sos) înainte să trimită comanda.
+            const customizations = [
+              ...item.selected_modifiers.map((m) => `${m.group_name}: ${m.option_name}`),
+              ...(item.selected_extras ?? []).map((e) => `+ ${e.name}`),
+            ]
             return (
               <div
                 key={item._key}
@@ -381,6 +388,23 @@ export default function QrCartSheet({
                   >
                     {item.product_name_snapshot}
                   </div>
+                  {customizations.length > 0 && (
+                    <div style={{ color: PUB.text3, fontSize: 12, lineHeight: 1.45 }}>
+                      {customizations.join(' · ')}
+                    </div>
+                  )}
+                  {item.notes && (
+                    <div
+                      style={{
+                        color: PUB.text3,
+                        fontSize: 12,
+                        fontStyle: 'italic',
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      „{item.notes}"
+                    </div>
+                  )}
                   <div style={{ color: PUB.text2, fontSize: 13, fontStyle: 'italic' }}>
                     {onLineTotal(item).toFixed(2)} lei
                   </div>

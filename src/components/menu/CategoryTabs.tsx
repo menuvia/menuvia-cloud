@@ -57,6 +57,14 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
 
   const trackRef = useRef<HTMLDivElement>(null)
   const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+  // activeId curent, citit prin ref în callback-urile de re-măsurare abonate o
+  // singură dată (resize/webfonts/ResizeObserver, efectul cu `[]` de mai jos).
+  // Fără ref, acele callback-uri ar captura activeId din PRIMUL render și, la
+  // orice resize/rotație/deschidere de tastatură ulterioară, ar repoziționa
+  // underline-ul pe tabul activ de la montare, nu pe cel selectat curent.
+  // Actualizat sincron la fiecare render, deci mereu proaspăt în callbacks.
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
   // Reține dacă efectul de auto-scroll a rulat deja — la mount nu auto-scroll-ăm
   // (evităm deplasarea barei la prima randare când activul nu e primul tab).
   const didInitialScroll = useRef(false)
@@ -67,9 +75,12 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
   const [showFade, setShowFade] = useState(false)
 
   // Recalculează poziția underline-ului relativ la track-ul scrollabil.
+  // Citește activeId din ref (nu din closure) ca să fie corectă și când e
+  // apelată din listener-ii abonați o singură dată la mount.
   function measureUnderline() {
     const track = trackRef.current
-    const el = activeId != null ? tabRefs.current.get(activeId) : undefined
+    const currentActiveId = activeIdRef.current
+    const el = currentActiveId != null ? tabRefs.current.get(currentActiveId) : undefined
     if (!track || !el) {
       setUnderline(null)
       return
