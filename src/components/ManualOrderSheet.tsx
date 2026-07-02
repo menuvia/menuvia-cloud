@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
+import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import { D } from '../lib/constants'
 
 interface Table {
@@ -26,6 +27,8 @@ interface ModifierGroup {
   name: string
   selection_type: 'single' | 'multiple'
   is_required: boolean
+  min_select: number
+  max_select: number | null
   modifier_options: ModifierOption[]
 }
 interface Product {
@@ -162,7 +165,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
           .in('product_id', productIds),
         supabase
           .from('modifier_groups')
-          .select('id, name, selection_type, is_required, display_order')
+          .select('id, name, selection_type, is_required, min_select, max_select, display_order')
           .eq('restaurant_id', restaurantId),
         supabase
           .from('modifier_options')
@@ -200,6 +203,8 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
               name: mg.name as string,
               selection_type: mg.selection_type as 'single' | 'multiple',
               is_required: mg.is_required as boolean,
+              min_select: (mg.min_select as number) ?? 0,
+              max_select: mg.max_select as number | null,
               modifier_options: optsByGroup.get(mgId) ?? [],
             }
           })
@@ -313,11 +318,13 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
 
   // ─── Modifier picker ────────────────────────────────────────
   if (pickingProduct) {
-    const requiredGroups = pickingProduct.modifier_groups.filter((g) => g.is_required)
+    // Paritate cu serverul (mig 191): grupurile cu minim efectiv > 0
+    // (is_required SAU min_select > 0) cer cel puțin `modifierGroupMin(g)` opțiuni.
+    const requiredGroups = pickingProduct.modifier_groups.filter((g) => modifierGroupMin(g) > 0)
     const canAdd = requiredGroups.every((g) => {
       const sel = modSelections[g.id]
       if (!sel) return false
-      if (sel instanceof Set) return sel.size > 0
+      if (sel instanceof Set) return sel.size >= modifierGroupMin(g)
       return !!sel
     })
     return (
@@ -372,8 +379,15 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
             <div key={g.id} style={{ marginBottom: 14 }}>
               <div style={{ fontSize: '0.78rem', fontWeight: 600, color: D.t2, marginBottom: 7 }}>
                 {g.name}{' '}
-                {g.is_required && (
+                {modifierGroupMin(g) > 0 && (
                   <span style={{ color: D.red, fontSize: '0.68rem' }}>*obligatoriu</span>
+                )}
+                {/* Microcopy min/max („Alege între…" / „Alege cel puțin…" / „Maxim…"). */}
+                {modifierGroupHint(g) && (
+                  <span style={{ color: D.t3, fontSize: '0.68rem', fontWeight: 400 }}>
+                    {' '}
+                    · {modifierGroupHint(g)}
+                  </span>
                 )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -392,7 +406,13 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
                           const s = new Set<string>(
                             prev[g.id] instanceof Set ? (prev[g.id] as Set<string>) : [],
                           )
-                          s.has(opt.id) ? s.delete(opt.id) : s.add(opt.id)
+                          if (s.has(opt.id)) {
+                            s.delete(opt.id)
+                          } else {
+                            // Blocăm bifarea peste max_select (paritate mig 145 #9).
+                            if (g.max_select != null && s.size >= g.max_select) return prev
+                            s.add(opt.id)
+                          }
                           return { ...prev, [g.id]: s }
                         })
                       }}

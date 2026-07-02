@@ -8,6 +8,7 @@ import { useMemo, type CSSProperties } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
+import { hasMandatoryModifierGroups } from '../lib/qr'
 
 interface PUBColors {
   bg: string
@@ -127,7 +128,9 @@ export default function QrCartSheet({
     checkoutSuggestionSettings?.message ?? 'Ai vrea ceva în plus înainte să trimiți?'
 
   function handleAddSuggestion(s: Product): void {
-    const hasRequired = (s.modifier_groups ?? []).some((g) => g.is_required)
+    // Minim efectiv > 0 (is_required SAU min_select > 0) → quick-add interzis;
+    // serverul respinge sub minim (mig 191), deci deschidem ProductSheet.
+    const hasRequired = hasMandatoryModifierGroups(s.modifier_groups)
     if (hasRequired) {
       onClose()
       onOpenProduct(s)

@@ -9,7 +9,8 @@
 // ─────────────────────────────────────────────────────────────
 import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import type { Product } from '../lib/qr'
+import type { ModifierGroup, Product } from '../lib/qr'
+import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
@@ -48,14 +49,18 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
 
   const groups = product.modifier_groups
 
-  const canAdd = groups
-    .filter((g) => g.is_required)
-    .every((g) => {
-      const sel = selections[g.id]
-      if (sel == null) return false
-      if (isSet(sel)) return sel.size > 0
-      return sel.length > 0
-    })
+  // Numărul de opțiuni selectate dintr-un grup (0/1 pe single, size pe multiple).
+  function selectedCount(g: ModifierGroup): number {
+    const sel = selections[g.id]
+    if (sel == null) return 0
+    if (isSet(sel)) return sel.size
+    return sel.length > 0 ? 1 : 0
+  }
+
+  // min_select/max_select respectate real (paritate cu serverul, mig 191):
+  // fiecare grup cere cel puțin minimul lui efectiv — is_required SAU
+  // min_select > 0 (vezi modifierGroupMin din lib/qr.ts).
+  const canAdd = groups.every((g) => selectedCount(g) >= modifierGroupMin(g))
 
   function modDelta(): number {
     return groups.reduce((sum, g) => {
@@ -114,10 +119,20 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
   }
 
   function toggleMultiple(gid: string, oid: string): void {
+    const group = groups.find((g) => g.id === gid)
+    const maxSelect = group?.max_select ?? null
     setSelections((prev) => {
       const existing = prev[gid]
       const s = isSet(existing) ? new Set(existing) : new Set<string>()
-      s.has(oid) ? s.delete(oid) : s.add(oid)
+      if (s.has(oid)) {
+        // Deselectarea e mereu permisă.
+        s.delete(oid)
+      } else {
+        // Blocăm bifarea peste max_select (paritate cu serverul, mig 145 #9 —
+        // altfel comanda ar fi respinsă abia la finalizare, cu 'too_many_in_group').
+        if (maxSelect != null && s.size >= maxSelect) return prev
+        s.add(oid)
+      }
       return { ...prev, [gid]: s }
     })
   }
@@ -425,10 +440,15 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             {/* Modifier groups — clear required/optional labeling */}
             {groups.map((g) => {
               const sel = selections[g.id]
-              const hasSelection =
-                g.selection_type === 'single'
-                  ? sel != null && !isSet(sel)
-                  : isSet(sel) && sel.size > 0
+              const groupMin = modifierGroupMin(g)
+              const groupCount = selectedCount(g)
+              const groupMet = groupCount >= groupMin
+              const groupHint = modifierGroupHint(g)
+              // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
+              const atMax =
+                g.selection_type === 'multiple' &&
+                g.max_select != null &&
+                groupCount >= g.max_select
 
               return (
                 <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -455,19 +475,30 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                       style={{
                         fontSize: 11,
                         fontWeight: 600,
-                        color: g.is_required
-                          ? hasSelection
-                            ? '#4CAF6E'
-                            : '#c0392b'
-                          : PUB.textMuted,
+                        color:
+                          groupMin > 0 ? (groupMet ? '#4CAF6E' : '#c0392b') : PUB.textMuted,
                         fontFamily: 'DM Sans, sans-serif',
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
                       }}
                     >
-                      {g.is_required ? (hasSelection ? '✓ ales' : 'Obligatoriu') : 'Opțional'}
+                      {groupMin > 0 ? (groupMet ? '✓ ales' : 'Obligatoriu') : 'Opțional'}
                     </div>
                   </div>
+
+                  {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
+                  {groupHint && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: PUB.textMuted,
+                        fontFamily: 'DM Sans, sans-serif',
+                        marginTop: -4,
+                      }}
+                    >
+                      {groupHint}
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                     {g.modifier_options.map((opt) => {
@@ -475,10 +506,14 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                         g.selection_type === 'single'
                           ? !isSet(sel) && sel === opt.id
                           : isSet(sel) && sel.has(opt.id)
+                      // La plafon, opțiunile nebifate se blochează (hint vizual
+                      // „Maxim N" e afișat sub titlul grupului).
+                      const isDisabled = atMax && !isSel
 
                       return (
                         <button
                           key={opt.id}
+                          disabled={isDisabled}
                           onClick={() =>
                             g.selection_type === 'single'
                               ? toggleSingle(g.id, opt.id)
@@ -493,7 +528,8 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                             fontFamily: 'DM Sans, sans-serif',
                             fontSize: 14,
                             fontWeight: isSel ? 600 : 500,
-                            cursor: 'pointer',
+                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                            opacity: isDisabled ? 0.45 : 1,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',

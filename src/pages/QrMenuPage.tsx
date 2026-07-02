@@ -11,6 +11,7 @@ import {
   fetchActiveHappyHour,
   happyHourPercentForProduct,
   openTableSession,
+  hasMandatoryModifierGroups,
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
@@ -906,9 +907,11 @@ export default function QrMenuPage({ token }: Props) {
                     </span>
                     <button
                       onClick={() => {
-                        const hasRequired = (p.modifier_groups ?? []).some((g) => g.is_required)
+                        // Minim efectiv > 0 (is_required SAU min_select > 0) →
+                        // quick-add interzis; serverul respinge sub minim (mig 191).
+                        const hasRequired = hasMandatoryModifierGroups(p.modifier_groups)
                         if (hasRequired) {
-                          // Has required modifiers → open ProductSheet
+                          // Are modificatori obligatorii → deschidem ProductSheet
                           setPairingPopup(null)
                           setActiveProduct(p)
                         } else {
