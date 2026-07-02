@@ -19,22 +19,30 @@ export function getFounderView(): string | null {
   }
 }
 
-export function enterFounderView(restaurantId: string): void {
+export async function enterFounderView(restaurantId: string): Promise<void> {
   try {
     localStorage.setItem(FOUNDER_VIEW_KEY, restaurantId)
   } catch {
     /* private mode — modul fondator nu poate persista */
   }
+  // Vizita se înregistrează în audit (mig 187) — best-effort: o eroare de
+  // rețea nu blochează intrarea (gate-ul real de acces rămâne RLS-ul).
+  try {
+    await supabase.rpc('log_partner_visit', { p_restaurant_id: restaurantId })
+  } catch {
+    /* best-effort */
+  }
   window.location.href = '/dashboard'
 }
 
-export function exitFounderView(): void {
+// target: /founder pentru fondator, /afiliat pentru partener.
+export function exitFounderView(target: string = '/founder'): void {
   try {
     localStorage.removeItem(FOUNDER_VIEW_KEY)
   } catch {
     /* ignore */
   }
-  window.location.href = '/founder'
+  window.location.href = target
 }
 
 export function clearFounderView(): void {
@@ -228,4 +236,33 @@ export function toggleRestaurantActive(
 
 export function listAuditLog(limit = 100): Promise<AdminAuditRow[]> {
   return rpcJson<AdminAuditRow[]>('admin_list_audit_log', { p_limit: limit })
+}
+
+// ── Acces partener (afiliați → restaurantele atribuite lor, mig 187) ──
+export interface PartnerRestaurant {
+  restaurant_id: string
+  name: string
+  slug: string
+  city: string | null
+  is_active: boolean
+  plan: string
+}
+
+export interface PartnerAccessRow {
+  attribution_id: string
+  affiliate_email: string
+  affiliate_name: string | null
+  revoked_at: string | null
+}
+
+export function listPartnerRestaurants(): Promise<PartnerRestaurant[]> {
+  return rpcJson<PartnerRestaurant[]>('list_partner_restaurants')
+}
+
+export function getPartnerAccess(restaurantId: string): Promise<PartnerAccessRow[]> {
+  return rpcJson<PartnerAccessRow[]>('get_partner_access', { p_restaurant_id: restaurantId })
+}
+
+export function revokeAffiliateAccess(restaurantId: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('revoke_affiliate_access', { p_restaurant_id: restaurantId })
 }

@@ -6,6 +6,7 @@ import { Icon } from './ui/Icon'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
+import { getPartnerAccess, revokeAffiliateAccess, type PartnerAccessRow } from '../lib/founder'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Owner',
@@ -612,6 +613,133 @@ export default function TeamManager({
           </div>
         </div>
       )}
+
+      {/* Acces partener (afiliatul care a adus restaurantul, mig 187) —
+          vizibil doar ownerului; gate-ul real e server-side în RPC. */}
+      {currentUserId === restaurant.owner_id && (
+        <PartnerAccessSection restaurantId={restaurant.id} toast={toast} />
+      )}
+    </div>
+  )
+}
+
+function PartnerAccessSection({
+  restaurantId,
+  toast,
+}: {
+  restaurantId: string
+  toast: (msg: string, type?: string) => void
+}) {
+  const [rows, setRows] = useState<PartnerAccessRow[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await getPartnerAccess(restaurantId))
+    } catch {
+      /* non-owner sau eroare — secțiunea rămâne goală */
+    }
+    setLoaded(true)
+  }, [restaurantId])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (!loaded || rows.length === 0) return null
+  const active = rows.filter((r) => r.revoked_at == null)
+
+  async function handleRevoke() {
+    setBusy(true)
+    try {
+      const res = await revokeAffiliateAccess(restaurantId)
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast('Accesul partenerului a fost revocat')
+      setConfirming(false)
+      await load()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Eroare la revocare', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      style={{
+        background: D.s2,
+        border: `1px solid ${D.border}`,
+        borderRadius: 14,
+        padding: 20,
+        marginTop: 24,
+      }}
+    >
+      <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 4 }}>
+        Acces partener
+      </div>
+      <p style={{ color: D.t2, fontSize: '0.78rem', marginBottom: 14 }}>
+        Partenerul care ți-a recomandat Menuvia poate intra pe dashboardul tău ca să te ajute cu
+        configurarea. Poți opri accesul oricând — nu îți afectează abonamentul.
+      </p>
+      {rows.map((r) => (
+        <div
+          key={r.attribution_id}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap',
+            padding: '10px 12px',
+            background: D.s3,
+            borderRadius: 10,
+            marginBottom: 8,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.85rem', overflowWrap: 'anywhere' }}>
+              {r.affiliate_name || r.affiliate_email}
+            </div>
+            <div style={{ color: r.revoked_at ? D.red : D.green, fontSize: '0.72rem' }}>
+              {r.revoked_at ? 'Acces revocat' : 'Acces activ'}
+            </div>
+          </div>
+        </div>
+      ))}
+      {active.length > 0 &&
+        (confirming ? (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ color: D.t2, fontSize: '0.8rem' }}>
+              Sigur revoci accesul partenerului?
+            </span>
+            <button
+              onClick={() => void handleRevoke()}
+              disabled={busy}
+              style={btn({ background: D.red, color: '#fff' })}
+            >
+              Da, revocă
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
+            >
+              Anulează
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            style={btn({
+              background: 'transparent',
+              color: D.red,
+              border: '1px solid rgba(224,85,85,0.3)',
+            })}
+          >
+            Revocă accesul
+          </button>
+        ))}
     </div>
   )
 }
