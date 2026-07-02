@@ -16,6 +16,9 @@ import { readableTextOn } from '../../lib/themes'
 //                (adresă/ore/social) sub nume.
 //  • "compact" → bandă slim pentru QR (RAPID): fără imagine grea, accent
 //                subtil, nume mai mic, slot `badge` (ex. „Masa 12") + status.
+//                Sub-modul `chrome`: 'band' (default) = bandă pe surface cu
+//                linie de accent; 'plain' = direct pe fundalul paginii, cu
+//                logo/nume + badge stivuite (look-ul istoric al paginii QR).
 //
 // Un singur accent, ierarhie reală, contrast AA. Header-ul nu conține
 // controale interactive proprii; pile-urile interactive primite prin
@@ -55,10 +58,16 @@ export interface MenuHeaderProps {
   restaurantName: string
   /** Cover folosit doar în varianta "full". */
   coverUrl?: string | null
+  /** Logo (compact + chrome 'plain'): în locul numelui-text; numele = `alt`. */
+  logoUrl?: string | null
   /** true = deschis, false = închis, null/undefined = ascunde pastila. */
   isOpen?: boolean | null
   /** Indicator în varianta "compact" (ex. „Masa 12"). */
   badge?: ReactNode
+  /** Doar pentru "compact": 'band' (default) = bandă pe surface cu linie de
+      accent; 'plain' = pe fundalul paginii, nume + badge stivuite, badge în
+      tenta accentului (look-ul istoric al header-ului QR). */
+  chrome?: 'band' | 'plain'
   /** Culoarea de accent (un singur accent pe tot header-ul). */
   accent: string
   /** Paleta publică a temei. */
@@ -140,17 +149,91 @@ export default function MenuHeader({
   variant,
   restaurantName,
   coverUrl,
+  logoUrl,
   isOpen,
   badge,
   accent,
   PUB,
   theme,
+  chrome = 'band',
   children,
 }: MenuHeaderProps) {
   const t = menuType(theme.fonts)
   const showStatus = isOpen != null
+  const hasLogo = typeof logoUrl === 'string' && logoUrl.length > 0
 
-  // ── Varianta COMPACT (meniu QR, rapid) ──────────────────────
+  // ── Varianta COMPACT, chrome "plain" (pagina QR) ────────────
+  // Look-ul istoric al header-ului QR, păstrat 1:1 la mutarea în componentă:
+  // direct pe fundalul paginii (fără bandă pe surface / borduri), logo sau
+  // nume, apoi badge-ul de masă stivuit dedesubt, în tenta accentului.
+  if (variant === 'compact' && chrome === 'plain') {
+    return (
+      <header
+        style={{
+          padding: '20px 20px 0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: SPACE_1,
+        }}
+      >
+        {hasLogo ? (
+          <img
+            src={logoUrl as string}
+            alt={restaurantName}
+            decoding="async"
+            // Dimensiuni rezervate (h fix + lățime max) → fără CLS la primul paint.
+            style={{
+              width: 'auto',
+              maxWidth: 160,
+              height: 48,
+              objectFit: 'contain',
+              marginBottom: SPACE_1,
+            }}
+          />
+        ) : (
+          <h1
+            style={{
+              // Aceeași mărime ca sectionTitle din scală; weight 700 păstrat
+              // intenționat — fidel look-ului istoric al paginii QR.
+              ...t.sectionTitle,
+              fontWeight: 700,
+              color: PUB.text,
+              margin: 0,
+            }}
+          >
+            {restaurantName}
+          </h1>
+        )}
+        {badge != null && (
+          <div
+            style={{
+              background: `${accent}18`,
+              border: `1px solid ${accent}44`,
+              borderRadius: 20,
+              padding: '4px 12px',
+              fontSize: 13,
+              color: accent,
+              fontWeight: 600,
+            }}
+          >
+            {badge}
+          </div>
+        )}
+        {showStatus && (
+          <div style={{ marginTop: SPACE_2 }}>
+            <StatusPill
+              isOpen={isOpen as boolean}
+              onSurface
+              PUB={PUB}
+              labelStyle={t.label}
+            />
+          </div>
+        )}
+      </header>
+    )
+  }
+
+  // ── Varianta COMPACT, chrome "band" (default) ───────────────
   // Bandă slim cu accent subtil, fără imagine grea. Nume + badge + status.
   if (variant === 'compact') {
     return (

@@ -39,8 +39,11 @@ import {
 } from '../components/icons/MenuIcons'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A): stări premium + bară categorii unificată
-import { MenuLoading, MenuError } from '../components/menu/MenuStates'
+import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+// Scala tipografică comună a meniului — aceleași token-uri ca în componentele
+// de card/header, ca titlurile să nu mai drifteze cu valori hand-typed.
+import { menuType } from '../lib/menuType'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
@@ -99,6 +102,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   )
   const accent = restaurant?.primary_color ?? theme.colors.accent
   const accentGradient = theme.colors.accentGradient
+  // Scala tipografică pe fonturile temei — memoizată ca PUB (prop stabil).
+  const t = useMemo(() => menuType(theme.fonts), [theme])
 
   const pickupEnabled = restaurant?.pickup_settings?.enabled ?? false
   const lang = restaurant?.language ?? 'ro'
@@ -515,19 +520,27 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             ))}
           </div>
         )}
-        {filtered.length === 0 && (
-          <EmptyState
-            lang={lang}
-            theme={theme}
-            PUB={PUB}
-            accent={accent}
-            onClear={() => {
-              setSearch('')
-              setActiveFilters(new Set())
-              setActiveCat('all')
-            }}
-          />
-        )}
+        {filtered.length === 0 &&
+          (allProducts.length === 0 ? (
+            // Catalog gol: restaurantul n-a publicat încă niciun produs — mesaj
+            // dedicat „revino curând", FĂRĂ buton de golire (nu există filtre
+            // care să fi golit lista).
+            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} />
+          ) : (
+            // Doar căutarea/filtrele au golit lista → starea „no_results" cu
+            // acțiunea de golire a filtrelor.
+            <EmptyState
+              lang={lang}
+              theme={theme}
+              PUB={PUB}
+              accent={accent}
+              onClear={() => {
+                setSearch('')
+                setActiveFilters(new Set())
+                setActiveCat('all')
+              }}
+            />
+          ))}
         {filteredByCat.map(({ cat, products }, sectionIdx) => (
           <RevealItem
             key={cat?.id ?? 'flat'}
@@ -703,12 +716,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             <div style={{ padding: '20px 22px 14px', flex: 1, overflowY: 'auto' }}>
               <div
                 style={{
-                  fontFamily: theme.fonts.heading,
-                  fontSize: 22,
-                  fontWeight: 600,
+                  // Titlul sheet-ului = sectionTitle din scală (era hand-typed
+                  // și driftuise: -0.01em aici vs -0.015em la titlul de secțiune).
+                  ...t.sectionTitle,
                   color: PUB.text,
                   marginBottom: 14,
-                  letterSpacing: '-0.01em',
                 }}
               >
                 {listMode ? 'Lista mea' : 'Comanda ta'}
@@ -1013,6 +1025,16 @@ function RevealItem({
 
 // ═══════════════════════════════════════════════════════════════
 // HERO SECTION — full-bleed cover/gradient + glass pills overlay
+//
+// Lăsat INTENȚIONAT separat de components/menu/MenuHeader (variant "full"),
+// deși pare un candidat de unificare: hero-ul editorial de aici e substanțial
+// diferit (nume serif italic clamp(34px,9vw,52px) vs. menuType.hero drept,
+// tagline gate-uit prin resolveMenuElements, pastilă de status LOCALIZATĂ
+// prin T(lang,…) cu verde propriu #7BE093 vs. „Deschis acum" hardcodat RO +
+// #4CAF6E în MenuHeader, pills glass sensibile la isDark). O extragere a
+// „sub-bucăților comune" ar fi cerut parametrizarea culorii/textului/limbii
+// până la o componentă fără conținut propriu — risc de degradare vizuală și
+// de pierdere a i18n-ului, fără câștig real de deduplicare.
 // ═══════════════════════════════════════════════════════════════
 interface HeroProps {
   restaurant: Restaurant
@@ -1451,6 +1473,9 @@ interface SectionHeaderProps {
 }
 
 function SectionHeader({ title, metaText, theme, PUB }: SectionHeaderProps) {
+  // Titlul de secțiune vine din scala comună (menuType.sectionTitle), nu din
+  // valori hand-typed — aceeași ierarhie ca pe header/carduri.
+  const t = menuType(theme.fonts)
   return (
     <div
       style={{
@@ -1462,12 +1487,9 @@ function SectionHeader({ title, metaText, theme, PUB }: SectionHeaderProps) {
     >
       <h2
         style={{
-          fontFamily: theme.fonts.heading,
-          fontSize: 22,
-          fontWeight: 600,
+          ...t.sectionTitle,
           color: PUB.text,
           margin: 0,
-          letterSpacing: '-0.015em',
           flexShrink: 0,
         }}
       >
