@@ -205,10 +205,25 @@ export default function WaiterPage() {
   }, [])
 
   const prevReadyIds = useRef(new Set<string>())
+  // Primul snapshot hidratat NU e „comandă nouă" — altfel sunetul suna la
+  // încărcarea paginii sau după schimbarea restaurantului. Sunăm doar de la
+  // al doilea snapshot (pattern oglindit din KitchenPage.tsx).
+  const hasSeenInitialReady = useRef(false)
 
   // ── Waiter calls ──────────────────────────────────────────────
   const [waiterCalls, setWaiterCalls] = useState<WaiterCall[]>([])
   const prevCallIds = useRef(new Set<string>())
+  // Idem: primul set de apeluri hidratat nu declanșează sunet.
+  const hasSeenInitialCalls = useRef(false)
+
+  // Reset la schimbarea restaurantului — noul prim snapshot (apeluri + ready)
+  // nu trebuie să sune.
+  useEffect(() => {
+    prevReadyIds.current = new Set<string>()
+    hasSeenInitialReady.current = false
+    prevCallIds.current = new Set<string>()
+    hasSeenInitialCalls.current = false
+  }, [restaurantId])
 
   useEffect(() => {
     if (!restaurantId) return
@@ -226,12 +241,15 @@ export default function WaiterPage() {
   }, [restaurantId])
 
   useEffect(() => {
-    for (const c of waiterCalls) {
-      if (!prevCallIds.current.has(c.id)) {
-        playSound(660, 400)
-        break
+    if (hasSeenInitialCalls.current) {
+      for (const c of waiterCalls) {
+        if (!prevCallIds.current.has(c.id)) {
+          playSound(660, 400)
+          break
+        }
       }
     }
+    hasSeenInitialCalls.current = true
     prevCallIds.current = new Set(waiterCalls.map((c) => c.id))
   }, [waiterCalls])
 
@@ -395,7 +413,11 @@ export default function WaiterPage() {
   // useMemo to avoid new array reference every render (fixes useEffect dependency)
   const orders = useMemo(() => {
     if (assignedTableIds instanceof Set) {
-      return allOrders.filter((o) => o.table_id != null && assignedTableIds.has(o.table_id))
+      // Comenzile fără masă (takeaway / comandă manuală „Fără masă") nu
+      // aparțin niciunui ospătar prin alocare de masă — le arătăm TUTUROR
+      // ospătarilor activi, indiferent de alocările lor, ca nicio comandă
+      // să nu rămână orfană (invizibilă pentru toată lumea).
+      return allOrders.filter((o) => o.table_id == null || assignedTableIds.has(o.table_id))
     }
     return allOrders
   }, [allOrders, assignedTableIds])
@@ -409,12 +431,15 @@ export default function WaiterPage() {
   // Sound on new ready orders
   useEffect(() => {
     const readyOrders = orders.filter((o) => o.status === 'ready')
-    for (const o of readyOrders) {
-      if (!prevReadyIds.current.has(o.id)) {
-        playSound(440, 300)
-        break
+    if (hasSeenInitialReady.current) {
+      for (const o of readyOrders) {
+        if (!prevReadyIds.current.has(o.id)) {
+          playSound(440, 300)
+          break
+        }
       }
     }
+    hasSeenInitialReady.current = true
     prevReadyIds.current = new Set(readyOrders.map((o) => o.id))
   }, [orders])
 
