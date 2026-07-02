@@ -45,6 +45,7 @@ const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { Icon, type IconName } from '../components/ui/Icon'
+import { EmptyState } from '../components/ui/EmptyState'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -458,8 +459,6 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Comenzi',
     icon: 'orders',
     minTier: 2,
-    // Rezervările sunt complet ascunse din nav-ul MVP (componenta există,
-    // modulul se gestionează din Setări; expunere = decizie viitoare).
     subTabs: [{ id: 'comenzi', label: 'Comenzi' }],
   },
   {
@@ -468,6 +467,10 @@ const NAV_GROUPS: NavGroup[] = [
     icon: 'table',
     subTabs: [
       { id: 'mese', label: 'Mese & QR-uri' },
+      // Rezervările stau aici (nu sub „Comenzi"): modulul e permis pe TOATE
+      // planurile (mig 086), iar grupul „Comenzi" are minTier 2 — l-ar ascunde
+      // greșit pe Plan 1. adminOnly: ospătarii au deja rezervările în WaiterPage.
+      { id: 'reservations', label: 'Rezervări', adminOnly: true },
       // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
       // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
       { id: 'arhitectura', label: 'Hartă sală', minTier: 3 },
@@ -689,6 +692,32 @@ export default function DashboardPage({
     }
   }, [restaurant?.id, tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Badge „Rezervări": câte rezervări PENDING viitoare așteaptă confirmare.
+  // Count ieftin (head:true), reîmprospătat la schimbarea de tab/restaurant —
+  // suficient ca semnal de atenție fără canal realtime permanent în nav.
+  // Dep pe boolean derivat, NU pe obiectul hook-ului (identitate nouă per render).
+  const reservationsModuleOn = modulesState.isEnabled('reservations')
+  const [pendingReservations, setPendingReservations] = useState(0)
+  React.useEffect(() => {
+    if (!restaurant || !isAdminRole || !reservationsModuleOn) {
+      setPendingReservations(0)
+      return
+    }
+    let cancelled = false
+    void supabase
+      .from('reservations')
+      .select('id', { count: 'exact', head: true })
+      .eq('restaurant_id', restaurant.id)
+      .eq('status', 'pending')
+      .gte('starts_at', new Date().toISOString())
+      .then(({ count }) => {
+        if (!cancelled) setPendingReservations(count ?? 0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurant?.id, tab, isAdminRole, reservationsModuleOn]) // eslint-disable-line react-hooks/exhaustive-deps
+
   if (rLoading)
     return (
       <div
@@ -844,6 +873,20 @@ export default function DashboardPage({
             >
               <Icon name={g.icon} size={18} />
               {g.label}
+              {/* Punct de atenție: rezervări pending nevăzute (grupul Mese & QR). */}
+              {g.id === 'mese-qr' && pendingReservations > 0 && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: D.gold,
+                    marginLeft: 'auto',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
             </button>
           )
         })}
@@ -1110,10 +1153,33 @@ export default function DashboardPage({
                             background: active ? D.goldA : 'transparent',
                             color: active ? D.goldL : D.t2,
                             whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
                             transition: `background ${MOTION.fast}ms ${MOTION.standard}, color ${MOTION.fast}ms ${MOTION.standard}, border-color ${MOTION.fast}ms ${MOTION.standard}`,
                           }}
                         >
                           {st.label}
+                          {st.id === 'reservations' && pendingReservations > 0 && (
+                            <span
+                              aria-label={`${pendingReservations} rezervări în așteptare`}
+                              style={{
+                                minWidth: 18,
+                                height: 18,
+                                padding: '0 5px',
+                                borderRadius: 100,
+                                background: D.gold,
+                                color: '#141414',
+                                fontSize: '0.65rem',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                              }}
+                            >
+                              {pendingReservations > 99 ? '99+' : pendingReservations}
+                            </span>
+                          )}
                         </button>
                       )
                     })}
@@ -1274,11 +1340,38 @@ export default function DashboardPage({
                     onUpgrade={onPricing}
                   />
                 ))}
-              {tab === 'reservations' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
-                  <ReservationsTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'reservations' &&
+                (reservationsModuleOn ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
+                    <ReservationsTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <EmptyState
+                    icon="calendar"
+                    title="Rezervările nu sunt activate"
+                    description="Clienții tăi vor putea rezerva o masă direct din meniul public, iar tu le confirmi și le gestionezi de aici. Activezi modulul dintr-un singur click, din Setări."
+                    action={
+                      <button
+                        onClick={() => setTab('settings')}
+                        className="pressable"
+                        style={{
+                          padding: '10px 20px',
+                          minHeight: 44,
+                          borderRadius: 10,
+                          border: 'none',
+                          cursor: 'pointer',
+                          background: D.gold,
+                          color: '#141414',
+                          fontSize: '0.85rem',
+                          fontWeight: 600,
+                          fontFamily: 'DM Sans,sans-serif',
+                        }}
+                      >
+                        Activează din Setări
+                      </button>
+                    }
+                  />
+                ))}
               {tab === 'casa-marcat' &&
                 (tier >= 3 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
@@ -1390,7 +1483,24 @@ export default function DashboardPage({
                 transition: 'color .15s',
               }}
             >
-              <Icon name={g.icon} size={20} />
+              <span style={{ position: 'relative', display: 'inline-flex' }}>
+                <Icon name={g.icon} size={20} />
+                {/* Punct de atenție pe mobil: rezervări pending nevăzute. */}
+                {g.id === 'mese-qr' && pendingReservations > 0 && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      top: -2,
+                      right: -4,
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: D.gold,
+                    }}
+                  />
+                )}
+              </span>
               <span
                 style={{
                   fontSize: '0.6rem',
