@@ -127,8 +127,24 @@ export default function AfiliatPage() {
             Devino afiliat Menuvia
           </h1>
           <p style={{ color: D.t2, fontSize: '0.95rem', lineHeight: 1.5, margin: '0 0 20px' }}>
-            Recomandă Menuvia restaurantelor și câștigi comision din fiecare abonament adus —
-            o singură dată la activare și apoi lunar, cât timp restaurantul rămâne client.
+            {dashboard?.defaults ? (
+              <>
+                Recomandă Menuvia restaurantelor și primești{' '}
+                <strong style={{ color: D.t1 }}>
+                  {(dashboard.defaults.setup_bps / 100).toLocaleString('ro-RO')}%
+                </strong>{' '}
+                din prima factură a fiecărui restaurant adus, apoi{' '}
+                <strong style={{ color: D.t1 }}>
+                  {(dashboard.defaults.recurring_bps / 100).toLocaleString('ro-RO')}%
+                </strong>{' '}
+                din abonament, lunar, timp de {dashboard.defaults.recurring_cap_months} luni.
+              </>
+            ) : (
+              <>
+                Recomandă Menuvia restaurantelor și câștigi comision din fiecare abonament adus —
+                o singură dată la activare și apoi lunar, cât timp restaurantul rămâne client.
+              </>
+            )}
           </p>
           {/* Cod opțional al celui care te-a invitat (sub-afiliere). */}
           <input
@@ -203,6 +219,12 @@ export default function AfiliatPage() {
           subsCount={subs.length}
           earnings={earnings}
           nextPayoutAt={dashboard.next_payout_at}
+          commission={{
+            setupBps: aff.setup_bps,
+            recurringBps: aff.recurring_bps,
+            cascadeBps: aff.cascade_bps,
+            capMonths: aff.recurring_cap_months,
+          }}
         />
       ) : null}
       {tab === 'restaurante' ? (
@@ -225,6 +247,7 @@ function AcasaTab({
   subsCount,
   earnings,
   nextPayoutAt,
+  commission,
 }: {
   activeCount: number
   totalCount: number
@@ -238,12 +261,48 @@ function AcasaTab({
     clawed_back_cents: number
   }
   nextPayoutAt?: string | null
+  commission: {
+    setupBps: number
+    recurringBps: number
+    cascadeBps: number
+    capMonths: number
+  }
 }) {
   const e = earnings
   // Moneda câștigurilor (default 'RON' dacă lipsește) — o pasăm la formatRON.
   const cur = e?.currency || 'RON'
+  const pct = (bps: number) => (bps / 100).toLocaleString('ro-RO') + '%'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Comisioanele reale ale afiliatului (setate de platformă, mig 188) —
+          transparență: cifrele exacte, nu text generic. */}
+      <div style={card}>
+        <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Comisioanele tale
+        </div>
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10 }}>
+          <div>
+            <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
+              {pct(commission.setupBps)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: D.t2 }}>din prima factură (activare)</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
+              {pct(commission.recurringBps)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: D.t2 }}>
+              lunar, max {commission.capMonths} luni
+            </div>
+          </div>
+          <div>
+            <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
+              {pct(commission.cascadeBps)}
+            </div>
+            <div style={{ fontSize: '0.74rem', color: D.t2 }}>din comisioanele sub-afiliaților</div>
+          </div>
+        </div>
+      </div>
       <div
         style={{
           display: 'grid',

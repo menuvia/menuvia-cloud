@@ -147,6 +147,12 @@ export interface AdminAffiliateRow {
   balance_ron_cents: number
   restaurants: AdminAffiliateRestaurant[]
   created_at: string
+  // Comisioane (mig 188) — OPȚIONALE: frontend-ul poate ajunge în producție
+  // înaintea migrației; UI afișează „—" când lipsesc.
+  setup_bps?: number
+  recurring_bps?: number
+  cascade_bps?: number
+  recurring_cap_months?: number
 }
 
 export interface AdminAuditRow {
@@ -236,6 +242,57 @@ export function toggleRestaurantActive(
 
 export function listAuditLog(limit = 100): Promise<AdminAuditRow[]> {
   return rpcJson<AdminAuditRow[]>('admin_list_audit_log', { p_limit: limit })
+}
+
+// ── Comisioane afiliat (mig 188) ─────────────────────────────
+export interface AffiliateCommissionDefaults {
+  ok: boolean
+  setup_bps: number
+  recurring_bps: number
+  cascade_bps: number
+  recurring_cap_months: number
+  updated_at: string | null
+}
+
+export interface CommissionInput {
+  setupBps: number
+  recurringBps: number
+  cascadeBps: number
+  capMonths: number
+}
+
+export function getAffiliateDefaults(): Promise<AffiliateCommissionDefaults> {
+  return rpcJson<AffiliateCommissionDefaults>('admin_get_affiliate_defaults')
+}
+
+export function setAffiliateDefaults(v: CommissionInput): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_set_affiliate_defaults', {
+    p_setup_bps: v.setupBps,
+    p_recurring_bps: v.recurringBps,
+    p_cascade_bps: v.cascadeBps,
+    p_cap_months: v.capMonths,
+  })
+}
+
+export function setAffiliateCommission(
+  affiliateId: string,
+  v: CommissionInput,
+): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_set_affiliate_commission', {
+    p_affiliate_id: affiliateId,
+    p_setup_bps: v.setupBps,
+    p_recurring_bps: v.recurringBps,
+    p_cascade_bps: v.cascadeBps,
+    p_cap_months: v.capMonths,
+  })
+}
+
+export function applyDefaultsToAllAffiliates(): Promise<
+  AdminActionResult & { updated_count?: number }
+> {
+  return rpcJson<AdminActionResult & { updated_count?: number }>(
+    'admin_apply_defaults_to_all_affiliates',
+  )
 }
 
 // ── Acces partener (afiliați → restaurantele atribuite lor, mig 187) ──

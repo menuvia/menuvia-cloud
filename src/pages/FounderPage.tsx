@@ -27,6 +27,12 @@ import {
   toggleRestaurantActive,
   listAuditLog,
   enterFounderView,
+  getAffiliateDefaults,
+  setAffiliateDefaults,
+  setAffiliateCommission,
+  applyDefaultsToAllAffiliates,
+  type AffiliateCommissionDefaults,
+  type CommissionInput,
   type PlatformOverview,
   type AdminRestaurantRow,
   type AdminEmailFailure,
@@ -763,6 +769,7 @@ function AffiliatesSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <CommissionDefaultsCard onApplied={() => void affiliates.reload()} />
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Icon name="users" size={16} color={D.t2} />
@@ -802,6 +809,7 @@ function AffiliatesSection() {
                     Sold: {formatRon(a.balance_ron_cents)}
                   </div>
                 </div>
+                <AffiliateCommissionRow affiliate={a} onSaved={() => void affiliates.reload()} />
                 {a.restaurants.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {a.restaurants.map((r) => (
@@ -886,6 +894,318 @@ function AffiliatesSection() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Comisioane afiliat (mig 188) ─────────────────────────────
+// UI-ul lucrează în PROCENTE (bps/100); conversia la bps se face la trimitere.
+interface CommissionDraft {
+  setup: string
+  recurring: string
+  cascade: string
+  cap: string
+}
+
+function draftFromBps(setup: number, recurring: number, cascade: number, cap: number): CommissionDraft {
+  return {
+    setup: String(setup / 100),
+    recurring: String(recurring / 100),
+    cascade: String(cascade / 100),
+    cap: String(cap),
+  }
+}
+
+// null = draft invalid (mesajul de eroare se afișează în UI).
+function draftToInput(d: CommissionDraft): CommissionInput | null {
+  const setup = Math.round(parseFloat(d.setup) * 100)
+  const recurring = Math.round(parseFloat(d.recurring) * 100)
+  const cascade = Math.round(parseFloat(d.cascade) * 100)
+  const cap = parseInt(d.cap, 10)
+  if (
+    !isFinite(setup) || setup < 0 || setup > 10000 ||
+    !isFinite(recurring) || recurring < 0 || recurring > 10000 ||
+    !isFinite(cascade) || cascade < 0 || cascade > 10000 ||
+    !isFinite(cap) || cap < 0 || cap > 120
+  ) {
+    return null
+  }
+  return { setupBps: setup, recurringBps: recurring, cascadeBps: cascade, capMonths: cap }
+}
+
+function CommissionFields({
+  draft,
+  onChange,
+}: {
+  draft: CommissionDraft
+  onChange: (d: CommissionDraft) => void
+}) {
+  const fieldStyle: CSSProperties = {
+    width: 90,
+    padding: '8px 10px',
+    border: `1px solid ${D.border}`,
+    borderRadius: 8,
+    background: D.s3,
+    color: D.t1,
+    fontSize: 13,
+  }
+  const labelStyle: CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    fontSize: '0.68rem',
+    color: D.t3,
+  }
+  return (
+    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <label style={labelStyle}>
+        Activare (%)
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={draft.setup}
+          onChange={(e) => onChange({ ...draft, setup: e.target.value })}
+          style={fieldStyle}
+        />
+      </label>
+      <label style={labelStyle}>
+        Lunar (%)
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={draft.recurring}
+          onChange={(e) => onChange({ ...draft, recurring: e.target.value })}
+          style={fieldStyle}
+        />
+      </label>
+      <label style={labelStyle}>
+        Cascade (%)
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={0.5}
+          value={draft.cascade}
+          onChange={(e) => onChange({ ...draft, cascade: e.target.value })}
+          style={fieldStyle}
+        />
+      </label>
+      <label style={labelStyle}>
+        Plafon (luni)
+        <input
+          type="number"
+          min={0}
+          max={120}
+          step={1}
+          value={draft.cap}
+          onChange={(e) => onChange({ ...draft, cap: e.target.value })}
+          style={fieldStyle}
+        />
+      </label>
+    </div>
+  )
+}
+
+function CommissionDefaultsCard({ onApplied }: { onApplied: () => void }) {
+  const toast = useToast()
+  const defaults = useAdminData<AffiliateCommissionDefaults>(getAffiliateDefaults)
+  const [draft, setDraft] = useState<CommissionDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (defaults.data && draft == null) {
+      setDraft(
+        draftFromBps(
+          defaults.data.setup_bps,
+          defaults.data.recurring_bps,
+          defaults.data.cascade_bps,
+          defaults.data.recurring_cap_months,
+        ),
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaults.data])
+
+  async function save() {
+    if (!draft) return
+    const input = draftToInput(draft)
+    if (!input) {
+      toast.error('Valori invalide: procentele 0–100, plafonul 0–120 luni.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await setAffiliateDefaults(input)
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast.success('Comisionul implicit salvat — se aplică afiliaților NOI')
+      await defaults.reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function applyToAll() {
+    const ok = await confirm({
+      title: 'Aplici comisionul implicit la TOȚI afiliații?',
+      description:
+        'Suprascrie orice comision individual setat manual. Are efect imediat pe facturile viitoare (cele deja creditate nu se schimbă).',
+      confirmLabel: 'Aplică la toți',
+      destructive: true,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await applyDefaultsToAllAffiliates()
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast.success(`Comision aplicat la ${res.updated_count ?? 0} afiliați`)
+      onApplied()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la aplicare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Icon name="settings" size={16} color={D.t2} />
+        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Comision implicit</span>
+      </div>
+      <div style={{ fontSize: '0.72rem', color: D.t3, marginBottom: 12 }}>
+        Se aplică automat afiliaților noi la înscriere. „Aplică la toți" îl suprascrie și pe cei
+        existenți. Modificările au efect imediat pe facturile viitoare.
+      </div>
+      {defaults.loading || draft == null ? (
+        <InlineSpinner label="Se încarcă..." />
+      ) : defaults.error ? (
+        <SectionError message={defaults.error} onRetry={() => void defaults.reload()} />
+      ) : (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <CommissionFields draft={draft} onChange={setDraft} />
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void save()} disabled={busy} className="pressable" style={primaryBtn}>
+              Salvează
+            </button>
+            <button
+              onClick={() => void applyToAll()}
+              disabled={busy}
+              className="pressable"
+              style={{ ...ghostBtn, minHeight: 38, color: D.red, borderColor: 'rgba(224,85,85,0.3)' }}
+            >
+              Aplică la toți
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AffiliateCommissionRow({
+  affiliate,
+  onSaved,
+}: {
+  affiliate: AdminAffiliateRow
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<CommissionDraft | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const hasBps =
+    affiliate.setup_bps != null &&
+    affiliate.recurring_bps != null &&
+    affiliate.cascade_bps != null &&
+    affiliate.recurring_cap_months != null
+
+  function startEdit() {
+    if (!hasBps) return
+    setDraft(
+      draftFromBps(
+        affiliate.setup_bps!,
+        affiliate.recurring_bps!,
+        affiliate.cascade_bps!,
+        affiliate.recurring_cap_months!,
+      ),
+    )
+    setEditing(true)
+  }
+
+  async function save() {
+    if (!draft) return
+    const input = draftToInput(draft)
+    if (!input) {
+      toast.error('Valori invalide: procentele 0–100, plafonul 0–120 luni.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await setAffiliateCommission(affiliate.affiliate_id, input)
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast.success('Comision actualizat — efect imediat pe facturile viitoare')
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {!editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.74rem', color: D.t2 }}>
+            {hasBps
+              ? `Activare ${(affiliate.setup_bps! / 100).toLocaleString('ro-RO')}% · Lunar ${(affiliate.recurring_bps! / 100).toLocaleString('ro-RO')}% (${affiliate.recurring_cap_months} luni) · Cascade ${(affiliate.cascade_bps! / 100).toLocaleString('ro-RO')}%`
+              : 'Comision: — (rulează migrația 188)'}
+          </span>
+          {hasBps && (
+            <button
+              onClick={startEdit}
+              className="pressable"
+              style={{
+                padding: '4px 12px',
+                minHeight: 30,
+                borderRadius: 100,
+                border: `1px solid ${D.border}`,
+                background: 'transparent',
+                color: D.t2,
+                fontSize: '0.7rem',
+                cursor: 'pointer',
+              }}
+            >
+              Modifică
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          {draft && <CommissionFields draft={draft} onChange={setDraft} />}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => void save()} disabled={busy} className="pressable" style={primaryBtn}>
+              Salvează
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              className="pressable"
+              style={{ ...ghostBtn, minHeight: 38 }}
+            >
+              Anulează
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

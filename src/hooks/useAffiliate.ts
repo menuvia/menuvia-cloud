@@ -53,6 +53,14 @@ export interface AffiliateDashboard {
   sub_affiliates?: AffiliateSubAffiliate[]
   earnings?: AffiliateEarnings
   next_payout_at?: string | null
+  // Doar pe ramura ne-afiliat (mig 188): comisioanele implicite ale platformei,
+  // ca onboarding-ul să afișeze procentele reale. Opțional — poate lipsi până
+  // rulează migrația.
+  defaults?: {
+    setup_bps: number
+    recurring_bps: number
+    recurring_cap_months: number
+  }
 }
 
 export interface RegisterResult {
