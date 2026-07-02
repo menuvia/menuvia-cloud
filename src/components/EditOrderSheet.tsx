@@ -91,7 +91,6 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
   function updateQty(key: string, delta: number): void {
