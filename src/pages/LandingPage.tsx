@@ -74,6 +74,15 @@ export default function LandingPage({
     }
   }, [])
 
+  // Sosire cu fragment (ex. „/#functii" din MarketingFooter): browserul
+  // procesează hash-ul înainte ca React să fi montat secțiunea → scroll-ul
+  // nativ ratează ținta. Îl refacem după mount.
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!hash) return
+    document.getElementById(hash.slice(1))?.scrollIntoView()
+  }, [])
+
   // Mini-exemplu static: 5 restaurante pe planul recomandat (Meniu + Comenzi).
   const affPct = (bps: number) => (bps / 100).toLocaleString('ro-RO') + '%'
   const affLei = (v: number) => Math.round(v).toLocaleString('ro-RO')
@@ -211,7 +220,9 @@ export default function LandingPage({
           { label: 'Cum funcționează', href: '#cum-functioneaza' },
           { label: 'Prețuri', onClick: onPricing },
           { label: 'Demo', onClick: onDemo },
-          { label: 'Intră în cont', onClick: onLogin },
+          // keepOnMobile: pe telefon (majoritatea traficului) clientul
+          // existent trebuie să aibă o cale de login din header.
+          { label: 'Intră în cont', onClick: onLogin, keepOnMobile: true },
         ]}
         cta={{ label: 'Începe gratuit', onClick: () => onStartPlan('growth') }}
       />
@@ -538,6 +549,7 @@ export default function LandingPage({
               >
                 {f.q}
                 <span
+                  aria-hidden="true"
                   style={{
                     color: isOpen ? MKT.accent : MKT.text3,
                     flexShrink: 0,
@@ -551,7 +563,10 @@ export default function LandingPage({
                   +
                 </span>
               </button>
+              {/* aria-hidden pe colapsat: ascunderea e doar vizuală (0fr +
+                  opacity), altfel SR-ul citește răspunsuri „închise". */}
               <div
+                aria-hidden={!isOpen}
                 style={{
                   display: 'grid',
                   gridTemplateRows: isOpen ? '1fr' : '0fr',
@@ -656,7 +671,8 @@ export default function LandingPage({
                   fontFamily: 'Fraunces,serif',
                   fontSize: 'clamp(1.7rem, 3.5vw, 2.1rem)',
                   fontWeight: 700,
-                  color: MKT.accent,
+                  // accentInk: aurul viu pică sub 3:1 pe cardul crem (AA text mare).
+                  color: MKT.accentInk,
                   lineHeight: 1.25,
                   letterSpacing: '-0.02em',
                   marginBottom: 6,
