@@ -67,6 +67,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
   const [error, setError] = useState<string | null>(null)
   const [drafts, setDrafts] = useState<DraftProduct[]>([])
   const [imported, setImported] = useState(0)
+  const [importErrors, setImportErrors] = useState<string[]>([])
 
   async function handleFile(file: File) {
     if (file.size > 5 * 1024 * 1024) {
@@ -74,6 +75,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
       return
     }
     setError(null)
+    setImportErrors([])
     setBusy(true)
     try {
       const img = await fileToBase64(file)
@@ -104,12 +106,15 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     setBusy(true)
     setError(null)
     let ok = 0
+    const failed: string[] = []
     for (const d of drafts) {
       if (!d.include || !d.name.trim()) continue
       const r = await products.create({ name: d.name.trim(), description: d.description.trim() || null, price: d.price, emoji: d.emoji, category_id: d.category_id || null })
       if (!r.error) ok++
+      else failed.push(`${d.name.trim() || 'produs fără nume'}: ${r.error.message}`)
     }
     setImported(ok)
+    setImportErrors(failed)
     setBusy(false)
     setStep('done')
   }
@@ -173,9 +178,20 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
 
           {step === 'done' && (
             <div style={{ textAlign: 'center', padding: '24px 0' }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>✅</div>
-              <p style={{ color: D.t1, fontSize: '1rem', fontWeight: 600, marginBottom: 6 }}>{imported} produse adăugate!</p>
-              <p style={{ color: D.t2, fontSize: '0.85rem' }}>Le găsești în tab-ul Produse.</p>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>{importErrors.length > 0 ? '⚠️' : '✅'}</div>
+              <p style={{ color: D.t1, fontSize: '1rem', fontWeight: 600, marginBottom: 6 }}>
+                {importErrors.length > 0
+                  ? `${imported}/${imported + importErrors.length} produse salvate, ${importErrors.length} respinse`
+                  : `${imported} produse adăugate!`}
+              </p>
+              <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>Le găsești în tab-ul Produse.</p>
+              {importErrors.length > 0 && (
+                <div style={{ textAlign: 'left', background: D.redA, border: `1px solid ${D.red}44`, borderRadius: 9, padding: '10px 13px', fontSize: '0.8rem', color: D.red, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {importErrors.map((msg, i) => (
+                    <span key={i}>• {msg}</span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

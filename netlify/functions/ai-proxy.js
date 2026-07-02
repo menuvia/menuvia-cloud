@@ -386,9 +386,12 @@ exports.handler = async (event) => {
   }
 
   // ── Înregistrează consumul (scade cota la succes) ──────────
-  // Capturăm și eroarea: dacă metering-ul eșuează, costul a fost deja suportat
-  // dar cota NU s-a scăzut → logăm explicit (consum „gratuit" altfel invizibil).
-  const { data: usage, error: usageErr } = await supabase.rpc('ai_record_usage', {
+  // Apelul real la provider a reușit deja (userul a consumat tokens reali) —
+  // NU blocăm răspunsul către user dacă metering-ul eșuează. Facem o singură
+  // reîncercare imediată (RPC-ul poate eșua tranzitoriu: timeout de rețea,
+  // conexiune scurtă la pool etc.); dacă tot eșuează, logăm explicit toate
+  // detaliile necesare reconcilierii manuale a cotei.
+  const usageArgs = {
     p_restaurant_id: restaurant_id,
     p_feature: feature,
     p_provider: provider,
@@ -398,9 +401,24 @@ exports.handler = async (event) => {
     p_cost: 0,
     p_success: true,
     p_error: null,
-  })
+  }
+  let { data: usage, error: usageErr } = await supabase.rpc('ai_record_usage', usageArgs)
   if (usageErr) {
-    console.error('[ai-proxy] ai_record_usage FAILED (cost suportat, cotă NEscăzută):', usageErr.message, { restaurant_id, feature })
+    console.error('[ai-proxy] ai_record_usage a eșuat, reîncerc o dată:', usageErr.message, { restaurant_id, feature, provider, model, input_tokens: result.inputTokens, output_tokens: result.outputTokens })
+    ;({ data: usage, error: usageErr } = await supabase.rpc('ai_record_usage', usageArgs))
+  }
+  if (usageErr) {
+    // Discrepanță reală: tokens consumați real dar cota NU s-a scăzut.
+    // Log detaliat pentru reconciliere manuală ulterioară.
+    console.error('[ai-proxy] ai_record_usage FAILED după retry (cost suportat, cotă NEscăzută):', usageErr.message, {
+      restaurant_id,
+      feature,
+      provider,
+      model,
+      input_tokens: result.inputTokens,
+      output_tokens: result.outputTokens,
+      timestamp: new Date().toISOString(),
+    })
   }
 
   return jsonResponse(200, {
