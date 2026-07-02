@@ -873,19 +873,26 @@ export default function DashboardPage({
             >
               <Icon name={g.icon} size={18} />
               {g.label}
-              {/* Punct de atenție: rezervări pending nevăzute (grupul Mese & QR). */}
+              {/* Punct de atenție: rezervări pending nevăzute (grupul Mese & QR).
+                  Punctul e decorativ; textul ascuns vizual intră în numele
+                  accesibil al butonului pentru screen-readers. */}
               {g.id === 'mese-qr' && pendingReservations > 0 && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: D.gold,
-                    marginLeft: 'auto',
-                    flexShrink: 0,
-                  }}
-                />
+                <>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      background: D.gold,
+                      marginLeft: 'auto',
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span className="visually-hidden">
+                    {pendingReservations} rezervări în așteptare
+                  </span>
+                </>
               )}
             </button>
           )
@@ -1487,18 +1494,23 @@ export default function DashboardPage({
                 <Icon name={g.icon} size={20} />
                 {/* Punct de atenție pe mobil: rezervări pending nevăzute. */}
                 {g.id === 'mese-qr' && pendingReservations > 0 && (
-                  <span
-                    aria-hidden="true"
-                    style={{
-                      position: 'absolute',
-                      top: -2,
-                      right: -4,
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      background: D.gold,
-                    }}
-                  />
+                  <>
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        top: -2,
+                        right: -4,
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: D.gold,
+                      }}
+                    />
+                    <span className="visually-hidden">
+                      {pendingReservations} rezervări în așteptare
+                    </span>
+                  </>
                 )}
               </span>
               <span

@@ -356,6 +356,10 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
             gap: 5,
             color: D.t2,
             textDecoration: 'none',
+            // flexWrap mută doar item-uri ÎNTREGI pe rândul următor; valorile
+            // lungi neîntrerupte (email) au nevoie și de break la nivel de item.
+            overflowWrap: 'anywhere',
+            minWidth: 0,
           }}
         >
           <Icon name="phone" size={13} />
@@ -370,6 +374,8 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
               gap: 5,
               color: D.t2,
               textDecoration: 'none',
+              overflowWrap: 'anywhere',
+              minWidth: 0,
             }}
           >
             <Icon name="mail" size={13} />
