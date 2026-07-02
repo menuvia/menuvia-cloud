@@ -338,7 +338,16 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
           {STATUS_LABEL[r.status]}
         </div>
       </div>
-      <div style={{ display: 'flex', gap: 14, fontSize: 12, color: D.t2, marginBottom: 10 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 14,
+          fontSize: 12,
+          color: D.t2,
+          marginBottom: 10,
+        }}
+      >
         <a
           href={'tel:' + r.customer_phone}
           style={{
@@ -347,6 +356,10 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
             gap: 5,
             color: D.t2,
             textDecoration: 'none',
+            // flexWrap mută doar item-uri ÎNTREGI pe rândul următor; valorile
+            // lungi neîntrerupte (email) au nevoie și de break la nivel de item.
+            overflowWrap: 'anywhere',
+            minWidth: 0,
           }}
         >
           <Icon name="phone" size={13} />
@@ -361,6 +374,8 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
               gap: 5,
               color: D.t2,
               textDecoration: 'none',
+              overflowWrap: 'anywhere',
+              minWidth: 0,
             }}
           >
             <Icon name="mail" size={13} />
@@ -417,14 +432,17 @@ function ActionButton({
   return (
     <button
       onClick={onClick}
+      className="pressable"
       style={{
-        padding: '6px 12px',
+        // Touch target ≥44px (butoanele de tranziție se apasă din picioare, pe telefon).
+        padding: '10px 16px',
+        minHeight: 44,
         border: `1px solid ${danger ? 'rgba(224,85,85,0.30)' : D.border}`,
-        borderRadius: 8,
+        borderRadius: 10,
         background: danger ? 'rgba(224,85,85,0.08)' : D.s3,
         color: danger ? D.red : D.t1,
         cursor: 'pointer',
-        fontSize: 12,
+        fontSize: 13,
         fontWeight: 600,
       }}
     >
