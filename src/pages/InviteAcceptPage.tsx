@@ -132,21 +132,37 @@ export default function InviteAcceptPage({
       })
 
       if (rpcError) throw rpcError
-      if (!result?.ok) throw new Error('Eroare la acceptarea invitației.')
+
+      const r = result as { ok?: boolean; reason?: string } | null
+      if (!r?.ok) {
+        // Mapăm exact valorile `reason` întoarse de RPC-ul accept_invite (mig 096A)
+        // la mesaje specifice, acționabile, pentru un user ne-tehnic.
+        switch (r?.reason) {
+          case 'already_accepted':
+            setFormError('Această invitație a fost deja folosită.')
+            break
+          case 'expired':
+            setStep('expired')
+            break
+          case 'email_mismatch':
+            setFormError(
+              'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
+            )
+            break
+          case 'invalid':
+            setStep('invalid')
+            break
+          default:
+            setFormError('Nu am putut accepta invitația. Încearcă din nou.')
+        }
+        setSubmitting(false)
+        return
+      }
 
       setStep('done')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Eroare. Încearcă din nou.'
-      // Surface readable error messages for known cases
-      if (msg.includes('email mismatch')) {
-        setFormError('Email-ul contului nu corespunde cu invitația.')
-      } else if (msg.includes('token expired')) {
-        setStep('expired')
-      } else if (msg.includes('token not found') || msg.includes('already used')) {
-        setStep('invalid')
-      } else {
-        setFormError(msg)
-      }
+      setFormError(msg)
       setSubmitting(false)
     }
   }
