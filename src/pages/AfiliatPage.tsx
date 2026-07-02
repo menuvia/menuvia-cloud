@@ -11,6 +11,11 @@ import { formatRON, referralUrl } from '../lib/affiliate'
 import { useToast } from '../components/ui/useToast'
 import { PageSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
+import {
+  listPartnerRestaurants,
+  enterFounderView,
+  type PartnerRestaurant,
+} from '../lib/founder'
 
 const card = {
   background: D.s2,
@@ -275,6 +280,72 @@ function AcasaTab({
 }
 
 // ── Tab: Restaurante ─────────────────────────────────────────────────────────
+// Restaurantele partenere cu acces activ (mig 187): afiliatul poate intra
+// pe dashboardul lor (rol virtual de manager, revocabil de owner, cu banner
+// „Mod partener" + vizită logată în audit).
+function PartnerAccessList() {
+  const [partners, setPartners] = useState<PartnerRestaurant[]>([])
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    listPartnerRestaurants()
+      .then((rows) => {
+        if (!cancelled) setPartners(rows)
+      })
+      .catch(() => {
+        /* fără acces / eroare — secțiunea nu se afișează */
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (!loaded || partners.length === 0) return null
+
+  return (
+    <div style={{ ...card, marginBottom: 12 }}>
+      <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.95rem', marginBottom: 4 }}>
+        Acces de partener
+      </div>
+      <div style={{ color: D.t2, fontSize: '0.78rem', marginBottom: 12 }}>
+        Poți intra pe dashboardul restaurantelor aduse de tine ca să le ajuți cu configurarea.
+        Ownerul vede accesul tău și îl poate opri oricând.
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {partners.map((p) => (
+          <div
+            key={p.restaurant_id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '10px 12px',
+              background: D.s3,
+              borderRadius: 10,
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
+              <div style={{ color: D.t2, fontSize: '0.72rem' }}>
+                {(p.city ?? '—') + ' · ' + (p.is_active ? 'activ' : 'inactiv')}
+              </div>
+            </div>
+            <button onClick={() => void enterFounderView(p.restaurant_id)} style={goldBtn}>
+              Intră pe dashboard
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function RestauranteTab({
   restaurants,
   currency,
@@ -298,6 +369,7 @@ function RestauranteTab({
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <PartnerAccessList />
       {restaurants.map((r) => {
         const name = r.restaurant_names[0] ?? 'Cont nou'
         return (

@@ -1041,10 +1041,11 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            ⚡ Mod fondator — {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
+            {isPlatAdmin ? '⚡ Mod fondator' : '🤝 Mod partener'} —{' '}
+            {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
-            onClick={() => exitFounderView()}
+            onClick={() => exitFounderView(isPlatAdmin ? '/founder' : '/afiliat')}
             className="pressable"
             style={{
               padding: '6px 14px',

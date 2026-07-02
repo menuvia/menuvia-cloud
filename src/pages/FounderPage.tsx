@@ -549,7 +549,7 @@ function RestaurantsSection() {
                   <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button
-                        onClick={() => enterFounderView(r.restaurant_id)}
+                        onClick={() => void enterFounderView(r.restaurant_id)}
                         className="pressable"
                         style={primaryBtn}
                         title="Deschide dashboardul acestui restaurant în mod fondator"
@@ -807,7 +807,7 @@ function AffiliatesSection() {
                     {a.restaurants.map((r) => (
                       <button
                         key={r.restaurant_id}
-                        onClick={() => enterFounderView(r.restaurant_id)}
+                        onClick={() => void enterFounderView(r.restaurant_id)}
                         className="pressable"
                         title="Deschide dashboardul restaurantului în mod fondator"
                         style={{
