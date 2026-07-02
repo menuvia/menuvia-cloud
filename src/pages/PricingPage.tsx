@@ -1,10 +1,31 @@
 import React from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { PLANS as COMMERCIAL_PLANS, TRUST_SIGNALS, getPlanByInternalId } from '../lib/plans'
+import {
+  PLANS as COMMERCIAL_PLANS,
+  PLAN_COMPARISON,
+  TRUST_SIGNALS,
+  getPlanByInternalId,
+} from '../lib/plans'
 import { MKT, whatsappUrl } from '../lib/marketing'
 import { writePlanIntent } from '../lib/planIntent'
 import { MOTION } from '../lib/motion'
 import { RevealItem } from '../components/marketing/Reveal'
+import MarketingHeader from '../components/marketing/MarketingHeader'
+import MarketingFooter from '../components/marketing/MarketingFooter'
+import { Icon } from '../components/ui/Icon'
+
+// Celulă din tabelul comparativ: boolean → bifă verde / liniuță gri,
+// string → text scurt. Extras din render ca să rămână lizibil JSX-ul.
+function ComparisonValue({ value }: { value: string | boolean }) {
+  if (typeof value === 'boolean') {
+    return value ? (
+      <Icon name="check" size={18} color={MKT.success} label="Inclus" />
+    ) : (
+      <Icon name="minus" size={18} color={MKT.text3} label="Neinclus" />
+    )
+  }
+  return <span>{value}</span>
+}
 
 // Auto-trigger checkout după login: dacă userul ajunge pe /pricing logat și
 // avem plan_intent în sessionStorage (setat înainte de /auth), pornim imediat
@@ -160,19 +181,13 @@ export default function PricingPage({
     },
   ]
 
-  const BONUSES = [
-    { icon: '🔄', title: 'Migrare gratuită', desc: 'Vă mutăm meniul de la alt sistem.' },
-    { icon: '💰', title: '30 zile garanție', desc: 'Bani înapoi integrali. Fără întrebări.' },
-    { icon: '📄', title: 'QR-uri PDF', desc: 'Regenerați PDF-urile oricând, gratis.' },
-    { icon: '🔁', title: 'Schimb plan oricând', desc: 'Upgrade/downgrade fără penalizări.' },
-    { icon: '💾', title: 'Backup automat zilnic', desc: 'Nu pierdeți niciodată date.' },
-    { icon: '🔒', title: 'GDPR + securitate', desc: 'HTTPS, RLS, conformitate completă.' },
-    {
-      icon: '🎁',
-      title: 'Refferal: 1 lună gratis',
-      desc: 'Recomandă un restaurant, primiți amândoi.',
-    },
-    { icon: '📞', title: 'Suport WhatsApp direct', desc: 'Cu Radu personal, răspuns în 24h.' },
+  // Bandă compactă „Incluse în orice plan" — a înlocuit cele 8 carduri de
+  // bonusuri. Parteneriatul (fost „referral") trăiește discret în footer.
+  const INCLUDED_EVERYWHERE = [
+    'Migrare gratuită a meniului',
+    '30 de zile garanție',
+    'Backup zilnic + GDPR',
+    'Suport WhatsApp direct',
   ]
 
   const FAQ = [
@@ -193,20 +208,14 @@ export default function PricingPage({
       a: 'Per restaurant. Fiecare locație are abonamentul propriu. Pentru lanțuri cu 3+ locații, scrie-ne — facem ofertă custom.',
     },
     {
-      q: 'Este necesar hardware special?',
-      a: 'Nu. Funcționează pe orice telefon sau tabletă. Pentru bucătărie merge orice ecran.',
-    },
-    {
-      q: 'Cum se generează QR-urile?',
-      a: 'Automat din dashboard. PDF gata de printat în 30 de secunde.',
+      // Comasat: fostele „Este necesar hardware special?" și „Aveți integrare
+      // cu casă de marcat?" — un singur răspuns, cu partea fiscală completă.
+      q: 'E nevoie de hardware special sau de casă de marcat?',
+      a: 'Nu e nevoie de hardware special — funcționează pe orice telefon sau tabletă, iar pentru bucătărie merge orice ecran. Integrarea cu casa de marcat există în pilot, pe planul Fiscalizare (+99 lei/lună): suportăm Datecs, Activa și Tremol prin protocolul FiscalNet, disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Garantați prețul?',
       a: 'Pentru clienții actuali, prețul rămâne fix pe perioada planului. Modificările de preț se aplică doar la noi clienți.',
-    },
-    {
-      q: 'Aveți integrare cu casă de marcat?',
-      a: 'În pilot, pe planul Fiscalizare (+99 lei/lună). Suportăm Datecs, Activa și Tremol prin protocolul FiscalNet. Disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Sunteți pe piață de mult?',
@@ -262,58 +271,10 @@ export default function PricingPage({
         color: MKT.text,
       }}
     >
-      {/* Header */}
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 20px 0' }}>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 64,
-          }}
-        >
-          <button
-            onClick={onBack}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: MKT.text2,
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-          >
-            ← Înapoi
-          </button>
-          <span
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.2rem',
-              color: MKT.text,
-              fontWeight: 600,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Menuvia
-          </span>
-          <button
-            onClick={onLogin}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: MKT.text2,
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-          >
-            Autentificare
-          </button>
-        </div>
+      {/* Header comun de marketing — variantă „back" + CTA login */}
+      <MarketingHeader onBack={onBack} cta={{ label: 'Autentificare', onClick: onLogin }} />
 
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '56px 20px 0' }}>
         {/* Hero */}
         <div style={{ textAlign: 'center', maxWidth: 700, margin: '0 auto 56px' }}>
           <h1
@@ -711,6 +672,125 @@ export default function PricingPage({
           })}
         </RevealItem>
 
+        {/* Compară planurile în detaliu — tabel din PLAN_COMPARISON.
+            Pe mobil: overflowX auto + prima coloană sticky, ca eticheta
+            rândului să rămână vizibilă la scroll orizontal. */}
+        <section style={{ maxWidth: 920, margin: '48px auto 56px' }}>
+          <h2
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(1.5rem, 3.5vw, 2rem)',
+              color: MKT.text,
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+              textAlign: 'center',
+              marginBottom: 24,
+            }}
+          >
+            Compară planurile în detaliu
+          </h2>
+          <div
+            style={{
+              overflowX: 'auto',
+              WebkitOverflowScrolling: 'touch',
+              border: `1px solid ${MKT.border}`,
+              borderRadius: 14,
+              background: MKT.surface,
+              boxShadow: '0 1px 3px rgba(26,18,8,0.04)',
+            }}
+          >
+            <table
+              style={{
+                width: '100%',
+                minWidth: 640,
+                borderCollapse: 'separate',
+                borderSpacing: 0,
+                fontFamily: 'DM Sans,sans-serif',
+                fontSize: '0.88rem',
+              }}
+            >
+              <thead>
+                <tr>
+                  <th
+                    scope="col"
+                    aria-label="Funcționalitate"
+                    style={{
+                      position: 'sticky',
+                      left: 0,
+                      zIndex: 2,
+                      background: MKT.surface,
+                      padding: '14px 16px',
+                      textAlign: 'left',
+                      borderBottom: `1px solid ${MKT.border}`,
+                      minWidth: 180,
+                    }}
+                  />
+                  {COMMERCIAL_PLANS.map((p) => (
+                    <th
+                      key={p.id}
+                      scope="col"
+                      style={{
+                        padding: '14px 16px',
+                        textAlign: 'center',
+                        color: MKT.text,
+                        fontWeight: 700,
+                        whiteSpace: 'nowrap',
+                        borderBottom: `1px solid ${MKT.border}`,
+                        // Coloana recomandată (growth), evidențiată subtil.
+                        background: p.highlight ? 'rgba(200,150,60,0.09)' : MKT.surface,
+                      }}
+                    >
+                      {p.emoji} {p.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {PLAN_COMPARISON.map((row, i) => {
+                  const isLast = i === PLAN_COMPARISON.length - 1
+                  const cellBorder = isLast ? 'none' : `1px solid ${MKT.border}`
+                  return (
+                    <tr key={row.label}>
+                      <th
+                        scope="row"
+                        style={{
+                          position: 'sticky',
+                          left: 0,
+                          zIndex: 1,
+                          background: MKT.surface,
+                          padding: '12px 16px',
+                          textAlign: 'left',
+                          color: MKT.text,
+                          fontWeight: 600,
+                          borderBottom: cellBorder,
+                          minWidth: 180,
+                        }}
+                      >
+                        {row.label}
+                      </th>
+                      {(['starter', 'growth', 'pro'] as const).map((planId) => (
+                        <td
+                          key={planId}
+                          style={{
+                            padding: '12px 16px',
+                            textAlign: 'center',
+                            color: MKT.text2,
+                            borderBottom: cellBorder,
+                            background:
+                              planId === 'growth' ? 'rgba(200,150,60,0.09)' : 'transparent',
+                          }}
+                        >
+                          <ComparisonValue value={row[planId]} />
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         {/* Trust signals — adevăruri verificabile, fără promisiuni vagi */}
         <div
           style={{
@@ -849,9 +929,9 @@ export default function PricingPage({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-              gap: 14,
-              marginBottom: 56,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 12,
+              marginBottom: 48,
             }}
           >
             {EXTRAS_ONETIME.map((e) => (
@@ -919,8 +999,8 @@ export default function PricingPage({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-              gap: 14,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+              gap: 12,
             }}
           >
             {EXTRAS_MONTHLY.map((e) => (
@@ -976,61 +1056,51 @@ export default function PricingPage({
         </div>
       </div>
 
-      {/* Bonuses section */}
-      <div style={{ padding: '60px 20px' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          <div style={{ textAlign: 'center', marginBottom: 40 }}>
-            <h2
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: 'clamp(1.6rem, 4vw, 2.2rem)',
-                color: MKT.text,
-                fontWeight: 600,
-                marginBottom: 10,
-                letterSpacing: '-0.02em',
-              }}
-            >
-              🎁 Bonusuri incluse, gratuit
-            </h2>
-            <p style={{ color: MKT.text2, fontSize: '1rem', lineHeight: 1.6 }}>
-              Pentru toți clienții, ca să te simți răsfățat de la prima zi.
-            </p>
-          </div>
-
-          <div
+      {/* Incluse în orice plan — o singură bandă compactă */}
+      <div style={{ padding: '44px 20px' }}>
+        <div
+          style={{
+            maxWidth: 900,
+            margin: '0 auto',
+            background: MKT.surface,
+            border: `1px solid ${MKT.border}`,
+            borderRadius: 14,
+            padding: '20px 24px',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '12px 28px',
+            fontFamily: 'DM Sans,sans-serif',
+          }}
+        >
+          <span
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: 14,
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              color: MKT.text3,
+              textTransform: 'uppercase',
+              letterSpacing: '0.1em',
             }}
           >
-            {BONUSES.map((b) => (
-              <div
-                key={b.title}
-                style={{
-                  display: 'flex',
-                  gap: 12,
-                  alignItems: 'flex-start',
-                  padding: '16px 18px',
-                  background: MKT.surface,
-                  border: `1px solid ${MKT.border}`,
-                  borderRadius: 12,
-                }}
-              >
-                <span style={{ fontSize: '1.4rem', flexShrink: 0 }}>{b.icon}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{ fontSize: '0.92rem', fontWeight: 600, color: MKT.text, marginBottom: 3 }}
-                  >
-                    {b.title}
-                  </div>
-                  <div style={{ fontSize: '0.82rem', color: MKT.text2, lineHeight: 1.55 }}>
-                    {b.desc}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+            Incluse în orice plan
+          </span>
+          {INCLUDED_EVERYWHERE.map((item) => (
+            <span
+              key={item}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                fontSize: '0.9rem',
+                color: MKT.text2,
+                fontWeight: 500,
+              }}
+            >
+              <Icon name="check" size={16} color={MKT.success} />
+              {item}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -1169,6 +1239,9 @@ export default function PricingPage({
           </button>
         </RevealItem>
       </div>
+
+      {/* Footer legal comun (Termeni / ANPC / GDPR etc.) */}
+      <MarketingFooter />
     </div>
   )
 }

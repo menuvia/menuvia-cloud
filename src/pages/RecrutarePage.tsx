@@ -7,6 +7,7 @@
 // =============================================================
 import { useState } from 'react'
 import { D } from '../lib/constants'
+import MarketingFooter from '../components/marketing/MarketingFooter'
 
 interface Props {
   navigate: (path: string) => void
@@ -34,7 +35,8 @@ export default function RecrutarePage({ navigate }: Props) {
       <Differentiators />
       <PilotOffer />
       <ContactForm />
-      <Footer />
+      {/* Footer legal comun — consistență cu restul paginilor de marketing */}
+      <MarketingFooter />
     </div>
   )
 }
@@ -960,25 +962,5 @@ function ContactForm() {
         )}
       </div>
     </section>
-  )
-}
-
-// ── Footer ───────────────────────────────────────────────────
-function Footer() {
-  return (
-    <footer
-      style={{
-        borderTop: '1px solid rgba(255,255,255,0.05)',
-        padding: '40px 24px',
-        textAlign: 'center',
-        fontSize: 13,
-        color: D.t3,
-      }}
-    >
-      <div style={{ fontFamily: 'Fraunces, serif', fontSize: 16, color: D.t2, marginBottom: 6 }}>
-        Menuvia<span style={{ color: D.gold }}>.</span>
-      </div>
-      <div>Făcut în România · Date pe servere UE · 2026</div>
-    </footer>
   )
 }

@@ -136,6 +136,53 @@ export function getPlanByInternalId(internal: string): Plan {
   return PLAN_BY_ID.starter
 }
 
+// ── Tabel comparativ (secțiunea „Compară planurile în detaliu") ──
+// Valorile vin din PLANS.limits + included/notIncluded de mai sus și din
+// gating-ul real (mig 086: rezervările sunt modul disponibil pe orice plan —
+// tier 1 doar capacitate, tier 2+ complet). boolean → bifă/liniuță în UI,
+// string → text scurt. Ține rândurile sincronizate cu PLANS la orice schimbare.
+export interface PlanComparisonRow {
+  label: string
+  starter: string | boolean
+  growth: string | boolean
+  pro: string | boolean
+}
+
+export const PLAN_COMPARISON: PlanComparisonRow[] = [
+  {
+    label: 'Produse în meniu',
+    starter: 'Până la 300',
+    growth: 'Până la 1.000',
+    pro: 'Până la 2.000',
+  },
+  { label: 'Mese + QR-uri', starter: 'Până la 120', growth: 'Până la 300', pro: 'Până la 500' },
+  { label: 'Comenzi prin QR', starter: false, growth: true, pro: true },
+  { label: 'Dashboard bucătărie', starter: false, growth: true, pro: true },
+  { label: 'Flux ospătar', starter: false, growth: true, pro: true },
+  {
+    label: 'Rapoarte',
+    starter: false,
+    growth: 'Zilnice + săptămânale',
+    pro: 'Zilnice + TVA + încasări pe tură',
+  },
+  { label: 'Membri echipă', starter: '1', growth: 'Până la 10', pro: 'Până la 1.000' },
+  {
+    label: 'Plăți în aplicație',
+    starter: false,
+    growth: false,
+    pro: 'Cash, card, plată împărțită',
+  },
+  {
+    label: 'Bon fiscal + casă de marcat',
+    starter: false,
+    growth: false,
+    pro: 'Datecs / Activa / Tremol',
+  },
+  { label: 'Facturi Oblio', starter: false, growth: false, pro: true },
+  { label: 'Stocuri', starter: false, growth: false, pro: 'Stocuri + rețete' },
+  { label: 'Rezervări', starter: 'Doar capacitate', growth: 'Complete', pro: 'Complete' },
+]
+
 // Trust signals afișate sub grila de planuri — adevărate, verificate.
 // „Fără card pentru trial" NU apare aici: până nu confirmăm că Stripe
 // Checkout poate fi configurat fără card, nu promitem.

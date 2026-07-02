@@ -169,7 +169,7 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
             fontWeight: 600,
           }}
         >
-          Inapoi
+          ← Înapoi la Menuvia
         </button>
       </div>
 
@@ -292,6 +292,51 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
             </div>
           </button>
         ))}
+
+        {/* CTA după listă: demo → cont real. Fără footer — pagina rămâne
+            o simulare de meniu, nu o pagină de marketing. */}
+        <div
+          style={{
+            background: '#fff',
+            border: `1px solid ${ACCENT}44`,
+            borderRadius: 14,
+            padding: '22px 18px',
+            textAlign: 'center',
+            marginTop: 10,
+            boxShadow: '0 1px 4px rgba(26,18,8,0.06)',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontSize: 17,
+              fontWeight: 700,
+              color: '#1A1208',
+              marginBottom: 6,
+            }}
+          >
+            Îți place? Creează-ți contul în 10 minute
+          </div>
+          <div style={{ fontSize: 13, color: '#5C4A2A', marginBottom: 14, lineHeight: 1.5 }}>
+            Meniul tău poate arăta exact așa — cu produsele și prețurile tale.
+          </div>
+          <button
+            onClick={onBack}
+            style={{
+              background: ACCENT,
+              color: '#fff',
+              border: 'none',
+              borderRadius: 12,
+              padding: '12px 24px',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Începe gratuit →
+          </button>
+        </div>
       </div>
 
       {/* Cart bar */}
