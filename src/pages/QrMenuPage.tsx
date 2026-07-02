@@ -40,8 +40,15 @@ function getIdempotencyKey(token: string): string {
   }
   return key
 }
-function clearIdempotencyKey(token: string): void {
-  sessionStorage.removeItem('menuvia_idem:' + token)
+// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
+// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
+// getIdempotencyKey). Dacă am scrie doar în state React, un refresh de pagină
+// exact în timpul unei comenzi noi ar regenera cheia din citirea inițială
+// (care ar recrea una veche/inexistentă), riscând submit duplicat.
+function rotateIdempotencyKey(token: string): string {
+  const key = crypto.randomUUID()
+  sessionStorage.setItem('menuvia_idem:' + token, key)
+  return key
 }
 
 interface Props {
@@ -270,14 +277,15 @@ export default function QrMenuPage({ token }: Props) {
       // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
       setSessionId(null)
     }
-    clearIdempotencyKey(token)
     setCart([])
     setNotes('')
     setConfirmation(null)
     setShowCart(false)
     setSubmitError(null)
     setSubmitting(false)
-    setIdempotencyKey(crypto.randomUUID())
+    // Rotește cheia ȘI în sessionStorage (nu doar în state) — vezi comentariul
+    // de la rotateIdempotencyKey.
+    setIdempotencyKey(rotateIdempotencyKey(token))
   }
 
   // ── Resolve theme from restaurant settings ──────────────────

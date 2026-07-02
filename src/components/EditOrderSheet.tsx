@@ -5,7 +5,7 @@
 // produs cu modificatori. Submit → update_order_items RPC.
 // =============================================================
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { updateOrderItems, fetchOrderById, type Order, type CartItem } from '../lib/orders'
 import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
 import { D } from '../lib/constants'
@@ -55,7 +55,11 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   const [loadError, setLoadError] = useState<string | null>(null)
   // 'dirty' = utilizatorul a atins deja coșul. Refetch-ul de la deschidere
   // NU suprascrie modificările in-progress (evită să-i ștergem munca).
-  const [dirty, setDirty] = useState(false)
+  // useRef (nu useState): efectul de refetch de mai jos rulează o singură
+  // dată (deps = [order.id]) și citea anterior un `dirty` din closure stale
+  // — actualizat SINCRON aici, în updateQty/removeItem/addItem, reflectă
+  // mereu starea curentă a coșului în interiorul efectului.
+  const dirtyRef = useRef(false)
   // Totalul comenzii pe care s-a bazat coșul (baseline pentru optimistic
   // lock). Trimis la save; dacă DB-ul are alt total, alt user a editat între
   // timp → RPC respinge cu mesaj de redeschidere.
@@ -72,12 +76,12 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
 
   // Refetch starea curentă a comenzii la deschidere — reduce fereastra de
   // lost-update (alt ospătar a adăugat ceva între render și deschidere).
-  // Aplicăm doar dacă userul n-a început deja să editeze (dirty=false).
+  // Aplicăm doar dacă userul n-a început deja să editeze (dirtyRef.current=false).
   useEffect(() => {
     let cancelled = false
     fetchOrderById(order.id)
       .then((fresh) => {
-        if (cancelled || dirty) return
+        if (cancelled || dirtyRef.current) return
         setCart(orderItemsToCart(fresh))
         setBaselineTotal(fresh.total)
       })
@@ -87,23 +91,22 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order.id])
 
   function updateQty(key: string, delta: number): void {
-    setDirty(true)
+    dirtyRef.current = true
     setCart((prev) =>
       prev.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
     )
   }
 
   function removeItem(key: string): void {
-    setDirty(true)
+    dirtyRef.current = true
     setCart((prev) => prev.filter((i) => i._key !== key))
   }
 
   function addItem(item: CartItem): void {
-    setDirty(true)
+    dirtyRef.current = true
     setCart((prev) => [...prev, item])
   }
 

@@ -19,6 +19,10 @@ interface Props {
 export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) {
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  // Eroarea de refuz trebuie afișată AICI, nu doar prin banner-ul din pagina
+  // părinte — banner-ul e acoperit de overlay-ul acestui modal (zIndex mai
+  // mic) cât timp dialogul e deschis, deci userul nu-l vede niciodată.
+  const [error, setError] = useState<string | null>(null)
 
   return (
     <div
@@ -92,6 +96,20 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
           />
         </div>
 
+        {error != null && (
+          <div
+            style={{
+              fontSize: 12,
+              color: D.red,
+              background: `${D.red}11`,
+              padding: '8px 10px',
+              borderRadius: 6,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={onClose}
@@ -114,10 +132,19 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
           <button
             onClick={() => {
               setSubmitting(true)
+              setError(null)
               void onConfirm(reason.trim() ? reason.trim() : undefined).then((ok) => {
-                // La eșec deblocăm butonul ca utilizatorul să poată reîncerca;
-                // la succes părintele demontează dialogul.
-                if (!ok) setSubmitting(false)
+                // La eșec deblocăm butonul ca utilizatorul să poată reîncerca
+                // ȘI afișăm eroarea DIRECT în dialog (banner-ul din pagina
+                // părinte e acoperit de overlay-ul modalului, deci invizibil
+                // cât timp dialogul e deschis); la succes părintele demontează
+                // dialogul.
+                if (!ok) {
+                  setSubmitting(false)
+                  setError(
+                    'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.',
+                  )
+                }
               })
             }}
             disabled={submitting}
