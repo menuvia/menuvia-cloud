@@ -10,6 +10,12 @@ import { supabase } from './supabase'
 
 // ── Mod fondator (localStorage) ──────────────────────────────
 const FOUNDER_VIEW_KEY = 'menuvia_founder_view'
+// Originea vizitei ('founder' | 'afiliat') — bannerul și „Ieși din cont" din
+// DashboardPage o folosesc direct, fără să aștepte RPC-ul async is_platform_admin
+// (care pornește false și ar trimite un fondator grăbit pe /afiliat).
+const FOUNDER_VIEW_FROM_KEY = 'menuvia_founder_view_from'
+
+export type FounderViewOrigin = 'founder' | 'afiliat'
 
 export function getFounderView(): string | null {
   try {
@@ -19,35 +25,48 @@ export function getFounderView(): string | null {
   }
 }
 
-export async function enterFounderView(restaurantId: string): Promise<void> {
+export function getFounderViewOrigin(): FounderViewOrigin {
+  try {
+    return localStorage.getItem(FOUNDER_VIEW_FROM_KEY) === 'afiliat' ? 'afiliat' : 'founder'
+  } catch {
+    return 'founder'
+  }
+}
+
+export async function enterFounderView(
+  restaurantId: string,
+  origin: FounderViewOrigin = 'founder',
+): Promise<void> {
   try {
     localStorage.setItem(FOUNDER_VIEW_KEY, restaurantId)
+    localStorage.setItem(FOUNDER_VIEW_FROM_KEY, origin)
   } catch {
     /* private mode — modul fondator nu poate persista */
   }
-  // Vizita se înregistrează în audit (mig 187) — best-effort: o eroare de
-  // rețea nu blochează intrarea (gate-ul real de acces rămâne RLS-ul).
+  // Vizita se înregistrează în audit (mig 187) — best-effort: erorile vin în
+  // {error} (supabase-js nu aruncă), iar un request agățat nu are voie să
+  // blocheze intrarea la nesfârșit → race cu un timeout scurt.
   try {
-    await supabase.rpc('log_partner_visit', { p_restaurant_id: restaurantId })
+    await Promise.race([
+      supabase.rpc('log_partner_visit', { p_restaurant_id: restaurantId }),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ])
   } catch {
-    /* best-effort */
+    /* best-effort — navigăm oricum */
   }
   window.location.href = '/dashboard'
 }
 
 // target: /founder pentru fondator, /afiliat pentru partener.
 export function exitFounderView(target: string = '/founder'): void {
-  try {
-    localStorage.removeItem(FOUNDER_VIEW_KEY)
-  } catch {
-    /* ignore */
-  }
+  clearFounderView()
   window.location.href = target
 }
 
 export function clearFounderView(): void {
   try {
     localStorage.removeItem(FOUNDER_VIEW_KEY)
+    localStorage.removeItem(FOUNDER_VIEW_FROM_KEY)
   } catch {
     /* ignore */
   }

@@ -305,7 +305,8 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                     fontFamily: 'Fraunces, Georgia, serif',
                     fontSize: '2rem',
                     fontWeight: 700,
-                    color: MKT.accent,
+                    // accentInk: aurul viu pică sub 3:1 pe fundal deschis (AA text mare).
+                    color: MKT.accentInk,
                     lineHeight: 1,
                   }}
                 >
@@ -372,7 +373,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                   fontFamily: 'Fraunces, Georgia, serif',
                   fontSize: 'clamp(2.4rem, 6vw, 3.4rem)',
                   fontWeight: 700,
-                  color: MKT.accent,
+                  color: MKT.accentInk,
                   lineHeight: 1.1,
                   letterSpacing: '-0.02em',
                 }}
@@ -383,7 +384,11 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
             <div style={{ color: MKT.text3, fontSize: 12.5, textAlign: 'center', marginTop: 14, lineHeight: 1.55 }}>
               Calcul pe planul {growth.name}, {price.toLocaleString('ro-RO')} lei/lună — cu
               Fiscalizare câștigi mai mult. Comisionul lunar se plătește{' '}
-              {paidMonths.toLocaleString('ro-RO')} luni per restaurant.
+              {defaults.recurring_cap_months.toLocaleString('ro-RO')} luni per restaurant
+              {defaults.recurring_cap_months > 12
+                ? ' (în totalul de mai sus intră doar primele 12, cât încape în primul an)'
+                : ''}
+              .
             </div>
           </div>
         </RevealItem>
@@ -422,7 +427,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                       fontFamily: 'Fraunces, Georgia, serif',
                       fontSize: '3rem',
                       fontWeight: 700,
-                      color: MKT.accent,
+                      color: MKT.accentInk,
                       lineHeight: 1,
                       marginBottom: 12,
                     }}
@@ -545,6 +550,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 >
                   {f.q}
                   <span
+                    aria-hidden="true"
                     style={{
                       color: isOpen ? MKT.accent : MKT.text3,
                       flexShrink: 0,
@@ -558,7 +564,10 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                     +
                   </span>
                 </button>
+                {/* aria-hidden pe colapsat: ascunderea e doar vizuală (0fr +
+                    opacity), altfel SR-ul citește răspunsuri „închise". */}
                 <div
+                  aria-hidden={!isOpen}
                   style={{
                     display: 'grid',
                     gridTemplateRows: isOpen ? '1fr' : '0fr',

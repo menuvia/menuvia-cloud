@@ -19,6 +19,10 @@ export const MKT = {
   // Text închis pe auriu: alb pe #C8963C = 2.66:1 (pică AA). Aurul brand rămâne
   // viu, dar textul de pe butoanele aurii e închis (~8:1, look premium).
   onAccent: '#241A0A',
+  // Auriu-cerneală pentru NUMERALE/text auriu pe fundal deschis: #C8963C pe
+  // alb e 2.66:1 (sub 3:1 chiar și pentru text mare). #A57A28 ține ≥3:1 pe
+  // bg/surface/accentSoft. Pe fundal DARK rămâne accent-ul viu.
+  accentInk: '#A57A28',
   accentSoft: '#FAF3E5', // accent background (for badges)
   success: '#2D8659',
   successSoft: '#E8F2EC',

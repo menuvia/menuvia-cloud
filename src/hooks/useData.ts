@@ -122,8 +122,14 @@ export function useRestaurants() {
   // create/update/remove NU mai setează loading:true → fără full-page spinner
   // în DashboardPage la fiecare CRUD.
   const initialFetchDoneRef = useRef(false)
+  // Token anti-race (pattern-ul `cancelled` din RestaurantContext): un fetch
+  // în zbor pentru userul vechi (pornit cu token-ul LUI, deci RLS întoarce
+  // rândurile lui) nu are voie să suprascrie state-ul după signout/re-login.
+  // Last-wins și între refetch-uri suprapuse.
+  const loadSeqRef = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     if (!user) {
       setRestaurants([])
       setLoading(false)
@@ -144,6 +150,7 @@ export function useRestaurants() {
         .eq('user_id', user.id)
         .neq('role', 'owner'),
     ])
+    if (seq !== loadSeqRef.current) return
     if (ownedRes.error && memberRes.error) {
       setError(ownedRes.error.message)
       setLoading(false)
@@ -170,13 +177,23 @@ export function useRestaurants() {
     // decide accesul: fără drepturi, SELECT-ul întoarce null și nu adăugăm nimic.
     const fv = getFounderView()
     if (fv && !seen.has(fv)) {
-      const { data: fvRow } = await supabase
+      const { data: fvRow, error: fvErr } = await supabase
         .from('restaurants')
         .select('*')
         .eq('id', fv)
         .maybeSingle()
+      if (seq !== loadSeqRef.current) return
+      if (fvErr) {
+        // Fără restaurantul vizitat în listă, DashboardPage ar cădea pe primul
+        // restaurant PROPRIU sub bannerul de impersonare (banner/conținut
+        // nepotrivite). Mai bine stare de eroare explicită decât cont greșit.
+        setError(fvErr.message)
+        setLoading(false)
+        return
+      }
       if (fvRow) merged.push(fvRow as Restaurant)
     }
+    if (seq !== loadSeqRef.current) return
     setRestaurants(merged)
     setLoading(false)
     initialFetchDoneRef.current = true

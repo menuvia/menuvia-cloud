@@ -62,12 +62,20 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       // de UI onboarding/gol cât `loadMemberships()` e încă în zbor.
       setLoading(true)
       try {
-        const { data } = await supabase
+        const { data, error: memErr } = await supabase
           .from('restaurant_memberships')
           .select('restaurant_id, role, restaurant:restaurants(id, name, slug)')
           .eq('user_id', user!.id)
 
         if (cancelled) return
+        if (memErr) {
+          // supabase-js nu aruncă — eroarea vine în {error}. O listă goală din
+          // cauza unui blip de rețea NU înseamnă „zero membership-uri": nu
+          // atingem founder-view și nu suprascriem state-ul cu [].
+          console.error('[RestaurantContext] Failed to load memberships:', memErr)
+          setLoading(false)
+          return
+        }
 
         const rows: RestaurantMembership[] = (data ?? []).map((m) => {
           const raw = m as {
@@ -93,7 +101,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         const fv = getFounderView()
         let fvActive: string | null = null
         if (fv && !rows.some((m) => m.restaurant_id === fv)) {
-          const { data: fvRest } = await supabase
+          const { data: fvRest, error: fvErr } = await supabase
             .from('restaurants')
             .select('id, name, slug')
             .eq('id', fv)
@@ -106,7 +114,10 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
               restaurant: fvRest,
             })
             fvActive = fvRest.id
-          } else {
+          } else if (!fvErr) {
+            // Răspuns valid cu zero rânduri = chiar nu ai acces (cheie stale).
+            // Pe eroare tranzientă păstrăm cheia — altfel un blip de rețea la
+            // reload ejecta silențios fondatorul/partenerul din modul de vizită.
             clearFounderView()
           }
         } else if (fv) {

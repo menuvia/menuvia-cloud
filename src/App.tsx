@@ -494,6 +494,11 @@ function AppRouter() {
             navigate('/afiliat')
             return
           }
+          // Cursă cu efectul de auto-redirect din AppRouter: dacă el a apucat
+          // deja să consume afiliat_intent și a dus userul pe /afiliat, acest
+          // closure (care rulează după `await signIn`, chiar și demontat) NU
+          // are voie să-l suprascrie cu /dashboard.
+          if (window.location.pathname === '/afiliat') return
           navigate('/dashboard')
         }}
       />

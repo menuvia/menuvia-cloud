@@ -157,6 +157,19 @@
   transform: scale(0.97);
 }
 
+/* Linkurile de navigație din headerul de marketing (MarketingHeader) —
+   feedback de hover + focus vizibil; clasa era referențiată dar nedefinită. */
+.lp-nav-link:hover {
+  color: #1a1208;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.lp-nav-link:focus-visible {
+  outline: 2px solid #c8963c;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 /* Hover lift pentru carduri/CTA interactive (desktop) */
 .hover-lift {
   transition:

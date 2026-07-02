@@ -44,7 +44,7 @@ const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
-import { exitFounderView } from '../lib/founder'
+import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 
@@ -612,6 +612,10 @@ export default function DashboardPage({
   const { restaurants, loading: rLoading, update } = useRestaurants()
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
+  // Originea vizitei e persistată la enterFounderView — sincronă, spre
+  // deosebire de isPlatAdmin (RPC async care pornește false): eticheta
+  // bannerului și ținta „Ieși din cont" nu depind de o cursă de rețea.
+  const founderViewOrigin = getFounderViewOrigin()
   const [tab, setTab] = useState<Tab>('home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
@@ -980,6 +984,10 @@ export default function DashboardPage({
         {isPlatAdmin && (
           <button
             onClick={() => {
+              // Revenirea la panou = ieșirea din vizită: fără clear, cheia
+              // founder-view rămânea stale și „trăgea" fondatorul înapoi pe
+              // contul străin la fiecare reload.
+              clearFounderView()
               window.location.href = '/founder'
             }}
             title="Panoul de fondator — toată platforma într-un singur loc"
@@ -1041,11 +1049,11 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {isPlatAdmin ? '⚡ Mod fondator' : '🤝 Mod partener'} —{' '}
+            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Mod partener'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
-            onClick={() => exitFounderView(isPlatAdmin ? '/founder' : '/afiliat')}
+            onClick={() => exitFounderView(founderViewOrigin === 'founder' ? '/founder' : '/afiliat')}
             className="pressable"
             style={{
               padding: '6px 14px',

@@ -395,7 +395,7 @@ function PartnerAccessList() {
                 {(p.city ?? '—') + ' · ' + (p.is_active ? 'activ' : 'inactiv')}
               </div>
             </div>
-            <button onClick={() => void enterFounderView(p.restaurant_id)} style={goldBtn}>
+            <button onClick={() => void enterFounderView(p.restaurant_id, 'afiliat')} style={goldBtn}>
               Intră pe dashboard
             </button>
           </div>

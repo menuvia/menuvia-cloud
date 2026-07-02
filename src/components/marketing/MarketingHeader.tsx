@@ -7,7 +7,7 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 // (landing, pricing, pagini de marketing). Logo „Menuvia" (Fraunces),
 // nav-uri opționale prin props, CTA opțional, variantă „back"
 // (← Înapoi + logo). Pe mobil (<720px) nav-urile se ascund —
-// rămân doar logo + CTA.
+// rămân logo + CTA + linkurile marcate keepOnMobile (ex. login).
 // ─────────────────────────────────────────────────────────────
 
 export interface MarketingNavLink {
@@ -15,6 +15,9 @@ export interface MarketingNavLink {
   /** Ancoră în pagină (ex. „#functii") sau URL. Alternativ: onClick. */
   href?: string
   onClick?: () => void
+  /** Rămâne vizibil și pe mobil (ex. „Intră în cont" — altfel clientul
+      existent n-are nicio cale de login din header pe telefon). */
+  keepOnMobile?: boolean
 }
 
 const navLinkStyle: CSSProperties = {
@@ -99,29 +102,30 @@ export default function MarketingHeader({
 
         <nav style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           {!onBack &&
-            !isMobile &&
-            links?.map((l) =>
-              l.href != null ? (
-                <a
-                  key={l.label}
-                  href={l.href}
-                  className="lp-nav-link"
-                  onClick={l.href.startsWith('#') ? smoothScroll(l.href) : undefined}
-                  style={navLinkStyle}
-                >
-                  {l.label}
-                </a>
-              ) : (
-                <button
-                  key={l.label}
-                  onClick={l.onClick}
-                  className="lp-nav-link"
-                  style={navLinkStyle}
-                >
-                  {l.label}
-                </button>
-              ),
-            )}
+            links
+              ?.filter((l) => !isMobile || l.keepOnMobile)
+              .map((l) =>
+                l.href != null ? (
+                  <a
+                    key={l.label}
+                    href={l.href}
+                    className="lp-nav-link"
+                    onClick={l.href.startsWith('#') ? smoothScroll(l.href) : undefined}
+                    style={navLinkStyle}
+                  >
+                    {l.label}
+                  </a>
+                ) : (
+                  <button
+                    key={l.label}
+                    onClick={l.onClick}
+                    className="lp-nav-link"
+                    style={navLinkStyle}
+                  >
+                    {l.label}
+                  </button>
+                ),
+              )}
           {cta && (
             <button
               onClick={cta.onClick}

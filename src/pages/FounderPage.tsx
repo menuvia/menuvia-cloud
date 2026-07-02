@@ -61,6 +61,13 @@ function formatRon(cents: number): string {
   return (cents / 100).toLocaleString('ro-RO', { minimumFractionDigits: 2 }) + ' lei'
 }
 
+// Payout-urile pot fi și în EUR (enum affiliate_currency, mig 098) — sufixul
+// „lei" e corect doar pentru RON.
+function formatMoney(cents: number, currency: string): string {
+  const v = (cents / 100).toLocaleString('ro-RO', { minimumFractionDigits: 2 })
+  return currency === 'RON' ? v + ' lei' : v + ' ' + currency
+}
+
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('ro-RO', {
     day: 'numeric',
@@ -734,7 +741,7 @@ function AffiliatesSection() {
   async function doMarkPaid(p: AdminPayoutRow) {
     const ok = await confirm({
       title: `Marchezi payout-ul ca plătit?`,
-      description: `${p.affiliate_email} · ${formatRon(p.gross_cents)} (${p.currency}). Debitul se înscrie în ledger — acțiune ireversibilă.`,
+      description: `${p.affiliate_email} · ${formatMoney(p.gross_cents, p.currency)}. Debitul se înscrie în ledger — acțiune ireversibilă.`,
       confirmLabel: 'Marchează plătit',
     })
     if (!ok) return
@@ -743,7 +750,10 @@ function AffiliatesSection() {
       const res = await markPayoutPaid(p.id)
       if (!res.ok) throw new Error(res.error ?? 'Eroare')
       toast.success('Payout marcat plătit')
-      await payouts.reload()
+      // Plata scrie un rând negativ în ledger (trg_affiliate_payout_settle,
+      // mig 098) → soldul din cardul „Afiliați" trebuie și el reîncărcat,
+      // altfel arată o valoare bănească veche imediat după acțiune.
+      await Promise.all([payouts.reload(), affiliates.reload()])
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Eroare')
     } finally {
@@ -869,8 +879,7 @@ function AffiliatesSection() {
               >
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
-                    {p.affiliate_email} · {formatRon(p.gross_cents)}
-                    <span style={{ color: D.t3, fontWeight: 400 }}> ({p.currency})</span>
+                    {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
                     {p.status}
@@ -1082,10 +1091,12 @@ function CommissionDefaultsCard({ onApplied }: { onApplied: () => void }) {
         Se aplică automat afiliaților noi la înscriere. „Aplică la toți" îl suprascrie și pe cei
         existenți. Modificările au efect imediat pe facturile viitoare.
       </div>
-      {defaults.loading || draft == null ? (
-        <InlineSpinner label="Se încarcă..." />
-      ) : defaults.error ? (
+      {/* Eroarea SE VERIFICĂ înaintea draft-ului: la eșecul fetch-ului inițial
+          draft rămâne null pentru totdeauna și spinner-ul ar câștiga mereu. */}
+      {defaults.error ? (
         <SectionError message={defaults.error} onRetry={() => void defaults.reload()} />
+      ) : defaults.loading || draft == null ? (
+        <InlineSpinner label="Se încarcă..." />
       ) : (
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <CommissionFields draft={draft} onChange={setDraft} />

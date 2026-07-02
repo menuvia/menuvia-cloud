@@ -635,17 +635,30 @@ function PartnerAccessSection({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isStale?: () => boolean) => {
+    // Reset la început: fără el, la schimbarea restaurantului (sau pe eroare)
+    // rămâneau afișate rândurile VECHIULUI restaurant sub cel curent.
+    setLoaded(false)
+    setRows([])
     try {
-      setRows(await getPartnerAccess(restaurantId))
+      const fetched = await getPartnerAccess(restaurantId)
+      if (isStale?.()) return
+      setRows(fetched)
     } catch {
       /* non-owner sau eroare — secțiunea rămâne goală */
     }
+    if (isStale?.()) return
     setLoaded(true)
   }, [restaurantId])
 
   useEffect(() => {
-    void load()
+    // Flag de anulare: două load-uri în zbor la switch rapid de restaurant
+    // nu au voie să se rezolve out-of-order peste state.
+    let cancelled = false
+    void load(() => cancelled)
+    return () => {
+      cancelled = true
+    }
   }, [load])
 
   if (!loaded || rows.length === 0) return null
