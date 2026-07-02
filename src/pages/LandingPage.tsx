@@ -2,12 +2,17 @@ import { useState } from 'react'
 import { MKT } from '../lib/marketing'
 import { MOTION } from '../lib/motion'
 import { RevealItem } from '../components/marketing/Reveal'
-import LegalFooter from '../components/LegalFooter'
+import MarketingHeader from '../components/marketing/MarketingHeader'
+import MarketingFooter from '../components/marketing/MarketingFooter'
+import PhoneFrame from '../components/marketing/PhoneFrame'
+import { Icon, type IconName } from '../components/ui/Icon'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 // ── Landing page (unauthenticated visitors) ──────────────────
 // Obiectiv: vizitatorul înțelege în 10 secunde ce e Menuvia, pentru cine e,
 // de ce Meniu + Comenzi e planul recomandat și cât de simplu e setup-ul.
 // Vinde FLOW-ul (Adaugi meniul → Generezi QR → Primești comenzi), nu module.
+// Hero-ul arată produsul REAL (PhoneFrame randează componentele de meniu).
 export default function LandingPage({
   onStartPlan,
   onLogin,
@@ -20,20 +25,71 @@ export default function LandingPage({
   onDemo: () => void
 }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  // Hero split doar pe desktop (≥900px); sub prag → stack.
+  const stacked = useIsMobile(900)
 
-  const BENEFITS = [
-    { icon: '📝', title: 'Meniu actualizabil oricând', desc: 'Schimbi prețuri și produse pe loc — fără re-printat meniuri.' },
-    { icon: '🛎', title: 'Comenzi direct de la masă', desc: 'Clientul scanează, alege și trimite. Fără așteptat după ospătar.' },
-    { icon: '🚶', title: 'Mai puține drumuri pentru ospătari', desc: 'Chemarea ospătarului și nota de plată — direct din telefonul clientului.' },
-    { icon: '👨‍🍳', title: 'Bucătărie organizată', desc: 'Comenzile apar instant pe ecran, în ordinea corectă. Zero hârtii.' },
-    { icon: '🔲', title: 'QR-uri generate automat', desc: 'Spui câte mese ai — primești QR-urile gata de printat, în PDF.' },
-    { icon: '📊', title: 'Rapoarte simple', desc: 'Ce s-a comandat azi și săptămâna asta — fără să sapi prin meniuri.' },
+  // Beneficiile păstrează copy-ul existent; emoji-urile au fost înlocuite
+  // cu Icon vectorial (nume verificate în union-ul IconName).
+  const BENEFITS: { icon: IconName; title: string; desc: string }[] = [
+    {
+      icon: 'edit',
+      title: 'Meniu actualizabil oricând',
+      desc: 'Schimbi prețuri și produse pe loc — fără re-printat meniuri.',
+    },
+    {
+      icon: 'bell',
+      title: 'Comenzi direct de la masă',
+      desc: 'Clientul scanează, alege și trimite. Fără așteptat după ospătar.',
+    },
+    {
+      icon: 'users',
+      title: 'Mai puține drumuri pentru ospătari',
+      desc: 'Chemarea ospătarului și nota de plată — direct din telefonul clientului.',
+    },
+    {
+      icon: 'utensils',
+      title: 'Bucătărie organizată',
+      desc: 'Comenzile apar instant pe ecran, în ordinea corectă. Zero hârtii.',
+    },
+    {
+      icon: 'qr',
+      title: 'QR-uri generate automat',
+      desc: 'Spui câte mese ai — primești QR-urile gata de printat, în PDF.',
+    },
+    {
+      icon: 'chart',
+      title: 'Rapoarte simple',
+      desc: 'Ce s-a comandat azi și săptămâna asta — fără să sapi prin meniuri.',
+    },
+  ]
+
+  // Bandă „Construit pentru România" — diferențiatori locali, nu feature-uri.
+  const ROMANIA_POINTS: { icon: IconName; text: string }[] = [
+    { icon: 'mapPin', text: 'Făcut în România, pentru restaurante românești' },
+    { icon: 'lock', text: 'Date pe servere UE, conform GDPR' },
+    {
+      icon: 'percent',
+      text: 'Cote TVA românești — le schimbi într-un minut, nu re-tipărești meniul',
+    },
+    { icon: 'phone', text: 'Suport pe WhatsApp, direct cu fondatorul' },
   ]
 
   const STEPS = [
-    { n: '1', title: 'Adaugi meniul', desc: 'Manual sau importat cu AI dintr-o poză. Gata în câteva minute.' },
-    { n: '2', title: 'Generezi QR-urile pentru mese', desc: 'Spui câte mese ai. PDF-ul de printat e gata în 30 de secunde.' },
-    { n: '3', title: 'Primești comenzi instant', desc: 'Clienții comandă de pe telefon, bucătăria vede totul live.' },
+    {
+      n: '1',
+      title: 'Adaugi meniul',
+      desc: 'Manual sau importat cu AI dintr-o poză. Gata în câteva minute.',
+    },
+    {
+      n: '2',
+      title: 'Generezi QR-urile pentru mese',
+      desc: 'Spui câte mese ai. PDF-ul de printat e gata în 30 de secunde.',
+    },
+    {
+      n: '3',
+      title: 'Primești comenzi instant',
+      desc: 'Clienții comandă de pe telefon, bucătăria vede totul live.',
+    },
   ]
 
   const FAQ = [
@@ -52,6 +108,10 @@ export default function LandingPage({
     {
       q: 'Pot începe doar cu meniul digital?',
       a: 'Da. Planul Meniu Digital îți dă meniul QR modern, fără comenzi. Poți activa comenzile oricând, dintr-un click.',
+    },
+    {
+      q: 'Ce se întâmplă cu datele mele?',
+      a: 'Serverele sunt în Uniunea Europeană, conform GDPR. Îți poți exporta datele oricând, iar la închiderea contului le ștergem complet.',
     },
   ]
 
@@ -78,342 +138,143 @@ export default function LandingPage({
     cursor: 'pointer',
     fontFamily: 'DM Sans,sans-serif',
   }
-  const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
+  const sectionTitle: React.CSSProperties = {
+    fontFamily: 'Fraunces,serif',
+    fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
+    color: MKT.text,
+    fontWeight: 700,
+    textAlign: 'center',
+    letterSpacing: '-0.02em',
+    textWrap: 'balance',
   }
 
   return (
     <div style={{ minHeight: '100vh', background: MKT.bg, fontFamily: 'DM Sans,sans-serif' }}>
-      {/* Header */}
-      <header
-        style={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 50,
-          background: 'rgba(250,249,246,0.92)',
-          backdropFilter: 'blur(10px)',
-          borderBottom: `1px solid ${MKT.border}`,
-        }}
-      >
-        <div
-          style={{
-            maxWidth: 1040,
-            margin: '0 auto',
-            padding: '14px 24px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 16,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: 24,
-              color: MKT.accent,
-              fontWeight: 700,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Menuvia
-          </div>
-          <nav style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            {[
-              { label: 'Funcții', id: 'functii' },
-              { label: 'Cum funcționează', id: 'cum-functioneaza' },
-            ].map((l) => (
-              <button
-                key={l.id}
-                onClick={() => scrollTo(l.id)}
-                className="lp-nav-link"
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: MKT.text2,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  padding: '8px 10px',
-                  fontFamily: 'DM Sans,sans-serif',
-                }}
-              >
-                {l.label}
-              </button>
-            ))}
-            <button
-              onClick={onPricing}
-              className="lp-nav-link"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: MKT.text2,
-                fontSize: 14,
-                fontWeight: 500,
-                cursor: 'pointer',
-                padding: '8px 10px',
-                fontFamily: 'DM Sans,sans-serif',
-              }}
-            >
-              Prețuri
-            </button>
-            <button
-              onClick={onLogin}
-              style={{
-                background: MKT.accent,
-                color: MKT.onAccent,
-                border: 'none',
-                borderRadius: 10,
-                padding: '9px 18px',
-                fontWeight: 700,
-                fontSize: 14,
-                cursor: 'pointer',
-                fontFamily: 'DM Sans,sans-serif',
-                marginLeft: 6,
-              }}
-            >
-              Începe gratuit
-            </button>
-          </nav>
-        </div>
-      </header>
+      {/* Header sticky comun */}
+      <MarketingHeader
+        links={[
+          { label: 'Funcții', href: '#functii' },
+          { label: 'Cum funcționează', href: '#cum-functioneaza' },
+          { label: 'Prețuri', onClick: onPricing },
+          { label: 'Demo', onClick: onDemo },
+          { label: 'Intră în cont', onClick: onLogin },
+        ]}
+        cta={{ label: 'Începe gratuit', onClick: () => onStartPlan('growth') }}
+      />
 
-      {/* Hero */}
+      {/* Hero split: mesaj + CTA-uri în stânga, produsul REAL în dreapta */}
       <div
         style={{
-          maxWidth: 820,
+          maxWidth: 1120,
           margin: '0 auto',
-          padding: '72px 24px 48px',
-          textAlign: 'center',
+          padding: stacked ? '56px 24px 56px' : '80px 24px 88px',
+          display: 'grid',
+          gridTemplateColumns: stacked ? '1fr' : '1.1fr 0.9fr',
+          gap: stacked ? 48 : 40,
+          alignItems: 'center',
         }}
       >
-        <h1
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: 'clamp(2rem, 5.2vw, 3.4rem)',
-            color: MKT.text,
-            fontWeight: 700,
-            lineHeight: 1.1,
-            letterSpacing: '-0.03em',
-            marginBottom: 20,
-            textWrap: 'balance',
-          }}
-        >
-          Meniu QR și comenzi de la masă pentru restaurante moderne
-        </h1>
-        <p
-          style={{
-            color: MKT.text2,
-            fontSize: 'clamp(1.05rem, 2.2vw, 1.2rem)',
-            maxWidth: 540,
-            margin: '0 auto 32px',
-            lineHeight: 1.65,
-            textWrap: 'balance',
-          }}
-        >
-          Clienții scanează codul QR, comandă de pe telefon, iar bucătăria primește instant.
-        </p>
-        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button onClick={() => onStartPlan('growth')} className="pressable" style={ctaBtn}>
-            Începe cu Meniu + Comenzi
-          </button>
-          <button
-            onClick={() => scrollTo('cum-functioneaza')}
-            className="pressable"
-            style={ghostBtn}
-          >
-            Vezi cum funcționează
-          </button>
-        </div>
-        <div style={{ color: MKT.text3, fontSize: 13, marginTop: 16 }}>
-          30 de zile gratuite. Anulezi oricând.
-        </div>
-      </div>
-
-      {/* Product preview — mock CSS, nu imagini */}
-      <div
-        style={{
-          maxWidth: 1040,
-          margin: '0 auto',
-          padding: '0 24px 72px',
-          display: 'flex',
-          gap: 18,
-          justifyContent: 'center',
-          flexWrap: 'wrap',
-          alignItems: 'stretch',
-        }}
-      >
-        {/* Telefon: meniul QR */}
-        <div
-          className="hover-lift"
-          style={{
-            background: MKT.surface,
-            border: `1px solid ${MKT.border}`,
-            borderRadius: 26,
-            padding: 16,
-            width: 230,
-            boxShadow: '0 12px 32px rgba(26,18,8,0.08)',
-          }}
-        >
-          <div style={{ fontSize: 11, color: MKT.text3, textAlign: 'center', marginBottom: 10 }}>
-            📱 Meniul pe telefonul clientului
-          </div>
+        <div style={{ textAlign: stacked ? 'center' : 'left' }}>
           <div
             style={{
-              background: MKT.accentSoft,
-              borderRadius: 14,
-              padding: '8px 10px',
               fontSize: 12,
               fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
               color: MKT.accent,
-              textAlign: 'center',
-              marginBottom: 10,
+              marginBottom: 18,
             }}
           >
-            Masa 12
+            Meniu QR + comenzi pentru restaurante
           </div>
-          {[
-            { n: 'Pizza Margherita', p: '32 lei' },
-            { n: 'Limonadă cu mentă', p: '14 lei' },
-          ].map((it) => (
-            <div
-              key={it.n}
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                padding: '9px 4px',
-                borderBottom: `1px solid ${MKT.surface2}`,
-                fontSize: 12.5,
-              }}
-            >
-              <span style={{ color: MKT.text, fontWeight: 600 }}>{it.n}</span>
-              <span style={{ color: MKT.text2 }}>{it.p}</span>
-            </div>
-          ))}
-          <div
+          <h1
             style={{
-              marginTop: 12,
-              background: MKT.accent,
-              color: MKT.onAccent,
-              borderRadius: 10,
-              padding: '10px 0',
-              fontSize: 13,
+              fontFamily: 'Fraunces,serif',
+              fontSize: 'clamp(2.1rem, 4.6vw, 3.4rem)',
+              color: MKT.text,
               fontWeight: 700,
-              textAlign: 'center',
+              lineHeight: 1.08,
+              letterSpacing: '-0.03em',
+              marginBottom: 20,
+              textWrap: 'balance',
             }}
           >
-            Trimite comanda · 46 lei
-          </div>
-        </div>
-
-        {/* Card comandă bucătărie */}
-        <div
-          className="hover-lift"
-          style={{
-            background: MKT.surface,
-            border: `1px solid ${MKT.border}`,
-            borderRadius: 18,
-            padding: 18,
-            width: 250,
-            alignSelf: 'center',
-            boxShadow: '0 8px 24px rgba(26,18,8,0.06)',
-          }}
-        >
-          <div style={{ fontSize: 11, color: MKT.text3, marginBottom: 10 }}>
-            👨‍🍳 Ecranul din bucătărie
-          </div>
+            Clienții comandă singuri de la masă. Tu doar servești.
+          </h1>
+          <p
+            style={{
+              color: MKT.text2,
+              fontSize: 'clamp(1.05rem, 2vw, 1.2rem)',
+              maxWidth: 520,
+              margin: stacked ? '0 auto 32px' : '0 0 32px',
+              lineHeight: 1.65,
+              textWrap: 'balance',
+            }}
+          >
+            Meniu QR premium și comenzi trimise direct în bucătărie. Fără hardware, fără instalare —
+            pornești în 10 minute.
+          </p>
           <div
             style={{
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: 10,
+              gap: 12,
+              flexWrap: 'wrap',
+              justifyContent: stacked ? 'center' : 'flex-start',
             }}
           >
-            <span style={{ fontFamily: 'Fraunces,serif', fontWeight: 700, color: MKT.text }}>
-              Masa 12
-            </span>
-            <span
-              style={{
-                background: MKT.accentSoft,
-                color: MKT.accent,
-                fontSize: 11,
-                fontWeight: 700,
-                borderRadius: 6,
-                padding: '3px 9px',
-              }}
-            >
-              NOUĂ · acum
-            </span>
+            <button onClick={() => onStartPlan('growth')} className="pressable" style={ctaBtn}>
+              Începe gratuit 30 de zile
+            </button>
+            <button onClick={onDemo} className="pressable" style={ghostBtn}>
+              Vezi demo live
+            </button>
           </div>
-          <div style={{ fontSize: 13, color: MKT.text2, lineHeight: 1.7 }}>
-            1 × Pizza Margherita
-            <br />2 × Limonadă cu mentă
-          </div>
-          <div
-            style={{
-              marginTop: 12,
-              background: MKT.success,
-              color: '#fff',
-              borderRadius: 9,
-              padding: '9px 0',
-              fontSize: 12.5,
-              fontWeight: 700,
-              textAlign: 'center',
-            }}
-          >
-            ✓ Confirmă
+          <div style={{ color: MKT.text3, fontSize: 13, marginTop: 18 }}>
+            Setup în 10 minute · Anulezi oricând · Suport pe WhatsApp
           </div>
         </div>
 
-        {/* Card QR pe masă */}
-        <div
-          className="hover-lift"
+        {/* Telefonul cu meniul real, ușor rotit pentru un aer editorial */}
+        <RevealItem
           style={{
-            background: MKT.surface,
-            border: `1px solid ${MKT.border}`,
-            borderRadius: 18,
-            padding: 18,
-            width: 170,
-            alignSelf: 'center',
-            textAlign: 'center',
-            boxShadow: '0 8px 24px rgba(26,18,8,0.06)',
+            display: 'flex',
+            justifyContent: 'center',
+            // Rotația stă pe wrapper ca reveal-ul (translateY) să nu o suprascrie.
+            transform: 'rotate(2deg)',
+            filter: 'drop-shadow(0 24px 48px rgba(26,18,8,0.18))',
           }}
         >
-          <div style={{ fontSize: 11, color: MKT.text3, marginBottom: 10 }}>🔲 QR-ul de pe masă</div>
-          <div
-            style={{
-              fontSize: 64,
-              lineHeight: 1,
-              marginBottom: 8,
-              filter: 'contrast(1.1)',
-            }}
-          >
-            ▦
-          </div>
-          <div style={{ fontFamily: 'Fraunces,serif', fontWeight: 700, color: MKT.text, fontSize: 15 }}>
-            Masa 12
-          </div>
-          <div style={{ fontSize: 11, color: MKT.text3, marginTop: 4 }}>Scanează pentru a comanda</div>
+          <PhoneFrame />
+        </RevealItem>
+      </div>
+
+      {/* Bandă „Construit pentru România" */}
+      <div style={{ background: MKT.surface2, padding: '36px 24px' }}>
+        <div
+          style={{
+            maxWidth: 1120,
+            margin: '0 auto',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 20,
+          }}
+        >
+          {ROMANIA_POINTS.map((p, i) => (
+            <RevealItem key={p.icon} delay={i * 60}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <Icon name={p.icon} size={20} color={MKT.accent} />
+                <span style={{ color: MKT.text2, fontSize: 13.5, lineHeight: 1.55 }}>{p.text}</span>
+              </div>
+            </RevealItem>
+          ))}
         </div>
       </div>
 
       {/* Benefits */}
-      <div id="functii" style={{ background: MKT.surface2, padding: '72px 24px' }}>
+      <div id="functii" style={{ padding: '80px 24px' }}>
         <div style={{ maxWidth: 1040, margin: '0 auto' }}>
           <RevealItem>
-            <h2
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
-                color: MKT.text,
-                fontWeight: 700,
-                textAlign: 'center',
-                marginBottom: 40,
-                letterSpacing: '-0.02em',
-                textWrap: 'balance',
-              }}
-            >
+            <h2 style={{ ...sectionTitle, marginBottom: 40 }}>
               Tot ce are nevoie un restaurant. Nimic în plus.
             </h2>
           </RevealItem>
@@ -437,7 +298,20 @@ export default function LandingPage({
                     boxShadow: '0 1px 3px rgba(26,18,8,0.03)',
                   }}
                 >
-                  <div style={{ fontSize: 26, marginBottom: 12 }}>{b.icon}</div>
+                  <div
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: '50%',
+                      background: `${MKT.accent}22`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: 14,
+                    }}
+                  >
+                    <Icon name={b.icon} size={22} color={MKT.accent} />
+                  </div>
                   <div style={{ color: MKT.text, fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
                     {b.title}
                   </div>
@@ -450,22 +324,12 @@ export default function LandingPage({
       </div>
 
       {/* How it works */}
-      <div id="cum-functioneaza" style={{ maxWidth: 880, margin: '0 auto', padding: '80px 24px' }}>
+      <div
+        id="cum-functioneaza"
+        style={{ maxWidth: 880, margin: '0 auto', padding: '0 24px 80px' }}
+      >
         <RevealItem>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
-              color: MKT.text,
-              fontWeight: 700,
-              textAlign: 'center',
-              marginBottom: 44,
-              letterSpacing: '-0.02em',
-              textWrap: 'balance',
-            }}
-          >
-            Pornești în 3 pași
-          </h2>
+          <h2 style={{ ...sectionTitle, marginBottom: 44 }}>Pornești în 3 pași</h2>
         </RevealItem>
         <div
           style={{
@@ -514,60 +378,60 @@ export default function LandingPage({
       {/* Plan highlight — Meniu + Comenzi e vedeta */}
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '0 24px 80px' }}>
         <RevealItem>
-        <div
-          className="hover-lift"
-          style={{
-            background: MKT.surface,
-            border: `1.5px solid ${MKT.accent}`,
-            borderRadius: 20,
-            padding: '36px 28px',
-            textAlign: 'center',
-            boxShadow: '0 8px 32px rgba(200,150,60,0.14)',
-          }}
-        >
           <div
+            className="hover-lift"
             style={{
-              display: 'inline-block',
-              background: MKT.accent,
-              color: MKT.onAccent,
-              fontSize: 11,
-              fontWeight: 700,
-              padding: '5px 14px',
-              borderRadius: 100,
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              marginBottom: 14,
+              background: MKT.surface,
+              border: `1.5px solid ${MKT.accent}`,
+              borderRadius: 20,
+              padding: '36px 28px',
+              textAlign: 'center',
+              boxShadow: '0 8px 32px rgba(200,150,60,0.14)',
             }}
           >
-            Recomandat
+            <div
+              style={{
+                display: 'inline-block',
+                background: MKT.accent,
+                color: MKT.onAccent,
+                fontSize: 11,
+                fontWeight: 700,
+                padding: '5px 14px',
+                borderRadius: 100,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                marginBottom: 14,
+              }}
+            >
+              Recomandat
+            </div>
+            <div
+              style={{
+                fontFamily: 'Fraunces,serif',
+                fontSize: '1.4rem',
+                color: MKT.text,
+                fontWeight: 700,
+                marginBottom: 10,
+              }}
+            >
+              Meniu + Comenzi
+            </div>
+            <p
+              style={{
+                color: MKT.text2,
+                fontSize: 15,
+                lineHeight: 1.65,
+                maxWidth: 460,
+                margin: '0 auto 22px',
+              }}
+            >
+              Reduce timpul pierdut cu preluarea comenzilor. Plata și bonul rămân pe casa ta
+              actuală.
+            </p>
+            <button onClick={onPricing} className="pressable" style={ctaBtn}>
+              Vezi planurile
+            </button>
           </div>
-          <div
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.4rem',
-              color: MKT.text,
-              fontWeight: 700,
-              marginBottom: 10,
-            }}
-          >
-            🛎 Meniu + Comenzi
-          </div>
-          <p
-            style={{
-              color: MKT.text2,
-              fontSize: 15,
-              lineHeight: 1.65,
-              maxWidth: 480,
-              margin: '0 auto 22px',
-            }}
-          >
-            Alegerea potrivită pentru restaurantele care vor să reducă timpul pierdut cu preluarea
-            comenzilor. Plata și bonul rămân pe casa ta actuală.
-          </p>
-          <button onClick={onPricing} className="pressable" style={ctaBtn}>
-            Vezi planurile
-          </button>
-        </div>
         </RevealItem>
       </div>
 
@@ -576,13 +440,9 @@ export default function LandingPage({
         <RevealItem>
           <h2
             style={{
-              fontFamily: 'Fraunces,serif',
+              ...sectionTitle,
               fontSize: 'clamp(1.4rem, 3vw, 1.6rem)',
-              color: MKT.text,
-              fontWeight: 700,
-              textAlign: 'center',
               marginBottom: 28,
-              textWrap: 'balance',
             }}
           >
             Întrebări frecvente
@@ -697,7 +557,8 @@ export default function LandingPage({
           </div>
         </RevealItem>
       </div>
-      <LegalFooter />
+
+      <MarketingFooter />
     </div>
   )
 }
