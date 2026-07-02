@@ -13,6 +13,7 @@
 //   5. detect_winback_inactive        (only daily at 09:00 Bucharest)
 //   6. detect_nps_due                 (only daily at 10:00 Bucharest)
 //   7. daily_report dispatch          (only daily at 08:00 Bucharest)
+//   8. stripe_events failed scan      (orar, la HH:00-HH:15)
 //
 // Idempotent: re-running shouldn't cause duplicate emails (dedup_key on queue).
 
@@ -258,6 +259,48 @@ exports.handler = async () => {
       console.error('[automation-cron] daily reports FAILED:', e.message)
       await postCronAlert('daily-reports', e.message)
       results.daily_error = e.message
+    }
+  }
+
+  // ── Job 8: scan stripe_events blocate pe 'failed' (orar, HH:00-HH:15) ──
+  // Webhook-urile Stripe eșuate (inclusiv comisioanele afiliat, după fixul din
+  // stripe-webhook.js) se retrimit de Stripe ~3 zile; dacă retry-urile se
+  // epuizează, rândul rămâne 'failed' SILENȚIOS și nimeni nu află. Scanăm
+  // rândurile failed mai vechi de 1h (= probabil nu mai vine retry imediat)
+  // și alertăm founder-ul pe Slack.
+  // THROTTLE: fără stare în DB — alertăm doar în prima fereastră de 15 min a
+  // fiecărei ore (determinist pe minutul curent), deci max 1 alertă/oră,
+  // nu la fiecare tick de 15 min. Nota: coloana de timp e `received_at`
+  // (mig 038), nu `created_at`.
+  if (minute < 15) {
+    try {
+      const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+      const { data, count, error } = await supabase
+        .from('stripe_events')
+        .select('event_id, event_type, received_at', { count: 'exact' })
+        .eq('status', 'failed')
+        .lt('received_at', cutoff)
+        .order('received_at', { ascending: true })
+        .limit(5)
+      if (error) throw error
+      results.stripe_failed_events = count ?? 0
+      if (count && count > 0) {
+        const rows = data || []
+        const types = [...new Set(rows.map((r) => r.event_type))].join(', ')
+        const ids = rows.map((r) => r.event_id).join(', ')
+        await postCronAlert(
+          'stripe-failed-events',
+          `${count} evenimente Stripe blocate pe status='failed' de peste 1h ` +
+            `(retry-urile Stripe s-au epuizat sau se vor epuiza) — necesită investigare manuală. ` +
+            `Tipuri: ${types}. Cele mai vechi: ${ids}`,
+        )
+      }
+    } catch (e) {
+      // Eșecul scanului însuși nu trebuie să treacă neobservat — e exact
+      // mecanismul care ne spune că banii/comisioanele au probleme.
+      console.error('[automation-cron] stripe failed-events scan FAILED:', e.message)
+      await postCronAlert('stripe-failed-events', e.message)
+      results.stripe_failed_scan_error = e.message
     }
   }
 
