@@ -202,15 +202,33 @@ exports.handler = async (event) => {
   if (api_key && api_key.trim().length > 0) {
     payload.api_key_encrypted = encrypt(api_key.trim(), AI_CONFIG_SECRET)
     keyMasked = maskKey(api_key.trim())
-  } else {
+  } else if (provider === 'custom') {
     // Fără cheie nouă: dacă nu există deja una salvată, nu putem activa.
+    // Se aplică DOAR pentru 'custom' — acolo nu există fallback de platformă
+    // (vezi ai-proxy.js), deci restaurantul chiar are nevoie de cheia proprie.
+    // Pentru openai/anthropic/gemini, ai-proxy.js cade automat pe cheia
+    // platformei (PLATFORM_<PROVIDER>_KEY) când nu există BYO — fluxul de bază
+    // („Activează asistentul AI", fără „Avansat") trebuie permis fără cheie.
     const { data: existing } = await supabase
       .from('ai_provider_configs')
-      .select('api_key_encrypted')
+      .select('provider, api_key_encrypted')
       .eq('restaurant_id', restaurant_id)
       .single()
     if (payload.enabled && !existing?.api_key_encrypted) {
       return jsonResponse(400, { error: 'Trebuie să adaugi o cheie API înainte de a activa.' })
+    }
+  } else {
+    // Provider non-custom, fără cheie nouă: dacă restaurantul avea deja
+    // salvată o cheie pentru un ALT provider (ex. custom → openai), acea
+    // cheie nu mai e validă pentru noul provider — o ștergem explicit ca
+    // ai-proxy.js să cadă corect pe cheia platformei, nu pe cheia veche.
+    const { data: existing } = await supabase
+      .from('ai_provider_configs')
+      .select('provider')
+      .eq('restaurant_id', restaurant_id)
+      .single()
+    if (existing && existing.provider !== provider) {
+      payload.api_key_encrypted = null
     }
   }
 
