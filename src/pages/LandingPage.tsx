@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { MKT } from '../lib/marketing'
+import { supabase } from '../lib/supabase'
+import { getPlan } from '../lib/plans'
 import { MOTION } from '../lib/motion'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
@@ -7,6 +9,31 @@ import MarketingFooter from '../components/marketing/MarketingFooter'
 import PhoneFrame from '../components/marketing/PhoneFrame'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { useIsMobile } from '../hooks/useIsMobile'
+
+// ── Secțiunea „Recomandă și câștigă" ─────────────────────────
+// Procentele programului de parteneriat vin din RPC-ul public
+// get_affiliate_public_defaults (un singur call, ieftin); fallback pe
+// valorile istorice din mig 097. bps/100 = procent.
+interface AffiliateDefaults {
+  setup_bps: number
+  recurring_bps: number
+  recurring_cap_months: number
+}
+const AFFILIATE_FALLBACK: AffiliateDefaults = {
+  setup_bps: 3000,
+  recurring_bps: 1000,
+  recurring_cap_months: 12,
+}
+
+// Paletă locală DARK pentru secțiunea de afiliere — brun închis cald,
+// derivat din MKT.onAccent (#241A0A); aceeași cu hero-ul paginii /afiliat,
+// ca secțiunea să iasă din pagina crem fără să devină banner țipător.
+const AFF_DARK = {
+  bg: `radial-gradient(circle at 85% 15%, rgba(200,150,60,0.16), transparent 55%), linear-gradient(160deg, #1C140C 0%, #241A0A 65%, #2B1F0E 100%)`,
+  text: '#FAF9F6', // crem — oglinda lui MKT.bg
+  text2: 'rgba(250,249,246,0.78)',
+  text3: 'rgba(250,249,246,0.55)',
+}
 
 // ── Landing page (unauthenticated visitors) ──────────────────
 // Obiectiv: vizitatorul înțelege în 10 secunde ce e Menuvia, pentru cine e,
@@ -27,6 +54,33 @@ export default function LandingPage({
   const [openFaq, setOpenFaq] = useState<number | null>(null)
   // Hero split doar pe desktop (≥900px); sub prag → stack.
   const stacked = useIsMobile(900)
+
+  // Procentele reale ale programului de parteneriat (secțiunea „Recomandă
+  // și câștigă"). Un singur call public la mount; fallback dacă RPC-ul tace.
+  const [affiliate, setAffiliate] = useState<AffiliateDefaults>(AFFILIATE_FALLBACK)
+  useEffect(() => {
+    let cancelled = false
+    void supabase.rpc('get_affiliate_public_defaults').then(({ data }) => {
+      if (cancelled || !data) return
+      const d = data as Partial<AffiliateDefaults>
+      setAffiliate({
+        setup_bps: d.setup_bps ?? AFFILIATE_FALLBACK.setup_bps,
+        recurring_bps: d.recurring_bps ?? AFFILIATE_FALLBACK.recurring_bps,
+        recurring_cap_months: d.recurring_cap_months ?? AFFILIATE_FALLBACK.recurring_cap_months,
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Mini-exemplu static: 5 restaurante pe planul recomandat (Meniu + Comenzi).
+  const affPct = (bps: number) => (bps / 100).toLocaleString('ro-RO') + '%'
+  const affLei = (v: number) => Math.round(v).toLocaleString('ro-RO')
+  const growthPlan = getPlan('growth')
+  const AFF_EXAMPLE_COUNT = 5
+  const affBonus = AFF_EXAMPLE_COUNT * (affiliate.setup_bps / 10000) * growthPlan.priceMonthly
+  const affMonthly = AFF_EXAMPLE_COUNT * (affiliate.recurring_bps / 10000) * growthPlan.priceMonthly
 
   // Beneficiile păstrează copy-ul existent; emoji-urile au fost înlocuite
   // cu Icon vectorial (nume verificate în union-ul IconName).
@@ -521,6 +575,130 @@ export default function LandingPage({
             </div>
           )
         })}
+      </div>
+
+      {/* ── Recomandă și câștigă — programul de parteneriat, pe contrast dark ── */}
+      <div style={{ background: AFF_DARK.bg, padding: stacked ? '56px 24px' : '72px 24px' }}>
+        <div
+          style={{
+            maxWidth: 1040,
+            margin: '0 auto',
+            display: 'grid',
+            gridTemplateColumns: stacked ? '1fr' : '1.1fr 0.9fr',
+            gap: stacked ? 36 : 56,
+            alignItems: 'center',
+          }}
+        >
+          <RevealItem>
+            <div>
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: '0.12em',
+                  textTransform: 'uppercase',
+                  color: MKT.accent,
+                  marginBottom: 14,
+                }}
+              >
+                Recomandă și câștigă
+              </div>
+              <h2
+                style={{
+                  fontFamily: 'Fraunces,serif',
+                  fontSize: 'clamp(1.6rem, 3.4vw, 2.1rem)',
+                  color: AFF_DARK.text,
+                  fontWeight: 700,
+                  letterSpacing: '-0.02em',
+                  lineHeight: 1.15,
+                  margin: '0 0 14px',
+                  textWrap: 'balance',
+                }}
+              >
+                Cunoști restaurante? Fă bani recomandându-le Menuvia.
+              </h2>
+              <p style={{ color: AFF_DARK.text2, fontSize: 15, lineHeight: 1.65, margin: '0 0 22px', maxWidth: 460 }}>
+                Programul de parteneriat plătește comision din fiecare local adus — o dată la
+                activare, apoi lunar. Fără costuri, fără target.
+              </p>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[
+                  `${affPct(affiliate.setup_bps)} din prima factură a fiecărui restaurant adus`,
+                  `${affPct(affiliate.recurring_bps)} din abonament, în fiecare lună`,
+                  `Comision lunar plătit ${affiliate.recurring_cap_months.toLocaleString('ro-RO')} luni per restaurant`,
+                ].map((line) => (
+                  <li key={line} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <Icon name="check" size={18} color={MKT.accent} />
+                    <span style={{ color: AFF_DARK.text2, fontSize: 14.5, lineHeight: 1.5 }}>{line}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </RevealItem>
+
+          {/* Card crem cu mini-exemplu de calcul + CTA spre /afiliat */}
+          <RevealItem delay={120}>
+            <div
+              className="hover-lift"
+              style={{
+                background: MKT.surface,
+                borderRadius: 20,
+                padding: '30px 28px',
+                boxShadow: '0 20px 56px rgba(0,0,0,0.35)',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ color: MKT.text2, fontSize: 13.5, marginBottom: 14 }}>
+                {AFF_EXAMPLE_COUNT.toLocaleString('ro-RO')} restaurante pe {growthPlan.name} ≈
+              </div>
+              <div
+                style={{
+                  fontFamily: 'Fraunces,serif',
+                  fontSize: 'clamp(1.7rem, 3.5vw, 2.1rem)',
+                  fontWeight: 700,
+                  color: MKT.accent,
+                  lineHeight: 1.25,
+                  letterSpacing: '-0.02em',
+                  marginBottom: 6,
+                }}
+              >
+                {affLei(affBonus)} lei bonus
+              </div>
+              <div
+                style={{
+                  fontFamily: 'Fraunces,serif',
+                  fontSize: 'clamp(1.2rem, 2.6vw, 1.5rem)',
+                  fontWeight: 700,
+                  color: MKT.text,
+                  marginBottom: 18,
+                }}
+              >
+                + {affLei(affMonthly)} lei/lună
+              </div>
+              <a
+                href="/afiliat"
+                className="pressable hover-lift"
+                style={{
+                  display: 'inline-block',
+                  background: MKT.accent,
+                  color: MKT.onAccent,
+                  borderRadius: 12,
+                  padding: '14px 26px',
+                  fontWeight: 700,
+                  fontSize: 15,
+                  fontFamily: 'DM Sans,sans-serif',
+                  textDecoration: 'none',
+                  boxShadow: '0 4px 14px rgba(200,150,60,0.3)',
+                }}
+              >
+                Vezi programul de parteneriat →
+              </a>
+              <div style={{ color: MKT.text3, fontSize: 12, marginTop: 12 }}>
+                Plată lunară pe factură, către firma sau PFA-ul tău.
+              </div>
+            </div>
+          </RevealItem>
+        </div>
       </div>
 
       {/* Final CTA */}
