@@ -27,7 +27,8 @@ import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
-import { MenuLoading, MenuError } from '../components/menu/MenuStates'
+import MenuHeader from '../components/menu/MenuHeader'
+import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 
@@ -327,6 +328,12 @@ export default function QrMenuPage({ token }: Props) {
           )
       : (categories.find((c) => c.id === activeCatId)?.products ?? [])
   }, [categories, activeCatId, deferredSearch])
+  // Total produse publicate (toate categoriile) — distinge „catalog gol"
+  // (restaurantul n-a publicat nimic) de „categoria/căutarea nu are rezultate".
+  const totalProducts = useMemo(
+    () => categories.reduce((s, c) => s + (c.products?.length ?? 0), 0),
+    [categories],
+  )
   const orderingAllowed = ctx?.orderingAllowed ?? false
   // Layout ales de restaurant (listă / galerie foto) — implicit 'list'.
   const menuLayout = resolveMenuLayout(ctx?.restaurant.theme_settings)
@@ -403,43 +410,19 @@ export default function QrMenuPage({ token }: Props) {
         flexDirection: 'column',
       }}
     >
-      {/* Header */}
-      <div style={{ padding: '20px 20px 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {ctx?.restaurant.logo_url != null ? (
-          <img
-            src={ctx.restaurant.logo_url}
-            alt={ctx.restaurant.name}
-            decoding="async"
-            // Dimensiuni rezervate (h fix + lățime max) → fără CLS la primul paint.
-            style={{ width: 'auto', maxWidth: 160, height: 48, objectFit: 'contain', marginBottom: 4 }}
-          />
-        ) : (
-          <div
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontSize: 22,
-              fontWeight: 700,
-              color: PUB.text,
-            }}
-          >
-            {ctx?.restaurant.name}
-          </div>
-        )}
-        <div
-          style={{
-            display: 'inline-block',
-            background: `${accent}18`,
-            border: `1px solid ${accent}44`,
-            borderRadius: 20,
-            padding: '4px 12px',
-            fontSize: 13,
-            color: accent,
-            fontWeight: 600,
-          }}
-        >
-          {ctx?.table.name ?? 'Masă'}
-        </div>
-      </div>
+      {/* Header — componenta comună MenuHeader (compact + chrome 'plain' =
+          look-ul istoric QR: logo/nume + badge masă, fără bandă pe surface).
+          isOpen omis intenționat: pagina QR nu afișa pastila de status. */}
+      <MenuHeader
+        variant="compact"
+        chrome="plain"
+        restaurantName={ctx?.restaurant.name ?? ''}
+        logoUrl={ctx?.restaurant.logo_url}
+        badge={ctx?.table.name ?? 'Masă'}
+        accent={accent}
+        PUB={PUB}
+        theme={theme}
+      />
 
       {/* Active orders banner — shown when session has previous orders */}
       {previousOrders.length > 0 && orderingAllowed && !confirmation && (
@@ -532,22 +515,27 @@ export default function QrMenuPage({ token }: Props) {
 
       {/* Product list — layout ales de restaurant (listă / galerie foto) */}
       <div style={{ flex: 1, padding: '14px 16px 120px' }}>
-        {/* Empty states: meniu gol vs. căutare fără rezultate */}
-        {activeProducts.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '48px 16px', color: PUB.text2 }}>
-            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
-              <Icon name={searchQuery ? 'search' : 'utensils'} size={36} color={PUB.text3} />
+        {/* Empty states: catalog gol (nimic publicat) vs. căutare/categorie fără rezultate */}
+        {activeProducts.length === 0 &&
+          (totalProducts === 0 ? (
+            // Restaurantul n-a publicat încă produse — stare dedicată, comună
+            // cu meniul digital (fără buton de golire: nu există filtre).
+            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} />
+          ) : (
+            <div style={{ textAlign: 'center', padding: '48px 16px', color: PUB.text2 }}>
+              <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
+                <Icon name={searchQuery ? 'search' : 'utensils'} size={36} color={PUB.text3} />
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
+                {searchQuery
+                  ? `Niciun produs găsit pentru „${search.trim()}"`
+                  : 'Momentan meniul nu este disponibil.'}
+              </div>
+              <div style={{ fontSize: 13 }}>
+                {searchQuery ? 'Încearcă alt cuvânt.' : 'Te rugăm să întrebi personalul.'}
+              </div>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
-              {searchQuery
-                ? `Niciun produs găsit pentru „${search.trim()}"`
-                : 'Momentan meniul nu este disponibil.'}
-            </div>
-            <div style={{ fontSize: 13 }}>
-              {searchQuery ? 'Încearcă alt cuvânt.' : 'Te rugăm să întrebi personalul.'}
-            </div>
-          </div>
-        )}
+          ))}
         {menuLayout === 'grid' ? (
           // Galerie foto: grid 2 coloane cu carduri foto-forward.
           <div

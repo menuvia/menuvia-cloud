@@ -79,6 +79,49 @@ export function MenuLoading({ PUB }: { PUB: PubColors }) {
   )
 }
 
+/**
+ * Catalog gol — restaurantul nu a publicat încă niciun produs. DISTINCT de
+ * „niciun rezultat la căutare/filtre": aici nu există filtre de golit, deci
+ * fără buton de resetare — doar mesajul „revino curând".
+ */
+export function MenuCatalogEmpty({
+  PUB,
+  fonts,
+}: {
+  PUB: PubColors
+  fonts: { heading: string; body: string }
+}) {
+  return (
+    <div
+      style={{
+        padding: '40px 20px',
+        textAlign: 'center',
+        border: `1px dashed ${PUB.border}`,
+        borderRadius: 12,
+        marginTop: 20,
+      }}
+    >
+      <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
+        <Icon name="utensils" size={32} color={PUB.text3} />
+      </div>
+      <div
+        style={{
+          fontFamily: fonts.heading,
+          fontStyle: 'italic',
+          fontSize: 18,
+          color: PUB.text,
+          marginBottom: 6,
+        }}
+      >
+        Meniul se pregătește
+      </div>
+      <div style={{ fontFamily: fonts.body, fontSize: 13, color: PUB.text2, lineHeight: 1.5 }}>
+        Revino curând — preparatele vor apărea aici.
+      </div>
+    </div>
+  )
+}
+
 /** Eroare de încărcare — icon + titlu + mesaj + reîncercare, themed. */
 export function MenuError({
   PUB,
