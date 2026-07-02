@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
+import { getFounderView, clearFounderView } from '../lib/founder'
 import type { MemberRole } from '../lib/constants'
 
 export interface RestaurantMembership {
@@ -20,6 +21,9 @@ interface RestaurantCtxValue {
   activeRole: MemberRole | null
   setActive: (id: string) => void
   loading: boolean
+  // Id-ul restaurantului vizitat în „mod fondator/partener" (nu e membership
+  // real al userului) — null în folosirea normală. DashboardPage arată banner.
+  founderViewId: string | null
 }
 
 const RestaurantCtx = createContext<RestaurantCtxValue | null>(null)
@@ -31,6 +35,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   const [memberships, setMemberships] = useState<RestaurantMembership[]>([])
   const [activeId, setActiveIdState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [founderViewId, setFounderViewId] = useState<string | null>(null)
 
   useEffect(() => {
     // Flag de anulare: previne ca un răspuns vechi (user A) să suprascrie
@@ -41,6 +46,8 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       // Signout / user null: golim state-ul local și cheia din localStorage,
       // ca un user nou să nu moștenească restaurantul activ al celui vechi.
       localStorage.removeItem(STORAGE_KEY)
+      clearFounderView()
+      setFounderViewId(null)
       setMemberships([])
       setActiveIdState(null)
       setLoading(false)
@@ -78,11 +85,42 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
             restaurant: rest ?? { id: '', name: '', slug: '' },
           }
         })
+        // Mod fondator/partener: FounderPage sau AffiliatePanel a cerut
+        // vizitarea unui restaurant pe care userul NU are membership. RLS-ul
+        // (is_member, extins în mig 186) decide accesul: dacă SELECT-ul pe
+        // restaurants întoarce rândul, injectăm un membership sintetic de
+        // manager; dacă nu (user fără drepturi / cheie stale), curățăm cheia.
+        const fv = getFounderView()
+        let fvActive: string | null = null
+        if (fv && !rows.some((m) => m.restaurant_id === fv)) {
+          const { data: fvRest } = await supabase
+            .from('restaurants')
+            .select('id, name, slug')
+            .eq('id', fv)
+            .maybeSingle()
+          if (cancelled) return
+          if (fvRest) {
+            rows.push({
+              restaurant_id: fvRest.id,
+              role: 'manager' as MemberRole,
+              restaurant: fvRest,
+            })
+            fvActive = fvRest.id
+          } else {
+            clearFounderView()
+          }
+        } else if (fv) {
+          // Are membership real pe restaurantul cerut — nu e impersonare.
+          clearFounderView()
+        }
+        setFounderViewId(fvActive)
         setMemberships(rows)
 
         const saved = localStorage.getItem(STORAGE_KEY)
         const isValid = saved != null && rows.some((m) => m.restaurant_id === saved)
-        setActiveIdState(isValid ? saved : (rows[0]?.restaurant_id ?? null))
+        // Modul fondator are prioritate la selecție (userul tocmai a ales
+        // „Intră pe cont" — îl ducem direct pe restaurantul țintă).
+        setActiveIdState(fvActive ?? (isValid ? saved : (rows[0]?.restaurant_id ?? null)))
       } catch (err) {
         if (cancelled) return
         console.error('[RestaurantContext] Failed to load memberships:', err)
@@ -114,6 +152,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         activeRole: active?.role ?? null,
         setActive,
         loading,
+        founderViewId,
       }}
     >
       {children}

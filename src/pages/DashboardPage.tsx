@@ -44,6 +44,7 @@ const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
+import { exitFounderView } from '../lib/founder'
 import { Icon, type IconName } from '../components/ui/Icon'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
@@ -604,8 +605,10 @@ export default function DashboardPage({
   onSignOut: () => Promise<void>
 }) {
   const { user } = useAuth()
-  const { activeId, activeRole, setActive } = useRestaurantCtx()
+  const { activeId, activeRole, setActive, founderViewId } = useRestaurantCtx()
   const { restaurants, loading: rLoading, update } = useRestaurants()
+  // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
+  const inFounderView = founderViewId != null && founderViewId === activeId
   const [tab, setTab] = useState<Tab>('home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
@@ -923,6 +926,37 @@ export default function DashboardPage({
             <Icon name="utensils" size={16} /> Vezi ca ospătar
           </button>
         )}
+        {/* Panoul de fondator — vizibil DOAR pentru platform admin. */}
+        {isPlatAdmin && (
+          <button
+            onClick={() => {
+              window.location.href = '/founder'
+            }}
+            title="Panoul de fondator — toată platforma într-un singur loc"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: 9,
+              border: `1px solid ${D.border}`,
+              cursor: 'pointer',
+              background: 'transparent',
+              color: D.t2,
+              fontSize: '0.85rem',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = D.s2
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <Icon name="settings" size={16} /> Panou fondator
+          </button>
+        )}
       </div>
     </>
   )
@@ -931,12 +965,55 @@ export default function DashboardPage({
     <div
       style={{
         display: 'flex',
+        flexDirection: 'column',
         height: '100vh',
         background: D.bg,
         overflow: 'hidden',
         fontFamily: 'DM Sans,sans-serif',
       }}
     >
+      {/* Banner mod fondator/partener: vizibil DOAR celui care impersonează,
+          ca să știe mereu pe ce cont e. „Ieși" revine la panoul de fondator. */}
+      {inFounderView && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            padding: '8px 14px',
+            background: D.goldA,
+            borderBottom: `1px solid ${D.gold}55`,
+            color: D.goldL,
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ overflowWrap: 'anywhere' }}>
+            ⚡ Mod fondator — {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
+          </span>
+          <button
+            onClick={() => exitFounderView()}
+            className="pressable"
+            style={{
+              padding: '6px 14px',
+              minHeight: 34,
+              borderRadius: 100,
+              border: `1px solid ${D.gold}66`,
+              background: 'transparent',
+              color: D.goldL,
+              cursor: 'pointer',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Ieși din cont
+          </button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
       {/* Desktop sidebar — hidden on mobile, mobile uses overlay + hamburger */}
       <div
         style={{
@@ -1403,6 +1480,7 @@ export default function DashboardPage({
             </button>
           ))}
         </div>
+      </div>
       </div>
     </div>
   )

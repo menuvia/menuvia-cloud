@@ -32,6 +32,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
 const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
+const FounderPage = lazy(() => import('./pages/FounderPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
@@ -53,6 +54,7 @@ type View =
   | 'legal-cookies'
   | 'legal-dpa'
   | 'afiliat'
+  | 'founder'
   | 'notfound'
 
 interface RouteState {
@@ -87,6 +89,7 @@ function parsePath(): RouteState {
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
+  if (p === '/founder') return { view: 'founder' }
   if (p === '/pricing') return { view: 'pricing' }
   if (p === '/termeni' || p === '/terms') return { view: 'legal-terms' }
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
@@ -2394,6 +2397,14 @@ function AppRouter() {
     navigate('/dashboard')
     return <PageSpinner />
   }
+
+  // ── Panou fondator (doar platform admin; guard-ul e în pagină) ──
+  if (state.view === 'founder')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <FounderPage onBack={() => navigate('/dashboard')} />
+      </Suspense>
+    )
 
   if (restaurants.length === 0 && !rLoading)
     return (

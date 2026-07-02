@@ -8,6 +8,7 @@ import {
   PRODUCT_UPDATE_FIELDS,
 } from '../lib/sanitize'
 import { createRestaurant } from '../lib/restaurants'
+import { getFounderView } from '../lib/founder'
 
 export interface Restaurant {
   id: string
@@ -163,6 +164,18 @@ export function useRestaurants() {
         merged.push(r)
         seen.add(r.id)
       }
+    }
+    // Mod fondator/partener: restaurantul vizitat nu e nici owned, nici prin
+    // membership — îl încărcăm separat. RLS-ul (is_member extins, mig 186)
+    // decide accesul: fără drepturi, SELECT-ul întoarce null și nu adăugăm nimic.
+    const fv = getFounderView()
+    if (fv && !seen.has(fv)) {
+      const { data: fvRow } = await supabase
+        .from('restaurants')
+        .select('*')
+        .eq('id', fv)
+        .maybeSingle()
+      if (fvRow) merged.push(fvRow as Restaurant)
     }
     setRestaurants(merged)
     setLoading(false)
