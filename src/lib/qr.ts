@@ -106,6 +106,42 @@ export interface ModifierGroup {
   modifier_options: ModifierOption[]
 }
 
+// ── Reguli min/max pe grupurile de modificatori ──────────────────────
+// Minimul EFECTIV de opțiuni cerute de un grup: `is_required` garantează
+// cel puțin 1, iar `min_select > 0` obligă și fără `is_required` — în schemă
+// (mig 002) cele două coloane sunt independente. Pe single-select plafonăm
+// la 1: o singură opțiune e maximul fizic selectabil (serverul — mig 191 —
+// aplică același plafon). 0 = grup cu adevărat opțional.
+export function modifierGroupMin(
+  g: Pick<ModifierGroup, 'selection_type' | 'is_required' | 'min_select'>,
+): number {
+  const min = Math.max(g.min_select, g.is_required ? 1 : 0)
+  return g.selection_type === 'single' ? Math.min(min, 1) : min
+}
+
+// Microcopy RO afișat sub titlul grupului („Alege între…", „Alege cel puțin…",
+// „Maxim…"). Doar pe grupurile multiple — pe single, radio-ul comunică singur
+// regula „exact una".
+export function modifierGroupHint(
+  g: Pick<ModifierGroup, 'selection_type' | 'is_required' | 'min_select' | 'max_select'>,
+): string | null {
+  if (g.selection_type !== 'multiple') return null
+  const min = modifierGroupMin(g)
+  const max = g.max_select
+  if (min > 0 && max != null) {
+    return min === max ? `Alege exact ${min}` : `Alege între ${min} și ${max}`
+  }
+  if (min > 0) return `Alege cel puțin ${min}`
+  if (max != null) return `Maxim ${max}`
+  return null
+}
+
+// Quick-add („+" direct în coș, fără sheet) e permis DOAR dacă niciun grup
+// nu are minim efectiv > 0 — altfel serverul (mig 191) respinge comanda.
+export function hasMandatoryModifierGroups(groups: ModifierGroup[] | null | undefined): boolean {
+  return (groups ?? []).some((g) => modifierGroupMin(g) > 0)
+}
+
 export interface ProductExtra {
   id: string
   name: string

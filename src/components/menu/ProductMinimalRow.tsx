@@ -1,4 +1,5 @@
 import type { Product } from '../../lib/qr'
+import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
 import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
@@ -54,7 +55,9 @@ export default function ProductMinimalRow({
   const t = menuType(theme.fonts)
 
   const isSoldOut = product.is_sold_out
-  const hasRequiredMods = product.modifier_groups?.some((g) => g.is_required) ?? false
+  // Minim efectiv > 0 (is_required SAU min_select > 0) → quick-add interzis,
+  // produsul se deschide în sheet (serverul respinge sub minim, mig 191).
+  const hasRequiredMods = hasMandatoryModifierGroups(product.modifier_groups)
 
   const allTags = product.dietary_tags ?? []
   const shownTags = allTags.slice(0, 2)

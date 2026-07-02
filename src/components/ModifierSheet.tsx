@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
+import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import { D } from '../lib/constants'
 
 type SingleSelection = string | null
@@ -67,16 +68,16 @@ export default function ModifierSheet({
   }
 
   const canAdd = groups
-    .filter((g) => g.is_required)
+    .filter((g) => modifierGroupMin(g) > 0)
     .every((g) => {
+      // Paritate cu serverul (mig 191): grupurile cu minim efectiv > 0 —
+      // is_required SAU min_select > 0 (coloane independente în schemă, mig 002)
+      // — cer cel puțin `modifierGroupMin(g)` opțiuni; serverul respinge și el
+      // sub minim (hint 'missing_required_group'), aici doar oglindim ca UX.
       const sel = selections[g.id]
       if (sel == null) return false
       if (sel instanceof Set) {
-        // Paritate UX cu serverul (mig 145): grupurile multiple obligatorii
-        // cer cel puțin `min_select` opțiuni (min_select >= 1 pe required).
-        // Serverul NU respinge pe min, deci e doar validare de UX.
-        const min = Math.max(1, g.min_select)
-        return availableSelectedCount(g, sel) >= min
+        return availableSelectedCount(g, sel) >= modifierGroupMin(g)
       }
       // Single: valid doar dacă opțiunea selectată e încă disponibilă.
       return g.modifier_options.some((o) => o.id === sel && o.is_available)
@@ -219,18 +220,21 @@ export default function ModifierSheet({
               g.selection_type === 'multiple' &&
               g.max_select != null &&
               multiCount >= g.max_select
+            const hint = modifierGroupHint(g)
             return (
               <div key={g.id}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: 8 }}>
+                <div
+                  style={{ fontSize: 13, fontWeight: 600, color: D.t2, marginBottom: hint ? 2 : 8 }}
+                >
                   {g.name}
-                  {g.is_required && <span style={{ color: D.red }}> *</span>}
-                  {g.selection_type === 'multiple' && g.is_required && g.min_select > 0 && (
-                    <span style={{ color: D.t3, fontWeight: 400 }}> · min {g.min_select}</span>
-                  )}
-                  {g.selection_type === 'multiple' && g.max_select != null && (
-                    <span style={{ color: D.t3, fontWeight: 400 }}> · max {g.max_select}</span>
-                  )}
+                  {modifierGroupMin(g) > 0 && <span style={{ color: D.red }}> *</span>}
                 </div>
+                {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
+                {hint && (
+                  <div style={{ fontSize: 12, fontWeight: 400, color: D.t3, marginBottom: 8 }}>
+                    {hint}
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {availableOptions.map((opt) => {
                     const isSelected =
