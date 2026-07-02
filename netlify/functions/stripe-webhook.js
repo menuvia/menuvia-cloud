@@ -384,11 +384,17 @@ exports.handler = async (event) => {
           console.warn(`[stripe-webhook] invoice.paid: no profile for customer ${customerId}`)
         }
 
-        // ── Afiliere: scrie comisionul (best-effort, idempotent în RPC) ──────
+        // ── Afiliere: scrie comisionul (idempotent în RPC) ───────────────────
         // Doar facturi cu bani reali (trial → amount_paid=0 → RPC skip-uiește).
         // RPC-ul caută atribuirea după stripe_customer_id; dacă nu există
-        // afiliere pe acest customer, întoarce skip curat. NU aruncăm dacă
-        // eșuază — comisionul nu trebuie să rupă procesarea facturii.
+        // afiliere pe acest customer, întoarce skip curat. Un eșec al RPC-ului
+        // NU mai e înghițit (audit aff-097b): înainte, rândul stripe_events
+        // rămânea 'completed' → Stripe nu retrimitea → comision pierdut
+        // silențios definitiv. Acum setăm processingError (exact pattern-ul de
+        // la charge.refunded/charge.dispute.closed) → rândul devine 'failed' +
+        // răspundem 500 → Stripe retrimite. Retry-ul e sigur: RPC-ul e
+        // idempotent per (stripe_event_id, leg) (mig 097B), iar restul
+        // case-ului (lifecycle event) e best-effort.
         if (invoice.amount_paid > 0) {
           try {
             // period_month = prima zi a lunii perioadei facturate (pentru cap-ul
@@ -440,20 +446,22 @@ exports.handler = async (event) => {
               p_plan:                   billedPlan,
             })
             if (commErr) {
-              // Rămâne best-effort (nu rupem procesarea facturii — vezi comentariul
-              // de mai sus), dar un eșec de comision e o pierdere financiară reală
-              // pentru afiliat, nu un „skip" normal → console.error + mesaj distinct
-              // (audit medium), ca la charge.refunded/charge.dispute.closed mai jos.
+              // Un eșec de comision e o pierdere financiară reală pentru afiliat,
+              // nu un „skip" normal → console.error + processingError (audit
+              // aff-097b), ca la charge.refunded/charge.dispute.closed mai jos:
+              // rândul stripe_events NU rămâne 'completed', Stripe retrimite.
               console.error(
                 `[stripe-webhook] EROARE COMISION AFILIERE: process_affiliate_invoice_paid a eșuat ` +
                 `pentru invoice ${invoice.id} (customer ${customerId}):`, commErr.message,
               )
+              processingError = `affiliate commission failed: ${commErr.message}`
             }
           } catch (e) {
             console.error(
               `[stripe-webhook] EROARE COMISION AFILIERE: process_affiliate_invoice_paid a aruncat ` +
               `pentru invoice ${invoice.id} (customer ${customerId}):`, e?.message || e,
             )
+            processingError = `affiliate commission threw: ${e?.message || String(e)}`
           }
         }
         break

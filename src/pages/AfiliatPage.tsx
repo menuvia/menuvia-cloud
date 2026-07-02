@@ -681,17 +681,36 @@ function PayoutProfileForm({
   const [beneficiary, setBeneficiary] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  // Eșec la CITIREA profilului (audit aff-page-panel): fără această stare,
+  // o eroare de load (RLS/rețea/timeout) era tratată identic cu „nu există
+  // încă profil" → formular GOL, iar un Salvează suprascria silențios
+  // IBAN/CUI reale cu date goale (upsert-ul din mig 101 e complet, nu parțial).
+  const [loadError, setLoadError] = useState(false)
+  // Incrementat de butonul „Reîncearcă" → re-rulează efectul de load.
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setLoadError(false)
     void supabase
       .from('affiliate_payout_profile')
       .select('legal_form, cui, iban, beneficiary_name')
       .eq('affiliate_id', affiliateId)
       .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled || !data) {
-          if (!cancelled) setLoading(false)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          // NU tratăm eroarea ca „profil inexistent": ascundem formularul
+          // (deci și Salvează) până reușește citirea, ca să nu poată fi
+          // suprascrise datele fiscale existente cu un formular gol.
+          console.error('[AfiliatPage] payout profile load failed:', error)
+          setLoadError(true)
+          setLoading(false)
+          return
+        }
+        if (!data) {
+          setLoading(false)
           return
         }
         const row = data as {
@@ -709,7 +728,7 @@ function PayoutProfileForm({
     return () => {
       cancelled = true
     }
-  }, [affiliateId])
+  }, [affiliateId, reloadKey])
 
   const save = () => {
     // Normalizăm IBAN-ul: scoatem spațiile (interne și de capăt) și uppercase.
@@ -779,6 +798,19 @@ function PayoutProfileForm({
       </div>
       {loading ? (
         <div style={{ color: D.t2, fontSize: '0.82rem', padding: 8 }}>Se încarcă…</div>
+      ) : loadError ? (
+        // Load eșuat → NU afișăm formularul (un save ar suprascrie datele reale).
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 8 }}>
+          <div style={{ color: D.t1, fontSize: '0.82rem', lineHeight: 1.5 }}>
+            Nu am putut încărca datele tale de plată. Ca să nu-ți suprascriem din greșeală
+            datele deja salvate, formularul e ascuns până reușește încărcarea.
+          </div>
+          <div>
+            <button style={goldBtn} onClick={() => setReloadKey((k) => k + 1)}>
+              Reîncearcă
+            </button>
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
