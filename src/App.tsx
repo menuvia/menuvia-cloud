@@ -33,6 +33,7 @@ const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
 const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
+const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
 const FounderPage = lazy(() => import('./pages/FounderPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
@@ -138,15 +139,30 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
   )
 }
 
-// Ruta /afiliat: necesită user logat (NU rol de restaurant). Redirecționarea se
-// face într-un useEffect (nu în render) ca să evităm setState-în-render.
+// Ruta /afiliat: panoul cere user logat, dar vizitatorii NU mai lovesc un zid
+// de login fără context — văd întâi pagina publică de prezentare a programului
+// (procente reale, cum funcționează), cu CTA care setează intenția și duce la
+// /auth; după autentificare, AuthPage onSuccess îi readuce AICI (nu la dashboard).
 function AffiliateRoute({ navigate }: { navigate: (p: string) => void }) {
   const { user, loading: authLoading } = useAuth()
-  useEffect(() => {
-    if (authLoading) return
-    if (!user) navigate('/auth')
-  }, [user, authLoading]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (authLoading || !user) return <PageSpinner />
+  if (authLoading) return <PageSpinner />
+  if (!user)
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <AfiliatIntroPage
+          onLogin={() => {
+            // Intenția de afiliere: după login revenim la /afiliat, nu la
+            // dashboard (pattern-ul plan_intent din pricing).
+            try {
+              sessionStorage.setItem('menuvia.afiliat_intent', '1')
+            } catch {
+              /* private mode — fallback: userul ajunge la dashboard */
+            }
+            navigate('/auth')
+          }}
+        />
+      </Suspense>
+    )
   return (
     <Suspense fallback={<PageSpinner />}>
       <AfiliatPage />
@@ -231,6 +247,23 @@ function AppRouter() {
     if (loading || !user || state.view !== 'auth') return
     if (autoRedirectedRef.current) return // FE-001: don't re-redirect
     autoRedirectedRef.current = true
+    // Intenția de afiliere are prioritate (concurează cu onSuccess din
+    // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
+    let afiliatIntent: string | null = null
+    try {
+      afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
+    } catch {
+      /* ignore */
+    }
+    if (afiliatIntent === '1') {
+      try {
+        sessionStorage.removeItem('menuvia.afiliat_intent')
+      } catch {
+        /* ignore */
+      }
+      replace('/afiliat')
+      return
+    }
     getUserRoles(user.id)
       .then((roles) => {
         if (roles.length === 0) {
@@ -439,13 +472,26 @@ function AppRouter() {
           // înapoi la pricing — onCheckout va detecta că e logat și va sări
           // la Stripe. Fără intent, mergem la dashboard ca până acum.
           let intent: string | null = null
+          let afiliatIntent: string | null = null
           try {
             intent = sessionStorage.getItem('menuvia.plan_intent')
+            afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
           } catch {
             /* ignore (private mode) */
           }
           if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
             navigate('/pricing')
+            return
+          }
+          // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
+          // (altfel ateriza pe dashboard și pierdea complet firul înscrierii).
+          if (afiliatIntent === '1') {
+            try {
+              sessionStorage.removeItem('menuvia.afiliat_intent')
+            } catch {
+              /* ignore */
+            }
+            navigate('/afiliat')
             return
           }
           navigate('/dashboard')
