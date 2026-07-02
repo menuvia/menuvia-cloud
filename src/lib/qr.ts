@@ -182,13 +182,24 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
   return {
     token: payload.token,
     table: payload.table,
+    // Mapăm TOATE câmpurile publice pe care RPC-ul `resolve_qr_token` (mig 127)
+    // le SELECTează: id, name, primary_color, logo_url, address, phone, hours,
+    // checkout_suggestion_settings, theme_settings. Fără theme_settings /
+    // checkout_suggestion_settings, QrMenuPage nu-și aplica tema/layout-ul
+    // (resolveTheme/resolveMenuLayout) și nici upsell-ul de checkout.
+    // Notă: RPC-ul NU întoarce `currency`/`ordering_enabled` pe obiectul
+    // restaurant (semnalul de comandă vine separat prin `orderingAllowed`).
     restaurant: {
       id: restaurant.id as string,
       name: restaurant.name as string,
       primary_color: (restaurant.primary_color as string) ?? '#C8963C',
       logo_url: restaurant.logo_url as string | null,
-      currency: restaurant.currency as string | undefined,
-      ordering_enabled: restaurant.ordering_enabled as boolean | undefined,
+      address: restaurant.address as string | null | undefined,
+      phone: restaurant.phone as string | null | undefined,
+      hours: restaurant.hours as string | null | undefined,
+      checkout_suggestion_settings:
+        restaurant.checkout_suggestion_settings as Restaurant['checkout_suggestion_settings'],
+      theme_settings: restaurant.theme_settings as Restaurant['theme_settings'],
     },
     orderingAllowed: payload.orderingAllowed,
   }
@@ -197,7 +208,12 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
 /** Fetch restaurant by slug using SECURITY DEFINER RPC (no full-scan) */
 export async function fetchRestaurantBySlug(slug: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase.rpc('get_restaurant_by_slug', { p_slug: slug })
-  if (error) return null
+  if (error) {
+    // Observabilitate: fără log, o eroare reală de backend (rețea/RLS/DB) era
+    // indistinctă de „slug inexistent" și dispărea complet.
+    console.error('[qr] fetchRestaurantBySlug:', error)
+    return null
+  }
   // RPC returns setof — Supabase gives array. Take first row.
   if (Array.isArray(data)) return (data[0] as Record<string, unknown>) ?? null
   return (data as Record<string, unknown>) ?? null

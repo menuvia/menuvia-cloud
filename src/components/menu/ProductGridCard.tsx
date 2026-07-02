@@ -69,8 +69,12 @@ export default function ProductGridCard({
   const basePrice = Number.isFinite(product.price) && product.price > 0 ? product.price : 0
   const hasDiscount = pct > 0 && !isSoldOut
   const effectivePrice = hasDiscount ? basePrice * (1 - pct / 100) : basePrice
-  const priceInt = Math.floor(effectivePrice)
-  const priceFrac = (effectivePrice - priceInt).toFixed(2).slice(2)
+  // Cifrele prețului din bani întregi (rotunjiți), nu din float brut: pe un
+  // float ca 19.999999999999996, Math.floor ar pierde granița de întreg
+  // (afișa 19.00 în loc de 20.00). Identic cu ProductCard.
+  const cents = Math.round(effectivePrice * 100)
+  const priceInt = Math.floor(cents / 100)
+  const priceFrac = String(cents % 100).padStart(2, '0')
 
   const priceMain = hasDiscount ? theme.colors.success : accent
   const priceUnit = PUB.text
@@ -94,28 +98,33 @@ export default function ProductGridCard({
         opacity: isSoldOut ? 0.6 : 1,
       }}
     >
-      {/* Zona poză (4:3) — wrapper relativ ca să ancorăm quick-add-ul la colțul
-          pozei indiferent de lățimea celulei din grid. */}
-      <div style={{ position: 'relative' }}>
-        {/* Buton real „deschide produs" peste toată poza. */}
-        <button
-          type="button"
-          className={isSoldOut ? undefined : 'pressable'}
-          disabled={isSoldOut}
-          onClick={() => {
-            if (!isSoldOut) onOpen()
-          }}
-          aria-label={`Vezi detalii ${product.name}`}
-          style={{
-            display: 'block',
-            width: '100%',
-            padding: 0,
-            margin: 0,
-            border: 'none',
-            background: 'none',
-            cursor: isSoldOut ? 'default' : 'pointer',
-          }}
-        >
+      {/* Buton real „deschide produs" pe TOT cardul (poză + nume/descriere/preț)
+          — tap oriunde pe card deschide fișa, nu doar pe poză. Quick-add-ul
+          rămâne buton SEPARAT (frate, mai jos) — fără buton nested. */}
+      <button
+        type="button"
+        className={isSoldOut ? undefined : 'pressable'}
+        disabled={isSoldOut}
+        onClick={() => {
+          if (!isSoldOut) onOpen()
+        }}
+        aria-label={`Vezi detalii ${product.name}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          padding: 0,
+          margin: 0,
+          border: 'none',
+          background: 'none',
+          textAlign: 'left',
+          cursor: isSoldOut ? 'default' : 'pointer',
+        }}
+      >
+        {/* Zona poză (4:3) — wrapper relativ pentru overlay-ul „Epuizat".
+            span (nu div): în interiorul unui <button> e permis doar phrasing
+            content în HTML valid. */}
+        <span style={{ position: 'relative', display: 'block', width: '100%' }}>
           <GridThumbnail product={product} theme={theme} PUB={PUB} />
           {isSoldOut && (
             <span
@@ -141,20 +150,165 @@ export default function ProductGridCard({
               </span>
             </span>
           )}
-        </button>
+        </span>
 
-        {/* Quick-add circular 44px — buton SEPARAT (frate), ancorat în colțul
-            din dreapta-jos al pozei. */}
-        {canAdd && !isSoldOut && (
+        {/* Conținut: nume + descriere + preț + badge-uri (în interiorul
+            butonului — numele accesibil vine din aria-label; span, nu div,
+            din același motiv de phrasing content). */}
+        <span
+          style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '12px 12px 14px' }}
+        >
+          <span
+            style={{
+              ...t.cardTitle,
+              color: PUB.text,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+            }}
+          >
+            {product.name}
+          </span>
+
+          {product.description && (
+            <span
+              style={{
+                ...t.cardDesc,
+                display: '-webkit-box',
+                color: PUB.text2,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+              }}
+            >
+              {product.description}
+            </span>
+          )}
+
+          {/* Preț */}
+          <span
+            aria-label={priceLabel}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 2, marginTop: 2 }}
+          >
+            {hasRequiredMods && (
+              <span
+                aria-hidden
+                style={{
+                  fontFamily: theme.fonts.heading,
+                  fontStyle: 'italic',
+                  fontSize: FS_MICRO,
+                  color: metaColor,
+                  marginRight: 4,
+                }}
+              >
+                de la
+              </span>
+            )}
+            {hasDiscount && (
+              <span
+                aria-hidden
+                style={{
+                  fontFamily: theme.fonts.heading,
+                  fontSize: FS_SMALL,
+                  fontWeight: 600,
+                  color: metaColor,
+                  textDecoration: 'line-through',
+                  marginRight: 4,
+                  lineHeight: 1,
+                }}
+              >
+                {basePrice.toFixed(2)}
+              </span>
+            )}
+            <span aria-hidden style={{ ...t.price, fontSize: FS_PRICE, color: priceMain, lineHeight: 1 }}>
+              {priceInt}
+            </span>
+            <span
+              aria-hidden
+              style={{
+                fontFamily: theme.fonts.heading,
+                fontSize: FS_SMALL,
+                fontWeight: 600,
+                color: priceUnit,
+                lineHeight: 1,
+              }}
+            >
+              .{priceFrac}
+            </span>
+            <span
+              aria-hidden
+              style={{
+                fontFamily: theme.fonts.body,
+                fontSize: FS_MICRO,
+                fontWeight: 500,
+                color: priceUnit,
+                marginLeft: 4,
+                letterSpacing: '0.04em',
+              }}
+            >
+              lei
+            </span>
+          </span>
+
+          {/* Badge-uri */}
+          {(shownTags.length > 0 || hasDiscount || hasRequiredMods) && (
+            <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 2 }}>
+              {hasDiscount && (
+                <GridBadge label={`-${Math.round(pct)}%`} color={theme.colors.success} fonts={theme.fonts} />
+              )}
+              {shownTags.map((tagId) => (
+                <GridTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} />
+              ))}
+              {hasRequiredMods && !isSoldOut && (
+                <span
+                  style={{
+                    fontFamily: theme.fonts.body,
+                    fontSize: FS_MICRO,
+                    fontWeight: 500,
+                    color: metaColor,
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  opțiuni
+                </span>
+              )}
+            </span>
+          )}
+        </span>
+      </button>
+
+      {/* Quick-add circular 44px — buton SEPARAT (frate al butonului „deschide",
+          NU nested). Overlay-ul are exact forma pozei (4:3, full-width, ancorat
+          sus) și e transparent la tap (pointerEvents: none) — doar butonul din
+          interior primește click-uri, în colțul din dreapta-jos al pozei. */}
+      {canAdd && !isSoldOut && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            aspectRatio: '4 / 3',
+            pointerEvents: 'none',
+            zIndex: 2,
+          }}
+        >
           <button
             type="button"
             className="pressable"
-            onClick={() => {
+            onClick={(e) => {
+              // Frate (nu descendent) al butonului „deschide" — stopPropagation
+              // e doar defensiv, click-ul nu are unde să bubble spre onOpen.
+              e.stopPropagation()
               if (hasRequiredMods) onOpen()
               else onQuickAdd()
             }}
             aria-label={`Adaugă ${product.name}`}
             style={{
+              pointerEvents: 'auto',
               position: 'absolute',
               right: 10,
               bottom: 10,
@@ -171,138 +325,14 @@ export default function ProductGridCard({
               fontSize: 22,
               lineHeight: 1,
               boxShadow: `0 2px 8px rgba(0,0,0,0.25)`,
-              zIndex: 2,
             }}
           >
             <span aria-hidden style={{ display: 'block', transform: 'translateY(-1px)' }}>
               +
             </span>
           </button>
-        )}
-      </div>
-
-      {/* Conținut: nume + descriere + preț + badge-uri. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, padding: '12px 12px 14px' }}>
-        <span
-          style={{
-            ...t.cardTitle,
-            color: PUB.text,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            display: '-webkit-box',
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: 'vertical',
-          }}
-        >
-          {product.name}
-        </span>
-
-        {product.description && (
-          <span
-            style={{
-              ...t.cardDesc,
-              display: '-webkit-box',
-              color: PUB.text2,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-            }}
-          >
-            {product.description}
-          </span>
-        )}
-
-        {/* Preț */}
-        <span
-          aria-label={priceLabel}
-          style={{ display: 'flex', alignItems: 'baseline', gap: 2, marginTop: 2 }}
-        >
-          {hasRequiredMods && (
-            <span
-              aria-hidden
-              style={{
-                fontFamily: theme.fonts.heading,
-                fontStyle: 'italic',
-                fontSize: FS_MICRO,
-                color: metaColor,
-                marginRight: 4,
-              }}
-            >
-              de la
-            </span>
-          )}
-          {hasDiscount && (
-            <span
-              aria-hidden
-              style={{
-                fontFamily: theme.fonts.heading,
-                fontSize: FS_SMALL,
-                fontWeight: 600,
-                color: metaColor,
-                textDecoration: 'line-through',
-                marginRight: 4,
-                lineHeight: 1,
-              }}
-            >
-              {basePrice.toFixed(2)}
-            </span>
-          )}
-          <span aria-hidden style={{ ...t.price, fontSize: FS_PRICE, color: priceMain, lineHeight: 1 }}>
-            {priceInt}
-          </span>
-          <span
-            aria-hidden
-            style={{
-              fontFamily: theme.fonts.heading,
-              fontSize: FS_SMALL,
-              fontWeight: 600,
-              color: priceUnit,
-              lineHeight: 1,
-            }}
-          >
-            .{priceFrac}
-          </span>
-          <span
-            aria-hidden
-            style={{
-              fontFamily: theme.fonts.body,
-              fontSize: FS_MICRO,
-              fontWeight: 500,
-              color: priceUnit,
-              marginLeft: 4,
-              letterSpacing: '0.04em',
-            }}
-          >
-            lei
-          </span>
-        </span>
-
-        {/* Badge-uri */}
-        {(shownTags.length > 0 || hasDiscount || hasRequiredMods) && (
-          <span style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 2 }}>
-            {hasDiscount && (
-              <GridBadge label={`-${Math.round(pct)}%`} color={theme.colors.success} fonts={theme.fonts} />
-            )}
-            {shownTags.map((tagId) => (
-              <GridTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} />
-            ))}
-            {hasRequiredMods && !isSoldOut && (
-              <span
-                style={{
-                  fontFamily: theme.fonts.body,
-                  fontSize: FS_MICRO,
-                  fontWeight: 500,
-                  color: metaColor,
-                  letterSpacing: '0.02em',
-                }}
-              >
-                opțiuni
-              </span>
-            )}
-          </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

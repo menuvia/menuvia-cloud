@@ -6,6 +6,11 @@ import { useState, type CSSProperties } from 'react'
 // placeholder skeleton (clasa `.skeleton` din skeleton.css) sub imagine cât
 // timp se încarcă, ca să nu rămână un gol alb pe rețea lentă.
 //
+// La eroare de încărcare (404 / imagine ștearsă din storage / rețea) NU lăsăm
+// iconița „broken image" a browserului: randăm un fallback neutru cu inițiala
+// din `alt` (aceeași idee ca monograma din ProductCard/ProductGridCard pentru
+// produse fără imagine).
+//
 // Extras din PublicMenuPage (era hand-rolled) ca primitivă reutilizabilă pe
 // toate suprafețele de meniu (carduri, hero, sheet-uri). Doar transform/opacity
 // → respectă reduced-motion prin global.css.
@@ -30,6 +35,33 @@ export function BlurImage({
   loading?: 'lazy' | 'eager'
 }) {
   const [loaded, setLoaded] = useState(false)
+  const [failed, setFailed] = useState(false)
+
+  // Fallback pe imagine eșuată: fundal neutru + inițiala din alt (monogramă).
+  // Nu avem tema aici (componenta e generică), deci folosim un gri translucid
+  // care funcționează și pe fundal light, și pe dark; textul moștenește culoarea.
+  const initial = (alt.trim().charAt(0) || '•').toUpperCase()
+  const fallback = (
+    <div
+      role="img"
+      aria-label={alt}
+      className={className}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: '100%',
+        height: '100%',
+        background: 'rgba(127, 127, 127, 0.12)',
+        ...(aspectRatio ? { aspectRatio } : null),
+        ...style,
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 28, fontWeight: 600, opacity: 0.4, lineHeight: 1 }}>
+        {initial}
+      </span>
+    </div>
+  )
 
   const img = (
     <img
@@ -52,8 +84,12 @@ export function BlurImage({
         e.currentTarget.classList.add('is-loaded')
         setLoaded(true)
       }}
-      // Imagine eșuată (404/rețea): nu mai ținem skeleton-ul la infinit.
-      onError={() => setLoaded(true)}
+      // Imagine eșuată (404/rețea): oprim skeleton-ul și trecem pe fallback
+      // (altfel ar rămâne vizibilă iconița „broken image" a browserului).
+      onError={() => {
+        setLoaded(true)
+        setFailed(true)
+      }}
       style={{
         display: 'block',
         width: '100%',
@@ -65,7 +101,9 @@ export function BlurImage({
     />
   )
 
-  if (!skeleton) return img
+  const content = failed ? fallback : img
+
+  if (!skeleton) return content
 
   // Wrapper cu skeleton sub imagine (dispare când imaginea s-a încărcat).
   return (
@@ -79,7 +117,7 @@ export function BlurImage({
         overflow: 'hidden',
       }}
     >
-      {img}
+      {content}
     </div>
   )
 }

@@ -82,8 +82,12 @@ export default function ProductCard({
   const basePrice = Number.isFinite(product.price) && product.price > 0 ? product.price : 0
   const hasDiscount = pct > 0 && !isSoldOut
   const effectivePrice = hasDiscount ? basePrice * (1 - pct / 100) : basePrice
-  const priceInt = Math.floor(effectivePrice)
-  const priceFrac = (effectivePrice - priceInt).toFixed(2).slice(2) // „50" pentru 32.50
+  // Cifrele prețului din bani întregi (rotunjiți), nu din float brut: pe un
+  // float ca 19.999999999999996, Math.floor ar pierde granița de întreg
+  // (afișa 19.00 în loc de 20.00).
+  const cents = Math.round(effectivePrice * 100)
+  const priceInt = Math.floor(cents / 100)
+  const priceFrac = String(cents % 100).padStart(2, '0') // „50" pentru 32.50
 
   // Culoarea prețului: la reducere folosim verdele „succes" al temei (tunat
   // per-temă pentru contrast AA pe fundalul ei), altfel accentul. Fragmentele
