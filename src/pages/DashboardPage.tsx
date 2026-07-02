@@ -497,7 +497,7 @@ const NAV_GROUPS: NavGroup[] = [
     adminOnly: true,
     subTabs: [
       { id: 'settings', label: 'General' },
-      { id: 'ai', label: 'Asistent AI' },
+      { id: 'ai', label: 'Asistent AI', minTier: 2 },
       { id: 'echipa', label: 'Echipă', minTier: 2 },
       { id: 'ture', label: 'Program echipă', minTier: 3 },
       // Vizibil DOAR pentru platform admin (fondatorul) — vezi is_platform_admin.
@@ -540,7 +540,7 @@ function OrdersHub({
     { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
     { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
     { icon: 'users', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
-    { icon: 'history', title: 'Istoric comenzi', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
+    { icon: 'history', title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -604,7 +604,7 @@ export default function DashboardPage({
   onSignOut: () => Promise<void>
 }) {
   const { user } = useAuth()
-  const { activeRole } = useRestaurantCtx()
+  const { activeId, activeRole, setActive } = useRestaurantCtx()
   const { restaurants, loading: rLoading, update } = useRestaurants()
   const [tab, setTab] = useState<Tab>('home')
 
@@ -617,7 +617,6 @@ export default function DashboardPage({
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
@@ -633,8 +632,11 @@ export default function DashboardPage({
     }
   }, [])
 
-  // Sync selectedId when restaurants load: keep selection if still valid, else pick first
-  const restaurant = restaurants.find((r) => r.id === selectedId) ?? restaurants[0] ?? null
+  // Sursă unică de adevăr pentru restaurantul selectat = `activeId` din
+  // RestaurantContext (persistat în localStorage, sincron cu `activeRole`).
+  // Nu mai ținem un `selectedId` local — evita desincronizarea rol/tab pe
+  // staff cu roluri diferite pe restaurante diferite.
+  const restaurant = restaurants.find((r) => r.id === activeId) ?? restaurants[0] ?? null
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
@@ -772,7 +774,7 @@ export default function DashboardPage({
           {restaurants.length > 1 ? (
             <select
               value={restaurant.id}
-              onChange={(e) => setSelectedId(e.target.value)}
+              onChange={(e) => setActive(e.target.value)}
               style={{
                 width: '100%',
                 background: D.s3,
@@ -1118,6 +1120,12 @@ export default function DashboardPage({
                   </div>
                 </div>
               )}
+              {/* Guard: dacă tab-ul curent nu mai aparține niciunui grup vizibil
+                  (rol/tier scăzute în aceeași randare — reset-ul de mai sus
+                  rulează abia după commit), NU montăm tab-ul vechi. Altfel un
+                  tab admin-only apuca să se monteze o dată și să declanșeze
+                  fetch-uri înainte de reset-ul spre 'home'. */}
+              {activeGroup != null && (
               <TabFade key={tab}>
               {tab === 'home' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
@@ -1297,17 +1305,28 @@ export default function DashboardPage({
                   />
                 </Suspense>
               )}
-              {tab === 'ai' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
-                  <AiSettingsTab restaurantId={restaurant.id} />
-                </Suspense>
-              )}
+              {tab === 'ai' &&
+                (tier >= 2 ? (
+                  <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
+                    <AiSettingsTab restaurantId={restaurant.id} />
+                  </Suspense>
+                ) : (
+                  <UpgradePrompt
+                    currentPlan={plan}
+                    featureName="Asistent AI"
+                    emoji="🤖"
+                    description="Asistent AI pentru recomandări și automatizări. Disponibil pe planul Meniu + Comenzi."
+                    requiredTier={2}
+                    onUpgrade={onPricing}
+                  />
+                ))}
               {tab === 'ai-founder' && isPlatAdmin && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă consumul AI..." />}>
                   <FounderAiPanel />
                 </Suspense>
               )}
               </TabFade>
+              )}
             </>
           )}
         </div>
