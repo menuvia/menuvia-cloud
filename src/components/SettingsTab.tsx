@@ -11,6 +11,7 @@ import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from './ui/Icon'
+import { confirm } from './ui/confirm'
 
 // ── Constants for hours_structured editor ──
 
@@ -117,7 +118,16 @@ export default function SettingsTab({
     upd('hours_structured', { ...current, [day]: { ...today, ...patch } })
   }
 
-  function copyMondayToAll() {
+  async function copyMondayToAll() {
+    // Acțiune distructivă: suprascrie orarul personalizat din Marți–Duminică.
+    // Cerem confirmare explicită înainte, ca un click accidental să nu piardă datele.
+    const ok = await confirm({
+      title: 'Suprascrii orarul din Marți–Duminică cu cel de Luni?',
+      description: 'Nu poți anula această acțiune.',
+      confirmLabel: 'Suprascrie',
+      destructive: true,
+    })
+    if (!ok) return
     const current = (form.hours_structured ?? {}) as Record<string, DayHoursForm>
     const mon = current.mon ?? { open: '08:00', close: '23:00', closed: false }
     const next: Record<string, DayHoursForm> = {}
