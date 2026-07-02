@@ -1226,6 +1226,16 @@ jobs:
           # products.category_id same-tenant (#26), happy_hour_rules tenant (#28).
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/batch3_tenant_gates_assertions.sql
 
+      - name: "Order group minimum assertions (mig 191-192)"
+        if: ${{ hashFiles('supabase/migrations/20260703160000_migration_191_create_order_group_bounds.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          # minim per grup (min_select/is_required) server-side: create_order (mig 191)
+          # + update_order_items (mig 192), hint 'missing_required_group' + plafonare
+          # la 1 pe selection_type='single' misconfigurat.
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/order_group_min_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
