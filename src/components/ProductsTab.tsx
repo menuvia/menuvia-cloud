@@ -21,6 +21,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
+import { Spinner } from './ui/Spinner'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -1671,6 +1672,10 @@ export default function ProductsTab({
   const { toasts, toast } = useToast()
   const [modal, setModal] = useState<Product | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
+  // id-ul produsului al cărui toggle activ/inactiv e în zbor — dezactivează
+  // butonul respectiv cât timp requestul e pending, ca userul să nu dea click
+  // de mai multe ori sau să rămână nesigur dacă a mers.
+  const [togglingId, setTogglingId] = useState<string | null>(null)
   const [csvImportOpen, setCsvImportOpen] = useState(false)
   const [aiImportOpen, setAiImportOpen] = useState(false)
   const [aiBulkOpen, setAiBulkOpen] = useState(false)
@@ -1717,6 +1722,16 @@ export default function ProductsTab({
     if (e) toast(e.message, 'error')
     else toast('Șters')
     setDelId(null)
+  }
+  const handleToggleActive = async (p: Product) => {
+    setTogglingId(p.id)
+    try {
+      const { error } = await toggleActive(p.id, p.is_active)
+      if (!error) toast(p.is_active ? 'Dezactivat' : 'Activat')
+      else toast(error.message, 'error')
+    } finally {
+      setTogglingId(null)
+    }
   }
 
   // ── Mobile: card layout. Desktop: table grid ──────────────
@@ -2017,10 +2032,8 @@ export default function ProductsTab({
                 </div>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                   <button
-                    onClick={async () => {
-                      const { error } = await toggleActive(p.id, p.is_active)
-                      if (!error) toast(p.is_active ? 'Dezactivat' : 'Activat')
-                    }}
+                    onClick={() => void handleToggleActive(p)}
+                    disabled={togglingId === p.id}
                     style={{
                       height: 30,
                       borderRadius: 7,
@@ -2030,20 +2043,25 @@ export default function ProductsTab({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      cursor: 'pointer',
+                      cursor: togglingId === p.id ? 'wait' : 'pointer',
                       fontSize: '0.7rem',
                       padding: '0 10px',
                       gap: 4,
+                      opacity: togglingId === p.id ? 0.6 : 1,
                     }}
                   >
-                    <span
-                      style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: '50%',
-                        background: p.is_active ? D.green : D.t3,
-                      }}
-                    />
+                    {togglingId === p.id ? (
+                      <Spinner size="sm" />
+                    ) : (
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: p.is_active ? D.green : D.t3,
+                        }}
+                      />
+                    )}
                     {p.is_active ? 'Activ' : 'Inactiv'}
                   </button>
                   <button
@@ -2175,17 +2193,20 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <button
-                  onClick={async () => {
-                    const { error } = await toggleActive(p.id, p.is_active)
-                    if (!error) toast(p.is_active ? 'Dezactivat' : 'Activat')
-                  }}
+                  onClick={() => void handleToggleActive(p)}
+                  disabled={togglingId === p.id}
                   style={{
                     background: 'transparent',
                     border: 'none',
-                    cursor: 'pointer',
+                    cursor: togglingId === p.id ? 'wait' : 'pointer',
                     textAlign: 'left',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    opacity: togglingId === p.id ? 0.6 : 1,
                   }}
                 >
+                  {togglingId === p.id && <Spinner size="sm" />}
                   <span
                     style={{
                       padding: '3px 10px',

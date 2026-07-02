@@ -11,6 +11,7 @@ import { QueryError } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { confirm } from './ui/confirm'
 
 interface Props {
   restaurantId: string
@@ -188,6 +189,16 @@ export default function WaiterAssignments({ restaurantId }: Props) {
 
   // Clear ALL assignments for a waiter (show all orders)
   const clearWaiter = async (waiterUserId: string) => {
+    // Fără alocări = ospătarul vede toate comenzile restaurantului — cerem
+    // confirmare explicită înainte de a șterge, ca un click accidental să nu
+    // schimbe brusc ce vede ospătarul pe telefon.
+    const ok = await confirm({
+      title: 'Ștergi toate alocările acestui ospătar?',
+      description: 'Ospătarul va vedea toate comenzile restaurantului, nu doar mesele lui.',
+      confirmLabel: 'Șterge alocările',
+      destructive: true,
+    })
+    if (!ok) return
     setSaving(waiterUserId)
     const prev = new Map(assignments)
     const next = new Map(assignments)
