@@ -111,6 +111,13 @@ body[data-modal-open] {
   overflow: hidden;
 }
 
+/* ── Scroll fără scrollbar vizibil (ex. ecranul din PhoneFrame) ──
+   scrollbar-width: none acoperă Firefox (inline), pseudo-elementul
+   acoperă WebKit — nu se poate exprima în style inline. */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Icon (src/components/ui/Icon.tsx) ── */
 .ui-icon {
   flex-shrink: 0;
