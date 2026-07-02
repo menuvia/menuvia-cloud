@@ -88,6 +88,9 @@ export function useAffiliate() {
     setError(null)
     const { data, error: err } = await supabase.rpc('get_affiliate_dashboard')
     if (err) {
+      // Logăm explicit (pattern useFeatures.ts): panoul afișează bani, o
+      // defecțiune RPC tăcută nu trebuie să dispară doar în starea de UI.
+      console.error('[useAffiliate] load error:', err)
       setError(err.message)
       setLoading(false)
       return
@@ -106,7 +109,10 @@ export function useAffiliate() {
     const { data, error: err } = await supabase.rpc('register_affiliate', {
       p_parent_referral_code: parentCode ?? null,
     })
-    if (err) return { ok: false, reason: err.message }
+    if (err) {
+      console.error('[useAffiliate] register error:', err)
+      return { ok: false, reason: err.message }
+    }
     await load()
     return data as RegisterResult
   }
