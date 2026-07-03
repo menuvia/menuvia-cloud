@@ -248,17 +248,26 @@ export async function generateNutrition(input: {
 }
 
 // ── Traducere AI a meniului (multilingv) ─────────────────────
-// Traduce numele + descrierea unui produs din română în limbile țintă.
-// Întoarce un obiect `Translations` (`{ en: {name, description}, de: {...} }`).
-// Un singur apel AI acoperă toate limbile cerute pentru produs.
-export async function aiTranslateProduct(input: {
-  restaurant_id: string
+// Item traductibil (produs SAU categorie). `description` opțional (categoriile
+// n-au descriere).
+export interface TranslatableItem {
+  id: string
   name: string
   description?: string | null
+}
+
+// Traduce MAI MULTE iteme de meniu într-un SINGUR apel AI — mult mai eficient
+// decât un apel per produs (mai puține round-trip-uri, mai puțină latență, un
+// singur system-prompt în loc de N). Întoarce `{ <id>: Translations }` doar
+// pentru itemele traduse cu succes. Robust: itemele lipsă/nevalide se sar
+// (rămân în română), fără să pice tot lotul.
+export async function aiTranslateBatch(input: {
+  restaurant_id: string
+  items: TranslatableItem[]
   targetLangs: string[]
-}): Promise<Translations> {
+}): Promise<Record<string, Translations>> {
   const langs = input.targetLangs.filter((c) => c !== 'ro')
-  if (langs.length === 0) return {}
+  if (langs.length === 0 || input.items.length === 0) return {}
   const langList = langs
     .map((c) => {
       const l = MENU_LANGS.find((x) => x.code === c)
@@ -267,26 +276,35 @@ export async function aiTranslateProduct(input: {
     .join(', ')
   const system = [
     'Ești un traducător profesionist de meniuri de restaurant.',
-    `Traduci numele și descrierea unui produs din română în limbile: ${langList}.`,
-    'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) de forma:',
-    '{"en": {"name": "...", "description": "..."}, "de": {"name": "...", "description": "..."}}',
-    'Folosește EXACT codurile de limbă cerute drept chei. Păstrează denumirile proprii și brandurile.',
-    'Dacă descrierea lipsește, omite câmpul "description". Traduceri naturale, apetisante și scurte.',
+    `Traduci o listă de iteme de meniu din română în limbile: ${langList}.`,
+    'Primești un array JSON de forma [{"id","name","description"}].',
+    'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) keyed pe id:',
+    '{"<id>": {"en": {"name": "...", "description": "..."}, "de": {...}}, ...}',
+    'Folosește EXACT id-urile primite drept chei și codurile de limbă cerute.',
+    'Păstrează denumirile proprii și brandurile. Dacă un item n-are descriere,',
+    'omite câmpul "description". Traduceri naturale, apetisante și scurte.',
   ].join('\n')
-  const userText = `Nume: „${input.name}"${input.description ? `\nDescriere: ${input.description}` : ''}`
+  const payload = JSON.stringify(
+    input.items.map((it) => ({ id: it.id, name: it.name, description: it.description ?? undefined })),
+  )
   const res = await postFn<AiProxyResponse>('ai-proxy', {
     feature: 'translate' as AiFeature,
     restaurant_id: input.restaurant_id,
     system,
-    messages: [{ role: 'user', content: userText }],
-    max_tokens: 800,
+    messages: [{ role: 'user', content: payload }],
+    // Buget de tokeni scalat cu volumul: ~60 tokeni/(item×limbă) + overhead.
+    max_tokens: Math.min(4000, 400 + input.items.length * langs.length * 60),
   })
-  return parseTranslations(res.text, langs)
+  return parseTranslateBatch(res.text, new Set(input.items.map((i) => i.id)), langs)
 }
 
-// Parsează răspunsul AI de traducere, păstrând DOAR limbile cerute și câmpurile
-// nevide (name/description). Robust la markdown-fence și text în plus.
-function parseTranslations(text: string, langs: string[]): Translations {
+// Parsează răspunsul batch: obiect keyed pe id → Translations. Păstrează doar
+// id-urile cerute, limbile cerute și câmpurile nevide. Robust la markdown-fence.
+function parseTranslateBatch(
+  text: string,
+  ids: Set<string>,
+  langs: string[],
+): Record<string, Translations> {
   const clean = text.replace(/```json|```/g, '').trim()
   let raw: unknown
   try {
@@ -299,18 +317,24 @@ function parseTranslations(text: string, langs: string[]): Translations {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const str = (v: unknown): string | undefined =>
     typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined
-  const out: Translations = {}
-  for (const code of langs) {
-    const entry = o[code]
-    if (!entry || typeof entry !== 'object') continue
-    const e = entry as Record<string, unknown>
-    const name = str(e.name)
-    const description = str(e.description)
-    if (name || description) {
-      out[code] = {}
-      if (name) out[code].name = name
-      if (description) out[code].description = description
+  const out: Record<string, Translations> = {}
+  for (const [id, entry] of Object.entries(o)) {
+    if (!ids.has(id) || !entry || typeof entry !== 'object') continue
+    const perLang = entry as Record<string, unknown>
+    const tr: Translations = {}
+    for (const code of langs) {
+      const val = perLang[code]
+      if (!val || typeof val !== 'object') continue
+      const e = val as Record<string, unknown>
+      const name = str(e.name)
+      const description = str(e.description)
+      if (name || description) {
+        tr[code] = {}
+        if (name) tr[code].name = name
+        if (description) tr[code].description = description
+      }
     }
+    if (Object.keys(tr).length > 0) out[id] = tr
   }
   return out
 }
