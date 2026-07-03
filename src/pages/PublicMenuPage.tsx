@@ -5,7 +5,16 @@
 //   • View only — when pickup is disabled (just browse menu)
 //   • Order for pickup — when pickup_settings.enabled = true
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useMemo, useRef, useDeferredValue, lazy, Suspense } from 'react'
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  useDeferredValue,
+  lazy,
+  Suspense,
+} from 'react'
 import type { ReactNode, CSSProperties } from 'react'
 import { useInView, revealStyle } from '../lib/motion'
 import {
@@ -310,9 +319,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
 
-  function addToCart(item: CartItem): void {
+  const addToCart = useCallback((item: CartItem): void => {
     setCart((prev) => [...prev, item])
-  }
+  }, [])
 
   function removeFromCart(key: string): void {
     setCart((prev) => prev.filter((i) => i._key !== key))
@@ -320,21 +329,24 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   // Handlere de produs partajate între layout-urile de meniu (listă / galerie),
   // ca să nu duplicăm logica de deschidere/quick-add în fiecare ramură.
-  const openProduct = (p: Product): void => {
+  const openProduct = useCallback((p: Product): void => {
     if (!p.is_sold_out) setActiveProduct(p)
-  }
-  const quickAddProduct = (p: Product): void => {
-    // „+" rapid: adaugă direct în coșul/lista locală (pickup sau „Lista mea").
-    addToCart({
-      _key: crypto.randomUUID(),
-      product_id: p.id,
-      product_name_snapshot: p.name,
-      unit_price_snapshot: p.price,
-      quantity: 1,
-      selected_modifiers: [],
-      notes: null,
-    })
-  }
+  }, [])
+  const quickAddProduct = useCallback(
+    (p: Product): void => {
+      // „+" rapid: adaugă direct în coșul/lista locală (pickup sau „Lista mea").
+      addToCart({
+        _key: crypto.randomUUID(),
+        product_id: p.id,
+        product_name_snapshot: p.name,
+        unit_price_snapshot: p.price,
+        quantity: 1,
+        selected_modifiers: [],
+        notes: null,
+      })
+    },
+    [addToCart],
+  )
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
   // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
@@ -602,8 +614,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       PUB={PUB}
                       canAdd={pickupEnabled || listMode}
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                      onOpen={() => openProduct(product)}
-                      onQuickAdd={() => quickAddProduct(product)}
+                      onOpen={openProduct}
+                      onQuickAdd={quickAddProduct}
                     />
                   ))}
                 </div>
@@ -627,8 +639,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       PUB={PUB}
                       canAdd={pickupEnabled || listMode}
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                      onOpen={() => openProduct(product)}
-                      onQuickAdd={() => quickAddProduct(product)}
+                      onOpen={openProduct}
+                      onQuickAdd={quickAddProduct}
                     />
                   ))}
                 </div>
@@ -644,8 +656,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       PUB={PUB}
                       canAdd={pickupEnabled || listMode}
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                      onOpen={() => openProduct(product)}
-                      onQuickAdd={() => quickAddProduct(product)}
+                      onOpen={openProduct}
+                      onQuickAdd={quickAddProduct}
                     />
                   ))}
                 </div>
@@ -662,8 +674,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       // Butonul rapid „+" apare și pentru pickup, și pentru „Lista mea".
                       canAdd={pickupEnabled || listMode}
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                      onOpen={() => openProduct(product)}
-                      onQuickAdd={() => quickAddProduct(product)}
+                      onOpen={openProduct}
+                      onQuickAdd={quickAddProduct}
                     />
                   ))}
                 </div>

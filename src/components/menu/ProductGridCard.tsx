@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { memo, type CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
@@ -35,8 +35,8 @@ interface PublicColors {
 
 interface ProductGridCardProps {
   product: Product
-  onOpen: () => void
-  onQuickAdd: () => void
+  onOpen: (p: Product) => void
+  onQuickAdd: (p: Product) => void
   canAdd: boolean
   happyHourPct?: number
   accent: string
@@ -48,7 +48,7 @@ const FS_MICRO = 11
 const FS_SMALL = 13
 const FS_PRICE = 20
 
-export default function ProductGridCard({
+function ProductGridCard({
   product,
   onOpen,
   onQuickAdd,
@@ -109,7 +109,7 @@ export default function ProductGridCard({
         className={isSoldOut ? undefined : 'pressable'}
         disabled={isSoldOut}
         onClick={() => {
-          if (!isSoldOut) onOpen()
+          if (!isSoldOut) onOpen(product)
         }}
         aria-label={`Vezi detalii ${product.name}`}
         style={{
@@ -306,8 +306,8 @@ export default function ProductGridCard({
               // Frate (nu descendent) al butonului „deschide" — stopPropagation
               // e doar defensiv, click-ul nu are unde să bubble spre onOpen.
               e.stopPropagation()
-              if (hasRequiredMods) onOpen()
-              else onQuickAdd()
+              if (hasRequiredMods) onOpen(product)
+              else onQuickAdd(product)
             }}
             aria-label={`Adaugă ${product.name}`}
             style={{
@@ -339,6 +339,8 @@ export default function ProductGridCard({
     </div>
   )
 }
+
+export default memo(ProductGridCard)
 
 // ── Thumbnail 4:3 (poză sau monogramă pe gradient) ──────────────────────
 function GridThumbnail({
