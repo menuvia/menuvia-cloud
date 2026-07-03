@@ -112,7 +112,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
 3. **`docs/` nesincronizat** — AUDIT.md și ITER10-CHANGELOG reflectă stadii vechi.
 4. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
-5. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Consistent cu modelul de date, dar de reținut la owneri multi-restaurant (rezolvarea definitivă = `restaurant_subscriptions`, vezi docs/AFFILIATE_PROGRAM.md).
+5. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
 
 ## Cum rulezi / verifici
 
