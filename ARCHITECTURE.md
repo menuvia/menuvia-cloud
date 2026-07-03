@@ -109,7 +109,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
 1. **Frontend-ul de PROD e în urmă (2026-07-03)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie prin MCP, tracking complet în `supabase_migrations.schema_migrations`), dar frontend-ul de prod e din 30 iunie: build-urile de producție Netlify NU se mai declanșează la push pe main (de verificat „Stopped builds"/„Locked deploy" în Site configuration). Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
-2. **E2E roșu cronic în CI** — lipsesc secrets (`VITE_SUPABASE_URL/ANON_KEY`, `E2E_EMAIL/PASSWORD`) + seed `tinctura` într-un Supabase de staging. Până la fix, Playwright e zgomot ignorat.
+2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
 3. **`docs/` nesincronizat** — AUDIT.md și ITER10-CHANGELOG reflectă stadii vechi.
 4. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
 5. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Consistent cu modelul de date, dar de reținut la owneri multi-restaurant (rezolvarea definitivă = `restaurant_subscriptions`, vezi docs/AFFILIATE_PROGRAM.md).
