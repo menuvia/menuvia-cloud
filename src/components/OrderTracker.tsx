@@ -134,6 +134,9 @@ function OrderTracker({
         // Plan 2 (closed): masa închisă fără bon fiscal — ascunde CTA-ul de bon.
         onRequestFiscalReceipt={isClosed ? undefined : handleRequestFiscalReceipt}
         fiscalReceiptRequested={isClosed ? true : !!fiscalRequestedAt}
+        // Fără sesiune, submit_order_feedback respinge comenzile de la masă
+        // (session-gate mig 094) — funnel-ul de recenzii ar fi mort silențios.
+        sessionId={sessionId}
       />
     )
   }

@@ -41,6 +41,10 @@ interface PaymentConfirmedScreenProps {
   fastPayFee?: number
   onRequestFiscalReceipt?: () => void
   fiscalReceiptRequested?: boolean
+  // Sesiunea mesei: submit_order_feedback (mig 094) RESPINGE feedback-ul pe
+  // comenzile de la masă fără sesiune validă — fără ea, tot funnel-ul e mort
+  // pe cazul principal (QR la masă), cu eroarea înghițită silențios.
+  sessionId?: string | null
 }
 
 export default function PaymentConfirmedScreen({
@@ -52,6 +56,7 @@ export default function PaymentConfirmedScreen({
   fastPayFee = 0,
   onRequestFiscalReceipt,
   fiscalReceiptRequested = false,
+  sessionId = null,
 }: PaymentConfirmedScreenProps) {
   const { lang } = useLanguage()
   const total = Number(confirmation.total) || 0
@@ -106,6 +111,7 @@ export default function PaymentConfirmedScreen({
           restaurantName={restaurantName}
           googleReviewUrl={googleReviewUrl}
           accent={accent}
+          sessionId={sessionId}
         />
 
         {/* Sumar plată */}
@@ -349,25 +355,37 @@ interface FeedbackWidgetProps {
   restaurantName: string
   googleReviewUrl: string | null
   accent: string
+  sessionId?: string | null
 }
 
-function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: FeedbackWidgetProps) {
+function FeedbackWidget({
+  orderId,
+  restaurantName,
+  googleReviewUrl,
+  accent,
+  sessionId = null,
+}: FeedbackWidgetProps) {
   const { lang } = useLanguage()
   const [step, setStep] = useState<FeedbackStep>('payment')
   const [paymentRating, setPaymentRating] = useState<'up' | 'down' | null>(null)
   const [serviceRating, setServiceRating] = useState<number | null>(null)
   const [foodRating, setFoodRating] = useState<number | null>(null)
   const [negativeFeedback, setNegativeFeedback] = useState('')
-  const [showNegativeForm, setShowNegativeForm] = useState(false)
+  // Interceptare privată (pattern Qerko/sunday): ORICE notă slabă — nu doar
+  // degetul în jos la plată — deschide formularul de feedback privat, ca
+  // nemulțumirea să ajungă la owner ÎNAINTE să ajungă pe Google.
+  const [negativeFor, setNegativeFor] = useState<'payment' | 'service' | 'food' | null>(null)
 
   async function saveFeedback(type: 'payment' | 'service' | 'food', rating: number, text?: string) {
     try {
-      // RPC public — definit în migration 043
+      // RPC public (mig 043, session-gate în mig 094): comenzile de la masă
+      // CER p_session_id valid — fără el serverul respinge feedback-ul.
       await supabase.rpc('submit_order_feedback', {
         p_order_id: orderId,
         p_feedback_type: type,
         p_rating: rating,
         p_comment: text || null,
+        p_session_id: sessionId,
       })
     } catch (e) {
       // Silent — feedback e nice-to-have, nu blocăm flow-ul
@@ -379,7 +397,7 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
     setPaymentRating(rating)
     void saveFeedback('payment', rating === 'up' ? 5 : 1)
     if (rating === 'down') {
-      setShowNegativeForm(true)
+      setNegativeFor('payment')
     } else {
       setTimeout(() => setStep('service'), 600)
     }
@@ -388,19 +406,34 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
   function handleService(stars: number) {
     setServiceRating(stars)
     void saveFeedback('service', stars)
-    setTimeout(() => setStep('food'), 600)
+    if (stars <= 3) {
+      setNegativeFor('service')
+    } else {
+      setTimeout(() => setStep('food'), 600)
+    }
   }
 
   function handleFood(stars: number) {
     setFoodRating(stars)
     void saveFeedback('food', stars)
-    setTimeout(() => setStep('complete'), 600)
+    if (stars <= 3) {
+      setNegativeFor('food')
+    } else {
+      setTimeout(() => setStep('complete'), 600)
+    }
   }
 
   function submitNegativeFeedback() {
-    if (negativeFeedback.trim()) {
-      void saveFeedback('payment', 1, negativeFeedback.trim())
+    if (negativeFeedback.trim() && negativeFor) {
+      const rating =
+        negativeFor === 'payment' ? 1
+        : negativeFor === 'service' ? (serviceRating ?? 1)
+        : (foodRating ?? 1)
+      void saveFeedback(negativeFor, rating, negativeFeedback.trim())
     }
+    // După ce clientul și-a spus oful, nu-l mai plimbăm prin restul
+    // întrebărilor — mulțumim și încheiem.
+    setNegativeFor(null)
     setStep('complete')
   }
 
@@ -439,7 +472,7 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
       </div>
 
       {/* Step: Payment */}
-      {step === 'payment' && !showNegativeForm && (
+      {step === 'payment' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
             {t('feedback.askPayment', lang)}
@@ -459,8 +492,8 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
         </>
       )}
 
-      {/* Step: Payment - negative feedback */}
-      {step === 'payment' && showNegativeForm && (
+      {/* Feedback privat — orice notă slabă, indiferent de pas */}
+      {negativeFor !== null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 14 }}>
             {t('feedback.negative', lang)}
@@ -504,7 +537,7 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
       )}
 
       {/* Step: Service */}
-      {step === 'service' && (
+      {step === 'service' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
             {t('feedback.askService', lang)}
@@ -514,7 +547,7 @@ function FeedbackWidget({ orderId, restaurantName, googleReviewUrl, accent }: Fe
       )}
 
       {/* Step: Food */}
-      {step === 'food' && (
+      {step === 'food' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
             {t('feedback.askFood', lang)}
