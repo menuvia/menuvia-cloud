@@ -1135,10 +1135,9 @@ function HeroSection({
         marginRight: 0,
         borderRadius: '0 0 24px 24px',
         overflow: 'hidden',
-        background: showCover ? '#0a0a0a' : undefined,
-        backgroundImage: showCover ? `url(${restaurant.cover_url})` : accentGradient,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
+        // Coverul e randat ca <img> real dedesubt (LCP) — nu background-image.
+        // Fallback fără cover: gradientul de accent.
+        background: showCover ? '#0a0a0a' : accentGradient,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'flex-end',
@@ -1146,6 +1145,29 @@ function HeroSection({
         paddingTop: 'calc(env(safe-area-inset-top, 0px) + 56px)',
       }}
     >
+      {/* Cover ca <img> real (nu background-image): elementul LCP pe /m/:slug.
+          `eager` + `fetchpriority=high` (setat pe ref — @types/react 18.2 nu
+          are încă prop-ul) → browserul îl prioritizează față de fonturi pe 4G.
+          Înălțimea hero-ului e fixă (min(56vh,380px)) → zero CLS. */}
+      {showCover && restaurant.cover_url && (
+        <img
+          ref={(el) => el?.setAttribute('fetchpriority', 'high')}
+          src={restaurant.cover_url}
+          alt=""
+          aria-hidden="true"
+          loading="eager"
+          decoding="async"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+          }}
+        />
+      )}
+
       {/* Scrim întărit — garantează lizibilitatea textului alb peste ORICE
           cover (inclusiv poze deschise care altfel ar spăla albul). Două
           straturi: un wash vertical + o concentrare suplimentară jos. */}

@@ -323,58 +323,87 @@ interface RawModifierOptionRow {
 }
 
 export async function fetchMenuForRestaurant(restaurantId: string): Promise<Category[]> {
-  const { data: catRows, error: catErr } = await supabase
-    .from('categories')
-    .select('id, name, display_order, restaurant_id, meta_text')
-    .eq('restaurant_id', restaurantId)
-    .order('display_order', { ascending: true })
-  if (catErr) throw catErr
-  const categories = (catRows ?? []) as RawCategoryRow[]
+  // ── Layer 1: categories + products în PARALEL ──────────────────
+  // Ambele depind DOAR de restaurantId (nu una de alta). Serial degeaba →
+  // pe 4G de restaurant, un round-trip Supabase e ~100-300ms. Rezultatul e
+  // identic; păstrăm early-exit-urile de mai jos.
+  const [catRes, prodRes] = await Promise.all([
+    supabase
+      .from('categories')
+      .select('id, name, display_order, restaurant_id, meta_text')
+      .eq('restaurant_id', restaurantId)
+      .order('display_order', { ascending: true }),
+    supabase
+      .from('products')
+      .select(
+        'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group, calories, protein_g, carbs_g, fat_g, ai_generated_fields',
+      )
+      .eq('restaurant_id', restaurantId)
+      .eq('is_draft', false)
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
+  ])
+  if (catRes.error) throw catRes.error
+  const categories = (catRes.data ?? []) as RawCategoryRow[]
   if (categories.length === 0) return []
-
-  const { data: prodRows, error: prodErr } = await supabase
-    .from('products')
-    .select(
-      'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group, calories, protein_g, carbs_g, fat_g, ai_generated_fields',
-    )
-    .eq('restaurant_id', restaurantId)
-    .eq('is_draft', false)
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
-  if (prodErr) throw prodErr
-  const products = (prodRows ?? []) as RawProductRow[]
+  if (prodRes.error) throw prodRes.error
+  const products = (prodRes.data ?? []) as RawProductRow[]
   if (products.length === 0) return categories.map((c) => ({ ...c, products: [] }))
 
   const productIds = products.map((p) => p.id)
-  const { data: pmgRows, error: pmgErr } = await supabase
-    .from('product_modifier_groups')
-    .select('product_id, modifier_group_id, display_order')
-    .in('product_id', productIds)
-  if (pmgErr) throw pmgErr
-  const pmgList = (pmgRows ?? []) as RawPmgRow[]
-  const modifierGroupIds = [...new Set(pmgList.map((r) => r.modifier_group_id))]
 
+  // ── Layer 2: pmg + extras + pairings în PARALEL ────────────────
+  // Toate trei depind DOAR de productIds. pmg dă modifierGroupIds pentru
+  // layer-ul 3; extras/pairings sunt complet independente de lanțul de
+  // modificatori, deci nu au de ce să-l aștepte. (extras/pairings înghit
+  // erorile intenționat — sunt „nice to have", ca înainte.)
+  const [pmgRes, extrasRes, pairingsRes] = await Promise.all([
+    supabase
+      .from('product_modifier_groups')
+      .select('product_id, modifier_group_id, display_order')
+      .in('product_id', productIds),
+    supabase
+      .from('product_extras')
+      .select('id, product_id, name, price, emoji, display_order, is_available')
+      .in('product_id', productIds)
+      .eq('is_available', true)
+      .order('display_order', { ascending: true }),
+    supabase
+      .from('product_pairings')
+      .select('id, product_id, paired_product_id, display_order')
+      .in('product_id', productIds)
+      .order('display_order', { ascending: true }),
+  ])
+  if (pmgRes.error) throw pmgRes.error
+  const pmgList = (pmgRes.data ?? []) as RawPmgRow[]
+  const modifierGroupIds = [...new Set(pmgList.map((r) => r.modifier_group_id))]
+  const extrasRows = extrasRes.data
+  const pairingsRows = pairingsRes.data
+
+  // ── Layer 3: modifier_groups + modifier_options în PARALEL ─────
+  // Ambele depind DOAR de modifierGroupIds (nu una de alta).
   let modifierGroups: RawModifierGroupRow[] = []
   let modifierOptions: RawModifierOptionRow[] = []
 
   if (modifierGroupIds.length > 0) {
-    const { data: mgRows, error: mgErr } = await supabase
-      .from('modifier_groups')
-      .select(
-        'id, restaurant_id, name, selection_type, is_required, min_select, max_select, display_order',
-      )
-      .in('id', modifierGroupIds)
-    if (mgErr) throw mgErr
-    modifierGroups = (mgRows ?? []) as RawModifierGroupRow[]
-
-    const { data: moRows, error: moErr } = await supabase
-      .from('modifier_options')
-      .select('id, modifier_group_id, name, price_delta, is_available, display_order')
-      .in('modifier_group_id', modifierGroupIds)
-      .eq('is_available', true)
-      .order('display_order', { ascending: true })
-    if (moErr) throw moErr
-    modifierOptions = (moRows ?? []) as RawModifierOptionRow[]
+    const [mgRes, moRes] = await Promise.all([
+      supabase
+        .from('modifier_groups')
+        .select(
+          'id, restaurant_id, name, selection_type, is_required, min_select, max_select, display_order',
+        )
+        .in('id', modifierGroupIds),
+      supabase
+        .from('modifier_options')
+        .select('id, modifier_group_id, name, price_delta, is_available, display_order')
+        .in('modifier_group_id', modifierGroupIds)
+        .eq('is_available', true)
+        .order('display_order', { ascending: true }),
+    ])
+    if (mgRes.error) throw mgRes.error
+    modifierGroups = (mgRes.data ?? []) as RawModifierGroupRow[]
+    if (moRes.error) throw moRes.error
+    modifierOptions = (moRes.data ?? []) as RawModifierOptionRow[]
   }
 
   const groupMap = new Map<string, ModifierGroup>()
@@ -394,21 +423,8 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
     pmgByProduct.set(row.product_id, existing)
   }
 
-  // Fetch extras + pairings for all products
-  const { data: extrasRows } = await supabase
-    .from('product_extras')
-    .select('id, product_id, name, price, emoji, display_order, is_available')
-    .in('product_id', productIds)
-    .eq('is_available', true)
-    .order('display_order', { ascending: true })
-
-  const { data: pairingsRows } = await supabase
-    .from('product_pairings')
-    .select('id, product_id, paired_product_id, display_order')
-    .in('product_id', productIds)
-    .order('display_order', { ascending: true })
-
   // Build maps: product_id → ProductExtra[] and product_id → ProductPairing[]
+  // (extrasRows / pairingsRows au fost aduse deja în Layer 2, în paralel.)
   const extrasByProduct = new Map<string, ProductExtra[]>()
   for (const row of (extrasRows ?? []) as Array<ProductExtra & { product_id: string }>) {
     const arr = extrasByProduct.get(row.product_id) ?? []

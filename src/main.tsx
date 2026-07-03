@@ -1,6 +1,5 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import * as Sentry from '@sentry/react'
 import App from './App'
 import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
@@ -22,9 +21,20 @@ function removeAppLoader() {
 // ─────────────────────────────────────────────────────────────────
 // Sentry init — DOAR cu consent + cu PII filtrat (GDPR-compliant)
 // ─────────────────────────────────────────────────────────────────
-function initSentry() {
+// Referință la modulul Sentry încărcat LAZY. Rămâne null cât timp userul nu
+// a dat consent (perf) — clientul anonim de la masă NU descarcă chunk-ul
+// Sentry pe calea critică a meniului QR. Error-boundary-ul de mai jos îi
+// trimite erorile doar dacă a fost inițializat.
+let sentryApi: typeof import('@sentry/react') | null = null
+
+async function initSentry() {
   const dsn = import.meta.env.VITE_SENTRY_DSN
   if (!dsn) return
+
+  // Import dinamic: scoate @sentry/react din graful STATIC al entry-ului →
+  // chunk-ul vendor-sentry se descarcă abia aici (idle + consent), nu la load.
+  const Sentry = await import('@sentry/react')
+  sentryApi = Sentry
 
   Sentry.init({
     dsn,
@@ -78,7 +88,7 @@ const scheduleIdle: IdleScheduler =
 
 if (hasConsent('performance')) {
   scheduleIdle(() => {
-    initSentry()
+    void initSentry()
     initAnalytics()
   })
 }
@@ -87,10 +97,50 @@ if (hasConsent('performance')) {
 // direct la acțiunea utilizatorului
 window.addEventListener('consent-updated', () => {
   if (hasConsent('performance')) {
-    initSentry()
+    void initSentry()
     initAnalytics()
   }
 })
+
+// ─────────────────────────────────────────────────────────────────
+// Error boundary lightweight (fără dependență de Sentry pe calea critică).
+// Redă un fallback prietenos și, DACĂ Sentry s-a încărcat (consent), îi
+// trimite excepția — best-effort, fără să blocheze randarea.
+// ─────────────────────────────────────────────────────────────────
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    sentryApi?.captureException(error, {
+      extra: { componentStack: info.componentStack },
+    })
+  }
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return (
+        <div
+          style={{
+            padding: 40,
+            textAlign: 'center',
+            color: '#999',
+            fontFamily: 'sans-serif',
+          }}
+        >
+          A apărut o eroare. Reîncarcă pagina.
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 // Register Service Worker for Web Push Notifications
 if ('serviceWorker' in navigator) {
@@ -107,22 +157,9 @@ try {
 
   ReactDOM.createRoot(rootEl).render(
     <React.StrictMode>
-      <Sentry.ErrorBoundary
-        fallback={
-          <div
-            style={{
-              padding: 40,
-              textAlign: 'center',
-              color: '#999',
-              fontFamily: 'sans-serif',
-            }}
-          >
-            A apărut o eroare. Reîncarcă pagina.
-          </div>
-        }
-      >
+      <AppErrorBoundary>
         <App />
-      </Sentry.ErrorBoundary>
+      </AppErrorBoundary>
     </React.StrictMode>,
   )
   removeAppLoader()

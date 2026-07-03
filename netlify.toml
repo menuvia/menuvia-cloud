@@ -74,6 +74,16 @@
       upgrade-insecure-requests;
     '''
 
+# ── Assets cu hash de conținut (app.[hash].js/css, imagini bundle-uite) ──
+# Vite scrie nume content-addressed în /assets/ → sigur de cache-uit „forever".
+# `immutable` sare complet revalidarea: la reîncărcarea meniului (client care
+# revine la local) fișierele vin din cache local, zero request pe 4G/wifi de
+# restaurant. Un deploy nou schimbă hash-ul → URL nou, deci fără risc de stale.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 # ── SW + manifest no-cache headers (fresh on every load) ──────
 [[headers]]
   for = "/sw.js"
