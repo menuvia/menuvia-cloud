@@ -14,13 +14,18 @@ import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
 import { writePlanIntent } from './lib/planIntent'
 
-// ── Eager: tiny, always-needed pages ─────────────────────────
-import AuthPage from './pages/AuthPage'
-import OnboardingPage from './pages/OnboardingPage'
+// ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // LandingPage rămâne eager: e pagina de intrare (LCP) — nu o lazy-load-ăm.
 import LandingPage from './pages/LandingPage'
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
+// AuthPage/OnboardingPage sunt post-navigare (nu LCP pe nicio rută), dar,
+// importate static, intrau în chunk-ul entry descărcat de ORICE client —
+// inclusiv anonimul de la masă pe /q/ care nu le vede niciodată. Lazy →
+// ~1650 LOC + tranzitive (lib/restaurants, lib/features, lib/plans) ies din
+// calea critică a meniului. Ambele randate deja în <Suspense> mai jos.
+const AuthPage = lazy(() => import('./pages/AuthPage'))
+const OnboardingPage = lazy(() => import('./pages/OnboardingPage'))
 const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const PricingPage = lazy(() => import('./pages/PricingPage'))
 const QrMenuPage = lazy(() => import('./pages/QrMenuPage'))
@@ -466,6 +471,7 @@ function AppRouter() {
   // ── Auth ───────────────────────────────────────────────────
   if (state.view === 'auth' || !user) {
     return (
+      <Suspense fallback={<PageSpinner />}>
       <AuthPage
         onSuccess={() => {
           // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
@@ -502,6 +508,7 @@ function AppRouter() {
           navigate('/dashboard')
         }}
       />
+      </Suspense>
     )
   }
 
@@ -521,12 +528,14 @@ function AppRouter() {
 
   if (restaurants.length === 0 && !rLoading)
     return (
-      <OnboardingPage
-        onComplete={() => {
-          refetch()
-          navigate('/dashboard')
-        }}
-      />
+      <Suspense fallback={<PageSpinner />}>
+        <OnboardingPage
+          onComplete={() => {
+            refetch()
+            navigate('/dashboard')
+          }}
+        />
+      </Suspense>
     )
 
   return (

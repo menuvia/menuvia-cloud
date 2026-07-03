@@ -343,10 +343,13 @@ export default function QrMenuPage({ token }: Props) {
     [categories],
   )
   const orderingAllowed = ctx?.orderingAllowed ?? false
+  const themeSettings = ctx?.restaurant.theme_settings
   // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
-  const menuLayout = resolveMenuLayout(ctx?.restaurant.theme_settings)
+  // Memoizate pe theme_settings (ca în PublicMenuPage) — nu recalculăm la fiecare
+  // re-render (tastă în search, add-to-cart, tick realtime).
+  const menuLayout = useMemo(() => resolveMenuLayout(themeSettings), [themeSettings])
   // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
-  const flipbookPages = resolveFlipbookPages(ctx?.restaurant.theme_settings)
+  const flipbookPages = useMemo(() => resolveFlipbookPages(themeSettings), [themeSettings])
   // Flipbook fără pagini → fallback VIZIBIL pe 'list' (nu ecran gol).
   const effectiveLayout = menuLayout === 'flipbook' && flipbookPages.length === 0 ? 'list' : menuLayout
   // Pe flipbook DOAR catalogul e înlocuit: fără tab-uri/căutare/carduri și fără
