@@ -46,19 +46,24 @@ export default function AiBulkGenerate({
   const [okImg, setOkImg] = useState(0)
   const [okNutri, setOkNutri] = useState(0)
   const [okTr, setOkTr] = useState(0)
+  const [okTrCat, setOkTrCat] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
   const [current, setCurrent] = useState('')
   const [quotaHit, setQuotaHit] = useState(false)
 
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null
 
-  // Un produs are nevoie de traducere dacă vreo limbă țintă n-are încă un nume.
+  // Un produs/o categorie are nevoie de traducere dacă vreo limbă țintă n-are
+  // încă un nume tradus.
   const needsTr = (p: Product): boolean =>
     hasLangs && langs.some((l) => !(p.translations?.[l]?.name?.trim()))
+  const needsTrCat = (c: Category): boolean =>
+    hasLangs && langs.some((l) => !(c.translations?.[l]?.name?.trim()))
 
   const missingImg = products.filter((p) => !p.image_url)
   const missingNutri = products.filter((p) => p.calories == null)
   const missingTr = products.filter(needsTr)
+  const missingTrCat = categories.filter(needsTrCat)
   // Produsele de procesat = reuniunea celor vizate de opțiunile bifate.
   const targets = products.filter(
     (p) =>
@@ -66,6 +71,9 @@ export default function AiBulkGenerate({
       (doNutrition && p.calories == null) ||
       (doTranslate && needsTr(p)),
   )
+  // Există muncă de făcut? Include și categoriile de tradus (care nu sunt în
+  // `targets`, dar declanșează pre-pass-ul de traducere).
+  const hasWork = targets.length > 0 || (doTranslate && missingTrCat.length > 0)
 
   async function run() {
     setRunning(true)
@@ -74,9 +82,41 @@ export default function AiBulkGenerate({
     setOkImg(0)
     setOkNutri(0)
     setOkTr(0)
+    setOkTrCat(0)
     setErrors([])
     setQuotaHit(false)
     let stop = false
+
+    // Pre-pass: traducerea numelor de CATEGORII (headerele meniului). Puține la
+    // număr, deci nu intră în bara de progres (care numără produsele).
+    if (doTranslate) {
+      const catTargets = categories.filter(needsTrCat)
+      for (let i = 0; i < catTargets.length && !stop; i++) {
+        const c = catTargets[i]
+        setCurrent(c.name)
+        try {
+          const tr = await aiTranslateProduct({
+            restaurant_id: restaurantId,
+            name: c.name,
+            description: null,
+            targetLangs: langs,
+          })
+          const merged = { ...(c.translations ?? {}) }
+          for (const [code, val] of Object.entries(tr)) {
+            merged[code] = { ...(merged[code] ?? {}), ...val }
+          }
+          const { error } = await supabase
+            .from('categories')
+            .update({ translations: merged })
+            .eq('id', c.id)
+          if (error) throw new Error(error.message)
+          setOkTrCat((x) => x + 1)
+        } catch (e) {
+          if (isQuota(e)) { setQuotaHit(true); stop = true }
+          else setErrors((prev) => [...prev, `${c.name} (categorie): ${e instanceof Error ? e.message : 'eroare'}`])
+        }
+      }
+    }
 
     for (let i = 0; i < targets.length && !stop; i++) {
       const p = targets[i]
@@ -197,7 +237,7 @@ export default function AiBulkGenerate({
                 <>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                     <input type="checkbox" checked={doTranslate} disabled={running} onChange={(e) => setDoTranslate(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
-                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length} de tradus)</span>
+                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length + missingTrCat.length} de tradus)</span>
                   </label>
                   <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
                     Traduce numele + descrierea în limbile alese din Setări → Limbi meniu. Nu suprascrie traducerile editate manual.
@@ -224,7 +264,7 @@ export default function AiBulkGenerate({
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', textAlign: 'center', marginBottom: 14 }}>
                 {okNutri} seturi de valori nutriționale · {okImg} imagini generate
-                {hasLangs ? ` · ${okTr} produse traduse` : ''}.
+                {hasLangs ? ` · ${okTr} produse${okTrCat > 0 ? ` + ${okTrCat} categorii` : ''} traduse` : ''}.
                 {quotaHit && ' Cumpără credite din Setări → Asistent AI ca să continui.'}
               </p>
               <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
@@ -245,11 +285,15 @@ export default function AiBulkGenerate({
           {!done && (
             <button
               onClick={() => void run()}
-              disabled={running || targets.length === 0 || (!doImages && !doNutrition && !doTranslate)}
+              disabled={running || !hasWork || (!doImages && !doNutrition && !doTranslate)}
               className="pressable"
-              style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: running ? 'default' : 'pointer', opacity: running || targets.length === 0 || (!doImages && !doNutrition && !doTranslate) ? 0.5 : 1 }}
+              style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: running ? 'default' : 'pointer', opacity: running || !hasWork || (!doImages && !doNutrition && !doTranslate) ? 0.5 : 1 }}
             >
-              {running ? 'Se generează…' : `Generează pentru ${targets.length} produse`}
+              {running
+                ? 'Se generează…'
+                : targets.length > 0
+                  ? `Generează pentru ${targets.length} ${targets.length === 1 ? 'produs' : 'produse'}`
+                  : 'Generează traduceri'}
             </button>
           )}
           {done && (
