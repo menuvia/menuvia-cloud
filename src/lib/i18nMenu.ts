@@ -17,6 +17,14 @@ export interface MenuLang {
   flag: string
 }
 
+// Normalizare pentru căutare în meniu: fără diacritice, lowercase — ca un
+// client care tastează „ciorba" să găsească „Ciorbă". Regex compilat o dată la
+// nivel de modul. Partajat între meniul public și cel QR (consistență).
+const MENU_DIACRITICS_RE = /\p{Diacritic}/gu
+export function normalizeMenuSearch(s: string): string {
+  return s.normalize('NFD').replace(MENU_DIACRITICS_RE, '').toLowerCase()
+}
+
 // Limbile disponibile în switcher. `ro` e mereu prima (baza / originalul).
 export const MENU_LANGS: MenuLang[] = [
   { code: 'ro', label: 'Română', flag: '🇷🇴' },
