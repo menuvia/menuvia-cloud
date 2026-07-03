@@ -110,9 +110,8 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 
 1. **Frontend-ul de PROD e în urmă (2026-07-03)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie prin MCP, tracking complet în `supabase_migrations.schema_migrations`), dar frontend-ul de prod e din 30 iunie: build-urile de producție Netlify NU se mai declanșează la push pe main (de verificat „Stopped builds"/„Locked deploy" în Site configuration). Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
 2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
-3. **`docs/` nesincronizat** — AUDIT.md și ITER10-CHANGELOG reflectă stadii vechi.
-4. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
-5. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
+3. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
+4. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
 
 ## Cum rulezi / verifici
 

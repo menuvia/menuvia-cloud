@@ -1,3 +1,6 @@
+> ⚠️ **ARHIVAT (2026-07-03).** Changelog istoric al iterației 10 (14 mai 2026).
+> Istoria curentă trăiește în git log + PR-uri; harta = `ARCHITECTURE.md`.
+
 # ITER 10 — P0 Fixes + PWA + Automation Maximă
 
 **Data:** 14 mai 2026
