@@ -9,7 +9,7 @@ import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import type { Product, Category } from '../hooks/useData'
-import { generateNutrition, generateProductImage } from '../lib/ai'
+import { generateNutrition, generateProductImage, aiTranslateProduct } from '../lib/ai'
 
 type ErrWithMeta = Error & { code?: string; status?: number }
 function isQuota(e: unknown): boolean {
@@ -21,35 +21,50 @@ export default function AiBulkGenerate({
   restaurantId,
   products,
   categories,
+  menuLanguages = [],
   onClose,
   onDone,
 }: {
   restaurantId: string
   products: Product[]
   categories: Category[]
+  /** Limbile extra alese de restaurant (Setări → Limbi meniu). [] = fără traduceri. */
+  menuLanguages?: string[]
   onClose: () => void
   onDone: () => void
 }) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
+  const langs = menuLanguages.filter((c) => c !== 'ro')
+  const hasLangs = langs.length > 0
   const [doImages, setDoImages] = useState(true)
   const [doNutrition, setDoNutrition] = useState(true)
+  const [doTranslate, setDoTranslate] = useState(hasLangs)
   const [running, setRunning] = useState(false)
   const [done, setDone] = useState(false)
   const [progress, setProgress] = useState(0)
   const [okImg, setOkImg] = useState(0)
   const [okNutri, setOkNutri] = useState(0)
+  const [okTr, setOkTr] = useState(0)
   const [errors, setErrors] = useState<string[]>([])
   const [current, setCurrent] = useState('')
   const [quotaHit, setQuotaHit] = useState(false)
 
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null
 
+  // Un produs are nevoie de traducere dacă vreo limbă țintă n-are încă un nume.
+  const needsTr = (p: Product): boolean =>
+    hasLangs && langs.some((l) => !(p.translations?.[l]?.name?.trim()))
+
   const missingImg = products.filter((p) => !p.image_url)
   const missingNutri = products.filter((p) => p.calories == null)
+  const missingTr = products.filter(needsTr)
   // Produsele de procesat = reuniunea celor vizate de opțiunile bifate.
   const targets = products.filter(
-    (p) => (doImages && !p.image_url) || (doNutrition && p.calories == null),
+    (p) =>
+      (doImages && !p.image_url) ||
+      (doNutrition && p.calories == null) ||
+      (doTranslate && needsTr(p)),
   )
 
   async function run() {
@@ -58,6 +73,7 @@ export default function AiBulkGenerate({
     setProgress(0)
     setOkImg(0)
     setOkNutri(0)
+    setOkTr(0)
     setErrors([])
     setQuotaHit(false)
     let stop = false
@@ -93,6 +109,33 @@ export default function AiBulkGenerate({
         } catch (e) {
           if (isQuota(e)) { setQuotaHit(true); stop = true }
           else setErrors((prev) => [...prev, `${p.name} (nutriție): ${e instanceof Error ? e.message : 'eroare'}`])
+        }
+      }
+
+      // Traduceri (multilingv)
+      if (!stop && doTranslate && needsTr(p)) {
+        try {
+          const tr = await aiTranslateProduct({
+            restaurant_id: restaurantId,
+            name: p.name,
+            description: p.description,
+            targetLangs: langs,
+          })
+          // Merge non-distructiv: păstrează traducerile deja existente/editate
+          // manual, completează doar ce lipsește pe limbile țintă.
+          const merged = { ...(p.translations ?? {}) }
+          for (const [code, val] of Object.entries(tr)) {
+            merged[code] = { ...(merged[code] ?? {}), ...val }
+          }
+          const { error } = await supabase
+            .from('products')
+            .update({ translations: merged })
+            .eq('id', p.id)
+          if (error) throw new Error(error.message)
+          setOkTr((x) => x + 1)
+        } catch (e) {
+          if (isQuota(e)) { setQuotaHit(true); stop = true }
+          else setErrors((prev) => [...prev, `${p.name} (traducere): ${e instanceof Error ? e.message : 'eroare'}`])
         }
       }
 
@@ -150,6 +193,18 @@ export default function AiBulkGenerate({
                 <span style={{ color: D.t1, fontSize: '0.9rem' }}>Macronutrienți ({missingNutri.length} fără valori)</span>
               </label>
 
+              {hasLangs && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={doTranslate} disabled={running} onChange={(e) => setDoTranslate(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
+                    <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length} de tradus)</span>
+                  </label>
+                  <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
+                    Traduce numele + descrierea în limbile alese din Setări → Limbi meniu. Nu suprascrie traducerile editate manual.
+                  </div>
+                </>
+              )}
+
               {running && (
                 <div style={{ marginTop: 18 }}>
                   <div style={{ height: 8, background: D.s3, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
@@ -168,7 +223,8 @@ export default function AiBulkGenerate({
                 {quotaHit ? 'Cotă AI epuizată' : 'Gata!'}
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', textAlign: 'center', marginBottom: 14 }}>
-                {okNutri} seturi de valori nutriționale · {okImg} imagini generate.
+                {okNutri} seturi de valori nutriționale · {okImg} imagini generate
+                {hasLangs ? ` · ${okTr} produse traduse` : ''}.
                 {quotaHit && ' Cumpără credite din Setări → Asistent AI ca să continui.'}
               </p>
               <p style={{ color: D.amber, fontSize: '0.8rem', textAlign: 'center', marginBottom: 10 }}>
@@ -189,9 +245,9 @@ export default function AiBulkGenerate({
           {!done && (
             <button
               onClick={() => void run()}
-              disabled={running || targets.length === 0 || (!doImages && !doNutrition)}
+              disabled={running || targets.length === 0 || (!doImages && !doNutrition && !doTranslate)}
               className="pressable"
-              style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: running ? 'default' : 'pointer', opacity: running || targets.length === 0 || (!doImages && !doNutrition) ? 0.5 : 1 }}
+              style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: running ? 'default' : 'pointer', opacity: running || targets.length === 0 || (!doImages && !doNutrition && !doTranslate) ? 0.5 : 1 }}
             >
               {running ? 'Se generează…' : `Generează pentru ${targets.length} produse`}
             </button>

@@ -2483,6 +2483,7 @@ export default function ProductsTab({
             restaurantId={restaurantId}
             products={products}
             categories={categories}
+            menuLanguages={menuLanguages}
             onClose={() => setAiBulkOpen(false)}
             onDone={() => refetchProducts()}
           />
