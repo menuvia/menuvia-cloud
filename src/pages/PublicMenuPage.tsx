@@ -75,6 +75,14 @@ interface Props {
   onBack: () => void
 }
 
+// Normalizare pentru căutare: fără diacritice, lowercase. Regex-ul e compilat
+// O SINGURĂ dată la nivel de modul (nu recreat per apel ca înainte, unde rula
+// de ~100× la fiecare tastă pe un meniu mare).
+const DIACRITICS_RE = /\p{Diacritic}/gu
+function normalizeSearch(s: string): string {
+  return s.normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase()
+}
+
 export default function PublicMenuPage({ slug, onBack }: Props) {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
@@ -261,30 +269,42 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   const allProducts = useMemo(() => categories.flatMap((c) => c.products), [categories])
 
+  // Index de căutare precalculat: haystack-ul normalizat pentru fiecare produs
+  // se calculează O SINGURĂ dată când se schimbă meniul, nu la fiecare tastă.
+  // Înainte: normalize('NFD')+regex rulau O(produse) la fiecare recalcul de
+  // `filtered` (fiecare tastă). Acum doar `q` se normalizează la runtime.
+  const searchIndex = useMemo(
+    () =>
+      allProducts.map((p) => ({
+        product: p,
+        hay: normalizeSearch(p.name + ' ' + (p.description ?? '')),
+      })),
+    [allProducts],
+  )
+
   const deferredSearch = useDeferredValue(search)
 
   const filtered = useMemo(() => {
-    const norm = (s: string) =>
-      s
-        .normalize('NFD')
-        .replace(/\p{Diacritic}/gu, '')
-        .toLowerCase()
-    const q = norm(deferredSearch.trim())
-    return allProducts.filter((p) => {
-      if (activeCat !== 'all' && p.category_id !== activeCat) return false
-      if (q.length > 0) {
-        const haystack = norm(p.name + ' ' + (p.description ?? ''))
-        if (!haystack.includes(q)) return false
-      }
+    const q = normalizeSearch(deferredSearch.trim())
+    const result: Product[] = []
+    for (const { product: p, hay } of searchIndex) {
+      if (activeCat !== 'all' && p.category_id !== activeCat) continue
+      if (q.length > 0 && !hay.includes(q)) continue
       if (activeFilters.size > 0) {
         const tags = p.dietary_tags ?? []
+        let ok = true
         for (const f of activeFilters) {
-          if (!tags.includes(f)) return false
+          if (!tags.includes(f)) {
+            ok = false
+            break
+          }
         }
+        if (!ok) continue
       }
-      return true
-    })
-  }, [allProducts, activeCat, deferredSearch, activeFilters])
+      result.push(p)
+    }
+    return result
+  }, [searchIndex, activeCat, deferredSearch, activeFilters])
 
   // Grupare după categorie pentru SectionHeader (când "Toate" e activ)
   const filteredByCat = useMemo(() => {
