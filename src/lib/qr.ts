@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import type { Translations } from './i18nMenu'
 
 export interface Socials {
   instagram?: string | null
@@ -63,6 +64,8 @@ export interface Restaurant {
     open_hours: { start: string; end: string }
     instructions: string | null
   } | null
+  // Limbile expuse clientului (coduri, ex. ['en','de']). Româna e mereu baza.
+  menu_languages: string[]
 }
 
 export interface QrToken {
@@ -183,6 +186,8 @@ export interface Product {
   ai_generated_fields: string[]
   extras: ProductExtra[]
   pairings: ProductPairing[]
+  // Traduceri manuale per limbă (cheia = cod de limbă). Vezi src/lib/i18nMenu.ts.
+  translations?: Translations | null
 }
 
 export interface Category {
@@ -192,6 +197,8 @@ export interface Category {
   display_order: number
   meta_text: string | null
   products: Product[]
+  // Traduceri manuale per limbă (cheia = cod de limbă). Vezi src/lib/i18nMenu.ts.
+  translations?: Translations | null
 }
 
 export interface ResolvedQrToken {
@@ -199,6 +206,13 @@ export interface ResolvedQrToken {
   table: Table
   restaurant: Restaurant
   orderingAllowed: boolean
+}
+
+// Coerce valoarea jsonb `menu_languages` (poate lipsi / fi null / array) la
+// un string[] curat. Fail-safe: orice formă neașteptată → [] (switcher ascuns).
+function parseMenuLanguages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter((x): x is string => typeof x === 'string')
 }
 
 export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken | null> {
@@ -237,6 +251,9 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
       checkout_suggestion_settings:
         restaurant.checkout_suggestion_settings as Restaurant['checkout_suggestion_settings'],
       theme_settings: restaurant.theme_settings as Restaurant['theme_settings'],
+      // Limbile de meniu — RPC-ul le expune doar dacă proiecția lui le include
+      // (fast-follow); până atunci parseMenuLanguages întoarce [] (switcher ascuns).
+      menu_languages: parseMenuLanguages(restaurant.menu_languages),
     },
     orderingAllowed: payload.orderingAllowed,
   }
@@ -252,8 +269,11 @@ export async function fetchRestaurantBySlug(slug: string): Promise<Record<string
     return null
   }
   // RPC returns setof — Supabase gives array. Take first row.
-  if (Array.isArray(data)) return (data[0] as Record<string, unknown>) ?? null
-  return (data as Record<string, unknown>) ?? null
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined
+  if (row == null) return null
+  // Normalizăm menu_languages la string[] (RPC-ul îl expune doar dacă proiecția
+  // lui îl include — fast-follow; până atunci rămâne []).
+  return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
 }
 
 /** Fetch restaurant by QR token using SECURITY DEFINER RPC */
@@ -262,8 +282,9 @@ export async function fetchRestaurantByQrToken(
 ): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase.rpc('get_restaurant_by_qr_token', { p_token: token })
   if (error) return null
-  if (Array.isArray(data)) return (data[0] as Record<string, unknown>) ?? null
-  return (data as Record<string, unknown>) ?? null
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined
+  if (row == null) return null
+  return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
 }
 
 interface RawCategoryRow {
@@ -272,6 +293,7 @@ interface RawCategoryRow {
   name: string
   display_order: number
   meta_text: string | null
+  translations: Translations | null
 }
 interface RawProductRow {
   id: string
@@ -297,6 +319,7 @@ interface RawProductRow {
   ai_generated_fields: string[]
   extras: ProductExtra[]
   pairings: ProductPairing[]
+  translations: Translations | null
 }
 interface RawPmgRow {
   product_id: string
@@ -330,13 +353,13 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
   const [catRes, prodRes] = await Promise.all([
     supabase
       .from('categories')
-      .select('id, name, display_order, restaurant_id, meta_text')
+      .select('id, name, display_order, restaurant_id, meta_text, translations')
       .eq('restaurant_id', restaurantId)
       .order('display_order', { ascending: true }),
     supabase
       .from('products')
       .select(
-        'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group, calories, protein_g, carbs_g, fat_g, ai_generated_fields',
+        'id, restaurant_id, category_id, name, description, price, image_url, is_sold_out, is_draft, is_daily_special, display_order, allergens, dietary_tags, prep_time_minutes, portion_size, vat_group, calories, protein_g, carbs_g, fat_g, ai_generated_fields, translations',
       )
       .eq('restaurant_id', restaurantId)
       .eq('is_draft', false)
@@ -462,6 +485,8 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
       modifier_groups: productModifierGroups,
       extras: extrasByProduct.get(p.id) ?? [],
       pairings: pairingsByProduct.get(p.id) ?? [],
+      // Traduceri: null (produs netradus) → {} ca trName/trDesc să facă fallback la original.
+      translations: p.translations ?? {},
     }
   })
 
@@ -474,6 +499,7 @@ export async function fetchMenuForRestaurant(restaurantId: string): Promise<Cate
 
   return categories.map((cat) => ({
     ...cat,
+    translations: cat.translations ?? {},
     products: (productsByCategory.get(cat.id) ?? []).sort(
       (a, b) => a.display_order - b.display_order,
     ),

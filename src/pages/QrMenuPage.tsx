@@ -15,6 +15,7 @@ import {
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
+import { trName, trDesc, availableMenuLangs } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
@@ -69,6 +70,8 @@ interface Props {
 export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
+  // Limba activă a meniului ('ro' = originalul din name/description).
+  const [lang, setLang] = useState('ro')
   const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
   const [resolving, setResolving] = useState(true)
@@ -320,6 +323,25 @@ export default function QrMenuPage({ token }: Props) {
   // rulează pe valoarea AMÂNATĂ ca să nu blocheze input-ul la fiecare tastă.
   const searchQuery = search.trim().toLowerCase()
   const deferredSearch = useDeferredValue(search)
+  // Categorii localizate pentru AFIȘARE (tab-uri, liste, search). Pe 'ro'
+  // întoarcem aceeași referință → memo stabil, zero re-render inutil. Doar
+  // name/description sunt traduse; product_id rămâne identic (coșul nu se atinge).
+  const localizedCategories = useMemo<Category[]>(() => {
+    if (lang === 'ro') return categories
+    return categories.map((c) => ({
+      ...c,
+      name: trName(c, lang),
+      products: c.products.map((p) => ({
+        ...p,
+        name: trName(p, lang),
+        description: trDesc(p, lang),
+      })),
+    }))
+  }, [categories, lang])
+  // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
+  // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
+  // există măcar o traducere reală.
+  const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
   // Search activ → căutăm în TOT meniul (toate categoriile), nu doar în cea
   // selectată — altfel clientul nu găsește produsul dacă e pe alt tab.
   // Memoizat pe deps complete: recalculăm doar la schimbare de meniu, tab activ
@@ -327,15 +349,15 @@ export default function QrMenuPage({ token }: Props) {
   const activeProducts = useMemo(() => {
     const q = deferredSearch.trim().toLowerCase()
     return q
-      ? categories
+      ? localizedCategories
           .flatMap((c) => c.products ?? [])
           .filter(
             (p) =>
               p.name.toLowerCase().includes(q) ||
               (p.description ?? '').toLowerCase().includes(q),
           )
-      : (categories.find((c) => c.id === activeCatId)?.products ?? [])
-  }, [categories, activeCatId, deferredSearch])
+      : (localizedCategories.find((c) => c.id === activeCatId)?.products ?? [])
+  }, [localizedCategories, activeCatId, deferredSearch])
   // Total produse publicate (toate categoriile) — distinge „catalog gol"
   // (restaurantul n-a publicat nimic) de „categoria/căutarea nu are rezultate".
   const totalProducts = useMemo(
@@ -447,6 +469,9 @@ export default function QrMenuPage({ token }: Props) {
         accent={accent}
         PUB={PUB}
         theme={theme}
+        languages={availableLangs}
+        activeLang={lang}
+        onLangChange={setLang}
       />
 
       {/* Active orders banner — shown when session has previous orders */}
@@ -505,7 +530,7 @@ export default function QrMenuPage({ token }: Props) {
           Pe flipbook nu există catalog de produse → fără tab-uri și căutare. */}
       {!isFlipbook && (
         <CategoryTabs
-          items={categories.map((cat) => ({
+          items={localizedCategories.map((cat) => ({
             id: cat.id,
             name: cat.name,
             count: cat.products?.length ?? 0,

@@ -5,6 +5,7 @@ import { usePlanLimits } from '../hooks/usePlanLimits'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
+import { MENU_LANGS } from '../lib/i18nMenu'
 import { fetchVatRates } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import {
@@ -35,6 +36,7 @@ function ProductModal({
   onClose,
   restaurantId,
   userId,
+  menuLanguages,
 }: {
   product: Product | null
   categories: Category[]
@@ -42,6 +44,7 @@ function ProductModal({
   onClose: () => void
   restaurantId: string
   userId: string
+  menuLanguages: string[]
 }) {
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
@@ -384,6 +387,28 @@ function ProductModal({
     }
   }
   const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+
+  // ── Traduceri manuale (opționale) ────────────────────────────
+  // Scriu în form.translations[code].{name,description}. Câmpurile goale sunt
+  // eliminate ca să nu bloateze jsonb-ul; clientul face fallback la 'ro'.
+  const [showTranslations, setShowTranslations] = useState(false)
+  const setTranslation = (code: string, field: 'name' | 'description', value: string) =>
+    setForm((f) => {
+      const prev = f.translations ?? {}
+      const entry = { ...(prev[code] ?? {}) }
+      if (value.length === 0) delete entry[field]
+      else entry[field] = value
+      const next = { ...prev }
+      if (Object.keys(entry).length === 0) delete next[code]
+      else next[code] = entry
+      return { ...f, translations: next }
+    })
+  // Numărul de limbi cu cel puțin o traducere completată (pentru contorul din header).
+  const translatedCount = menuLanguages.filter(
+    (code) =>
+      (form.translations?.[code]?.name ?? '').length > 0 ||
+      (form.translations?.[code]?.description ?? '').length > 0,
+  ).length
 
   // Allergen toggle helpers — orice editare manuală scoate flag-ul „AI".
   const toggleAllergen = (id: string) => {
@@ -810,6 +835,115 @@ function ProductModal({
             </div>
           )}
         </div>
+
+        {/* ── Traduceri (opțional, colapsabil) — doar dacă restaurantul are limbi ── */}
+        {menuLanguages.length > 0 && (
+          <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => setShowTranslations((s) => !s)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                cursor: 'pointer',
+                padding: '4px 0',
+                color: D.t2,
+                fontFamily: 'DM Sans,sans-serif',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span
+                  style={{
+                    transform: showTranslations ? 'rotate(90deg)' : 'none',
+                    transition: 'transform 0.15s',
+                    display: 'inline-block',
+                  }}
+                >
+                  ▸
+                </span>
+                <span>Traduceri</span>
+                <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
+              </span>
+              <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
+                {translatedCount}/{menuLanguages.length} limbi
+              </span>
+            </button>
+
+            {showTranslations && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>
+                <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
+                  Numele și descrierea în alte limbi. Româna (originalul de sus) rămâne baza —
+                  câmpurile lăsate goale afișează automat varianta în română.
+                </div>
+                {menuLanguages.map((code) => {
+                  const meta = MENU_LANGS.find((l) => l.code === code)
+                  const label = meta?.label ?? code.toUpperCase()
+                  const entry = form.translations?.[code] ?? {}
+                  return (
+                    <div
+                      key={code}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 8,
+                        padding: '12px 14px',
+                        background: D.s3,
+                        borderRadius: 9,
+                        border: `1px solid ${D.border}`,
+                      }}
+                    >
+                      <div style={{ fontSize: '0.8rem', fontWeight: 600, color: D.t1 }}>
+                        {meta?.flag} {label}
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '0.74rem',
+                            color: D.t2,
+                            marginBottom: 5,
+                          }}
+                        >
+                          Nume ({label})
+                        </label>
+                        <Inp
+                          value={entry.name ?? ''}
+                          onChange={(v) => setTranslation(code, 'name', v)}
+                          placeholder={form.name || 'Nume produs'}
+                        />
+                      </div>
+                      <div>
+                        <label
+                          style={{
+                            display: 'block',
+                            fontSize: '0.74rem',
+                            color: D.t2,
+                            marginBottom: 5,
+                          }}
+                        >
+                          Descriere ({label})
+                        </label>
+                        <textarea
+                          value={entry.description ?? ''}
+                          onChange={(e) => setTranslation(code, 'description', e.target.value)}
+                          placeholder={form.description || 'Descriere produs'}
+                          rows={2}
+                          style={{ ...inp, height: 'auto', resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Detalii suplimentare (opțional, colapsabil) ───────────── */}
         <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
@@ -1639,11 +1773,13 @@ export default function ProductsTab({
   plan,
   onUpgrade,
   userId,
+  menuLanguages = [],
 }: {
   restaurantId: string
   plan: string
   onUpgrade: () => void
   userId: string
+  menuLanguages?: string[]
 }) {
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
@@ -2312,6 +2448,7 @@ export default function ProductsTab({
           onClose={() => setModal(null)}
           restaurantId={restaurantId}
           userId={userId}
+          menuLanguages={menuLanguages}
         />
       )}
       {csvImportOpen && (

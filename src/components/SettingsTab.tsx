@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
+import { MENU_LANGS } from '../lib/i18nMenu'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import MenuPreview from './menu/MenuPreview'
@@ -117,6 +118,15 @@ export default function SettingsTab({
     const current = (form.amenities ?? []) as string[]
     const next = current.includes(id) ? current.filter((a) => a !== id) : [...current, id]
     upd('amenities', next)
+  }
+
+  // Limbile în care clientul poate vedea meniul (fără 'ro', care e mereu baza).
+  function toggleMenuLang(code: string) {
+    const current = (form.menu_languages ?? []) as string[]
+    const next = current.includes(code)
+      ? current.filter((c) => c !== code)
+      : [...current, code]
+    upd('menu_languages', next)
   }
 
   // ── Flipbook: pagini de meniu ca imagini (theme_settings.flipbook_pages) ──
@@ -855,6 +865,51 @@ export default function SettingsTab({
                       }
                     />
                   </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Limbi meniu — limbile suplimentare oferite clientului (fără 'ro'). */}
+          <div
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 14,
+              padding: 22,
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
+              Limbi meniu
+            </div>
+            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
+              Limbi în care clientul poate vedea meniul. Româna e mereu disponibilă.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {MENU_LANGS.filter((l) => l.code !== 'ro').map((l) => {
+                const active = (form.menu_languages ?? []).includes(l.code)
+                return (
+                  <button
+                    key={l.code}
+                    type="button"
+                    onClick={() => toggleMenuLang(l.code)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      background: active ? D.goldA : D.s3,
+                      border: `1px solid ${active ? D.gold : D.border}`,
+                      color: active ? D.goldL : D.t2,
+                      padding: '6px 12px',
+                      borderRadius: 100,
+                      fontSize: '0.78rem',
+                      fontWeight: active ? 600 : 500,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span>{l.flag}</span>
+                    {l.label}
+                  </button>
                 )
               })}
             </div>

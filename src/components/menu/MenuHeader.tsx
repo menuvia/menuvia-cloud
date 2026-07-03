@@ -3,6 +3,7 @@ import BlurImage from '../ui/BlurImage'
 import { menuType } from '../../lib/menuType'
 import type { MenuTheme } from '../../lib/themes'
 import { readableTextOn } from '../../lib/themes'
+import { MENU_LANGS } from '../../lib/i18nMenu'
 
 // ─────────────────────────────────────────────────────────────
 // MenuHeader — header de meniu reutilizabil pe ambele suprafețe
@@ -75,6 +76,81 @@ export interface MenuHeaderProps {
   theme: MenuTheme
   /** Slot opțional sub nume în varianta "full" (pile adresă/ore/social). */
   children?: ReactNode
+  /** Limbile suplimentare oferite (coduri, ex. ['en','de']). `ro` e mereu
+      adăugat automat ca bază. Gol/absent → switcher-ul nu se randează. */
+  languages?: string[]
+  /** Limba activă (cod). Implicit 'ro'. */
+  activeLang?: string
+  /** Callback la schimbarea limbii din switcher. */
+  onLangChange?: (code: string) => void
+}
+
+// ── LangSwitcher — pastile compacte flag+cod pentru schimbarea limbii ──
+// Româna e mereu prima (baza). Pastila activă e evidențiată cu accentul
+// temei. Țintă de atingere ≥44px (a11y). Fără librării — doar butoane.
+// Exportat ca să fie reutilizat pe suprafețe care nu folosesc MenuHeader
+// (ex. PublicMenuPage are hero propriu) — un singur stil de switcher.
+export function LangSwitcher({
+  languages,
+  activeLang,
+  onLangChange,
+  accent,
+  PUB,
+  labelStyle,
+}: {
+  languages: string[]
+  activeLang: string
+  onLangChange: (code: string) => void
+  accent: string
+  PUB: PublicPalette
+  labelStyle: CSSProperties
+}) {
+  // ro + limbile alese, deduplicat, doar cele cunoscute în MENU_LANGS.
+  const codes = ['ro', ...languages.filter((c) => c !== 'ro')]
+  const langs = codes
+    .map((c) => MENU_LANGS.find((l) => l.code === c))
+    .filter((l): l is (typeof MENU_LANGS)[number] => l != null)
+  if (langs.length < 2) return null
+  return (
+    <div
+      role="group"
+      aria-label="Alege limba meniului"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: SPACE_2 }}
+    >
+      {langs.map((l) => {
+        const active = l.code === activeLang
+        return (
+          <button
+            key={l.code}
+            type="button"
+            onClick={() => onLangChange(l.code)}
+            aria-pressed={active}
+            aria-label={l.label}
+            style={{
+              ...labelStyle,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: SPACE_1,
+              minHeight: 44,
+              padding: `${SPACE_1}px ${SPACE_3}px`,
+              borderRadius: 100,
+              cursor: 'pointer',
+              lineHeight: 1,
+              background: active ? accent : PUB.surface,
+              // Accente deschise (galben/lime) primesc text închis → AA garantat.
+              color: active ? readableTextOn(accent, PUB.text) : PUB.text2,
+              border: `1px solid ${active ? accent : PUB.border}`,
+            }}
+          >
+            <span aria-hidden style={{ fontSize: 15 }}>
+              {l.flag}
+            </span>
+            <span>{l.code.toUpperCase()}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 // Pastilă glass de status open/closed — text alb peste cover (full) sau
@@ -157,10 +233,25 @@ export default function MenuHeader({
   theme,
   chrome = 'band',
   children,
+  languages,
+  activeLang = 'ro',
+  onLangChange,
 }: MenuHeaderProps) {
   const t = menuType(theme.fonts)
   const showStatus = isOpen != null
   const hasLogo = typeof logoUrl === 'string' && logoUrl.length > 0
+  // Switcher-ul apare doar dacă restaurantul oferă ≥1 limbă în plus și avem un handler.
+  const langNode =
+    languages && languages.length > 0 && onLangChange ? (
+      <LangSwitcher
+        languages={languages}
+        activeLang={activeLang ?? 'ro'}
+        onLangChange={onLangChange}
+        accent={accent}
+        PUB={PUB}
+        labelStyle={t.label}
+      />
+    ) : null
 
   // ── Varianta COMPACT, chrome "plain" (pagina QR) ────────────
   // Look-ul istoric al header-ului QR, păstrat 1:1 la mutarea în componentă:
@@ -229,6 +320,7 @@ export default function MenuHeader({
             />
           </div>
         )}
+        {langNode && <div style={{ marginTop: SPACE_2 }}>{langNode}</div>}
       </header>
     )
   }
@@ -304,6 +396,7 @@ export default function MenuHeader({
             />
           </div>
         )}
+        {langNode && <div style={{ marginTop: SPACE_3 }}>{langNode}</div>}
       </header>
     )
   }
@@ -411,6 +504,7 @@ export default function MenuHeader({
             {children}
           </div>
         )}
+        {langNode && <div style={{ marginTop: SPACE_3 }}>{langNode}</div>}
       </div>
     </header>
   )

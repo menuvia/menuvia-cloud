@@ -35,6 +35,7 @@ export const RESTAURANT_UPDATE_FIELDS = [
   'pickup_settings',
   'google_place_id',
   'google_review_url',
+  'menu_languages',
 ] as const satisfies readonly (keyof Restaurant)[]
 
 export const CATEGORY_UPDATE_FIELDS = [
@@ -42,6 +43,7 @@ export const CATEGORY_UPDATE_FIELDS = [
   'emoji',
   'display_order',
   'meta_text',
+  'translations',
 ] as const satisfies readonly (keyof Category)[]
 
 export const PRODUCT_UPDATE_FIELDS = [
@@ -66,6 +68,7 @@ export const PRODUCT_UPDATE_FIELDS = [
   'carbs_g',
   'fat_g',
   'ai_generated_fields',
+  'translations',
 ] as const satisfies readonly (keyof Product)[]
 
 export function pickAllowed<T extends object, K extends keyof T>(
