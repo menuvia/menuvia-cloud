@@ -42,25 +42,43 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 
 | Strat | Locație | Notă |
 |---|---|---|
-| Rute + landing + pricing | `App.tsx` | numele comerciale ale planurilor trăiesc aici + `features.ts` |
-| Pagini | `pages/` | Dashboard (19 tab-uri, filtrate pe tier), Waiter, Kitchen, QrMenu (client), PublicMenu, Auth, Onboarding, Recrutare |
+| Rute | `App.tsx` | DOAR routing (parsePath + View union); paginile de marketing au fost extrase |
+| Marketing | `pages/{Landing,Pricing,AfiliatIntro}Page.tsx` + `components/marketing/` + `lib/marketing.ts` | paleta `MKT` (nu `D`); MarketingHeader/Footer, PhoneFrame (randează meniul REAL), Reveal |
+| Pagini | `pages/` | Dashboard (grupuri filtrate pe tier), Waiter, Kitchen, QrMenu, PublicMenu, Auth, Onboarding, Recrutare, **FounderPage** (/founder), **AfiliatPage** (/afiliat, logat) |
 | Tab-uri dashboard | `components/*Tab.tsx` | lazy-loaded (jsPDF/recharts doar la click) |
-| Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline) |
-| State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance |
+| Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
+| State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (88) — grupate pe „de ce", nu pe număr
+## Migrațiile (195) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
 | Fundație | base, 001–008 | tabele, RLS inițial, create_order v1 |
 | Hardening securitate | 011–015, 035, 046–048, 056 | audituri repetate: REVOKE-uri, advisory locks, rewrite create_order |
 | Feature-uri operare | 016–024 (waiter calls, split bill, floor plan, push, alergeni), 057–058 (rezervări), 036+077 (happy hour) | creșterea produsului |
-| Fiscal & bani | 027–033 (TVA, bridge, discounts, cash shifts, rapoarte), 041 (Oblio), 050–053 (4 runde fix fiscal payload), 045 | cel mai patch-uit domeniu — normal, e cel mai sensibil |
-| Growth/ops intern | 037 (leads), 039–040, 060–061 (alerting, winback), 044 (audit log), 042 (GDPR) | nu ating produsul de la masă |
-| Taxonomie planuri | 062, 068, 071, 028 | nașterea plan_features |
+| Fiscal & bani | 027–033 (TVA, bridge, discounts, cash shifts, rapoarte), 041 (Oblio), 050–053 (4 runde fix fiscal payload), 045, 109 (TVA 2025), 150, 158–159 (gate fiscal pe venit/facturi) | cel mai patch-uit domeniu — normal, e cel mai sensibil |
+| Growth/ops intern | 037 (leads), 039–040, 060–061 (alerting, winback), 044 (audit log), 042 (GDPR), 179 (retenție fiscală 10 ani la ștergere cont) | nu ating produsul de la masă |
+| Taxonomie planuri | 062, 068, 071, 028, 089 | nașterea plan_features; 089 aliniază DB cu `lib/plans.ts` |
 | Quality pass comenzi | 059, 063–066, 069, 072–076, 078–082 | bug-uri reale găsite în folosință: race-uri, RLS pe rezervări, optimistic lock |
 | **Porțile A–D (monetizare)** | **083–088** | gating server-side pe plan; 088 repară 5 bug-uri din 084 care blocau comanda QR |
+| Securitate QR + sesiuni | 090–092, 094 | rate limit, „cere nota", tracking legat de sesiune, 5 fix-uri P0 |
 | **Authorization lockdown** | **096A → 096B → 096C** | închidere P0 owner-membership: model cu 2 invariante + REVOKE-by-default + 7 RPC SECURITY DEFINER (vezi mai jos). |
+| **Afiliere + payouts** | **097(a–d), 098–108, 110** | affiliates/attributions/touches + `affiliate_ledger` WORM (bani în cents, bps); comisioane pe `invoice.paid` (mig 099, citește bps LIVE din rândul afiliatului); payouts cu state machine + settle trigger (098); Wise 2-faze; incrementality touch server-side |
+| Hardening Plan 1+2 | 111–143 | 2 runde de audit adversarial: gate-leak fiscal universal (124, 133), izolare multi-tenant, `security_invoker` pe views |
+| Rescriere create_order | 145–157 | 145 = ultima definiție create_order (fără twin); guards: FOR UPDATE, slug case-insensitive, tenancy pe category/happy-hour |
+| **Platforma AI** | **168–171, 185** | `profiles.is_platform_admin` + ai_provider_configs/ai_usage/ai_quota; BYO key criptat; credite Stripe idempotente; 185 = idempotență metering pe request_id |
+| Reziliență/observabilitate | 160–167, 172–184 | audituri notate: email queue atomic-claim + reclaim, backoff Oblio, health hardening, fix coloană rapoarte (180: `oi.unit_price`→`item_total`), dedup guard update_order_items (184) |
+| **Founder + partener + comisioane** | **186–190, 193** | vezi secțiunea de mai jos |
+| Min/max opțiuni per grup | 191–192 + `tests/sql/order_group_min_assertions.sql` | minimul per grup impus server-side în create_order/update_order_items (hint `missing_required_group`) |
+| Igienă advisors | 194 | search_path pe 14 funcții vechi + fără listarea publică a bucket-ului product-images |
+
+## Founder + acces partener + comisioane (186–190, 193)
+
+- **Funelul central de autorizare** e trio-ul `is_admin`/`is_member`/`my_role` (096a) — TOATE RLS-urile și RPC-urile trec prin el. A fost extins de exact DOUĂ ori: `or is_platform_admin()` (186, fondatorul vede tot) și `or has_partner_access()` (187, afiliatul intră pe restaurantele referite). Orice modificare viitoare aici e o schimbare de rază de acces pe TOATĂ platforma — tratează ca atare.
+- **`has_partner_access`** (187, înăsprit în 193): afiliat `active` + atribuire ne-terminală (NU `canceled/refunded/expired`) + `partner_access_revoked_at is null`. Ownerul poate revoca din tabul Echipă (`revoke_affiliate_access`); accesul cade AUTOMAT când abonamentul referitului moare.
+- **Mod founder/partener (frontend)**: `enterFounderView(id, origin)` scrie `menuvia_founder_view` (+ `_from`) în localStorage → RestaurantContext injectează membership sintetic 'manager' DOAR dacă SELECT-ul RLS pe restaurants trece → banner „⚡ Mod fondator / 🤝 Mod partener" în DashboardPage; ieșirea/„Panou fondator" curăță cheile. Vizitele se auditează prin `log_partner_visit`.
+- **13 RPC-uri `admin_*`** (186) + `platform_audit_log`: overview KPI, listă restaurante (+ schimbare plan, care e per-OWNER — un owner cu N restaurante le schimbă pe toate), retry email/facturi, payouts mark-paid, arbore afiliați, audit. Toate gate `is_platform_admin()`, toate logate.
+- **Comisioane** (188–189): `platform_settings` (key/value jsonb, founder-only) ține `affiliate_commission_defaults`; fondatorul le editează global sau per afiliat (`admin_set_affiliate_commission`, „aplică la toți"); `register_affiliate` inserează bps-urile din settings; `get_affiliate_public_defaults` (anon) expune DOAR setup/recurring/cap pe pagina publică /afiliat — niciodată cascade.
 
 ## Authorization lockdown (096A/B/C)
 
@@ -90,11 +108,12 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
-1. **E2E roșu cronic în CI** — lipsesc secrets (`VITE_SUPABASE_URL/ANON_KEY`, `E2E_EMAIL/PASSWORD`) + seed `tinctura` într-un Supabase de staging. Până la fix, Playwright e zgomot ignorat.
-2. **Plan legacy `business`** — mai există în `PLAN_LABELS`; de migrat conturile vechi și șters.
-3. **`docs/` nesincronizat** — AUDIT.md și ITER10-CHANGELOG reflectă stadii vechi.
-4. **Numerotare migrații cu găuri** (009-010, 067, 070 lipsă) — istoric, inofensiv, nu „repara".
-5. **Stripe checkout** — `onCheckout` există; de verificat alinierea prețurilor cu noua taxonomie la activare.
+1. **PROD RĂMAS ÎN URMĂ (2026-07-02)** — DB-ul de producție are aplicat până la mig 171 (+174 cherry-pick); lipsesc 172–194 (inclusiv fix-ul rapoartelor zilnice care CRAPĂ la fiecare rulare pe prod și retenția fiscală GDPR). Frontend-ul de prod = 30 iunie. Secvența 172→194 e dovedită curată pe replică locală a stării prod; se aplică în ordine în SQL Editor, apoi Trigger deploy în Netlify. Bonus dashboard: Auth → Password security → activează leaked-password protection (advisor).
+2. **E2E roșu cronic în CI** — lipsesc secrets (`VITE_SUPABASE_URL/ANON_KEY`, `E2E_EMAIL/PASSWORD`) + seed `tinctura` într-un Supabase de staging. Până la fix, Playwright e zgomot ignorat.
+3. **Plan legacy `business`** — mai există în `PLAN_LABELS`; de migrat conturile vechi și șters.
+4. **`docs/` nesincronizat** — AUDIT.md și ITER10-CHANGELOG reflectă stadii vechi.
+5. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
+6. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Consistent cu modelul de date, dar de reținut la owneri multi-restaurant (rezolvarea definitivă = `restaurant_subscriptions`, vezi docs/AFFILIATE_PROGRAM.md).
 
 ## Cum rulezi / verifici
 
