@@ -36,6 +36,7 @@ const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
+const ComparatiePage = lazy(() => import('./pages/ComparatiePage'))
 const LegalPage = lazy(() => import('./pages/LegalPage'))
 const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
@@ -56,6 +57,7 @@ type View =
   | 'reset-password'
   | 'demo'
   | 'recrutare'
+  | 'comparatie'
   | 'legal-terms'
   | 'legal-privacy'
   | 'legal-cookies'
@@ -84,6 +86,7 @@ function parsePath(): RouteState {
   if (p === '/reset-password') return { view: 'reset-password' }
   if (p === '/demo') return { view: 'demo' }
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
+  if (p === '/comparatie' || p === '/de-ce-menuvia') return { view: 'comparatie' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/founder') return { view: 'founder' }
@@ -310,6 +313,7 @@ function AppRouter() {
         'pricing',
         'reset-password',
         'demo',
+        'comparatie',
         'notfound',
         'landing',
         'afiliat',
@@ -352,6 +356,12 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <RecrutarePage navigate={navigate} />
+      </Suspense>
+    )
+  if (state.view === 'comparatie')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <ComparatiePage navigate={navigate} />
       </Suspense>
     )
   if (state.view === 'legal-terms')
