@@ -113,13 +113,15 @@ export const WAITER_TRANSITIONS: OrderStatus[] = ['served', 'paid']
 
 // Numele COMERCIALE ale planurilor (taxonomia din 3 concepte — vezi
 // lib/features.ts planTier). Intern rămân free/starter/growth/pro/enterprise.
+// 'business' (legacy pre-rebranding) NU mai există: mig 062 a migrat toate
+// conturile la 'pro' și CHECK-ul pe profiles.plan îl respinge de atunci.
+// Consumatorii folosesc oricum fallback-ul `PLAN_LABELS[p] || p`.
 export const PLAN_LABELS: Record<string, string> = {
   free: 'Demo gratuit',
   starter: 'Meniu Digital',
   growth: 'Meniu + Comenzi',
   pro: 'Fiscalizare',
   enterprise: 'Custom / Lanțuri',
-  business: 'Business', // legacy — conturi vechi pre-rebranding
 }
 
 // ── Alergeni (Regulamentul EU 1169/2011) ─────────────────────
