@@ -72,6 +72,9 @@ export interface Restaurant {
   } | null
   google_place_id: string | null
   google_review_url: string | null
+  // Limbile în care restaurantul expune meniul (array de coduri, ex. ['en','de']).
+  // Româna e mereu baza și NU apare aici. Vezi src/lib/i18nMenu.ts.
+  menu_languages?: string[] | null
   created_at: string
   updated_at: string
 }
@@ -83,6 +86,8 @@ export interface Category {
   emoji: string
   display_order: number
   meta_text: string | null
+  // Traduceri manuale per limbă (cheia = cod de limbă). Vezi src/lib/i18nMenu.ts.
+  translations?: import('../lib/i18nMenu').Translations | null
 }
 
 export interface Product {
@@ -112,6 +117,8 @@ export interface Product {
   // Lista câmpurilor generate de AI și NEverificate încă (ex. ['image_url','calories']).
   // UI afișează badge „generat de AI — verifică"; editarea manuală scoate câmpul.
   ai_generated_fields: string[]
+  // Traduceri manuale per limbă (cheia = cod de limbă). Vezi src/lib/i18nMenu.ts.
+  translations?: import('../lib/i18nMenu').Translations | null
 }
 
 export function useRestaurants() {

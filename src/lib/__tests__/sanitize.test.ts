@@ -21,8 +21,8 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
     }
   })
 
-  it('contains exactly the 21 columns granted UPDATE in mig 096B', () => {
-    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(21)
+  it('contains exactly the 22 columns granted UPDATE (mig 096B + menu_languages în mig 197)', () => {
+    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(22)
     expect([...RESTAURANT_UPDATE_FIELDS].sort()).toEqual(
       [
         'name',
@@ -46,6 +46,8 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
         'pickup_settings',
         'google_place_id',
         'google_review_url',
+        // mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
+        'menu_languages',
       ].sort(),
     )
   })

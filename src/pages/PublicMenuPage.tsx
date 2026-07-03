@@ -27,6 +27,7 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
+import { trName, trDesc, availableMenuLangs } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import {
   resolveTheme,
@@ -56,6 +57,7 @@ import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A): stări premium + bară categorii unificată
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+import { LangSwitcher } from '../components/menu/MenuHeader'
 // Scala tipografică comună a meniului — aceleași token-uri ca în componentele
 // de card/header, ca titlurile să nu mai drifteze cu valori hand-typed.
 import { menuType } from '../lib/menuType'
@@ -97,6 +99,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [showReservation, setShowReservation] = useState(false)
   const [reservationsModuleEnabled, setReservationsModuleEnabled] = useState<boolean | null>(null)
   const [search, setSearch] = useState('')
+  // Limba activă a meniului ('ro' = originalul din name/description).
+  const [menuLang, setMenuLang] = useState('ro')
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
   const [confirmation, setConfirmation] = useState<{
@@ -267,7 +271,31 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     }
   }, [restaurant?.id])
 
-  const allProducts = useMemo(() => categories.flatMap((c) => c.products), [categories])
+  // Categorii localizate pentru AFIȘARE (tab-uri, secțiuni, liste, search).
+  // Pe 'ro' întoarcem aceeași referință → memo stabil. Doar name/description
+  // sunt traduse; product_id rămâne identic (coșul/comanda nu se ating).
+  const localizedCategories = useMemo<Category[]>(() => {
+    if (menuLang === 'ro') return categories
+    return categories.map((c) => ({
+      ...c,
+      name: trName(c, menuLang),
+      products: c.products.map((p) => ({
+        ...p,
+        name: trName(p, menuLang),
+        description: trDesc(p, menuLang),
+      })),
+    }))
+  }, [categories, menuLang])
+
+  // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
+  // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
+  // există măcar o traducere reală.
+  const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
+
+  const allProducts = useMemo(
+    () => localizedCategories.flatMap((c) => c.products),
+    [localizedCategories],
+  )
 
   // Index de căutare precalculat: haystack-ul normalizat pentru fiecare produs
   // se calculează O SINGURĂ dată când se schimbă meniul, nu la fiecare tastă.
@@ -309,7 +337,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Grupare după categorie pentru SectionHeader (când "Toate" e activ)
   const filteredByCat = useMemo(() => {
     if (activeCat !== 'all') {
-      return [{ cat: categories.find((c) => c.id === activeCat) ?? null, products: filtered }]
+      return [
+        { cat: localizedCategories.find((c) => c.id === activeCat) ?? null, products: filtered },
+      ]
     }
     const map = new Map<string, Product[]>()
     for (const p of filtered) {
@@ -317,10 +347,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       arr.push(p)
       map.set(p.category_id, arr)
     }
-    return categories
+    return localizedCategories
       .map((c) => ({ cat: c, products: map.get(c.id) ?? [] }))
       .filter((g) => g.products.length > 0)
-  }, [filtered, categories, activeCat])
+  }, [filtered, localizedCategories, activeCat])
 
   function toggleFilter(id: string) {
     setActiveFilters((prev) => {
@@ -438,6 +468,22 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         elements={elements}
       />
 
+      {/* Switcher de limbă — vizibil doar dacă meniul chiar e tradus în limbi
+          în plus (derivat din conținut). Reutilizează LangSwitcher (același
+          stil ca pe meniul QR). */}
+      {availableLangs.length > 0 && (
+        <div style={{ padding: '14px 20px 0' }}>
+          <LangSwitcher
+            languages={availableLangs}
+            activeLang={menuLang}
+            onLangChange={setMenuLang}
+            accent={accent}
+            PUB={PUB}
+            labelStyle={t.label}
+          />
+        </div>
+      )}
+
       {/* Pe flipbook nu există carduri de produs → comanda din meniu nu e
           disponibilă; ascundem badge-ul pickup ca să nu promitem un flux mort. */}
       {pickupEnabled && !isFlipbook && (
@@ -503,7 +549,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         <CategoryTabs
           items={[
             { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
-            ...categories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
+            ...localizedCategories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
           ]}
           activeId={activeCat}
           onSelect={setActiveCat}

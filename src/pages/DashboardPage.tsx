@@ -1325,6 +1325,7 @@ export default function DashboardPage({
                       setUpgradeReason('Ai atins limita de produse pe planul Gratuit (15 produse).')
                     }
                     userId={user?.id || ''}
+                    menuLanguages={restaurant.menu_languages ?? []}
                   />
                 </Suspense>
               )}

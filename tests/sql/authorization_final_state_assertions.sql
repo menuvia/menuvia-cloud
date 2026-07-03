@@ -259,7 +259,9 @@ declare
     'hours_structured','timezone','wifi_password','primary_color','logo_url',
     'cover_url','floor_layout','socials','amenities',
     'checkout_suggestion_settings','theme_settings','pickup_settings',
-    'google_place_id','google_review_url'
+    'google_place_id','google_review_url',
+    -- mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
+    'menu_languages'
   ];
 begin
   -- Toate coloanele whitelisted trebuie să fie UPDATE-able de authenticated
@@ -292,7 +294,7 @@ begin
   if has_column_privilege('authenticated', 'public.restaurants', 'slug', 'UPDATE') then
     raise exception 'F6 FAIL: authenticated retains UPDATE on restaurants.slug';
   end if;
-  raise notice 'F6 PASS: exact allowlist 21 coloane UPDATE OK; toate celelalte coloane excluse';
+  raise notice 'F6 PASS: exact allowlist 22 coloane UPDATE OK; toate celelalte coloane excluse';
 end$$;
 
 -- ═══════════════════════ F7. A6 partajat (3 cazuri + metadata) ════════════════
