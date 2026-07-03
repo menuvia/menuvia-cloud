@@ -27,7 +27,7 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
-import { trName, trDesc, availableMenuLangs } from '../lib/i18nMenu'
+import { trName, trDesc, availableMenuLangs, detectBrowserLang } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import {
   resolveTheme,
@@ -291,6 +291,18 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
   const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
+  // Auto-selectează limba browserului DOAR dacă meniul e tradus în ea și
+  // vizitatorul n-a ales manual încă (ex. turist german → meniul în germană).
+  const userPickedLangRef = useRef(false)
+  const handleMenuLangChange = useCallback((code: string) => {
+    userPickedLangRef.current = true
+    setMenuLang(code)
+  }, [])
+  useEffect(() => {
+    if (userPickedLangRef.current || menuLang !== 'ro') return
+    const detected = detectBrowserLang(availableLangs)
+    if (detected) setMenuLang(detected)
+  }, [availableLangs, menuLang])
 
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),
@@ -476,7 +488,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           <LangSwitcher
             languages={availableLangs}
             activeLang={menuLang}
-            onLangChange={setMenuLang}
+            onLangChange={handleMenuLangChange}
             accent={accent}
             PUB={PUB}
             labelStyle={t.label}

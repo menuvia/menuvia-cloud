@@ -4,7 +4,7 @@
 // Mobile-first, max-width 480px.
 // =============================================================
 
-import { useState, useEffect, useMemo, useCallback, useDeferredValue, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, lazy, Suspense } from 'react'
 import {
   resolveQrToken,
   fetchMenuForRestaurant,
@@ -15,7 +15,7 @@ import {
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
-import { trName, trDesc, availableMenuLangs } from '../lib/i18nMenu'
+import { trName, trDesc, availableMenuLangs, detectBrowserLang } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
@@ -342,6 +342,19 @@ export default function QrMenuPage({ token }: Props) {
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
   const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
+  // Auto-selectează limba browserului turistului DOAR dacă meniul e tradus în
+  // ea și clientul n-a ales manual încă. Un client german vede meniul direct în
+  // germană la scanare.
+  const userPickedLangRef = useRef(false)
+  const handleLangChange = useCallback((code: string) => {
+    userPickedLangRef.current = true
+    setLang(code)
+  }, [])
+  useEffect(() => {
+    if (userPickedLangRef.current || lang !== 'ro') return
+    const detected = detectBrowserLang(availableLangs)
+    if (detected) setLang(detected)
+  }, [availableLangs, lang])
   // Search activ → căutăm în TOT meniul (toate categoriile), nu doar în cea
   // selectată — altfel clientul nu găsește produsul dacă e pe alt tab.
   // Memoizat pe deps complete: recalculăm doar la schimbare de meniu, tab activ
@@ -471,7 +484,7 @@ export default function QrMenuPage({ token }: Props) {
         theme={theme}
         languages={availableLangs}
         activeLang={lang}
-        onLangChange={setLang}
+        onLangChange={handleLangChange}
       />
 
       {/* Active orders banner — shown when session has previous orders */}
