@@ -3,7 +3,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
-import { THEMES } from '../lib/themes'
+import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
+import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
@@ -57,6 +58,7 @@ export default function SettingsTab({
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [uploadingPages, setUploadingPages] = useState(false)
   const { toasts, toast } = useToast()
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
   // Re-sincronizează formularul când prop-ul restaurant se schimbă (ex. după salvarea
@@ -65,9 +67,13 @@ export default function SettingsTab({
     setForm({ ...restaurant })
   }, [restaurant])
 
-  async function uploadImage(file: File, kind: 'cover' | 'logo'): Promise<string | null> {
+  async function uploadImage(
+    file: File,
+    kind: 'cover' | 'logo' | 'menu-pages',
+  ): Promise<string | null> {
     if (!user) return null
-    const setBusy = kind === 'cover' ? setUploadingCover : setUploadingLogo
+    const setBusy =
+      kind === 'cover' ? setUploadingCover : kind === 'logo' ? setUploadingLogo : setUploadingPages
     setBusy(true)
     try {
       const canvas = document.createElement('canvas')
@@ -80,7 +86,8 @@ export default function SettingsTab({
         img.onerror = () => rej(new Error('image load failed'))
         img.src = url
       })
-      const maxW = kind === 'cover' ? 1600 : 400
+      // Paginile de meniu au text mic → aceeași lățime maximă ca la cover.
+      const maxW = kind === 'logo' ? 400 : 1600
       const scale = img.width > maxW ? maxW / img.width : 1
       canvas.width = Math.round(img.width * scale)
       canvas.height = Math.round(img.height * scale)
@@ -110,6 +117,58 @@ export default function SettingsTab({
     const current = (form.amenities ?? []) as string[]
     const next = current.includes(id) ? current.filter((a) => a !== id) : [...current, id]
     upd('amenities', next)
+  }
+
+  // ── Flipbook: pagini de meniu ca imagini (theme_settings.flipbook_pages) ──
+  // Salvate prin ACELAȘI flux de save al formularului (theme_settings e în
+  // whitelist-ul RESTAURANT_UPDATE_FIELDS) — fără migrații, fără RPC nou.
+  const flipbookPages: string[] = form.theme_settings?.flipbook_pages ?? []
+
+  function setFlipbookPages(pages: string[]) {
+    upd('theme_settings', {
+      ...(form.theme_settings ?? {}),
+      preset_id: form.theme_settings?.preset_id ?? 'cafe',
+      flipbook_pages: pages,
+    })
+  }
+
+  function moveFlipbookPage(idx: number, delta: -1 | 1) {
+    const j = idx + delta
+    if (j < 0 || j >= flipbookPages.length) return
+    const next = [...flipbookPages]
+    const a = next[idx]
+    const b = next[j]
+    if (a === undefined || b === undefined) return
+    next[idx] = b
+    next[j] = a
+    setFlipbookPages(next)
+  }
+
+  function removeFlipbookPage(idx: number) {
+    setFlipbookPages(flipbookPages.filter((_, i) => i !== idx))
+  }
+
+  async function uploadFlipbookPages(files: File[]) {
+    if (files.length === 0) return
+    const room = FLIPBOOK_MAX_PAGES - flipbookPages.length
+    if (room <= 0) {
+      toast(`Maxim ${FLIPBOOK_MAX_PAGES} pagini — șterge una ca să adaugi alta`, 'error')
+      return
+    }
+    if (files.length > room) {
+      toast(`Maxim ${FLIPBOOK_MAX_PAGES} pagini — încarc doar primele ${room}`, 'error')
+    }
+    const urls: string[] = []
+    // Secvențial (nu Promise.all): canvas-ul redimensionează pe rând, iar
+    // ordinea paginilor rezultate rămâne ordinea de selecție a fișierelor.
+    for (const f of files.slice(0, room)) {
+      const url = await uploadImage(f, 'menu-pages')
+      if (url) urls.push(url)
+    }
+    if (urls.length > 0) {
+      setFlipbookPages([...flipbookPages, ...urls])
+      toast(`${urls.length} ${urls.length === 1 ? 'pagină adăugată' : 'pagini adăugate'} — nu uita să salvezi`)
+    }
   }
 
   function updHours(day: WeekDayKey, patch: Partial<DayHoursForm>) {
@@ -498,6 +557,18 @@ export default function SettingsTab({
                     name: 'Minimal elegant',
                     desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
                   },
+                  {
+                    id: 'photo',
+                    emoji: '🖼',
+                    name: 'Foto-first',
+                    desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
+                  },
+                  {
+                    id: 'flipbook',
+                    emoji: '📖',
+                    name: 'Flipbook (PDF/pagini)',
+                    desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
+                  },
                 ] as const
               ).map((l) => {
                 const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
@@ -543,6 +614,171 @@ export default function SettingsTab({
                 )
               })}
             </div>
+
+            {/* Uploader pagini flipbook — vizibil doar când layout-ul e 'flipbook'.
+                Paginile stau în theme_settings.flipbook_pages și se salvează prin
+                butonul „Salvează" al formularului (fluxul existent). */}
+            {(form.theme_settings?.menu_layout ?? 'list') === 'flipbook' && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
+                  Paginile meniului ({flipbookPages.length}/{FLIPBOOK_MAX_PAGES})
+                </div>
+                <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
+                  Ai meniul ca PDF? Exportă paginile ca imagini (sau pozează-le) și încarcă-le aici
+                  — ori folosește Importul AI din Produse ca să-l transformi în meniu interactiv.
+                </div>
+
+                {/* Lista de pagini: thumbnail + reordonare ↑↓ + ștergere. */}
+                {flipbookPages.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                    {flipbookPages.map((url, idx) => (
+                      <div
+                        key={`${idx}-${url}`}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 10,
+                          padding: '6px 8px',
+                          background: D.s3,
+                          border: `1px solid ${D.border}`,
+                          borderRadius: 8,
+                        }}
+                      >
+                        <span style={{ fontSize: '0.72rem', color: D.t3, width: 20, flexShrink: 0 }}>
+                          {idx + 1}
+                        </span>
+                        <img
+                          src={url}
+                          alt={`Pagina ${idx + 1}`}
+                          loading="lazy"
+                          style={{
+                            width: 56,
+                            height: 42,
+                            objectFit: 'cover',
+                            borderRadius: 5,
+                            border: `1px solid ${D.border}`,
+                            background: D.s2,
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span style={{ flex: 1 }} />
+                        <button
+                          type="button"
+                          onClick={() => moveFlipbookPage(idx, -1)}
+                          disabled={idx === 0}
+                          aria-label={`Mută pagina ${idx + 1} mai sus`}
+                          style={{
+                            background: 'transparent',
+                            border: `1px solid ${D.border}`,
+                            borderRadius: 6,
+                            color: idx === 0 ? D.t3 : D.t1,
+                            width: 30,
+                            height: 30,
+                            cursor: idx === 0 ? 'default' : 'pointer',
+                            opacity: idx === 0 ? 0.4 : 1,
+                          }}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveFlipbookPage(idx, 1)}
+                          disabled={idx === flipbookPages.length - 1}
+                          aria-label={`Mută pagina ${idx + 1} mai jos`}
+                          style={{
+                            background: 'transparent',
+                            border: `1px solid ${D.border}`,
+                            borderRadius: 6,
+                            color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
+                            width: 30,
+                            height: 30,
+                            cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
+                            opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
+                          }}
+                        >
+                          ↓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeFlipbookPage(idx)}
+                          aria-label={`Șterge pagina ${idx + 1}`}
+                          style={{
+                            background: 'transparent',
+                            border: `1px solid ${D.border}`,
+                            borderRadius: 6,
+                            color: D.t2,
+                            fontSize: '0.7rem',
+                            padding: '0 10px',
+                            height: 30,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Șterge
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {flipbookPages.length === 0 && (
+                  <div
+                    style={{
+                      border: `1px dashed ${D.border}`,
+                      borderRadius: 8,
+                      padding: '16px 12px',
+                      textAlign: 'center',
+                      fontSize: '0.74rem',
+                      color: D.t3,
+                      marginBottom: 12,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    Nicio pagină încă. Până încarci pagini, clienții văd meniul pe stilul „Listă".
+                  </div>
+                )}
+
+                <label
+                  style={{
+                    ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
+                    cursor: uploadingPages ? 'wait' : 'pointer',
+                    display: 'inline-block',
+                    opacity: uploadingPages ? 0.6 : 1,
+                  }}
+                >
+                  {uploadingPages ? 'Se încarcă...' : 'Încarcă pagini (poți selecta mai multe)'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={async (e) => {
+                      const files = Array.from(e.target.files ?? [])
+                      e.target.value = ''
+                      await uploadFlipbookPages(files)
+                    }}
+                  />
+                </label>
+
+                {/* Comanda din meniu nu are carduri pe flipbook — spunem explicit
+                    localurilor care AU comenzi active (plan cu comenzi sau pickup). */}
+                {(planTier(plan) >= 2 || (form.pickup_settings?.enabled ?? false)) && (
+                  <div
+                    style={{
+                      fontSize: '0.7rem',
+                      color: D.t3,
+                      marginTop: 12,
+                      padding: '8px 10px',
+                      background: D.s3,
+                      borderRadius: 7,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    💡 Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
+                    disponibilă pe acest stil; chemarea ospătarului rămâne.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Elemente meniu — ce se vede pe hero-ul clienților. Toate ON implicit. */}

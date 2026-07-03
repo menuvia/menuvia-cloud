@@ -20,7 +20,12 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
 
 import ProductSheet from '../components/ProductSheet'
-import { resolveTheme, resolveMenuLayout, readableTextOn } from '../lib/themes'
+import {
+  resolveTheme,
+  resolveMenuLayout,
+  resolveFlipbookPages,
+  readableTextOn,
+} from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
@@ -28,6 +33,8 @@ import { CategoryTabs } from '../components/menu/CategoryTabs'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
+import ProductPhotoCard from '../components/menu/ProductPhotoCard'
+import FlipbookViewer from '../components/menu/FlipbookViewer'
 import MenuHeader from '../components/menu/MenuHeader'
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 
@@ -336,8 +343,16 @@ export default function QrMenuPage({ token }: Props) {
     [categories],
   )
   const orderingAllowed = ctx?.orderingAllowed ?? false
-  // Layout ales de restaurant (listă / galerie foto) — implicit 'list'.
+  // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   const menuLayout = resolveMenuLayout(ctx?.restaurant.theme_settings)
+  // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
+  const flipbookPages = resolveFlipbookPages(ctx?.restaurant.theme_settings)
+  // Flipbook fără pagini → fallback VIZIBIL pe 'list' (nu ecran gol).
+  const effectiveLayout = menuLayout === 'flipbook' && flipbookPages.length === 0 ? 'list' : menuLayout
+  // Pe flipbook DOAR catalogul e înlocuit: fără tab-uri/căutare/carduri și fără
+  // bara „Comanda mea" (comanda din meniu nu e disponibilă pe acest stil).
+  // Header-ul + „Cheamă ospătarul"/„Cere nota" rămân funcționale.
+  const isFlipbook = effectiveLayout === 'flipbook'
 
   // Handlere de produs partajate între layout-uri (listă / galerie), ca să nu
   // duplicăm gate-ul de deschidere + quick-add-ul în fiecare ramură.
@@ -477,47 +492,56 @@ export default function QrMenuPage({ token }: Props) {
       )}
 
       {/* Category tabs — componentă comună (parity cu meniul digital):
-          sticky, auto-center pe activ, underline animat, counts, tablist a11y. */}
-      <CategoryTabs
-        items={categories.map((cat) => ({
-          id: cat.id,
-          name: cat.name,
-          count: cat.products?.length ?? 0,
-        }))}
-        activeId={activeCatId}
-        onSelect={setActiveCatId}
-        accent={accent}
-        PUB={PUB}
-        theme={theme}
-      />
+          sticky, auto-center pe activ, underline animat, counts, tablist a11y.
+          Pe flipbook nu există catalog de produse → fără tab-uri și căutare. */}
+      {!isFlipbook && (
+        <CategoryTabs
+          items={categories.map((cat) => ({
+            id: cat.id,
+            name: cat.name,
+            count: cat.products?.length ?? 0,
+          }))}
+          activeId={activeCatId}
+          onSelect={setActiveCatId}
+          accent={accent}
+          PUB={PUB}
+          theme={theme}
+        />
+      )}
 
       {/* Search — sub tab-uri, peste tot meniul */}
-      <div style={{ padding: '12px 16px 0' }}>
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Caută în meniu..."
-          aria-label="Caută în meniu"
-          style={{
-            width: '100%',
-            background: PUB.surface,
-            border: `1px solid ${PUB.border}`,
-            borderRadius: 12,
-            padding: '11px 14px',
-            fontSize: 15,
-            color: PUB.text,
-            fontFamily: theme.fonts.body,
-            outline: 'none',
-            boxSizing: 'border-box',
-          }}
-        />
-      </div>
+      {!isFlipbook && (
+        <div style={{ padding: '12px 16px 0' }}>
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Caută în meniu..."
+            aria-label="Caută în meniu"
+            style={{
+              width: '100%',
+              background: PUB.surface,
+              border: `1px solid ${PUB.border}`,
+              borderRadius: 12,
+              padding: '11px 14px',
+              fontSize: 15,
+              color: PUB.text,
+              fontFamily: theme.fonts.body,
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
+        </div>
+      )}
 
-      {/* Product list — layout ales de restaurant (listă / galerie foto) */}
+      {/* Product list — layout ales de restaurant (listă / galerie foto).
+          Pe flipbook, DOAR catalogul e înlocuit de viewer — header-ul și
+          butoanele de sesiune („Cheamă ospătarul"/„Cere nota") rămân. */}
       <div style={{ flex: 1, padding: '14px 16px 120px' }}>
+        {isFlipbook && <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />}
         {/* Empty states: catalog gol (nimic publicat) vs. căutare/categorie fără rezultate */}
-        {activeProducts.length === 0 &&
+        {!isFlipbook &&
+          activeProducts.length === 0 &&
           (totalProducts === 0 ? (
             // Restaurantul n-a publicat încă produse — stare dedicată, comună
             // cu meniul digital (fără buton de golire: nu există filtre).
@@ -537,7 +561,7 @@ export default function QrMenuPage({ token }: Props) {
               </div>
             </div>
           ))}
-        {menuLayout === 'grid' ? (
+        {isFlipbook ? null : effectiveLayout === 'grid' ? (
           // Galerie foto: grid 2 coloane cu carduri foto-forward.
           <div
             style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}
@@ -556,7 +580,25 @@ export default function QrMenuPage({ token }: Props) {
               />
             ))}
           </div>
-        ) : menuLayout === 'minimal' ? (
+        ) : effectiveLayout === 'photo' ? (
+          // Foto-first: poze mari full-width cu nume/preț PE poză; produsele
+          // fără poză cad pe rând compact (în ProductPhotoCard).
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {activeProducts.map((product) => (
+              <ProductPhotoCard
+                key={product.id}
+                product={product}
+                accent={accent}
+                PUB={PUB}
+                theme={theme}
+                canAdd={orderingAllowed}
+                happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                onOpen={() => openProductQr(product)}
+                onQuickAdd={() => quickAddProductQr(product)}
+              />
+            ))}
+          </div>
+        ) : effectiveLayout === 'minimal' ? (
           // Minimal: rânduri text fără poză, aer editorial.
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {activeProducts.map((product) => (
@@ -666,8 +708,10 @@ export default function QrMenuPage({ token }: Props) {
       )}
 
       {/* Bară „Comanda mea" — PERSISTENTĂ când comanda e permisă (chiar cu coș gol),
-          ca să fie clar din prima că se poate comanda; cu produse devine bara cu total. */}
-      {orderingAllowed && (
+          ca să fie clar din prima că se poate comanda; cu produse devine bara cu total.
+          Pe flipbook nu există carduri de adăugat → comanda din meniu nu e disponibilă
+          pe acest stil (chemarea ospătarului rămâne prin butoanele de mai sus). */}
+      {orderingAllowed && !isFlipbook && (
         <div
           style={{
             position: 'fixed',

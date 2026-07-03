@@ -19,7 +19,13 @@ import {
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import type { CartItem } from '../lib/orders'
-import { resolveTheme, isDarkTheme, resolveMenuLayout, resolveMenuElements } from '../lib/themes'
+import {
+  resolveTheme,
+  isDarkTheme,
+  resolveMenuLayout,
+  resolveMenuElements,
+  resolveFlipbookPages,
+} from '../lib/themes'
 
 import { DIETARY_TAGS, T } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -47,6 +53,8 @@ import { menuType } from '../lib/menuType'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
+import ProductPhotoCard from '../components/menu/ProductPhotoCard'
+import FlipbookViewer from '../components/menu/FlipbookViewer'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
@@ -82,8 +90,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   const theme = useMemo(() => resolveTheme(restaurant?.theme_settings), [restaurant])
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
-  // Layout ales de restaurant (listă / galerie foto / minimal) — implicit 'list'.
+  // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
+  // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
+  const flipbookPages = useMemo(
+    () => resolveFlipbookPages(restaurant?.theme_settings),
+    [restaurant],
+  )
+  // Flipbook fără pagini încărcate → fallback VIZIBIL pe 'list' (nu ecran gol).
+  const effectiveLayout = menuLayout === 'flipbook' && flipbookPages.length === 0 ? 'list' : menuLayout
+  // Pe flipbook DOAR catalogul de produse e înlocuit de viewer: fără tab-uri de
+  // categorii, search/filtre, carduri sau bara de coș/„Lista mea" (comanda din
+  // meniu nu e disponibilă pe acest stil) — hero-ul și CTA-urile rămân.
+  const isFlipbook = effectiveLayout === 'flipbook'
   // Elementele opționale de hero pe care restaurantul le afișează — implicit toate ON.
   const elements = useMemo(() => resolveMenuElements(restaurant?.theme_settings), [restaurant])
   // Memoizat: obiect nou la fiecare render înainte → prop instabil pentru
@@ -387,7 +406,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         elements={elements}
       />
 
-      {pickupEnabled && (
+      {/* Pe flipbook nu există carduri de produs → comanda din meniu nu e
+          disponibilă; ascundem badge-ul pickup ca să nu promitem un flux mort. */}
+      {pickupEnabled && !isFlipbook && (
         <div style={{ padding: '14px 20px 0' }}>
           <div
             style={{
@@ -444,35 +465,40 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       )}
 
       {/* BARĂ CATEGORII — componentă comună: sticky, auto-center pe tabul activ,
-          underline animat, badge-uri count per categorie, role=tablist (a11y). */}
-      <CategoryTabs
-        items={[
-          { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
-          ...categories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
-        ]}
-        activeId={activeCat}
-        onSelect={setActiveCat}
-        accent={accent}
-        PUB={PUB}
-        theme={theme}
-      />
+          underline animat, badge-uri count per categorie, role=tablist (a11y).
+          Pe flipbook nu există catalog de produse → fără tab-uri/căutare/filtre. */}
+      {!isFlipbook && (
+        <CategoryTabs
+          items={[
+            { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
+            ...categories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
+          ]}
+          activeId={activeCat}
+          onSelect={setActiveCat}
+          accent={accent}
+          PUB={PUB}
+          theme={theme}
+        />
+      )}
 
       {/* SEARCH + FILTERS */}
-      <div style={{ padding: '14px 20px 6px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder={T(lang, 'search_placeholder')}
-          theme={theme}
-          PUB={PUB}
-        />
-        <FilterChipsRow
-          activeFilters={activeFilters}
-          onToggle={toggleFilter}
-          theme={theme}
-          PUB={PUB}
-        />
-      </div>
+      {!isFlipbook && (
+        <div style={{ padding: '14px 20px 6px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder={T(lang, 'search_placeholder')}
+            theme={theme}
+            PUB={PUB}
+          />
+          <FilterChipsRow
+            activeFilters={activeFilters}
+            onToggle={toggleFilter}
+            theme={theme}
+            PUB={PUB}
+          />
+        </div>
+      )}
 
       {/* SECTIONS + CARDS EDITORIAL */}
       <div
@@ -520,7 +546,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             ))}
           </div>
         )}
-        {filtered.length === 0 &&
+        {/* Flipbook: DOAR catalogul e înlocuit de viewer — restul paginii
+            (hero, CTA rezervări, footer) rămâne identic. */}
+        {isFlipbook && <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />}
+        {!isFlipbook &&
+          filtered.length === 0 &&
           (allProducts.length === 0 ? (
             // Catalog gol: restaurantul n-a publicat încă niciun produs — mesaj
             // dedicat „revino curând", FĂRĂ buton de golire (nu există filtre
@@ -541,7 +571,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               }}
             />
           ))}
-        {filteredByCat.map(({ cat, products }, sectionIdx) => (
+        {!isFlipbook &&
+          filteredByCat.map(({ cat, products }, sectionIdx) => (
           <RevealItem
             key={cat?.id ?? 'flat'}
             // Stagger mic și plafonat — primele secțiuni primesc un delay
@@ -552,7 +583,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               {cat && activeCat === 'all' && (
                 <SectionHeader title={cat.name} metaText={cat.meta_text} theme={theme} PUB={PUB} />
               )}
-              {menuLayout === 'grid' ? (
+              {effectiveLayout === 'grid' ? (
                 // Layout „Galerie foto": grid de 2 coloane cu carduri foto-forward.
                 <div
                   style={{
@@ -576,7 +607,32 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     />
                   ))}
                 </div>
-              ) : menuLayout === 'minimal' ? (
+              ) : effectiveLayout === 'photo' ? (
+                // Layout „Foto-first": poze mari full-width cu nume/preț PE poză;
+                // produsele fără poză cad pe rând compact (în ProductPhotoCard).
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 14,
+                    padding: '6px 0 4px',
+                  }}
+                >
+                  {products.map((product) => (
+                    <ProductPhotoCard
+                      key={product.id}
+                      product={product}
+                      accent={accent}
+                      theme={theme}
+                      PUB={PUB}
+                      canAdd={pickupEnabled || listMode}
+                      happyHourPct={happyHourPercentForProduct(product, happyHour)}
+                      onOpen={() => openProduct(product)}
+                      onQuickAdd={() => quickAddProduct(product)}
+                    />
+                  ))}
+                </div>
+              ) : effectiveLayout === 'minimal' ? (
                 // Layout „Minimal": rânduri text fără poză, aer editorial.
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   {products.map((product) => (
@@ -622,8 +678,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
       {/* Bară sticky — coș (pickup) sau „Lista mea" (meniu digital). Pentru „Lista
           mea" e PERSISTENTĂ (chiar goală), ca să fie descoperită din prima. Pentru
-          pickup apare doar când ai produse. */}
-      {((listMode || cart.length > 0) && !showCart) && (
+          pickup apare doar când ai produse. Pe flipbook nu există produse de
+          adăugat → bara ar fi un CTA mort, o ascundem. */}
+      {!isFlipbook && (listMode || cart.length > 0) && !showCart && (
         <button
           onClick={() => setShowCart(true)}
           aria-label={listMode ? 'Lista mea' : 'Vezi coșul'}

@@ -310,12 +310,16 @@ export function isValidHexColor(s: string | null | undefined): s is string {
 // ── Layout de meniu ──────────────────────────────────────────
 // Aspectul listei de produse pe meniul client (digital + QR), separat de temă
 // (culori/fonturi). Restaurantul îl alege din dashboard.
-//  • 'list'    → listă cu poză mică stânga + text (implicit, actual)
-//  • 'grid'    → galerie foto: 2 coloane cu poze mari (vizual)
-//  • 'minimal' → text elegant, majuscule spațiate, fără poze (rapid/clasic)
-export type MenuLayout = 'list' | 'grid' | 'minimal'
+//  • 'list'     → listă cu poză mică stânga + text (implicit, actual)
+//  • 'grid'     → galerie foto: 2 coloane cu poze mari (vizual)
+//  • 'minimal'  → text elegant, majuscule spațiate, fără poze (rapid/clasic)
+//  • 'photo'    → foto-first: poze mari full-width cu numele/prețul PE poză;
+//                 produsele fără poză cad pe rând compact (nu carduri goale)
+//  • 'flipbook' → paginile meniului ca imagini răsfoibile (tip carte) — vezi
+//                 `flipbook_pages`; fără pagini încărcate, meniul cade pe 'list'
+export type MenuLayout = 'list' | 'grid' | 'minimal' | 'photo' | 'flipbook'
 
-const MENU_LAYOUTS: readonly MenuLayout[] = ['list', 'grid', 'minimal']
+const MENU_LAYOUTS: readonly MenuLayout[] = ['list', 'grid', 'minimal', 'photo', 'flipbook']
 
 // ── Elemente opționale de meniu ──────────────────────────────
 // Bucăți din hero-ul meniului client pe care restaurantul le poate ascunde.
@@ -344,6 +348,9 @@ export interface ThemeSettings {
   accent_override?: string | null // override culoare accent (hex) — toate planurile
   menu_layout?: MenuLayout | null // aspectul listei de produse (implicit 'list')
   elements?: Partial<MenuElements> | null // elemente vizibile în hero (implicit toate ON)
+  // Paginile meniului ca imagini (layout 'flipbook'), în ordinea de răsfoire.
+  // Doar URL-uri https, maxim FLIPBOOK_MAX_PAGES — vezi resolveFlipbookPages.
+  flipbook_pages?: string[] | null
 }
 
 // Layout-ul de meniu ales, cu fallback sigur la 'list' pentru valori
@@ -351,6 +358,23 @@ export interface ThemeSettings {
 export function resolveMenuLayout(settings: ThemeSettings | null | undefined): MenuLayout {
   const l = settings?.menu_layout
   return l != null && MENU_LAYOUTS.includes(l) ? l : 'list'
+}
+
+// Plafon dur pe numărul de pagini de flipbook — aliniat între resolver (citire)
+// și uploader-ul din Setări (scriere), ca să nu poată diverge.
+export const FLIPBOOK_MAX_PAGES = 30
+
+// Paginile de flipbook validate din setări: doar URL-uri https (jsonb-ul poate
+// conține orice — nu injectăm `javascript:`/`data:` în src), plafonate la
+// FLIPBOOK_MAX_PAGES. Valori absente/malformate → [] (fallback-ul de layout
+// cade pe 'list' în pagini, nu pe ecran gol).
+export function resolveFlipbookPages(settings: ThemeSettings | null | undefined): string[] {
+  const raw = settings?.flipbook_pages
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((p): p is string => typeof p === 'string' && /^https:\/\//i.test(p.trim()))
+    .map((p) => p.trim())
+    .slice(0, FLIPBOOK_MAX_PAGES)
 }
 
 // Elementele opționale ale meniului, cu default `true` per câmp (comportament
