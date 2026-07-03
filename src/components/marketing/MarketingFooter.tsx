@@ -20,6 +20,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     title: 'Produs',
     links: [
       { label: 'Funcții', href: '/#functii' },
+      { label: 'De ce Menuvia', href: '/comparatie' },
       { label: 'Prețuri', href: '/pricing' },
       { label: 'Demo live', href: '/demo' },
     ],
