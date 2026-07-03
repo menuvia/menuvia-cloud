@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { Product } from '../../lib/qr'
 import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
@@ -42,8 +43,8 @@ interface PublicColors {
 
 interface ProductPhotoCardProps {
   product: Product
-  onOpen: () => void
-  onQuickAdd: () => void
+  onOpen: (p: Product) => void
+  onQuickAdd: (p: Product) => void
   canAdd: boolean
   happyHourPct?: number
   accent: string
@@ -55,7 +56,7 @@ const FS_MICRO = 11
 const FS_SMALL = 13
 const FS_PRICE = 22
 
-export default function ProductPhotoCard({
+function ProductPhotoCard({
   product,
   onOpen,
   onQuickAdd,
@@ -130,7 +131,7 @@ export default function ProductPhotoCard({
         className={isSoldOut ? undefined : 'pressable'}
         disabled={isSoldOut}
         onClick={() => {
-          if (!isSoldOut) onOpen()
+          if (!isSoldOut) onOpen(product)
         }}
         aria-label={`Vezi detalii ${product.name}`}
         style={{
@@ -324,8 +325,8 @@ export default function ProductPhotoCard({
             // Frate (nu descendent) al butonului „deschide" — stopPropagation
             // e doar defensiv, click-ul nu are unde să bubble spre onOpen.
             e.stopPropagation()
-            if (hasRequiredMods) onOpen()
-            else onQuickAdd()
+            if (hasRequiredMods) onOpen(product)
+            else onQuickAdd(product)
           }}
           aria-label={`Adaugă ${product.name}`}
           style={{
@@ -356,6 +357,8 @@ export default function ProductPhotoCard({
     </div>
   )
 }
+
+export default memo(ProductPhotoCard)
 
 // ── Badge glass generic pe poză (text alb/colorat pe negru translucid) ──
 function PhotoBadge({

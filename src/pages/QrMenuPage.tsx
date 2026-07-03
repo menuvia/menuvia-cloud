@@ -4,7 +4,7 @@
 // Mobile-first, max-width 480px.
 // =============================================================
 
-import { useState, useEffect, useMemo, useDeferredValue, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useCallback, useDeferredValue, lazy, Suspense } from 'react'
 import {
   resolveQrToken,
   fetchMenuForRestaurant,
@@ -356,24 +356,30 @@ export default function QrMenuPage({ token }: Props) {
 
   // Handlere de produs partajate între layout-uri (listă / galerie), ca să nu
   // duplicăm gate-ul de deschidere + quick-add-ul în fiecare ramură.
-  const openProductQr = (p: Product): void => {
-    // Deschidem detaliile doar dacă se poate comanda (sold-out tratat intern de card).
-    if (orderingAllowed) setActiveProduct(p)
-  }
-  const quickAddProductQr = (p: Product): void =>
-    // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
-    setCart((prev) => [
-      ...prev,
-      {
-        _key: crypto.randomUUID(),
-        product_id: p.id,
-        product_name_snapshot: p.name,
-        unit_price_snapshot: p.price,
-        quantity: 1,
-        selected_modifiers: [],
-        notes: null,
-      },
-    ])
+  const openProductQr = useCallback(
+    (p: Product): void => {
+      // Deschidem detaliile doar dacă se poate comanda (sold-out tratat intern de card).
+      if (orderingAllowed) setActiveProduct(p)
+    },
+    [orderingAllowed],
+  )
+  const quickAddProductQr = useCallback(
+    (p: Product): void =>
+      // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
+      setCart((prev) => [
+        ...prev,
+        {
+          _key: crypto.randomUUID(),
+          product_id: p.id,
+          product_name_snapshot: p.name,
+          unit_price_snapshot: p.price,
+          quantity: 1,
+          selected_modifiers: [],
+          notes: null,
+        },
+      ]),
+    [],
+  )
 
   // Încărcare: schelet de listă premium (componentă comună), nu text gol.
   if (resolving) return <MenuLoading PUB={PUB} />
@@ -575,8 +581,8 @@ export default function QrMenuPage({ token }: Props) {
                 theme={theme}
                 canAdd={orderingAllowed}
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                onOpen={() => openProductQr(product)}
-                onQuickAdd={() => quickAddProductQr(product)}
+                onOpen={openProductQr}
+                onQuickAdd={quickAddProductQr}
               />
             ))}
           </div>
@@ -593,8 +599,8 @@ export default function QrMenuPage({ token }: Props) {
                 theme={theme}
                 canAdd={orderingAllowed}
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                onOpen={() => openProductQr(product)}
-                onQuickAdd={() => quickAddProductQr(product)}
+                onOpen={openProductQr}
+                onQuickAdd={quickAddProductQr}
               />
             ))}
           </div>
@@ -610,8 +616,8 @@ export default function QrMenuPage({ token }: Props) {
                 theme={theme}
                 canAdd={orderingAllowed}
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                onOpen={() => openProductQr(product)}
-                onQuickAdd={() => quickAddProductQr(product)}
+                onOpen={openProductQr}
+                onQuickAdd={quickAddProductQr}
               />
             ))}
           </div>
@@ -627,8 +633,8 @@ export default function QrMenuPage({ token }: Props) {
                 theme={theme}
                 canAdd={orderingAllowed}
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
-                onOpen={() => openProductQr(product)}
-                onQuickAdd={() => quickAddProductQr(product)}
+                onOpen={openProductQr}
+                onQuickAdd={quickAddProductQr}
               />
             ))}
           </div>

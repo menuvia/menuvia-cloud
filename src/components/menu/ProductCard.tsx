@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { memo, type CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
@@ -39,8 +39,8 @@ interface PublicColors {
 
 interface ProductCardProps {
   product: Product
-  onOpen: () => void
-  onQuickAdd: () => void
+  onOpen: (p: Product) => void
+  onQuickAdd: (p: Product) => void
   canAdd: boolean
   /** Procentul de reducere happy-hour deja calculat în pagină (0 = niciunul). */
   happyHourPct?: number
@@ -58,7 +58,7 @@ const FS_MICRO = 11
 const FS_SMALL = 13
 const FS_PRICE = 20
 
-export default function ProductCard({
+function ProductCard({
   product,
   onOpen,
   onQuickAdd,
@@ -129,7 +129,7 @@ export default function ProductCard({
         className={isSoldOut ? undefined : 'pressable'}
         disabled={isSoldOut}
         onClick={() => {
-          if (!isSoldOut) onOpen()
+          if (!isSoldOut) onOpen(product)
         }}
         // Fără `aria-label` aici: ar fi suprascris tot subtree-ul, ascunzând de
         // screen-reader descrierea, tag-urile dietetice (vegan/fără gluten) și
@@ -324,8 +324,8 @@ export default function ProductCard({
           onClick={() => {
             // Cu modificatori obligatorii deschidem sheet-ul (alegere necesară);
             // altfel adăugăm direct în coș.
-            if (hasRequiredMods) onOpen()
-            else onQuickAdd()
+            if (hasRequiredMods) onOpen(product)
+            else onQuickAdd(product)
           }}
           aria-label={`Adaugă ${product.name}`}
           style={{
@@ -357,6 +357,8 @@ export default function ProductCard({
     </div>
   )
 }
+
+export default memo(ProductCard)
 
 // ── Thumbnail: imagine sau fallback monogramă pe gradient-ul temei ──────
 function Thumbnail({

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { Product } from '../../lib/qr'
 import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
@@ -29,8 +30,8 @@ interface PublicColors {
 
 interface ProductMinimalRowProps {
   product: Product
-  onOpen: () => void
-  onQuickAdd: () => void
+  onOpen: (p: Product) => void
+  onQuickAdd: (p: Product) => void
   canAdd: boolean
   happyHourPct?: number
   accent: string
@@ -42,7 +43,7 @@ const FS_MICRO = 11
 const FS_SMALL = 13
 const FS_PRICE = 18
 
-export default function ProductMinimalRow({
+function ProductMinimalRow({
   product,
   onOpen,
   onQuickAdd,
@@ -92,7 +93,7 @@ export default function ProductMinimalRow({
         className={isSoldOut ? undefined : 'pressable'}
         disabled={isSoldOut}
         onClick={() => {
-          if (!isSoldOut) onOpen()
+          if (!isSoldOut) onOpen(product)
         }}
         style={{
           flex: 1,
@@ -231,8 +232,8 @@ export default function ProductMinimalRow({
           type="button"
           className="pressable"
           onClick={() => {
-            if (hasRequiredMods) onOpen()
-            else onQuickAdd()
+            if (hasRequiredMods) onOpen(product)
+            else onQuickAdd(product)
           }}
           aria-label={`Adaugă ${product.name}`}
           style={{
@@ -260,6 +261,8 @@ export default function ProductMinimalRow({
     </div>
   )
 }
+
+export default memo(ProductMinimalRow)
 
 function MinBadge({ label, color, fonts }: { label: string; color: string; fonts: MenuTheme['fonts'] }) {
   return (
