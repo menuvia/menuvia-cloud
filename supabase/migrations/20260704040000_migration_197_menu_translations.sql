@@ -65,4 +65,26 @@ begin
   raise notice 'mig 197: meniu multilingv OK (products.translations, categories.translations, restaurants.menu_languages)';
 end $$;
 
+-- ── Grant column-level UPDATE pe restaurants.menu_languages ──────────
+-- `restaurants` e COLUMN-GATED (mig 096B a acordat UPDATE pe o listă fixă de
+-- coloane, pentru lockdown-ul de slug). O coloană nouă NU devine writable
+-- automat → owner-ul/adminul n-ar putea salva limbile meniului fără acest
+-- grant (RLS-ul restrânge oricum PE CARE restaurant, is_admin). `products` și
+-- `categories` NU sunt column-gated, deci `translations` nu cere grant.
+grant update (menu_languages) on table public.restaurants to authenticated;
+
+-- ── Asserție fail-closed: privilegiul UPDATE pe menu_languages există ───
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.column_privileges
+     where table_schema = 'public' and table_name = 'restaurants'
+       and column_name = 'menu_languages' and privilege_type = 'UPDATE'
+       and grantee = 'authenticated'
+  ) then
+    raise exception 'mig 197: UPDATE pe restaurants.menu_languages nu e acordat lui authenticated';
+  end if;
+  raise notice 'mig 197: grant UPDATE(menu_languages) OK';
+end $$;
+
 commit;
