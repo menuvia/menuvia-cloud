@@ -7,10 +7,11 @@
 // la citire — se trimite o singură dată la salvare și se întoarce mascată.
 import { supabase } from './supabase'
 import { ALLERGENS, DIETARY_TAGS } from './constants'
+import { MENU_LANGS, type Translations } from './i18nMenu'
 
 // ── Tipuri ───────────────────────────────────────────────────
 export type AiProvider = 'openai' | 'anthropic' | 'gemini' | 'custom'
-export type AiFeature = 'chat' | 'menu_import'
+export type AiFeature = 'chat' | 'menu_import' | 'nutrition' | 'translate'
 
 export interface AiConfig {
   restaurant_id: string
@@ -244,6 +245,74 @@ export async function generateNutrition(input: {
     max_tokens: 500,
   })
   return parseNutrition(res.text)
+}
+
+// ── Traducere AI a meniului (multilingv) ─────────────────────
+// Traduce numele + descrierea unui produs din română în limbile țintă.
+// Întoarce un obiect `Translations` (`{ en: {name, description}, de: {...} }`).
+// Un singur apel AI acoperă toate limbile cerute pentru produs.
+export async function aiTranslateProduct(input: {
+  restaurant_id: string
+  name: string
+  description?: string | null
+  targetLangs: string[]
+}): Promise<Translations> {
+  const langs = input.targetLangs.filter((c) => c !== 'ro')
+  if (langs.length === 0) return {}
+  const langList = langs
+    .map((c) => {
+      const l = MENU_LANGS.find((x) => x.code === c)
+      return l ? `${c} (${l.label})` : c
+    })
+    .join(', ')
+  const system = [
+    'Ești un traducător profesionist de meniuri de restaurant.',
+    `Traduci numele și descrierea unui produs din română în limbile: ${langList}.`,
+    'Răspunzi DOAR cu un obiect JSON (fără markdown, fără text) de forma:',
+    '{"en": {"name": "...", "description": "..."}, "de": {"name": "...", "description": "..."}}',
+    'Folosește EXACT codurile de limbă cerute drept chei. Păstrează denumirile proprii și brandurile.',
+    'Dacă descrierea lipsește, omite câmpul "description". Traduceri naturale, apetisante și scurte.',
+  ].join('\n')
+  const userText = `Nume: „${input.name}"${input.description ? `\nDescriere: ${input.description}` : ''}`
+  const res = await postFn<AiProxyResponse>('ai-proxy', {
+    feature: 'translate' as AiFeature,
+    restaurant_id: input.restaurant_id,
+    system,
+    messages: [{ role: 'user', content: userText }],
+    max_tokens: 800,
+  })
+  return parseTranslations(res.text, langs)
+}
+
+// Parsează răspunsul AI de traducere, păstrând DOAR limbile cerute și câmpurile
+// nevide (name/description). Robust la markdown-fence și text în plus.
+function parseTranslations(text: string, langs: string[]): Translations {
+  const clean = text.replace(/```json|```/g, '').trim()
+  let raw: unknown
+  try {
+    raw = JSON.parse(clean)
+  } catch {
+    const m = clean.match(/\{[\s\S]*\}/)
+    if (!m) throw new Error('Răspuns AI neparsabil')
+    raw = JSON.parse(m[0])
+  }
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const str = (v: unknown): string | undefined =>
+    typeof v === 'string' && v.trim().length > 0 ? v.trim() : undefined
+  const out: Translations = {}
+  for (const code of langs) {
+    const entry = o[code]
+    if (!entry || typeof entry !== 'object') continue
+    const e = entry as Record<string, unknown>
+    const name = str(e.name)
+    const description = str(e.description)
+    if (name || description) {
+      out[code] = {}
+      if (name) out[code].name = name
+      if (description) out[code].description = description
+    }
+  }
+  return out
 }
 
 // ── Top-up credite (Faza F) ──────────────────────────────────
