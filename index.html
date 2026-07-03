@@ -43,10 +43,26 @@
     <link rel="preconnect" href="https://swjcptdylfmpvopdepqf.supabase.co" crossorigin />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Fonturi non-blocking: `media="print"` scoate CSS-ul din calea critică de
+      randare (browser-ul îl descarcă dar nu blochează primul paint), iar
+      `onload` îl comută la `all` când e gata. `display=swap` din URL face ca
+      textul să apară imediat cu fallback-ul de sistem (fără FOIT). Câștig direct
+      de LCP pe meniul QR de la masă (4G) — două fonturi variabile nu mai țin
+      render-ul. `<noscript>` păstrează încărcarea clasică fără JS.
+    -->
     <link
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400..700;1,400..700&family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..900&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400..700;1,400..700&family=Fraunces:ital,opsz,wght@0,9..144,400..900;1,9..144,400..900&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <style>
       body {
         margin: 0;
