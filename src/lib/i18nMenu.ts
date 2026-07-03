@@ -91,3 +91,20 @@ export function availableMenuLangs(
   // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără `ro`).
   return MENU_LANGS.filter((l) => l.code !== 'ro' && found.has(l.code)).map((l) => l.code)
 }
+
+// Detectează limba browserului turistului și o întoarce DOAR dacă meniul chiar
+// e tradus în ea (e printre `available`). Astfel un client german care scanează
+// QR-ul vede meniul direct în germană, fără să caute switcher-ul. `ro` nu se
+// auto-selectează (e deja baza). Întoarce null dacă nicio potrivire.
+export function detectBrowserLang(available: string[]): string | null {
+  if (typeof navigator === 'undefined') return null
+  const nav = navigator as Navigator & { languages?: readonly string[] }
+  const prefs = nav.languages && nav.languages.length > 0 ? nav.languages : [nav.language]
+  const avail = new Set(available)
+  for (const raw of prefs) {
+    if (!raw) continue
+    const code = raw.toLowerCase().split('-')[0] // 'de-DE' → 'de'
+    if (code !== 'ro' && avail.has(code)) return code
+  }
+  return null
+}
