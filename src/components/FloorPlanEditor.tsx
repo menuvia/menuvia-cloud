@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
+import { useIsMobile } from '../hooks/useIsMobile'
 
 // ─── Types ────────────────────────────────────────────────────
 type TableShape = 'round' | 'square' | 'rect' | 'bar'
@@ -215,6 +216,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const [saving, setSaving] = useState(false)
   const [savedOk, setSavedOk] = useState(false)
   const [hist, setHist] = useState<string[]>([])
+  // Ajutorul „Cum funcționează" e pliat implicit pe mobil (deschis pe desktop).
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const off = useRef({ x: 0, y: 0 })
@@ -527,13 +530,22 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const totalTables = floor.tables.length
   const totalSeats = floor.tables.reduce((s, t) => s + (t.seats || 0), 0)
 
+  // Sub 900px editorul se stivuiește vertical: bandă de unelte orizontală
+  // scrollabilă sus, canvas panabil la mijloc, proprietăți/ajutor jos. Cele
+  // trei coloane fixe (200 + 860 + 210px) nu încap pe un telefon.
+  const isMobile = useIsMobile(900)
+  // Secțiunile de unelte: coloane fixe în banda orizontală pe mobil.
+  const toolSection: React.CSSProperties = isMobile
+    ? { minWidth: 150, flexShrink: 0 }
+    : { marginBottom: 12 }
+
   return (
     <div
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
-        minHeight: 640,
+        height: isMobile ? 'auto' : '100%',
+        minHeight: isMobile ? 0 : 640,
         background: D.bg,
         borderRadius: 14,
         border: `1px solid ${D.border}`,
@@ -597,27 +609,49 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
         </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* ── Left Sidebar ── */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          flex: 1,
+          overflow: 'hidden',
+        }}
+      >
+        {/* ── Left Sidebar — pe mobil: bandă orizontală scrollabilă de secțiuni ── */}
         {!live && (
           <div
-            style={{
-              width: 200,
-              background: D.s1,
-              borderRight: `1px solid ${D.border}`,
-              overflowY: 'auto',
-              flexShrink: 0,
-              padding: '10px 8px',
-            }}
+            style={
+              isMobile
+                ? {
+                    display: 'flex',
+                    flexDirection: 'row',
+                    gap: 16,
+                    width: '100%',
+                    background: D.s1,
+                    borderBottom: `1px solid ${D.border}`,
+                    overflowX: 'auto',
+                    flexShrink: 0,
+                    padding: '10px 12px',
+                    WebkitOverflowScrolling: 'touch',
+                  }
+                : {
+                    width: 200,
+                    background: D.s1,
+                    borderRight: `1px solid ${D.border}`,
+                    overflowY: 'auto',
+                    flexShrink: 0,
+                    padding: '10px 8px',
+                  }
+            }
           >
-            <div style={{ marginBottom: 12 }}>
+            <div style={toolSection}>
               <div style={sectionLabel}>Instrumente</div>
               <button style={navBtn(tool === 'select')} onClick={() => setTool('select')}>
                 ↖ Selectează
               </button>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div style={toolSection}>
               <div style={sectionLabel}>Mese</div>
               {(
                 Object.entries(TABLE_SHAPES) as [TableShape, (typeof TABLE_SHAPES)[TableShape]][]
@@ -655,7 +689,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               </div>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div style={toolSection}>
               <div style={sectionLabel}>Structură</div>
               {(Object.entries(WALL_META) as [WallType, (typeof WALL_META)[WallType]][]).map(
                 ([k, v]) => (
@@ -685,7 +719,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               </button>
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div style={toolSection}>
               <div style={sectionLabel}>Decoruri</div>
               {(Object.entries(DECO_META) as [DecoType, (typeof DECO_META)[DecoType]][]).map(
                 ([k, v]) => (
@@ -703,7 +737,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               )}
             </div>
 
-            <div style={{ marginBottom: 12 }}>
+            <div style={toolSection}>
               <div style={sectionLabel}>Etaje</div>
               {floors.map((f, i) => (
                 <button key={f.id} style={navBtn(fi === i)} onClick={() => setFi(i)}>
@@ -748,16 +782,19 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
           </div>
         )}
 
-        {/* ── Canvas ── */}
+        {/* ── Canvas — pe mobil: înălțime fixă, pan liber pe ambele axe ── */}
         <div
           style={{
-            flex: 1,
+            flex: isMobile ? undefined : 1,
+            height: isMobile ? 'min(60vh, 480px)' : undefined,
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
+            alignItems: isMobile ? 'flex-start' : 'center',
+            justifyContent: isMobile ? 'flex-start' : 'center',
+            padding: isMobile ? 10 : 16,
             background: D.bg,
             overflow: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            flexShrink: 0,
           }}
         >
           <div
@@ -766,6 +803,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               position: 'relative',
               width: CANVAS_W,
               height: CANVAS_H,
+              flexShrink: 0,
               borderRadius: 12,
               border: `1px solid ${D.border}`,
               overflow: 'hidden',
@@ -1030,16 +1068,26 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
           </div>
         </div>
 
-        {/* ── Right Sidebar (Properties) ── */}
+        {/* ── Right Sidebar (Properties) — pe mobil coboară SUB canvas ── */}
         <div
-          style={{
-            width: 210,
-            background: D.s1,
-            borderLeft: `1px solid ${D.border}`,
-            padding: 14,
-            overflowY: 'auto',
-            flexShrink: 0,
-          }}
+          style={
+            isMobile
+              ? {
+                  width: '100%',
+                  background: D.s1,
+                  borderTop: `1px solid ${D.border}`,
+                  padding: 14,
+                  flexShrink: 0,
+                }
+              : {
+                  width: 210,
+                  background: D.s1,
+                  borderLeft: `1px solid ${D.border}`,
+                  padding: 14,
+                  overflowY: 'auto',
+                  flexShrink: 0,
+                }
+          }
         >
           {selTable && (
             <>
@@ -1249,10 +1297,34 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
           )}
 
           {!sel && (
+            // Pe mobil ajutorul e pliat (ocupă un rând, nu tot ecranul);
+            // pe desktop rămâne mereu vizibil, ca înainte.
             <div style={{ color: D.t3, fontSize: '0.75rem', lineHeight: 1.9 }}>
-              <div style={{ ...sectionLabel, color: D.gold, marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={() => setHelpOpen((v) => !v)}
+                disabled={!isMobile}
+                aria-expanded={!isMobile || helpOpen}
+                style={{
+                  ...sectionLabel,
+                  color: D.gold,
+                  marginBottom: 10,
+                  cursor: isMobile ? 'pointer' : 'default',
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  fontFamily: 'DM Sans,sans-serif',
+                  minHeight: isMobile ? 32 : undefined,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
                 Cum funcționează
-              </div>
+                {isMobile && <span aria-hidden="true">{helpOpen ? '▾' : '▸'}</span>}
+              </button>
+              {(!isMobile || helpOpen) && (
+                <>
               <p>
                 <span style={{ color: D.t1, fontWeight: 500 }}>Click</span> — plasează element
               </p>
@@ -1283,6 +1355,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   Mod <span style={{ color: D.gold }}>Live</span> arată status mese în timp real
                 </p>
               </div>
+                </>
+              )}
             </div>
           )}
         </div>
