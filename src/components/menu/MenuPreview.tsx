@@ -1,10 +1,17 @@
 import type { CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import type { MenuTheme, ThemeSettings } from '../../lib/themes'
-import { resolveTheme, resolveMenuLayout, resolveMenuElements } from '../../lib/themes'
+import {
+  resolveTheme,
+  resolveMenuLayout,
+  resolveMenuElements,
+  resolveFlipbookPages,
+} from '../../lib/themes'
 import ProductCard from './ProductCard'
 import ProductGridCard from './ProductGridCard'
 import ProductMinimalRow from './ProductMinimalRow'
+import ProductPhotoCard from './ProductPhotoCard'
+import FlipbookViewer from './FlipbookViewer'
 
 // ─────────────────────────────────────────────────────────────
 // MenuPreview — previzualizare LIVE, NON-interactivă, a meniului clientului,
@@ -77,6 +84,25 @@ function sampleProduct(
 const SAMPLE_PRODUCTS: Product[] = [
   sampleProduct('p1', 'Bruschette', 'Roșii coapte, busuioc, ulei de măsline extravirgin', 24),
   sampleProduct('p2', 'Risotto cu ciuperci', 'Orez carnaroli, ciuperci de pădure, parmezan', 46),
+  sampleProduct('p3', 'Tiramisu', 'Mascarpone, cafea espresso, cacao', 22),
+]
+
+// Imagine-mostră inline (SVG data-URI, o plajă de culoare) pentru layout-ul
+// „Foto-first" — fără niciun request de rețea în dashboard.
+const sampleImage = (hex: string): string =>
+  `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect width='400' height='300' fill='%23${hex}'/%3E%3C/svg%3E`
+
+// Pentru „Foto-first": primele două produse au poză (carduri mari cu nume/preț
+// pe poză), al treilea NU are — ilustrează fallback-ul pe rând compact.
+const PHOTO_SAMPLE_PRODUCTS: Product[] = [
+  {
+    ...sampleProduct('p1', 'Bruschette', 'Roșii coapte, busuioc, ulei de măsline extravirgin', 24),
+    image_url: sampleImage('C9B08C'),
+  },
+  {
+    ...sampleProduct('p2', 'Risotto cu ciuperci', 'Orez carnaroli, ciuperci de pădure, parmezan', 46),
+    image_url: sampleImage('8FA98F'),
+  },
   sampleProduct('p3', 'Tiramisu', 'Mascarpone, cafea espresso, cacao', 22),
 ]
 
@@ -294,7 +320,24 @@ export default function MenuPreview({ themeSettings, restaurantName }: MenuPrevi
       />
 
       {/* Lista de produse, randată cu componenta potrivită după layout. */}
-      {layout === 'grid' ? (
+      {layout === 'flipbook' ? (
+        // Flipbook: preview LIVE cu paginile deja încărcate în formular (dacă
+        // există) — altfel starea goală prietenoasă a viewer-ului.
+        <div style={{ padding: 12 }}>
+          <FlipbookViewer
+            pages={resolveFlipbookPages(themeSettings)}
+            theme={theme}
+            PUB={PUB}
+            pageHeight={300}
+          />
+        </div>
+      ) : layout === 'photo' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 12 }}>
+          {PHOTO_SAMPLE_PRODUCTS.map((p) => (
+            <ProductPhotoCard key={p.id} product={p} {...cardProps} />
+          ))}
+        </div>
+      ) : layout === 'grid' ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, padding: 12 }}>
           {SAMPLE_PRODUCTS.map((p) => (
             <ProductGridCard key={p.id} product={p} {...cardProps} />

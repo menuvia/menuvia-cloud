@@ -46,7 +46,7 @@ export interface Restaurant {
   theme_settings?: {
     preset_id: string
     accent_override?: string | null
-    menu_layout?: 'list' | 'grid' | 'minimal' | null
+    menu_layout?: 'list' | 'grid' | 'minimal' | 'photo' | 'flipbook' | null
     elements?: {
       cover?: boolean
       tagline?: boolean
@@ -54,6 +54,7 @@ export interface Restaurant {
       amenities?: boolean
       social?: boolean
     } | null
+    flipbook_pages?: string[] | null
   } | null
   pickup_settings?: {
     enabled: boolean
