@@ -103,23 +103,55 @@ export default function QrCartSheet({
     return map
   }, [categories])
 
-  // Recomandate alături — produse din categorii neacoperite de coș.
+  // Recomandate alături — întâi împerecherile CURATE de restaurant (produsele
+  // legate explicit de ce e în coș, mig 164), apoi fallback pe categorii
+  // neacoperite. Împerecherile sunt alegeri intenționate ale localului ("la
+  // burger merge un cartof + o bere"), deci bat heuristica de categorie.
   const suggestions = useMemo<Product[]>(() => {
     if (!(checkoutSuggestionSettings?.enabled ?? false)) return []
     const maxSugg = checkoutSuggestionSettings?.max_suggestions ?? 4
     const cartProductIds = new Set(cart.map((c) => c.product_id))
-    const cartCategoryIds = new Set(
-      cart.map((item) => productById.get(item.product_id)?.category_id).filter(Boolean),
-    )
     const out: Product[] = []
-    for (const cat of categories) {
-      if (cartCategoryIds.has(cat.id)) continue
-      for (const prod of cat.products ?? []) {
-        if (out.length >= maxSugg) break
-        if (prod.is_sold_out || cartProductIds.has(prod.id)) continue
-        out.push(prod)
-      }
+    const seen = new Set<string>()
+
+    // Adaugă un produs candidat dacă e valid (nu e în coș, nu-i deja sugerat,
+    // nu-i sold-out/draft) și mai e loc. Întoarce true dacă l-a adăugat.
+    const tryPush = (prod: Product | undefined): boolean => {
+      if (!prod || out.length >= maxSugg) return false
+      if (prod.is_sold_out || prod.is_draft) return false
+      if (cartProductIds.has(prod.id) || seen.has(prod.id)) return false
+      seen.add(prod.id)
+      out.push(prod)
+      return true
+    }
+
+    // 1) Împerecheri curate: produsele pe care localul le-a legat de itemele din
+    //    coș, în ordinea lor de afișare. Prioritate maximă.
+    for (const item of cart) {
       if (out.length >= maxSugg) break
+      const prod = productById.get(item.product_id)
+      if (!prod) continue
+      const paired = [...(prod.pairings ?? [])].sort((a, b) => a.display_order - b.display_order)
+      for (const pr of paired) {
+        if (out.length >= maxSugg) break
+        tryPush(productById.get(pr.paired_product_id))
+      }
+    }
+
+    // 2) Fallback: produse din categorii neacoperite de coș (heuristica veche),
+    //    ca să umplem până la maxSugg dacă împerecherile nu ajung.
+    if (out.length < maxSugg) {
+      const cartCategoryIds = new Set(
+        cart.map((item) => productById.get(item.product_id)?.category_id).filter(Boolean),
+      )
+      for (const cat of categories) {
+        if (out.length >= maxSugg) break
+        if (cartCategoryIds.has(cat.id)) continue
+        for (const prod of cat.products ?? []) {
+          if (out.length >= maxSugg) break
+          tryPush(prod)
+        }
+      }
     }
     return out
   }, [categories, cart, checkoutSuggestionSettings, productById])
