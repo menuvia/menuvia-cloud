@@ -25,6 +25,44 @@ const AFFILIATE_FALLBACK: AffiliateDefaults = {
   recurring_cap_months: 12,
 }
 
+// ── Secțiunea de comparație — categorii, nu nume de concurenți ──
+// Conținut validat de analiza de piață (docs/COMPETITIE.md): ton onest,
+// fiecare rând e un fapt verificabil, inclusiv punctele forte ale celorlalți.
+const COMPARE_CARDS: {
+  title: string
+  highlight?: boolean
+  rows: { good: boolean; text: string }[]
+}[] = [
+  {
+    title: 'Un meniu QR simplu',
+    rows: [
+      { good: true, text: 'Ieftin și rapid de pus în funcțiune' },
+      { good: false, text: 'Comanda ajunge pe WhatsApp sau deloc — fără bucătărie, fără stări' },
+      { good: false, text: 'Bonul fiscal = re-marcat manual în casă, la fiecare comandă' },
+      { good: false, text: 'Fără sesiuni de masă: nota se reconstituie din memorie' },
+    ],
+  },
+  {
+    title: 'Menuvia',
+    highlight: true,
+    rows: [
+      { good: true, text: 'Comenzi reale: bucătărie, ospătari, stări, sesiuni de masă' },
+      { good: true, text: 'Plata și bonul rămân pe casa ta actuală — nu schimbi nimic' },
+      { good: true, text: 'Fiscalizare direct pe casa existentă (Datecs/Activa/Tremol) — în pilot' },
+      { good: true, text: 'Prețuri publice, fără comision pe comenzi, fără contract' },
+    ],
+  },
+  {
+    title: 'Un POS nou, cu kit propriu',
+    rows: [
+      { good: true, text: 'Fiscalizare nativă, integrată în sistemul lor' },
+      { good: false, text: 'Hardware + licențe de mii de lei, plătite înainte să vinzi ceva' },
+      { good: false, text: 'Migrezi tot sistemul de vânzare și înveți personalul de la zero' },
+      { good: false, text: 'Instalare cu dealeri, contracte de service, prețuri „la cerere"' },
+    ],
+  },
+]
+
 // Paletă locală DARK pentru secțiunea de afiliere — brun închis cald,
 // derivat din MKT.onAccent (#241A0A); aceeași cu hero-ul paginii /afiliat,
 // ca secțiunea să iasă din pagina crem fără să devină banner țipător.
@@ -498,6 +536,102 @@ export default function LandingPage({
             </button>
           </div>
         </RevealItem>
+      </div>
+
+      {/* Comparație onestă — mesajul central: păstrezi casa de marcat.
+          Fără nume de concurenți în UI (fair-play); categoriile sunt
+          suficiente. Diferențiatorul validat de analiza de piață
+          (docs/COMPETITIE.md): nimeni din QR-first nu închide bucla
+          fiscală, iar POS-urile o închid doar cu kit nou. */}
+      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '0 24px 80px' }}>
+        <RevealItem>
+          <h2 style={{ ...sectionTitle, marginBottom: 10 }}>
+            Păstrezi casa de marcat și POS-ul pe care le ai
+          </h2>
+          <p
+            style={{
+              color: MKT.text2,
+              fontSize: 15,
+              lineHeight: 1.65,
+              textAlign: 'center',
+              maxWidth: 560,
+              margin: '0 auto 36px',
+            }}
+          >
+            Fără hardware nou, fără migrare, fără contracte de service. Comanda pleacă din
+            telefonul clientului și ajunge exact acolo unde lucrezi deja.
+          </p>
+        </RevealItem>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: stacked ? '1fr' : 'repeat(3, 1fr)',
+            gap: 16,
+            alignItems: 'stretch',
+          }}
+        >
+          {COMPARE_CARDS.map((card, i) => (
+            <RevealItem key={card.title} delay={i * 90}>
+              <div
+                style={{
+                  background: MKT.surface,
+                  border: card.highlight ? `1.5px solid ${MKT.accent}` : `1px solid ${MKT.border}`,
+                  borderRadius: 18,
+                  padding: '26px 22px',
+                  height: '100%',
+                  boxSizing: 'border-box',
+                  boxShadow: card.highlight ? '0 8px 32px rgba(200,150,60,0.14)' : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: 'Fraunces,serif',
+                    fontSize: '1.05rem',
+                    fontWeight: 700,
+                    color: card.highlight ? MKT.accentInk : MKT.text,
+                    marginBottom: 14,
+                  }}
+                >
+                  {card.title}
+                </div>
+                <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {card.rows.map((row) => (
+                    <li key={row.text} style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                      <span
+                        aria-hidden="true"
+                        style={{
+                          color: row.good ? MKT.success : MKT.text3,
+                          fontWeight: 700,
+                          fontSize: 14,
+                          lineHeight: 1.5,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {row.good ? '✓' : '—'}
+                      </span>
+                      <span style={{ color: row.good ? MKT.text2 : MKT.text3, fontSize: 13.5, lineHeight: 1.55 }}>
+                        {row.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </RevealItem>
+          ))}
+        </div>
+        <p
+          style={{
+            color: MKT.text3,
+            fontSize: 12.5,
+            textAlign: 'center',
+            marginTop: 18,
+            lineHeight: 1.6,
+          }}
+        >
+          Fiscalizarea Menuvia funcționează prin FiscalNet direct pe casele Datecs, Activa și
+          Tremol — programul e în pilot, iar planurile Meniu Digital și Meniu + Comenzi nu ating
+          deloc casa ta: bonul rămâne exact ca până acum.
+        </p>
       </div>
 
       {/* FAQ light */}
