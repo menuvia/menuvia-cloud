@@ -93,6 +93,11 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
       setBaseUrl(cfg.base_url ?? '')
       setEnabled(cfg.enabled)
       setHasKey(true) // dacă există config, presupunem că are cheie (nu o citim)
+    } else {
+      // Fără rând salvat = starea implicită REALĂ din ai-proxy: asistentul e
+      // ACTIV pe cheia platformei. Toggle-ul reflectă asta, altfel ar apărea
+      // debifat deși AI-ul funcționează.
+      setEnabled(true)
     }
     setQuota(q)
     setLoading(false)
@@ -227,7 +232,8 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
           <span style={{ color: D.t1, fontSize: '0.88rem', fontWeight: 600 }}>Activează asistentul AI pentru acest restaurant</span>
         </label>
         <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, margin: '0 0 4px 28px' }}>
-          Cheia e gestionată de Menuvia — nu ai nevoie de nicio configurare tehnică.
+          Asistentul e activ implicit pentru contul tău — cheia e gestionată de Menuvia, nu ai
+          nevoie de nicio configurare tehnică.
           {quota && ` Ai ${quota.included_tokens.toLocaleString('ro-RO')} tokens incluși pe lună.`}
         </p>
 

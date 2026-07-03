@@ -1186,7 +1186,13 @@ export default function DashboardPage({
 
         <div
           ref={contentScrollRef}
-          style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px 12px' : '28px 32px' }}
+          // paddingBottom mărit pe mobil: FAB-ul AI (56px, bottom:76) altfel
+          // acoperă ultimul rând de carduri la capătul scroll-ului.
+          style={{
+            flex: 1,
+            overflow: 'auto',
+            padding: isMobile ? '16px 12px 112px' : '28px 32px',
+          }}
         >
           {!restaurant ? (
             <div

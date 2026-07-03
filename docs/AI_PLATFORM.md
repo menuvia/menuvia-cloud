@@ -9,11 +9,21 @@ Netlify `ai-config`, `ai-proxy`, `ai-credits-checkout` (+ branch nou în
 | Variabilă | Necesar pentru | Notă |
 |---|---|---|
 | `AI_CONFIG_SECRET` | `ai-config`, `ai-proxy` | Secret pentru criptarea AES-256-GCM a cheilor BYO. Generează cu `openssl rand -hex 32`. **Fără el, funcțiile întorc „Server config error".** |
+| `PLATFORM_OPENAI_KEY` | `ai-proxy` (cheia PLATFORMEI) | **Obligatoriu pentru „AI activ implicit"**: restaurantele fără cheie BYO rulează pe această cheie (furnizorul default e `openai`). Fără ea, apelurile fără BYO întorc eroare clară. |
+| `PLATFORM_ANTHROPIC_KEY`, `PLATFORM_GEMINI_KEY` | `ai-proxy` (opțional) | Doar dacă un restaurant alege manual furnizorul respectiv fără cheie proprie. |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | toate | deja setate |
 | `STRIPE_SECRET_KEY` | `ai-credits-checkout` | deja setat |
 
 > ⚠️ După adăugarea/schimbarea unei variabile de mediu, e necesar un **redeploy**
 > ca funcțiile să o preia.
+
+## Activ implicit (zero configurare)
+
+Un restaurant **fără rând** în `ai_provider_configs` e tratat de `ai-proxy` ca
+`{provider: 'openai', enabled: true}` pe cheia platformei — asistentul merge
+„din prima" pentru orice cont nou, cu metering per restaurant neschimbat.
+Opt-out: toggle-ul din Setări → Asistent AI salvează `enabled=false`, respectat
+imediat. Cheia BYO rămâne opțiunea „Avansat".
 
 ## Model BYO (Bring Your Own)
 
@@ -41,7 +51,9 @@ Fiecare restaurant își alege furnizorul și cheia în **Setări → Asistent A
 
 ## Admin fondator
 
-- `profiles.is_platform_admin` (seed pe georgeradu119@gmail.com).
+- `profiles.is_platform_admin` (seed pe georgeradu119@gmail.com + georgeradu004@gmail.com;
+  mig 195 adaugă un trigger self-healing care ridică flag-ul și pentru conturi
+  create DUPĂ aplicarea migrației).
 - `admin_ai_overview()` + `admin_set_ai_limit()` gate-uite strict pe
   `is_platform_admin()`.
 - UI: **Setări → Consum AI (fondator)**, vizibil doar pentru platform admin.

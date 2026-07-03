@@ -290,15 +290,27 @@ exports.handler = async (event) => {
     return jsonResponse(403, { error: 'Forbidden' })
   }
 
-  // ── Încarcă + decriptează config-ul BYO ────────────────────
-  const { data: config, error: cfgErr } = await supabase
+  // ── Încarcă config-ul (sau starea implicită) ───────────────
+  const { data: configRow, error: cfgErr } = await supabase
     .from('ai_provider_configs')
     .select('provider, model, base_url, api_key_encrypted, enabled')
     .eq('restaurant_id', restaurant_id)
-    .single()
+    .maybeSingle()
 
-  if (cfgErr || !config) {
-    return jsonResponse(400, { error: 'AI nu este configurat pentru acest restaurant.' })
+  if (cfgErr) {
+    console.error('[ai-proxy] config load error:', cfgErr.message)
+    return jsonResponse(500, { error: 'Could not load AI config' })
+  }
+  // Fără rând salvat = starea IMPLICITĂ: asistentul e ACTIV pe cheia
+  // platformei, furnizorul default — un cont nou are AI „din prima", fără
+  // nicio configurare. Rândul apare doar când ownerul salvează ceva
+  // (inclusiv opt-out cu enabled=false, respectat imediat mai jos).
+  const config = configRow ?? {
+    provider: 'openai',
+    model: '',
+    base_url: null,
+    api_key_encrypted: null,
+    enabled: true,
   }
   if (!config.enabled) {
     return jsonResponse(400, { error: 'AI este dezactivat pentru acest restaurant.' })
