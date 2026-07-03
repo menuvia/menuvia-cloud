@@ -246,13 +246,16 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   }, [hist])
 
   // ─── Canvas helpers ───────────────────────────────────────
-  const getPos = (e: React.MouseEvent) => {
+  // PointerLike acoperă și MouseEvent și Touch (touches[0]) — handler-ele
+  // folosesc doar coordonatele, deci mouse-ul și degetul merg prin același cod.
+  type PointerLike = { clientX: number; clientY: number }
+  const getPos = (e: PointerLike) => {
     if (!canvasRef.current) return { x: 0, y: 0 }
     const r = canvasRef.current.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
 
-  const onDown = (e: React.MouseEvent) => {
+  const onDown = (e: PointerLike) => {
     if (live) return
     const p = getPos(e)
 
@@ -322,7 +325,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     setSel(null)
   }
 
-  const onMove = (e: React.MouseEvent) => {
+  const onMove = (e: PointerLike) => {
     const p = getPos(e)
     if (drag) {
       const nx = snap(p.x - off.current.x)
@@ -808,6 +811,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               border: `1px solid ${D.border}`,
               overflow: 'hidden',
               cursor: tool !== 'select' ? 'crosshair' : 'default',
+              // touch-action dinamic: în modul 'select' fundalul rămâne
+              // panabil (scroll nativ); uneltele de plasare/desen blochează
+              // scroll-ul ca touchmove-ul să ajungă la noi. Mesele/decorurile
+              // au propriul touch-action: none, deci drag-ul lor merge și în
+              // modul 'select'.
+              touchAction: tool !== 'select' && !live ? 'none' : undefined,
               background: showGrid
                 ? `linear-gradient(${D.t1}04 1px, transparent 1px), linear-gradient(90deg, ${D.t1}04 1px, transparent 1px), ${D.bg}`
                 : D.bg,
@@ -817,6 +826,15 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             onMouseMove={onMove}
             onMouseUp={onUp}
             onMouseLeave={onUp}
+            // Touch: un singur deget = plasare/desenare/drag prin același cod.
+            onTouchStart={(e) => {
+              if (e.touches.length === 1) onDown(e.touches[0])
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length === 1) onMove(e.touches[0])
+            }}
+            onTouchEnd={onUp}
+            onTouchCancel={onUp}
           >
             {/* Zones */}
             {floor.zones.map((z) => (
@@ -935,6 +953,15 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     const r = canvasRef.current!.getBoundingClientRect()
                     off.current = { x: e.clientX - r.left - d.x, y: e.clientY - r.top - d.y }
                   }}
+                  onTouchStart={(e) => {
+                    if (live || e.touches.length !== 1) return
+                    e.stopPropagation()
+                    const t0 = e.touches[0]
+                    setSel({ type: 'deco', id: d.id })
+                    setDrag(d.id)
+                    const r = canvasRef.current!.getBoundingClientRect()
+                    off.current = { x: t0.clientX - r.left - d.x, y: t0.clientY - r.top - d.y }
+                  }}
                   style={{
                     position: 'absolute',
                     left: d.x,
@@ -946,6 +973,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     justifyContent: 'center',
                     fontSize: d.size * 0.55,
                     cursor: live ? 'default' : 'grab',
+                    // Atingerea pe decor = drag, nu scroll (fundalul rămâne panabil).
+                    touchAction: live ? undefined : 'none',
                     borderRadius: '50%',
                     border: isSel ? `2px solid ${D.gold}` : '2px solid transparent',
                     background: isSel ? D.goldA : 'transparent',
@@ -976,6 +1005,15 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     const r = canvasRef.current!.getBoundingClientRect()
                     off.current = { x: e.clientX - r.left - t.x, y: e.clientY - r.top - t.y }
                   }}
+                  onTouchStart={(e) => {
+                    if (live || e.touches.length !== 1) return
+                    e.stopPropagation()
+                    const t0 = e.touches[0]
+                    setSel({ type: 'table', id: t.id })
+                    setDrag(t.id)
+                    const r = canvasRef.current!.getBoundingClientRect()
+                    off.current = { x: t0.clientX - r.left - t.x, y: t0.clientY - r.top - t.y }
+                  }}
                   style={{
                     position: 'absolute',
                     left: t.x,
@@ -991,6 +1029,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     alignItems: 'center',
                     justifyContent: 'center',
                     cursor: live ? 'default' : drag === t.id ? 'grabbing' : 'grab',
+                    // Atingerea pe masă = drag, nu scroll (fundalul rămâne panabil).
+                    touchAction: live ? undefined : 'none',
                     transform: `rotate(${t.rotation || 0}deg)`,
                     transition: drag === t.id ? 'none' : 'box-shadow .2s, border-color .2s',
                     zIndex: isSel ? 10 : 1,
