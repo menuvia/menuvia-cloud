@@ -292,8 +292,11 @@ export async function aiTranslateBatch(input: {
     restaurant_id: input.restaurant_id,
     system,
     messages: [{ role: 'user', content: payload }],
-    // Buget de tokeni scalat cu volumul: ~60 tokeni/(item×limbă) + overhead.
-    max_tokens: Math.min(4000, 400 + input.items.length * langs.length * 60),
+    // Buget de tokeni scalat cu volumul: ~90 tokeni/(item×limbă) + overhead
+    // (descrierile pot fi lungi). Dimensiunea lotului e aleasă de apelant în
+    // funcție de nr. de limbi ca acest buget să NU atingă plafonul → fără
+    // trunchiere de răspuns.
+    max_tokens: Math.min(4000, 600 + input.items.length * langs.length * 90),
   })
   return parseTranslateBatch(res.text, new Set(input.items.map((i) => i.id)), langs)
 }

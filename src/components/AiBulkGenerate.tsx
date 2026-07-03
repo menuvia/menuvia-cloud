@@ -25,12 +25,15 @@ function chunk<T>(arr: T[], n: number): T[][] {
   return out
 }
 
-// Merge non-distructiv: păstrează traducerile existente/editate manual,
-// completează doar limbile/câmpurile noi din `tr`.
+// Merge non-distructiv, fill-only-gaps: valorile EXISTENTE (editate manual sau
+// traduse anterior) CÂȘTIGĂ — AI-ul completează doar câmpurile goale. Ordinea
+// de spread pune `val` (AI) prima și `merged[code]` (existent) a doua, deci
+// existentul suprascrie AI-ul la câmpurile deja completate. Astfel un buton
+// „Traduceri" repetat NU pierde niciodată o traducere ajustată manual.
 function mergeTranslations(existing: Translations | null | undefined, tr: Translations): Translations {
   const merged: Translations = { ...(existing ?? {}) }
   for (const [code, val] of Object.entries(tr)) {
-    merged[code] = { ...(merged[code] ?? {}), ...val }
+    merged[code] = { ...val, ...(merged[code] ?? {}) }
   }
   return merged
 }
@@ -106,58 +109,78 @@ export default function AiBulkGenerate({
     let stop = false
 
     // Pre-pass BATCHED de traducere: categorii + produse, în loturi de câte un
-    // apel AI (nu unul per item). Merge non-distructiv; oprire la cota 429.
+    // apel AI. Dimensiunea lotului SCADE cu numărul de limbi, ca output-ul AI
+    // să nu depășească plafonul de tokeni (altfel răspunsul e trunchiat → JSON
+    // invalid → tot lotul pierdut). Merge non-distructiv; oprire la cota 429.
+    const nLangs = Math.max(1, langs.length)
+    // Categorii = doar nume (output mic). Produse = nume + descriere (mai mare).
+    const catChunkSize = Math.min(25, Math.max(4, Math.floor(80 / nLangs)))
+    const prodChunkSize = Math.min(20, Math.max(2, Math.floor(34 / nLangs)))
     if (doTranslate) {
       // Categorii (headerele meniului) — doar nume.
-      const catGroups = chunk(categories.filter(needsTrCat), 20)
+      const catGroups = chunk(categories.filter(needsTrCat), catChunkSize)
       for (let g = 0; g < catGroups.length && !stop; g++) {
         const group = catGroups[g]
         setCurrent(`Traduc categorii (${group.length})…`)
+        let map: Record<string, Translations> = {}
         try {
-          const map = await aiTranslateBatch({
+          map = await aiTranslateBatch({
             restaurant_id: restaurantId,
             items: group.map((c) => ({ id: c.id, name: c.name })),
             targetLangs: langs,
           })
-          for (const c of group) {
-            const tr = map[c.id]
-            if (!tr) continue
+        } catch (e) {
+          if (isQuota(e)) { setQuotaHit(true); stop = true }
+          else setErrors((prev) => [...prev, `Traducere categorii: ${e instanceof Error ? e.message : 'eroare'}`])
+          continue
+        }
+        // Scrierile per-item NU opresc lotul: o eroare de UPDATE pe un item nu
+        // mai anulează traducerile deja obținute pentru restul grupului.
+        for (const c of group) {
+          const tr = map[c.id]
+          if (!tr) continue
+          try {
             const { error } = await supabase
               .from('categories')
               .update({ translations: mergeTranslations(c.translations, tr) })
               .eq('id', c.id)
             if (error) throw new Error(error.message)
             setOkTrCat((x) => x + 1)
+          } catch (e) {
+            setErrors((prev) => [...prev, `${c.name} (categorie): ${e instanceof Error ? e.message : 'eroare'}`])
           }
-        } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `Traducere categorii: ${e instanceof Error ? e.message : 'eroare'}`])
         }
       }
       // Produse — nume + descriere.
-      const prodGroups = chunk(products.filter(needsTr), 12)
+      const prodGroups = chunk(products.filter(needsTr), prodChunkSize)
       for (let g = 0; g < prodGroups.length && !stop; g++) {
         const group = prodGroups[g]
         setCurrent(`Traduc produse (${group.length})…`)
+        let map: Record<string, Translations> = {}
         try {
-          const map = await aiTranslateBatch({
+          map = await aiTranslateBatch({
             restaurant_id: restaurantId,
             items: group.map((p) => ({ id: p.id, name: p.name, description: p.description })),
             targetLangs: langs,
           })
-          for (const p of group) {
-            const tr = map[p.id]
-            if (!tr) continue
+        } catch (e) {
+          if (isQuota(e)) { setQuotaHit(true); stop = true }
+          else setErrors((prev) => [...prev, `Traducere produse: ${e instanceof Error ? e.message : 'eroare'}`])
+          continue
+        }
+        for (const p of group) {
+          const tr = map[p.id]
+          if (!tr) continue
+          try {
             const { error } = await supabase
               .from('products')
               .update({ translations: mergeTranslations(p.translations, tr) })
               .eq('id', p.id)
             if (error) throw new Error(error.message)
             setOkTr((x) => x + 1)
+          } catch (e) {
+            setErrors((prev) => [...prev, `${p.name} (traducere): ${e instanceof Error ? e.message : 'eroare'}`])
           }
-        } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `Traducere produse: ${e instanceof Error ? e.message : 'eroare'}`])
         }
       }
     }

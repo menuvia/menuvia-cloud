@@ -15,7 +15,7 @@ import {
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
-import { trName, trDesc, availableMenuLangs, detectBrowserLang } from '../lib/i18nMenu'
+import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
@@ -355,22 +355,24 @@ export default function QrMenuPage({ token }: Props) {
     const detected = detectBrowserLang(availableLangs)
     if (detected) setLang(detected)
   }, [availableLangs, lang])
+  // Index de căutare precalculat pe limba activă: haystack normalizat (fără
+  // diacritice) per produs, recalculat doar la schimbarea meniului/limbii — nu
+  // la fiecare tastă. Diacritic-insensitive ca pe meniul public (un client
+  // care tastează „ciorba" găsește „Ciorbă").
+  const searchIndex = useMemo(
+    () =>
+      localizedCategories
+        .flatMap((c) => c.products ?? [])
+        .map((p) => ({ product: p, hay: normalizeMenuSearch(p.name + ' ' + (p.description ?? '')) })),
+    [localizedCategories],
+  )
   // Search activ → căutăm în TOT meniul (toate categoriile), nu doar în cea
   // selectată — altfel clientul nu găsește produsul dacă e pe alt tab.
-  // Memoizat pe deps complete: recalculăm doar la schimbare de meniu, tab activ
-  // sau termen de căutare amânat. Rezultatul e IDENTIC cu filtrarea sincronă.
   const activeProducts = useMemo(() => {
-    const q = deferredSearch.trim().toLowerCase()
-    return q
-      ? localizedCategories
-          .flatMap((c) => c.products ?? [])
-          .filter(
-            (p) =>
-              p.name.toLowerCase().includes(q) ||
-              (p.description ?? '').toLowerCase().includes(q),
-          )
-      : (localizedCategories.find((c) => c.id === activeCatId)?.products ?? [])
-  }, [localizedCategories, activeCatId, deferredSearch])
+    const q = normalizeMenuSearch(deferredSearch.trim())
+    if (q.length > 0) return searchIndex.filter((e) => e.hay.includes(q)).map((e) => e.product)
+    return localizedCategories.find((c) => c.id === activeCatId)?.products ?? []
+  }, [searchIndex, localizedCategories, activeCatId, deferredSearch])
   // Total produse publicate (toate categoriile) — distinge „catalog gol"
   // (restaurantul n-a publicat nimic) de „categoria/căutarea nu are rezultate".
   const totalProducts = useMemo(
@@ -1077,7 +1079,7 @@ export default function QrMenuPage({ token }: Props) {
             notes={notes}
             submitting={submitting}
             submitError={submitError}
-            categories={categories}
+            categories={localizedCategories}
             checkoutSuggestionSettings={ctx?.restaurant.checkout_suggestion_settings ?? null}
             PUB={PUB}
             accent={accent}

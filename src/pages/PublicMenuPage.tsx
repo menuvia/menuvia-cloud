@@ -27,7 +27,7 @@ import {
 } from '../lib/qr'
 import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
-import { trName, trDesc, availableMenuLangs, detectBrowserLang } from '../lib/i18nMenu'
+import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import {
   resolveTheme,
@@ -77,14 +77,6 @@ interface Props {
   onBack: () => void
 }
 
-// Normalizare pentru căutare: fără diacritice, lowercase. Regex-ul e compilat
-// O SINGURĂ dată la nivel de modul (nu recreat per apel ca înainte, unde rula
-// de ~100× la fiecare tastă pe un meniu mare).
-const DIACRITICS_RE = /\p{Diacritic}/gu
-function normalizeSearch(s: string): string {
-  return s.normalize('NFD').replace(DIACRITICS_RE, '').toLowerCase()
-}
-
 export default function PublicMenuPage({ slug, onBack }: Props) {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
@@ -101,6 +93,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [search, setSearch] = useState('')
   // Limba activă a meniului ('ro' = originalul din name/description).
   const [menuLang, setMenuLang] = useState('ro')
+  // true după ce vizitatorul alege manual o limbă → auto-detectul nu mai
+  // suprascrie. Declarat aici (nu jos) ca efectul de reset pe restaurant să-l
+  // poată curăța la navigarea între restaurante.
+  const userPickedLangRef = useRef(false)
   const [activeFilters, setActiveFilters] = useState<Set<string>>(() => new Set())
   const [tick, setTick] = useState(0)
   const [confirmation, setConfirmation] = useState<{
@@ -165,6 +161,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     // nou dacă acesta nu are nicio listă salvată în localStorage.
     setCart([])
     skipNextSaveRef.current = false
+    // Resetează și limba: altfel o limbă auto/aleasă pe restaurantul anterior
+    // se scurge la următorul (switcher cu pastilă activă inexistentă +
+    // auto-detect suprimat). Simetric cu resetul coșului.
+    setMenuLang('ro')
+    userPickedLangRef.current = false
     if (!listMode || !listKey) return
     try {
       const raw = localStorage.getItem(listKey)
@@ -293,7 +294,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
   // Auto-selectează limba browserului DOAR dacă meniul e tradus în ea și
   // vizitatorul n-a ales manual încă (ex. turist german → meniul în germană).
-  const userPickedLangRef = useRef(false)
   const handleMenuLangChange = useCallback((code: string) => {
     userPickedLangRef.current = true
     setMenuLang(code)
@@ -317,7 +317,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     () =>
       allProducts.map((p) => ({
         product: p,
-        hay: normalizeSearch(p.name + ' ' + (p.description ?? '')),
+        hay: normalizeMenuSearch(p.name + ' ' + (p.description ?? '')),
       })),
     [allProducts],
   )
@@ -325,7 +325,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const deferredSearch = useDeferredValue(search)
 
   const filtered = useMemo(() => {
-    const q = normalizeSearch(deferredSearch.trim())
+    const q = normalizeMenuSearch(deferredSearch.trim())
     const result: Product[] = []
     for (const { product: p, hay } of searchIndex) {
       if (activeCat !== 'all' && p.category_id !== activeCat) continue
