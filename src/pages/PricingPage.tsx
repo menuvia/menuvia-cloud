@@ -139,25 +139,25 @@ export default function PricingPage({
 
   const EXTRAS_ONETIME = [
     {
-      icon: '🎯',
+      icon: <Icon name="settings" size={26} color={MKT.accent} />,
       title: 'Setup Concierge',
       price: '300 lei',
       desc: 'Vine Radu personal: configurare restaurant, meniu, QR, training echipă. O zi.',
     },
     {
-      icon: '📸',
+      icon: <Icon name="camera" size={26} color={MKT.accent} />,
       title: 'Import meniu profesional',
       price: '150 lei',
       desc: 'Trimiți pozele meniului vechi. Îl adăugăm noi în 24h.',
     },
     {
-      icon: '🎨',
+      icon: <Icon name="sparkle" size={26} color={MKT.accent} />,
       title: 'Design personalizat',
       price: '300 lei',
       desc: 'Culori, logo, fonturi adaptate brandului tău.',
     },
     {
-      icon: '📦',
+      icon: <Icon name="box" size={26} color={MKT.accent} />,
       title: 'QR-uri printate premium',
       price: '100 lei',
       desc: '30 QR-uri laminate + suporți plastic. Livrare gratuită Sibiu/Focșani.',
@@ -166,6 +166,7 @@ export default function PricingPage({
 
   const EXTRAS_MONTHLY = [
     {
+      // 💳 rămâne emoji: nu există un icon de card/plată în IconName (Icon.tsx).
       icon: '💳',
       title: 'Plăți online prin QR (în curând)',
       price: 'În curând',
@@ -173,7 +174,7 @@ export default function PricingPage({
       desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
     },
     {
-      icon: '🔌',
+      icon: <Icon name="link" size={26} color={MKT.accent} />,
       title: 'Integrare casă de marcat (pilot)',
       price: '+99 lei/lună',
       plans: 'Doar Fiscalizare',
@@ -413,7 +414,7 @@ export default function PricingPage({
             flexWrap: 'wrap',
           }}
         >
-          <span style={{ fontSize: 28, lineHeight: 1 }}>🎁</span>
+          <Icon name="sparkle" size={28} color={MKT.accent} />
           <div style={{ flex: 1, minWidth: 240 }}>
             <div
               style={{
@@ -645,7 +646,11 @@ export default function PricingPage({
                           fontWeight: 700,
                         }}
                       >
-                        {f.ok ? '✓' : '−'}
+                        {f.ok ? (
+                          <Icon name="check" size={12} color={MKT.success} />
+                        ) : (
+                          <Icon name="minus" size={12} color={MKT.text3} />
+                        )}
                       </span>
                       <span style={{ lineHeight: 1.5 }}>{f.t}</span>
                     </div>
@@ -864,14 +869,14 @@ export default function PricingPage({
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>📖</span>
+              <Icon name="utensils" size={20} color={MKT.accent} />
               <p style={{ color: MKT.text2, fontSize: '0.95rem', lineHeight: 1.6 }}>
                 Alege <strong style={{ color: MKT.text }}>Meniu Digital</strong> dacă vrei doar să
                 înlocuiești meniul fizic cu un meniu QR modern.
               </p>
             </div>
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>🛎</span>
+              <Icon name="bell" size={20} color={MKT.accent} />
               <p style={{ color: MKT.text2, fontSize: '0.95rem', lineHeight: 1.6 }}>
                 Alege <strong style={{ color: MKT.text }}>Meniu + Comenzi</strong> dacă vrei ca
                 oamenii să poată comanda direct de la masă, iar bucătăria și ospătarii să vadă
@@ -1062,8 +1067,18 @@ export default function PricingPage({
                       {e.price}
                     </span>
                   </div>
-                  <div style={{ fontSize: '0.78rem', color: MKT.text3, marginBottom: 6 }}>
-                    📌 Disponibil pe: {e.plans}
+                  <div
+                    style={{
+                      fontSize: '0.78rem',
+                      color: MKT.text3,
+                      marginBottom: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Icon name="tag" size={13} color={MKT.text3} />
+                    Disponibil pe: {e.plans}
                   </div>
                   <div style={{ fontSize: '0.85rem', color: MKT.text2, lineHeight: 1.55 }}>
                     {e.desc}

@@ -769,6 +769,33 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   // Bara de căutare/filtru apare doar când lista devine greu de scanat vizual.
   const showFilters = tables.length > 8
 
+  // Grupare pe zonă: activă doar când lista e mare ȘI nu e deja restrânsă la o
+  // singură zonă prin filtru (altfel antetele ar fi redundante). Sub prag = listă plată.
+  const NO_ZONE = 'Fără zonă'
+  const groupByZone = tables.length > 12 && zoneFilter === ''
+  // Grupuri derivate din visibleTables (nu din zoneOptions) ca să reflecte căutarea
+  // curentă: zone reale sortate `ro`, plus „Fără zonă" mereu la final, fără grupuri goale.
+  const zoneGroups: { zone: string; items: TableRow[] }[] = (() => {
+    if (!groupByZone) return []
+    const map = new Map<string, TableRow[]>()
+    for (const t of visibleTables) {
+      const key = t.zone ?? NO_ZONE
+      const arr = map.get(key)
+      if (arr) arr.push(t)
+      else map.set(key, [t])
+    }
+    const named = Array.from(map.keys())
+      .filter((k) => k !== NO_ZONE)
+      .sort((a, b) => a.localeCompare(b, 'ro'))
+    const ordered = [...named, ...(map.has(NO_ZONE) ? [NO_ZONE] : [])]
+    return ordered.map((zone) => ({ zone, items: map.get(zone) as TableRow[] }))
+  })()
+  // Sursa unică de randare: grupuri reale SAU un singur pseudo-grup (listă plată, fără antet).
+  // Astfel rândul de card rămâne o singură dată în JSX, doar învelit.
+  const groups: { zone: string; items: TableRow[] }[] = groupByZone
+    ? zoneGroups
+    : [{ zone: '', items: visibleTables }]
+
   return (
     <div>
       <Toast toasts={toasts} />
@@ -1096,7 +1123,27 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               Nicio masă nu corespunde căutării.
             </p>
           ) : null}
-          {visibleTables.map((t) => (
+          {groups.map((g) => (
+            <div
+              key={g.zone || '__flat'}
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {/* Antet de secțiune pe zonă (mic, uppercase, D.t3) + numărul de mese */}
+              {groupByZone && (
+                <div
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    color: D.t3,
+                    padding: '6px 2px 0',
+                  }}
+                >
+                  {g.zone} · {g.items.length}
+                </div>
+              )}
+              {g.items.map((t) => (
             <div
               key={t.id}
               style={{
@@ -1335,6 +1382,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   <Icon name="trash" size={16} />
                 </button>
               </div>
+            </div>
+              ))}
             </div>
           ))}
         </div>

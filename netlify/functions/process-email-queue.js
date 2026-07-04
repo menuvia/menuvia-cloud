@@ -578,6 +578,12 @@ exports.handler = async () => {
         headers: {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
           'Content-Type':  'application/json',
+          // Dedup REAL la sursă: Resend deduplică request-urile cu același `Idempotency-Key`
+          // și NU retrimite emailul a doua oară. Cheia e derivată DETERMINIST din `email.id`
+          // (invariant între retrimiteri — reclaim-ul mig 167 nu-l schimbă), deci dacă
+          // UPDATE-ul status='sent' eșuează după un 200 și rândul e reclamat, al doilea apel
+          // poartă ACEEAȘI cheie → Resend recunoaște duplicatul și previne dublu-send-ul.
+          'Idempotency-Key': `idempotency-email-${email.id}`,
         },
         body: JSON.stringify({
           from: FROM_EMAIL,
