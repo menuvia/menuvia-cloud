@@ -172,6 +172,43 @@ const btn = (active?: boolean): React.CSSProperties => ({
   transition: 'all .15s',
 })
 
+// Pereche etichetă/valoare pentru cardurile de pe mobil (când tabelele cu multe
+// coloane s-ar înghesui / ar cere scroll orizontal).
+function ReportMetric({
+  label,
+  value,
+  accent,
+}: {
+  label: string
+  value: string
+  accent?: boolean
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: '0.62rem',
+          color: D.t3,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+          marginBottom: 2,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: '0.85rem',
+          color: accent ? D.gold : D.t2,
+          fontWeight: accent ? 600 : 500,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────
 export default function ReportsTab({ restaurantId, fiscalReports = true }: Props) {
   const [period, setPeriod] = useState<Period>('today')
@@ -998,18 +1035,65 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   marginBottom: 24,
                 }}
               >
-                {/* Table header */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '28px 1fr 60px 90px 90px',
-                    minWidth: 360,
-                    padding: '8px 16px',
-                    background: D.s3,
-                    borderBottom: `1px solid ${D.border}`,
-                  }}
-                >
-                  {['#', 'Produs', 'Buc.', 'Revenue', 'Bon med.'].map((h) => (
+                {isMobile ? (
+                  topProducts.map((p, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        padding: '12px 16px',
+                        borderBottom:
+                          i < topProducts.length - 1 ? `1px solid ${D.border}` : 'none',
+                      }}
+                    >
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}
+                      >
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            color: i < 3 ? D.gold : D.t3,
+                            fontWeight: 700,
+                            minWidth: 20,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                        </span>
+                        <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
+                        <span style={{ fontSize: '0.9rem', color: D.t1, fontWeight: 600 }}>
+                          {p.name}
+                        </span>
+                      </div>
+                      <div
+                        style={{ display: 'flex', gap: 20, flexWrap: 'wrap', paddingLeft: 28 }}
+                      >
+                        <ReportMetric label="Buc." value={String(p.qty)} />
+                        <ReportMetric
+                          label="Revenue"
+                          value={fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
+                          accent
+                        />
+                        <ReportMetric
+                          label="Bon med."
+                          value={fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
+                        />
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    {/* Table header */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '28px 1fr 60px 90px 90px',
+                        minWidth: 360,
+                        padding: '8px 16px',
+                        background: D.s3,
+                        borderBottom: `1px solid ${D.border}`,
+                      }}
+                    >
+                      {['#', 'Produs', 'Buc.', 'Revenue', 'Bon med.'].map((h) => (
                     <div
                       key={h}
                       style={{
@@ -1060,6 +1144,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     </div>
                   </div>
                 ))}
+                  </>
+                )}
               </div>
             </>
           )}
@@ -1171,7 +1257,59 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   Atribuire prin servit → plătit → creat.
                 </div>
               </div>
-              <div style={{ overflowX: 'auto' }}>
+              {isMobile ? (
+                <div>
+                  {waiterSales.map((w, i) => (
+                    <div
+                      key={w.waiter_id ?? `null-${i}`}
+                      style={{
+                        padding: '12px 18px',
+                        borderBottom:
+                          i < waiterSales.length - 1 ? `1px solid ${D.border}` : 'none',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 7,
+                          color: w.waiter_id ? D.t1 : D.t3,
+                          fontWeight: 500,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <Icon
+                          name={w.waiter_id ? 'users' : 'box'}
+                          size={14}
+                          color={w.waiter_id ? D.t2 : D.t3}
+                        />
+                        {w.waiter_name}
+                      </div>
+                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                        <ReportMetric label="Comenzi" value={String(w.order_count)} />
+                        <ReportMetric
+                          label="Venituri"
+                          value={`${Number(w.total_revenue).toFixed(0)} lei`}
+                          accent
+                        />
+                        <ReportMetric
+                          label="Bon mediu"
+                          value={`${Number(w.avg_ticket).toFixed(2)} lei`}
+                        />
+                        <ReportMetric
+                          label="Reduceri"
+                          value={
+                            w.discount_total > 0
+                              ? `${Number(w.discount_total).toFixed(2)} lei`
+                              : '—'
+                          }
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
                   <thead>
                     <tr style={{ borderBottom: `1px solid ${D.border}`, color: D.t3 }}>
@@ -1292,6 +1430,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   </tbody>
                 </table>
               </div>
+              )}
             </div>
           )}
 
