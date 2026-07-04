@@ -262,7 +262,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           <Icon name="sparkle" size={18} color={D.gold} />
           <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1rem', color: D.t1 }}>Asistent AI</span>
         </div>
-        <button onClick={() => setOpen(false)} aria-label="Închide" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18, padding: 4 }}>✕</button>
+        <button onClick={() => setOpen(false)} aria-label="Închide" className="pressable" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
       </div>
 
       {/* Mesaje */}
@@ -296,6 +296,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
                 key={pa.id}
                 pending={pa}
                 categories={categories.categories}
+                products={products.products}
                 onApply={(edited) => applyAction(ti, pa.id, edited)}
                 onReject={() => rejectAction(ti, pa.id)}
               />
@@ -343,11 +344,13 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
 function ActionCard({
   pending,
   categories,
+  products,
   onApply,
   onReject,
 }: {
   pending: PendingAction
   categories: { id: string; name: string; emoji: string }[]
+  products: Product[]
   onApply: (edited: AiAction) => void
   onReject: () => void
 }) {
@@ -355,6 +358,10 @@ function ActionCard({
   const a = draft
 
   const findCatName = (id?: string) => categories.find((c) => c.id === id)?.name ?? '—'
+  // Rezolvă id-ul de produs la numele real ca userul non-tehnic să vadă
+  // DESPRE CE produs e vorba, nu un id trunchiat. Fallback la id dacă produsul
+  // a fost între timp șters.
+  const findProdName = (id?: string) => products.find((p) => p.id === id)?.name
   const small = { fontSize: '0.72rem', color: D.t3, marginBottom: 3, display: 'block' as const }
   const field = { width: '100%', background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', boxSizing: 'border-box' as const }
 
@@ -402,7 +409,7 @@ function ActionCard({
           )}
           {a.type === 'toggle_sold_out' && (
             <div style={{ fontSize: '0.82rem', color: D.t2 }}>
-              Marchează produsul ca <strong style={{ color: a.sold_out ? D.red : D.green }}>{a.sold_out ? 'STOC EPUIZAT' : 'DISPONIBIL'}</strong>.
+              Marchează <strong style={{ color: D.t1 }}>„{findProdName(a.product_id) ?? `${a.product_id.slice(0, 8)}…`}"</strong> ca <strong style={{ color: a.sold_out ? D.red : D.green }}>{a.sold_out ? 'STOC EPUIZAT' : 'DISPONIBIL'}</strong>.
             </div>
           )}
           {a.type === 'create_category' && (
@@ -418,7 +425,7 @@ function ActionCard({
             </div>
           )}
           {a.type === 'update_product' && (
-            <div style={{ fontSize: '0.72rem', color: D.t3 }}>Produs: {a.product_id.slice(0, 8)}…</div>
+            <div style={{ fontSize: '0.72rem', color: D.t3 }}>Produs: {findProdName(a.product_id) ?? `${a.product_id.slice(0, 8)}…`}</div>
           )}
           {a.type === 'create_product' && a.category_id && (
             <div style={{ fontSize: '0.72rem', color: D.t3 }}>→ {findCatName(a.category_id)}</div>

@@ -77,6 +77,19 @@ function formatDate(iso: string): string {
   })
 }
 
+// Semnal ne-cromatic pentru scorul de health: pe lângă culoare, o etichetă
+// text („critic"/„atenție"/„ok") — culoarea rămâne doar reîntărire (a11y).
+function healthMeta(score: number): { color: string; bg: string; label: string } {
+  if (score < 50) return { color: D.red, bg: D.redA, label: 'critic' }
+  if (score < 70) return { color: D.amber, bg: D.amberA, label: 'atenție' }
+  return { color: D.green, bg: D.greenA, label: 'ok' }
+}
+
+// Feedback vizual pentru butoanele în așteptare: estompare + cursor blocat.
+function withBusy(base: CSSProperties, busy: boolean): CSSProperties {
+  return busy ? { ...base, opacity: 0.55, cursor: 'not-allowed' } : base
+}
+
 interface Props {
   onBack: () => void
 }
@@ -250,6 +263,14 @@ const tdStyle: CSSProperties = {
   verticalAlign: 'middle',
 }
 
+// Etichetă mică „label:valoare" pentru cardurile de pe mobil (perechi stivuite).
+const mobilePairLabel: CSSProperties = {
+  fontSize: '0.62rem',
+  color: D.t3,
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+}
+
 function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div
@@ -333,31 +354,60 @@ function OverviewSection({ onGoTo }: { onGoTo: (s: Section) => void }) {
           marginBottom: 18,
         }}
       >
-        {kpis.map((k) => (
-          <button
-            key={k.label}
-            onClick={() => k.goTo && onGoTo(k.goTo)}
-            className="pressable"
-            style={{
-              ...cardStyle,
-              textAlign: 'left',
-              cursor: k.goTo ? 'pointer' : 'default',
-              borderColor: k.alert ? 'rgba(224,85,85,0.35)' : D.border,
-            }}
-          >
-            <div style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 6 }}>{k.label}</div>
-            <div
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: 28,
-                fontWeight: 600,
-                color: k.alert ? D.red : D.t1,
-              }}
+        {kpis.map((k) => {
+          const baseStyle: CSSProperties = {
+            ...cardStyle,
+            textAlign: 'left',
+            borderColor: k.alert ? 'rgba(224,85,85,0.35)' : D.border,
+          }
+          const inner = (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 6,
+                  marginBottom: 6,
+                }}
+              >
+                <span style={{ fontSize: '0.7rem', color: D.t3 }}>{k.label}</span>
+                {/* Chevron discret doar unde KPI-ul e navigabil (semnalează afordanța). */}
+                {k.goTo && <Icon name="chevronRight" size={14} color={D.t3} />}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Semnal ne-cromatic pentru alertă, dublează culoarea roșie. */}
+                {k.alert && <Icon name="alert" size={16} color={D.red} label="Necesită atenție" />}
+                <span
+                  style={{
+                    fontFamily: 'Fraunces,serif',
+                    fontSize: 28,
+                    fontWeight: 600,
+                    color: k.alert ? D.red : D.t1,
+                  }}
+                >
+                  {k.value}
+                </span>
+              </div>
+            </>
+          )
+          // Cu goTo → buton navigabil; fără goTo → div non-interactiv (nu mai
+          // rămâne un buton inert focusabil).
+          return k.goTo ? (
+            <button
+              key={k.label}
+              onClick={() => k.goTo && onGoTo(k.goTo)}
+              className="pressable"
+              style={{ ...baseStyle, cursor: 'pointer' }}
             >
-              {k.value}
+              {inner}
+            </button>
+          ) : (
+            <div key={k.label} style={baseStyle}>
+              {inner}
             </div>
-          </button>
-        ))}
+          )
+        })}
       </div>
 
       <div style={cardStyle}>
@@ -389,6 +439,7 @@ function OverviewSection({ onGoTo }: { onGoTo: (s: Section) => void }) {
 // ── Restaurante ──────────────────────────────────────────────
 function RestaurantsSection() {
   const toast = useToast()
+  const isMobile = useIsMobile()
   const { data, loading, error, reload } = useAdminData<AdminRestaurantRow[]>(listRestaurants)
   const [query, setQuery] = useState('')
   const [planFilter, setPlanFilter] = useState<string>('')
@@ -453,6 +504,57 @@ function RestaurantsSection() {
     }
   }
 
+  // Randări reutilizate între tabel (desktop) și carduri (mobil) — evită
+  // duplicarea logicii de plan/health în cele două layout-uri.
+  function planSelect(r: AdminRestaurantRow) {
+    return (
+      <select
+        value={r.plan}
+        disabled={busyId === r.restaurant_id}
+        onChange={(e) => void changePlan(r, e.target.value)}
+        aria-label={`Planul pentru ${r.name}`}
+        style={{
+          padding: '6px 8px',
+          border: `1px solid ${D.border}`,
+          borderRadius: 8,
+          background: D.s3,
+          color: D.t1,
+          fontSize: 12,
+        }}
+      >
+        {PLANS.map((p) => (
+          <option key={p} value={p}>
+            {PLAN_LABELS[p] || p}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  function healthCell(r: AdminRestaurantRow) {
+    if (r.health_score == null) return <span style={{ color: D.t3 }}>—</span>
+    const meta = healthMeta(r.health_score)
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ color: meta.color, fontWeight: 600 }}>{r.health_score}</span>
+        <span
+          style={{
+            padding: '1px 7px',
+            borderRadius: 100,
+            fontSize: '0.6rem',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            letterSpacing: '0.04em',
+            color: meta.color,
+            background: meta.bg,
+          }}
+        >
+          {meta.label}
+        </span>
+      </span>
+    )
+  }
+
   return (
     <div>
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -460,6 +562,7 @@ function RestaurantsSection() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Caută după nume, slug, oraș, email..."
+          aria-label="Caută restaurante"
           style={{
             flex: '1 1 240px',
             padding: '10px 14px',
@@ -474,6 +577,7 @@ function RestaurantsSection() {
         <select
           value={planFilter}
           onChange={(e) => setPlanFilter(e.target.value)}
+          aria-label="Filtrează după plan"
           style={{
             padding: '10px 14px',
             border: `1px solid ${D.border}`,
@@ -494,6 +598,74 @@ function RestaurantsSection() {
 
       {filtered.length === 0 ? (
         <EmptyState icon="table" title="Niciun restaurant" description="Schimbă filtrul sau căutarea." compact />
+      ) : isMobile ? (
+        // Pe mobil, tabelul cu scroll orizontal devine carduri stivuite (un
+        // card per restaurant), refolosind pattern-ul vizual din Operațiuni.
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((r) => (
+            <div
+              key={r.restaurant_id}
+              style={{
+                background: D.s3,
+                border: `1px solid ${D.border}`,
+                borderRadius: 10,
+                padding: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', overflowWrap: 'anywhere' }}>{r.name}</div>
+                <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
+                  /{r.slug}
+                  {r.city ? ` · ${r.city}` : ''} · {r.owner_email}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 20px' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={mobilePairLabel}>Plan</span>
+                  {planSelect(r)}
+                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={mobilePairLabel}>Health</span>
+                  <span style={{ fontSize: '0.82rem' }}>{healthCell(r)}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={mobilePairLabel}>Comenzi 7z</span>
+                  <span style={{ fontSize: '0.82rem' }}>{r.orders_7d}</span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={mobilePairLabel}>Stare</span>
+                  <span style={{ fontSize: '0.82rem', color: r.is_active ? D.green : D.red }}>
+                    {r.is_active ? 'Activ' : 'Inactiv'}
+                  </span>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => void enterFounderView(r.restaurant_id)}
+                  className="pressable"
+                  style={{ ...primaryBtn, flex: 1, minHeight: 44 }}
+                  title="Deschide dashboardul acestui restaurant în mod fondator"
+                >
+                  Intră pe cont
+                </button>
+                <button
+                  onClick={() => void toggleActive(r)}
+                  disabled={busyId === r.restaurant_id}
+                  className="pressable"
+                  style={withBusy(
+                    { ...ghostBtn, flex: 1, minHeight: 44, color: r.is_active ? D.red : D.green },
+                    busyId === r.restaurant_id,
+                  )}
+                >
+                  {r.is_active ? 'Dezactivează' : 'Reactivează'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       ) : (
         <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
@@ -517,42 +689,8 @@ function RestaurantsSection() {
                       {r.city ? ` · ${r.city}` : ''} · {r.owner_email}
                     </div>
                   </td>
-                  <td style={tdStyle}>
-                    <select
-                      value={r.plan}
-                      disabled={busyId === r.restaurant_id}
-                      onChange={(e) => void changePlan(r, e.target.value)}
-                      aria-label={`Planul pentru ${r.name}`}
-                      style={{
-                        padding: '6px 8px',
-                        border: `1px solid ${D.border}`,
-                        borderRadius: 8,
-                        background: D.s3,
-                        color: D.t1,
-                        fontSize: 12,
-                      }}
-                    >
-                      {PLANS.map((p) => (
-                        <option key={p} value={p}>
-                          {PLAN_LABELS[p] || p}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={tdStyle}>
-                    {r.health_score == null ? (
-                      <span style={{ color: D.t3 }}>—</span>
-                    ) : (
-                      <span
-                        style={{
-                          color: r.health_score < 50 ? D.red : r.health_score < 70 ? D.amber : D.green,
-                          fontWeight: 600,
-                        }}
-                      >
-                        {r.health_score}
-                      </span>
-                    )}
-                  </td>
+                  <td style={tdStyle}>{planSelect(r)}</td>
+                  <td style={tdStyle}>{healthCell(r)}</td>
                   <td style={tdStyle}>{r.orders_7d}</td>
                   <td style={tdStyle}>
                     <span style={{ color: r.is_active ? D.green : D.red, fontSize: '0.78rem' }}>
@@ -573,7 +711,10 @@ function RestaurantsSection() {
                         onClick={() => void toggleActive(r)}
                         disabled={busyId === r.restaurant_id}
                         className="pressable"
-                        style={{ ...ghostBtn, minHeight: 38, color: r.is_active ? D.red : D.green }}
+                        style={withBusy(
+                          { ...ghostBtn, minHeight: 38, color: r.is_active ? D.red : D.green },
+                          busyId === r.restaurant_id,
+                        )}
                       >
                         {r.is_active ? 'Dezactivează' : 'Reactivează'}
                       </button>
@@ -636,7 +777,12 @@ function OperationsSection() {
         ) : emails.error ? (
           <SectionError message={emails.error} onRetry={() => void emails.reload()} />
         ) : (emails.data ?? []).length === 0 ? (
-          <div style={{ fontSize: 13, color: D.t3 }}>Nimic în dead-letter. Totul se trimite.</div>
+          <EmptyState
+            icon="mail"
+            title="Coadă goală"
+            description="Nimic în dead-letter. Totul se trimite."
+            compact
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(emails.data ?? []).map((e) => (
@@ -666,9 +812,9 @@ function OperationsSection() {
                   onClick={() => void doRetryEmail(e.id)}
                   disabled={busyId === e.id}
                   className="pressable"
-                  style={primaryBtn}
+                  style={withBusy(primaryBtn, busyId === e.id)}
                 >
-                  Retrimite
+                  {busyId === e.id ? 'Se trimite...' : 'Retrimite'}
                 </button>
               </div>
             ))}
@@ -686,7 +832,12 @@ function OperationsSection() {
         ) : invoices.error ? (
           <SectionError message={invoices.error} onRetry={() => void invoices.reload()} />
         ) : (invoices.data ?? []).length === 0 ? (
-          <div style={{ fontSize: 13, color: D.t3 }}>Nicio factură blocată.</div>
+          <EmptyState
+            icon="chart"
+            title="Nicio factură blocată"
+            description="Toate facturile Oblio s-au emis."
+            compact
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(invoices.data ?? []).map((i) => (
@@ -718,9 +869,9 @@ function OperationsSection() {
                   onClick={() => void doRetryInvoice(i.id)}
                   disabled={busyId === i.id}
                   className="pressable"
-                  style={primaryBtn}
+                  style={withBusy(primaryBtn, busyId === i.id)}
                 >
-                  Reîncearcă
+                  {busyId === i.id ? 'Se reîncearcă...' : 'Reîncearcă'}
                 </button>
               </div>
             ))}
@@ -790,7 +941,12 @@ function AffiliatesSection() {
         ) : affiliates.error ? (
           <SectionError message={affiliates.error} onRetry={() => void affiliates.reload()} />
         ) : ordered.length === 0 ? (
-          <div style={{ fontSize: 13, color: D.t3 }}>Niciun afiliat înregistrat încă.</div>
+          <EmptyState
+            icon="users"
+            title="Niciun afiliat"
+            description="Niciun afiliat înregistrat încă."
+            compact
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {ordered.map(({ row: a, depth }) => (
@@ -829,8 +985,8 @@ function AffiliatesSection() {
                         className="pressable"
                         title="Deschide dashboardul restaurantului în mod fondator"
                         style={{
-                          padding: '6px 12px',
-                          minHeight: 34,
+                          padding: '8px 14px',
+                          minHeight: 44,
                           borderRadius: 100,
                           border: `1px solid ${D.border}`,
                           background: D.s2,
@@ -860,7 +1016,7 @@ function AffiliatesSection() {
         ) : payouts.error ? (
           <SectionError message={payouts.error} onRetry={() => void payouts.reload()} />
         ) : (payouts.data ?? []).length === 0 ? (
-          <div style={{ fontSize: 13, color: D.t3 }}>Niciun payout încă.</div>
+          <EmptyState icon="chart" title="Niciun payout" description="Niciun payout încă." compact />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(payouts.data ?? []).map((p) => (
@@ -893,9 +1049,9 @@ function AffiliatesSection() {
                     onClick={() => void doMarkPaid(p)}
                     disabled={busyId === p.id}
                     className="pressable"
-                    style={primaryBtn}
+                    style={withBusy(primaryBtn, busyId === p.id)}
                   >
-                    Marchează plătit
+                    {busyId === p.id ? 'Se marchează...' : 'Marchează plătit'}
                   </button>
                 )}
               </div>
@@ -1101,14 +1257,22 @@ function CommissionDefaultsCard({ onApplied }: { onApplied: () => void }) {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <CommissionFields draft={draft} onChange={setDraft} />
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => void save()} disabled={busy} className="pressable" style={primaryBtn}>
-              Salvează
+            <button
+              onClick={() => void save()}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(primaryBtn, busy)}
+            >
+              {busy ? 'Se salvează...' : 'Salvează'}
             </button>
             <button
               onClick={() => void applyToAll()}
               disabled={busy}
               className="pressable"
-              style={{ ...ghostBtn, minHeight: 38, color: D.red, borderColor: 'rgba(224,85,85,0.3)' }}
+              style={withBusy(
+                { ...ghostBtn, minHeight: 38, color: D.red, borderColor: 'rgba(224,85,85,0.3)' },
+                busy,
+              )}
             >
               Aplică la toți
             </button>
@@ -1185,8 +1349,8 @@ function AffiliateCommissionRow({
               onClick={startEdit}
               className="pressable"
               style={{
-                padding: '4px 12px',
-                minHeight: 30,
+                padding: '8px 14px',
+                minHeight: 44,
                 borderRadius: 100,
                 border: `1px solid ${D.border}`,
                 background: 'transparent',
@@ -1203,14 +1367,19 @@ function AffiliateCommissionRow({
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           {draft && <CommissionFields draft={draft} onChange={setDraft} />}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => void save()} disabled={busy} className="pressable" style={primaryBtn}>
-              Salvează
+            <button
+              onClick={() => void save()}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(primaryBtn, busy)}
+            >
+              {busy ? 'Se salvează...' : 'Salvează'}
             </button>
             <button
               onClick={() => setEditing(false)}
               disabled={busy}
               className="pressable"
-              style={{ ...ghostBtn, minHeight: 38 }}
+              style={withBusy({ ...ghostBtn, minHeight: 38 }, busy)}
             >
               Anulează
             </button>
@@ -1222,6 +1391,30 @@ function AffiliateCommissionRow({
 }
 
 // ── Audit ────────────────────────────────────────────────────
+// Valorile din `details` pot fi de orice tip (jsonb arbitrar) — le reducem
+// defensiv la string; obiectele/array-urile rămân serializate compact.
+function formatDetailValue(v: unknown): string {
+  if (v == null) return '—'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+// Detaliile de audit ca perechi lizibile („plan: pro") în loc de JSON brut.
+function AuditDetails({ details }: { details: Record<string, unknown> }) {
+  const entries = details ? Object.entries(details) : []
+  if (entries.length === 0) return <span style={{ color: D.t3 }}>—</span>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          <span style={{ color: D.t3 }}>{key}: </span>
+          <span style={{ color: D.t2 }}>{formatDetailValue(value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function AuditSection() {
   const { data, loading, error, reload } = useAdminData<AdminAuditRow[]>(() => listAuditLog(100))
 
@@ -1259,8 +1452,8 @@ function AuditSection() {
               </td>
               <td style={tdStyle}>{row.action}</td>
               <td style={tdStyle}>{row.restaurant_name ?? '—'}</td>
-              <td style={{ ...tdStyle, fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
-                {JSON.stringify(row.details)}
+              <td style={{ ...tdStyle, fontSize: '0.72rem', overflowWrap: 'anywhere' }}>
+                <AuditDetails details={row.details} />
               </td>
             </tr>
           ))}

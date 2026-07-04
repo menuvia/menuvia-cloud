@@ -209,6 +209,17 @@ export default function SettingsTab({
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
   const COLORS = ['#C8963C', '#E05555', '#4CAF6E', '#5B8DEF', '#9B72CF', '#E07B45', '#3ABFBF']
+  // Nume RO pentru fiecare accent — folosite ca aria-label (screen reader) și
+  // ca indicator ne-cromatic pentru utilizatorii care nu disting culorile.
+  const COLOR_NAMES: Record<string, string> = {
+    '#C8963C': 'Auriu',
+    '#E05555': 'Roșu',
+    '#4CAF6E': 'Verde',
+    '#5B8DEF': 'Albastru',
+    '#9B72CF': 'Mov',
+    '#E07B45': 'Portocaliu',
+    '#3ABFBF': 'Turcoaz',
+  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -244,6 +255,11 @@ export default function SettingsTab({
     setSaving(false)
   }
 
+  // Formular „murdar": s-a schimbat ceva față de restaurantul salvat. Ordinea
+  // cheilor e stabilă (form pornește ca {...restaurant}), deci comparația JSON
+  // e suficientă pentru a decide dacă arătăm bara de salvare de jos.
+  const dirty = JSON.stringify(form) !== JSON.stringify(restaurant)
+
   return (
     <div>
       <Toast toasts={toasts} />
@@ -258,16 +274,18 @@ export default function SettingsTab({
         }}
       >
         <div>
-          <h2
+          {/* h1 ca la celelalte taburi din dashboard (fiecare tab = o pagină cu un h1). */}
+          <h1
             style={{
               fontFamily: 'Fraunces,serif',
               fontSize: '1.5rem',
+              fontWeight: 600,
               color: D.t1,
               letterSpacing: '-0.02em',
             }}
           >
             Setări
-          </h2>
+          </h1>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             Informații afișate pe meniul public
           </p>
@@ -368,20 +386,34 @@ export default function SettingsTab({
               Culoare accent
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => upd('primary_color', c)}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: c,
-                    border: `3px solid ${form.primary_color === c ? '#fff' : 'transparent'}`,
-                    cursor: 'pointer',
-                  }}
-                />
-              ))}
+              {COLORS.map((c) => {
+                const selected = form.primary_color === c
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => upd('primary_color', c)}
+                    aria-label={`Culoare accent ${COLOR_NAMES[c] ?? c}`}
+                    aria-pressed={selected}
+                    title={COLOR_NAMES[c] ?? c}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      background: c,
+                      border: `3px solid ${selected ? '#fff' : 'transparent'}`,
+                      cursor: 'pointer',
+                      padding: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {/* Bifă ne-cromatică: arată selecția independent de culoare. */}
+                    {selected && <Icon name="check" size={18} color="#fff" />}
+                  </button>
+                )
+              })}
             </div>
           </div>
           {/* Previzualizare live — se actualizează instant la orice schimbare de
@@ -1233,36 +1265,60 @@ export default function SettingsTab({
                       />
                       Deschis
                     </label>
-                    <input
-                      type="time"
-                      disabled={cur.closed}
-                      value={cur.open}
-                      onChange={(e) => updHours(day, { open: e.target.value })}
-                      style={{
-                        background: D.s3,
-                        border: `1px solid ${D.border}`,
-                        color: D.t1,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        fontSize: '0.78rem',
-                        opacity: cur.closed ? 0.4 : 1,
-                      }}
-                    />
-                    <input
-                      type="time"
-                      disabled={cur.closed}
-                      value={cur.close}
-                      onChange={(e) => updHours(day, { close: e.target.value })}
-                      style={{
-                        background: D.s3,
-                        border: `1px solid ${D.border}`,
-                        color: D.t1,
-                        padding: '6px 8px',
-                        borderRadius: 6,
-                        fontSize: '0.78rem',
-                        opacity: cur.closed ? 0.4 : 1,
-                      }}
-                    />
+                    {/* Pe mobil (1 coloană) inputurile de oră stau stivuite fără
+                        antet de coloană → mici label-uri „Deschide"/„Închide"
+                        deasupra. Pe desktop antetul e implicit; păstrăm doar
+                        aria-label pentru screen reader. */}
+                    <div>
+                      {isMobile && (
+                        <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
+                          Deschide
+                        </label>
+                      )}
+                      <input
+                        type="time"
+                        disabled={cur.closed}
+                        value={cur.open}
+                        onChange={(e) => updHours(day, { open: e.target.value })}
+                        aria-label={`${WEEK_DAY_LABELS[day]} deschidere`}
+                        style={{
+                          background: D.s3,
+                          border: `1px solid ${D.border}`,
+                          color: D.t1,
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          fontSize: '0.78rem',
+                          opacity: cur.closed ? 0.4 : 1,
+                          width: isMobile ? '100%' : undefined,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
+                    <div>
+                      {isMobile && (
+                        <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
+                          Închide
+                        </label>
+                      )}
+                      <input
+                        type="time"
+                        disabled={cur.closed}
+                        value={cur.close}
+                        onChange={(e) => updHours(day, { close: e.target.value })}
+                        aria-label={`${WEEK_DAY_LABELS[day]} închidere`}
+                        style={{
+                          background: D.s3,
+                          border: `1px solid ${D.border}`,
+                          color: D.t1,
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          fontSize: '0.78rem',
+                          opacity: cur.closed ? 0.4 : 1,
+                          width: isMobile ? '100%' : undefined,
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
                   </div>
                 )
               })}
@@ -1892,6 +1948,40 @@ export default function SettingsTab({
           </button>
         </div>
       </div>
+
+      {/* Bară de salvare sticky jos — formularul e lung, iar butonul „Salvează"
+          de sus iese din ecran. Apare doar când ai modificări nesalvate și
+          folosește ACELAȘI handleSave (fără logică duplicată). safe-area pentru
+          notch-ul de jos pe mobil. */}
+      {dirty && (
+        <div
+          style={{
+            position: 'sticky',
+            bottom: 0,
+            marginTop: 16,
+            background: D.s1,
+            borderTop: `1px solid ${D.border}`,
+            padding: '12px 0',
+            paddingBottom: 'calc(12px + env(safe-area-inset-bottom))',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            zIndex: 10,
+            boxShadow: '0 -6px 20px rgba(0,0,0,0.25)',
+          }}
+        >
+          <span style={{ color: D.t2, fontSize: '0.78rem', marginRight: 'auto' }}>
+            Ai modificări nesalvate
+          </span>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
+          >
+            {saving ? 'Se salvează...' : 'Salvează'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
