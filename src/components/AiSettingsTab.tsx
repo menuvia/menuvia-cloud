@@ -211,7 +211,9 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
                 height: '100%',
                 borderRadius: 3,
                 width: `${Math.min(100, Math.round((quota.used_tokens / Math.max(1, quota.included_tokens)) * 100))}%`,
-                background: quota.included_remaining === 0 ? D.amber : D.gold,
+                // Amber DOAR când chiar nu mai are ce consuma (cotă inclusă 0 ȘI
+                // fără credite) — aliniat cu textul de avertizare de mai jos.
+                background: quota.included_remaining === 0 && quota.credit_balance === 0 ? D.amber : D.gold,
                 transition: 'width .4s',
               }}
             />
@@ -228,7 +230,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
       <div style={{ background: D.s2, border: `1px solid ${D.border}`, borderRadius: 14, padding: 18, marginBottom: 22 }}>
         {/* Toggle principal — singurul lucru necesar pentru non-tehnici */}
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 8 }}>
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
           <span style={{ color: D.t1, fontSize: '0.88rem', fontWeight: 600 }}>Activează asistentul AI pentru acest restaurant</span>
         </label>
         <p style={{ color: D.t2, fontSize: '0.8rem', lineHeight: 1.5, margin: '0 0 4px 28px' }}>
@@ -241,6 +243,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
         <button
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
+          aria-expanded={showAdvanced}
           className="pressable"
           style={{
             background: 'transparent',
@@ -254,7 +257,8 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
             display: 'block',
           }}
         >
-          {showAdvanced ? '▾' : '▸'} Avansat (opțional)
+          {/* Glifa e pur decorativă — starea reală o comunică aria-expanded. */}
+          <span aria-hidden="true">{showAdvanced ? '▾' : '▸'}</span> Avansat (opțional)
         </button>
 
         {showAdvanced && (
@@ -264,7 +268,8 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
             </p>
 
             <label style={label}>Furnizor</label>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr', gap: 8, marginBottom: 16 }}>
+            {/* O coloană pe mobil — eticheta „Personalizat (OpenAI-compatible)" nu încape pe două. */}
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8, marginBottom: 16 }}>
               {PROVIDERS.map((p) => {
                 const active = provider === p.id
                 return (
@@ -275,6 +280,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
                     style={{
                       textAlign: 'left',
                       padding: '11px 13px',
+                      minHeight: 44, // țintă touch confortabilă
                       borderRadius: 10,
                       border: `1px solid ${active ? D.gold + '88' : D.border}`,
                       background: active ? D.goldA : D.s3,
@@ -337,6 +343,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
 
       {msg && (
         <div
+          role="alert"
           style={{
             background: msg.kind === 'ok' ? D.greenA : D.redA,
             border: `1px solid ${msg.kind === 'ok' ? D.green : D.red}44`,
@@ -395,6 +402,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
                   border: `1px solid ${D.gold}55`,
                   borderRadius: 8,
                   padding: '9px 0',
+                  minHeight: 44, // țintă touch confortabilă
                   fontFamily: 'DM Sans,sans-serif',
                   fontSize: '0.82rem',
                   fontWeight: 600,
