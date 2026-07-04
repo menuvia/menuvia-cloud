@@ -30,7 +30,7 @@ interface TableStatusBoardProps {
   tables: BoardTable[]
   orders: Order[] // comenzile deschise (deja filtrate pe scope-ul ospătarului)
   waiterCalls: WaiterCall[] // apeluri pending
-  onAddToTable: (tableId: string | null, tableName: string) => void
+  onAddToTable: (tableId: string | null) => void
   renderOrderCard: (order: Order) => ReactNode
   floorLayout?: FloorLayout | null // harta sălii desenată (dacă există)
 }
@@ -82,7 +82,7 @@ function BoardTableCard({
   now: number
   isOpen: boolean
   onToggle: (key: string) => void
-  onAddToTable: (tableId: string | null, tableName: string) => void
+  onAddToTable: (tableId: string | null) => void
   renderOrderCard: (order: Order) => ReactNode
 }) {
   const meta = STATE_META[c.state]
@@ -179,7 +179,7 @@ function BoardTableCard({
           </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={() => onAddToTable(c.id, c.name)} style={primaryBtn}>
+            <button onClick={() => onAddToTable(c.id)} style={primaryBtn}>
               <Icon name="plus" size={15} />
               Adaugă la masă
             </button>
@@ -201,7 +201,7 @@ function BoardTableCard({
         <>
           <div style={{ fontSize: 12, color: D.t3 }}>Nicio comandă deschisă</div>
           {c.id != null && (
-            <button onClick={() => onAddToTable(c.id, c.name)} style={ghostBtnWide}>
+            <button onClick={() => onAddToTable(c.id)} style={ghostBtnWide}>
               <Icon name="plus" size={15} />
               Deschide comandă
             </button>

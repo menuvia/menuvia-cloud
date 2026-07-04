@@ -37,6 +37,16 @@ const WEEK_DAY_LABELS: Record<WeekDayKey, string> = {
   sun: 'Duminică',
 }
 
+// Valorile implicite pentru pickup_settings — baza peste care se aplică
+// valoarea curentă din form + patch-ul editat (vezi updPickup din componentă).
+const PICKUP_DEFAULTS: NonNullable<Restaurant['pickup_settings']> = {
+  enabled: false,
+  min_lead_time_minutes: 20,
+  slot_interval_minutes: 15,
+  open_hours: { start: '09:00', end: '21:00' },
+  instructions: null,
+}
+
 // ── Secțiuni de setări — navigabile (ca la FounderPage), nu un scroll unic.
 // Fiecare secțiune grupează cardurile înrudite; randăm doar secțiunea activă
 // (mai puțin DOM montat = pagina se simte mai rapidă și mai clară). ──
@@ -135,6 +145,18 @@ export default function SettingsTab({
   const [uploadingPages, setUploadingPages] = useState(false)
   const { toasts, toast } = useToast()
   const upd = (k: keyof Restaurant, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+  // Merge order: DEFAULTS → valoarea curentă din form → patch. Identic cu
+  // spread-urile inline anterioare; patch-ul are mereu ultimul cuvânt.
+  const updPickup = (patch: Partial<NonNullable<Restaurant['pickup_settings']>>) =>
+    upd('pickup_settings', { ...PICKUP_DEFAULTS, ...(form.pickup_settings ?? {}), ...patch })
+  // Păstrează cheile existente + garantează preset_id (fallback 'cafe'); patch
+  // suprascrie. Oglindește spread-urile theme_settings folosite anterior.
+  const updTheme = (patch: Partial<NonNullable<Restaurant['theme_settings']>>) =>
+    upd('theme_settings', {
+      ...(form.theme_settings ?? {}),
+      preset_id: form.theme_settings?.preset_id ?? 'cafe',
+      ...patch,
+    })
   // Re-sincronizează formularul când prop-ul restaurant se schimbă (ex. după salvarea
   // slug-ului prin RPC, care întoarce slug-ul normalizat) — altfel form-ul rămâne stale.
   useEffect(() => {
@@ -208,11 +230,7 @@ export default function SettingsTab({
   const flipbookPages: string[] = form.theme_settings?.flipbook_pages ?? []
 
   function setFlipbookPages(pages: string[]) {
-    upd('theme_settings', {
-      ...(form.theme_settings ?? {}),
-      preset_id: form.theme_settings?.preset_id ?? 'cafe',
-      flipbook_pages: pages,
-    })
+    updTheme({ flipbook_pages: pages })
   }
 
   function moveFlipbookPage(idx: number, delta: -1 | 1) {
@@ -983,9 +1001,8 @@ export default function SettingsTab({
                       key={t.id}
                       type="button"
                       onClick={() =>
-                        upd('theme_settings', {
-                          // Păstrăm restul cheilor (menu_layout) când schimbăm tema.
-                          ...(form.theme_settings ?? {}),
+                        // Păstrăm restul cheilor (menu_layout) când schimbăm tema.
+                        updTheme({
                           preset_id: t.id,
                           accent_override: form.theme_settings?.accent_override ?? null,
                         })
@@ -1125,12 +1142,8 @@ export default function SettingsTab({
                       key={l.id}
                       type="button"
                       onClick={() =>
-                        upd('theme_settings', {
-                          // Păstrăm tema/accentul; schimbăm doar layout-ul.
-                          ...(form.theme_settings ?? {}),
-                          preset_id: form.theme_settings?.preset_id ?? 'cafe',
-                          menu_layout: l.id,
-                        })
+                        // Păstrăm tema/accentul; schimbăm doar layout-ul.
+                        updTheme({ menu_layout: l.id })
                       }
                       style={{
                         padding: '14px 12px',
@@ -1385,10 +1398,8 @@ export default function SettingsTab({
                       <Toggle
                         value={value}
                         onChange={(v) =>
-                          upd('theme_settings', {
-                            // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
-                            ...(form.theme_settings ?? {}),
-                            preset_id: form.theme_settings?.preset_id ?? 'cafe',
+                          // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
+                          updTheme({
                             elements: { ...(form.theme_settings?.elements ?? {}), [el.key]: v },
                           })
                         }
@@ -1507,17 +1518,7 @@ export default function SettingsTab({
               right={
                 <Toggle
                   value={form.pickup_settings?.enabled ?? false}
-                  onChange={(v) =>
-                    upd('pickup_settings', {
-                      ...(form.pickup_settings ?? {
-                        min_lead_time_minutes: 20,
-                        slot_interval_minutes: 15,
-                        open_hours: { start: '09:00', end: '21:00' },
-                        instructions: null,
-                      }),
-                      enabled: v,
-                    })
-                  }
+                  onChange={(v) => updPickup({ enabled: v })}
                 />
               }
             >
@@ -1539,16 +1540,7 @@ export default function SettingsTab({
                         value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
                         onChange={(v) => {
                           const n = parseInt(v)
-                          if (!isNaN(n) && n >= 5 && n <= 240)
-                            upd('pickup_settings', {
-                              ...(form.pickup_settings ?? {
-                                enabled: true,
-                                slot_interval_minutes: 15,
-                                open_hours: { start: '09:00', end: '21:00' },
-                                instructions: null,
-                              }),
-                              min_lead_time_minutes: n,
-                            })
+                          if (!isNaN(n) && n >= 5 && n <= 240) updPickup({ min_lead_time_minutes: n })
                         }}
                         type="number"
                       />
@@ -1568,16 +1560,7 @@ export default function SettingsTab({
                         value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
                         onChange={(v) => {
                           const n = parseInt(v)
-                          if (!isNaN(n) && n >= 5 && n <= 60)
-                            upd('pickup_settings', {
-                              ...(form.pickup_settings ?? {
-                                enabled: true,
-                                min_lead_time_minutes: 20,
-                                open_hours: { start: '09:00', end: '21:00' },
-                                instructions: null,
-                              }),
-                              slot_interval_minutes: n,
-                            })
+                          if (!isNaN(n) && n >= 5 && n <= 60) updPickup({ slot_interval_minutes: n })
                         }}
                         type="number"
                       />
@@ -1598,14 +1581,7 @@ export default function SettingsTab({
                       <Inp
                         value={form.pickup_settings?.open_hours?.start ?? '09:00'}
                         onChange={(v) =>
-                          upd('pickup_settings', {
-                            ...(form.pickup_settings ?? {
-                              enabled: true,
-                              min_lead_time_minutes: 20,
-                              slot_interval_minutes: 15,
-                              open_hours: { start: '09:00', end: '21:00' },
-                              instructions: null,
-                            }),
+                          updPickup({
                             open_hours: {
                               start: v,
                               end: form.pickup_settings?.open_hours?.end ?? '21:00',
@@ -1629,14 +1605,7 @@ export default function SettingsTab({
                       <Inp
                         value={form.pickup_settings?.open_hours?.end ?? '21:00'}
                         onChange={(v) =>
-                          upd('pickup_settings', {
-                            ...(form.pickup_settings ?? {
-                              enabled: true,
-                              min_lead_time_minutes: 20,
-                              slot_interval_minutes: 15,
-                              open_hours: { start: '09:00', end: '21:00' },
-                              instructions: null,
-                            }),
+                          updPickup({
                             open_hours: {
                               start: form.pickup_settings?.open_hours?.start ?? '09:00',
                               end: v,
@@ -1656,16 +1625,7 @@ export default function SettingsTab({
                     <Inp
                       value={form.pickup_settings?.instructions ?? ''}
                       onChange={(v) =>
-                        upd('pickup_settings', {
-                          ...(form.pickup_settings ?? {
-                            enabled: true,
-                            min_lead_time_minutes: 20,
-                            slot_interval_minutes: 15,
-                            open_hours: { start: '09:00', end: '21:00' },
-                            instructions: null,
-                          }),
-                          instructions: v.length > 0 ? v : null,
-                        })
+                        updPickup({ instructions: v.length > 0 ? v : null })
                       }
                       placeholder="Ex: Sună la sosire, intrarea pe lateral"
                     />

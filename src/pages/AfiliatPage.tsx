@@ -92,6 +92,13 @@ function formatDateRo(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+// Basis points → procent formatat ro-RO, FĂRĂ sufixul „%" (semnul se pune la
+// locul afișării). Ex: 1250 → „12,5". Formatarea trebuie să rămână identică
+// cu expresia repetată `(bps / 100).toLocaleString('ro-RO')`.
+function bpsToPct(bps: number): string {
+  return (bps / 100).toLocaleString('ro-RO')
+}
+
 export default function AfiliatPage() {
   const { dashboard, loading, error, register } = useAffiliate()
   const toast = useToast()
@@ -131,11 +138,11 @@ export default function AfiliatPage() {
               <>
                 Recomandă Menuvia restaurantelor și primești{' '}
                 <strong style={{ color: D.t1 }}>
-                  {(dashboard.defaults.setup_bps / 100).toLocaleString('ro-RO')}%
+                  {bpsToPct(dashboard.defaults.setup_bps)}%
                 </strong>{' '}
                 din prima factură a fiecărui restaurant adus, apoi{' '}
                 <strong style={{ color: D.t1 }}>
-                  {(dashboard.defaults.recurring_bps / 100).toLocaleString('ro-RO')}%
+                  {bpsToPct(dashboard.defaults.recurring_bps)}%
                 </strong>{' '}
                 din abonament, lunar, timp de {dashboard.defaults.recurring_cap_months} luni.
               </>
@@ -271,7 +278,6 @@ function AcasaTab({
   const e = earnings
   // Moneda câștigurilor (default 'RON' dacă lipsește) — o pasăm la formatRON.
   const cur = e?.currency || 'RON'
-  const pct = (bps: number) => (bps / 100).toLocaleString('ro-RO') + '%'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Comisioanele reale ale afiliatului (setate de platformă, mig 188) —
@@ -283,13 +289,13 @@ function AcasaTab({
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 10 }}>
           <div>
             <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
-              {pct(commission.setupBps)}
+              {bpsToPct(commission.setupBps)}%
             </div>
             <div style={{ fontSize: '0.74rem', color: D.t2 }}>din prima factură (activare)</div>
           </div>
           <div>
             <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
-              {pct(commission.recurringBps)}
+              {bpsToPct(commission.recurringBps)}%
             </div>
             <div style={{ fontSize: '0.74rem', color: D.t2 }}>
               lunar, max {commission.capMonths} luni
@@ -297,7 +303,7 @@ function AcasaTab({
           </div>
           <div>
             <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
-              {pct(commission.cascadeBps)}
+              {bpsToPct(commission.cascadeBps)}%
             </div>
             <div style={{ fontSize: '0.74rem', color: D.t2 }}>din comisioanele sub-afiliaților</div>
           </div>
@@ -479,7 +485,7 @@ function SubafiliatiTab({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ ...card, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-        Primești <strong style={{ color: D.gold }}>{(cascadeBps / 100).toLocaleString('ro-RO')}%</strong> din comisioanele
+        Primești <strong style={{ color: D.gold }}>{bpsToPct(cascadeBps)}%</strong> din comisioanele
         afiliaților pe care îi recomanzi tu (un singur nivel).
       </div>
 
