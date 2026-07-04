@@ -15,6 +15,7 @@ import {
   type HappyHourRule,
 } from '../lib/qr'
 import { createOrder } from '../lib/orders'
+import { T } from '../lib/constants'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -89,6 +90,8 @@ export default function QrMenuPage({ token }: Props) {
   const [requestingBill, setRequestingBill] = useState(false)
   const [billRequested, setBillRequested] = useState(false)
   const [search, setSearch] = useState('')
+  // Focus vizibil pentru input-ul de căutare (fără :focus în inline styles).
+  const [searchFocused, setSearchFocused] = useState(false)
   const [previousOrders, setPreviousOrders] = useState<OrderConfirmationPayload[]>([])
   const [pairingPopup, setPairingPopup] = useState<{
     sourceProduct: Product
@@ -509,7 +512,9 @@ export default function QrMenuPage({ token }: Props) {
           style={{
             margin: '12px 16px 0',
             padding: '10px 14px',
-            background: 'linear-gradient(90deg, #2e7d32, #43a047)',
+            // Gradientul de accent al temei (același pattern ca hero-ul), nu un
+            // verde hardcodat — textul alb e purtat de accentGradient peste tot.
+            background: accentGradient,
             borderRadius: 12,
             color: '#fff',
             fontFamily: theme.fonts.body,
@@ -522,7 +527,7 @@ export default function QrMenuPage({ token }: Props) {
           }}
         >
           <Icon name="sparkle" size={16} color="#fff" />
-          <span>Happy Hour activ:</span>
+          <span>{T(lang, 'happy_hour_active')}</span>
           {happyHour.map((r) => (
             <span
               key={r.id}
@@ -565,18 +570,23 @@ export default function QrMenuPage({ token }: Props) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             placeholder="Caută în meniu..."
             aria-label="Caută în meniu"
+            enterKeyHint="search"
             style={{
               width: '100%',
               background: PUB.surface,
-              border: `1px solid ${PUB.border}`,
+              // Focus vizibil: bordură accent + halo subțire.
+              border: `1px solid ${searchFocused ? accent : PUB.border}`,
               borderRadius: 12,
               padding: '11px 14px',
               fontSize: 15,
               color: PUB.text,
               fontFamily: theme.fonts.body,
               outline: 'none',
+              boxShadow: searchFocused ? `0 0 0 3px ${accent}33` : 'none',
               boxSizing: 'border-box',
             }}
           />
@@ -695,8 +705,10 @@ export default function QrMenuPage({ token }: Props) {
             position: 'fixed',
             bottom: cart.length > 0 ? 90 : 20,
             left: 16,
-            background: waiterCalled ? '#4CAF6E' : 'rgba(26,18,8,0.85)',
-            color: '#fff',
+            // Fundal derivat din temă (PUB.text = suprafață neutră de contrast),
+            // nu maro hardcodat; verdele rămâne DOAR ca semnal de succes.
+            background: waiterCalled ? '#4CAF6E' : PUB.text,
+            color: waiterCalled ? '#fff' : readableTextOn(PUB.text, PUB.bg),
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
@@ -712,7 +724,11 @@ export default function QrMenuPage({ token }: Props) {
             gap: 7,
           }}
         >
-          <Icon name={waiterCalled ? 'check' : 'bell'} size={16} color="#fff" />
+          <Icon
+            name={waiterCalled ? 'check' : 'bell'}
+            size={16}
+            color={waiterCalled ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
+          />
           {waiterCalled
             ? 'Am anunțat ospătarul'
             : callingWaiter
@@ -730,8 +746,9 @@ export default function QrMenuPage({ token }: Props) {
             position: 'fixed',
             bottom: cart.length > 0 ? 90 : 20,
             right: 16,
-            background: billRequested ? '#4CAF6E' : 'rgba(26,18,8,0.85)',
-            color: '#fff',
+            // Fundal derivat din temă (vezi butonul „Cheamă ospătarul").
+            background: billRequested ? '#4CAF6E' : PUB.text,
+            color: billRequested ? '#fff' : readableTextOn(PUB.text, PUB.bg),
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
@@ -747,7 +764,11 @@ export default function QrMenuPage({ token }: Props) {
             gap: 7,
           }}
         >
-          <Icon name={billRequested ? 'check' : 'receipt'} size={16} color="#fff" />
+          <Icon
+            name={billRequested ? 'check' : 'receipt'}
+            size={16}
+            color={billRequested ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
+          />
           {billRequested
             ? 'Nota e pe drum'
             : requestingBill
@@ -769,7 +790,10 @@ export default function QrMenuPage({ token }: Props) {
             transform: 'translateX(-50%)',
             width: '100%',
             maxWidth: 480,
-            padding: '12px 16px 24px',
+            // Safe-area jos pe iPhone cu home indicator (index.html are deja
+            // viewport-fit=cover, deci env() e activ).
+            padding: '12px 16px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
             background: PUB.bg,
             borderTop: `1px solid ${PUB.borderStrong}`,
             zIndex: 50,
@@ -834,6 +858,7 @@ export default function QrMenuPage({ token }: Props) {
       {pairingPopup != null && (
         <div
           onClick={() => setPairingPopup(null)}
+          className="animate-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -846,6 +871,7 @@ export default function QrMenuPage({ token }: Props) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            className="animate-sheet"
             style={{
               background: PUB.bg,
               borderRadius: '20px 20px 0 0',

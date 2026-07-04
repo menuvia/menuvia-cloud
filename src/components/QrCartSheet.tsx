@@ -294,7 +294,7 @@ export default function QrCartSheet({
         {/* Secțiune: LA BUCĂTĂRIE (comenzi deja trimise în sesiune) */}
         {hasSent && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={sectionLabelStyle(PUB.text3)}>La bucătărie · {sentOrders?.length}</div>
+            <div style={sectionLabelStyle(PUB.text2)}>La bucătărie · {sentOrders?.length}</div>
             {sentOrders?.map((o) => (
               <div
                 key={o.id}
@@ -348,7 +348,7 @@ export default function QrCartSheet({
         {cart.length > 0 && <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>}
 
         {cart.length === 0 && (
-          <div style={{ fontSize: 13, color: PUB.text3, padding: '8px 0 4px', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 13, color: PUB.text2, padding: '8px 0 4px', lineHeight: 1.5 }}>
             {hasSent
               ? 'Coșul e gol. Atinge un produs din meniu ca să mai comanzi.'
               : 'Coșul e gol. Atinge un produs din meniu ca să-l adaugi aici.'}
@@ -454,7 +454,8 @@ export default function QrCartSheet({
                     background: PUB.surface,
                     border: `1px solid ${PUB.border}`,
                     borderRadius: 999,
-                    padding: '3px 4px',
+                    // Padding vertical redus ca țintele de 44px să nu umfle pilula.
+                    padding: '0 4px',
                   }}
                 >
                   <button
@@ -467,8 +468,12 @@ export default function QrCartSheet({
                       border: 'none',
                       color: PUB.text,
                       borderRadius: '50%',
-                      width: 30,
-                      height: 30,
+                      // Țintă de atingere 44x44 (a11y); glyph-ul rămâne mic vizual.
+                      width: 44,
+                      height: 44,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       fontSize: 18,
                       cursor: 'pointer',
                     }}
@@ -496,8 +501,12 @@ export default function QrCartSheet({
                       border: 'none',
                       color: PUB.text,
                       borderRadius: '50%',
-                      width: 30,
-                      height: 30,
+                      // Țintă de atingere 44x44 (a11y); glyph-ul rămâne mic vizual.
+                      width: 44,
+                      height: 44,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
                       fontSize: 18,
                       cursor: 'pointer',
                     }}
@@ -519,6 +528,13 @@ export default function QrCartSheet({
                     cursor: 'pointer',
                     lineHeight: 1,
                     flexShrink: 0,
+                    // Țintă de atingere ~40px + distanță de „+" ca să nu se atingă.
+                    width: 40,
+                    height: 40,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: 6,
                   }}
                 >
                   ✕
@@ -530,7 +546,7 @@ export default function QrCartSheet({
 
         {/* Notă pentru bucătărie */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={sectionLabelStyle(PUB.text3)}>Notă pentru bucătărie</div>
+          <div style={sectionLabelStyle(PUB.text2)}>Notă pentru bucătărie</div>
           <textarea
             placeholder="Fără ceapă, vă rog..."
             value={notes}
@@ -557,7 +573,7 @@ export default function QrCartSheet({
                 mesajul e nudge de conversie → contrast/dimensiune de body,
                 nu stilul mic-tracked de etichetă. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={sectionLabelStyle(PUB.text3)}>Recomandate alături</div>
+              <div style={sectionLabelStyle(PUB.text2)}>Recomandate alături</div>
               <div
                 style={{
                   fontFamily: 'DM Sans, sans-serif',
@@ -663,8 +679,9 @@ export default function QrCartSheet({
                         aria-label={`Adaugă ${s.name}`}
                         className="pressable"
                         style={{
-                          width: 32,
-                          height: 32,
+                          // Quick-add standardizat la 44x44 (a11y), ca peste tot.
+                          width: 44,
+                          height: 44,
                           borderRadius: '50%',
                           background: accent,
                           color: '#fff',
@@ -765,8 +782,10 @@ export default function QrCartSheet({
           onClick={onSubmit}
           className={canSubmit ? 'pressable' : ''}
           style={{
-            background: accent,
-            color: '#fff',
+            // Coș gol / trimitere în curs → stare dezactivată clară (surface +
+            // text estompat), nu accent viu la opacitate 1.
+            background: canSubmit ? accent : PUB.surface,
+            color: canSubmit ? '#fff' : PUB.text3,
             border: 'none',
             borderRadius: 16,
             padding: '16px 0',

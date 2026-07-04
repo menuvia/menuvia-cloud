@@ -243,6 +243,33 @@ export const PUBLIC_MENU_STRINGS = {
     ro: 'Vei primi un email reminder înainte de vizită.',
     en: 'You will receive an email reminder before your visit.',
   },
+  // Banner Happy Hour (prefixul; sufixele -%/-lei rămân în afara dicționarului).
+  happy_hour_active: { ro: 'Happy Hour activ:', en: 'Happy Hour active:' },
+  // Bara sticky + sheet-ul „Lista mea" (meniu digital fără comenzi).
+  my_list: { ro: 'Lista mea', en: 'My list' },
+  view_cart: { ro: 'Vezi coșul', en: 'View cart' },
+  // Plural produs/produse (en: item/items — pluralul e ales de apelant pe count).
+  item_one: { ro: 'produs', en: 'item' },
+  item_many: { ro: 'produse', en: 'items' },
+  in_my_list: { ro: 'în lista mea', en: 'in my list' },
+  in_cart: { ro: 'în coș', en: 'in cart' },
+  list_hint: {
+    ro: 'Lista mea · atinge un produs ca să adaugi',
+    en: 'My list · tap a product to add',
+  },
+  order_yours: { ro: 'Comanda ta', en: 'Your order' },
+  list_subtitle: {
+    ro: 'Ce vrei să iei — salvat pe telefonul tău. Arată-i ospătarului când comanzi.',
+    en: 'What you want to get — saved on your phone. Show it to the waiter when you order.',
+  },
+  list_empty: {
+    ro: 'Lista e goală. Atinge un produs din meniu ca să-l adaugi aici.',
+    en: 'Your list is empty. Tap a product in the menu to add it here.',
+  },
+  remove: { ro: 'Elimină', en: 'Remove' },
+  total: { ro: 'Total', en: 'Total' },
+  clear_list: { ro: 'Golește lista', en: 'Clear list' },
+  close: { ro: 'Închide', en: 'Close' },
 } as const
 
 export type PublicMenuStringKey = keyof typeof PUBLIC_MENU_STRINGS

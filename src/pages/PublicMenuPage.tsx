@@ -142,7 +142,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const t = useMemo(() => menuType(theme.fonts), [theme])
 
   const pickupEnabled = restaurant?.pickup_settings?.enabled ?? false
-  const lang = restaurant?.language ?? 'ro'
+  // Limba chrome-ului (tab-uri, „Caută…", bara „Lista mea") urmează limba ALEASĂ
+  // de vizitator când e non-RO (T dă fallback EN pentru de/fr/it/hu/es); altfel
+  // păstrează limba implicită a restaurantului — fără regresie pe localuri RO/EN.
+  const lang = menuLang !== 'ro' ? menuLang : (restaurant?.language ?? 'ro')
 
   // „Lista mea" — meniu digital (fără comenzi/pickup): coșul devine o listă LOCALĂ
   // pe care NU o trimiți nicăieri, doar confort ca să ții minte ce vrei să iei.
@@ -462,6 +465,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           fontFamily: theme.fonts.body,
           display: 'inline-flex',
           alignItems: 'center',
+          justifyContent: 'center',
+          // Zonă de atingere ≥44px (a11y) fără să umflăm vizual pastila.
+          minHeight: 44,
+          minWidth: 44,
           gap: 6,
         }}
       >
@@ -579,6 +586,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             onChange={setSearch}
             placeholder={T(lang, 'search_placeholder')}
             theme={theme}
+            accent={accent}
+            lang={lang}
             PUB={PUB}
           />
           <FilterChipsRow
@@ -617,7 +626,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             }}
           >
             <Icon name="sparkle" size={16} color="#fff" />
-            <span>Happy Hour activ:</span>
+            <span>{T(lang, 'happy_hour_active')}</span>
             {happyHour.map((r) => (
               <span
                 key={r.id}
@@ -773,7 +782,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       {!isFlipbook && (listMode || cart.length > 0) && !showCart && (
         <button
           onClick={() => setShowCart(true)}
-          aria-label={listMode ? 'Lista mea' : 'Vezi coșul'}
+          aria-label={listMode ? T(lang, 'my_list') : T(lang, 'view_cart')}
           style={{
             position: 'fixed',
             bottom: 0,
@@ -800,13 +809,14 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             <>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <IconBag size={16} color="#fff" /> {cartCount}{' '}
-                {cartCount === 1 ? 'produs' : 'produse'} {listMode ? 'în lista mea' : 'în coș'}
+                {cartCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}{' '}
+                {listMode ? T(lang, 'in_my_list') : T(lang, 'in_cart')}
               </span>
               <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
             </>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: PUB.text2 }}>
-              <IconBag size={16} color={PUB.text2} /> Lista mea · atinge un produs ca să adaugi
+              <IconBag size={16} color={PUB.text2} /> {T(lang, 'list_hint')}
             </span>
           )}
         </button>
@@ -870,16 +880,16 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   marginBottom: 14,
                 }}
               >
-                {listMode ? 'Lista mea' : 'Comanda ta'}
+                {listMode ? T(lang, 'my_list') : T(lang, 'order_yours')}
               </div>
               {listMode && (
                 <div style={{ fontSize: 13, color: PUB.text2, marginTop: -8, marginBottom: 14 }}>
-                  Ce vrei să iei — salvat pe telefonul tău. Arată-i ospătarului când comanzi.
+                  {T(lang, 'list_subtitle')}
                 </div>
               )}
               {cart.length === 0 && (
                 <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
-                  Lista e goală. Atinge un produs din meniu ca să-l adaugi aici.
+                  {T(lang, 'list_empty')}
                 </div>
               )}
               {cart.map((item) => (
@@ -922,7 +932,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     </span>
                     <button
                       onClick={() => removeFromCart(item._key)}
-                      aria-label="Elimină"
+                      aria-label={T(lang, 'remove')}
                       style={{
                         background: 'transparent',
                         border: 'none',
@@ -956,7 +966,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   marginBottom: 12,
                 }}
               >
-                <span style={{ fontSize: 14, color: PUB.text2 }}>Total</span>
+                <span style={{ fontSize: 14, color: PUB.text2 }}>{T(lang, 'total')}</span>
                 <span
                   style={{
                     fontFamily: theme.fonts.heading,
@@ -988,7 +998,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     cursor: 'pointer',
                   }}
                 >
-                  {cart.length > 0 ? 'Golește lista' : 'Închide'}
+                  {cart.length > 0 ? T(lang, 'clear_list') : T(lang, 'close')}
                 </button>
               ) : (
                 <button
@@ -1516,6 +1526,8 @@ interface SearchInputProps {
   onChange: (v: string) => void
   placeholder: string
   theme: MenuTheme
+  accent: string
+  lang: string
   PUB: {
     bg: string
     surface: string
@@ -1527,7 +1539,9 @@ interface SearchInputProps {
   }
 }
 
-function SearchInput({ value, onChange, placeholder, theme, PUB }: SearchInputProps) {
+function SearchInput({ value, onChange, placeholder, theme, PUB, accent, lang }: SearchInputProps) {
+  // Focus vizibil controlat pe state (fără :focus în inline styles).
+  const [focused, setFocused] = useState(false)
   return (
     <div style={{ position: 'relative' }}>
       <div
@@ -1544,24 +1558,59 @@ function SearchInput({ value, onChange, placeholder, theme, PUB }: SearchInputPr
         <IconSearch size={16} color={PUB.text3} />
       </div>
       <input
-        type="text"
+        // type='search' + enterKeyHint='search' → tastatură mobilă cu buton
+        // „căutare" și clear nativ pe unele browsere.
+        type="search"
+        enterKeyHint="search"
         value={value}
         data-testid="search-input"
         onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         placeholder={placeholder}
         style={{
           width: '100%',
-          padding: '12px 14px 12px 40px',
+          // Padding vertical mărit → înălțime clickabilă > 44px. Dreapta lasă
+          // loc pentru butonul „✕" când există text.
+          padding: value.length > 0 ? '13px 44px 13px 40px' : '13px 14px 13px 40px',
           background: PUB.surface,
-          border: `1px solid ${PUB.border}`,
+          // Focus vizibil: bordură accent + halo subțire.
+          border: `1px solid ${focused ? accent : PUB.border}`,
           borderRadius: 100,
-          fontSize: 13.5,
+          // 16px previne zoom-ul automat iOS la focus pe input.
+          fontSize: 16,
           color: PUB.text,
           fontFamily: theme.fonts.body,
           outline: 'none',
+          boxShadow: focused ? `0 0 0 3px ${accent}33` : 'none',
           boxSizing: 'border-box',
         }}
       />
+      {value.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          aria-label={T(lang, 'close')}
+          style={{
+            position: 'absolute',
+            right: 8,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            border: 'none',
+            background: 'transparent',
+            color: PUB.text3,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="close" size={16} color={PUB.text3} />
+        </button>
+      )}
     </div>
   )
 }
@@ -1608,7 +1657,9 @@ function FilterChipsRow({ activeFilters, onToggle, theme, PUB }: FilterChipsProp
               background: active ? tag.color + '14' : 'transparent',
               border: `1px solid ${active ? tag.color : PUB.border}`,
               color: active ? tag.color : PUB.text2,
-              padding: '6px 12px',
+              // Padding vertical mărit + minHeight → țintă de atingere confortabilă.
+              padding: '9px 12px',
+              minHeight: 40,
               borderRadius: 100,
               fontSize: 11.5,
               fontWeight: active ? 600 : 500,
