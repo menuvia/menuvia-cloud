@@ -382,7 +382,17 @@ export async function fetchOrderAuditHistory(orderId: string): Promise<AuditEntr
   const { data, error } = await supabase.rpc('get_order_audit_history', {
     p_order_id: orderId,
   })
-  if (error) throw error
+  // Aruncăm un Error REAL (nu obiectul PostgrestError brut) — altfel
+  // OrderAuditSheet, care testează `e instanceof Error`, cade pe mesajul
+  // generic „Eroare la încărcare" și ascunde cauza reală (ex. funcție
+  // nedeployată, permisiune). Păstrăm code-ul pentru diagnoză.
+  if (error) {
+    const err = new Error(error.message || 'Nu s-a putut încărca istoricul comenzii') as Error & {
+      code?: string
+    }
+    if (error.code) err.code = error.code
+    throw err
+  }
   return (data ?? []) as unknown as AuditEntry[]
 }
 
