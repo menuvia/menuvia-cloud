@@ -74,10 +74,16 @@ export default function AiBulkGenerate({
 
   const catName = (id: string | null) => categories.find((c) => c.id === id)?.name ?? null
 
-  // Un produs/o categorie are nevoie de traducere dacă vreo limbă țintă n-are
-  // încă un nume tradus.
+  // Un produs are nevoie de traducere dacă vreo limbă țintă n-are încă un nume
+  // tradus SAU (când produsul are descriere) o descriere tradusă — altfel un
+  // produs cu numele deja tradus dar descrierea netradusă era sărit tăcut.
   const needsTr = (p: Product): boolean =>
-    hasLangs && langs.some((l) => !(p.translations?.[l]?.name?.trim()))
+    hasLangs &&
+    langs.some(
+      (l) =>
+        !p.translations?.[l]?.name?.trim() ||
+        (!!p.description?.trim() && !p.translations?.[l]?.description?.trim()),
+    )
   const needsTrCat = (c: Category): boolean =>
     hasLangs && langs.some((l) => !(c.translations?.[l]?.name?.trim()))
 

@@ -72,12 +72,19 @@ export function trDesc(
 // nevidă (nume sau descriere) pe un produs/categorie. Evită dependența de o
 // coloană expusă prin RPC și e mai onest cu clientul (nu oferă o limbă goală).
 // Ordinea urmează MENU_LANGS. `categories` = catalogul deja adus în client.
+// `allowed` (opțional) = `restaurant.menu_languages`: limbile pe care
+// restaurantul le OFERĂ efectiv. Când e ne-vidă, intersectăm — o limbă
+// DESELECTATĂ din setări (dar cu traduceri orfane rămase în `translations`) NU
+// mai apare clienților. Când e vidă/null (restaurant care n-a configurat încă
+// `menu_languages`), cădem pe derivarea din conținut (fără regresie).
 export function availableMenuLangs(
   categories: {
     translations?: Translations | null
     products?: { translations?: Translations | null }[]
   }[],
+  allowed?: string[] | null,
 ): string[] {
+  const allow = allowed && allowed.length > 0 ? new Set(allowed) : null
   const found = new Set<string>()
   const scan = (tr: Translations | null | undefined): void => {
     if (!tr) return
@@ -96,8 +103,11 @@ export function availableMenuLangs(
     scan(c.translations)
     for (const p of c.products ?? []) scan(p.translations)
   }
-  // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără `ro`).
-  return MENU_LANGS.filter((l) => l.code !== 'ro' && found.has(l.code)).map((l) => l.code)
+  // Păstrează doar limbile cunoscute, în ordinea din MENU_LANGS (fără `ro`),
+  // intersectate cu limbile oferite de restaurant dacă lista e configurată.
+  return MENU_LANGS.filter(
+    (l) => l.code !== 'ro' && found.has(l.code) && (!allow || allow.has(l.code)),
+  ).map((l) => l.code)
 }
 
 // Detectează limba browserului turistului și o întoarce DOAR dacă meniul chiar
