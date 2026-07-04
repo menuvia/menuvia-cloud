@@ -1092,7 +1092,9 @@ export default function WaiterPage() {
         )}
 
         {/* Section 1 — Ready */}
-        {view === 'lista' ? (
+        {/* Non-Pro (fără toggle) → mereu lista, ca ospătarul să nu rămână blocat
+            pe „Stadiu mese" dacă restaurantul activ trece pe un plan sub Pro. */}
+        {view === 'lista' || !paymentsEnabled ? (
           <>
         {readyOrders.length > 0 && (
           <div>
