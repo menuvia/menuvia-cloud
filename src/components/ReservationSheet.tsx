@@ -103,9 +103,16 @@ function isoIsoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string)
   const t = parseTime(hhmm)
   const asUtc = Date.UTC(y!, mo! - 1, d!, t.h, t.m, 0, 0)
   try {
-    // Cum arată instantul „asUtc" afișat în fusul restaurantului → diferența e offset-ul.
-    const back = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone })).getTime()
-    if (Number.isFinite(back)) return new Date(asUtc + (asUtc - back)).toISOString()
+    // Offset-ul fusului = diferența dintre cum arată ACELAȘI instant redat în
+    // `timeZone` vs. în UTC. Redăm în AMBELE și le parsăm identic (în fusul
+    // browserului) → offset-ul browserului se anulează, rămâne doar offset-ul
+    // restaurantului. Fără asta, un client care NU e în UTC primea o oră greșită
+    // (ex. Bucureștean 19:00 → 19:00Z în loc de 16:00Z).
+    const utcWall = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
+    const tzWall = new Date(new Date(asUtc).toLocaleString('en-US', { timeZone })).getTime()
+    if (Number.isFinite(utcWall) && Number.isFinite(tzWall)) {
+      return new Date(asUtc - (tzWall - utcWall)).toISOString()
+    }
   } catch {
     /* fus invalid → fallback la UTC brut (comportamentul vechi) */
   }
@@ -146,6 +153,9 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [publicTables, setPublicTables] = useState<PublicFloorTable[]>([])
   const [availability, setAvailability] = useState<TableAvailabilityRow[]>([])
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
+  // Bump pentru a re-declanșa efectul (guarded) de încărcare a disponibilității,
+  // fără un fetch paralel separat care ar putea suprascrie cu date vechi.
+  const [reloadNonce, setReloadNonce] = useState(0)
   const [mapLoading, setMapLoading] = useState(false)
 
   // Load public settings + zones via lightweight selects.
@@ -238,17 +248,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     return { startsAt, endsAt }
   }, [settings, chosenDateYmd, timeSlot, restaurant.timezone])
 
-  // Reîncarcă disponibilitatea meselor (folosit și la eroarea table_unavailable).
-  const reloadAvailability = useCallback(async () => {
-    if (!slot || !restaurant.slug) return
-    const rows = await fetchTablesAvailability(
-      restaurant.slug,
-      slot.startsAt,
-      slot.endsAt,
-      partySize,
-    )
-    setAvailability(rows)
-  }, [slot, restaurant.slug, partySize])
+  // Reîncarcă disponibilitatea (folosit la eroarea table_unavailable). Trece prin
+  // efectul guarded de mai jos (nonce) ca un răspuns întârziat pentru slotul
+  // vechi să nu suprascrie disponibilitatea proaspătă.
+  const reloadAvailability = useCallback(() => {
+    setReloadNonce((n) => n + 1)
+  }, [])
 
   // La schimbarea slotului (dată/oră/party): încarcă în paralel harta + disponibilitatea.
   // Deselectăm masa aleasă — nu mai e garantată pentru noul slot.
@@ -277,7 +282,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     return () => {
       cancelled = true
     }
-  }, [slot, restaurant.slug, partySize])
+  }, [slot, restaurant.slug, partySize, reloadNonce])
 
   // Harta se afișează doar dacă există un layout cu cel puțin o masă pe primul etaj.
   const hasFloorMap = useMemo(
