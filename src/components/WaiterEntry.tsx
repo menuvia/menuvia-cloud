@@ -18,13 +18,21 @@ interface Props {
   restaurantId: string
   onClose: () => void
   onOrderCreated: () => void
+  // Masă pre-selectată (din panoul „Stadiu mese" → „Adaugă la masă"): sare direct
+  // la meniu pe masa aia, ca o rundă nouă pe aceeași masă, fără să mai alegi.
+  initialTableId?: string | null
 }
 
 // ── WaiterEntry ───────────────────────────────────────────────
 
 type Step = 'table' | 'menu'
 
-export default function WaiterEntry({ restaurantId, onClose, onOrderCreated }: Props) {
+export default function WaiterEntry({
+  restaurantId,
+  onClose,
+  onOrderCreated,
+  initialTableId,
+}: Props) {
   const [step, setStep] = useState<Step>('table')
   const [tables, setTables] = useState<RestaurantTable[]>([])
   const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(null)
@@ -44,10 +52,33 @@ export default function WaiterEntry({ restaurantId, onClose, onOrderCreated }: P
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
   useEffect(() => {
+    let cancelled = false
     fetchTables(restaurantId)
-      .then(setTables)
+      .then((ts) => {
+        if (cancelled) return
+        setTables(ts)
+        // Pre-select din „Stadiu mese": dacă masa cerută există, sărim direct la
+        // meniu (rundă nouă pe aceeași masă). Fără initialTableId → flux normal.
+        if (initialTableId) {
+          const match = ts.find((t) => t.id === initialTableId)
+          if (match) {
+            setSelectedTable(match)
+            fetchMenuForRestaurant(restaurantId)
+              .then((cats) => {
+                if (cancelled) return
+                setCategories(cats)
+                setActiveCatId(cats[0]?.id ?? null)
+                setStep('menu')
+              })
+              .catch(() => setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.'))
+          }
+        }
+      })
       .catch(() => setLoadError('Nu s-au putut încărca mesele. Verifică conexiunea.'))
-  }, [restaurantId])
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId, initialTableId])
 
   function goToMenu(table: RestaurantTable | null): void {
     setSelectedTable(table)

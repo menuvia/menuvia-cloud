@@ -32,6 +32,7 @@ import type { WaiterCall } from '../lib/orders'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard } from '../components/WaiterOrderCard'
 import DiscountModal from '../components/DiscountModal'
+import TableStatusBoard from '../components/TableStatusBoard'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
@@ -124,6 +125,11 @@ export default function WaiterPage() {
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
   const [showEntry, setShowEntry] = useState(false)
+  // Masă pre-selectată când deschid „Comandă nouă" din panoul Stadiu mese
+  // (null = flux normal, alegi masa în WaiterEntry).
+  const [entryTableId, setEntryTableId] = useState<string | null>(null)
+  // Vedere: listă de comenzi (implicit) vs panou „Stadiu mese" (doar Pro).
+  const [view, setView] = useState<'lista' | 'mese'>('lista')
 
   // ── Happy Hour suggestion: se încarcă la deschiderea PayModal ──
   // Returnează rule activă curentă care dă cea mai mare reducere pe această
@@ -477,6 +483,22 @@ export default function WaiterPage() {
   const readyOrders = byStatus(['ready'])
   const openOrders = byStatus(['new', 'confirmed', 'preparing', 'ready', 'served'])
 
+  // Mesele afișate în panoul „Stadiu mese": dacă ospătarul are mese alocate,
+  // doar ale lui; altfel toate (consistent cu filtrarea comenzilor de mai sus).
+  const boardTables = useMemo(
+    () =>
+      assignedTableIds instanceof Set
+        ? tables.filter((t) => assignedTableIds.has(t.id))
+        : tables,
+    [tables, assignedTableIds],
+  )
+  // „Adaugă la masă" din panou → deschide „Comandă nouă" pre-selectată pe masa
+  // aia (o rundă nouă pe aceeași masă). tableId null (Fără masă) = flux normal.
+  const handleAddToTable = useCallback((tableId: string | null) => {
+    setEntryTableId(tableId)
+    setShowEntry(true)
+  }, [])
+
   if (loading) {
     return (
       <div
@@ -695,7 +717,11 @@ export default function WaiterPage() {
             Manual
           </button>
           <button
-            onClick={() => setShowEntry(true)}
+            onClick={() => {
+              // „Comandă nouă" din header = flux normal (alegi masa în WaiterEntry).
+              setEntryTableId(null)
+              setShowEntry(true)
+            }}
             style={{
               background: D.gold,
               color: D.bg,
@@ -769,6 +795,59 @@ export default function WaiterPage() {
           width: '100%',
         }}
       >
+        {/* Comutator vedere — doar pe Pro (Fiscalizare): Listă comenzi ↔ Stadiu mese */}
+        {paymentsEnabled && (
+          <div
+            role="tablist"
+            aria-label="Vedere comenzi"
+            style={{
+              display: 'inline-flex',
+              gap: 4,
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 10,
+              padding: 4,
+              alignSelf: 'flex-start',
+            }}
+          >
+            {(
+              [
+                ['lista', 'Listă comenzi', 'orders'],
+                ['mese', 'Stadiu mese', 'table'],
+              ] as const
+            ).map(([v, label, icon]) => {
+              const active = view === v
+              return (
+                <button
+                  key={v}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setView(v)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    minHeight: 40,
+                    padding: '0 14px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    background: active ? D.gold : 'transparent',
+                    color: active ? D.bg : D.t2,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Icon name={icon} size={15} color={active ? D.bg : D.t2} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
         {/* Section 0 — Rezervări azi */}
         {activeReservations.length > 0 && (
           <div style={{ marginBottom: 18 }}>
@@ -984,6 +1063,8 @@ export default function WaiterPage() {
         )}
 
         {/* Section 1 — Ready */}
+        {view === 'lista' ? (
+          <>
         {readyOrders.length > 0 && (
           <div>
             <SectionHeading label="Gata de servit" count={readyOrders.length} color={D.green} />
@@ -1228,6 +1309,27 @@ export default function WaiterPage() {
             )}
           </div>
         </div>
+          </>
+        ) : (
+          <TableStatusBoard
+            tables={boardTables}
+            orders={openOrders}
+            waiterCalls={waiterCalls}
+            onAddToTable={handleAddToTable}
+            renderOrderCard={(order) => (
+              <OrderCard
+                order={order}
+                onPayOpen={setPayOrder}
+                onSplitOpen={openSplitBill}
+                onEdit={setEditOrder}
+                onCancel={setCancelOrder}
+                onAudit={isAdminRole ? setAuditOrder : undefined}
+                paymentsEnabled={paymentsEnabled}
+                onCloseOrder={handleCloseOrder}
+              />
+            )}
+          />
+        )}
       </div>
 
       {payOrder != null &&
@@ -1567,8 +1669,15 @@ export default function WaiterPage() {
       {showEntry && restaurantId != null && user != null && (
         <WaiterEntry
           restaurantId={restaurantId}
-          onClose={() => setShowEntry(false)}
-          onOrderCreated={() => setShowEntry(false)}
+          initialTableId={entryTableId}
+          onClose={() => {
+            setShowEntry(false)
+            setEntryTableId(null)
+          }}
+          onOrderCreated={() => {
+            setShowEntry(false)
+            setEntryTableId(null)
+          }}
         />
       )}
     </div>
