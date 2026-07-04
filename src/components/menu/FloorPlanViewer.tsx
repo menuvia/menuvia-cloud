@@ -2,6 +2,7 @@
 // Scop: clientul alege o masă liberă direct pe hartă (rezervare cu alegere pe
 // hartă). NU depinde de tokenii dashboard-ului `D` — primește culorile prin
 // props (PUB/accent) ca să se integreze în tema meniului public.
+import { useState } from 'react'
 import type { CSSProperties, KeyboardEvent } from 'react'
 import {
   CANVAS_W,
@@ -32,6 +33,8 @@ interface Props {
   tablesByName: Map<string, string>
   selectedTableId: string | null
   onSelectTable: (tableId: string) => void
+  // Atingerea unei mese ocupate — feedback neblocant în componenta părinte.
+  onOccupiedTap?: (tableLabel: string) => void
   accent: string
   PUB: PubColors
   lang: string
@@ -63,10 +66,15 @@ export default function FloorPlanViewer({
   tablesByName,
   selectedTableId,
   onSelectTable,
+  onOccupiedTap,
   accent,
   PUB,
   lang,
 }: Props) {
+  // Masa cu focus de tastatură — pentru desenarea unui halou vizibil la Tab
+  // (native `outline` pe SVG e nesigur, așa că îl desenăm noi).
+  const [focusedId, setFocusedId] = useState<string | null>(null)
+
   // Multi-etaj = follow-up: randăm doar primul etaj.
   const floor = layout.floors[0]
   if (!floor) return null
@@ -179,7 +187,9 @@ export default function FloorPlanViewer({
               : state === 'occupied'
                 ? PUB.text3
                 : PUB.surface
-          const fillOpacity = state === 'available' ? 0.16 : state === 'occupied' ? 0.14 : 1
+          // Ocupată = gri clar mai opac (0.35 vs 0.16) ca să nu se bazeze doar pe
+          // nuanță — diferența e perceptibilă și fără culoare (daltonism).
+          const fillOpacity = state === 'available' ? 0.16 : state === 'occupied' ? 0.35 : 1
           const stroke = isSelected
             ? accent
             : state === 'available'
@@ -188,6 +198,9 @@ export default function FloorPlanViewer({
                 ? PUB.text3
                 : PUB.border
           const strokeWidth = isSelected ? 4 : 2
+          // Contur întrerupt suplimentar pe masa ocupată (al doilea semnal non-hue).
+          const strokeDasharray = state === 'occupied' ? '5 4' : undefined
+          const isFocused = realId != null && realId === focusedId
           const textColor =
             state === 'available' ? accent : state === 'occupied' ? PUB.text3 : PUB.text2
 
@@ -206,6 +219,8 @@ export default function FloorPlanViewer({
 
           const onActivate = () => {
             if (isSelectable && realId != null) onSelectTable(realId)
+            // Masă ocupată: nu e selectabilă, dar dăm feedback (nu tăcem tap-ul).
+            else if (state === 'occupied') onOccupiedTap?.(t.label)
           }
           const onKey = (e: KeyboardEvent<SVGGElement>) => {
             if (!isSelectable) return
@@ -221,16 +236,47 @@ export default function FloorPlanViewer({
               transform={t.rotation ? `rotate(${t.rotation} ${cx} ${cy})` : undefined}
               onClick={onActivate}
               onKeyDown={onKey}
+              onFocus={isSelectable && realId != null ? () => setFocusedId(realId) : undefined}
+              onBlur={
+                isSelectable ? () => setFocusedId((cur) => (cur === realId ? null : cur)) : undefined
+              }
               role={isSelectable ? 'button' : 'img'}
               aria-label={label}
               aria-pressed={isSelectable ? isSelected : undefined}
               aria-disabled={!isSelectable}
               tabIndex={isSelectable ? 0 : undefined}
               style={{
-                cursor: isSelectable ? 'pointer' : 'default',
+                cursor: isSelectable ? 'pointer' : state === 'occupied' ? 'not-allowed' : 'default',
+                // Suprimăm outline-ul nativ (nesigur pe SVG) și desenăm noi haloul.
                 outline: 'none',
               }}
             >
+              {/* Halou de focus vizibil la navigarea cu Tab (a11y). */}
+              {isFocused &&
+                (t.shape === 'round' ? (
+                  <ellipse
+                    cx={cx}
+                    cy={cy}
+                    rx={t.w / 2 + 5}
+                    ry={t.h / 2 + 5}
+                    fill="none"
+                    stroke={accent}
+                    strokeWidth={3}
+                    strokeOpacity={0.9}
+                  />
+                ) : (
+                  <rect
+                    x={t.x - 5}
+                    y={t.y - 5}
+                    width={t.w + 10}
+                    height={t.h + 10}
+                    rx={(t.shape === 'square' ? 10 : 8) + 3}
+                    fill="none"
+                    stroke={accent}
+                    strokeWidth={3}
+                    strokeOpacity={0.9}
+                  />
+                ))}
               {t.shape === 'round' ? (
                 <ellipse
                   cx={cx}
@@ -241,6 +287,7 @@ export default function FloorPlanViewer({
                   fillOpacity={fillOpacity}
                   stroke={stroke}
                   strokeWidth={strokeWidth}
+                  strokeDasharray={strokeDasharray}
                 />
               ) : (
                 <rect
@@ -253,6 +300,7 @@ export default function FloorPlanViewer({
                   fillOpacity={fillOpacity}
                   stroke={stroke}
                   strokeWidth={strokeWidth}
+                  strokeDasharray={strokeDasharray}
                 />
               )}
               {/* Eticheta e contra-rotită ca să rămână orizontală și lizibilă. */}
@@ -280,6 +328,23 @@ export default function FloorPlanViewer({
                 >
                   {t.seats} {lang === 'ro' ? 'loc.' : 'seats'}
                 </text>
+                {/* Marcaj „✕" în colț pe masa ocupată — semnal de formă, nu doar
+                    de culoare (perceptibil și în daltonism / print alb-negru). */}
+                {state === 'occupied' && (
+                  <text
+                    x={cx + t.w / 2 - 8}
+                    y={cy - t.h / 2 + 8}
+                    fontSize={13}
+                    fontWeight={700}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill={PUB.text3}
+                    aria-hidden="true"
+                    style={{ userSelect: 'none', pointerEvents: 'none' }}
+                  >
+                    ✕
+                  </text>
+                )}
               </g>
             </g>
           )

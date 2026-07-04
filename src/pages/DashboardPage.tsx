@@ -780,6 +780,7 @@ export default function DashboardPage({
         </div>
         <button
           onClick={() => setSidebarOpen(false)}
+          aria-label="Închide meniul"
           style={{
             background: 'transparent',
             border: 'none',
@@ -787,10 +788,9 @@ export default function DashboardPage({
             cursor: 'pointer',
             padding: 6,
             display: 'flex',
-            fontSize: 18,
           }}
         >
-          ✕
+          <Icon name="close" size={18} />
         </button>
       </div>
       {restaurant && (
@@ -817,7 +817,9 @@ export default function DashboardPage({
                 border: `1px solid ${D.border}`,
                 borderRadius: 7,
                 color: D.t1,
-                padding: '6px 8px',
+                // Țintă tactilă ≥44px (fix a11y: fost 6px+0.85rem ≈ 30px)
+                minHeight: 44,
+                padding: '10px 12px',
                 fontSize: '0.85rem',
                 fontFamily: 'DM Sans,sans-serif',
                 cursor: 'pointer',
@@ -862,6 +864,8 @@ export default function DashboardPage({
                 alignItems: 'center',
                 gap: 10,
                 width: '100%',
+                // Țintă tactilă ≥44px pe toate butoanele de navigație
+                minHeight: 44,
                 padding: '10px 12px',
                 borderRadius: 9,
                 border: 'none',
@@ -931,6 +935,7 @@ export default function DashboardPage({
             alignItems: 'center',
             gap: 8,
             width: '100%',
+            minHeight: 44,
             padding: '10px 12px',
             borderRadius: 9,
             border: `1px solid ${D.border}`,
@@ -960,6 +965,7 @@ export default function DashboardPage({
               alignItems: 'center',
               gap: 8,
               width: '100%',
+              minHeight: 44,
               padding: '10px 12px',
               borderRadius: 9,
               border: `1px solid ${D.gold}55`,
@@ -996,6 +1002,7 @@ export default function DashboardPage({
               alignItems: 'center',
               gap: 8,
               width: '100%',
+              minHeight: 44,
               padding: '10px 12px',
               borderRadius: 9,
               border: `1px solid ${D.border}`,
@@ -1056,6 +1063,9 @@ export default function DashboardPage({
             onClick={() => exitFounderView(founderViewOrigin === 'founder' ? '/founder' : '/afiliat')}
             className="pressable"
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
               padding: '6px 14px',
               minHeight: 34,
               borderRadius: 100,
@@ -1068,7 +1078,8 @@ export default function DashboardPage({
               whiteSpace: 'nowrap',
             }}
           >
-            Ieși din cont
+            {/* Iese din VIZITĂ (impersonare), nu logout — text corectat */}
+            <Icon name="arrowLeft" size={14} /> Ieși din vizită
           </button>
         </div>
       )}
@@ -1130,6 +1141,7 @@ export default function DashboardPage({
         >
           <button
             onClick={() => setSidebarOpen(true)}
+            aria-label="Deschide meniul"
             style={{
               background: 'transparent',
               border: 'none',
@@ -1138,13 +1150,26 @@ export default function DashboardPage({
               display: 'flex',
               padding: 6,
               borderRadius: 8,
-              fontSize: 20,
             }}
           >
-            ☰
+            <Icon name="menu" size={22} />
           </button>
-          <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>
-            Menuvia
+          {/* Pe mobil afișăm numele restaurantului activ (context util),
+              cu fallback la wordmark când nu există restaurant. */}
+          <div
+            style={{
+              flex: 1,
+              minWidth: 0,
+              textAlign: 'center',
+              fontFamily: 'Fraunces,serif',
+              fontSize: '1.1rem',
+              color: D.t1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {restaurant?.name ?? 'Menuvia'}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             {isAdminRole && (
@@ -1225,6 +1250,8 @@ export default function DashboardPage({
                   >
                     {activeGroup.label}
                   </div>
+                  {/* Wrapper relativ pentru fade-ul de scroll orizontal */}
+                  <div style={{ position: 'relative' }}>
                   <div
                     style={{
                       display: 'flex',
@@ -1282,6 +1309,20 @@ export default function DashboardPage({
                         </button>
                       )
                     })}
+                  </div>
+                  {/* Semnal „mai sunt chips-uri" — fade pe marginea dreaptă */}
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      right: 0,
+                      bottom: 0,
+                      width: 24,
+                      pointerEvents: 'none',
+                      background: `linear-gradient(90deg, transparent, ${D.bg})`,
+                    }}
+                  />
                   </div>
                 </div>
               )}
@@ -1550,12 +1591,20 @@ export default function DashboardPage({
             dashboardului. Înainte: tab-urile cu label lung ("Modificatori",
             "Casă & Tură") expandau peste flex:1 → flex container overflow →
             întreaga pagină se mișca lateral la swipe. */}
+        {/* Wrapper relativ: găzduiește fade-ul care semnalează că bara
+            de taburi mai are conținut la dreapta (scroll fără scrollbar). */}
+        <div
+          style={{
+            position: 'relative',
+            display: isMobile ? 'block' : 'none',
+            flexShrink: 0,
+          }}
+        >
         <div
           style={{
             borderTop: `1px solid ${D.border}`,
             background: D.s1,
-            display: isMobile ? 'flex' : 'none',
-            flexShrink: 0,
+            display: 'flex',
             overflowX: 'auto',
             overflowY: 'hidden',
             WebkitOverflowScrolling: 'touch',
@@ -1563,22 +1612,30 @@ export default function DashboardPage({
             paddingBottom: 'env(safe-area-inset-bottom,0px)',
           }}
         >
-          {visibleGroups.map((g) => (
+          {visibleGroups.map((g) => {
+            const navActive = activeGroup?.id === g.id
+            return (
             <button
               key={g.id}
               onClick={() => setTab(g.subTabs[0].id)}
+              aria-current={navActive ? 'page' : undefined}
               style={{
                 flexShrink: 0,
-                minWidth: 68,
+                // minWidth redus (68→58) ca mai multe taburi să încapă în 390px
+                minWidth: 58,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 gap: 3,
                 padding: '10px 8px',
                 border: 'none',
+                // Indicator de formă redundant față de culoare (a11y):
+                // bară gold subțire sus pe tabul activ, transparentă altfel
+                // (rezervă spațiul → fără salt de layout la schimbare).
+                borderTop: `2px solid ${navActive ? D.gold : 'transparent'}`,
                 cursor: 'pointer',
                 background: 'transparent',
-                color: activeGroup?.id === g.id ? D.gold : D.t3,
+                color: navActive ? D.gold : D.t3,
                 fontFamily: 'DM Sans,sans-serif',
                 transition: 'color .15s',
               }}
@@ -1608,15 +1665,31 @@ export default function DashboardPage({
               </span>
               <span
                 style={{
-                  fontSize: '0.6rem',
-                  fontWeight: activeGroup?.id === g.id ? 600 : 400,
+                  // 0.6rem era sub pragul lizibil; urcat la 0.66rem
+                  fontSize: '0.66rem',
+                  fontWeight: navActive ? 600 : 400,
                   whiteSpace: 'nowrap',
                 }}
               >
                 {g.label}
               </span>
             </button>
-          ))}
+            )
+          })}
+        </div>
+        {/* Fade dreapta = semnal „mai sunt taburi" când bara depășește lățimea */}
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: 28,
+            pointerEvents: 'none',
+            background: `linear-gradient(90deg, transparent, ${D.s1})`,
+          }}
+        />
         </div>
       </div>
       </div>

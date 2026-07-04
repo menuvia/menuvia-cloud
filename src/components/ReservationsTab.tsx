@@ -8,6 +8,7 @@ import {
   useReservationSettings,
   useDateRange,
   dayRange,
+  weekRange,
   type Reservation,
   type ReservationStatus,
   type ReservationSettings,
@@ -76,6 +77,20 @@ export default function ReservationsTab({ restaurantId }: Props) {
   )
   const toast = useToast()
 
+  // Care preset de interval e activ acum — ca să evidențiem chip-ul corect
+  // (patronul trebuie să vadă ce filtru e aplicat, nu doar să apese orbește).
+  const activeRangeKey = useMemo<'today' | 'tomorrow' | 'week' | 'custom'>(() => {
+    const now = new Date()
+    const tomorrow = new Date(now.getTime() + 86400000)
+    const today = dayRange(now)
+    const tmr = dayRange(tomorrow)
+    const wk = weekRange(now)
+    if (range.from === today.from && range.to === today.to) return 'today'
+    if (range.from === tmr.from && range.to === tmr.to) return 'tomorrow'
+    if (range.from === wk.from && range.to === wk.to) return 'week'
+    return 'custom'
+  }, [range])
+
   const filtered = useMemo(() => {
     if (!pendingOnly) return reservations
     return reservations.filter((r) => r.status === 'pending')
@@ -124,9 +139,15 @@ export default function ReservationsTab({ restaurantId }: Props) {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-        <FilterChip onClick={setToday}>Azi</FilterChip>
-        <FilterChip onClick={setTomorrow}>Mâine</FilterChip>
-        <FilterChip onClick={setWeek}>Săptămâna asta</FilterChip>
+        <FilterChip onClick={setToday} active={activeRangeKey === 'today'}>
+          Azi
+        </FilterChip>
+        <FilterChip onClick={setTomorrow} active={activeRangeKey === 'tomorrow'}>
+          Mâine
+        </FilterChip>
+        <FilterChip onClick={setWeek} active={activeRangeKey === 'week'}>
+          Săptămâna asta
+        </FilterChip>
         <input
           type="date"
           onChange={(e) => {
@@ -136,8 +157,10 @@ export default function ReservationsTab({ restaurantId }: Props) {
             }
           }}
           style={{
+            // Țintă tactilă ≥44px, aliniat cu chip-urile și butoanele.
+            minHeight: 44,
             padding: '8px 12px',
-            border: `1px solid ${D.border}`,
+            border: `1px solid ${activeRangeKey === 'custom' ? D.gold : D.border}`,
             borderRadius: 8,
             background: D.s3,
             color: D.t1,
@@ -150,6 +173,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
+            minHeight: 44,
             padding: '8px 12px',
             border: `1px solid ${D.border}`,
             borderRadius: 8,
@@ -173,6 +197,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             display: 'inline-flex',
             alignItems: 'center',
             gap: 6,
+            minHeight: 44,
             padding: '8px 12px',
             border: `1px solid ${D.border}`,
             borderRadius: 8,
@@ -252,19 +277,32 @@ export default function ReservationsTab({ restaurantId }: Props) {
   )
 }
 
-function FilterChip({ children, onClick }: { children: string; onClick: () => void }) {
+function FilterChip({
+  children,
+  onClick,
+  active = false,
+}: {
+  children: string
+  onClick: () => void
+  active?: boolean
+}) {
   return (
     <button
       onClick={onClick}
+      aria-pressed={active}
       style={{
+        // Țintă tactilă ≥44px (aliniat cu ActionButton-urile din card).
+        minHeight: 44,
         padding: '8px 14px',
-        border: `1px solid ${D.border}`,
+        // Chip-ul activ e evidențiat clar (fundal + bordură + weight), ca patronul
+        // să vadă ce interval e aplicat.
+        border: `1px solid ${active ? D.gold : D.border}`,
         borderRadius: 100,
-        background: D.s3,
-        color: D.t1,
+        background: active ? D.s2 : D.s3,
+        color: active ? D.t1 : D.t2,
         cursor: 'pointer',
         fontSize: 13,
-        fontWeight: 500,
+        fontWeight: active ? 600 : 500,
       }}
     >
       {children}
@@ -567,7 +605,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               <option value={180}>180</option>
             </select>
           </SettingField>
-          <SettingField label="Min advance (ore)">
+          <SettingField label="Rezervare cu minim (ore înainte)">
             <input
               type="number"
               min={0}
@@ -579,7 +617,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               style={settingsInputStyle}
             />
           </SettingField>
-          <SettingField label="Max advance (zile)">
+          <SettingField label="Se poate rezerva cu maxim (zile înainte)">
             <input
               type="number"
               min={1}
@@ -616,7 +654,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               <option value={48}>48h</option>
             </select>
           </SettingField>
-          <SettingField label="Auto-confirm">
+          <SettingField label="Confirmare automată">
             <label
               style={{
                 display: 'inline-flex',
