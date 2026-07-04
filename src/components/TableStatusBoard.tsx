@@ -4,6 +4,7 @@
 // privire: liberă / ocupată / de servit / cheamă ospătar, cu total pe toate
 // rundele, de cât timp e deschisă, câte runde, și „+ Adaugă la masă" (rundă
 // nouă pe aceeași masă — clientul mai vrea un desert / o băutură fără haos).
+// Două moduri: Grilă (universal) și Hartă (colorează harta sălii desenată).
 // Zero cod nou de infrastructură: agregă din comenzile deschise (useOrders,
 // realtime) + apelurile de ospătar. Fără migrație.
 // =============================================================
@@ -14,6 +15,8 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import type { IconName } from './ui/Icon'
 import type { Order, WaiterCall } from '../lib/orders'
+import type { FloorLayout } from '../lib/floorPlan'
+import TableStatusMap, { type MapTableState } from './TableStatusMap'
 
 interface BoardTable {
   id: string
@@ -29,6 +32,7 @@ interface TableStatusBoardProps {
   waiterCalls: WaiterCall[] // apeluri pending
   onAddToTable: (tableId: string | null, tableName: string) => void
   renderOrderCard: (order: Order) => ReactNode
+  floorLayout?: FloorLayout | null // harta sălii desenată (dacă există)
 }
 
 // Meta per stare: culoare, etichetă, icon. Ordinea de mai jos = și prioritatea
@@ -65,14 +69,160 @@ interface ComputedTable {
   oldestIso: string | null
 }
 
+// Un card de masă — folosit de grilă ȘI de detaliul de sub hartă.
+function BoardTableCard({
+  c,
+  now,
+  isOpen,
+  onToggle,
+  onAddToTable,
+  renderOrderCard,
+}: {
+  c: ComputedTable
+  now: number
+  isOpen: boolean
+  onToggle: (key: string) => void
+  onAddToTable: (tableId: string | null, tableName: string) => void
+  renderOrderCard: (order: Order) => ReactNode
+}) {
+  const meta = STATE_META[c.state]
+  const occupied = c.rounds > 0
+  return (
+    <div
+      style={{
+        background: D.s2,
+        border: `1px solid ${occupied ? meta.color + '55' : D.border}`,
+        borderRadius: 14,
+        padding: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        boxShadow:
+          c.state === 'bill' || c.state === 'calling' ? `inset 3px 0 0 ${meta.color}` : 'none',
+      }}
+    >
+      {/* Antet: nume masă + locuri + pastilă de status */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
+          <Icon name="table" size={16} color={occupied ? meta.color : D.t3} />
+          <span
+            style={{
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontSize: 16,
+              fontWeight: 700,
+              color: D.t1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {c.name}
+          </span>
+          {c.seats != null && (
+            <span style={{ fontSize: 11, color: D.t3, flexShrink: 0 }}>{c.seats} loc.</span>
+          )}
+        </div>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: meta.color + '1F',
+            color: meta.color,
+            borderRadius: 20,
+            padding: '2px 9px',
+            fontSize: 11,
+            fontWeight: 700,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+        >
+          <Icon name={meta.icon} size={12} color={meta.color} />
+          {meta.label}
+        </span>
+      </div>
+
+      {occupied ? (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                fontFamily: 'Fraunces, Georgia, serif',
+                fontSize: 22,
+                fontWeight: 700,
+                color: D.t1,
+              }}
+            >
+              {c.total.toFixed(2)} lei
+            </span>
+            <span style={{ fontSize: 12, color: D.t2 }}>
+              {c.rounds === 1 ? '1 rundă' : `${c.rounds} runde`}
+              {c.oldestIso ? ` · ${openSince(c.oldestIso, now)}` : ''}
+            </span>
+          </div>
+
+          <div
+            style={{
+              fontSize: 12,
+              color: D.t2,
+              lineHeight: 1.5,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
+            {c.orders
+              .flatMap((o) => o.order_items)
+              .map((it) => `${it.product_name_snapshot} ×${it.quantity}`)
+              .join(', ')}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => onAddToTable(c.id, c.name)} style={primaryBtn}>
+              <Icon name="plus" size={15} />
+              Adaugă la masă
+            </button>
+            <button onClick={() => onToggle(c.key)} aria-expanded={isOpen} style={ghostBtn}>
+              {isOpen ? 'Ascunde' : `Vezi (${c.rounds})`}
+              <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
+            </button>
+          </div>
+
+          {isOpen && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 2 }}>
+              {c.orders.map((o) => (
+                <div key={o.id}>{renderOrderCard(o)}</div>
+              ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: D.t3 }}>Nicio comandă deschisă</div>
+          {c.id != null && (
+            <button onClick={() => onAddToTable(c.id, c.name)} style={ghostBtnWide}>
+              <Icon name="plus" size={15} />
+              Deschide comandă
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function TableStatusBoard({
   tables,
   orders,
   waiterCalls,
   onAddToTable,
   renderOrderCard,
+  floorLayout,
 }: TableStatusBoardProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [mapMode, setMapMode] = useState<'grid' | 'map'>('grid')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const now = Date.now()
 
   // Grupăm comenzile deschise pe table_id (null = „Fără masă").
@@ -84,7 +234,7 @@ export default function TableStatusBoard({
     else ordersByTable.set(key, [o])
   }
 
-  // Apeluri pending pe fiecare masă (bill = cere nota, are prioritate peste chemarea simplă).
+  // Apeluri pending pe fiecare masă (bill = cere nota, prioritate peste chemarea simplă).
   const callByTable = new Map<string, 'bill' | 'waiter'>()
   for (const c of waiterCalls) {
     if (c.status !== 'pending' || !c.table_id) continue
@@ -109,7 +259,10 @@ export default function TableStatusBoard({
     const total = tableOrders.reduce((s, o) => s + o.total, 0)
     const oldestIso =
       tableOrders.length > 0
-        ? tableOrders.reduce((min, o) => (o.created_at < min ? o.created_at : min), tableOrders[0]!.created_at)
+        ? tableOrders.reduce(
+            (min, o) => (o.created_at < min ? o.created_at : min),
+            tableOrders[0]!.created_at,
+          )
         : null
     return {
       key: t.id,
@@ -180,166 +333,148 @@ export default function TableStatusBoard({
     })
   }
 
+  // ── Pregătire pentru modul Hartă ──
+  const hasMap = (floorLayout?.floors?.[0]?.tables?.length ?? 0) > 0
+  const tablesByName = new Map<string, string>()
+  for (const t of tables) tablesByName.set(t.name.trim().toLowerCase(), t.id)
+  const stateById = new Map<string, MapTableState>()
+  for (const c of computed) {
+    if (c.id == null) continue
+    const meta = STATE_META[c.state]
+    stateById.set(c.id, {
+      color: meta.color,
+      label: meta.label,
+      occupied: c.rounds > 0,
+      total: c.total,
+    })
+  }
+  const selected = selectedId != null ? computed.find((c) => c.id === selectedId) ?? null : null
+
   return (
     <div>
-      {/* Rezumat rapid: câte cer atenție / ocupate / libere */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-        <SummaryPill label="Cer atenție" value={attentionCount} color={D.amber} />
-        <SummaryPill label="Ocupate" value={occupiedCount} color={D.gold} />
-        <SummaryPill label="Libere" value={freeCount} color={D.t3} />
-      </div>
-
+      {/* Rezumat rapid + comutator Grilă/Hartă (dacă există o hartă desenată) */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
-          gap: 12,
-          alignItems: 'start',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 8,
+          marginBottom: 14,
+          alignItems: 'center',
+          justifyContent: 'space-between',
         }}
       >
-        {computed.map((c) => {
-          const meta = STATE_META[c.state]
-          const occupied = c.rounds > 0
-          const isOpen = expanded.has(c.key)
-          return (
-            <div
-              key={c.key}
-              style={{
-                background: D.s2,
-                border: `1px solid ${occupied ? meta.color + '55' : D.border}`,
-                borderRadius: 14,
-                padding: 16,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                // Accent subtil pe stânga pe stările care cer atenție.
-                boxShadow:
-                  c.state === 'bill' || c.state === 'calling'
-                    ? `inset 3px 0 0 ${meta.color}`
-                    : 'none',
-              }}
-            >
-              {/* Antet: nume masă + locuri + pastilă de status */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-                  <Icon name="table" size={16} color={occupied ? meta.color : D.t3} />
-                  <span
-                    style={{
-                      fontFamily: 'Fraunces, Georgia, serif',
-                      fontSize: 16,
-                      fontWeight: 700,
-                      color: D.t1,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                    }}
-                  >
-                    {c.name}
-                  </span>
-                  {c.seats != null && (
-                    <span style={{ fontSize: 11, color: D.t3, flexShrink: 0 }}>{c.seats} loc.</span>
-                  )}
-                </div>
-                <span
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <SummaryPill label="Cer atenție" value={attentionCount} color={D.amber} />
+          <SummaryPill label="Ocupate" value={occupiedCount} color={D.gold} />
+          <SummaryPill label="Libere" value={freeCount} color={D.t3} />
+        </div>
+        {hasMap && (
+          <div
+            role="tablist"
+            aria-label="Mod afișare mese"
+            style={{
+              display: 'inline-flex',
+              gap: 4,
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 10,
+              padding: 3,
+            }}
+          >
+            {(
+              [
+                ['grid', 'Grilă', 'menu'],
+                ['map', 'Hartă', 'table'],
+              ] as const
+            ).map(([m, label, icon]) => {
+              const active = mapMode === m
+              return (
+                <button
+                  key={m}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setMapMode(m)}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    gap: 4,
-                    background: meta.color + '1F',
-                    color: meta.color,
-                    borderRadius: 20,
-                    padding: '2px 9px',
-                    fontSize: 11,
-                    fontWeight: 700,
+                    gap: 5,
+                    minHeight: 38,
+                    padding: '0 12px',
+                    borderRadius: 8,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: active ? D.gold : 'transparent',
+                    color: active ? D.bg : D.t2,
                     whiteSpace: 'nowrap',
-                    flexShrink: 0,
                   }}
                 >
-                  <Icon name={meta.icon} size={12} color={meta.color} />
-                  {meta.label}
-                </span>
-              </div>
-
-              {occupied ? (
-                <>
-                  {/* Total + meta (runde · de cât timp) */}
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
-                        fontSize: 22,
-                        fontWeight: 700,
-                        color: D.t1,
-                      }}
-                    >
-                      {c.total.toFixed(2)} lei
-                    </span>
-                    <span style={{ fontSize: 12, color: D.t2 }}>
-                      {c.rounds === 1 ? '1 rundă' : `${c.rounds} runde`}
-                      {c.oldestIso ? ` · ${openSince(c.oldestIso, now)}` : ''}
-                    </span>
-                  </div>
-
-                  {/* Rezumat produse pe toate rundele, trunchiat */}
-                  <div
-                    style={{
-                      fontSize: 12,
-                      color: D.t2,
-                      lineHeight: 1.5,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {c.orders
-                      .flatMap((o) => o.order_items)
-                      .map((it) => `${it.product_name_snapshot} ×${it.quantity}`)
-                      .join(', ')}
-                  </div>
-
-                  {/* Acțiuni: adaugă la masă (rundă nouă) + vezi rundele */}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => onAddToTable(c.id, c.name)}
-                      style={primaryBtn}
-                    >
-                      <Icon name="plus" size={15} />
-                      Adaugă la masă
-                    </button>
-                    <button
-                      onClick={() => toggle(c.key)}
-                      aria-expanded={isOpen}
-                      style={ghostBtn}
-                    >
-                      {isOpen ? 'Ascunde' : `Vezi (${c.rounds})`}
-                      <Icon name={isOpen ? 'chevronDown' : 'chevronRight'} size={14} />
-                    </button>
-                  </div>
-
-                  {isOpen && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 2 }}>
-                      {c.orders.map((o) => (
-                        <div key={o.id}>{renderOrderCard(o)}</div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: 12, color: D.t3 }}>Nicio comandă deschisă</div>
-                  {c.id != null && (
-                    <button onClick={() => onAddToTable(c.id, c.name)} style={ghostBtnWide}>
-                      <Icon name="plus" size={15} />
-                      Deschide comandă
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          )
-        })}
+                  <Icon name={icon} size={14} color={active ? D.bg : D.t2} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
+
+      {mapMode === 'map' && hasMap && floorLayout != null ? (
+        <div>
+          <TableStatusMap
+            layout={floorLayout}
+            stateById={stateById}
+            tablesByName={tablesByName}
+            selectedId={selectedId}
+            onSelectTable={setSelectedId}
+          />
+          <div style={{ marginTop: 12 }}>
+            {selected != null ? (
+              <BoardTableCard
+                c={selected}
+                now={now}
+                isOpen={expanded.has(selected.key)}
+                onToggle={toggle}
+                onAddToTable={onAddToTable}
+                renderOrderCard={renderOrderCard}
+              />
+            ) : (
+              <div
+                style={{
+                  textAlign: 'center',
+                  color: D.t3,
+                  fontSize: 13,
+                  padding: '12px 8px',
+                }}
+              >
+                Atinge o masă pe hartă ca să vezi detaliile.
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))',
+            gap: 12,
+            alignItems: 'start',
+          }}
+        >
+          {computed.map((c) => (
+            <BoardTableCard
+              key={c.key}
+              c={c}
+              now={now}
+              isOpen={expanded.has(c.key)}
+              onToggle={toggle}
+              onAddToTable={onAddToTable}
+              renderOrderCard={renderOrderCard}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
