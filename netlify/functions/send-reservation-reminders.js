@@ -10,6 +10,30 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
+// ── Alertă Slack pe eșecuri de enqueue ──────────────────────────
+// Replicat din automation-cron.js. Best-effort: fără SLACK_WEBHOOK_URL → no-op;
+// orice eroare de rețea/Slack e înghițită intern (guard pe resp.ok + try/catch)
+// ca alertarea să NU doboare cron-ul. Nu aruncă niciodată.
+async function postCronAlert(jobName, message) {
+  const slackWebhook = process.env.SLACK_WEBHOOK_URL
+  if (!slackWebhook) return // env lipsă → no-op silent
+  try {
+    const text = `🔴 Cron job ${jobName} a eșuat: ${message}`
+    const resp = await fetch(slackWebhook, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '')
+      console.error('[send-reservation-reminders] postCronAlert slack post failed:', resp.status, body.slice(0, 200))
+    }
+  } catch (e) {
+    // Alertarea e best-effort — o eroare aici nu trebuie să propage în cron.
+    console.error('[send-reservation-reminders] postCronAlert failed:', e.message)
+  }
+}
+
 exports.handler = async () => {
   const supabaseUrl =
     process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -69,13 +93,49 @@ exports.handler = async () => {
           r.id,
           enqErr.message,
         )
+        // Resetăm reminder_sent_at la NULL ca tick-ul următor s-o reîncerce.
+        // RPC-ul de claim filtrează mereu reminder_sent_at IS NULL; fără reset,
+        // rezervarea rămâne marcată permanent și reminderul nu se mai trimite
+        // niciodată. reservations NU e lockdown table → UPDATE direct merge.
+        const { error: resetErr } = await supabase
+          .from('reservations')
+          .update({ reminder_sent_at: null })
+          .eq('id', r.id)
+        if (resetErr) {
+          console.error(
+            '[send-reservation-reminders] reset reminder_sent_at failed for',
+            r.id,
+            resetErr.message,
+          )
+        }
       } else {
         ok++
       }
     } catch (e) {
       fail++
       console.error('[send-reservation-reminders] exception for', r.id, e.message)
+      // Același reset ca pe ramura enqErr — altfel rezervarea rămâne blocată.
+      const { error: resetErr } = await supabase
+        .from('reservations')
+        .update({ reminder_sent_at: null })
+        .eq('id', r.id)
+      if (resetErr) {
+        console.error(
+          '[send-reservation-reminders] reset reminder_sent_at failed for',
+          r.id,
+          resetErr.message,
+        )
+      }
     }
+  }
+
+  // Dacă au fost eșecuri, alertăm founder-ul pe Slack — fără asta, un enqueue
+  // rupt sistemic ar trece tăcut (rezervările sunt resetate, dar nimeni nu află).
+  if (fail > 0) {
+    await postCronAlert(
+      'reservation-reminders',
+      `${fail} rezervări au eșuat la enqueue (din ${claimed.length} revendicate); reminder_sent_at resetat pentru retry la tick-ul următor`,
+    )
   }
 
   return {
