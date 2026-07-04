@@ -13,6 +13,7 @@ import type {
   DecoType,
   FloorTable,
   FloorDeco,
+  FloorZone,
   Floor,
   FloorLayout,
 } from '../lib/floorPlan'
@@ -86,12 +87,14 @@ const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
   ...e,
 })
 
-const navBtn = (active: boolean): React.CSSProperties => ({
+const navBtn = (active: boolean, mobile = false): React.CSSProperties => ({
   display: 'flex',
   alignItems: 'center',
   gap: 8,
   width: '100%',
   padding: '8px 11px',
+  // Țintă touch ≥44px pe mobil (WCAG 2.5.5); pe desktop rămâne compact.
+  minHeight: mobile ? 44 : undefined,
   border: `1px solid ${active ? D.gold + '44' : D.border}`,
   borderRadius: 8,
   cursor: 'pointer',
@@ -105,6 +108,18 @@ const navBtn = (active: boolean): React.CSSProperties => ({
   outline: 'none',
   textAlign: 'left' as const,
 })
+
+// Inel de focus vizibil (outline e dezactivat global) — atașat pe butoanele/
+// inputurile de chrome via onFocus/onBlur ca navigarea la tastatură să fie
+// vizibilă. Nu afectează elementele care au deja boxShadow propriu.
+const focusRing = {
+  onFocus: (e: React.FocusEvent<HTMLElement>) => {
+    e.currentTarget.style.boxShadow = `0 0 0 2px ${D.gold}55`
+  },
+  onBlur: (e: React.FocusEvent<HTMLElement>) => {
+    e.currentTarget.style.boxShadow = ''
+  },
+}
 
 const propLabel: React.CSSProperties = {
   fontSize: '0.7rem',
@@ -174,12 +189,18 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const [liveStatus, setLiveStatus] = useState<Record<string, TableStatus>>({})
   const [saving, setSaving] = useState(false)
   const [savedOk, setSavedOk] = useState(false)
+  // Eroarea de salvare afișată inline în header (fostul window.alert) — se
+  // șterge la următorul save reușit sau la reîncercare.
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [hist, setHist] = useState<string[]>([])
   // Ajutorul „Cum funcționează" e pliat implicit pe mobil (deschis pe desktop).
   const [helpOpen, setHelpOpen] = useState(false)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const off = useRef({ x: 0, y: 0 })
+  // Panoul de proprietăți — pe mobil coboară sub canvas; îl aducem în viewport
+  // la selecție (altfel selectezi o masă și panoul e în afara ecranului).
+  const propsRef = useRef<HTMLDivElement>(null)
 
   const floor = floors[fi] ?? emptyFloor()
 
@@ -370,6 +391,10 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const updTbl = (k: keyof FloorTable, v: unknown) =>
     upd((f) => ({ ...f, tables: f.tables.map((t) => (t.id === sel?.id ? { ...t, [k]: v } : t)) }))
 
+  // Oglindă a lui updTbl pentru zone — folosit la redenumirea zonei selectate.
+  const updZone = (k: keyof FloorZone, v: unknown) =>
+    upd((f) => ({ ...f, zones: f.zones.map((z) => (z.id === sel?.id ? { ...z, [k]: v } : z)) }))
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Delete' || e.key === 'Backspace') delSel()
@@ -385,6 +410,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
   const handleSave = async () => {
     setSaving(true)
+    // Curăță eroarea anterioară la fiecare reîncercare.
+    setSaveError(null)
     const payload: FloorLayout = { floors, version: 1, savedAt: new Date().toISOString() }
     const { error } = await supabase.rpc('save_floor_layout', {
       p_restaurant_id: restaurantId,
@@ -403,10 +430,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
         : /too large|prea mare/i.test(rawMessage)
           ? 'Layout prea mare. Simplifică harta și reîncearcă.'
           : 'A apărut o eroare la salvare. Reîncearcă.'
-      window.alert(`Salvarea hărții a eșuat: ${hint}`)
+      // Banner inline în header (fostul window.alert) — același limbaj vizual ca „✓ Salvat".
+      setSaveError(hint)
       return
     }
     setSavedOk(true)
+    setSaveError(null)
     setTimeout(() => setSavedOk(false), 2200)
   }
 
@@ -501,6 +530,17 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     ? { minWidth: 150, flexShrink: 0 }
     : { marginBottom: 12 }
 
+  // Pe mobil panoul de proprietăți e sub canvas; la selectarea unui element îl
+  // aducem lin în viewport ca userul să vadă imediat controalele.
+  const selId = sel?.id
+  useEffect(() => {
+    if (!isMobile || !selId) return
+    propsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [isMobile, selId])
+
+  // Zona selectată (pentru redenumire în panoul de proprietăți).
+  const selZone = sel?.type === 'zone' ? floor.zones.find((z) => z.id === sel.id) : null
+
   return (
     <div
       style={{
@@ -520,13 +560,17 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          // Pe mobil titlul + acțiunile pot trece pe rânduri diferite fără să se înghesuie.
+          flexWrap: 'wrap',
+          gap: 10,
           padding: '12px 18px',
           borderBottom: `1px solid ${D.border}`,
           background: D.s1,
           flexShrink: 0,
         }}
       >
-        <div>
+        {/* minWidth:0 lasă titlul să se trunchieze în loc să împingă butoanele. */}
+        <div style={{ minWidth: 0, flex: '1 1 auto' }}>
           <h2
             style={{
               fontFamily: 'Fraunces,serif',
@@ -534,6 +578,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               color: D.t1,
               letterSpacing: '-0.02em',
               margin: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
             Arhitectură Restaurant
@@ -542,33 +589,73 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             {totalTables} mese · {totalSeats} locuri
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
           <button
             onClick={() => setLive(!live)}
+            // Buton-comutator: aria-pressed anunță starea; eticheta spune modul curent.
+            aria-pressed={live}
+            aria-label={live ? 'Mod vizualizare live activ — comută pe editare' : 'Mod editare activ — comută pe vizualizare live'}
+            title={live ? 'Comută pe Editare' : 'Comută pe Vizualizare live'}
             style={btn({
               background: live ? D.gold : D.s3,
               color: live ? '#000' : D.t2,
               border: live ? 'none' : `1px solid ${D.border}`,
             })}
+            {...focusRing}
           >
-            <span style={{ fontSize: 7, color: live ? D.green : D.t3 }}>●</span>
-            {live ? 'Live' : 'Edit'}
+            <span style={{ fontSize: 7, color: live ? D.green : D.t3 }} aria-hidden="true">
+              ●
+            </span>
+            {live ? 'Live' : 'Editare'}
           </button>
           <button
             onClick={undo}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-            title="Undo (Ctrl+Z)"
+            disabled={!hist.length}
+            aria-label="Anulează ultima acțiune"
+            style={btn({
+              background: D.s3,
+              color: D.t2,
+              border: `1px solid ${D.border}`,
+              opacity: hist.length ? 1 : 0.45,
+              cursor: hist.length ? 'pointer' : 'not-allowed',
+            })}
+            title="Anulează (Ctrl+Z)"
+            {...focusRing}
           >
-            ↩
+            <span aria-hidden="true">↩</span>
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
-            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
+            // minWidth fix ca butonul să nu-și schimbe lățimea între „Salvează" și „Se salvează...".
+            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1, minWidth: 104 })}
+            {...focusRing}
           >
             {savedOk ? '✓ Salvat' : saving ? 'Se salvează...' : 'Salvează'}
           </button>
         </div>
+        {/* Banner de eroare la salvare — inline, în același limbaj vizual ca „✓ Salvat". */}
+        {saveError && (
+          <div
+            role="alert"
+            style={{
+              flexBasis: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 12px',
+              borderRadius: 8,
+              background: D.redA,
+              border: `1px solid rgba(224,85,85,.28)`,
+              color: D.red,
+              fontSize: '0.78rem',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{saveError}</span>
+          </div>
+        )}
       </div>
 
       <div
@@ -581,6 +668,10 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       >
         {/* ── Left Sidebar — pe mobil: bandă orizontală scrollabilă de secțiuni ── */}
         {!live && (
+          // Wrapper: pe desktop e transparent la layout (display:contents, banda
+          // își păstrează locul de coloană); pe mobil e container relativ pentru
+          // overlay-ul de fade care semnalează scroll orizontal.
+          <div style={isMobile ? { position: 'relative', width: '100%', flexShrink: 0 } : { display: 'contents' }}>
           <div
             style={
               isMobile
@@ -608,7 +699,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
           >
             <div style={toolSection}>
               <div style={sectionLabel}>Instrumente</div>
-              <button style={navBtn(tool === 'select')} onClick={() => setTool('select')}>
+              <button
+                style={navBtn(tool === 'select', isMobile)}
+                onClick={() => setTool('select')}
+                {...focusRing}
+              >
                 ↖ Selectează
               </button>
             </div>
@@ -620,11 +715,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               ).map(([k, v]) => (
                 <button
                   key={k}
-                  style={navBtn(tool === 'addTable' && shape === k)}
+                  style={navBtn(tool === 'addTable' && shape === k, isMobile)}
                   onClick={() => {
                     setTool('addTable')
                     setShape(k)
                   }}
+                  {...focusRing}
                 >
                   <span style={{ fontSize: 13, width: 16, textAlign: 'center' }}>{v.icon}</span>
                   {v.label}
@@ -636,14 +732,19 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   <button
                     key={n}
                     onClick={() => setSeats(n)}
+                    aria-pressed={seats === n}
+                    aria-label={`${n} locuri`}
                     style={btn({
-                      height: 26,
+                      // Țintă touch ≥44px pe mobil; desktop rămâne compact la 26px.
+                      height: isMobile ? 44 : 26,
+                      minWidth: isMobile ? 44 : undefined,
                       padding: '0 8px',
                       fontSize: '0.72rem',
                       background: seats === n ? D.goldA : D.s3,
                       color: seats === n ? D.goldL : D.t2,
                       border: `1px solid ${seats === n ? D.gold + '44' : D.border}`,
                     })}
+                    {...focusRing}
                   >
                     {n}
                   </button>
@@ -657,11 +758,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 ([k, v]) => (
                   <button
                     key={k}
-                    style={navBtn(tool === 'addWall' && wallT === k)}
+                    style={navBtn(tool === 'addWall' && wallT === k, isMobile)}
                     onClick={() => {
                       setTool('addWall')
                       setWallT(k)
                     }}
+                    {...focusRing}
                   >
                     <span
                       style={{
@@ -676,7 +778,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   </button>
                 ),
               )}
-              <button style={navBtn(tool === 'addZone')} onClick={() => setTool('addZone')}>
+              <button
+                style={navBtn(tool === 'addZone', isMobile)}
+                onClick={() => setTool('addZone')}
+                {...focusRing}
+              >
                 ▢ Zonă
               </button>
             </div>
@@ -687,11 +793,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 ([k, v]) => (
                   <button
                     key={k}
-                    style={navBtn(tool === 'addDeco' && decoT === k)}
+                    style={navBtn(tool === 'addDeco' && decoT === k, isMobile)}
                     onClick={() => {
                       setTool('addDeco')
                       setDecoT(k)
                     }}
+                    {...focusRing}
                   >
                     <span style={{ fontSize: 13 }}>{v.emoji}</span> {v.label}
                   </button>
@@ -702,7 +809,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             <div style={toolSection}>
               <div style={sectionLabel}>Etaje</div>
               {floors.map((f, i) => (
-                <button key={f.id} style={navBtn(fi === i)} onClick={() => setFi(i)}>
+                <button
+                  key={f.id}
+                  style={navBtn(fi === i, isMobile)}
+                  onClick={() => setFi(i)}
+                  {...focusRing}
+                >
                   {f.name}
                 </button>
               ))}
@@ -712,12 +824,14 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   color: D.t2,
                   border: `1px solid ${D.border}`,
                   width: '100%',
+                  minHeight: isMobile ? 44 : undefined,
                   marginTop: 5,
                 })}
                 onClick={() => {
                   setFloors((prev) => [...prev, { ...emptyFloor(), name: `Etaj ${prev.length}` }])
                   setFi(floors.length)
                 }}
+                {...focusRing}
               >
                 + Etaj
               </button>
@@ -731,16 +845,35 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 fontSize: '0.75rem',
                 color: D.t3,
                 cursor: 'pointer',
+                // Țintă touch ≥44px pe mobil (label întreg e zona de atins).
+                minHeight: isMobile ? 44 : undefined,
+                flexShrink: 0,
               }}
             >
               <input
                 type="checkbox"
                 checked={showGrid}
                 onChange={() => setShowGrid(!showGrid)}
-                style={{ accentColor: D.gold }}
+                style={{ accentColor: D.gold, width: 18, height: 18 }}
               />
               Grid
             </label>
+          </div>
+          {isMobile && (
+            // Fade la marginea dreaptă = indiciu că banda mai continuă (scroll orizontal).
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: 40,
+                background: `linear-gradient(90deg, transparent, ${D.s1})`,
+                pointerEvents: 'none',
+              }}
+            />
+          )}
           </div>
         )}
 
@@ -1069,6 +1202,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
         {/* ── Right Sidebar (Properties) — pe mobil coboară SUB canvas ── */}
         <div
+          ref={propsRef}
           style={
             isMobile
               ? {
@@ -1104,8 +1238,10 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 <div style={propLabel}>Label</div>
                 <input
                   style={inp}
+                  aria-label="Etichetă masă"
                   value={selTable.label}
                   onChange={(e) => updTbl('label', e.target.value)}
+                  {...focusRing}
                 />
               </div>
               <div style={{ marginBottom: 10 }}>
@@ -1115,16 +1251,20 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   type="number"
                   min={1}
                   max={20}
+                  aria-label="Număr de locuri"
                   value={selTable.seats}
                   onChange={(e) => updTbl('seats', +e.target.value)}
+                  {...focusRing}
                 />
               </div>
               <div style={{ marginBottom: 10 }}>
                 <div style={propLabel}>Formă</div>
                 <select
                   style={{ ...inp, cursor: 'pointer' }}
+                  aria-label="Formă masă"
                   value={selTable.shape}
                   onChange={(e) => updTbl('shape', e.target.value as TableShape)}
+                  {...focusRing}
                 >
                   {(
                     Object.entries(TABLE_SHAPES) as [
@@ -1144,16 +1284,20 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   <input
                     style={{ ...inp, width: '50%' }}
                     type="number"
+                    aria-label="Lățime masă (px)"
                     value={selTable.w}
                     onChange={(e) => updTbl('w', +e.target.value)}
                     placeholder="W"
+                    {...focusRing}
                   />
                   <input
                     style={{ ...inp, width: '50%' }}
                     type="number"
+                    aria-label="Înălțime masă (px)"
                     value={selTable.h}
                     onChange={(e) => updTbl('h', +e.target.value)}
                     placeholder="H"
+                    {...focusRing}
                   />
                 </div>
               </div>
@@ -1177,9 +1321,10 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 <select
                   value={selTable.tableId ?? ''}
                   onChange={(e) => updTbl('tableId', e.target.value || undefined)}
+                  aria-label="Masă reală din POS legată de această masă"
                   style={{
                     width: '100%',
-                    height: 32,
+                    height: isMobile ? 44 : 32,
                     background: D.s1,
                     color: D.t1,
                     border: `1px solid ${D.border}`,
@@ -1187,6 +1332,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     padding: '0 8px',
                     fontSize: '0.78rem',
                   }}
+                  {...focusRing}
                 >
                   <option value="">
                     {realTables.some(
@@ -1208,19 +1354,23 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                 <button
                   onClick={rotateSel}
-                  style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
+                  style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}`, flex: 1 })}
+                  {...focusRing}
                 >
                   ↻ Rotește
                 </button>
                 <button
                   onClick={delSel}
+                  aria-label="Șterge masa"
                   style={btn({
                     background: D.redA,
                     color: D.red,
                     border: `1px solid rgba(224,85,85,.2)`,
+                    flex: 1,
                   })}
+                  {...focusRing}
                 >
-                  ✕
+                  ✕ Șterge
                 </button>
               </div>
             </>
@@ -1274,7 +1424,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             </>
           )}
 
-          {sel?.type === 'zone' && (
+          {sel?.type === 'zone' && selZone && (
             <>
               <div
                 style={{
@@ -1286,9 +1436,21 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               >
                 Zonă
               </div>
+              {/* Redenumire zonă — oglindește pattern-ul „Label" de la masă. */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={propLabel}>Nume zonă</div>
+                <input
+                  style={inp}
+                  aria-label="Nume zonă"
+                  value={selZone.label}
+                  onChange={(e) => updZone('label', e.target.value)}
+                  {...focusRing}
+                />
+              </div>
               <button
                 onClick={delSel}
                 style={btn({ background: D.redA, color: D.red, border: 'none', marginTop: 6 })}
+                {...focusRing}
               >
                 ✕ Șterge
               </button>
@@ -1324,32 +1486,49 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               </button>
               {(!isMobile || helpOpen) && (
                 <>
-              <p>
-                <span style={{ color: D.t1, fontWeight: 500 }}>Click</span> — plasează element
-              </p>
-              <p>
-                <span style={{ color: D.t1, fontWeight: 500 }}>Drag</span> — mută masa
-              </p>
-              <p>
-                <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                  R
-                </span>{' '}
-                — rotește
-              </p>
-              <p>
-                <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                  Del
-                </span>{' '}
-                — șterge
-              </p>
-              <p>
-                <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                  Ctrl+Z
-                </span>{' '}
-                — undo
-              </p>
+              {isMobile ? (
+                // Pe mobil scurtăturile de tastatură nu se aplică — arătăm gesturi touch.
+                <>
+                  <p>
+                    <span style={{ color: D.t1, fontWeight: 500 }}>Atinge</span> — plasează / selectează
+                  </p>
+                  <p>
+                    <span style={{ color: D.t1, fontWeight: 500 }}>Trage</span> — mută masa
+                  </p>
+                  <p>
+                    <span style={{ color: D.t1, fontWeight: 500 }}>Rotește / Șterge</span> — din panoul de proprietăți
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p>
+                    <span style={{ color: D.t1, fontWeight: 500 }}>Click</span> — plasează element
+                  </p>
+                  <p>
+                    <span style={{ color: D.t1, fontWeight: 500 }}>Drag</span> — mută masa
+                  </p>
+                  <p>
+                    <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                      R
+                    </span>{' '}
+                    — rotește
+                  </p>
+                  <p>
+                    <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                      Del
+                    </span>{' '}
+                    — șterge
+                  </p>
+                  <p>
+                    <span style={{ color: D.gold, fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                      Ctrl+Z
+                    </span>{' '}
+                    — undo
+                  </p>
+                </>
+              )}
               <div style={{ borderTop: `1px solid ${D.border}`, marginTop: 10, paddingTop: 10 }}>
-                <p>Pereți: click & drag</p>
+                <p>Pereți: {isMobile ? 'atinge și trage' : 'click & drag'}</p>
                 <p style={{ marginTop: 4 }}>
                   Mod <span style={{ color: D.gold }}>Live</span> arată status mese în timp real
                 </p>
