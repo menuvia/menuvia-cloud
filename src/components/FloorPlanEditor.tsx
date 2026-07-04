@@ -2,70 +2,29 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../hooks/useIsMobile'
+// Tipurile + constantele canvas trăiesc acum în lib/floorPlan.ts (partajate cu
+// vizualizatorul public FloorPlanViewer). Re-exportăm FloorLayout ca importurile
+// existente (`import type { FloorLayout } from '../components/FloorPlanEditor'`)
+// să continue să compileze.
+import type {
+  TableShape,
+  TableStatus,
+  WallType,
+  DecoType,
+  FloorTable,
+  FloorDeco,
+  Floor,
+  FloorLayout,
+} from '../lib/floorPlan'
+import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
+// Re-export local (binding-ul importat mai sus) — nu introduce dublă declarație.
+export type { FloorLayout }
 
 // ─── Types ────────────────────────────────────────────────────
-type TableShape = 'round' | 'square' | 'rect' | 'bar'
-type TableStatus = 'free' | 'occupied' | 'calling' | 'reserved'
-type WallType = 'wall' | 'window' | 'door'
-type DecoType = 'plant' | 'bar_counter' | 'wc' | 'stairs' | 'kitchen_door' | 'entrance'
 type ToolType = 'select' | 'addTable' | 'addWall' | 'addZone' | 'addDeco'
-
-interface FloorTable {
-  id: string
-  x: number
-  y: number
-  w: number
-  h: number
-  shape: TableShape
-  label: string
-  seats: number
-  rotation: number
-  status: TableStatus
-  // Legătura cu masa reală (public.tables.id). Opțional pentru
-  // backward-compat; auto-link după nume dacă lipsește.
-  tableId?: string
-}
-interface FloorWall {
-  id: string
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-  type: WallType
-}
-interface FloorDeco {
-  id: string
-  x: number
-  y: number
-  type: DecoType
-  size: number
-}
-interface FloorZone {
-  id: string
-  x: number
-  y: number
-  w: number
-  h: number
-  label: string
-}
-interface Floor {
-  id: string
-  name: string
-  tables: FloorTable[]
-  walls: FloorWall[]
-  decos: FloorDeco[]
-  zones: FloorZone[]
-}
-export interface FloorLayout {
-  floors: Floor[]
-  version: number
-  savedAt: string
-}
 
 // ─── Constants ────────────────────────────────────────────────
 const GRID = 20
-const CANVAS_W = 860
-const CANVAS_H = 560
 
 const TABLE_SHAPES: Record<TableShape, { label: string; icon: string; w: number; h: number }> = {
   round: { label: 'Rotundă', icon: '●', w: 80, h: 80 },

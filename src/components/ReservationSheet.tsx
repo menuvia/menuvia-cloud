@@ -7,7 +7,15 @@ import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
 import { T } from '../lib/constants'
 import type { Restaurant } from '../lib/qr'
+import {
+  fetchPublicFloorPlan,
+  fetchTablesAvailability,
+  type PublicFloorTable,
+  type TableAvailabilityRow,
+} from '../lib/qr'
+import type { FloorLayout } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
+import FloorPlanViewer from './menu/FloorPlanViewer'
 
 interface PubColors {
   bg: string
@@ -131,6 +139,15 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<CreateResult | null>(null)
 
+  // ── Harta sălii (rezervare cu alegere pe hartă) — pur aditiv ────
+  // Dacă restaurantul n-are floor_layout sau RPC-ul dă eroare, harta pur și
+  // simplu nu se afișează, iar fluxul clasic (zonă text + auto-alocare) rămâne.
+  const [floorLayout, setFloorLayout] = useState<FloorLayout | null>(null)
+  const [publicTables, setPublicTables] = useState<PublicFloorTable[]>([])
+  const [availability, setAvailability] = useState<TableAvailabilityRow[]>([])
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null)
+  const [mapLoading, setMapLoading] = useState(false)
+
   // Load public settings + zones via lightweight selects.
   // reservation_settings RLS = admin-only, dar avem nevoie de slot_interval,
   // open_time, close_time pe public — folosim RPC fără sau read direct?
@@ -204,6 +221,82 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     if (timeSlot && !slots.includes(timeSlot)) setTimeSlot('')
   }, [slots, timeSlot])
 
+  // Slotul complet (starts_at ISO + ends_at derivat din durata din settings).
+  // ends_at = starts_at + reservation_duration (minute) — aceeași durată pe care
+  // RPC-ul o folosește implicit când p_duration_minutes e null. Fără party/dată/
+  // oră complete → null (harta nu se încarcă).
+  const slot = useMemo(() => {
+    if (!settings || !chosenDateYmd || !timeSlot) return null
+    const startsAt = isoIsoForLocalDateTime(
+      chosenDateYmd,
+      timeSlot,
+      restaurant.timezone || 'Europe/Bucharest',
+    )
+    const endsAt = new Date(
+      new Date(startsAt).getTime() + settings.reservation_duration * 60_000,
+    ).toISOString()
+    return { startsAt, endsAt }
+  }, [settings, chosenDateYmd, timeSlot, restaurant.timezone])
+
+  // Reîncarcă disponibilitatea meselor (folosit și la eroarea table_unavailable).
+  const reloadAvailability = useCallback(async () => {
+    if (!slot || !restaurant.slug) return
+    const rows = await fetchTablesAvailability(
+      restaurant.slug,
+      slot.startsAt,
+      slot.endsAt,
+      partySize,
+    )
+    setAvailability(rows)
+  }, [slot, restaurant.slug, partySize])
+
+  // La schimbarea slotului (dată/oră/party): încarcă în paralel harta + disponibilitatea.
+  // Deselectăm masa aleasă — nu mai e garantată pentru noul slot.
+  useEffect(() => {
+    if (!slot || !restaurant.slug) {
+      setFloorLayout(null)
+      setPublicTables([])
+      setAvailability([])
+      setSelectedTableId(null)
+      return
+    }
+    let cancelled = false
+    const slug = restaurant.slug
+    setMapLoading(true)
+    setSelectedTableId(null)
+    void Promise.all([
+      fetchPublicFloorPlan(slug),
+      fetchTablesAvailability(slug, slot.startsAt, slot.endsAt, partySize),
+    ]).then(([plan, avail]) => {
+      if (cancelled) return
+      setFloorLayout(plan.floor_layout)
+      setPublicTables(plan.tables)
+      setAvailability(avail)
+      setMapLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [slot, restaurant.slug, partySize])
+
+  // Harta se afișează doar dacă există un layout cu cel puțin o masă pe primul etaj.
+  const hasFloorMap = useMemo(
+    () => floorLayout != null && (floorLayout.floors[0]?.tables.length ?? 0) > 0,
+    [floorLayout],
+  )
+
+  const availabilityByTableId = useMemo(() => {
+    const m = new Map<string, boolean>()
+    for (const r of availability) m.set(r.table_id, r.is_available)
+    return m
+  }, [availability])
+
+  const tablesByName = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const t of publicTables) m.set(t.name.trim().toLowerCase(), t.id)
+    return m
+  }, [publicTables])
+
   const submit = useCallback(async () => {
     setError(null)
     if (!chosenDateYmd) {
@@ -239,11 +332,25 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       p_special_requests: notes.trim().length > 0 ? notes.trim() : null,
       p_duration_minutes: null,
       p_zone: zone,
+      // Masa aleasă pe hartă (null = auto-alocare, comportamentul clasic).
+      p_table_id: selectedTableId,
     })
     setSubmitting(false)
     if (rpcErr) {
       // Mapăm erorile DB cunoscute la mesaje prietenoase (nu expunem text brut Postgres).
       const m = rpcErr.message || ''
+      // Masa aleasă tocmai a fost luată de altcineva (hint `table_unavailable`).
+      // Reîncărcăm disponibilitatea și deselectăm, ca clientul să aleagă alta.
+      if (/table_unavailable/i.test(m)) {
+        setSelectedTableId(null)
+        void reloadAvailability()
+        setError(
+          lang === 'ro'
+            ? 'Masa tocmai a fost rezervată. Alege altă masă liberă.'
+            : 'That table was just booked. Please pick another free table.',
+        )
+        return
+      }
       const friendly = /overlap|exclusion/i.test(m)
         ? lang === 'ro'
           ? 'Intervalul ales se suprapune cu altă rezervare. Alege altă oră.'
@@ -264,7 +371,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
     const row = Array.isArray(data) ? data[0] : data
     setResult(row as CreateResult)
-  }, [chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, restaurant.slug, restaurant.timezone, lang])
+  }, [chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.timezone, lang])
 
   const maxParty = settings?.max_party_size ?? 20
 
@@ -599,6 +706,41 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               </button>
             ))}
           </div>
+        )}
+
+        {/* Alege masa pe hartă (opțional) — pur aditiv, apare doar dacă
+            restaurantul are o hartă a sălii cu mese și e ales un slot. */}
+        {hasFloorMap && floorLayout && (
+          <>
+            <div style={labelStyle}>
+              {lang === 'ro' ? 'Alege masa (opțional)' : 'Choose a table (optional)'}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+              <button
+                onClick={() => setSelectedTableId(null)}
+                style={{ ...chipBase, ...chipActive(selectedTableId === null) }}
+              >
+                {lang === 'ro' ? 'Oricare masă liberă' : 'Any free table'}
+              </button>
+            </div>
+            <div style={{ opacity: mapLoading ? 0.6 : 1, transition: 'opacity .15s' }}>
+              <FloorPlanViewer
+                layout={floorLayout}
+                availabilityByTableId={availabilityByTableId}
+                tablesByName={tablesByName}
+                selectedTableId={selectedTableId}
+                onSelectTable={(id) => setSelectedTableId(id)}
+                accent={accent}
+                PUB={PUB}
+                lang={lang}
+              />
+            </div>
+            <div style={{ fontSize: 12, color: PUB.text3, marginTop: 8 }}>
+              {lang === 'ro'
+                ? 'Atinge o masă liberă pentru a o alege, sau lasă „Oricare masă liberă" pentru alocare automată.'
+                : 'Tap a free table to pick it, or keep “Any free table” for automatic assignment.'}
+            </div>
+          </>
         )}
 
         {/* Contact */}
