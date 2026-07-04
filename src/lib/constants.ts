@@ -243,6 +243,21 @@ export const PUBLIC_MENU_STRINGS = {
     ro: 'Vei primi un email reminder înainte de vizită.',
     en: 'You will receive an email reminder before your visit.',
   },
+  // Alegerea mesei pe harta sălii (secțiune opțională, apare doar cu floor plan).
+  reserve_add_another: { ro: '+ Rezervă altă masă', en: '+ Book another table' },
+  reserve_pick_table_label: { ro: 'ALEGE MASA (OPȚIONAL)', en: 'CHOOSE A TABLE (OPTIONAL)' },
+  reserve_any_free_table: { ro: 'Oricare masă liberă', en: 'Any free table' },
+  reserve_pick_table_hint: {
+    ro: 'Atinge o masă liberă pentru a o alege, sau lasă „Oricare masă liberă" pentru alocare automată.',
+    en: 'Tap a free table to pick it, or keep “Any free table” for automatic assignment.',
+  },
+  reserve_map_loading: { ro: 'Se încarcă harta sălii…', en: 'Loading floor plan…' },
+  reserve_map_error: {
+    ro: 'Harta sălii nu s-a putut încărca — poți continua cu alocare automată.',
+    en: 'The floor plan could not be loaded — you can continue with automatic assignment.',
+  },
+  reserve_seats_word: { ro: 'locuri', en: 'seats' },
+  reserve_deselect_table: { ro: 'Deselectează masa', en: 'Deselect table' },
   // Banner Happy Hour (prefixul; sufixele -%/-lei rămân în afara dicționarului).
   happy_hour_active: { ro: 'Happy Hour activ:', en: 'Happy Hour active:' },
   // Bara sticky + sheet-ul „Lista mea" (meniu digital fără comenzi).

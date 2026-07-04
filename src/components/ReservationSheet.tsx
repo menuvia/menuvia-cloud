@@ -14,6 +14,7 @@ import {
   type TableAvailabilityRow,
 } from '../lib/qr'
 import type { FloorLayout } from '../lib/floorPlan'
+import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
 import FloorPlanViewer from './menu/FloorPlanViewer'
 
@@ -157,6 +158,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   // fără un fetch paralel separat care ar putea suprascrie cu date vechi.
   const [reloadNonce, setReloadNonce] = useState(0)
   const [mapLoading, setMapLoading] = useState(false)
+  // Semnalizează că fetch-ul hărții/disponibilității a eșuat (rețea/RLS/timeout).
+  // Neblocant: fluxul cu alocare automată rămâne complet utilizabil.
+  const [mapError, setMapError] = useState(false)
+  // Mesaj efemer la atingerea unei mese ocupate (feedback, se stinge singur).
+  const [occupiedMsg, setOccupiedMsg] = useState<string | null>(null)
 
   // Load public settings + zones via lightweight selects.
   // reservation_settings RLS = admin-only, dar avem nevoie de slot_interval,
@@ -268,21 +274,42 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     let cancelled = false
     const slug = restaurant.slug
     setMapLoading(true)
+    setMapError(false)
+    setOccupiedMsg(null)
     setSelectedTableId(null)
     void Promise.all([
       fetchPublicFloorPlan(slug),
       fetchTablesAvailability(slug, slot.startsAt, slot.endsAt, partySize),
-    ]).then(([plan, avail]) => {
-      if (cancelled) return
-      setFloorLayout(plan.floor_layout)
-      setPublicTables(plan.tables)
-      setAvailability(avail)
-      setMapLoading(false)
-    })
+    ])
+      .then(([plan, avail]) => {
+        if (cancelled) return
+        setFloorLayout(plan.floor_layout)
+        setPublicTables(plan.tables)
+        setAvailability(avail)
+        setMapLoading(false)
+      })
+      .catch(() => {
+        // Orice respingere (rețea/RLS/timeout): oprim spinner-ul ca harta să nu
+        // rămână blocată și arătăm un mesaj neblocant. Fără hartă, fluxul cade
+        // înapoi pe alocarea automată (p_table_id = null).
+        if (cancelled) return
+        setFloorLayout(null)
+        setPublicTables([])
+        setAvailability([])
+        setMapError(true)
+        setMapLoading(false)
+      })
     return () => {
       cancelled = true
     }
   }, [slot, restaurant.slug, partySize, reloadNonce])
+
+  // Feedback-ul de masă ocupată se stinge singur după câteva secunde.
+  useEffect(() => {
+    if (!occupiedMsg) return
+    const id = window.setTimeout(() => setOccupiedMsg(null), 3500)
+    return () => window.clearTimeout(id)
+  }, [occupiedMsg])
 
   // Harta se afișează doar dacă există un layout cu cel puțin o masă pe primul etaj.
   const hasFloorMap = useMemo(
@@ -301,6 +328,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     for (const t of publicTables) m.set(t.name.trim().toLowerCase(), t.id)
     return m
   }, [publicTables])
+
+  // Masa aleasă pe hartă (pentru chip-ul de confirmare afișat în afara SVG-ului).
+  const selectedTable = useMemo(
+    () => publicTables.find((t) => t.id === selectedTableId) ?? null,
+    [publicTables, selectedTableId],
+  )
 
   const submit = useCallback(async () => {
     setError(null)
@@ -536,7 +569,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 cursor: 'pointer',
               }}
             >
-              + Rezervă altă masă
+              {T(lang, 'reserve_add_another')}
             </button>
             <button
               onClick={onClose}
@@ -651,6 +684,9 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             type="date"
             value={customDate}
             min={ymd(new Date())}
+            // Nu lăsăm clientul să aleagă o dată dincolo de fereastra permisă
+            // (RPC-ul o respinge oricum). Fallback 30 zile dacă settings n-a venit.
+            max={ymd(new Date(Date.now() + (settings?.max_advance_days ?? 30) * 86_400_000))}
             onChange={(e) => setCustomDate(e.target.value)}
             style={{ ...inputStyle, marginTop: 10 }}
           />
@@ -713,20 +749,104 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           </div>
         )}
 
+        {/* Placeholder cât timp se încarcă harta — evită saltul vizual când
+            secțiunea „Alege masa" ar apărea brusc după fetch. */}
+        {slot && mapLoading && !hasFloorMap && (
+          <>
+            <div style={labelStyle}>{T(lang, 'reserve_pick_table_label')}</div>
+            <div
+              aria-busy="true"
+              aria-live="polite"
+              style={{
+                width: '100%',
+                aspectRatio: `${CANVAS_W} / ${CANVAS_H}`,
+                borderRadius: 12,
+                border: `1px solid ${PUB.border}`,
+                background: PUB.surface,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: PUB.text3,
+                fontSize: 13,
+              }}
+            >
+              {T(lang, 'reserve_map_loading')}
+            </div>
+          </>
+        )}
+
+        {/* Mesaj neblocant dacă harta n-a putut fi încărcată — fluxul cu
+            alocare automată rămâne complet funcțional. */}
+        {slot && mapError && !mapLoading && (
+          <div
+            role="status"
+            style={{
+              marginTop: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: PUB.surface,
+              border: `1px solid ${PUB.border}`,
+              color: PUB.text2,
+              fontSize: 13,
+            }}
+          >
+            {T(lang, 'reserve_map_error')}
+          </div>
+        )}
+
         {/* Alege masa pe hartă (opțional) — pur aditiv, apare doar dacă
             restaurantul are o hartă a sălii cu mese și e ales un slot. */}
         {hasFloorMap && floorLayout && (
           <>
-            <div style={labelStyle}>
-              {lang === 'ro' ? 'Alege masa (opțional)' : 'Choose a table (optional)'}
-            </div>
+            <div style={labelStyle}>{T(lang, 'reserve_pick_table_label')}</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
               <button
                 onClick={() => setSelectedTableId(null)}
                 style={{ ...chipBase, ...chipActive(selectedTableId === null) }}
               >
-                {lang === 'ro' ? 'Oricare masă liberă' : 'Any free table'}
+                {T(lang, 'reserve_any_free_table')}
               </button>
+              {/* Confirmarea mesei alese, în afara SVG-ului, cu buton de deselectare. */}
+              {selectedTable && (
+                <span
+                  style={{
+                    ...chipBase,
+                    ...chipActive(true),
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    cursor: 'default',
+                  }}
+                >
+                  {`Masa ${selectedTable.name}`}
+                  {selectedTable.seats != null
+                    ? ` · ${selectedTable.seats} ${T(lang, 'reserve_seats_word')}`
+                    : ''}
+                  <button
+                    type="button"
+                    aria-label={T(lang, 'reserve_deselect_table')}
+                    onClick={() => setSelectedTableId(null)}
+                    style={{
+                      width: 20,
+                      height: 20,
+                      borderRadius: '50%',
+                      border: 'none',
+                      background: 'rgba(255,255,255,0.28)',
+                      color: '#fff',
+                      cursor: 'pointer',
+                      fontSize: 14,
+                      lineHeight: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
             </div>
             <div style={{ opacity: mapLoading ? 0.6 : 1, transition: 'opacity .15s' }}>
               <FloorPlanViewer
@@ -735,15 +855,37 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 tablesByName={tablesByName}
                 selectedTableId={selectedTableId}
                 onSelectTable={(id) => setSelectedTableId(id)}
+                onOccupiedTap={(tblLabel) =>
+                  setOccupiedMsg(
+                    lang === 'ro'
+                      ? `Masa ${tblLabel} e deja rezervată la ora aleasă.`
+                      : `Table ${tblLabel} is already booked at the selected time.`,
+                  )
+                }
                 accent={accent}
                 PUB={PUB}
                 lang={lang}
               />
             </div>
+            {/* Feedback efemer la atingerea unei mese ocupate. */}
+            {occupiedMsg && (
+              <div
+                role="status"
+                style={{
+                  fontSize: 12,
+                  color: PUB.text2,
+                  marginTop: 8,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: PUB.surface,
+                  border: `1px solid ${PUB.border}`,
+                }}
+              >
+                {occupiedMsg}
+              </div>
+            )}
             <div style={{ fontSize: 12, color: PUB.text3, marginTop: 8 }}>
-              {lang === 'ro'
-                ? 'Atinge o masă liberă pentru a o alege, sau lasă „Oricare masă liberă" pentru alocare automată.'
-                : 'Tap a free table to pick it, or keep “Any free table” for automatic assignment.'}
+              {T(lang, 'reserve_pick_table_hint')}
             </div>
           </>
         )}
