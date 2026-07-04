@@ -123,7 +123,7 @@ function buildSlots(
     const wall = mins % (24 * 60)
     const label = pad2(Math.floor(wall / 60)) + ':' + pad2(wall % 60)
     const slotYmd = effectiveSlotYmd(dateYmd, label, settings)
-    const slotEpoch = new Date(isoIsoForLocalDateTime(slotYmd, label, timeZone)).getTime()
+    const slotEpoch = new Date(isoForLocalDateTime(slotYmd, label, timeZone)).getTime()
     if (Number.isFinite(slotEpoch) && slotEpoch >= minEpoch) slots.push(label)
   }
   return slots
@@ -134,7 +134,7 @@ function buildSlots(
 // din diaspora care alege 19:00 pentru un restaurant din București trimitea o
 // oră greșită (interpretată în fusul lui). Trucul standard fără librării:
 // calculează offset-ul fusului la acel instant și aplică-l.
-function isoIsoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): string {
+function isoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): string {
   const [y, mo, d] = dateYmd.split('-').map(Number)
   const t = parseTime(hhmm)
   const asUtc = Date.UTC(y!, mo! - 1, d!, t.h, t.m, 0, 0)
@@ -167,6 +167,9 @@ function formatDateRo(dateYmd: string, lang: string): string {
 
 export default function ReservationSheet({ restaurant, theme, accent, PUB, lang, onClose }: Props) {
   useBodyScrollLock(true)
+  // Fusul restaurantului (fallback București) — folosit la construirea sloturilor
+  // și la conversia orei de perete în instant UTC.
+  const tz = restaurant.timezone || 'Europe/Bucharest'
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [zones, setZones] = useState<string[]>([])
   const [partySize, setPartySize] = useState<number>(2)
@@ -266,8 +269,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const slots = useMemo(() => {
     if (!settings || !chosenDateYmd) return []
     const minAdvanceMs = settings.min_advance_hours * 3_600_000
-    return buildSlots(chosenDateYmd, settings, minAdvanceMs, restaurant.timezone || 'Europe/Bucharest')
-  }, [settings, chosenDateYmd, restaurant.timezone])
+    return buildSlots(chosenDateYmd, settings, minAdvanceMs, tz)
+  }, [settings, chosenDateYmd, tz])
 
   // Auto-reset time if no longer valid
   useEffect(() => {
@@ -281,16 +284,16 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const slot = useMemo(() => {
     if (!settings || !chosenDateYmd || !timeSlot) return null
     // Data reală a slotului (ziua următoare pentru sloturile de după miezul nopții).
-    const startsAt = isoIsoForLocalDateTime(
+    const startsAt = isoForLocalDateTime(
       effectiveSlotYmd(chosenDateYmd, timeSlot, settings),
       timeSlot,
-      restaurant.timezone || 'Europe/Bucharest',
+      tz,
     )
     const endsAt = new Date(
       new Date(startsAt).getTime() + settings.reservation_duration * 60_000,
     ).toISOString()
     return { startsAt, endsAt }
-  }, [settings, chosenDateYmd, timeSlot, restaurant.timezone])
+  }, [settings, chosenDateYmd, timeSlot, tz])
 
   // Reîncarcă disponibilitatea (folosit la eroarea table_unavailable). Trece prin
   // efectul guarded de mai jos (nonce) ca un răspuns întârziat pentru slotul
@@ -399,10 +402,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
     setSubmitting(true)
     // Data reală a slotului (mâine pentru sloturile de după miezul nopții).
-    const startsAt = isoIsoForLocalDateTime(
+    const startsAt = isoForLocalDateTime(
       effectiveSlotYmd(chosenDateYmd, timeSlot, settings),
       timeSlot,
-      restaurant.timezone || 'Europe/Bucharest',
+      tz,
     )
     const { data, error: rpcErr } = await supabase.rpc('create_reservation_public', {
       p_slug: restaurant.slug,
@@ -453,7 +456,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
     const row = Array.isArray(data) ? data[0] : data
     setResult(row as CreateResult)
-  }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.timezone, lang])
+  }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20
 

@@ -58,7 +58,9 @@ const SECTIONS: { id: Section; label: string }[] = [
 const PLANS = ['free', 'starter', 'growth', 'pro', 'enterprise'] as const
 
 function formatRon(cents: number): string {
-  return (cents / 100).toLocaleString('ro-RO', { minimumFractionDigits: 2 }) + ' lei'
+  // Caz particular al lui formatMoney pentru RON (sufix „lei"); delegăm ca
+  // formatarea numerică să rămână într-un singur loc.
+  return formatMoney(cents, 'RON')
 }
 
 // Payout-urile pot fi și în EUR (enum affiliate_currency, mig 098) — sufixul

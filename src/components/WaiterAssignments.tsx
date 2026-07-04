@@ -28,6 +28,15 @@ interface Table {
   seats: number | null
 }
 
+// Rolul intern (engleză) → etichetă afișată, aliniat cu TeamManager /
+// InviteAcceptPage. Fallback la valoarea brută pentru un rol necunoscut.
+const ROLE_LABELS: Record<string, string> = {
+  owner: 'Owner',
+  manager: 'Manager',
+  waiter: 'Ospătar',
+  kitchen: 'Bucătărie',
+}
+
 // ─── Shared styles ─────────────────────────────────────────────
 const sLabel: React.CSSProperties = {
   fontSize: '0.7rem',
@@ -393,7 +402,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                             letterSpacing: '0.05em',
                           }}
                         >
-                          {waiter.role}
+                          {ROLE_LABELS[waiter.role] ?? waiter.role}
                         </span>
                         {hasAssignments ? (
                           <span style={{ fontSize: '0.72rem', color: D.gold }}>
