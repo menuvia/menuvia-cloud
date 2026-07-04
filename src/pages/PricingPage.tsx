@@ -305,6 +305,27 @@ export default function PricingPage({
             30 de zile gratuite pe orice plan. Anulezi cu un click, fără penalizări.
           </p>
 
+          {/* Poziționare centrală — argumentul pe care concurența nu-l poate mima
+              fără hardware nou (COMPETITIE.md §4). Consistent cu landing-ul. */}
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              background: MKT.accentSoft,
+              border: `1px solid ${MKT.border}`,
+              borderRadius: 100,
+              padding: '8px 16px',
+              marginBottom: 32,
+              maxWidth: '100%',
+            }}
+          >
+            <Icon name="receipt" size={16} color={MKT.accent} />
+            <span style={{ color: MKT.text, fontSize: 13.5, fontWeight: 600, lineHeight: 1.4 }}>
+              Păstrezi casa de marcat și POS-ul pe care le ai deja
+            </span>
+          </div>
+
           {/* Yearly toggle */}
           <div
             style={{
