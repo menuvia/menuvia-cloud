@@ -200,24 +200,19 @@ export default function QrMenuPage({ token }: Props) {
     setSubmitting(true)
     setSubmitError(null)
 
-    // Dacă deschiderea sesiunii a eșuat la scanare, mai încearcă o dată
-    // ÎNAINTE să trimitem comanda — altfel Gate B respinge cu eroare criptică.
+    // Retry up to 2 times on network failures (common on 4G in restaurants).
+    // (Re)deschiderea sesiunii de masă e ÎN buclă: dacă a eșuat la scanare, un
+    // blip tranzitoriu la openTableSession beneficiază de aceleași backoff-uri
+    // ca create_order (altfel Gate B ar respinge cu eroare criptică, o dată).
     let activeSessionId = sessionId
-    if (activeSessionId == null) {
-      try {
-        const sess = await openTableSession(ctx.token.token)
-        activeSessionId = sess.session_id
-        setSessionId(sess.session_id)
-      } catch (err) {
-        console.warn('[QrMenuPage] openTableSession retry failed:', err)
-        // Continuă fără sessionId — backward compat dacă RPC-ul nu există încă.
-      }
-    }
-
-    // Retry up to 2 times on network failures (common on 4G in restaurants)
     let lastError: unknown = null
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        if (activeSessionId == null) {
+          const sess = await openTableSession(ctx.token.token)
+          activeSessionId = sess.session_id
+          setSessionId(sess.session_id)
+        }
         const result = await createOrder({
           restaurant_id: ctx.restaurant.id,
           source: 'qr',
@@ -228,6 +223,12 @@ export default function QrMenuPage({ token }: Props) {
           idempotency_key: idempotencyKey,
           session_id: activeSessionId,
         })
+        // Rotim cheia de idempotență IMEDIAT după succes: dacă tab-ul se
+        // reîncarcă (eviction pe mobil / back / refresh), sessionStorage
+        // supraviețuiește iar un coș NOU cu aceeași cheie ar fi deduplicat
+        // tăcut de server → confirmare veche, comandă pierdută. Retry-urile
+        // acestei comenzi au folosit deja cheia veche în interiorul buclei.
+        setIdempotencyKey(rotateIdempotencyKey(token))
         setConfirmation(result)
         return
       } catch (e: unknown) {

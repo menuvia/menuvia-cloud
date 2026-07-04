@@ -277,7 +277,17 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
       if (error.message?.includes('fetch') || error.code === '503') {
         throw new TypeError('network-error')
       }
-      throw error // Eroare business logic → propagă normal
+      // Eroare business logic (ex. missing_required_group) → aruncă un Error
+      // REAL: obiectul brut Supabase nu e `instanceof Error`, deci handlerele
+      // (handleSubmit) îl tratau ca eroare generică și pierdeau mesajul specific.
+      // Păstrăm mesajul uman + hint/code pentru orice logică programatică.
+      const bizErr = new Error(error.message || 'Eroare la trimiterea comenzii') as Error & {
+        hint?: string
+        code?: string
+      }
+      bizErr.hint = error.hint ?? undefined
+      bizErr.code = error.code ?? undefined
+      throw bizErr
     }
 
     return data as OrderConfirmationPayload
