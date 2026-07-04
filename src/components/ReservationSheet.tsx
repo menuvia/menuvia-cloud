@@ -71,25 +71,33 @@ function parseTime(hhmm: string): { h: number; m: number } {
   return { h: Number(parts[0] ?? 0), m: Number(parts[1] ?? 0) }
 }
 
-function buildSlots(dateYmd: string, settings: PublicSettings, minAdvanceMs: number): string[] {
+function buildSlots(
+  dateYmd: string,
+  settings: PublicSettings,
+  minAdvanceMs: number,
+  timeZone: string,
+): string[] {
   const open = parseTime(settings.open_time)
   const close = parseTime(settings.close_time)
   const interval = settings.slot_interval
+  if (!dateYmd || interval <= 0) return []
 
-  const [y, mo, d] = dateYmd.split('-').map(Number)
-  if (!y || !mo || !d) return []
-  const start = new Date(y, mo - 1, d, open.h, open.m, 0, 0)
-  const end = new Date(y, mo - 1, d, close.h, close.m, 0, 0)
-  const now = new Date()
-  const minStart = new Date(now.getTime() + minAdvanceMs)
-
+  // Etichetele de oră sunt ore de PERETE ale restaurantului (independente de
+  // fus). Filtrarea min_advance se face însă pe instantul REAL (UTC) al fiecărui
+  // slot în fusul RESTAURANTULUI, nu în fusul browserului — altfel un client din
+  // diaspora vedea sloturi care erau de fapt în trecut (sau invers).
+  const minEpoch = Date.now() + minAdvanceMs
+  const openMin = open.h * 60 + open.m
+  const closeMin = close.h * 60 + close.m
+  // Restaurant deschis peste miezul nopții (close <= open): oferim porțiunea de
+  // seară [open, 24:00). Sloturile de după miezul nopții cer și data zilei
+  // următoare la submit (follow-up) — RPC-ul le acceptă deja (wrap-around).
+  const endMin = closeMin <= openMin ? 24 * 60 : closeMin
   const slots: string[] = []
-  const cursor = new Date(start)
-  while (cursor.getTime() < end.getTime()) {
-    if (cursor.getTime() >= minStart.getTime()) {
-      slots.push(pad2(cursor.getHours()) + ':' + pad2(cursor.getMinutes()))
-    }
-    cursor.setMinutes(cursor.getMinutes() + interval)
+  for (let mins = openMin; mins < endMin; mins += interval) {
+    const label = pad2(Math.floor(mins / 60)) + ':' + pad2(mins % 60)
+    const slotEpoch = new Date(isoIsoForLocalDateTime(dateYmd, label, timeZone)).getTime()
+    if (Number.isFinite(slotEpoch) && slotEpoch >= minEpoch) slots.push(label)
   }
   return slots
 }
@@ -183,18 +191,20 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         .eq('restaurant_id', restaurant.id)
         .maybeSingle()
       if (cancelled) return
-      setSettings(
-        (s as PublicSettings) ?? {
-          open_days: [1, 2, 3, 4, 5, 6, 7],
-          open_time: '10:00',
-          close_time: '23:00',
-          slot_interval: 30,
-          reservation_duration: 90,
-          min_advance_hours: 2,
-          max_advance_days: 30,
-          max_party_size: 20,
-        },
-      )
+      const resolved: PublicSettings = (s as PublicSettings) ?? {
+        open_days: [1, 2, 3, 4, 5, 6, 7],
+        open_time: '10:00',
+        close_time: '23:00',
+        slot_interval: 30,
+        reservation_duration: 90,
+        min_advance_hours: 2,
+        max_advance_days: 30,
+        max_party_size: 20,
+      }
+      setSettings(resolved)
+      // Clamp party-ul la limita reală: dacă restaurantul acceptă max 1 masă de
+      // 1 loc, valoarea inițială hardcodată (2) ar fi respinsă tardiv de RPC.
+      setPartySize((p) => Math.min(Math.max(p, 1), Math.max(resolved.max_party_size, 1)))
 
       const { data: tz } = await supabase
         .from('tables')
@@ -229,8 +239,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const slots = useMemo(() => {
     if (!settings || !chosenDateYmd) return []
     const minAdvanceMs = settings.min_advance_hours * 3_600_000
-    return buildSlots(chosenDateYmd, settings, minAdvanceMs)
-  }, [settings, chosenDateYmd])
+    return buildSlots(chosenDateYmd, settings, minAdvanceMs, restaurant.timezone || 'Europe/Bucharest')
+  }, [settings, chosenDateYmd, restaurant.timezone])
 
   // Auto-reset time if no longer valid
   useEffect(() => {

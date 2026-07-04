@@ -340,8 +340,12 @@ export async function fetchTablesAvailability(
     p_party_size: partySize,
   })
   if (error) {
+    // Aruncă (nu întoarce []): un array gol „din eroare" era indistinct de un
+    // array gol legitim, deci apelantul (ReservationSheet) nu putea afișa un
+    // mesaj — harta apărea cu toate mesele neutre/neselectabile, tăcut. Acum
+    // .catch-ul din efect setează mapError și cade grațios pe alocare automată.
     console.error('[qr] fetchTablesAvailability:', error)
-    return []
+    throw new Error(error.message || 'get_tables_availability a eșuat')
   }
   return (Array.isArray(data) ? data : []) as TableAvailabilityRow[]
 }
