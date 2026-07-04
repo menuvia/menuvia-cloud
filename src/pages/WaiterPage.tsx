@@ -672,6 +672,7 @@ export default function WaiterPage() {
             <select
               value={restaurantId ?? ''}
               onChange={(e) => setActive(e.target.value)}
+              aria-label="Selectează restaurantul activ"
               style={{
                 background: D.s3,
                 border: `1px solid ${D.s3}`,
@@ -682,6 +683,9 @@ export default function WaiterPage() {
                 fontFamily: 'DM Sans, sans-serif',
                 cursor: 'pointer',
                 outline: 'none',
+                // Aliniat cu ținta de atingere de 44px a butoanelor din grup.
+                flexShrink: 0,
+                minHeight: 44,
               }}
             >
               {memberships.map((m) => (
