@@ -327,33 +327,49 @@ export default function PricingPage({
             >
               Lunar
             </span>
+            {/* Wrapper transparent cu țintă de atingere ≥44px; pista rămâne 48×26 vizual. */}
             <button
               onClick={() => setYearly((y) => !y)}
               aria-label="Schimbă între facturare lunară și anuală"
+              role="switch"
+              aria-checked={yearly}
               style={{
-                width: 48,
-                height: 26,
-                borderRadius: 13,
-                background: yearly ? MKT.accent : MKT.border,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: 44,
+                minHeight: 44,
+                padding: 9,
+                background: 'transparent',
                 border: 'none',
-                position: 'relative',
                 cursor: 'pointer',
-                transition: 'background 0.2s',
               }}
             >
-              <div
+              <span
                 style={{
-                  position: 'absolute',
-                  top: 3,
-                  left: yearly ? 25 : 3,
-                  width: 20,
-                  height: 20,
-                  borderRadius: '50%',
-                  background: '#fff',
-                  transition: 'left 0.2s',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                  display: 'block',
+                  width: 48,
+                  height: 26,
+                  borderRadius: 13,
+                  background: yearly ? MKT.accent : MKT.border,
+                  position: 'relative',
+                  transition: 'background 0.2s',
                 }}
-              />
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 3,
+                    left: yearly ? 25 : 3,
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transition: 'left 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                  }}
+                />
+              </span>
             </button>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <span
@@ -574,7 +590,8 @@ export default function PricingPage({
                       fontWeight: 500,
                     }}
                   >
-                    Facturat anual — economisești {(p.price - p.priceYearly) * 12} lei/an
+                    Facturat anual — economisești{' '}
+                    {((p.price - p.priceYearly) * 12).toLocaleString('ro-RO')} lei/an
                   </div>
                 )}
 
@@ -657,7 +674,9 @@ export default function PricingPage({
                         ? `1.5px solid ${MKT.accent}`
                         : `1.5px solid ${MKT.border}`,
                     background: isHighlight ? MKT.accent : isTierOne ? MKT.accentSoft : MKT.surface,
-                    color: isHighlight ? '#fff' : isTierOne ? MKT.accent : MKT.text,
+                    // Text închis pe auriu (onAccent ~8:1), nu alb (2.66:1 = sub AA).
+                    // Identic cu butonul auriu de pe Landing (ctaBtn) — consistență de brand.
+                    color: isHighlight ? MKT.onAccent : isTierOne ? MKT.accent : MKT.text,
                     opacity: loadingPlan === p.id ? 0.6 : 1,
                     boxShadow: isHighlight
                       ? 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))'
