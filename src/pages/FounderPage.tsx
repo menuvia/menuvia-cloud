@@ -1416,6 +1416,7 @@ function AuditDetails({ details }: { details: Record<string, unknown> }) {
 }
 
 function AuditSection() {
+  const isMobile = useIsMobile()
   const { data, loading, error, reload } = useAdminData<AdminAuditRow[]>(() => listAuditLog(100))
 
   if (loading) return <InlineSpinner label="Se încarcă auditul..." />
@@ -1429,6 +1430,48 @@ function AuditSection() {
         compact
       />
     )
+
+  // Pe mobil, tabelul cu scroll orizontal devine carduri stivuite (un card per
+  // rând de audit), refolosind pattern-ul vizual din Restaurante.
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {data.map((row) => (
+          <div
+            key={row.id}
+            style={{
+              background: D.s3,
+              border: `1px solid ${D.border}`,
+              borderRadius: 10,
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: '0.72rem', color: D.t3 }}>{formatDate(row.created_at)}</span>
+              <span style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
+                {row.actor_email}
+                <span style={{ color: D.t3 }}> ({row.actor_kind})</span>
+              </span>
+            </div>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem', overflowWrap: 'anywhere' }}>{row.action}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={mobilePairLabel}>Restaurant</span>
+              <span style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>{row.restaurant_name ?? '—'}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={mobilePairLabel}>Detalii</span>
+              <div style={{ fontSize: '0.72rem', overflowWrap: 'anywhere' }}>
+                <AuditDetails details={row.details} />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div style={{ ...cardStyle, padding: 0, overflowX: 'auto' }}>
