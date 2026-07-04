@@ -4,7 +4,7 @@
 // PDF generation: local via `jspdf` npm — no CDN injection.
 // =============================================================
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useFeatures } from '../hooks/useFeatures'
 import { getPlanByInternalId } from '../lib/plans'
 import QRCode from 'qrcode'
@@ -42,8 +42,9 @@ const btn = (extra: React.CSSProperties = {}): React.CSSProperties => ({
   alignItems: 'center',
   justifyContent: 'center',
   gap: 6,
-  padding: '0 14px',
-  height: 38,
+  padding: '0 16px',
+  // A11y: țintă tactilă min. 44px (WCAG 2.5.5) — înlocuiește height:38.
+  minHeight: 44,
   borderRadius: 9,
   fontSize: '0.85rem',
   fontWeight: 500,
@@ -232,6 +233,10 @@ function TableModal({
   return (
     <div
       onClick={onClose}
+      // A11y: Escape închide modalul (evenimentul urcă de la input-ul focusat).
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose()
+      }}
       style={{
         position: 'fixed',
         inset: 0,
@@ -245,6 +250,9 @@ function TableModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={table ? 'Editează masă' : 'Adaugă masă'}
         style={{
           background: D.s2,
           border: `1px solid ${D.border}`,
@@ -269,6 +277,8 @@ function TableModal({
             Nume masă *
           </label>
           <input
+            // A11y: focus automat pe primul câmp la deschiderea modalului.
+            autoFocus
             value={name}
             onChange={(e) => {
               setName(e.target.value)
@@ -381,7 +391,16 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const [rotating, setRotating] = useState<string | null>(null)
   // UX: regenerarea invalidează QR-ul printat — cerem confirmare explicită.
   const [rotateTarget, setRotateTarget] = useState<TableRow | null>(null)
-  const [downloading, setDownloading] = useState(false)
+  // Descărcare PDF: reținem FORMATUL în curs (nu doar un boolean) ca spinner-ul
+  // să apară doar pe opțiunea apăsată, nu pe toate deodată.
+  type PdfFormat = 'grid' | 'tent' | 'poster'
+  const [downloading, setDownloading] = useState<PdfFormat | null>(null)
+  // Dropdown „Descarcă QR-uri" — colapsează cele 3 butoane de export într-unul.
+  const [pdfMenuOpen, setPdfMenuOpen] = useState(false)
+  const pdfMenuRef = useRef<HTMLDivElement>(null)
+  // Căutare + filtru pe zonă pentru lista de mese (utile la zeci de mese).
+  const [search, setSearch] = useState('')
+  const [zoneFilter, setZoneFilter] = useState('')
   const [loadError, setLoadError] = useState<string | null>(null)
   // Generare rapidă: „Câte mese ai?" → creăm Masa 1..N dintr-un foc.
   const [bulkCount, setBulkCount] = useState('')
@@ -590,13 +609,13 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
 
   // PDF: jsPDF loads on-demand (560KB) — only when user actually exports
   // Format: 'grid' (6/A4, current), 'poster' (1/A4, mare), 'tent' (4/A4, pliabil)
-  const downloadPdf = async (format: 'grid' | 'poster' | 'tent' = 'grid') => {
+  const downloadPdf = async (format: PdfFormat = 'grid') => {
     const active = tables.filter((t) => t.is_active && t.active_token)
     if (!active.length) {
       toast('Nicio masă activă cu token', 'error')
       return
     }
-    setDownloading(true)
+    setDownloading(format)
     try {
       const { default: jsPDF } = await import('jspdf')
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
@@ -716,8 +735,39 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     } catch (e) {
       toast('Eroare PDF: ' + (e instanceof Error ? e.message : 'unknown'), 'error')
     }
-    setDownloading(false)
+    setDownloading(null)
   }
+
+  // Închide dropdown-ul de export la click în afara lui.
+  useEffect(() => {
+    if (!pdfMenuOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (pdfMenuRef.current && !pdfMenuRef.current.contains(e.target as Node))
+        setPdfMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [pdfMenuOpen])
+
+  // Opțiunile de export PDF (etichete comerciale în RO).
+  const pdfFormats: { id: PdfFormat; label: string; hint: string }[] = [
+    { id: 'grid', label: 'Grilă — 6 / pagină', hint: 'Pentru lipit pe mese' },
+    { id: 'tent', label: 'Carduri pliabile', hint: '4 / pagină, tip cort' },
+    { id: 'poster', label: 'Poster A4', hint: '1 QR mare / pagină' },
+  ]
+
+  // Zone unice pentru filtru + lista filtrată după căutare/zonă.
+  const zoneOptions = Array.from(
+    new Set(tables.map((t) => t.zone).filter(Boolean) as string[]),
+  ).sort((a, b) => a.localeCompare(b, 'ro'))
+  const q = search.trim().toLowerCase()
+  const visibleTables = tables.filter(
+    (t) =>
+      (q === '' || t.name.toLowerCase().includes(q)) &&
+      (zoneFilter === '' || t.zone === zoneFilter),
+  )
+  // Bara de căutare/filtru apare doar când lista devine greu de scanat vizual.
+  const showFilters = tables.length > 8
 
   return (
     <div>
@@ -749,50 +799,90 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {tables.length > 0 && (
-            <>
+            <div ref={pdfMenuRef} style={{ position: 'relative' }}>
               <button
-                onClick={() => downloadPdf('grid')}
-                disabled={downloading}
-                title="6 QR-uri per pagină A4 — pentru lipit pe mese"
+                onClick={() => setPdfMenuOpen((o) => !o)}
+                disabled={downloading !== null}
+                aria-haspopup="menu"
+                aria-expanded={pdfMenuOpen}
+                title="Descarcă QR-urile în format PDF pentru print"
                 style={btn({
                   background: D.s3,
                   color: D.t1,
                   border: `1px solid ${D.border}`,
-                  opacity: downloading ? 0.7 : 1,
+                  opacity: downloading !== null ? 0.7 : 1,
                 })}
               >
                 <Icon name="download" size={16} />
-                {downloading ? '...' : 'Descarcă toate QR-urile'}
+                {downloading !== null ? 'Se descarcă...' : 'Descarcă QR-uri'}
+                <Icon name="chevronDown" size={14} />
               </button>
-              <button
-                onClick={() => downloadPdf('tent')}
-                disabled={downloading}
-                title="4 QR-uri per pagină — format pentru tent card pliabil"
-                style={btn({
-                  background: D.s3,
-                  color: D.t1,
-                  border: `1px solid ${D.border}`,
-                  opacity: downloading ? 0.7 : 1,
-                })}
-              >
-                <Icon name="download" size={16} />
-                {downloading ? '...' : 'Carduri pliabile'}
-              </button>
-              <button
-                onClick={() => downloadPdf('poster')}
-                disabled={downloading}
-                title="1 QR per pagină A4 — poster pentru intrare/vitrină"
-                style={btn({
-                  background: D.s3,
-                  color: D.t1,
-                  border: `1px solid ${D.border}`,
-                  opacity: downloading ? 0.7 : 1,
-                })}
-              >
-                <Icon name="download" size={16} />
-                {downloading ? '...' : 'Poster A4'}
-              </button>
-            </>
+              {pdfMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Formate de descărcare QR"
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    right: 0,
+                    zIndex: 50,
+                    minWidth: 240,
+                    background: D.s2,
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 12,
+                    padding: 6,
+                    boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  {pdfFormats.map((f) => (
+                    <button
+                      key={f.id}
+                      role="menuitem"
+                      // Spinner-ul apare doar pe opțiunea apăsată; meniul se închide la final.
+                      onClick={() => {
+                        void (async () => {
+                          await downloadPdf(f.id)
+                          setPdfMenuOpen(false)
+                        })()
+                      }}
+                      disabled={downloading !== null}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 10,
+                        width: '100%',
+                        textAlign: 'left',
+                        minHeight: 44,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background: 'transparent',
+                        border: 'none',
+                        color: D.t1,
+                        cursor: downloading !== null ? 'default' : 'pointer',
+                        fontFamily: 'DM Sans,sans-serif',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = D.s3)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <Icon name={downloading === f.id ? 'refresh' : 'download'} size={16} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span
+                          style={{ display: 'block', fontSize: '0.85rem', fontWeight: 500 }}
+                        >
+                          {downloading === f.id ? 'Se descarcă...' : f.label}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.7rem', color: D.t2 }}>
+                          {f.hint}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
           <button
             onClick={() => setModal('add')}
@@ -879,7 +969,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                 setLimitMsg(null)
               }}
               onKeyDown={(e) => e.key === 'Enter' && void bulkGenerate()}
-              placeholder="Câte mese ai? ex. 80"
+              placeholder="Câte mese? ex. 80"
               style={{
                 background: D.s3,
                 border: `1px solid ${D.border}`,
@@ -888,7 +978,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                 color: D.t1,
                 fontSize: '0.9rem',
                 fontFamily: 'DM Sans,sans-serif',
-                width: 180,
+                width: 220,
               }}
             />
             <button
@@ -949,7 +1039,64 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         />
       ) : tables.length === 0 ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {tables.map((t) => (
+          {/* Căutare + filtru pe zonă — utile la zeci de mese. Grupare pe zonă = follow-up. */}
+          {showFilters && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                marginBottom: 4,
+              }}
+            >
+              <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+                <span
+                  style={{
+                    position: 'absolute',
+                    left: 12,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    color: D.t3,
+                    pointerEvents: 'none',
+                    display: 'inline-flex',
+                  }}
+                >
+                  <Icon name="search" size={16} />
+                </span>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Caută după nume..."
+                  aria-label="Caută masă după nume"
+                  style={{ ...inp, paddingLeft: 38 }}
+                  onFocus={(e) => (e.target.style.borderColor = D.gold)}
+                  onBlur={(e) => (e.target.style.borderColor = D.border)}
+                />
+              </div>
+              {zoneOptions.length > 0 && (
+                <select
+                  value={zoneFilter}
+                  onChange={(e) => setZoneFilter(e.target.value)}
+                  aria-label="Filtrează după zonă"
+                  style={{ ...inp, width: 'auto', minWidth: 150, cursor: 'pointer' }}
+                >
+                  <option value="">Toate zonele</option>
+                  {zoneOptions.map((z) => (
+                    <option key={z} value={z}>
+                      {z}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+          {visibleTables.length === 0 ? (
+            <p style={{ color: D.t2, fontSize: '0.85rem', padding: '12px 2px' }}>
+              Nicio masă nu corespunde căutării.
+            </p>
+          ) : null}
+          {visibleTables.map((t) => (
             <div
               key={t.id}
               style={{
@@ -1029,7 +1176,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   {!t.active_token ? (
                     <>
                       <Icon name="alert" size={13} color={D.t2} />
-                      Fără QR — apasă reînnoire pentru a genera
+                      Fără QR — apasă „Generează QR"
                     </>
                   ) : t.is_active ? (
                     <>
@@ -1142,7 +1289,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     cursor: 'pointer',
                   }}
                 >
-                  <Icon name="check" size={16} />
+                  {/* Iconul diferă per stare (nu doar culoarea): bifă = activă, X = inactivă. */}
+                  <Icon name={t.is_active ? 'check' : 'close'} size={16} />
                 </button>
                 <button
                   onClick={() => setModal(t)}
@@ -1203,6 +1351,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       {rotateTarget && (
         <div
           onClick={() => setRotateTarget(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setRotateTarget(null)
+          }}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1216,6 +1367,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Regenerează QR pentru ${rotateTarget.name}`}
             style={{
               background: D.s2,
               border: `1px solid ${D.border}`,
@@ -1240,6 +1394,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
+                autoFocus
                 onClick={() => setRotateTarget(null)}
                 style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
               >
@@ -1262,6 +1417,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       {delId && (
         <div
           onClick={() => setDelId(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setDelId(null)
+          }}
           style={{
             position: 'fixed',
             inset: 0,
@@ -1275,6 +1433,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Șterge masă"
             style={{
               background: D.s2,
               border: `1px solid ${D.border}`,
@@ -1299,6 +1460,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
+                autoFocus
                 onClick={() => setDelId(null)}
                 style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
               >
