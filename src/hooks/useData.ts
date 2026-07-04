@@ -159,12 +159,23 @@ export function useRestaurants() {
         .neq('role', 'owner'),
     ])
     if (seq !== loadSeqRef.current) return
-    if (ownedRes.error && memberRes.error) {
+    // `owned` e sursa principală de adevăr: dacă interogarea ei eșuează (blip
+    // rețea / RLS timeout / 500), NU știm dacă userul are restaurante — arătăm
+    // eroare, nu o listă goală (care ar trimite fals un owner la Onboarding).
+    if (ownedRes.error) {
       setError(ownedRes.error.message)
       setLoading(false)
       return
     }
     const owned = (ownedRes.data ?? []) as Restaurant[]
+    // memberRes eșuat colapsat la „zero membership-uri" ar bloca un staff (fără
+    // restaurante owned) la Onboarding pe un simplu blip. Dacă ownedul e gol și
+    // membershipurile n-au putut fi citite, semnalăm eroare în loc de listă goală.
+    if (memberRes.error && owned.length === 0) {
+      setError(memberRes.error.message)
+      setLoading(false)
+      return
+    }
     const viaMembership: Restaurant[] = (memberRes.data ?? [])
       .map((m) => {
         const raw = (m as Record<string, unknown>).restaurant as Restaurant | Restaurant[] | null
@@ -300,10 +311,18 @@ export function useCategories(restaurantId: string | null) {
   }
 
   const reorder = async (ordered: Category[]) => {
-    const updates = ordered.map((c, i) =>
-      supabase.from('categories').update({ display_order: i }).eq('id', c.id),
+    const results = await Promise.all(
+      ordered.map((c, i) =>
+        supabase.from('categories').update({ display_order: i }).eq('id', c.id),
+      ),
     )
-    await Promise.all(updates)
+    // Dacă vreun update a eșuat, ordinea optimistă din UI ar diverge de DB
+    // (unele rânduri actualizate, altele nu). Resincronizăm din server în loc
+    // să afișăm o stare pe jumătate aplicată.
+    if (results.some((r) => r.error)) {
+      await load()
+      return
+    }
     setCategories(ordered.map((c, i) => ({ ...c, display_order: i })))
   }
 
