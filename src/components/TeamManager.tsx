@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
+import { EmptyState } from './ui/EmptyState'
+import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
@@ -28,6 +30,7 @@ const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
   gap: 6,
   padding: '0 14px',
   height: 38,
+  minHeight: 44,
   borderRadius: 9,
   fontSize: '0.85rem',
   fontWeight: 500,
@@ -43,6 +46,7 @@ const inp: React.CSSProperties = {
   border: `1px solid ${D.border}`,
   borderRadius: 9,
   padding: '10px 13px',
+  minHeight: 44,
   fontSize: '0.9rem',
   color: D.t1,
   outline: 'none',
@@ -115,6 +119,7 @@ export default function TeamManager({
   restaurant: Restaurant
   currentUserId: string
 }) {
+  const isMobile = useIsMobile()
   const { toasts, toast } = useToast()
   const [members, setMembers] = useState<Member[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
@@ -302,7 +307,13 @@ export default function TeamManager({
         </div>
         <form
           onSubmit={sendInvite}
-          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}
+          style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: 10,
+            flexWrap: 'wrap',
+            alignItems: isMobile ? 'stretch' : 'flex-end',
+          }}
         >
           <div style={{ flex: '1 1 200px' }}>
             <label style={{ display: 'block', fontSize: '0.75rem', color: D.t2, marginBottom: 5 }}>
@@ -319,7 +330,7 @@ export default function TeamManager({
               onBlur={(e) => (e.target.style.borderColor = D.border)}
             />
           </div>
-          <div style={{ flex: '0 0 160px' }}>
+          <div style={{ flex: isMobile ? '1 1 auto' : '0 0 160px' }}>
             <label style={{ display: 'block', fontSize: '0.75rem', color: D.t2, marginBottom: 5 }}>
               Rol
             </label>
@@ -340,6 +351,7 @@ export default function TeamManager({
               background: sending ? D.s3 : D.gold,
               color: sending ? D.t3 : '#000',
               height: 42,
+              width: isMobile ? '100%' : undefined,
               opacity: sending ? 0.7 : 1,
             })}
           >
@@ -394,13 +406,16 @@ export default function TeamManager({
                   borderRadius: 10,
                   padding: '12px 16px',
                   display: 'flex',
-                  alignItems: 'center',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'stretch' : 'center',
                   justifyContent: 'space-between',
                   gap: 12,
                 }}
               >
-                <div>
-                  <div style={{ fontSize: '0.875rem', color: D.t1 }}>{inv.email}</div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: '0.875rem', color: D.t1, overflowWrap: 'anywhere' }}>
+                    {inv.email}
+                  </div>
                   <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                     {ROLE_LABELS[inv.role]} · expiră{' '}
                     {new Date(inv.expires_at).toLocaleDateString('ro-RO')}
@@ -414,6 +429,7 @@ export default function TeamManager({
                     border: `1px solid ${D.border}`,
                     fontSize: '0.78rem',
                     height: 32,
+                    width: isMobile ? '100%' : undefined,
                   })}
                 >
                   Anulează
@@ -442,6 +458,12 @@ export default function TeamManager({
           <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <Skeleton variant="table-row" count={3} />
           </div>
+        ) : members.length === 0 ? (
+          <EmptyState
+            icon="users"
+            title="Niciun membru încă"
+            description="Invită colegii tăi ca să gestionați împreună restaurantul."
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {members.map((m) => {
@@ -458,6 +480,7 @@ export default function TeamManager({
                     padding: '14px 16px',
                     display: 'flex',
                     alignItems: 'center',
+                    flexWrap: isMobile ? 'wrap' : 'nowrap',
                     gap: 14,
                   }}
                 >
@@ -501,55 +524,68 @@ export default function TeamManager({
                       {m.user?.email}
                     </div>
                   </div>
-                  {!isOwner && !isSelf ? (
-                    <select
-                      value={m.role}
-                      onChange={(e) => handleChangeRole(m.id, e.target.value as MemberRole)}
-                      style={{
-                        background: D.s3,
-                        border: `1px solid ${D.border}`,
-                        borderRadius: 7,
-                        padding: '4px 10px',
-                        color: ROLE_COLORS[m.role],
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        fontFamily: 'DM Sans,sans-serif',
-                      }}
-                    >
-                      <option value="manager">Manager</option>
-                      <option value="waiter">Ospătar</option>
-                      <option value="kitchen">Bucătărie</option>
-                    </select>
-                  ) : (
-                    <span
-                      style={{ fontSize: '0.8rem', color: ROLE_COLORS[m.role], fontWeight: 500 }}
-                    >
-                      {ROLE_LABELS[m.role]}
-                    </span>
-                  )}
-                  {!isOwner && !isSelf && (
-                    <button
-                      onClick={() => setRemoveTarget(m)}
-                      aria-label={`Elimină ${name} din echipă`}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        minWidth: 44,
-                        minHeight: 44,
-                        borderRadius: 7,
-                        background: D.redA,
-                        border: `1px solid rgba(224,85,85,0.2)`,
-                        color: D.red,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon name="trash" size={16} />
-                    </button>
-                  )}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      ...(isMobile
+                        ? { width: '100%', justifyContent: 'flex-end', marginTop: 2 }
+                        : { marginLeft: 'auto' }),
+                    }}
+                  >
+                    {!isOwner && !isSelf ? (
+                      <select
+                        value={m.role}
+                        onChange={(e) => handleChangeRole(m.id, e.target.value as MemberRole)}
+                        aria-label={`Rol pentru ${name}`}
+                        style={{
+                          background: D.s3,
+                          border: `1px solid ${D.border}`,
+                          borderRadius: 7,
+                          padding: '4px 10px',
+                          minHeight: 44,
+                          color: ROLE_COLORS[m.role],
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          fontFamily: 'DM Sans,sans-serif',
+                        }}
+                      >
+                        <option value="manager">Manager</option>
+                        <option value="waiter">Ospătar</option>
+                        <option value="kitchen">Bucătărie</option>
+                      </select>
+                    ) : (
+                      <span
+                        style={{ fontSize: '0.8rem', color: ROLE_COLORS[m.role], fontWeight: 500 }}
+                      >
+                        {ROLE_LABELS[m.role]}
+                      </span>
+                    )}
+                    {!isOwner && !isSelf && (
+                      <button
+                        onClick={() => setRemoveTarget(m)}
+                        aria-label={`Elimină ${name} din echipă`}
+                        style={{
+                          width: 44,
+                          height: 44,
+                          minWidth: 44,
+                          minHeight: 44,
+                          borderRadius: 7,
+                          background: D.redA,
+                          border: `1px solid rgba(224,85,85,0.2)`,
+                          color: D.red,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )
             })}
