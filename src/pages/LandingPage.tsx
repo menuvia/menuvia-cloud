@@ -78,6 +78,35 @@ const AFF_DARK = {
 // de ce Meniu + Comenzi e planul recomandat și cât de simplu e setup-ul.
 // Vinde FLOW-ul (Adaugi meniul → Generezi QR → Primești comenzi), nu module.
 // Hero-ul arată produsul REAL (PhoneFrame randează componentele de meniu).
+// Comparație pe CATEGORII de soluții (nu numim brand-uri) — orientativă și
+// corectă la nivel de categorie. Coloana 4 = Menuvia.
+type CmpMark = 'yes' | 'no' | 'partial'
+const COMPARISON: { label: string; cols: CmpMark[] }[] = [
+  { label: 'Meniu QR fără hardware nou', cols: ['yes', 'yes', 'no', 'yes'] },
+  { label: 'Comenzi direct în bucătărie', cols: ['no', 'yes', 'yes', 'yes'] },
+  { label: 'Păstrezi casa de marcat și POS-ul', cols: ['partial', 'no', 'no', 'yes'] },
+  { label: 'Rezervări cu hartă sală', cols: ['no', 'partial', 'partial', 'yes'] },
+  { label: 'Meniu multilingv automat', cols: ['partial', 'partial', 'no', 'yes'] },
+  { label: 'Recenzii Google automate', cols: ['no', 'partial', 'no', 'yes'] },
+  { label: 'Făcut în România · pornești gratis', cols: ['yes', 'partial', 'no', 'yes'] },
+]
+
+// Marcaj accesibil (Da/Parțial/Nu) — semnal de formă + culoare, cu aria-label.
+function Mark({ v, me }: { v: CmpMark; me: boolean }) {
+  const label = v === 'yes' ? 'Da' : v === 'partial' ? 'Parțial' : 'Nu'
+  return (
+    <span role="img" aria-label={label} style={{ display: 'inline-flex', alignItems: 'center' }}>
+      {v === 'yes' ? (
+        <Icon name="check" size={18} color={me ? MKT.accent : '#4CAF6E'} />
+      ) : v === 'partial' ? (
+        <span style={{ color: MKT.text3, fontWeight: 700 }}>~</span>
+      ) : (
+        <span style={{ color: MKT.text3, opacity: 0.5 }}>—</span>
+      )}
+    </span>
+  )
+}
+
 export default function LandingPage({
   onStartPlan,
   onLogin,
@@ -475,6 +504,112 @@ export default function LandingPage({
           <button onClick={onDemo} className="pressable" style={ghostBtn}>
             Vezi demo live
           </button>
+        </div>
+      </div>
+
+      {/* Comparație — poziționare „păstrezi casa de marcat" (nimeni nu o spune) */}
+      <div style={{ background: MKT.surface2, padding: '80px 24px' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          <RevealItem>
+            <h2 style={{ ...sectionTitle, marginBottom: 12 }}>De ce Menuvia?</h2>
+          </RevealItem>
+          <RevealItem delay={60}>
+            <p
+              style={{
+                textAlign: 'center',
+                color: MKT.text2,
+                fontSize: 'clamp(1rem, 2.4vw, 1.12rem)',
+                lineHeight: 1.55,
+                maxWidth: 620,
+                margin: '0 auto 34px',
+                textWrap: 'balance',
+              }}
+            >
+              Singurii care spun clar:{' '}
+              <strong style={{ color: MKT.text }}>
+                păstrezi casa de marcat și POS-ul pe care le ai deja
+              </strong>
+              . Menuvia se adaugă peste ele, nu le înlocuiește.
+            </p>
+          </RevealItem>
+          <RevealItem delay={120}>
+            <div
+              style={{
+                overflowX: 'auto',
+                WebkitOverflowScrolling: 'touch',
+                borderRadius: 16,
+                border: `1px solid ${MKT.border}`,
+                background: MKT.surface,
+                boxShadow: '0 1px 3px rgba(26,18,8,0.03)',
+              }}
+            >
+              <div style={{ minWidth: 620 }}>
+                {/* Antet */}
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(180px,1.6fr) repeat(4, 1fr)',
+                    borderBottom: `1px solid ${MKT.border}`,
+                  }}
+                >
+                  <div />
+                  {['Meniu QR simplu', 'Aplicație comenzi', 'POS clasic', 'Menuvia'].map((h, i) => {
+                    const me = i === 3
+                    return (
+                      <div
+                        key={h}
+                        style={{
+                          textAlign: 'center',
+                          padding: '14px 8px',
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: me ? MKT.accent : MKT.text2,
+                          background: me ? `${MKT.accent}0F` : 'transparent',
+                        }}
+                      >
+                        {h}
+                      </div>
+                    )
+                  })}
+                </div>
+                {COMPARISON.map((row, ri) => (
+                  <div
+                    key={row.label}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(180px,1.6fr) repeat(4, 1fr)',
+                      borderBottom:
+                        ri < COMPARISON.length - 1 ? `1px solid ${MKT.border}` : 'none',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div style={{ padding: '13px 14px', fontSize: 13.5, color: MKT.text, fontWeight: 600 }}>
+                      {row.label}
+                    </div>
+                    {row.cols.map((v, ci) => {
+                      const me = ci === 3
+                      return (
+                        <div
+                          key={ci}
+                          style={{
+                            textAlign: 'center',
+                            padding: '13px 8px',
+                            background: me ? `${MKT.accent}0F` : 'transparent',
+                          }}
+                        >
+                          <Mark v={v} me={me} />
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </RevealItem>
+          <p style={{ textAlign: 'center', color: MKT.text3, fontSize: 12, marginTop: 14 }}>
+            Comparație pe categorii de soluții, orientativă. Fiscalizarea prin integrare FiscalNet
+            e în pilot.
+          </p>
         </div>
       </div>
 
