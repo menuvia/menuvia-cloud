@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
@@ -12,7 +12,7 @@ import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
-import { Icon } from './ui/Icon'
+import { Icon, type IconName } from './ui/Icon'
 import { confirm } from './ui/confirm'
 
 // ── Constants for hours_structured editor ──
@@ -37,6 +37,78 @@ const WEEK_DAY_LABELS: Record<WeekDayKey, string> = {
   sun: 'Duminică',
 }
 
+// ── Secțiuni de setări — navigabile (ca la FounderPage), nu un scroll unic.
+// Fiecare secțiune grupează cardurile înrudite; randăm doar secțiunea activă
+// (mai puțin DOM montat = pagina se simte mai rapidă și mai clară). ──
+
+type SettingsSectionId = 'restaurant' | 'menu' | 'orders' | 'account'
+
+const SETTINGS_SECTIONS: { id: SettingsSectionId; label: string; icon: IconName }[] = [
+  { id: 'restaurant', label: 'Restaurant', icon: 'utensils' },
+  { id: 'menu', label: 'Meniu & aspect', icon: 'menu' },
+  { id: 'orders', label: 'Comenzi & plăți', icon: 'orders' },
+  { id: 'account', label: 'Cont', icon: 'settings' },
+]
+
+// Card cu chrome consistent (surface + border + header cu icon/titlu/descriere).
+// Înlocuiește cele ~18 div-uri hand-rolled identice — un singur stil premium,
+// ușor de întreținut. `right` ține un buton sau un Toggle în antet.
+function SettingsCard({
+  icon,
+  title,
+  desc,
+  right,
+  children,
+}: {
+  icon?: IconName
+  title: string
+  desc?: ReactNode
+  right?: ReactNode
+  children?: ReactNode
+}) {
+  return (
+    <div
+      style={{
+        background: D.s2,
+        border: `1px solid ${D.border}`,
+        borderRadius: 14,
+        padding: 22,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: desc != null ? 6 : 14,
+        }}
+      >
+        <div
+          style={{
+            fontSize: '0.875rem',
+            fontWeight: 500,
+            color: D.t1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          {icon && <Icon name={icon} size={16} color={D.t2} />}
+          {title}
+        </div>
+        {right}
+      </div>
+      {desc != null && (
+        <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
+          {desc}
+        </div>
+      )}
+      {children}
+    </div>
+  )
+}
+
 // ── SettingsTab — lifted from DashboardPage.tsx (identical behavior) ──
 
 export default function SettingsTab({
@@ -55,6 +127,7 @@ export default function SettingsTab({
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
   const isMobile = useIsMobile()
+  const [section, setSection] = useState<SettingsSectionId>('restaurant')
   const [form, setForm] = useState({ ...restaurant })
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
@@ -268,7 +341,7 @@ export default function SettingsTab({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 22,
+          marginBottom: 18,
           flexWrap: 'wrap',
           gap: 12,
         }}
@@ -287,7 +360,7 @@ export default function SettingsTab({
             Setări
           </h1>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            Informații afișate pe meniul public
+            Configurează restaurantul, meniul și comenzile — organizat pe secțiuni.
           </p>
         </div>
         <button
@@ -298,580 +371,1083 @@ export default function SettingsTab({
           {saving ? 'Se salvează...' : 'Salvează'}
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
-        <div
-          style={{
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            padding: 22,
-          }}
-        >
-          <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 16 }}>
-            Informații principale
-          </div>
-          {(
-            [
-              ['name', 'Nume restaurant *', 'La Bella Trattoria'],
-              ['tagline', 'Tagline', 'Bucătărie autentică'],
-              ['city', 'Oraș', 'Sibiu'],
-              ['phone', 'Telefon', '07xx xxx xxx'],
-              ['hours', 'Program', 'Lun–Dum: 12:00–23:00'],
-              ['description', 'Descriere', 'Despre restaurant...'],
-            ] as [keyof Restaurant, string, string][]
-          ).map(([k, label, ph]) => (
-            <div key={k} style={{ marginBottom: 13 }}>
-              <label
-                style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
-              >
-                {label}
-              </label>
-              <Inp value={String(form[k] || '')} onChange={(v) => upd(k, v)} placeholder={ph} />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 14 }}>
-              URL meniu
-            </div>
-            <div
+
+      {/* Navigare pe secțiuni — pastile scrollabile orizontal (pattern FounderPage).
+          Un click schimbă doar ce e vizibil; formularul rămâne același state, deci
+          nu pierzi modificări nesalvate când treci dintr-o secțiune în alta. */}
+      <div
+        role="tablist"
+        aria-label="Secțiuni setări"
+        style={{
+          display: 'flex',
+          gap: 8,
+          overflowX: 'auto',
+          paddingBottom: 4,
+          marginBottom: 20,
+        }}
+      >
+        {SETTINGS_SECTIONS.map((s) => {
+          const active = section === s.id
+          return (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setSection(s.id)}
               style={{
-                display: 'flex',
+                display: 'inline-flex',
                 alignItems: 'center',
-                background: D.s3,
-                border: `1px solid ${D.border}`,
-                borderRadius: 9,
-                overflow: 'hidden',
+                gap: 7,
+                padding: '9px 16px',
+                minHeight: 44,
+                borderRadius: 100,
+                border: `1px solid ${active ? D.gold + '55' : D.border}`,
+                background: active ? D.goldA : D.s2,
+                color: active ? D.goldL : D.t2,
+                fontSize: '0.82rem',
+                fontWeight: active ? 600 : 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
-              <span
-                style={{
-                  padding: '0 10px',
-                  fontSize: '0.75rem',
-                  color: D.t3,
-                  borderRight: `1px solid ${D.border}`,
-                  height: 44,
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                menuvia.ro/m/
-              </span>
-              <Inp
-                value={form.slug || ''}
-                onChange={(v) => upd('slug', slugify(v))}
-                placeholder="slug-url"
-              />
-            </div>
-          </div>
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 14 }}>
-              Culoare accent
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {COLORS.map((c) => {
-                const selected = form.primary_color === c
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => upd('primary_color', c)}
-                    aria-label={`Culoare accent ${COLOR_NAMES[c] ?? c}`}
-                    aria-pressed={selected}
-                    title={COLOR_NAMES[c] ?? c}
+              <Icon name={s.icon} size={16} color={active ? D.goldL : D.t2} />
+              {s.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Conținutul secțiunii active — o singură coloană lizibilă (pattern premium
+          de setări: mai ușor de scanat decât 2 coloane pe lat). */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
+        {section === 'restaurant' && (
+          <>
+            <SettingsCard icon="info" title="Informații principale">
+              {(
+                [
+                  ['name', 'Nume restaurant *', 'La Bella Trattoria'],
+                  ['tagline', 'Tagline', 'Bucătărie autentică'],
+                  ['city', 'Oraș', 'Sibiu'],
+                  ['phone', 'Telefon', '07xx xxx xxx'],
+                  ['hours', 'Program', 'Lun–Dum: 12:00–23:00'],
+                  ['description', 'Descriere', 'Despre restaurant...'],
+                ] as [keyof Restaurant, string, string][]
+              ).map(([k, label, ph]) => (
+                <div key={k} style={{ marginBottom: 13 }}>
+                  <label
+                    style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
+                  >
+                    {label}
+                  </label>
+                  <Inp value={String(form[k] || '')} onChange={(v) => upd(k, v)} placeholder={ph} />
+                </div>
+              ))}
+            </SettingsCard>
+
+            {/* PROGRAM DETALIAT — hours_structured per zi */}
+            <SettingsCard
+              icon="clock"
+              title="Program detaliat"
+              desc={`Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul public.`}
+              right={
+                <button
+                  onClick={copyMondayToAll}
+                  style={{
+                    background: 'transparent',
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 6,
+                    color: D.t2,
+                    fontSize: '0.7rem',
+                    padding: '4px 10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Copiază luni → toate
+                </button>
+              }
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {WEEK_DAY_KEYS.map((day) => {
+                  const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[
+                    day
+                  ] ?? {
+                    open: '08:00',
+                    close: '23:00',
+                    closed: false,
+                  }
+                  return (
+                    <div
+                      key={day}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '1fr' : '80px 1fr 88px 88px',
+                        gap: 8,
+                        alignItems: 'center',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.78rem', color: D.t1 }}>{WEEK_DAY_LABELS[day]}</span>
+                      <label
+                        style={{
+                          fontSize: '0.72rem',
+                          color: D.t2,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!cur.closed}
+                          onChange={(e) => updHours(day, { closed: !e.target.checked })}
+                        />
+                        Deschis
+                      </label>
+                      {/* Pe mobil (1 coloană) inputurile de oră stau stivuite fără
+                          antet de coloană → mici label-uri „Deschide"/„Închide"
+                          deasupra. Pe desktop antetul e implicit; păstrăm doar
+                          aria-label pentru screen reader. */}
+                      <div>
+                        {isMobile && (
+                          <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
+                            Deschide
+                          </label>
+                        )}
+                        <input
+                          type="time"
+                          disabled={cur.closed}
+                          value={cur.open}
+                          onChange={(e) => updHours(day, { open: e.target.value })}
+                          aria-label={`${WEEK_DAY_LABELS[day]} deschidere`}
+                          style={{
+                            background: D.s3,
+                            border: `1px solid ${D.border}`,
+                            color: D.t1,
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            fontSize: '0.78rem',
+                            opacity: cur.closed ? 0.4 : 1,
+                            width: isMobile ? '100%' : undefined,
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
+                      <div>
+                        {isMobile && (
+                          <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
+                            Închide
+                          </label>
+                        )}
+                        <input
+                          type="time"
+                          disabled={cur.closed}
+                          value={cur.close}
+                          onChange={(e) => updHours(day, { close: e.target.value })}
+                          aria-label={`${WEEK_DAY_LABELS[day]} închidere`}
+                          style={{
+                            background: D.s3,
+                            border: `1px solid ${D.border}`,
+                            color: D.t1,
+                            padding: '6px 8px',
+                            borderRadius: 6,
+                            fontSize: '0.78rem',
+                            opacity: cur.closed ? 0.4 : 1,
+                            width: isMobile ? '100%' : undefined,
+                            boxSizing: 'border-box',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </SettingsCard>
+
+            {/* LOGO upload — square */}
+            <SettingsCard
+              icon="tag"
+              title="Logo"
+              desc="Logo pătrat. Opțional, folosit ca avatar / favicon viitor."
+            >
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                {form.logo_url ? (
+                  <div style={{ position: 'relative' }}>
+                    <img
+                      src={form.logo_url}
+                      alt="Logo"
+                      style={{
+                        width: 80,
+                        height: 80,
+                        objectFit: 'cover',
+                        borderRadius: 12,
+                        border: `1px solid ${D.border}`,
+                        background: D.s3,
+                      }}
+                    />
+                    <button
+                      onClick={() => upd('logo_url', null)}
+                      aria-label="Șterge logo"
+                      style={{
+                        position: 'absolute',
+                        top: -6,
+                        right: -6,
+                        width: 22,
+                        height: 22,
+                        background: D.s2,
+                        color: D.t2,
+                        border: `1px solid ${D.border}`,
+                        borderRadius: '50%',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                      }}
+                    >
+                      <Icon name="close" size={12} color={D.t2} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
                     style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: '50%',
-                      background: c,
-                      border: `3px solid ${selected ? '#fff' : 'transparent'}`,
-                      cursor: 'pointer',
-                      padding: 0,
+                      width: 80,
+                      height: 80,
+                      borderRadius: 12,
+                      border: `1px dashed ${D.border}`,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                    }}
-                  >
-                    {/* Bifă ne-cromatică: arată selecția independent de culoare. */}
-                    {selected && <Icon name="check" size={18} color="#fff" />}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          {/* Previzualizare live — se actualizează instant la orice schimbare de
-              temă / layout / elemente (form.theme_settings e state React). */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              Previzualizare
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
-              Așa arată meniul clienților — se actualizează pe măsură ce schimbi.
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center' }}>
-              <MenuPreview themeSettings={form.theme_settings} restaurantName={form.name} />
-            </div>
-          </div>
-
-          {/* Theme picker — 8 preset themes for QR menu */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              Tema meniului QR
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-              Alege stilul vizual pentru meniul tău. Se aplică instant pe pagina pe care o văd
-              clienții.
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
-                gap: 8,
-              }}
-            >
-              {THEMES.map((t) => {
-                const isSelected = (form.theme_settings?.preset_id ?? 'cafe') === t.id
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() =>
-                      upd('theme_settings', {
-                        // Păstrăm restul cheilor (menu_layout) când schimbăm tema.
-                        ...(form.theme_settings ?? {}),
-                        preset_id: t.id,
-                        accent_override: form.theme_settings?.accent_override ?? null,
-                      })
-                    }
-                    style={{
-                      padding: '12px 10px',
-                      border: `2px solid ${isSelected ? D.gold : D.border}`,
-                      background: isSelected ? D.goldA : D.s3,
-                      borderRadius: 10,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                      <span style={{ fontSize: '1.1rem' }}>{t.emoji}</span>
-                      <span
-                        style={{
-                          fontSize: '0.78rem',
-                          fontWeight: 600,
-                          color: isSelected ? D.gold : D.t1,
-                        }}
-                      >
-                        {t.name}
-                      </span>
-                    </div>
-                    {/* Color preview */}
-                    <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                      <div
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 3,
-                          background: t.colors.bg,
-                          border: `1px solid ${D.border}`,
-                        }}
-                        title="Background"
-                      />
-                      <div
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 3,
-                          background: t.colors.accent,
-                        }}
-                        title="Accent"
-                      />
-                      <div
-                        style={{
-                          width: 14,
-                          height: 14,
-                          borderRadius: 3,
-                          background: t.colors.surface,
-                          border: `1px solid ${D.border}`,
-                        }}
-                        title="Surface"
-                      />
-                    </div>
-                    <div
-                      style={{ fontSize: '0.65rem', color: D.t3, lineHeight: 1.3, marginTop: 4 }}
-                    >
-                      {t.description}
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            <div
-              style={{
-                fontSize: '0.7rem',
-                color: D.t3,
-                marginTop: 12,
-                padding: '8px 10px',
-                background: D.s3,
-                borderRadius: 7,
-                lineHeight: 1.5,
-              }}
-            >
-              💡 După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
-              meniului.
-            </div>
-          </div>
-
-          {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              Layout meniu
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-              Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul
-              digital și pe meniul QR.
-            </div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
-                gap: 8,
-              }}
-            >
-              {(
-                [
-                  {
-                    id: 'list',
-                    emoji: '☰',
-                    name: 'Listă',
-                    desc: 'Poză mică + text. Clasic și compact.',
-                  },
-                  {
-                    id: 'grid',
-                    emoji: '▦',
-                    name: 'Galerie foto',
-                    desc: 'Poze mari, 2 coloane. Cel mai vizual.',
-                  },
-                  {
-                    id: 'minimal',
-                    emoji: '≡',
-                    name: 'Minimal elegant',
-                    desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
-                  },
-                  {
-                    id: 'photo',
-                    emoji: '🖼',
-                    name: 'Foto-first',
-                    desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
-                  },
-                  {
-                    id: 'flipbook',
-                    emoji: '📖',
-                    name: 'Flipbook (PDF/pagini)',
-                    desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
-                  },
-                ] as const
-              ).map((l) => {
-                const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
-                return (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() =>
-                      upd('theme_settings', {
-                        // Păstrăm tema/accentul; schimbăm doar layout-ul.
-                        ...(form.theme_settings ?? {}),
-                        preset_id: form.theme_settings?.preset_id ?? 'cafe',
-                        menu_layout: l.id,
-                      })
-                    }
-                    style={{
-                      padding: '14px 12px',
-                      border: `2px solid ${isSelected ? D.gold : D.border}`,
-                      background: isSelected ? D.goldA : D.s3,
-                      borderRadius: 10,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                      transition: 'all 0.15s',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: '1.1rem' }}>{l.emoji}</span>
-                      <span
-                        style={{
-                          fontSize: '0.82rem',
-                          fontWeight: 600,
-                          color: isSelected ? D.gold : D.t1,
-                        }}
-                      >
-                        {l.name}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.68rem', color: D.t3, lineHeight: 1.3 }}>{l.desc}</div>
-                  </button>
-                )
-              })}
-            </div>
-
-            {/* Uploader pagini flipbook — vizibil doar când layout-ul e 'flipbook'.
-                Paginile stau în theme_settings.flipbook_pages și se salvează prin
-                butonul „Salvează" al formularului (fluxul existent). */}
-            {(form.theme_settings?.menu_layout ?? 'list') === 'flipbook' && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
-                  Paginile meniului ({flipbookPages.length}/{FLIPBOOK_MAX_PAGES})
-                </div>
-                <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-                  Ai meniul ca PDF? Exportă paginile ca imagini (sau pozează-le) și încarcă-le aici
-                  — ori folosește Importul AI din Produse ca să-l transformi în meniu interactiv.
-                </div>
-
-                {/* Lista de pagini: thumbnail + reordonare ↑↓ + ștergere. */}
-                {flipbookPages.length > 0 && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-                    {flipbookPages.map((url, idx) => (
-                      <div
-                        key={`${idx}-${url}`}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          padding: '6px 8px',
-                          background: D.s3,
-                          border: `1px solid ${D.border}`,
-                          borderRadius: 8,
-                        }}
-                      >
-                        <span style={{ fontSize: '0.72rem', color: D.t3, width: 20, flexShrink: 0 }}>
-                          {idx + 1}
-                        </span>
-                        <img
-                          src={url}
-                          alt={`Pagina ${idx + 1}`}
-                          loading="lazy"
-                          style={{
-                            width: 56,
-                            height: 42,
-                            objectFit: 'cover',
-                            borderRadius: 5,
-                            border: `1px solid ${D.border}`,
-                            background: D.s2,
-                            flexShrink: 0,
-                          }}
-                        />
-                        <span style={{ flex: 1 }} />
-                        <button
-                          type="button"
-                          onClick={() => moveFlipbookPage(idx, -1)}
-                          disabled={idx === 0}
-                          aria-label={`Mută pagina ${idx + 1} mai sus`}
-                          style={{
-                            background: 'transparent',
-                            border: `1px solid ${D.border}`,
-                            borderRadius: 6,
-                            color: idx === 0 ? D.t3 : D.t1,
-                            width: 30,
-                            height: 30,
-                            cursor: idx === 0 ? 'default' : 'pointer',
-                            opacity: idx === 0 ? 0.4 : 1,
-                          }}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => moveFlipbookPage(idx, 1)}
-                          disabled={idx === flipbookPages.length - 1}
-                          aria-label={`Mută pagina ${idx + 1} mai jos`}
-                          style={{
-                            background: 'transparent',
-                            border: `1px solid ${D.border}`,
-                            borderRadius: 6,
-                            color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
-                            width: 30,
-                            height: 30,
-                            cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
-                            opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
-                          }}
-                        >
-                          ↓
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeFlipbookPage(idx)}
-                          aria-label={`Șterge pagina ${idx + 1}`}
-                          style={{
-                            background: 'transparent',
-                            border: `1px solid ${D.border}`,
-                            borderRadius: 6,
-                            color: D.t2,
-                            fontSize: '0.7rem',
-                            padding: '0 10px',
-                            height: 30,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          Șterge
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {flipbookPages.length === 0 && (
-                  <div
-                    style={{
-                      border: `1px dashed ${D.border}`,
-                      borderRadius: 8,
-                      padding: '16px 12px',
-                      textAlign: 'center',
-                      fontSize: '0.74rem',
                       color: D.t3,
-                      marginBottom: 12,
-                      lineHeight: 1.5,
+                      fontSize: '0.7rem',
                     }}
                   >
-                    Nicio pagină încă. Până încarci pagini, clienții văd meniul pe stilul „Listă".
+                    N/A
                   </div>
                 )}
-
                 <label
                   style={{
                     ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
-                    cursor: uploadingPages ? 'wait' : 'pointer',
+                    cursor: uploadingLogo ? 'wait' : 'pointer',
                     display: 'inline-block',
-                    opacity: uploadingPages ? 0.6 : 1,
+                    opacity: uploadingLogo ? 0.6 : 1,
                   }}
                 >
-                  {uploadingPages ? 'Se încarcă...' : 'Încarcă pagini (poți selecta mai multe)'}
+                  {uploadingLogo ? 'Se încarcă...' : 'Încarcă logo'}
                   <input
                     type="file"
                     accept="image/*"
-                    multiple
                     style={{ display: 'none' }}
                     onChange={async (e) => {
-                      const files = Array.from(e.target.files ?? [])
+                      const f = e.target.files?.[0]
+                      if (!f) return
+                      const url = await uploadImage(f, 'logo')
+                      if (url) upd('logo_url', url)
                       e.target.value = ''
-                      await uploadFlipbookPages(files)
                     }}
                   />
                 </label>
+              </div>
+            </SettingsCard>
 
-                {/* Comanda din meniu nu are carduri pe flipbook — spunem explicit
-                    localurilor care AU comenzi active (plan cu comenzi sau pickup). */}
-                {(planTier(plan) >= 2 || (form.pickup_settings?.enabled ?? false)) && (
-                  <div
+            {/* COVER IMAGE — afișată în hero-ul meniului public */}
+            <SettingsCard
+              icon="image"
+              title="Imagine cover"
+              desc={
+                <>
+                  Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime.
+                  Dacă lipsește, folosim un gradient generat din tema ta.
+                </>
+              }
+            >
+              {form.cover_url ? (
+                <div style={{ position: 'relative', marginBottom: 10 }}>
+                  <img
+                    src={form.cover_url}
+                    alt="Cover"
                     style={{
+                      width: '100%',
+                      aspectRatio: '16 / 9',
+                      objectFit: 'cover',
+                      borderRadius: 10,
+                      border: `1px solid ${D.border}`,
+                    }}
+                  />
+                  <button
+                    onClick={() => upd('cover_url', null)}
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      background: 'rgba(0,0,0,0.65)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 100,
+                      padding: '4px 10px',
                       fontSize: '0.7rem',
-                      color: D.t3,
-                      marginTop: 12,
-                      padding: '8px 10px',
-                      background: D.s3,
-                      borderRadius: 7,
-                      lineHeight: 1.5,
+                      cursor: 'pointer',
                     }}
                   >
-                    💡 Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
-                    disponibilă pe acest stil; chemarea ospătarului rămâne.
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                    Șterge
+                  </button>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    width: '100%',
+                    aspectRatio: '16 / 9',
+                    borderRadius: 10,
+                    border: `1px dashed ${D.border}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: D.t3,
+                    fontSize: '0.78rem',
+                    marginBottom: 10,
+                  }}
+                >
+                  Fără imagine — gradient temă activă
+                </div>
+              )}
+              <label
+                style={{
+                  ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
+                  cursor: uploadingCover ? 'wait' : 'pointer',
+                  display: 'inline-block',
+                  opacity: uploadingCover ? 0.6 : 1,
+                }}
+              >
+                {uploadingCover ? 'Se încarcă...' : 'Încarcă imagine'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0]
+                    if (!f) return
+                    const url = await uploadImage(f, 'cover')
+                    if (url) upd('cover_url', url)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+            </SettingsCard>
 
-          {/* Elemente meniu — ce se vede pe hero-ul clienților. Toate ON implicit. */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              Elemente meniu
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
-              Alege ce se vede pe meniul clienților. Toate sunt pornite implicit.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* AMENITIES toggles */}
+            <SettingsCard
+              icon="sparkle"
+              title="Facilități"
+              desc="Afișate ca pills în hero-ul meniului public."
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {AMENITIES.map((a) => {
+                  const active = (form.amenities ?? []).includes(a.id)
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => toggleAmenity(a.id)}
+                      style={{
+                        background: active ? D.goldA : D.s3,
+                        border: `1px solid ${active ? D.gold : D.border}`,
+                        color: active ? D.goldL : D.t2,
+                        padding: '6px 12px',
+                        borderRadius: 100,
+                        fontSize: '0.78rem',
+                        fontWeight: active ? 600 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {a.labelRo}
+                    </button>
+                  )
+                })}
+              </div>
+            </SettingsCard>
+
+            {/* WiFi password */}
+            <SettingsCard
+              icon="wifi"
+              title="Parolă WiFi (opțional)"
+              desc="Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici."
+            >
+              <Inp
+                value={form.wifi_password ?? ''}
+                onChange={(v) => upd('wifi_password', v.trim() || null)}
+                placeholder="ex: tinctura2024"
+              />
+            </SettingsCard>
+
+            {/* Social media */}
+            <SettingsCard icon="link" title="Social media">
               {(
                 [
-                  {
-                    key: 'cover',
-                    name: 'Copertă',
-                    desc: 'Imaginea de copertă din partea de sus. Dezactivată, se afișează un gradient.',
-                  },
-                  {
-                    key: 'tagline',
-                    name: 'Slogan',
-                    desc: 'Sloganul restaurantului afișat sub nume.',
-                  },
-                  {
-                    key: 'status',
-                    name: 'Status deschis / închis',
-                    desc: 'Pastila care arată dacă restaurantul e deschis acum.',
-                  },
-                  {
-                    key: 'amenities',
-                    name: 'WiFi & Vegan',
-                    desc: 'Pile cu facilitățile WiFi și opțiuni vegan.',
-                  },
-                  {
-                    key: 'social',
-                    name: 'Social',
-                    desc: 'Pile cu link-uri Instagram, TikTok, Facebook și website.',
-                  },
+                  ['instagram', 'Instagram', '@tinctura.cafe'],
+                  ['facebook', 'Facebook', 'facebook.com/tinctura'],
+                  ['tiktok', 'TikTok', '@tinctura'],
+                  ['website', 'Website', 'https://tinctura.ro'],
                 ] as const
-              ).map((el) => {
-                const value = form.theme_settings?.elements?.[el.key] ?? true
+              ).map(([k, label, ph]) => {
+                const socials = (form.socials ?? {}) as Record<string, string | null | undefined>
                 return (
+                  <div key={k} style={{ marginBottom: 10 }}>
+                    <label
+                      style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
+                    >
+                      {label}
+                    </label>
+                    <Inp
+                      value={socials[k] ?? ''}
+                      onChange={(v) =>
+                        upd('socials', {
+                          ...socials,
+                          [k]: v.trim() || null,
+                        })
+                      }
+                      placeholder={ph}
+                    />
+                  </div>
+                )
+              })}
+            </SettingsCard>
+
+            {/* Google Review CTA settings */}
+            <SettingsCard
+              icon="star"
+              title="Google Reviews (recenzii automate)"
+              desc={`După ce clientul finalizează plata și dă feedback pozitiv (rating ≥ 4), îi vom afișa un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business. Cel mai rapid mod să crești numărul de recenzii.`}
+            >
+              <label style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}>
+                Google Place ID
+              </label>
+              <Inp
+                value={form.google_place_id ?? ''}
+                onChange={(v) => upd('google_place_id', v.trim() || null)}
+                placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
+              />
+              <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 6, lineHeight: 1.5 }}>
+                Găsești Place ID-ul aici:{' '}
+                <a
+                  href="https://developers.google.com/maps/documentation/places/web-service/place-id"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: D.gold }}
+                >
+                  Place ID Finder
+                </a>
+                . Caută numele localului tău, copiază ID-ul (începe cu "ChIJ...").
+              </div>
+
+              {form.google_place_id && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: '10px 14px',
+                    background: D.s3,
+                    borderRadius: 8,
+                    fontSize: '0.72rem',
+                    color: D.t2,
+                  }}
+                >
                   <div
-                    key={el.key}
+                    style={{
+                      color: '#4CAF6E',
+                      marginBottom: 4,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Icon name="check" size={13} color="#4CAF6E" />
+                    Configurat
+                  </div>
+                  <div>
+                    URL preview:{' '}
+                    <a
+                      href={`https://search.google.com/local/writereview?placeid=${form.google_place_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: D.gold, wordBreak: 'break-all' }}
+                    >
+                      search.google.com/local/writereview?placeid={form.google_place_id.slice(0, 12)}
+                      ...
+                    </a>
+                  </div>
+                </div>
+              )}
+            </SettingsCard>
+          </>
+        )}
+
+        {section === 'menu' && (
+          <>
+            {/* Previzualizare live — se actualizează instant la orice schimbare de
+                temă / layout / elemente (form.theme_settings e state React). O punem
+                prima ca userul să vadă efectul modificărilor din secțiune imediat. */}
+            <SettingsCard
+              icon="eye"
+              title="Previzualizare"
+              desc="Așa arată meniul clienților — se actualizează pe măsură ce schimbi."
+            >
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <MenuPreview themeSettings={form.theme_settings} restaurantName={form.name} />
+              </div>
+            </SettingsCard>
+
+            <SettingsCard icon="qr" title="URL meniu">
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  background: D.s3,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 9,
+                  overflow: 'hidden',
+                }}
+              >
+                <span
+                  style={{
+                    padding: '0 10px',
+                    fontSize: '0.75rem',
+                    color: D.t3,
+                    borderRight: `1px solid ${D.border}`,
+                    height: 44,
+                    display: 'flex',
+                    alignItems: 'center',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  menuvia.ro/m/
+                </span>
+                <Inp
+                  value={form.slug || ''}
+                  onChange={(v) => upd('slug', slugify(v))}
+                  placeholder="slug-url"
+                />
+              </div>
+            </SettingsCard>
+
+            <SettingsCard icon="sparkle" title="Culoare accent">
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {COLORS.map((c) => {
+                  const selected = form.primary_color === c
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => upd('primary_color', c)}
+                      aria-label={`Culoare accent ${COLOR_NAMES[c] ?? c}`}
+                      aria-pressed={selected}
+                      title={COLOR_NAMES[c] ?? c}
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: '50%',
+                        background: c,
+                        border: `3px solid ${selected ? '#fff' : 'transparent'}`,
+                        cursor: 'pointer',
+                        padding: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {/* Bifă ne-cromatică: arată selecția independent de culoare. */}
+                      {selected && <Icon name="check" size={18} color="#fff" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </SettingsCard>
+
+            {/* Theme picker — 8 preset themes for QR menu */}
+            <SettingsCard
+              icon="image"
+              title="Tema meniului QR"
+              desc="Alege stilul vizual pentru meniul tău. Se aplică instant pe pagina pe care o văd clienții."
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+                  gap: 8,
+                }}
+              >
+                {THEMES.map((t) => {
+                  const isSelected = (form.theme_settings?.preset_id ?? 'cafe') === t.id
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() =>
+                        upd('theme_settings', {
+                          // Păstrăm restul cheilor (menu_layout) când schimbăm tema.
+                          ...(form.theme_settings ?? {}),
+                          preset_id: t.id,
+                          accent_override: form.theme_settings?.accent_override ?? null,
+                        })
+                      }
+                      style={{
+                        padding: '12px 10px',
+                        border: `2px solid ${isSelected ? D.gold : D.border}`,
+                        background: isSelected ? D.goldA : D.s3,
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <span style={{ fontSize: '1.1rem' }}>{t.emoji}</span>
+                        <span
+                          style={{
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            color: isSelected ? D.gold : D.t1,
+                          }}
+                        >
+                          {t.name}
+                        </span>
+                      </div>
+                      {/* Color preview */}
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: 3,
+                            background: t.colors.bg,
+                            border: `1px solid ${D.border}`,
+                          }}
+                          title="Background"
+                        />
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: 3,
+                            background: t.colors.accent,
+                          }}
+                          title="Accent"
+                        />
+                        <div
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: 3,
+                            background: t.colors.surface,
+                            border: `1px solid ${D.border}`,
+                          }}
+                          title="Surface"
+                        />
+                      </div>
+                      <div
+                        style={{ fontSize: '0.65rem', color: D.t3, lineHeight: 1.3, marginTop: 4 }}
+                      >
+                        {t.description}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+              <div
+                style={{
+                  fontSize: '0.7rem',
+                  color: D.t3,
+                  marginTop: 12,
+                  padding: '8px 10px',
+                  background: D.s3,
+                  borderRadius: 7,
+                  lineHeight: 1.5,
+                }}
+              >
+                💡 După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
+                meniului.
+              </div>
+            </SettingsCard>
+
+            {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
+            <SettingsCard
+              icon="menu"
+              title="Layout meniu"
+              desc="Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul digital și pe meniul QR."
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
+                  gap: 8,
+                }}
+              >
+                {(
+                  [
+                    {
+                      id: 'list',
+                      emoji: '☰',
+                      name: 'Listă',
+                      desc: 'Poză mică + text. Clasic și compact.',
+                    },
+                    {
+                      id: 'grid',
+                      emoji: '▦',
+                      name: 'Galerie foto',
+                      desc: 'Poze mari, 2 coloane. Cel mai vizual.',
+                    },
+                    {
+                      id: 'minimal',
+                      emoji: '≡',
+                      name: 'Minimal elegant',
+                      desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
+                    },
+                    {
+                      id: 'photo',
+                      emoji: '🖼',
+                      name: 'Foto-first',
+                      desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
+                    },
+                    {
+                      id: 'flipbook',
+                      emoji: '📖',
+                      name: 'Flipbook (PDF/pagini)',
+                      desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
+                    },
+                  ] as const
+                ).map((l) => {
+                  const isSelected = (form.theme_settings?.menu_layout ?? 'list') === l.id
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() =>
+                        upd('theme_settings', {
+                          // Păstrăm tema/accentul; schimbăm doar layout-ul.
+                          ...(form.theme_settings ?? {}),
+                          preset_id: form.theme_settings?.preset_id ?? 'cafe',
+                          menu_layout: l.id,
+                        })
+                      }
+                      style={{
+                        padding: '14px 12px',
+                        border: `2px solid ${isSelected ? D.gold : D.border}`,
+                        background: isSelected ? D.goldA : D.s3,
+                        borderRadius: 10,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                        transition: 'all 0.15s',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: '1.1rem' }}>{l.emoji}</span>
+                        <span
+                          style={{
+                            fontSize: '0.82rem',
+                            fontWeight: 600,
+                            color: isSelected ? D.gold : D.t1,
+                          }}
+                        >
+                          {l.name}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.68rem', color: D.t3, lineHeight: 1.3 }}>{l.desc}</div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Uploader pagini flipbook — vizibil doar când layout-ul e 'flipbook'.
+                  Paginile stau în theme_settings.flipbook_pages și se salvează prin
+                  butonul „Salvează" al formularului (fluxul existent). */}
+              {(form.theme_settings?.menu_layout ?? 'list') === 'flipbook' && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
+                    Paginile meniului ({flipbookPages.length}/{FLIPBOOK_MAX_PAGES})
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
+                    Ai meniul ca PDF? Exportă paginile ca imagini (sau pozează-le) și încarcă-le aici
+                    — ori folosește Importul AI din Produse ca să-l transformi în meniu interactiv.
+                  </div>
+
+                  {/* Lista de pagini: thumbnail + reordonare ↑↓ + ștergere. */}
+                  {flipbookPages.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+                      {flipbookPages.map((url, idx) => (
+                        <div
+                          key={`${idx}-${url}`}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '6px 8px',
+                            background: D.s3,
+                            border: `1px solid ${D.border}`,
+                            borderRadius: 8,
+                          }}
+                        >
+                          <span style={{ fontSize: '0.72rem', color: D.t3, width: 20, flexShrink: 0 }}>
+                            {idx + 1}
+                          </span>
+                          <img
+                            src={url}
+                            alt={`Pagina ${idx + 1}`}
+                            loading="lazy"
+                            style={{
+                              width: 56,
+                              height: 42,
+                              objectFit: 'cover',
+                              borderRadius: 5,
+                              border: `1px solid ${D.border}`,
+                              background: D.s2,
+                              flexShrink: 0,
+                            }}
+                          />
+                          <span style={{ flex: 1 }} />
+                          <button
+                            type="button"
+                            onClick={() => moveFlipbookPage(idx, -1)}
+                            disabled={idx === 0}
+                            aria-label={`Mută pagina ${idx + 1} mai sus`}
+                            style={{
+                              background: 'transparent',
+                              border: `1px solid ${D.border}`,
+                              borderRadius: 6,
+                              color: idx === 0 ? D.t3 : D.t1,
+                              width: 30,
+                              height: 30,
+                              cursor: idx === 0 ? 'default' : 'pointer',
+                              opacity: idx === 0 ? 0.4 : 1,
+                            }}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => moveFlipbookPage(idx, 1)}
+                            disabled={idx === flipbookPages.length - 1}
+                            aria-label={`Mută pagina ${idx + 1} mai jos`}
+                            style={{
+                              background: 'transparent',
+                              border: `1px solid ${D.border}`,
+                              borderRadius: 6,
+                              color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
+                              width: 30,
+                              height: 30,
+                              cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
+                              opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
+                            }}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeFlipbookPage(idx)}
+                            aria-label={`Șterge pagina ${idx + 1}`}
+                            style={{
+                              background: 'transparent',
+                              border: `1px solid ${D.border}`,
+                              borderRadius: 6,
+                              color: D.t2,
+                              fontSize: '0.7rem',
+                              padding: '0 10px',
+                              height: 30,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Șterge
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {flipbookPages.length === 0 && (
+                    <div
+                      style={{
+                        border: `1px dashed ${D.border}`,
+                        borderRadius: 8,
+                        padding: '16px 12px',
+                        textAlign: 'center',
+                        fontSize: '0.74rem',
+                        color: D.t3,
+                        marginBottom: 12,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Nicio pagină încă. Până încarci pagini, clienții văd meniul pe stilul „Listă".
+                    </div>
+                  )}
+
+                  <label
+                    style={{
+                      ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
+                      cursor: uploadingPages ? 'wait' : 'pointer',
+                      display: 'inline-block',
+                      opacity: uploadingPages ? 0.6 : 1,
+                    }}
+                  >
+                    {uploadingPages ? 'Se încarcă...' : 'Încarcă pagini (poți selecta mai multe)'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files ?? [])
+                        e.target.value = ''
+                        await uploadFlipbookPages(files)
+                      }}
+                    />
+                  </label>
+
+                  {/* Comanda din meniu nu are carduri pe flipbook — spunem explicit
+                      localurilor care AU comenzi active (plan cu comenzi sau pickup). */}
+                  {(planTier(plan) >= 2 || (form.pickup_settings?.enabled ?? false)) && (
+                    <div
+                      style={{
+                        fontSize: '0.7rem',
+                        color: D.t3,
+                        marginTop: 12,
+                        padding: '8px 10px',
+                        background: D.s3,
+                        borderRadius: 7,
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      💡 Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
+                      disponibilă pe acest stil; chemarea ospătarului rămâne.
+                    </div>
+                  )}
+                </div>
+              )}
+            </SettingsCard>
+
+            {/* Elemente meniu — ce se vede pe hero-ul clienților. Toate ON implicit. */}
+            <SettingsCard
+              icon="settings"
+              title="Elemente meniu"
+              desc="Alege ce se vede pe meniul clienților. Toate sunt pornite implicit."
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {(
+                  [
+                    {
+                      key: 'cover',
+                      name: 'Copertă',
+                      desc: 'Imaginea de copertă din partea de sus. Dezactivată, se afișează un gradient.',
+                    },
+                    {
+                      key: 'tagline',
+                      name: 'Slogan',
+                      desc: 'Sloganul restaurantului afișat sub nume.',
+                    },
+                    {
+                      key: 'status',
+                      name: 'Status deschis / închis',
+                      desc: 'Pastila care arată dacă restaurantul e deschis acum.',
+                    },
+                    {
+                      key: 'amenities',
+                      name: 'WiFi & Vegan',
+                      desc: 'Pile cu facilitățile WiFi și opțiuni vegan.',
+                    },
+                    {
+                      key: 'social',
+                      name: 'Social',
+                      desc: 'Pile cu link-uri Instagram, TikTok, Facebook și website.',
+                    },
+                  ] as const
+                ).map((el) => {
+                  const value = form.theme_settings?.elements?.[el.key] ?? true
+                  return (
+                    <div
+                      key={el.key}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 12,
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                          {el.name}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
+                      </div>
+                      <Toggle
+                        value={value}
+                        onChange={(v) =>
+                          upd('theme_settings', {
+                            // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
+                            ...(form.theme_settings ?? {}),
+                            preset_id: form.theme_settings?.preset_id ?? 'cafe',
+                            elements: { ...(form.theme_settings?.elements ?? {}), [el.key]: v },
+                          })
+                        }
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </SettingsCard>
+
+            {/* Limbi meniu — limbile suplimentare oferite clientului (fără 'ro'). */}
+            <SettingsCard
+              icon="info"
+              title="Limbi meniu"
+              desc="Limbi în care clientul poate vedea meniul. Româna e mereu disponibilă."
+            >
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {MENU_LANGS.filter((l) => l.code !== 'ro').map((l) => {
+                  const active = (form.menu_languages ?? []).includes(l.code)
+                  return (
+                    <button
+                      key={l.code}
+                      type="button"
+                      onClick={() => toggleMenuLang(l.code)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: active ? D.goldA : D.s3,
+                        border: `1px solid ${active ? D.gold : D.border}`,
+                        color: active ? D.goldL : D.t2,
+                        padding: '6px 12px',
+                        borderRadius: 100,
+                        fontSize: '0.78rem',
+                        fontWeight: active ? 600 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span>{l.flag}</span>
+                      {l.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </SettingsCard>
+          </>
+        )}
+
+        {section === 'orders' && (
+          <>
+            {/* MODULES toggles — Gate D */}
+            {modulesState && (
+              <SettingsCard
+                icon="sparkle"
+                title="Module opționale"
+                desc="Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici clienții, nici angajații nu pot crea date pe ele."
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
@@ -880,969 +1456,205 @@ export default function SettingsTab({
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                        {el.name}
+                      <div
+                        style={{
+                          fontSize: '0.85rem',
+                          fontWeight: 500,
+                          color: D.t1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                        }}
+                      >
+                        <Icon name="calendar" size={15} color={D.t2} />
+                        Rezervări
                       </div>
-                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
+                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                        Permite clienților să rezerve mese din meniul public. Vei avea tabul Rezervări
+                        în dashboard pentru gestionare.
+                      </div>
                     </div>
                     <Toggle
-                      value={value}
-                      onChange={(v) =>
-                        upd('theme_settings', {
-                          // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
-                          ...(form.theme_settings ?? {}),
-                          preset_id: form.theme_settings?.preset_id ?? 'cafe',
-                          elements: { ...(form.theme_settings?.elements ?? {}), [el.key]: v },
-                        })
-                      }
+                      value={modulesState.isEnabled('reservations')}
+                      onChange={(v) => {
+                        modulesState
+                          .setModule('reservations', v)
+                          .then(() =>
+                            toast(v ? 'Modulul Rezervări activat' : 'Modulul Rezervări dezactivat'),
+                          )
+                          .catch((err) =>
+                            toast(err instanceof Error ? err.message : 'Eroare la salvare'),
+                          )
+                      }}
                     />
                   </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Limbi meniu — limbile suplimentare oferite clientului (fără 'ro'). */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-              Limbi meniu
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-              Limbi în care clientul poate vedea meniul. Româna e mereu disponibilă.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {MENU_LANGS.filter((l) => l.code !== 'ro').map((l) => {
-                const active = (form.menu_languages ?? []).includes(l.code)
-                return (
-                  <button
-                    key={l.code}
-                    type="button"
-                    onClick={() => toggleMenuLang(l.code)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      background: active ? D.goldA : D.s3,
-                      border: `1px solid ${active ? D.gold : D.border}`,
-                      color: active ? D.goldL : D.t2,
-                      padding: '6px 12px',
-                      borderRadius: 100,
-                      fontSize: '0.78rem',
-                      fontWeight: active ? 600 : 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span>{l.flag}</span>
-                    {l.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 12 }}>
-              Plan curent
-            </div>
-            <span
-              style={{
-                padding: '4px 10px',
-                background: D.goldA,
-                border: `1px solid ${D.gold}44`,
-                borderRadius: 6,
-                fontSize: '0.78rem',
-                color: D.goldL,
-                fontWeight: 600,
-              }}
-            >
-              {PLAN_LABELS[plan] || plan}
-            </span>
-          </div>
-
-          {/* COVER IMAGE — afișată în hero-ul meniului public */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="image" size={16} color={D.t2} />
-              Imagine cover
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-              Afișată în hero-ul meniului public. Recomandat: format 16:9, &gt;1200px lățime. Dacă
-              lipsește, folosim un gradient generat din tema ta.
-            </div>
-            {form.cover_url ? (
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <img
-                  src={form.cover_url}
-                  alt="Cover"
-                  style={{
-                    width: '100%',
-                    aspectRatio: '16 / 9',
-                    objectFit: 'cover',
-                    borderRadius: 10,
-                    border: `1px solid ${D.border}`,
-                  }}
-                />
-                <button
-                  onClick={() => upd('cover_url', null)}
-                  style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    background: 'rgba(0,0,0,0.65)',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 100,
-                    padding: '4px 10px',
-                    fontSize: '0.7rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Șterge
-                </button>
-              </div>
-            ) : (
-              <div
-                style={{
-                  width: '100%',
-                  aspectRatio: '16 / 9',
-                  borderRadius: 10,
-                  border: `1px dashed ${D.border}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: D.t3,
-                  fontSize: '0.78rem',
-                  marginBottom: 10,
-                }}
-              >
-                Fără imagine — gradient temă activă
-              </div>
+                </div>
+              </SettingsCard>
             )}
-            <label
-              style={{
-                ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
-                cursor: uploadingCover ? 'wait' : 'pointer',
-                display: 'inline-block',
-                opacity: uploadingCover ? 0.6 : 1,
-              }}
-            >
-              {uploadingCover ? 'Se încarcă...' : 'Încarcă imagine'}
-              <input
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={async (e) => {
-                  const f = e.target.files?.[0]
-                  if (!f) return
-                  const url = await uploadImage(f, 'cover')
-                  if (url) upd('cover_url', url)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-          </div>
 
-          {/* LOGO upload — square */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="tag" size={16} color={D.t2} />
-              Logo
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
-              Logo pătrat. Opțional, folosit ca avatar / favicon viitor.
-            </div>
-            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-              {form.logo_url ? (
-                <div style={{ position: 'relative' }}>
-                  <img
-                    src={form.logo_url}
-                    alt="Logo"
-                    style={{
-                      width: 80,
-                      height: 80,
-                      objectFit: 'cover',
-                      borderRadius: 12,
-                      border: `1px solid ${D.border}`,
-                      background: D.s3,
-                    }}
-                  />
-                  <button
-                    onClick={() => upd('logo_url', null)}
-                    aria-label="Șterge logo"
-                    style={{
-                      position: 'absolute',
-                      top: -6,
-                      right: -6,
-                      width: 22,
-                      height: 22,
-                      background: D.s2,
-                      color: D.t2,
-                      border: `1px solid ${D.border}`,
-                      borderRadius: '50%',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                    }}
-                  >
-                    <Icon name="close" size={12} color={D.t2} />
-                  </button>
-                </div>
-              ) : (
-                <div
-                  style={{
-                    width: 80,
-                    height: 80,
-                    borderRadius: 12,
-                    border: `1px dashed ${D.border}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: D.t3,
-                    fontSize: '0.7rem',
-                  }}
-                >
-                  N/A
-                </div>
-              )}
-              <label
-                style={{
-                  ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
-                  cursor: uploadingLogo ? 'wait' : 'pointer',
-                  display: 'inline-block',
-                  opacity: uploadingLogo ? 0.6 : 1,
-                }}
-              >
-                {uploadingLogo ? 'Se încarcă...' : 'Încarcă logo'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  onChange={async (e) => {
-                    const f = e.target.files?.[0]
-                    if (!f) return
-                    const url = await uploadImage(f, 'logo')
-                    if (url) upd('logo_url', url)
-                    e.target.value = ''
-                  }}
-                />
-              </label>
-            </div>
-          </div>
-
-          {/* PROGRAM DETALIAT — hours_structured per zi */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 6,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
-                  color: D.t1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Icon name="clock" size={16} color={D.t2} />
-                Program detaliat
-              </div>
-              <button
-                onClick={copyMondayToAll}
-                style={{
-                  background: 'transparent',
-                  border: `1px solid ${D.border}`,
-                  borderRadius: 6,
-                  color: D.t2,
-                  fontSize: '0.7rem',
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                }}
-              >
-                Copiază luni → toate
-              </button>
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-              Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul
-              public.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {WEEK_DAY_KEYS.map((day) => {
-                const cur = ((form.hours_structured ?? {}) as Record<string, DayHoursForm>)[
-                  day
-                ] ?? {
-                  open: '08:00',
-                  close: '23:00',
-                  closed: false,
-                }
-                return (
-                  <div
-                    key={day}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: isMobile ? '1fr' : '80px 1fr 88px 88px',
-                      gap: 8,
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span style={{ fontSize: '0.78rem', color: D.t1 }}>{WEEK_DAY_LABELS[day]}</span>
-                    <label
-                      style={{
-                        fontSize: '0.72rem',
-                        color: D.t2,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={!cur.closed}
-                        onChange={(e) => updHours(day, { closed: !e.target.checked })}
-                      />
-                      Deschis
-                    </label>
-                    {/* Pe mobil (1 coloană) inputurile de oră stau stivuite fără
-                        antet de coloană → mici label-uri „Deschide"/„Închide"
-                        deasupra. Pe desktop antetul e implicit; păstrăm doar
-                        aria-label pentru screen reader. */}
-                    <div>
-                      {isMobile && (
-                        <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
-                          Deschide
-                        </label>
-                      )}
-                      <input
-                        type="time"
-                        disabled={cur.closed}
-                        value={cur.open}
-                        onChange={(e) => updHours(day, { open: e.target.value })}
-                        aria-label={`${WEEK_DAY_LABELS[day]} deschidere`}
-                        style={{
-                          background: D.s3,
-                          border: `1px solid ${D.border}`,
-                          color: D.t1,
-                          padding: '6px 8px',
-                          borderRadius: 6,
-                          fontSize: '0.78rem',
-                          opacity: cur.closed ? 0.4 : 1,
-                          width: isMobile ? '100%' : undefined,
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                    <div>
-                      {isMobile && (
-                        <label style={{ display: 'block', fontSize: '0.68rem', color: D.t3, marginBottom: 3 }}>
-                          Închide
-                        </label>
-                      )}
-                      <input
-                        type="time"
-                        disabled={cur.closed}
-                        value={cur.close}
-                        onChange={(e) => updHours(day, { close: e.target.value })}
-                        aria-label={`${WEEK_DAY_LABELS[day]} închidere`}
-                        style={{
-                          background: D.s3,
-                          border: `1px solid ${D.border}`,
-                          color: D.t1,
-                          padding: '6px 8px',
-                          borderRadius: 6,
-                          fontSize: '0.78rem',
-                          opacity: cur.closed ? 0.4 : 1,
-                          width: isMobile ? '100%' : undefined,
-                          boxSizing: 'border-box',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* MODULES toggles — Gate D */}
-          {modulesState && (
-            <div
-              style={{
-                background: D.s2,
-                border: `1px solid ${D.border}`,
-                borderRadius: 14,
-                padding: 22,
-              }}
-            >
-              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1, marginBottom: 6 }}>
-                🧩 Module opționale
-              </div>
-              <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 16, lineHeight: 1.5 }}>
-                Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici
-                clienții, nici angajații nu pot crea date pe ele.
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                  }}
-                >
-                  <div>
-                    <div
-                      style={{
-                        fontSize: '0.85rem',
-                        fontWeight: 500,
-                        color: D.t1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                      }}
-                    >
-                      <Icon name="calendar" size={15} color={D.t2} />
-                      Rezervări
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                      Permite clienților să rezerve mese din meniul public. Vei avea tabul Rezervări
-                      în dashboard pentru gestionare.
-                    </div>
-                  </div>
-                  <Toggle
-                    value={modulesState.isEnabled('reservations')}
-                    onChange={(v) => {
-                      modulesState
-                        .setModule('reservations', v)
-                        .then(() =>
-                          toast(v ? 'Modulul Rezervări activat' : 'Modulul Rezervări dezactivat'),
-                        )
-                        .catch((err) =>
-                          toast(err instanceof Error ? err.message : 'Eroare la salvare'),
-                        )
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* AMENITIES toggles */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="sparkle" size={16} color={D.t2} />
-              Facilități
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-              Afișate ca pills în hero-ul meniului public.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {AMENITIES.map((a) => {
-                const active = (form.amenities ?? []).includes(a.id)
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => toggleAmenity(a.id)}
-                    style={{
-                      background: active ? D.goldA : D.s3,
-                      border: `1px solid ${active ? D.gold : D.border}`,
-                      color: active ? D.goldL : D.t2,
-                      padding: '6px 12px',
-                      borderRadius: 100,
-                      fontSize: '0.78rem',
-                      fontWeight: active ? 600 : 500,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {a.labelRo}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* WiFi password */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="wifi" size={16} color={D.t2} />
-              Parolă WiFi (opțional)
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-              Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici.
-            </div>
-            <Inp
-              value={form.wifi_password ?? ''}
-              onChange={(v) => upd('wifi_password', v.trim() || null)}
-              placeholder="ex: tinctura2024"
-            />
-          </div>
-
-          {/* Social media */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 12,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="link" size={16} color={D.t2} />
-              Social media
-            </div>
-            {(
-              [
-                ['instagram', 'Instagram', '@tinctura.cafe'],
-                ['facebook', 'Facebook', 'facebook.com/tinctura'],
-                ['tiktok', 'TikTok', '@tinctura'],
-                ['website', 'Website', 'https://tinctura.ro'],
-              ] as const
-            ).map(([k, label, ph]) => {
-              const socials = (form.socials ?? {}) as Record<string, string | null | undefined>
-              return (
-                <div key={k} style={{ marginBottom: 10 }}>
-                  <label
-                    style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
-                  >
-                    {label}
-                  </label>
-                  <Inp
-                    value={socials[k] ?? ''}
-                    onChange={(v) =>
-                      upd('socials', {
-                        ...socials,
-                        [k]: v.trim() || null,
-                      })
-                    }
-                    placeholder={ph}
-                  />
-                </div>
-              )
-            })}
-          </div>
-
-          {/* VAT rates configuration */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="receipt" size={16} color={D.t2} />
-              Cote TVA
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 14 }}>
-              Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul
-              schimbă cotele — produsele își păstrează automat grupa.
-            </div>
-            <VatRatesEditor restaurantId={restaurant.id} />
-          </div>
-
-          {/* Google Review CTA settings */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                fontSize: '0.875rem',
-                fontWeight: 500,
-                color: D.t1,
-                marginBottom: 6,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              <Icon name="star" size={16} color={D.t2} />
-              Google Reviews (recenzii automate)
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 12 }}>
-              După ce clientul finalizează plata și dă feedback pozitiv (rating ≥ 4), îi vom afișa
-              un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business.
-              Cel mai rapid mod să crești numărul de recenzii.
-            </div>
-
-            <label style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}>
-              Google Place ID
-            </label>
-            <Inp
-              value={form.google_place_id ?? ''}
-              onChange={(v) => upd('google_place_id', v.trim() || null)}
-              placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
-            />
-            <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 6, lineHeight: 1.5 }}>
-              Găsești Place ID-ul aici:{' '}
-              <a
-                href="https://developers.google.com/maps/documentation/places/web-service/place-id"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: D.gold }}
-              >
-                Place ID Finder
-              </a>
-              . Caută numele localului tău, copiază ID-ul (începe cu "ChIJ...").
-            </div>
-
-            {form.google_place_id && (
-              <div
-                style={{
-                  marginTop: 14,
-                  padding: '10px 14px',
-                  background: D.s3,
-                  borderRadius: 8,
-                  fontSize: '0.72rem',
-                  color: D.t2,
-                }}
-              >
-                <div
-                  style={{
-                    color: '#4CAF6E',
-                    marginBottom: 4,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Icon name="check" size={13} color="#4CAF6E" />
-                  Configurat
-                </div>
-                <div>
-                  URL preview:{' '}
-                  <a
-                    href={`https://search.google.com/local/writereview?placeid=${form.google_place_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: D.gold, wordBreak: 'break-all' }}
-                  >
-                    search.google.com/local/writereview?placeid={form.google_place_id.slice(0, 12)}
-                    ...
-                  </a>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Checkout suggestion settings */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-              }}
-            >
-              <div style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
-                Sugestii la coș
-              </div>
-              <Toggle
-                value={form.checkout_suggestion_settings?.enabled ?? false}
-                onChange={(v) =>
-                  upd('checkout_suggestion_settings', {
-                    ...(form.checkout_suggestion_settings ?? {
-                      categories: [],
-                      max_suggestions: 2,
-                      message: '🍰 Înainte să trimiți... ai vrea ceva în plus?',
-                    }),
-                    enabled: v,
-                  })
-                }
-              />
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
-              Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal
-              dar n-a luat desert).
-            </div>
-            {form.checkout_suggestion_settings?.enabled && (
-              <div>
-                <label
-                  style={{
-                    display: 'block',
-                    fontSize: '0.74rem',
-                    color: D.t2,
-                    marginBottom: 5,
-                    marginTop: 8,
-                  }}
-                >
-                  Mesaj afișat
-                </label>
-                <Inp
-                  value={form.checkout_suggestion_settings?.message ?? ''}
+            {/* Pickup ordering settings */}
+            <SettingsCard
+              icon="box"
+              title="Comenzi pentru ridicare (click-and-collect)"
+              desc={
+                <>
+                  Activează pagina ta publică{' '}
+                  <span style={{ color: D.gold }}>menuvia.ro/r/{form.slug || 'slug'}</span>. Clienții
+                  pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
+                  ridicare.
+                </>
+              }
+              right={
+                <Toggle
+                  value={form.pickup_settings?.enabled ?? false}
                   onChange={(v) =>
-                    upd('checkout_suggestion_settings', {
-                      ...(form.checkout_suggestion_settings ?? {
-                        enabled: true,
-                        categories: [],
-                        max_suggestions: 2,
-                        message: '',
+                    upd('pickup_settings', {
+                      ...(form.pickup_settings ?? {
+                        min_lead_time_minutes: 20,
+                        slot_interval_minutes: 15,
+                        open_hours: { start: '09:00', end: '21:00' },
+                        instructions: null,
                       }),
-                      message: v,
+                      enabled: v,
                     })
                   }
-                  placeholder="🍰 Înainte să trimiți... ai vrea ceva în plus?"
                 />
-              </div>
-            )}
-          </div>
-
-          {/* Pickup ordering settings */}
-          <div
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 14,
-              padding: 22,
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-              }}
+              }
             >
-              <div
-                style={{
-                  fontSize: '0.875rem',
-                  fontWeight: 500,
-                  color: D.t1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Icon name="box" size={16} color={D.t2} />
-                Comenzi pentru ridicare (click-and-collect)
-              </div>
-              <Toggle
-                value={form.pickup_settings?.enabled ?? false}
-                onChange={(v) =>
-                  upd('pickup_settings', {
-                    ...(form.pickup_settings ?? {
-                      min_lead_time_minutes: 20,
-                      slot_interval_minutes: 15,
-                      open_hours: { start: '09:00', end: '21:00' },
-                      instructions: null,
-                    }),
-                    enabled: v,
-                  })
-                }
-              />
-            </div>
-            <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
-              Activează pagina ta publică{' '}
-              <span style={{ color: D.gold }}>menuvia.ro/r/{form.slug || 'slug'}</span>. Clienții
-              pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
-              ridicare.
-            </div>
-            {form.pickup_settings?.enabled && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '0.74rem',
-                        color: D.t2,
-                        marginBottom: 5,
-                      }}
-                    >
-                      Pregătire minim (min)
-                    </label>
-                    <Inp
-                      value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
-                      onChange={(v) => {
-                        const n = parseInt(v)
-                        if (!isNaN(n) && n >= 5 && n <= 240)
-                          upd('pickup_settings', {
-                            ...(form.pickup_settings ?? {
-                              enabled: true,
-                              slot_interval_minutes: 15,
-                              open_hours: { start: '09:00', end: '21:00' },
-                              instructions: null,
-                            }),
-                            min_lead_time_minutes: n,
-                          })
-                      }}
-                      type="number"
-                    />
+              {form.pickup_settings?.enabled && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.74rem',
+                          color: D.t2,
+                          marginBottom: 5,
+                        }}
+                      >
+                        Pregătire minim (min)
+                      </label>
+                      <Inp
+                        value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
+                        onChange={(v) => {
+                          const n = parseInt(v)
+                          if (!isNaN(n) && n >= 5 && n <= 240)
+                            upd('pickup_settings', {
+                              ...(form.pickup_settings ?? {
+                                enabled: true,
+                                slot_interval_minutes: 15,
+                                open_hours: { start: '09:00', end: '21:00' },
+                                instructions: null,
+                              }),
+                              min_lead_time_minutes: n,
+                            })
+                        }}
+                        type="number"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.74rem',
+                          color: D.t2,
+                          marginBottom: 5,
+                        }}
+                      >
+                        Interval slot (min)
+                      </label>
+                      <Inp
+                        value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
+                        onChange={(v) => {
+                          const n = parseInt(v)
+                          if (!isNaN(n) && n >= 5 && n <= 60)
+                            upd('pickup_settings', {
+                              ...(form.pickup_settings ?? {
+                                enabled: true,
+                                min_lead_time_minutes: 20,
+                                open_hours: { start: '09:00', end: '21:00' },
+                                instructions: null,
+                              }),
+                              slot_interval_minutes: n,
+                            })
+                        }}
+                        type="number"
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '0.74rem',
-                        color: D.t2,
-                        marginBottom: 5,
-                      }}
-                    >
-                      Interval slot (min)
-                    </label>
-                    <Inp
-                      value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
-                      onChange={(v) => {
-                        const n = parseInt(v)
-                        if (!isNaN(n) && n >= 5 && n <= 60)
+                  <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.74rem',
+                          color: D.t2,
+                          marginBottom: 5,
+                        }}
+                      >
+                        Deschidere
+                      </label>
+                      <Inp
+                        value={form.pickup_settings?.open_hours?.start ?? '09:00'}
+                        onChange={(v) =>
                           upd('pickup_settings', {
                             ...(form.pickup_settings ?? {
                               enabled: true,
                               min_lead_time_minutes: 20,
+                              slot_interval_minutes: 15,
                               open_hours: { start: '09:00', end: '21:00' },
                               instructions: null,
                             }),
-                            slot_interval_minutes: n,
+                            open_hours: {
+                              start: v,
+                              end: form.pickup_settings?.open_hours?.end ?? '21:00',
+                            },
                           })
-                      }}
-                      type="number"
-                    />
+                        }
+                        placeholder="09:00"
+                      />
+                    </div>
+                    <div>
+                      <label
+                        style={{
+                          display: 'block',
+                          fontSize: '0.74rem',
+                          color: D.t2,
+                          marginBottom: 5,
+                        }}
+                      >
+                        Închidere
+                      </label>
+                      <Inp
+                        value={form.pickup_settings?.open_hours?.end ?? '21:00'}
+                        onChange={(v) =>
+                          upd('pickup_settings', {
+                            ...(form.pickup_settings ?? {
+                              enabled: true,
+                              min_lead_time_minutes: 20,
+                              slot_interval_minutes: 15,
+                              open_hours: { start: '09:00', end: '21:00' },
+                              instructions: null,
+                            }),
+                            open_hours: {
+                              start: form.pickup_settings?.open_hours?.start ?? '09:00',
+                              end: v,
+                            },
+                          })
+                        }
+                        placeholder="21:00"
+                      />
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                   <div>
                     <label
-                      style={{
-                        display: 'block',
-                        fontSize: '0.74rem',
-                        color: D.t2,
-                        marginBottom: 5,
-                      }}
+                      style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
                     >
-                      Deschidere
+                      Instrucțiuni client (opțional)
                     </label>
                     <Inp
-                      value={form.pickup_settings?.open_hours?.start ?? '09:00'}
+                      value={form.pickup_settings?.instructions ?? ''}
                       onChange={(v) =>
                         upd('pickup_settings', {
                           ...(form.pickup_settings ?? {
@@ -1852,101 +1664,126 @@ export default function SettingsTab({
                             open_hours: { start: '09:00', end: '21:00' },
                             instructions: null,
                           }),
-                          open_hours: {
-                            start: v,
-                            end: form.pickup_settings?.open_hours?.end ?? '21:00',
-                          },
+                          instructions: v.length > 0 ? v : null,
                         })
                       }
-                      placeholder="09:00"
+                      placeholder="Ex: Sună la sosire, intrarea pe lateral"
                     />
                   </div>
-                  <div>
-                    <label
-                      style={{
-                        display: 'block',
-                        fontSize: '0.74rem',
-                        color: D.t2,
-                        marginBottom: 5,
-                      }}
-                    >
-                      Închidere
-                    </label>
-                    <Inp
-                      value={form.pickup_settings?.open_hours?.end ?? '21:00'}
-                      onChange={(v) =>
-                        upd('pickup_settings', {
-                          ...(form.pickup_settings ?? {
-                            enabled: true,
-                            min_lead_time_minutes: 20,
-                            slot_interval_minutes: 15,
-                            open_hours: { start: '09:00', end: '21:00' },
-                            instructions: null,
-                          }),
-                          open_hours: {
-                            start: form.pickup_settings?.open_hours?.start ?? '09:00',
-                            end: v,
-                          },
-                        })
-                      }
-                      placeholder="21:00"
-                    />
+                  <div
+                    style={{
+                      fontSize: '0.7rem',
+                      color: D.t3,
+                      padding: '8px 10px',
+                      background: D.s3,
+                      borderRadius: 7,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    💡 Comenzile pickup apar în KitchenPage cu badge{' '}
+                    <strong style={{ color: D.gold }}>📦 Pickup</strong>. Numele clientului și ora
+                    ridicării sunt vizibile.
                   </div>
                 </div>
+              )}
+            </SettingsCard>
+
+            {/* Checkout suggestion settings */}
+            <SettingsCard
+              icon="orders"
+              title="Sugestii la coș"
+              desc="Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal dar n-a luat desert)."
+              right={
+                <Toggle
+                  value={form.checkout_suggestion_settings?.enabled ?? false}
+                  onChange={(v) =>
+                    upd('checkout_suggestion_settings', {
+                      ...(form.checkout_suggestion_settings ?? {
+                        categories: [],
+                        max_suggestions: 2,
+                        message: '🍰 Înainte să trimiți... ai vrea ceva în plus?',
+                      }),
+                      enabled: v,
+                    })
+                  }
+                />
+              }
+            >
+              {form.checkout_suggestion_settings?.enabled && (
                 <div>
                   <label
-                    style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}
+                    style={{
+                      display: 'block',
+                      fontSize: '0.74rem',
+                      color: D.t2,
+                      marginBottom: 5,
+                      marginTop: 8,
+                    }}
                   >
-                    Instrucțiuni client (opțional)
+                    Mesaj afișat
                   </label>
                   <Inp
-                    value={form.pickup_settings?.instructions ?? ''}
+                    value={form.checkout_suggestion_settings?.message ?? ''}
                     onChange={(v) =>
-                      upd('pickup_settings', {
-                        ...(form.pickup_settings ?? {
+                      upd('checkout_suggestion_settings', {
+                        ...(form.checkout_suggestion_settings ?? {
                           enabled: true,
-                          min_lead_time_minutes: 20,
-                          slot_interval_minutes: 15,
-                          open_hours: { start: '09:00', end: '21:00' },
-                          instructions: null,
+                          categories: [],
+                          max_suggestions: 2,
+                          message: '',
                         }),
-                        instructions: v.length > 0 ? v : null,
+                        message: v,
                       })
                     }
-                    placeholder="Ex: Sună la sosire, intrarea pe lateral"
+                    placeholder="🍰 Înainte să trimiți... ai vrea ceva în plus?"
                   />
                 </div>
-                <div
-                  style={{
-                    fontSize: '0.7rem',
-                    color: D.t3,
-                    padding: '8px 10px',
-                    background: D.s3,
-                    borderRadius: 7,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  💡 Comenzile pickup apar în KitchenPage cu badge{' '}
-                  <strong style={{ color: D.gold }}>📦 Pickup</strong>. Numele clientului și ora
-                  ridicării sunt vizibile.
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </SettingsCard>
 
-          <button
-            onClick={onSignOut}
-            style={btn({
-              background: D.s2,
-              color: D.t2,
-              border: `1px solid ${D.border}`,
-              width: '100%',
-              justifyContent: 'center',
-            })}
-          >
-            Deconectare
-          </button>
-        </div>
+            {/* VAT rates configuration */}
+            <SettingsCard
+              icon="receipt"
+              title="Cote TVA"
+              desc="Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul schimbă cotele — produsele își păstrează automat grupa."
+            >
+              <VatRatesEditor restaurantId={restaurant.id} />
+            </SettingsCard>
+          </>
+        )}
+
+        {section === 'account' && (
+          <>
+            <SettingsCard icon="star" title="Plan curent">
+              <span
+                style={{
+                  padding: '4px 10px',
+                  background: D.goldA,
+                  border: `1px solid ${D.gold}44`,
+                  borderRadius: 6,
+                  fontSize: '0.78rem',
+                  color: D.goldL,
+                  fontWeight: 600,
+                }}
+              >
+                {PLAN_LABELS[plan] || plan}
+              </span>
+            </SettingsCard>
+
+            <button
+              onClick={onSignOut}
+              style={btn({
+                background: D.s2,
+                color: D.t2,
+                border: `1px solid ${D.border}`,
+                width: '100%',
+                justifyContent: 'center',
+              })}
+            >
+              Deconectare
+            </button>
+          </>
+        )}
       </div>
 
       {/* Bară de salvare sticky jos — formularul e lung, iar butonul „Salvează"
