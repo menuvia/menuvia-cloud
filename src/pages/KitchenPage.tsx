@@ -46,6 +46,14 @@ function urgencyLevel(createdAt: string): UrgencyLevel {
   return 'calm'
 }
 
+// Culoarea de accent pentru un nivel de urgență. `calm` → null (fără accent);
+// apelanții care au nevoie de o culoare neutră fac `?? D.t2`.
+function urgencyLevelColor(level: UrgencyLevel): string | null {
+  if (level === 'late') return D.red
+  if (level === 'warn') return D.amber
+  return null
+}
+
 // Wrapper mic pentru reveal per-card — hook-ul useInView e apelat înăuntru,
 // nu în .map() (regula hooks). Comanda nouă „aterizează" lin în coloană.
 function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
@@ -65,7 +73,7 @@ function ElapsedTimer({ createdAt }: { createdAt: string }) {
     return () => clearInterval(id)
   }, [createdAt])
   const level = urgencyLevel(createdAt)
-  const color = level === 'late' ? D.red : level === 'warn' ? D.amber : D.t2
+  const color = urgencyLevelColor(level) ?? D.t2
   const calm = level === 'calm'
   return (
     <span
@@ -108,7 +116,7 @@ interface OrderCardProps {
 function OrderCard({ order, onAdvance }: OrderCardProps) {
   const next = KITCHEN_NEXT[order.status]
   const level = urgencyLevel(order.created_at)
-  const urgColor = level === 'late' ? D.red : level === 'warn' ? D.amber : null
+  const urgColor = urgencyLevelColor(level)
   const isNew = order.status === 'new'
   // Urgența îmbracă TOT cardul (border + tentă de fundal), nu o dungă laterală.
   // Calm → border auriu doar pentru comenzi noi neconfirmate. Warn/late escaladează.
@@ -380,58 +388,56 @@ export default function KitchenPage() {
             activeId={restaurantId}
             setActive={setActive}
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {pushSupported && pushPerm !== 'unsupported' && (
-              <button
-                onClick={() => {
-                  void (pushSubscribed ? pushUnsubscribe() : pushSubscribe())
-                }}
-                disabled={pushLoading}
-                aria-label={
-                  pushSubscribed
-                    ? 'Notificări active — dezactivează'
+          {pushSupported && pushPerm !== 'unsupported' && (
+            <button
+              onClick={() => {
+                void (pushSubscribed ? pushUnsubscribe() : pushSubscribe())
+              }}
+              disabled={pushLoading}
+              aria-label={
+                pushSubscribed
+                  ? 'Notificări active — dezactivează'
+                  : 'Activează notificările pentru comenzi noi'
+              }
+              title={
+                pushSubscribed
+                  ? 'Notificări active — click pentru a dezactiva'
+                  : pushPerm === 'denied'
+                    ? 'Notificările sunt blocate în browser'
                     : 'Activează notificările pentru comenzi noi'
-                }
-                title={
-                  pushSubscribed
-                    ? 'Notificări active — click pentru a dezactiva'
-                    : pushPerm === 'denied'
-                      ? 'Notificările sunt blocate în browser'
-                      : 'Activează notificările pentru comenzi noi'
-                }
-                style={{
-                  background: 'transparent',
-                  border: `1px solid ${pushSubscribed ? D.gold + '55' : D.border}`,
-                  borderRadius: 8,
-                  padding: '5px 10px',
-                  minHeight: 44,
-                  cursor: pushPerm === 'denied' ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  color: pushSubscribed ? D.gold : D.t2,
-                  fontSize: 13,
-                  fontFamily: 'DM Sans,sans-serif',
-                  opacity: pushLoading ? 0.6 : 1,
-                }}
-              >
-                <Icon name="bell" size={16} />
-                <span style={{ fontSize: 12 }}>{pushSubscribed ? 'Activ' : 'Notificări'}</span>
-              </button>
-            )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: '50%',
-                  background: connected ? D.green : D.red,
-                }}
-              />
-              <span style={{ fontSize: 12, color: D.t2 }}>
-                {connected ? 'Conectat' : 'Deconectat'}
-              </span>
-            </div>
+              }
+              style={{
+                background: 'transparent',
+                border: `1px solid ${pushSubscribed ? D.gold + '55' : D.border}`,
+                borderRadius: 8,
+                padding: '5px 10px',
+                minHeight: 44,
+                cursor: pushPerm === 'denied' ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                color: pushSubscribed ? D.gold : D.t2,
+                fontSize: 13,
+                fontFamily: 'DM Sans,sans-serif',
+                opacity: pushLoading ? 0.6 : 1,
+              }}
+            >
+              <Icon name="bell" size={16} />
+              <span style={{ fontSize: 12 }}>{pushSubscribed ? 'Activ' : 'Notificări'}</span>
+            </button>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: connected ? D.green : D.red,
+              }}
+            />
+            <span style={{ fontSize: 12, color: D.t2 }}>
+              {connected ? 'Conectat' : 'Deconectat'}
+            </span>
           </div>
         </div>
       </div>

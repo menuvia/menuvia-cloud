@@ -436,21 +436,29 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         )
         return
       }
-      const friendly = /overlap|exclusion/i.test(m)
-        ? lang === 'ro'
-          ? 'Intervalul ales se suprapune cu altă rezervare. Alege altă oră.'
-          : 'That time overlaps another reservation. Pick another slot.'
-        : /rate.?limit|prea multe|too many/i.test(m)
-          ? lang === 'ro'
+      // Precedență fixă: overlap → rate-limit → modul dezactivat → fallback.
+      let friendly: string
+      if (/overlap|exclusion/i.test(m)) {
+        friendly =
+          lang === 'ro'
+            ? 'Intervalul ales se suprapune cu altă rezervare. Alege altă oră.'
+            : 'That time overlaps another reservation. Pick another slot.'
+      } else if (/rate.?limit|prea multe|too many/i.test(m)) {
+        friendly =
+          lang === 'ro'
             ? 'Prea multe rezervări într-un interval scurt. Reîncearcă mai târziu.'
             : 'Too many reservations in a short time. Try again later.'
-          : /module|not activ|dezactiv|disabled/i.test(m)
-            ? lang === 'ro'
-              ? 'Rezervările nu sunt active pentru acest restaurant.'
-              : 'Reservations are not enabled for this restaurant.'
-            : lang === 'ro'
-              ? 'Nu am putut salva rezervarea. Verifică datele și reîncearcă.'
-              : 'Could not save the reservation. Check the details and try again.'
+      } else if (/module|not activ|dezactiv|disabled/i.test(m)) {
+        friendly =
+          lang === 'ro'
+            ? 'Rezervările nu sunt active pentru acest restaurant.'
+            : 'Reservations are not enabled for this restaurant.'
+      } else {
+        friendly =
+          lang === 'ro'
+            ? 'Nu am putut salva rezervarea. Verifică datele și reîncearcă.'
+            : 'Could not save the reservation. Check the details and try again.'
+      }
       setError(friendly)
       return
     }

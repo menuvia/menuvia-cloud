@@ -39,6 +39,15 @@ export interface CartItem {
   upsell_source?: 'extra' | 'pairing' | 'checkout_suggestion'
 }
 
+// Totalul unei linii din coș: (preț unitar + opțiuni + extras) * cantitate.
+// Extras se adună per-unitate, apoi se multiplică cu quantity — la fel ca
+// serverul (mig 088: v_item_total = (unit + options + extras) * qty).
+export function lineTotal(item: CartItem): number {
+  const md = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
+  const ex = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
+  return (item.unit_price_snapshot + md + ex) * item.quantity
+}
+
 export interface RestaurantTable {
   id: string
   restaurant_id: string

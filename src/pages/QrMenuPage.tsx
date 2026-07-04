@@ -14,7 +14,7 @@ import {
   hasMandatoryModifierGroups,
   type HappyHourRule,
 } from '../lib/qr'
-import { createOrder } from '../lib/orders'
+import { createOrder, lineTotal } from '../lib/orders'
 import { T } from '../lib/constants'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -183,14 +183,6 @@ export default function QrMenuPage({ token }: Props) {
 
   function removeFromCart(key: string): void {
     setCart((p) => p.filter((i) => i._key !== key))
-  }
-
-  function lineTotal(item: CartItem): number {
-    const md = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
-    // Extras se adună per-unitate, apoi se multiplică cu quantity — la fel ca
-    // serverul (mig 088: v_item_total = (unit + options + extras) * qty).
-    const ex = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
-    return (item.unit_price_snapshot + md + ex) * item.quantity
   }
 
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)

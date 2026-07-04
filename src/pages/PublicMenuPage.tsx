@@ -29,6 +29,7 @@ import type { HappyHourRule } from '../lib/qr'
 import type { Restaurant, Category, Product } from '../lib/qr'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
+import { lineTotal } from '../lib/orders'
 import {
   resolveTheme,
   isDarkTheme,
@@ -388,11 +389,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     })
   }
 
-  const lineTotal = (item: CartItem) => {
-    const modsTotal = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
-    const extrasTotal = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
-    return (item.unit_price_snapshot + modsTotal + extrasTotal) * item.quantity
-  }
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
 
