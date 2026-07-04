@@ -238,6 +238,23 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
   })
 }
 
+// ── Derivă denumirea cotei TVA (vatName) din procentul real ──
+// Oblio cere un `vatName` care corespunde procentului; hardcodarea 'Normala' pentru
+// orice cotă (9%/5%/0%) producea o etichetă TVA greșită pe factură (risc fiscal).
+// Mapare pe cotele RO uzuale:
+//   - 19/21 → 'Normala' (cota standard)
+//   - 9/5/11 → 'Redusa' (cote reduse)
+//   - 0 → 'SFDD' (scutit fără drept de deducere)
+// ATENȚIE: aceste denumiri TREBUIE să existe ca și cote configurate în contul Oblio al
+// clientului; dacă un client folosește alte denumiri, factura e respinsă de Oblio.
+function vatNameFromPercent(pct) {
+  const p = Number(pct)
+  if (p === 0) return 'SFDD'
+  if (p === 9 || p === 5 || p === 11) return 'Redusa'
+  // 19/21 și orice altă cotă pozitivă necunoscută → cota standard 'Normala'.
+  return 'Normala'
+}
+
 // ── Compose Oblio invoice payload ────────────────────────────
 function composeOblioInvoice(inv, lineItems) {
   const today = new Date().toISOString().slice(0, 10)
@@ -273,7 +290,7 @@ function composeOblioInvoice(inv, lineItems) {
       price:          li.price,
       measuringUnit:  'buc',
       currency:       'RON',
-      vatName:        'Normala',
+      vatName:        vatNameFromPercent(li.vatPercentage),
       vatPercentage:  li.vatPercentage,
       vatIncluded:    li.vatIncluded,
       quantity:       li.quantity,

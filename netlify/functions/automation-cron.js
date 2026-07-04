@@ -360,7 +360,7 @@ async function dispatchWeeklyReports(supabase) {
 
       // Enqueue email
       const weekTag = new Date().toISOString().slice(0, 10)
-      await supabase.rpc('enqueue_email', {
+      const { error: enqErr } = await supabase.rpc('enqueue_email', {
         p_recipient_email: r.profiles.email,
         p_template_kind: 'weekly_report',
         p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
@@ -369,6 +369,22 @@ async function dispatchWeeklyReports(supabase) {
         p_scheduled_for: null,
         p_dedup_key: `weekly:${r.id}:${weekTag}`,
       })
+
+      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
+      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
+      if (enqErr) {
+        console.warn(`[automation-cron] Weekly enqueue failed for ${r.id}:`, enqErr.message)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+          await postCronAlert(
+            'weekly-reports',
+            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+          )
+          break
+        }
+        continue
+      }
+      consecutiveFailures = 0
 
       dispatched++
     } catch (e) {
@@ -429,7 +445,7 @@ async function dispatchDailyReports(supabase) {
 
       if (!report || report.orders === 0) continue
 
-      await supabase.rpc('enqueue_email', {
+      const { error: enqErr } = await supabase.rpc('enqueue_email', {
         p_recipient_email: r.profiles.email,
         p_template_kind: 'daily_report',
         p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
@@ -438,6 +454,22 @@ async function dispatchDailyReports(supabase) {
         p_scheduled_for: null,
         p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
       })
+
+      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
+      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
+      if (enqErr) {
+        console.warn(`[automation-cron] Daily enqueue failed for ${r.id}:`, enqErr.message)
+        consecutiveFailures++
+        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+          await postCronAlert(
+            'daily-reports',
+            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
+          )
+          break
+        }
+        continue
+      }
+      consecutiveFailures = 0
 
       dispatched++
     } catch (e) {

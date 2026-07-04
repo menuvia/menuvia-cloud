@@ -605,10 +605,26 @@ exports.handler = async () => {
         throw resendErr
       }
 
-      await supabase.from('email_queue').update({
+      // Emailul a plecat (Resend 200). Marcarea 'sent' TREBUIE verificată: dacă UPDATE-ul
+      // eșuează (blip DB), rândul rămâne 'sending'/'queued' și reclaim-ul (mig 167) îl reia
+      // → emailul se retrimite A DOUA OARĂ (dublu-send la facturi/notificări). Nu putem
+      // reface trimiterea, dar NU tratăm rândul drept „gata" tăcut: log clar de risc.
+      const { error: markErr } = await supabase.from('email_queue').update({
         status: 'sent',
         sent_at: new Date().toISOString(),
       }).eq('id', email.id)
+      if (markErr) {
+        console.error(
+          `[process-email-queue] DUBLU-SEND RISC: email ${email.id} (${email.template_kind} → ` +
+          `${email.recipient_email}) trimis prin Resend, dar marcarea 'sent' a eșuat: ` +
+          `${markErr.message}. Reclaim-ul (mig 167) îl poate retrimite.`
+        )
+        // Îl numărăm la 'failed' ca să fie vizibil în răspunsul funcției (marcarea, nu trimiterea,
+        // a eșuat); rândul rămâne ne-'sent' și va fi reprocesat — dedup rămâne responsabilitatea
+        // reclaim-ului/idempotenței din aval.
+        failed++
+        continue
+      }
       sent++
     } catch (err) {
       const attempts = email.failed_attempts + 1

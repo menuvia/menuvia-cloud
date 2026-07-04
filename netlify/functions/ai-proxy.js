@@ -32,6 +32,21 @@ function jsonResponse(statusCode, body) {
 // ── Anti-SSRF: re-validează base_url 'custom' la request (oglindă ai-config) ──
 // Rândurile salvate înainte de validarea de la save ar putea conține host-uri
 // periculoase → re-validăm AICI înainte de fetch, plus redirect:'manual'.
+//
+// Lista de blocare (isPrivateIp) acoperă TOATE spațiile ne-rutabile / interne:
+//   IPv4: 0.0.0.0/8, 10/8, 100.64/10 (CGNAT), 127/8 (loopback),
+//         169.254/16 (link-local, INCLUSIV 169.254.169.254 metadata cloud),
+//         172.16/12, 192.168/16, 224/4+ (multicast + reserved/broadcast).
+//   IPv6: ::, ::1 (loopback), fe80::/10 (link-local), fc00::/7 (ULA, fc+fd,
+//         inclusiv metadata fd00:ec2::254), plus IPv4-mapped ::ffff:a.b.c.d.
+//
+// LIMITĂ REZIDUALĂ (DNS rebinding): fetch-ul nativ (undici bundluit în Node) își
+// face PROPRIA rezoluție DNS la conectare — nu putem pina IP-ul validat pe
+// conexiune fără dependența `undici` (connect.lookup), care NU e în package.json.
+// De aceea re-verificarea o mutăm cât mai aproape de fetch (callOpenAI), reducând
+// fereastra la ~zero async gap; un server ostil cu TTL sub-fereastră ar putea încă,
+// teoretic, să flipeze IP-ul între lookup-ul nostru și cel al undici. Când `undici`
+// devine dependență, treci pe Agent cu connect.lookup fix pentru pinning complet.
 function isPrivateIp(ip) {
   const v4 = ip.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
   if (v4) {
@@ -59,6 +74,8 @@ async function assertSafeBaseUrl(raw) {
   }
   if (u.protocol !== 'https:') throw new Error('base_url trebuie să fie https')
   if (u.port && u.port !== '443') throw new Error('port nepermis')
+  // Fără userinfo (user:pass@host) — poate fi folosit la confuzia parserului/host-ului.
+  if (u.username || u.password) throw new Error('userinfo nepermis în base_url')
   const host = u.hostname.toLowerCase()
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.local')) {
     throw new Error('host intern interzis')
@@ -158,7 +175,7 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
   }
 }
 
-async function callOpenAI({ apiKey, model, system, messages, maxTokens, baseUrl }) {
+async function callOpenAI({ apiKey, model, system, messages, maxTokens, baseUrl, custom }) {
   const toContent = (content) => {
     if (typeof content === 'string') return content
     return content.map((p) =>
@@ -171,13 +188,30 @@ async function callOpenAI({ apiKey, model, system, messages, maxTokens, baseUrl 
   if (system) oaMessages.push({ role: 'system', content: system })
   for (const m of messages) oaMessages.push({ role: m.role, content: toContent(m.content) })
 
-  const base = (baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+  // Anti-SSRF (TOCTOU minimizat): pentru 'custom' re-rezolvăm DNS-ul base_url-ului
+  // AICI, imediat înainte de fetch — nu mai devreme în handler — ca fereastra dintre
+  // verificarea IP-ului și conexiune să fie cât mai mică (între validare și fetch
+  // NU mai există niciun round-trip de rețea, ex. RPC de cotă).
+  let base
+  if (custom) {
+    // Aruncă dacă hostul (re)rezolvă la IP privat/loopback/link-local/metadata.
+    base = await assertSafeBaseUrl(baseUrl)
+  } else {
+    base = (baseUrl || 'https://api.openai.com/v1').replace(/\/+$/, '')
+  }
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     redirect: 'manual', // anti-SSRF: nu urmări redirect-uri către host-uri nevalidate
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, max_tokens: maxTokens || 1024, messages: oaMessages }),
   })
+  // Anti-SSRF: un 3xx către un IP intern e alt vector TOCTOU (hostul de redirect NU
+  // e validat). Cu redirect:'manual', fetch întoarce un răspuns 'opaqueredirect'
+  // (status 0); îl respingem explicit pentru calea 'custom' în loc să-l tratăm ca eroare
+  // generică de provider, ca redirect-ul să nu fie niciodată urmărit.
+  if (custom && (res.type === 'opaqueredirect' || (res.status >= 300 && res.status < 400))) {
+    throw new Error('custom_redirect_blocked')
+  }
   if (!res.ok) {
     console.error('[ai-proxy] openai error', res.status, (await res.text().catch(() => '')).slice(0, 500))
     throw new Error(`openai_${res.status}`)
@@ -343,8 +377,10 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Lipsește modelul în configurație.' })
   }
 
-  // Anti-SSRF: re-validează base_url-ul stocat (custom) ÎNAINTE de fetch —
-  // rândurile salvate înainte de validarea de la save ar putea fi periculoase.
+  // Anti-SSRF: verificare TIMPURIE (fail-fast) a base_url-ului stocat (custom) —
+  // dă un mesaj clar și evită să ardem RPC-ul de cotă pe un endpoint invalid.
+  // Verificarea AUTORITATIVĂ contra rebinding-ului se face din nou în callOpenAI,
+  // imediat înainte de fetch (fereastră TOCTOU minimă).
   let safeBaseUrl = null
   if (provider === 'custom') {
     try {
@@ -376,7 +412,18 @@ exports.handler = async (event) => {
   // ── Apel provider ──────────────────────────────────────────
   let result
   try {
-    const argsAI = { apiKey, model, system, messages, maxTokens, baseUrl: safeBaseUrl }
+    // Pentru 'custom' trimitem base_url-ul brut din config; callOpenAI îl re-validează
+    // (assertSafeBaseUrl) chiar înainte de fetch. `safeBaseUrl` (deja normalizat) e
+    // echivalent, dar dăm forma brută ca sursa unică de adevăr să fie re-verificarea.
+    const argsAI = {
+      apiKey,
+      model,
+      system,
+      messages,
+      maxTokens,
+      baseUrl: provider === 'custom' ? config.base_url : safeBaseUrl,
+      custom: provider === 'custom',
+    }
     if (provider === 'anthropic') result = await callAnthropic(argsAI)
     else if (provider === 'gemini') result = await callGemini(argsAI)
     else result = await callOpenAI(argsAI) // openai + custom (OpenAI-compatible)
