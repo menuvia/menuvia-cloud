@@ -114,10 +114,14 @@ export default function TableStatusMap({
           const isSelected = realId != null && realId === selectedId
           const cx = t.x + t.w / 2
           const cy = t.y + t.h / 2
-          const selectable = realId != null
+          // Selectabilă doar dacă masa e în scope-ul curent (are stare calculată).
+          // Mesele din afara scope-ului ospătarului (link explicit `tableId` dar
+          // ne-alocate) au `st` undefined → nu le facem clicabile (altfel tap →
+          // detaliu gol).
+          const selectable = st != null
 
           const onActivate = () => {
-            if (realId != null) onSelectTable(realId)
+            if (st != null && realId != null) onSelectTable(realId)
           }
           const onKey = (e: KeyboardEvent<SVGGElement>) => {
             if (!selectable) return
