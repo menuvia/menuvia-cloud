@@ -68,10 +68,18 @@ export function hasFeature(features: RestaurantFeatures | null, name: FeatureNam
 }
 
 export function getLimit(features: RestaurantFeatures | null, name: FeatureName): number | null {
-  if (!features) return 0
-  const f = features.features[name]
-  if (!f?.enabled) return 0
-  return f.limit ?? null // null = unlimited
+  // Delegăm la getLimitDetailed (unica sursă a lookup-ului) și re-comprimăm
+  // rezultatul discriminat la number | null (contract public neschimbat):
+  //   disabled → 0, unlimited → null, limited → n.
+  const d = getLimitDetailed(features, name)
+  switch (d.kind) {
+    case 'disabled':
+      return 0
+    case 'unlimited':
+      return null
+    case 'limited':
+      return d.n
+  }
 }
 
 // Rezultat discriminat pentru getLimitDetailed — distinge explicit cele
@@ -146,14 +154,16 @@ export const PLAN_NAMES: Record<string, string> = {
 // diagnostic, distingem intern cele două cazuri printr-un warn — un plan
 // necunoscut e un semnal de date corupte/plan nou nemapat, nu un „normal".
 export function suggestUpgrade(currentPlan: string): string | null {
-  const order = ['free', 'starter', 'growth', 'pro', 'enterprise']
-  const idx = order.indexOf(currentPlan)
-  if (idx < 0) {
+  // Delegăm la varianta discriminată (unica sursă a listei `order` + logicii)
+  // și re-comprimăm la string | null. Păstrăm warn-ul diagnostic pentru plan
+  // necunoscut — atât 'unknown' cât și 'max' rămân null (contract neschimbat).
+  const s = suggestUpgradeDetailed(currentPlan)
+  if (s.kind === 'unknown') {
     console.warn('[features] suggestUpgrade: plan necunoscut', { currentPlan })
     return null
   }
-  if (idx === order.length - 1) return null // deja la maxim (enterprise)
-  return order[idx + 1]
+  if (s.kind === 'max') return null // deja la maxim (enterprise)
+  return s.plan
 }
 
 // Variantă discriminată a suggestUpgrade — pentru consumatori noi care

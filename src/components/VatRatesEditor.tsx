@@ -11,6 +11,14 @@ interface Props {
   restaurantId: string
 }
 
+// Construiește intrarea din harta de editare pornind de la o cotă existentă.
+// Folosit la încărcarea inițială și la „Anulează" (reset la valorile salvate).
+const toEditForm = (r: VatRate) => ({
+  rate_percent: String(r.rate_percent),
+  label: r.label,
+  description: r.description ?? '',
+})
+
 export default function VatRatesEditor({ restaurantId }: Props) {
   const toast = useToast()
   const [rates, setRates] = useState<VatRate[]>([])
@@ -28,11 +36,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
       // Initialize editing map with current values
       const m = new Map<number, { rate_percent: string; label: string; description: string }>()
       for (const r of data) {
-        m.set(r.vat_group, {
-          rate_percent: String(r.rate_percent),
-          label: r.label,
-          description: r.description ?? '',
-        })
+        m.set(r.vat_group, toEditForm(r))
       }
       setEditing(m)
     } finally {
@@ -222,15 +226,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
                     onClick={() => {
                       const orig = rates.find((r) => r.vat_group === group)
                       if (orig) {
-                        setEditing((prev) => {
-                          const next = new Map(prev)
-                          next.set(group, {
-                            rate_percent: String(orig.rate_percent),
-                            label: orig.label,
-                            description: orig.description ?? '',
-                          })
-                          return next
-                        })
+                        setEditing((prev) => new Map(prev).set(group, toEditForm(orig)))
                       }
                     }}
                     style={{
