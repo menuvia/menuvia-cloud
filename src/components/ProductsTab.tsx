@@ -614,6 +614,8 @@ function ProductModal({
               />
               <button
                 onClick={removeImage}
+                aria-label="Elimină imaginea"
+                title="Elimină imaginea"
                 style={{
                   position: 'absolute',
                   top: -8,
@@ -1229,6 +1231,8 @@ function ProductModal({
                               onClick={() => {
                                 void removeExtra(e.id)
                               }}
+                              aria-label={`Șterge extra-ul ${e.name}`}
+                              title="Șterge"
                               style={{
                                 width: 24,
                                 height: 24,
@@ -1526,6 +1530,8 @@ function ProductModal({
                               onClick={() => {
                                 void deleteRecipeItem(r.ingredient_id)
                               }}
+                              aria-label={`Șterge ingredientul ${ing.name}`}
+                              title="Șterge"
                               style={{
                                 width: 24,
                                 height: 24,
@@ -1904,6 +1910,7 @@ export default function ProductsTab({
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => setAiBulkOpen(true)}
+            aria-label="Generează AI pentru tot meniul"
             title="Generează imagini + nutriție cu AI pentru tot meniul"
             style={btn({
               background: D.s2,
@@ -1918,6 +1925,7 @@ export default function ProductsTab({
           </button>
           <button
             onClick={() => setAiImportOpen(true)}
+            aria-label="Import meniu din poză (AI)"
             title="Import meniu din poză (AI)"
             style={btn({
               background: D.s2,
@@ -1932,6 +1940,8 @@ export default function ProductsTab({
           </button>
           <button
             onClick={() => setCsvImportOpen(true)}
+            aria-label="Import CSV"
+            title="Import produse din fișier CSV"
             style={btn({
               background: D.s2,
               color: D.t1,
@@ -1984,35 +1994,50 @@ export default function ProductsTab({
             fontSize: '0.85rem',
           }}
         />
-        <button
-          onClick={() => setActiveCat('all')}
-          style={btn({
-            height: 38,
-            padding: '0 11px',
-            fontSize: '0.78rem',
-            background: activeCat === 'all' ? D.goldA : D.s2,
-            color: activeCat === 'all' ? D.goldL : D.t2,
-            border: `1px solid ${activeCat === 'all' ? D.gold + '44' : D.border}`,
-          })}
+        {/* Chip-urile de categorie: strip cu scroll orizontal (nu se mai înghesuie
+            pe ecrane înguste) + ținte de atingere ≥44px pentru mobil. */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            overflowX: 'auto',
+            flex: '1 1 240px',
+            minWidth: 0,
+            paddingBottom: 2,
+          }}
         >
-          Toate
-        </button>
-        {categories.map((c) => (
           <button
-            key={c.id}
-            onClick={() => setActiveCat(c.id)}
+            onClick={() => setActiveCat('all')}
+            aria-pressed={activeCat === 'all'}
             style={btn({
-              height: 38,
-              padding: '0 11px',
+              height: 44,
+              padding: '0 14px',
               fontSize: '0.78rem',
-              background: activeCat === c.id ? D.goldA : D.s2,
-              color: activeCat === c.id ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === c.id ? D.gold + '44' : D.border}`,
+              background: activeCat === 'all' ? D.goldA : D.s2,
+              color: activeCat === 'all' ? D.goldL : D.t2,
+              border: `1px solid ${activeCat === 'all' ? D.gold + '44' : D.border}`,
             })}
           >
-            {c.emoji} {c.name}
+            Toate
           </button>
-        ))}
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setActiveCat(c.id)}
+              aria-pressed={activeCat === c.id}
+              style={btn({
+                height: 44,
+                padding: '0 14px',
+                fontSize: '0.78rem',
+                background: activeCat === c.id ? D.goldA : D.s2,
+                color: activeCat === c.id ? D.goldL : D.t2,
+                border: `1px solid ${activeCat === c.id ? D.gold + '44' : D.border}`,
+              })}
+            >
+              {c.emoji} {c.name}
+            </button>
+          ))}
+        </div>
       </div>
       <div
         style={{
@@ -2170,8 +2195,9 @@ export default function ProductsTab({
                   <button
                     onClick={() => void handleToggleActive(p)}
                     disabled={togglingId === p.id}
+                    aria-label={p.is_active ? 'Dezactivează produsul' : 'Activează produsul'}
                     style={{
-                      height: 30,
+                      minHeight: 44,
                       borderRadius: 7,
                       background: 'transparent',
                       border: `1px solid ${D.border}`,
@@ -2181,7 +2207,7 @@ export default function ProductsTab({
                       justifyContent: 'center',
                       cursor: togglingId === p.id ? 'wait' : 'pointer',
                       fontSize: '0.7rem',
-                      padding: '0 10px',
+                      padding: '0 12px',
                       gap: 4,
                       opacity: togglingId === p.id ? 0.6 : 1,
                     }}
@@ -2202,9 +2228,11 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setModal(p)}
+                    aria-label="Editează produsul"
+                    title="Editează"
                     style={{
-                      width: 30,
-                      height: 30,
+                      width: 44,
+                      height: 44,
                       borderRadius: 7,
                       background: D.s4,
                       border: `1px solid ${D.border}`,
@@ -2219,9 +2247,11 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
+                    aria-label="Șterge produsul"
+                    title="Șterge"
                     style={{
-                      width: 30,
-                      height: 30,
+                      width: 44,
+                      height: 44,
                       borderRadius: 7,
                       background: D.s4,
                       border: `1px solid ${D.border}`,
@@ -2363,6 +2393,8 @@ export default function ProductsTab({
                       await toggleSoldOut(p.id, p.is_sold_out)
                       toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
                     }}
+                    aria-label={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
+                    title={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
                     style={{
                       width: 30,
                       height: 30,
@@ -2384,6 +2416,8 @@ export default function ProductsTab({
                       await toggleDailySpecial(p.id, p.is_daily_special)
                       toast(p.is_daily_special ? 'Normal' : 'Special!')
                     }}
+                    aria-label={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
+                    title={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
                     style={{
                       width: 30,
                       height: 30,
@@ -2402,6 +2436,8 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setModal(p)}
+                    aria-label="Editează produsul"
+                    title="Editează"
                     style={{
                       width: 30,
                       height: 30,
@@ -2419,6 +2455,8 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
+                    aria-label="Șterge produsul"
+                    title="Șterge"
                     style={{
                       width: 30,
                       height: 30,
