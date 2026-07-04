@@ -49,7 +49,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (195) — grupate pe „de ce", nu pe număr
+## Migrațiile (201) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -71,6 +71,10 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **Founder + partener + comisioane** | **186–190, 193** | vezi secțiunea de mai jos |
 | Min/max opțiuni per grup | 191–192 + `tests/sql/order_group_min_assertions.sql` | minimul per grup impus server-side în create_order/update_order_items (hint `missing_required_group`) |
 | Igienă advisors | 194 | search_path pe 14 funcții vechi + fără listarea publică a bucket-ului product-images |
+| Founder self-heal + feedback | 195–196 | trigger `trg_seed_platform_admin` (platform admins auto pe emailuri fondatoare) + `submit_order_feedback` |
+| **Meniu multilingv** | **197** | `products/categories.translations` (jsonb) + `restaurants.menu_languages`; grant column-level pe coloana nouă (restaurants e column-gated); traducerile manuale + fallback la original |
+| Perf meniu public | 198 | index compozit `categories(restaurant_id, display_order)` — cea mai fierbinte cale QR/public |
+| **Rezervare cu hartă („ca la cinema")** | **199–201** | `get_public_floor_plan` + `get_tables_availability` (gate modul mig 200) + `create_reservation_public` 10-arg cu `p_table_id` race-safe (199) și wrap-around program peste miezul nopții (201). Lanț 151→199→201, fără twin. |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 
@@ -108,7 +112,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
-1. **Frontend-ul de PROD e în urmă (2026-07-03)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie prin MCP, tracking complet în `supabase_migrations.schema_migrations`), dar frontend-ul de prod e din 30 iunie: build-urile de producție Netlify NU se mai declanșează la push pe main (de verificat „Stopped builds"/„Locked deploy" în Site configuration). Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
+1. **Frontend-ul de PROD e în urmă (actualizat 2026-07-04)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie + 197–201 pe 4 iulie prin MCP `execute_sql`, cu markeri verificați: `products.translations`, `create_reservation_public` 10-arg + wrap-around, gate modul pe RPC-urile de hartă), dar frontend-ul de prod e ÎNCĂ din 30 iunie: build-urile de producție Netlify NU se declanșează la push pe main. **Nimic din valurile UX/corectitudine/multilingv/rezervări-cu-hartă din 4 iulie (#154–#166) nu e vizibil live până la deploy.** Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
 2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
 3. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
 4. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
