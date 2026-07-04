@@ -5,6 +5,7 @@ import { QueryError } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { useIsMobile } from '../hooks/useIsMobile'
 import {
   LineChart,
   Line,
@@ -69,7 +70,127 @@ function Stat({ label, value, color }: { label: string; value: string | number; 
   )
 }
 
+// Tabel de metrici cu colaps la carduri pe mobil. Pe desktop: antet + grid cu
+// coloane fixe (ca înainte). Pe mobil: fiecare rând devine un card cu numele sus
+// și metricile ca perechi etichetă/valoare — se citește fără scroll orizontal.
+interface MetricCell {
+  text: string
+  accent?: boolean
+}
+function DataTable({
+  headers,
+  gridCols,
+  rows,
+  isMobile,
+}: {
+  headers: string[]
+  gridCols: string
+  rows: { name: string; cells: MetricCell[] }[]
+  isMobile: boolean
+}) {
+  if (isMobile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {rows.map((r, i) => (
+          <div
+            key={i}
+            style={{
+              padding: '12px 16px',
+              borderBottom: i < rows.length - 1 ? `1px solid ${D.border}` : 'none',
+            }}
+          >
+            <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 600, marginBottom: 8 }}>
+              {r.name}
+            </div>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              {r.cells.map((c, j) => (
+                <div key={j}>
+                  <div
+                    style={{
+                      fontSize: '0.62rem',
+                      color: D.t3,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      marginBottom: 2,
+                    }}
+                  >
+                    {headers[j + 1]}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '0.85rem',
+                      color: c.accent ? D.gold : D.t2,
+                      fontWeight: c.accent ? 600 : 500,
+                    }}
+                  >
+                    {c.text}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: gridCols,
+          padding: '8px 16px',
+          background: D.s3,
+          borderBottom: `1px solid ${D.border}`,
+        }}
+      >
+        {headers.map((h) => (
+          <div
+            key={h}
+            style={{
+              fontSize: '0.7rem',
+              color: D.t3,
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {h}
+          </div>
+        ))}
+      </div>
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: gridCols,
+            padding: '11px 16px',
+            borderBottom: i < rows.length - 1 ? `1px solid ${D.border}` : 'none',
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>{r.name}</div>
+          {r.cells.map((c, j) => (
+            <div
+              key={j}
+              style={{
+                fontSize: c.accent ? '0.875rem' : '0.8rem',
+                color: c.accent ? D.gold : D.t2,
+                fontWeight: c.accent ? 600 : 400,
+              }}
+            >
+              {c.text}
+            </div>
+          ))}
+        </div>
+      ))}
+    </>
+  )
+}
+
 export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
+  const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
   const [waiters, setWaiters] = useState<Record<string, unknown>[]>([])
@@ -565,55 +686,19 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                   marginBottom: 16,
                 }}
               >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 70px 70px 80px',
-                    padding: '8px 16px',
-                    background: D.s3,
-                    borderBottom: `1px solid ${D.border}`,
-                  }}
-                >
-                  {['Produs', 'Cant.', 'Comenzi', 'Revenue'].map((h) => (
-                    <div
-                      key={h}
-                      style={{
-                        fontSize: '0.7rem',
-                        color: D.t3,
-                        fontWeight: 500,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}
-                    >
-                      {h}
-                    </div>
-                  ))}
-                </div>
-                {products.map((p, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 70px 70px 80px',
-                      padding: '11px 16px',
-                      borderBottom: i < products.length - 1 ? `1px solid ${D.border}` : 'none',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
-                      {p.product_name as string}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                      {p.total_quantity as number}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                      {p.order_appearances as number}
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
-                      {Number(p.revenue).toFixed(0)} lei
-                    </div>
-                  </div>
-                ))}
+                <DataTable
+                  isMobile={isMobile}
+                  gridCols="1fr 70px 70px 80px"
+                  headers={['Produs', 'Cant.', 'Comenzi', 'Revenue']}
+                  rows={products.map((p) => ({
+                    name: p.product_name as string,
+                    cells: [
+                      { text: String(p.total_quantity as number) },
+                      { text: String(p.order_appearances as number) },
+                      { text: `${Number(p.revenue).toFixed(0)} lei`, accent: true },
+                    ],
+                  }))}
+                />
               </div>
             </>
           )}
@@ -633,58 +718,22 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                   marginBottom: 24,
                 }}
               >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 70px 70px 100px',
-                    padding: '8px 16px',
-                    background: D.s3,
-                    borderBottom: `1px solid ${D.border}`,
-                  }}
-                >
-                  {['Ospătar', 'Introd.', 'Servite', 'Revenue'].map((h) => (
-                    <div
-                      key={h}
-                      style={{
-                        fontSize: '0.7rem',
-                        color: D.t3,
-                        fontWeight: 500,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}
-                    >
-                      {h}
-                    </div>
-                  ))}
-                </div>
-                {waiters.map((w, i) => {
-                  const p = staffNames[w.user_id as string] ?? null
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr 70px 70px 100px',
-                        padding: '11px 16px',
-                        borderBottom: i < waiters.length - 1 ? `1px solid ${D.border}` : 'none',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div style={{ fontSize: '0.875rem', color: D.t1 }}>
-                        {p?.full_name || p?.email || 'Anonim'}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                        {w.orders_entered as number}
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                        {w.orders_served as number}
-                      </div>
-                      <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
-                        {Number(w.revenue_collected || 0).toFixed(0)} lei
-                      </div>
-                    </div>
-                  )
-                })}
+                <DataTable
+                  isMobile={isMobile}
+                  gridCols="1fr 70px 70px 100px"
+                  headers={['Ospătar', 'Introd.', 'Servite', 'Revenue']}
+                  rows={waiters.map((w) => {
+                    const p = staffNames[w.user_id as string] ?? null
+                    return {
+                      name: p?.full_name || p?.email || 'Anonim',
+                      cells: [
+                        { text: String(w.orders_entered as number) },
+                        { text: String(w.orders_served as number) },
+                        { text: `${Number(w.revenue_collected || 0).toFixed(0)} lei`, accent: true },
+                      ],
+                    }
+                  })}
+                />
               </div>
             </>
           )}
