@@ -479,7 +479,7 @@ function SubafiliatiTab({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ ...card, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-        Primești <strong style={{ color: D.gold }}>{(cascadeBps / 100).toFixed(0)}%</strong> din comisioanele
+        Primești <strong style={{ color: D.gold }}>{(cascadeBps / 100).toLocaleString('ro-RO')}%</strong> din comisioanele
         afiliaților pe care îi recomanzi tu (un singur nivel).
       </div>
 
@@ -870,6 +870,10 @@ function statusLabel(status: string): string {
       return 'Anulat'
     case 'refunded':
       return 'Refundat'
+    case 'expired':
+      return 'Expirat'
+    case 'downgraded':
+      return 'Retrogradat'
     default:
       return status
   }
