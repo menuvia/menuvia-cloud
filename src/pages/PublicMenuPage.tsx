@@ -294,7 +294,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
-  const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
+  const availableLangs = useMemo(
+    () => availableMenuLangs(categories, restaurant?.menu_languages),
+    [categories, restaurant?.menu_languages],
+  )
   // Auto-selectează limba browserului DOAR dacă meniul e tradus în ea și
   // vizitatorul n-a ales manual încă (ex. turist german → meniul în germană).
   const handleMenuLangChange = useCallback((code: string) => {
@@ -302,6 +305,15 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     setMenuLang(code)
   }, [])
   useEffect(() => {
+    // Reset defensiv: dacă limba curentă nu mai e disponibilă (ex. nav SPA către
+    // un restaurant care n-o oferă, sau limbă deselectată din setări), revenim la
+    // `ro` și redeschidem auto-detectul — altfel switcher-ul ar avea o pastilă
+    // activă inexistentă și localizarea ar cădea tăcut pe original.
+    if (menuLang !== 'ro' && !availableLangs.includes(menuLang)) {
+      setMenuLang('ro')
+      userPickedLangRef.current = false
+      return
+    }
     if (userPickedLangRef.current || menuLang !== 'ro') return
     const detected = detectBrowserLang(availableLangs)
     if (detected) setMenuLang(detected)

@@ -345,7 +345,10 @@ export default function QrMenuPage({ token }: Props) {
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din
   // conținut, nu dintr-un flag expus prin RPC). Switcher-ul apare doar dacă
   // există măcar o traducere reală.
-  const availableLangs = useMemo(() => availableMenuLangs(categories), [categories])
+  const availableLangs = useMemo(
+    () => availableMenuLangs(categories, ctx?.restaurant.menu_languages),
+    [categories, ctx?.restaurant.menu_languages],
+  )
   // Auto-selectează limba browserului turistului DOAR dacă meniul e tradus în
   // ea și clientul n-a ales manual încă. Un client german vede meniul direct în
   // germană la scanare.
@@ -355,6 +358,13 @@ export default function QrMenuPage({ token }: Props) {
     setLang(code)
   }, [])
   useEffect(() => {
+    // Reset defensiv: limbă devenită indisponibilă (deselectată din setări) →
+    // revenim la `ro` + redeschidem auto-detectul.
+    if (lang !== 'ro' && !availableLangs.includes(lang)) {
+      setLang('ro')
+      userPickedLangRef.current = false
+      return
+    }
     if (userPickedLangRef.current || lang !== 'ro') return
     const detected = detectBrowserLang(availableLangs)
     if (detected) setLang(detected)

@@ -296,26 +296,67 @@ export async function aiTranslateBatch(input: {
     // (descrierile pot fi lungi). Dimensiunea lotului e aleasă de apelant în
     // funcție de nr. de limbi ca acest buget să NU atingă plafonul → fără
     // trunchiere de răspuns.
-    max_tokens: Math.min(4000, 600 + input.items.length * langs.length * 90),
+    max_tokens: Math.min(4000, 600 + input.items.length * langs.length * 130),
   })
   return parseTranslateBatch(res.text, new Set(input.items.map((i) => i.id)), langs)
 }
 
+// Recuperează un obiect JSON dintr-un răspuns TRUNCHIAT (max_tokens atins la
+// mijloc): taie la ultima intrare de nivel-1 complet închisă și închide obiectul
+// exterior. Astfel itemele deja traduse integral la începutul lotului NU se
+// pierd (restul rămân netraduse și vor fi reîncercate la rularea următoare).
+function salvageTruncatedJsonObject(s: string): string | null {
+  let depth = 0
+  let inStr = false
+  let esc = false
+  let lastTopLevelClose = -1
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (inStr) {
+      if (esc) esc = false
+      else if (ch === '\\') esc = true
+      else if (ch === '"') inStr = false
+      continue
+    }
+    if (ch === '"') inStr = true
+    else if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 1) lastTopLevelClose = i // o intrare de nivel-1 tocmai s-a închis
+    }
+  }
+  if (lastTopLevelClose < 0) return null
+  return s.slice(0, lastTopLevelClose + 1) + '}'
+}
+
 // Parsează răspunsul batch: obiect keyed pe id → Translations. Păstrează doar
-// id-urile cerute, limbile cerute și câmpurile nevide. Robust la markdown-fence.
+// id-urile cerute, limbile cerute și câmpurile nevide. Robust la markdown-fence
+// și la trunchierea răspunsului (recuperează itemele complete).
 function parseTranslateBatch(
   text: string,
   ids: Set<string>,
   langs: string[],
 ): Record<string, Translations> {
   const clean = text.replace(/```json|```/g, '').trim()
+  const from = clean.startsWith('{') ? clean : clean.slice(clean.indexOf('{'))
   let raw: unknown
   try {
     raw = JSON.parse(clean)
   } catch {
     const m = clean.match(/\{[\s\S]*\}/)
-    if (!m) throw new Error('Răspuns AI neparsabil')
-    raw = JSON.parse(m[0])
+    if (m) {
+      try {
+        raw = JSON.parse(m[0])
+      } catch {
+        raw = undefined
+      }
+    }
+    if (raw === undefined) {
+      // Ultima șansă: răspuns trunchiat → salvăm intrările complete.
+      const salvaged = from.startsWith('{') ? salvageTruncatedJsonObject(from) : null
+      if (!salvaged) throw new Error('Răspuns AI neparsabil')
+      raw = JSON.parse(salvaged)
+    }
   }
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const str = (v: unknown): string | undefined =>
