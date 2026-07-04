@@ -33,6 +33,7 @@ import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard } from '../components/WaiterOrderCard'
 import DiscountModal from '../components/DiscountModal'
 import TableStatusBoard from '../components/TableStatusBoard'
+import type { FloorLayout } from '../lib/floorPlan'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
@@ -371,6 +372,30 @@ export default function WaiterPage() {
       cancelled = true
     }
   }, [restaurantId])
+  // Harta sălii desenată (pentru al doilea mod „Hartă" din panoul Stadiu mese).
+  // Localurile fără hartă → null → panoul rămâne pe grilă (fără toggle).
+  const [floorLayout, setFloorLayout] = useState<FloorLayout | null>(null)
+  useEffect(() => {
+    if (!restaurantId) {
+      setFloorLayout(null)
+      return
+    }
+    let cancelled = false
+    void supabase
+      .from('restaurants')
+      .select('floor_layout')
+      .eq('id', restaurantId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return
+        const fl = (data?.floor_layout ?? null) as unknown as FloorLayout | null
+        setFloorLayout(fl && Array.isArray(fl.floors) ? fl : null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
   // Masă selectată per rezervare (pentru cele fără masă alocată).
   // Reset la schimbarea restaurantului — altfel pick-urile vechi rămân
   // (pre-fill greșit + memory accumulator pe sesiuni lungi).
@@ -1319,6 +1344,7 @@ export default function WaiterPage() {
             tables={boardTables}
             orders={openOrders}
             waiterCalls={waiterCalls}
+            floorLayout={floorLayout}
             onAddToTable={handleAddToTable}
             renderOrderCard={(order) => (
               <OrderCard
