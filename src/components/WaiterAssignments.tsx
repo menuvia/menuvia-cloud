@@ -415,6 +415,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                         onClick={() => void clearWaiter(waiter.user_id)}
                         disabled={isSaving}
                         style={{
+                          minHeight: 44,
                           padding: '5px 12px',
                           fontSize: '0.75rem',
                           fontFamily: 'DM Sans,sans-serif',
@@ -433,6 +434,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                       onClick={() => void assignAll(waiter.user_id)}
                       disabled={isSaving || assigned.size === tables.length}
                       style={{
+                        minHeight: 44,
                         padding: '5px 12px',
                         fontSize: '0.75rem',
                         fontFamily: 'DM Sans,sans-serif',
@@ -469,6 +471,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: 6,
+                              minHeight: 44,
                               padding: '6px 12px',
                               borderRadius: 8,
                               cursor: isSaving ? 'wait' : 'pointer',
