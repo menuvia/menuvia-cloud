@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { Translations } from './i18nMenu'
+import type { FloorLayout } from './floorPlan'
 
 export interface Socials {
   instagram?: string | null
@@ -274,6 +275,75 @@ export async function fetchRestaurantBySlug(slug: string): Promise<Record<string
   // Normalizăm menu_languages la string[] (RPC-ul îl expune doar dacă proiecția
   // lui îl include — fast-follow; până atunci rămâne []).
   return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
+}
+
+// ── Harta sălii publică + disponibilitate mese (rezervare cu alegere pe hartă) ──
+
+/** Masă reală expusă public pentru maparea layout → tables. */
+export interface PublicFloorTable {
+  id: string
+  name: string
+  seats: number | null
+  zone: string | null
+}
+
+export interface PublicFloorPlan {
+  floor_layout: FloorLayout | null
+  tables: PublicFloorTable[]
+}
+
+export interface TableAvailabilityRow {
+  table_id: string
+  table_name: string
+  seats: number | null
+  zone: string | null
+  is_available: boolean
+}
+
+/**
+ * Harta sălii publică pentru un restaurant (RPC get_public_floor_plan, mig 199).
+ * Întoarce `floor_layout` (jsonb sau null) + lista meselor reale pentru mapare.
+ * Supabase-js NU aruncă — verificăm `{error}` și degradăm grațios la layout null.
+ */
+export async function fetchPublicFloorPlan(slug: string): Promise<PublicFloorPlan> {
+  const { data, error } = await supabase.rpc('get_public_floor_plan', { p_slug: slug })
+  if (error) {
+    console.error('[qr] fetchPublicFloorPlan:', error)
+    return { floor_layout: null, tables: [] }
+  }
+  // RPC returnează un singur obiect jsonb (poate veni și ca array cu 1 rând).
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { floor_layout?: unknown; tables?: unknown }
+    | null
+    | undefined
+  if (row == null) return { floor_layout: null, tables: [] }
+  const layout = (row.floor_layout as FloorLayout | null | undefined) ?? null
+  const tables = Array.isArray(row.tables) ? (row.tables as PublicFloorTable[]) : []
+  return { floor_layout: layout, tables }
+}
+
+/**
+ * Disponibilitatea meselor pentru un slot (RPC get_tables_availability, mig 199).
+ * `startsAt`/`endsAt` = ISO timestamptz. Întoarce câte un rând per masă cu
+ * `is_available`. Eroare → [] (harta nu se afișează, fluxul rămâne neschimbat).
+ */
+export async function fetchTablesAvailability(
+  slug: string,
+  startsAt: string,
+  endsAt: string,
+  partySize: number,
+): Promise<TableAvailabilityRow[]> {
+  const { data, error } = await supabase.rpc('get_tables_availability', {
+    p_slug: slug,
+    p_starts_at: startsAt,
+    p_ends_at: endsAt,
+    p_party_size: partySize,
+  })
+  if (error) {
+    console.error('[qr] fetchTablesAvailability:', error)
+    return []
+  }
+  return (Array.isArray(data) ? data : []) as TableAvailabilityRow[]
 }
 
 /** Fetch restaurant by QR token using SECURITY DEFINER RPC */
