@@ -24,34 +24,44 @@ async function sendReceipt(cfg, receipt) {
     return fail('EMPTY_PAYLOAD', 'Payload gol — nimic de trimis la casă');
   }
   if (cfg.fiscalnet.mode === 'file') return sendViaFile(cfg, receipt.id, lines);
-  return sendViaApi(cfg, lines);
+  return sendViaApi(cfg, lines, receipt.id);
 }
 
 // ── Transport 1: API HTTP (BonLocal Post) — recomandat (sincron, fără race) ──
-async function sendViaApi(cfg, lines) {
+async function sendViaApi(cfg, lines, receiptId) {
   const url = cfg.fiscalnet.apiUrl;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), cfg.fiscalnet.timeoutMs);
-  let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(lines),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    // Casă offline / FiscalNet oprit / timeout — nu marcăm success, retry din UI.
-    return fail('API_UNREACHABLE', `${url}: ${err.message}`);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Cheie de idempotență = receipt_id. La un retry după „timeout-după-tipărire",
+          // dacă FiscalNet o onorează, evită bonul FISCAL DUBLU (paritate cu idempotența
+          // pe nume de fișier din modul `file`). DE CONFIRMAT că API-ul o respectă — până
+          // atunci, un timeout NU e sigur de re-trimis automat (vezi §8.6 din arhitectură).
+          'Idempotency-Key': String(receiptId || ''),
+        },
+        body: JSON.stringify(lines),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      // Casă offline / FiscalNet oprit / timeout — NU marcăm success (retry din UI).
+      return fail('API_UNREACHABLE', `${url}: ${err.message}`);
+    }
+    // Citim corpul ÎN fereastra de timeout: un server care trimite header-ele apoi
+    // atârnă pe corp ar bloca altfel bridge-ul la nesfârșit.
+    const raw = await res.text();
+    if (!res.ok) {
+      return fail(`HTTP_${res.status}`, raw.slice(0, 300));
+    }
+    return parseFiscalNetResponse(raw);
   } finally {
     clearTimeout(timer);
   }
-
-  const raw = await res.text();
-  if (!res.ok) {
-    return fail(`HTTP_${res.status}`, raw.slice(0, 300));
-  }
-  return parseFiscalNetResponse(raw);
 }
 
 // ── Transport 2: fișiere (fallback) — scrie Bonuri/<id>.txt, citește Raspuns/ ──

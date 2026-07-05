@@ -227,11 +227,32 @@ Dacă în specul API ordinea e inversată, o coloană TVA pusă greșit = **TVA 
 Astfel pilotul merge chiar dacă schema exactă a răspunsului API diferă ușor de screenshot;
 aliasurile efective se fixează după testul pe `webtest.driverfiscal.ro`.
 
-### 8.5 Checklist pilot
+### 8.5 Idempotență = anti bon fiscal DUBLU (regulă de siguranță)
+
+Un bon fiscal tipărit de două ori pe aceeași comandă e ilegal. Punctul de risc e
+**timeout-după-tipărire**: casa tipărește bonul, dar răspunsul nu ajunge la bridge (rețea /
+casă care atârnă). Bridge-ul marchează `error`, owner-ul dă „Reîncearcă" → a doua tipărire.
+
+Protecția pe cele două transporturi:
+- **Fișiere:** idempotență prin **numele fișierului** = `receipt_id`. Un fișier re-scris cu
+  același nume e ignorat de FiscalNet (dedup nativ). ✅ sigur la retry.
+- **API:** bridge-ul trimite header-ul **`Idempotency-Key: <receipt_id>`** la fiecare POST.
+  ⚠️ **DE CONFIRMAT** că API-ul BonLocal onorează acest header (sau echivalentul din
+  `Documentatie.pdf`). **Până la confirmare:** un `API_UNREACHABLE`/`HTTP_5xx`/timeout pe
+  API **NU** e sigur de re-trimis automat — owner-ul verifică fizic casa înainte de
+  „Reîncearcă". De aceea bridge-ul NU face retry automat pe erori de rețea (decizie
+  intenționată: mai bine un bon marcat greșit „error" + verificare umană, decât un bon dublu).
+
+Reguli deja aplicate în cod: bridge-ul nu marchează NICIODATĂ `success` fără un `BONOK=1`
+explicit (orice eșec de transport → `error`, retry uman); claim-ul e atomic (`pending→sent`),
+deci două bridge-uri nu ridică același bon.
+
+### 8.6 Checklist pilot
 
 - [ ] **Cloud la zi pe prod** — migrațiile bridge/fiscal (030→053 + gate 124/133/149/150/158/159) aplicate.
 - [ ] **Înregistrează o casă de test** din Dashboard → primești `device_secret`.
 - [ ] **Confirmă ordinea `S^…^GRTVA^GRDEP`** și schema răspunsului pe `webtest.driverfiscal.ro` (§8.3).
+- [ ] **Confirmă idempotența API** — că `Idempotency-Key` (sau echivalentul) e onorat de BonLocal (§8.5); altfel retry-ul pe timeout rămâne verificare umană.
 - [ ] **Rulează bridge-ul cu mock-ul** (`node bridge/mock-fiscalnet.js` + `node bridge/menuvia-bridge.js`) — verifică flux complet pending→success.
 - [ ] **Test pe FiscalNet v2 demo** (casă de test care validează formatul).
 - [ ] **Encoding diacritice** — dacă ies „?", trece pe CP1250 (`iconv-lite`, dep nouă).

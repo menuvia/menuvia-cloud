@@ -9,36 +9,38 @@ async function rpc(cfg, fn, params) {
   const url = `${base}/rest/v1/rpc/${fn}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
-  let res;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        apikey: cfg.supabaseAnonKey,
-        Authorization: `Bearer ${cfg.supabaseAnonKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params || {}),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    throw new Error(`RPC ${fn} rețea: ${err.message}`);
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params || {}),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new Error(`RPC ${fn} rețea: ${err.message}`);
+    }
+    // Corpul se citește ÎN fereastra de timeout (altfel un corp care atârnă ar bloca).
+    const text = await res.text();
+    if (!res.ok) {
+      throw new Error(`RPC ${fn} → ${res.status}: ${text.slice(0, 300)}`);
+    }
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      // Scalarele (boolean) pot veni ca text brut `true`/`false`.
+      if (text === 'true') return true;
+      if (text === 'false') return false;
+      return text;
+    }
   } finally {
     clearTimeout(timer);
-  }
-
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`RPC ${fn} → ${res.status}: ${text.slice(0, 300)}`);
-  }
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    // Scalarele (boolean) pot veni ca text brut `true`/`false`.
-    if (text === 'true') return true;
-    if (text === 'false') return false;
-    return text;
   }
 }
 

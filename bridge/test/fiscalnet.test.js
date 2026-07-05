@@ -9,6 +9,7 @@ const assert = require('node:assert');
 const os = require('node:os');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const http = require('node:http');
 
 const { createServer } = require('../mock-fiscalnet');
 const { sendReceipt, parseFiscalNetResponse } = require('../lib/fiscalnet');
@@ -111,6 +112,28 @@ test('File: scrie Bonuri/<id>.txt + citește Raspuns/<id>.txt', async () => {
   assert.match(written, /S\^X\^100\^1000\^buc\^1\^1\r\n/);
 
   await fs.rm(dir, { recursive: true, force: true });
+});
+
+test('API: trimite Idempotency-Key = receipt.id (anti bon dublu la retry)', async () => {
+  let capturedKey = null;
+  const server = http.createServer((req, res) => {
+    capturedKey = req.headers['idempotency-key'];
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ BONOK: 1, NRBON: 55 }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, resolve));
+  const port = server.address().port;
+  try {
+    const res = await sendReceipt(apiCfg(port), { id: 'receipt-abc-123', payload: 'S^X^100^1000^buc^1^1' });
+    assert.strictEqual(res.success, true);
+    assert.strictEqual(capturedKey, 'receipt-abc-123', 'header-ul Idempotency-Key trebuie să fie receipt.id');
+  } finally {
+    server.close();
+  }
 });
 
 test('parse: răspuns text BONOK=0 mapează codul de eroare', () => {
