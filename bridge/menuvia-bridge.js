@@ -76,6 +76,62 @@ async function processOnce(cfg) {
   return pending.length;
 }
 
+// `--setup`: wizard interactiv la prima rulare — scrie config.json fără ca
+// utilizatorul (non-tehnic) să editeze JSON manual.
+async function setup() {
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  // Interactiv (TTY) → readline linie-cu-linie. Ne-interactiv (pipe/fișier) → citim
+  // tot stdin upfront, altfel readline/promises se blochează pe EOF fără să scrie.
+  const isTTY = Boolean(process.stdin.isTTY);
+  let rl = null;
+  let queue = null;
+  if (isTTY) {
+    rl = require('node:readline/promises').createInterface({ input: process.stdin, output: process.stdout });
+  } else {
+    queue = fs.readFileSync(0, 'utf8').split('\n');
+  }
+  const ask = async (q, def) => {
+    const prompt = def ? `${q} [${def}]: ` : `${q}: `;
+    let a;
+    if (rl) {
+      a = (await rl.question(prompt)).trim();
+    } else {
+      process.stdout.write(prompt);
+      a = (queue.length ? queue.shift() : '').trim();
+      process.stdout.write((a || def || '') + '\n');
+    }
+    return a || def || '';
+  };
+
+  log('info', 'Configurare Menuvia Bridge — apasă Enter pentru valoarea implicită.');
+  const cfg = {
+    supabaseUrl: await ask('Supabase URL', 'https://swjcptdylfmpvopdepqf.supabase.co'),
+    supabaseAnonKey: await ask('Supabase anon key (public)'),
+    deviceSecret: await ask('Device secret (Dashboard → Casă de marcat → Înregistrează)'),
+    fiscalnet: {},
+  };
+  const mode = (await ask('Transport (api/file)', 'api')).toLowerCase();
+  cfg.fiscalnet.mode = mode === 'file' ? 'file' : 'api';
+  if (cfg.fiscalnet.mode === 'file') {
+    cfg.fiscalnet.bonuriDir = await ask('Folder Bonuri', 'C:\\FiscalNet\\Bonuri');
+    cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', 'C:\\FiscalNet\\Raspuns');
+  } else {
+    cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', 'http://localhost:65400/api/receipt');
+  }
+  if (rl) rl.close();
+
+  // Când rulează ca .exe împachetat (SEA/pkg), scriem lângă executabil ca autostart-ul
+  // (cwd = system32) să găsească același config. În dev, scriem în cwd.
+  const packaged = !process.argv[1] || !process.argv[1].endsWith('.js');
+  const targetDir = packaged ? path.dirname(process.execPath) : process.cwd();
+  const target = path.join(targetDir, 'config.json');
+  fs.writeFileSync(target, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
+  log('info', `Config scris în ${target}.`);
+  log('info', 'Verifică apoi cu: menuvia-bridge --check');
+}
+
 // `--check` (doctor): verifică config + Supabase + FiscalNet FĂRĂ să tipărească
 // niciun bon. Util la instalare / diagnoză. Cod de ieșire ≠ 0 dacă ceva pică.
 async function doctor() {
@@ -149,11 +205,12 @@ async function main() {
 }
 
 if (require.main === module) {
-  const isCheck = process.argv.includes('--check');
-  (isCheck ? doctor() : main()).catch((err) => {
+  const argv = process.argv;
+  const entry = argv.includes('--setup') ? setup : argv.includes('--check') ? doctor : main;
+  entry().catch((err) => {
     log('error', 'Bridge a crăpat', err.message);
     process.exit(1);
   });
 }
 
-module.exports = { processOnce, validateDevice, doctor };
+module.exports = { processOnce, validateDevice, doctor, setup };

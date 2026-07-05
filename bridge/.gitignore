@@ -1,4 +1,5 @@
 # Configul real conține device_secret + anon key — NU se commit-ează.
 config.json
 node_modules/
+dist/
 *.log

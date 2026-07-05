@@ -55,12 +55,16 @@ Toate se pot da și prin variabile de mediu (`SUPABASE_URL`, `DEVICE_SECRET`,
 ## Rulare
 
 ```bash
-# 1. (pentru test, fără casă reală) pornește simulatorul FiscalNet
-node mock-fiscalnet.js          # ascultă pe http://localhost:65400/api/receipt
+node menuvia-bridge.js --setup   # wizard: scrie config.json (Supabase + device_secret)
+node menuvia-bridge.js --check   # doctor: verifică config + Supabase + FiscalNet (nu tipărește)
+node menuvia-bridge.js           # pornește bucla
 
-# 2. pornește bridge-ul
-node menuvia-bridge.js
+# pentru test fără casă reală, într-un alt terminal:
+node mock-fiscalnet.js           # simulator FiscalNet pe http://localhost:65400/api/receipt
 ```
+
+Pentru pilot pe Windows, vezi `BUILD.md` — împachetare într-un singur `.exe` + installer
+(Inno Setup) cu wizard de configurare și autostart.
 
 Autentificarea securizează totul prin `device_secret` verificat server-side; anon key
 singură nu poate scrie în coada fiscală (RLS + gate Plan 3 în mig 133).

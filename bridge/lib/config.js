@@ -25,8 +25,11 @@ function fnField(fromFile, key) {
 }
 
 function findConfigFile() {
+  // Ordine: lângă cwd → lângă executabil (cazul .exe pornit din autostart, cwd=system32)
+  // → lângă sursă (dev). Prima existentă câștigă.
   const candidates = [
     path.join(process.cwd(), 'config.json'),
+    path.join(path.dirname(process.execPath), 'config.json'),
     path.join(__dirname, '..', 'config.json'),
   ];
   return candidates.find((p) => fs.existsSync(p)) || null;
