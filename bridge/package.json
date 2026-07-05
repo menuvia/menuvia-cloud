@@ -9,6 +9,6 @@
   "scripts": {
     "start": "node menuvia-bridge.js",
     "mock": "node mock-fiscalnet.js",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   }
 }

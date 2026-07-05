@@ -54,7 +54,11 @@ function loadConfig() {
     batchLimit: num(env.BATCH_LIMIT, fromFile.batchLimit) || 5,
     fiscalnet: {
       mode: String(env.FISCALNET_MODE || fnField(fromFile, 'mode') || 'api').toLowerCase(),
-      apiUrl: env.FISCALNET_API_URL || fnField(fromFile, 'apiUrl') || 'http://localhost:65400/api/Receipt',
+      // Endpoint confirmat pe webtest.driverfiscal.ro: path lowercase `/api/receipt`.
+      // Driver-ul local expune HTTP pe 65400 (plain, fără dependență de cert) și HTTPS pe
+      // 65401 (`https://localhost.driverfiscal.ro:65401/api/receipt`). Default = HTTP local,
+      // ca să evităm problema de trust al certului TLS (vezi §8 din arhitectură).
+      apiUrl: env.FISCALNET_API_URL || fnField(fromFile, 'apiUrl') || 'http://localhost:65400/api/receipt',
       bonuriDir: env.FISCALNET_BONURI_DIR || fnField(fromFile, 'bonuriDir') || 'C:\\FiscalNet\\Bonuri',
       raspunsDir: env.FISCALNET_RASPUNS_DIR || fnField(fromFile, 'raspunsDir') || 'C:\\FiscalNet\\Raspuns',
       encoding: String(env.FISCALNET_ENCODING || fnField(fromFile, 'encoding') || 'utf8').toLowerCase(),

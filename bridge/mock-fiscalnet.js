@@ -2,7 +2,7 @@
 'use strict';
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Mock FiscalNet — server HTTP care imită API-ul BonLocal (POST /api/Receipt)
+// Mock FiscalNet — server HTTP care imită API-ul BonLocal (POST /api/receipt)
 // pentru testare fără casă de marcat reală. Exact abordarea sugerată de EconMedia:
 // „un simulator care validează comanda ca format".
 //
@@ -25,7 +25,7 @@ function createServer(opts = {}) {
   return http.createServer((req, res) => {
     if (req.method !== 'POST') {
       res.writeHead(405, { 'Content-Type': 'text/plain' });
-      res.end('Method Not Allowed — folosește POST /api/Receipt');
+      res.end('Method Not Allowed — folosește POST /api/receipt');
       return;
     }
 
@@ -81,7 +81,7 @@ function createServer(opts = {}) {
 if (require.main === module) {
   const port = Number(process.env.MOCK_PORT || 65400);
   createServer().listen(port, () => {
-    process.stdout.write(`[mock-fiscalnet] ascult pe http://localhost:${port}/api/Receipt\n`);
+    process.stdout.write(`[mock-fiscalnet] ascult pe http://localhost:${port}/api/receipt\n`);
   });
 }
 

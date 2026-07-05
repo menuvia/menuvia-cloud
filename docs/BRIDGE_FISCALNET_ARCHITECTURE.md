@@ -181,7 +181,12 @@ FiscalNet expune două căi pentru **exact același format** de comandă (`S^…
 | Transport | Cum | Răspuns |
 |-----------|-----|---------|
 | **Fișiere** | scrii `Bonuri/<id>.txt` (linii unite cu CRLF) | citești `Raspuns/<id>.txt` (`BONOK=1\nNRBON=…`) |
-| **API HTTP** (BonLocal) | `POST http://localhost:65400/api/Receipt`, body = **array JSON de linii** | sincron, în corpul răspunsului |
+| **API HTTP** (BonLocal) | `POST /api/receipt`, body = **array JSON de linii** | sincron, în corpul răspunsului |
+
+Endpoint (confirmat pe `webtest.driverfiscal.ro`): driver-ul local expune `/api/receipt`
+(lowercase) pe două porturi — **HTTP `http://localhost:65400/api/receipt`** (plain, fără
+dependență de cert) și **HTTPS `https://localhost.driverfiscal.ro:65401/api/receipt`**.
+Bridge-ul folosește implicit HTTP pe 65400 (localhost, evită trust-ul certului TLS).
 
 **Consecință cheie:** payload-ul generat de cloud (`pending_receipts.payload`, text cu
 linii `\n`) alimentează AMBELE transporturi fără nicio modificare în cloud — bridge-ul
@@ -211,10 +216,23 @@ S^DENUMIRE^PRET_BANI^CANT_MII^UM^GRTVA^GRDEP
 
 Exemplu: `S^Cafea^800^1000^buc^1^1` = Cafea, 8.00 RON, 1.000 buc, grupa TVA 1, dep 1.
 
-⚠️ **De confirmat pe `https://webtest.driverfiscal.ro/` înainte de pilot:** că API-ul
-BonLocal așteaptă **aceeași ordine a ultimelor două coloane** (`GRTVA` apoi `GRDEP`).
-Dacă în specul API ordinea e inversată, o coloană TVA pusă greșit = **TVA greșit pe bon**
-= risc ANAF. E singurul blocant tehnic serios; restul comenzilor sunt neutre la transport.
+✅ **CONFIRMAT pe `webtest.driverfiscal.ro` (FiscalNet Dev Console).** Sample-ul oficial de
+body al consolei:
+
+```json
+["S^ARTICOL TEST1^100^1000^buc^1^1", "S^ARTICOL TEST2^100^1000^buc^1^1",
+ "S^ARTICOL TEST3^100^1000^buc^1^1", "S^ARTICOL TEST4^100^1000^buc^1^1", "P^2^400"]
+```
+
+Ordinea `S^…^GRTVA^GRDEP` (aici `^1^1`) e **identică** cu ce produce generatorul din cloud.
+**Fără inversare de coloane** — blocantul „TVA greșit pe bon" e închis. Codul de trimitere
+al consolei (`sendReceipt()`) e byte-pentru-byte același pattern ca `bridge/lib/fiscalnet.js`
+(POST array de string-uri, `AbortController` + timeout, `clearTimeout` în `finally` cu corpul
+citit ÎN fereastra de timeout).
+
+Observație minoră: sample-ul consolei NU include o linie `ST^` (subtotal); generatorul nostru
+o emite. `ST^` e opțional per spec (`Documentatie.pdf` §3) — de bifat pe casa demo că e
+acceptat, nu respins.
 
 ### 8.4 Parserul de răspuns (bridge)
 
@@ -249,12 +267,15 @@ deci două bridge-uri nu ridică același bon.
 
 ### 8.6 Checklist pilot
 
+- [x] **Ordinea `S^…^GRTVA^GRDEP` confirmată** pe `webtest.driverfiscal.ro` — identică cu generatorul (§8.3). ✅
 - [ ] **Cloud la zi pe prod** — migrațiile bridge/fiscal (030→053 + gate 124/133/149/150/158/159) aplicate.
 - [ ] **Înregistrează o casă de test** din Dashboard → primești `device_secret`.
-- [ ] **Confirmă ordinea `S^…^GRTVA^GRDEP`** și schema răspunsului pe `webtest.driverfiscal.ro` (§8.3).
-- [ ] **Confirmă idempotența API** — că `Idempotency-Key` (sau echivalentul) e onorat de BonLocal (§8.5); altfel retry-ul pe timeout rămâne verificare umană.
-- [ ] **Rulează bridge-ul cu mock-ul** (`node bridge/mock-fiscalnet.js` + `node bridge/menuvia-bridge.js`) — verifică flux complet pending→success.
-- [ ] **Test pe FiscalNet v2 demo** (casă de test care validează formatul).
+- [ ] **Rulează `--check` (doctor)** — `node bridge/menuvia-bridge.js --check` verifică config + Supabase + FiscalNet fără să tipărească.
+- [ ] **Rulează bridge-ul cu mock-ul** (`node bridge/mock-fiscalnet.js` + `node bridge/menuvia-bridge.js`) — flux complet pending→success.
+- [ ] **Schema răspunsului real** — pe casa demo, notează câmpurile efective de succes/eroare (parser-ul acceptă deja `BONOK/NRBON` text + JSON cu aliasuri, dar de fixat exact).
+- [ ] **`ST^` acceptat** — sample-ul consolei nu-l are; de confirmat că nu e respins (§8.3).
+- [ ] **Idempotența API** — că `Idempotency-Key` (sau echivalentul) e onorat de BonLocal (§8.5); altfel retry pe timeout = verificare umană.
+- [ ] **HTTPS local (dacă folosești 65401)** — certul trebuie trust-uit de sistem, altfel `fetch` pică înainte să atingă API-ul (§8.3). Recomandat HTTP local pe 65400.
 - [ ] **Encoding diacritice** — dacă ies „?", trece pe CP1250 (`iconv-lite`, dep nouă).
 - [ ] **Casă reală** — după ce EconMedia confirmă pricing + activăm un trial la un local.
 - [ ] **Împachetare** — `pkg` + installer Windows cu auto-start (post-pilot).

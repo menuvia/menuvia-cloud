@@ -18,7 +18,7 @@ function apiCfg(port) {
   return {
     fiscalnet: {
       mode: 'api',
-      apiUrl: `http://localhost:${port}/api/Receipt`,
+      apiUrl: `http://localhost:${port}/api/receipt`,
       timeoutMs: 4000,
       pollResponseMs: 100,
       encoding: 'utf8',

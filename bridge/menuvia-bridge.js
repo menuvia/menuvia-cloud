@@ -76,6 +76,43 @@ async function processOnce(cfg) {
   return pending.length;
 }
 
+// `--check` (doctor): verifică config + Supabase + FiscalNet FĂRĂ să tipărească
+// niciun bon. Util la instalare / diagnoză. Cod de ieșire ≠ 0 dacă ceva pică.
+async function doctor() {
+  const cfg = loadConfig();
+  log('info', `1/3 Config valid · transport=${cfg.fiscalnet.mode}`);
+
+  const dev = await validateDevice(cfg);
+  log('info', `2/3 Supabase OK · ${dev.restaurant_name} (${dev.restaurant_id})`);
+
+  if (cfg.fiscalnet.mode === 'api') {
+    try {
+      // GET (NU POST!) — nu trimite comenzi, deci nu tipărește; orice răspuns HTTP
+      // (chiar și 405) dovedește că FiscalNet ascultă pe port.
+      const res = await fetch(cfg.fiscalnet.apiUrl, { method: 'GET' });
+      log('info', `3/3 FiscalNet reachable · HTTP ${res.status} la ${cfg.fiscalnet.apiUrl}`);
+    } catch (err) {
+      log('error', `3/3 FiscalNet UNREACHABLE la ${cfg.fiscalnet.apiUrl}`, err.message);
+      process.exitCode = 1;
+    }
+  } else {
+    const fsp = require('node:fs/promises');
+    for (const [label, dir] of [
+      ['Bonuri', cfg.fiscalnet.bonuriDir],
+      ['Raspuns', cfg.fiscalnet.raspunsDir],
+    ]) {
+      try {
+        await fsp.access(dir);
+        log('info', `3/3 ${label} accesibil · ${dir}`);
+      } catch {
+        log('error', `3/3 ${label} INEXISTENT/inaccesibil · ${dir}`);
+        process.exitCode = 1;
+      }
+    }
+  }
+  if (!process.exitCode) log('info', 'Toate verificările au trecut ✓');
+}
+
 async function main() {
   const cfg = loadConfig();
   const dev = await validateDevice(cfg);
@@ -112,10 +149,11 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((err) => {
+  const isCheck = process.argv.includes('--check');
+  (isCheck ? doctor() : main()).catch((err) => {
     log('error', 'Bridge a crăpat', err.message);
     process.exit(1);
   });
 }
 
-module.exports = { processOnce, validateDevice };
+module.exports = { processOnce, validateDevice, doctor };

@@ -7,7 +7,7 @@ lângă FiscalNet.
 - **Zero dependențe runtime** — doar Node 20+ (`fetch`, `http`, `fs` built-in). Nu e
   nevoie de `npm install` pentru pilot.
 - **Două transporturi**, aceleași comenzi FiscalNet:
-  - `api` (recomandat) — `POST http://localhost:65400/api/Receipt` cu un array JSON de
+  - `api` (recomandat) — `POST http://localhost:65400/api/receipt` cu un array JSON de
     linii `^`-delimitate; răspuns sincron `BONOK`/`NRBON`.
   - `file` (fallback) — scrie `Bonuri/<id>.txt`, citește `Raspuns/<id>.txt`.
 - **Izolat de aplicația web**: e în afara `src/`, în JS pur → nu intră în
@@ -46,7 +46,7 @@ Copiază `config.example.json` → `config.json` și completează:
 | `supabaseAnonKey`  | cheia **anon public** (RPC-urile bridge au `grant to anon`)    |
 | `deviceSecret`     | din Dashboard → „Casă de marcat" → „Înregistrează casă"        |
 | `fiscalnet.mode`   | `api` (recomandat) sau `file`                                  |
-| `fiscalnet.apiUrl` | implicit `http://localhost:65400/api/Receipt`                  |
+| `fiscalnet.apiUrl` | implicit `http://localhost:65400/api/receipt`                  |
 | `fiscalnet.bonuriDir` / `raspunsDir` | doar în mod `file`                           |
 
 Toate se pot da și prin variabile de mediu (`SUPABASE_URL`, `DEVICE_SECRET`,
@@ -56,7 +56,7 @@ Toate se pot da și prin variabile de mediu (`SUPABASE_URL`, `DEVICE_SECRET`,
 
 ```bash
 # 1. (pentru test, fără casă reală) pornește simulatorul FiscalNet
-node mock-fiscalnet.js          # ascultă pe http://localhost:65400/api/Receipt
+node mock-fiscalnet.js          # ascultă pe http://localhost:65400/api/receipt
 
 # 2. pornește bridge-ul
 node menuvia-bridge.js
