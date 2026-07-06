@@ -99,6 +99,18 @@ jobs:
           echo "anon=${ANON_KEY:-$SUPABASE_ANON_KEY}" >> "$GITHUB_OUTPUT"
           echo "service=${SERVICE_ROLE_KEY:-$SUPABASE_SERVICE_ROLE_KEY}" >> "$GITHUB_OUTPUT"
 
+      # Paritate cu prod #2: pe prod, anon are EXECUTE pe funelul is_admin/
+      # is_member/my_role (evaluate în policy-urile RLS la SELECT-urile publice
+      # pe categories/products). La replay-from-zero grant-ul se pierde →
+      # meniul public primea `permission denied for function is_member` (42501).
+      - name: Parity grants (anon evaluează policy-urile publice)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 <<'SQL'
+          grant execute on function
+            public.is_admin(uuid), public.is_member(uuid), public.my_role(uuid)
+            to anon, authenticated;
+          SQL
+
       - name: Create E2E owner user (GoTrue admin → trigger creează profilul)
         run: |
           curl -sf -X POST "$SUPABASE_LOCAL_URL/auth/v1/admin/users" \

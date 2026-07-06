@@ -20,6 +20,9 @@ test.describe('Dashboard admin navigation', () => {
   })
 
   test('can navigate to Sănătate tab', async ({ page }) => {
+    // Nav-ul e pe grupuri: „Sănătate" stă sub grupul „Rapoarte" — îl deschidem întâi.
+    await page.getByRole('button', { name: /rapoarte/i }).first().click()
+    await page.waitForTimeout(300)
     await page.getByRole('button', { name: /s[ăa]n[ăa]tate/i }).first().click()
     await page.waitForTimeout(1000)
 
@@ -29,6 +32,9 @@ test.describe('Dashboard admin navigation', () => {
   })
 
   test('can navigate to Facturi tab', async ({ page }) => {
+    // „Facturi" stă sub grupul „Rapoarte" — îl deschidem întâi.
+    await page.getByRole('button', { name: /rapoarte/i }).first().click()
+    await page.waitForTimeout(300)
     await page.getByRole('button', { name: /facturi/i }).first().click()
     await page.waitForTimeout(1000)
 

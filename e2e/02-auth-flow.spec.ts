@@ -1,8 +1,15 @@
 // e2e/02-auth-flow.spec.ts
 // Test login: form vizibil + login cu credentiale invalide eșuează grațios.
 import { test, expect } from '@playwright/test'
+import { prepConsent } from './helpers'
 
 test.describe('Authentication', () => {
+  // Banner-ul de cookie-uri interceptează click-urile (role="dialog") — îl
+  // stingem cu consent pre-setat înaintea fiecărei navigări.
+  test.beforeEach(async ({ page }) => {
+    await prepConsent(page)
+  })
+
   test('/auth shows login form', async ({ page }) => {
     await page.goto('/auth')
     await page.waitForLoadState('networkidle')
