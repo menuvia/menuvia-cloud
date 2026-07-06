@@ -85,6 +85,11 @@ begin
   -- prin membership. Doar dacă owner-ul e user REAL din auth.users (fallback-ul
   -- cu UUID fals n-ar trece FK-ul pe user_id).
   if exists (select 1 from auth.users where id = v_owner_id) then
+    -- Plan enterprise pe owner: trigger-ul enforce_team_member_limit (mig 131)
+    -- respinge membership-uri pe planul free (max 1), iar E2E-ul vrea oricum
+    -- dashboard-ul complet (toate tab-urile, fără gate de tier).
+    update public.profiles set plan = 'enterprise' where id = v_owner_id;
+
     insert into public.restaurant_memberships (restaurant_id, user_id, role)
       values (v_rest_id, v_owner_id, 'owner')
       on conflict (restaurant_id, user_id) do nothing;
