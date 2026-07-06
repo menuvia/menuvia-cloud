@@ -1,0 +1,92 @@
+# Deploy pe VPS (Faza 1 / PLAN_10). Rulează pe push în main + manual.
+# INERT până când secrets-urile VPS_* există: primul step verifică prezența
+# și iese curat (skip) dacă lipsesc — merge-urile pe main nu pică între timp.
+#
+# Secrets necesare (GitHub → Settings → Secrets and variables → Actions):
+#   VPS_HOST                 — IP-ul sau hostname-ul serverului
+#   VPS_SSH_KEY              — cheia privată (ed25519) pentru userul de deploy
+#   VITE_SUPABASE_URL        — URL-ul Supabase de PRODUCȚIE
+#   VITE_SUPABASE_ANON_KEY   — anon key de producție
+# Opțional: VPS_USER (default: menuvia), VPS_PATH (default: /srv/menuvia)
+
+name: Deploy VPS
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + rsync + restart
+    runs-on: ubuntu-latest
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER || 'menuvia' }}
+      VPS_PATH: ${{ secrets.VPS_PATH || '/srv/menuvia' }}
+    steps:
+      - name: Verifică secrets (skip curat dacă VPS-ul nu e configurat)
+        id: gate
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "${{ secrets.VPS_SSH_KEY }}" ]; then
+            echo "VPS_HOST/VPS_SSH_KEY nu sunt setate — deploy-ul e inert (setup în docs/VPS_RUNBOOK.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ready == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install + build (env de producție)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_APP_ENV: production
+          VITE_APP_URL: https://menuvia.ro
+        run: |
+          npm ci
+          npm run build
+
+      - name: Configurează SSH
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Rsync (dist + funcții + shim + package manifest)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          rsync -az --delete dist/    "$VPS_USER@$VPS_HOST:$VPS_PATH/dist/"
+          rsync -az --delete netlify/ "$VPS_USER@$VPS_HOST:$VPS_PATH/app/netlify/"
+          rsync -az --delete deploy/  "$VPS_USER@$VPS_HOST:$VPS_PATH/app/deploy/"
+          rsync -az package.json package-lock.json netlify.toml \
+            "$VPS_USER@$VPS_HOST:$VPS_PATH/app/"
+
+      - name: Instalează deps + restart serviciu
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" "VPS_PATH='$VPS_PATH' bash -se" <<'REMOTE'
+          set -euo pipefail
+          cd "$VPS_PATH/app"
+          npm ci --omit=dev --no-audit --no-fund
+          sudo /usr/bin/systemctl restart menuvia-functions
+          sleep 2
+          curl -sf http://127.0.0.1:8788/__shim/health >/dev/null && echo "shim OK"
+          REMOTE
+
+      - name: Smoke test public
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          curl -sf "https://menuvia.ro/health" | head -c 300 || {
+            echo "::warning::/health nu răspunde încă (DNS/certificat în propagare?)"; exit 0; }

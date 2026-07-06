@@ -1,0 +1,40 @@
+# Caddyfile — Menuvia pe VPS. HTTPS automat (Let's Encrypt) pe domeniul de mai jos.
+# Replichează comportamentul din netlify.toml: SPA fallback, /health → funcție,
+# security headers, cache immutable pe /assets/*, no-cache pe sw.js/manifest.
+#
+# Instalare: cp deploy/Caddyfile /etc/caddy/Caddyfile && systemctl reload caddy
+# Schimbă domeniul dacă e altul decât menuvia.ro.
+
+menuvia.ro, www.menuvia.ro {
+	# ── Funcții (shim-ul Node de pe :8788) ────────────────────────────
+	handle /.netlify/functions/* {
+		reverse_proxy 127.0.0.1:8788
+	}
+	handle /health {
+		rewrite * /.netlify/functions/health
+		reverse_proxy 127.0.0.1:8788
+	}
+
+	# ── Static (build-ul Vite) ────────────────────────────────────────
+	handle {
+		root * /srv/menuvia/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	# ── Headers (paritate cu netlify.toml) ────────────────────────────
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		Cross-Origin-Opener-Policy "same-origin-allow-popups"
+	}
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+	header /sw.js Cache-Control "no-cache, no-store, must-revalidate"
+	header /sw.js Service-Worker-Allowed "/"
+	header /manifest.json Cache-Control "no-cache, no-store, must-revalidate"
+
+	encode gzip zstd
+}
