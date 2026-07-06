@@ -68,7 +68,7 @@ se merge mai departe).
 - [ ] **Plata online la masă** (Stripe PaymentIntent, Plan 3, gate server-side, bonul fiscal rămâne pe casă). Cel mai mare gap vs. competiție. (EU) — **stratul SQL LIVRAT** (6 iulie: design docs/ONLINE_PAYMENT.md, mig 202/203, RPC-uri service_role-only, teste TP1-TP6 verzi local); rămân funcțiile Netlify (intent+Connect+webhook), sheet-ul de plată în QR și Setările din dashboard.
 - [ ] **Loyalty v1** (puncte pe comandă, prag→recompensă; simplu, pe module). (EU)
 - [ ] **Onboarding de activare**: checklist ghidat primele 10 min (meniu → masă+QR → prima comandă test). (EU)
-- [ ] Dunning: retry + email la plată eșuată abonament. (EU)
+- [x] Dunning (verificat 6 iulie — EXISTA deja, scorecard-ul îl subevalua): `invoice.payment_failed` → lifecycle event → email `payment_failed` prin coadă (mig 039/180); `past_due` ține planul viu pe durata retry-urilor Stripe (grace corect în webhook). Rămas opțional (nu blochează): escaladare la zi 3/7 + activarea Smart Retries din dashboard-ul Stripe (setare, nu cod — USER 1 min). (EU)
 - ✔️ Criteriu: un client nou ajunge singur de la signup la prima comandă test în <15 min; un client la masă poate plăti din telefon.
 
 ### FAZA 5 — Finisaj 10/10 (săpt. 5–6)
