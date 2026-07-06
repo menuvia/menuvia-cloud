@@ -14,7 +14,12 @@ import {
   hasMandatoryModifierGroups,
   type HappyHourRule,
 } from '../lib/qr'
-import { createOrder, lineTotal } from '../lib/orders'
+import {
+  createOrder,
+  lineTotal,
+  getQrIdempotencyKey,
+  rotateQrIdempotencyKey,
+} from '../lib/orders'
 import { T } from '../lib/constants'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -42,25 +47,8 @@ import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/Men
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 
-function getIdempotencyKey(token: string): string {
-  const storageKey = 'menuvia_idem:' + token
-  let key = sessionStorage.getItem(storageKey)
-  if (!key) {
-    key = crypto.randomUUID()
-    sessionStorage.setItem(storageKey, key)
-  }
-  return key
-}
-// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
-// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
-// getIdempotencyKey). Dacă am scrie doar în state React, un refresh de pagină
-// exact în timpul unei comenzi noi ar regenera cheia din citirea inițială
-// (care ar recrea una veche/inexistentă), riscând submit duplicat.
-function rotateIdempotencyKey(token: string): string {
-  const key = crypto.randomUUID()
-  sessionStorage.setItem('menuvia_idem:' + token, key)
-  return key
-}
+// Cheile de idempotență (sessionStorage per token) trăiesc în lib/orders —
+// getQrIdempotencyKey / rotateQrIdempotencyKey — ca să fie unit-testate.
 
 interface Props {
   token: string
@@ -100,7 +88,7 @@ export default function QrMenuPage({ token }: Props) {
 
   // Stable idempotency key — survives retries of the SAME order; rotated on reset.
   // Prevents duplicate orders when network flakes between request and response.
-  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => getIdempotencyKey(token))
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => getQrIdempotencyKey(token))
 
   // Gate B: session_id deschisă la scanare QR (open_table_session RPC).
   // Opțional — null dacă restaurantul nu e pe Gate B sau RPC eșuează (graceful).
@@ -220,7 +208,7 @@ export default function QrMenuPage({ token }: Props) {
         // supraviețuiește iar un coș NOU cu aceeași cheie ar fi deduplicat
         // tăcut de server → confirmare veche, comandă pierdută. Retry-urile
         // acestei comenzi au folosit deja cheia veche în interiorul buclei.
-        setIdempotencyKey(rotateIdempotencyKey(token))
+        setIdempotencyKey(rotateQrIdempotencyKey(token))
         setConfirmation(result)
         return
       } catch (e: unknown) {
@@ -292,8 +280,8 @@ export default function QrMenuPage({ token }: Props) {
     setSubmitError(null)
     setSubmitting(false)
     // Rotește cheia ȘI în sessionStorage (nu doar în state) — vezi comentariul
-    // de la rotateIdempotencyKey.
-    setIdempotencyKey(rotateIdempotencyKey(token))
+    // de la rotateQrIdempotencyKey (lib/orders).
+    setIdempotencyKey(rotateQrIdempotencyKey(token))
   }
 
   // ── Resolve theme from restaurant settings ──────────────────

@@ -48,6 +48,33 @@ export function lineTotal(item: CartItem): number {
   return (item.unit_price_snapshot + md + ex) * item.quantity
 }
 
+// ── Idempotență comanda QR (per token de masă) ──────────────────
+// Cheia trăiește în sessionStorage ca să supraviețuiască refresh-urilor de
+// pagină din TIMPUL unei comenzi (retry cu aceeași cheie = dedup pe server,
+// index UNIQUE pe (restaurant_id, idempotency_key) — mig 088/145).
+export function getQrIdempotencyKey(token: string): string {
+  const storageKey = 'menuvia_idem:' + token
+  let key = sessionStorage.getItem(storageKey)
+  if (!key) {
+    key = crypto.randomUUID()
+    sessionStorage.setItem(storageKey, key)
+  }
+  return key
+}
+
+// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
+// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
+// getQrIdempotencyKey). Dacă am scrie doar în state React, un refresh de
+// pagină exact în timpul unei comenzi noi ar regenera cheia din citirea
+// inițială (care ar recrea una veche/inexistentă), riscând submit duplicat.
+// SE APELEAZĂ PE SUCCES (nu doar la reset) — altfel un coș NOU după refresh
+// ar refolosi cheia comenzii deja trimise → dedup server → comandă pierdută.
+export function rotateQrIdempotencyKey(token: string): string {
+  const key = crypto.randomUUID()
+  sessionStorage.setItem('menuvia_idem:' + token, key)
+  return key
+}
+
 export interface RestaurantTable {
   id: string
   restaurant_id: string

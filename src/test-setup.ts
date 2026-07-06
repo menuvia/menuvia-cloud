@@ -2,7 +2,10 @@
 // Setup global pentru toate testele Vitest.
 // Importat automat conform vitest.config.ts → test.setupFiles
 
-import '@testing-library/jest-dom'
+// Varianta /vitest: extinde expect-ul din vitest (runtime) ȘI augmentează
+// tipurile `Assertion` din 'vitest' — altfel matcher-ele jest-dom
+// (toBeInTheDocument etc.) pică la `tsc` în testele de componente.
+import '@testing-library/jest-dom/vitest'
 import { afterEach, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 

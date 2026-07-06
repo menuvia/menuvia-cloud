@@ -53,7 +53,7 @@ se merge mai departe).
 
 ### FAZA 2 — QA la standard (săpt. 2) — ținta: cap. 3→8
 - [x] E2E VERZI în CI (6 iulie, 8 iterații): Supabase local ermetic + 202 migrații/PR + seed; primul run verde. Rămâne: 2-3 rulări stabile → promovare la gate BLOCKING. (EU)
-- [ ] Teste componente pe fluxurile de bani: coș QR (add/modifier/idempotență), WaiterEntry, EditOrder. Țintă: lib/ ≥80%, fluxuri critice acoperite. (EU)
+- [x] Teste componente pe fluxurile de bani (6 iulie, ~25 teste): ModifierSheet (matematica CTA + min/max server-parity), WaiterEntry (payload create_order + idempotency stabil la retry + validare fără retry), EditOrderSheet (option_ids + baselineTotal + dirty guard + orfani), QrCartSheet (total CTA + steppers + recomandări + quick-add interzis pe grupuri obligatorii); cheile de idempotență QR extrase în lib/orders + testate direct. (EU)
 - [ ] Load test k6 pe meniul public (100 concurrent, p95 < 1s) + fix ce iese. (EU)
 - ✔️ Criteriu: CI-ul pică dacă un flux de comandă se strică; raport k6 în repo.
 
