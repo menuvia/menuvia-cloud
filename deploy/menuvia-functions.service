@@ -1,0 +1,30 @@
+# systemd unit — shim-ul de funcții Menuvia (deploy/server.js).
+# Instalare:
+#   cp deploy/menuvia-functions.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now menuvia-functions
+# Env-urile funcțiilor stau în /etc/menuvia/env (chmod 600, owner root) —
+# lista completă în docs/VPS_RUNBOOK.md.
+
+[Unit]
+Description=Menuvia functions shim (Netlify functions pe VPS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=menuvia
+Group=menuvia
+WorkingDirectory=/srv/menuvia/app
+EnvironmentFile=/etc/menuvia/env
+ExecStart=/usr/bin/node deploy/server.js
+Restart=always
+RestartSec=3
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/menuvia/app
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+{
+  "supabaseUrl": "https://swjcptdylfmpvopdepqf.supabase.co",
+  "supabaseAnonKey": "PUNE_AICI_ANON_KEY_PUBLIC",
+  "deviceSecret": "PUNE_AICI_DEVICE_SECRET_DIN_DASHBOARD",
+  "pollIntervalMs": 5000,
+  "heartbeatMs": 30000,
+  "batchLimit": 5,
+  "fiscalnet": {
+    "mode": "api",
+    "apiUrl": "http://localhost:65400/api/receipt",
+    "bonuriDir": "C:\\FiscalNet\\Bonuri",
+    "raspunsDir": "C:\\FiscalNet\\Raspuns",
+    "encoding": "utf8",
+    "timeoutMs": 30000,
+    "pollResponseMs": 500
+  }
+}

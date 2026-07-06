@@ -1,0 +1,14 @@
+{
+  "name": "menuvia-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bridge local Menuvia ↔ FiscalNet — transportă bonurile fiscale din coada Supabase la casa de marcat. Zero dependențe runtime (doar Node 20+ built-ins).",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "bin": { "menuvia-bridge": "./menuvia-bridge.js" },
+  "scripts": {
+    "start": "node menuvia-bridge.js",
+    "mock": "node mock-fiscalnet.js",
+    "test": "node --test test/*.test.js"
+  }
+}

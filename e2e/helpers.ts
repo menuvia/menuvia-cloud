@@ -10,15 +10,31 @@ import { type Page, expect } from '@playwright/test'
 export const TEST_EMAIL    = process.env.E2E_EMAIL    || 'qa@menuvia.ro'
 export const TEST_PASSWORD = process.env.E2E_PASSWORD || 'TestPassword123!'
 
+/**
+ * Setează consimțământul de cookie-uri ÎNAINTE de prima navigare — altfel
+ * banner-ul (role="dialog") interceptează click-urile și face testele flaky.
+ * addInitScript se aplică la navigările următoare, deci se cheamă înainte de goto.
+ */
+export async function prepConsent(page: Page) {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'menuvia_cookie_consent',
+      JSON.stringify({ necessary: true, analytics: false, marketing: false, timestamp: Date.now() }),
+    )
+  })
+}
+
 /** Login flow — folosit ca pre-condition în multe teste. */
 export async function login(page: Page, email = TEST_EMAIL, password = TEST_PASSWORD) {
+  await prepConsent(page)
   await page.goto('/auth')
   await page.getByLabel(/email/i).fill(email)
   await page.getByLabel(/parol/i).fill(password)
   await page.getByRole('button', { name: /(intră|login|conectare)/i }).click()
 
-  // Wait for redirect to dashboard / kitchen / waiter
-  await page.waitForURL(/\/(dashboard|kitchen|waiter)/, { timeout: 10_000 })
+  // Wait for redirect to dashboard / kitchen / waiter.
+  // 15s: pe mobile-safari (WebKit emulat în CI) primul login depășea uneori 10s.
+  await page.waitForURL(/\/(dashboard|kitchen|waiter)/, { timeout: 15_000 })
 }
 
 /** Sign out din interfața dashboard. */

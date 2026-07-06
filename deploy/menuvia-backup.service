@@ -1,0 +1,12 @@
+# Oneshot: backup nightly DB (declanșat de menuvia-backup.timer).
+[Unit]
+Description=Menuvia DB backup (pg_dump Supabase, rotatie 14 zile)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=menuvia
+Group=menuvia
+EnvironmentFile=/etc/menuvia/env
+ExecStart=/bin/bash /srv/menuvia/app/deploy/backup-db.sh

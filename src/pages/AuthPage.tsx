@@ -285,8 +285,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={label}>Email</label>
+            <label htmlFor="reset-email" style={label}>
+              Email
+            </label>
             <input
+              id="reset-email"
               type="email"
               value={resetEmail}
               onChange={(e) => setResetEmail(e.target.value)}
@@ -520,8 +523,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
           <form onSubmit={handle} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {mode === 'signup' && (
               <div>
-                <label style={label}>Nume</label>
+                <label htmlFor="auth-name" style={label}>
+                  Nume
+                </label>
                 <input
+                  id="auth-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Numele tău"
@@ -532,8 +538,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               </div>
             )}
             <div>
-              <label style={label}>Email</label>
+              <label htmlFor="auth-email" style={label}>
+                Email
+              </label>
               <input
+                id="auth-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -545,8 +554,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               />
             </div>
             <div>
-              <label style={label}>Parolă</label>
+              <label htmlFor="auth-password" style={label}>
+                Parolă
+              </label>
               <input
+                id="auth-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

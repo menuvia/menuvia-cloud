@@ -134,7 +134,12 @@ ERRINFO=Hârtia s-a terminat
 
 ## 6. Bridge local — TODO (Zona 2)
 
-Repo separat `menuvia-bridge` (Node.js):
+> **Update pilot:** codul de pornire trăiește acum în folderul **`bridge/`** din acest
+> repo (nu într-un repo separat, deocamdată) — zero dependențe runtime (Node 20+ built-ins),
+> transport **API primar / fișiere fallback** (vezi §8). În modul API nu mai e nevoie de
+> `chokidar`/watcher. Împachetarea `.exe` + installer rămâne post-pilot.
+
+Plan original (repo separat `menuvia-bridge`, Node.js):
 - **Stack:** Node 18+, `chokidar` (file watcher), `better-sqlite3` (retry queue), `node-windows` (tray icon)
 - **Build:** `pkg` → single .exe ~30-40 MB
 - **Installer:** Inno Setup → .exe simplu cu auto-start Windows
@@ -160,3 +165,118 @@ Pași de instalare la client:
 - **Pilot client real:** după ce Fiscalnet confirmă pricing și activăm un trial
 
 Cost FiscalNet pentru client: **de aflat** — Radu sună la 0772 179 309.
+
+---
+
+## 8. Transportul API (BonLocal) + pilotul — addendum
+
+> Adăugat după materialele oficiale FiscalNet (email EconMedia + `Documentatie.pdf` +
+> screenshot „BonLocal Post"). Codul pilot: folderul `bridge/` din acest repo.
+
+### 8.1 Două transporturi, ACELEAȘI comenzi
+
+FiscalNet expune două căi pentru **exact același format** de comandă (`S^…`, `P^…`,
+`CF^…`, `DP^/DV^`, `ST^`):
+
+| Transport | Cum | Răspuns |
+|-----------|-----|---------|
+| **Fișiere** | scrii `Bonuri/<id>.txt` (linii unite cu CRLF) | citești `Raspuns/<id>.txt` (`BONOK=1\nNRBON=…`) |
+| **API HTTP** (BonLocal) | `POST /api/receipt`, body = **array JSON de linii** | sincron, în corpul răspunsului |
+
+Endpoint (confirmat pe `webtest.driverfiscal.ro`): driver-ul local expune `/api/receipt`
+(lowercase) pe două porturi — **HTTP `http://localhost:65400/api/receipt`** (plain, fără
+dependență de cert) și **HTTPS `https://localhost.driverfiscal.ro:65401/api/receipt`**.
+Bridge-ul folosește implicit HTTP pe 65400 (localhost, evită trust-ul certului TLS).
+
+**Consecință cheie:** payload-ul generat de cloud (`pending_receipts.payload`, text cu
+linii `\n`) alimentează AMBELE transporturi fără nicio modificare în cloud — bridge-ul
+doar alege: `payload.split('\n')` → fișier (join CRLF) sau array JSON (POST). Alegerea
+trăiește 100% în bridge-ul local.
+
+### 8.2 Decizie: API primar, fișiere fallback
+
+Recomandat **API**:
+- **sincron** — `BONOK`/`NRBON` vin în răspunsul HTTP → fără polling pe `Raspuns/`, fără
+  fereastra „sent" blocat (`bridge_mark_stale_as_error` rămâne doar plasă de siguranță);
+- **fără race pe filesystem** (fișiere pe jumătate scrise, permisiuni pe folder, antivirus);
+- **bridge mai simplu** — fără watcher; doar `poll Supabase → POST localhost → confirm`.
+
+**Integrare directă fără driver: NU** pentru pilot. EconMedia însuși: „a fost suficient
+pentru 99% din integratori". Direct = protocol binar per-model (Datecs/Activa/Tremol) pe
+serial — exact complexitatea pe care driver-ul o scoate din cârcă.
+
+### 8.3 Formatul comenzii `S^` — sursa de adevăr
+
+Generatorul din cloud (validat de 51 de teste în
+`supabase/tests/build_fiscalnet_payload_test.sql`, per `Documentatie.pdf`) emite:
+
+```
+S^DENUMIRE^PRET_BANI^CANT_MII^UM^GRTVA^GRDEP
+```
+
+Exemplu: `S^Cafea^800^1000^buc^1^1` = Cafea, 8.00 RON, 1.000 buc, grupa TVA 1, dep 1.
+
+✅ **CONFIRMAT pe `webtest.driverfiscal.ro` (FiscalNet Dev Console).** Sample-ul oficial de
+body al consolei:
+
+```json
+["S^ARTICOL TEST1^100^1000^buc^1^1", "S^ARTICOL TEST2^100^1000^buc^1^1",
+ "S^ARTICOL TEST3^100^1000^buc^1^1", "S^ARTICOL TEST4^100^1000^buc^1^1", "P^2^400"]
+```
+
+Ordinea `S^…^GRTVA^GRDEP` (aici `^1^1`) e **identică** cu ce produce generatorul din cloud.
+**Fără inversare de coloane** — blocantul „TVA greșit pe bon" e închis. Codul de trimitere
+al consolei (`sendReceipt()`) e byte-pentru-byte același pattern ca `bridge/lib/fiscalnet.js`
+(POST array de string-uri, `AbortController` + timeout, `clearTimeout` în `finally` cu corpul
+citit ÎN fereastra de timeout).
+
+Observație minoră: sample-ul consolei NU include o linie `ST^` (subtotal); generatorul nostru
+o emite. `ST^` e opțional per spec (`Documentatie.pdf` §3) — de bifat pe casa demo că e
+acceptat, nu respins.
+
+### 8.4 Parserul de răspuns (bridge)
+
+`bridge/lib/fiscalnet.js` normalizează orice răspuns la
+`{ success, bonNumber, errorCode, errorInfo }` și acceptă **atât JSON cât și text**:
+- JSON: `BONOK`/`NRBON`/`ERRCODE`/`ERRINFO` **și** aliasuri (`success`/`receiptNumber`/
+  `errorCode`/`message`) — case-insensitive;
+- text: `BONOK=1\nNRBON=…` (ca la transportul pe fișiere).
+
+Astfel pilotul merge chiar dacă schema exactă a răspunsului API diferă ușor de screenshot;
+aliasurile efective se fixează după testul pe `webtest.driverfiscal.ro`.
+
+### 8.5 Idempotență = anti bon fiscal DUBLU (regulă de siguranță)
+
+Un bon fiscal tipărit de două ori pe aceeași comandă e ilegal. Punctul de risc e
+**timeout-după-tipărire**: casa tipărește bonul, dar răspunsul nu ajunge la bridge (rețea /
+casă care atârnă). Bridge-ul marchează `error`, owner-ul dă „Reîncearcă" → a doua tipărire.
+
+Protecția pe cele două transporturi:
+- **Fișiere:** idempotență prin **numele fișierului** = `receipt_id`. Un fișier re-scris cu
+  același nume e ignorat de FiscalNet (dedup nativ). ✅ sigur la retry.
+- **API:** bridge-ul trimite header-ul **`Idempotency-Key: <receipt_id>`** la fiecare POST.
+  ⚠️ **DE CONFIRMAT** că API-ul BonLocal onorează acest header (sau echivalentul din
+  `Documentatie.pdf`). **Până la confirmare:** un `API_UNREACHABLE`/`HTTP_5xx`/timeout pe
+  API **NU** e sigur de re-trimis automat — owner-ul verifică fizic casa înainte de
+  „Reîncearcă". De aceea bridge-ul NU face retry automat pe erori de rețea (decizie
+  intenționată: mai bine un bon marcat greșit „error" + verificare umană, decât un bon dublu).
+
+Reguli deja aplicate în cod: bridge-ul nu marchează NICIODATĂ `success` fără un `BONOK=1`
+explicit (orice eșec de transport → `error`, retry uman); claim-ul e atomic (`pending→sent`),
+deci două bridge-uri nu ridică același bon.
+
+### 8.6 Checklist pilot
+
+- [x] **Ordinea `S^…^GRTVA^GRDEP` confirmată** pe `webtest.driverfiscal.ro` — identică cu generatorul (§8.3). ✅
+- [ ] **Cloud la zi pe prod** — migrațiile bridge/fiscal (030→053 + gate 124/133/149/150/158/159) aplicate.
+- [ ] **Înregistrează o casă de test** din Dashboard → primești `device_secret`.
+- [ ] **Rulează `--check` (doctor)** — `node bridge/menuvia-bridge.js --check` verifică config + Supabase + FiscalNet fără să tipărească.
+- [ ] **Rulează bridge-ul cu mock-ul** (`node bridge/mock-fiscalnet.js` + `node bridge/menuvia-bridge.js`) — flux complet pending→success.
+- [ ] **Schema răspunsului real** — pe casa demo, notează câmpurile efective de succes/eroare (parser-ul acceptă deja `BONOK/NRBON` text + JSON cu aliasuri, dar de fixat exact).
+- [ ] **`ST^` acceptat** — sample-ul consolei nu-l are; de confirmat că nu e respins (§8.3).
+- [ ] **Idempotența API** — că `Idempotency-Key` (sau echivalentul) e onorat de BonLocal (§8.5); altfel retry pe timeout = verificare umană.
+- [ ] **HTTPS local (dacă folosești 65401)** — certul trebuie trust-uit de sistem, altfel `fetch` pică înainte să atingă API-ul (§8.3). Recomandat HTTP local pe 65400.
+- [ ] **Encoding diacritice** — dacă ies „?", trece pe CP1250 (`iconv-lite`, dep nouă).
+- [ ] **Casă reală** — după ce EconMedia confirmă pricing + activăm un trial la un local.
+- [ ] **Împachetare** — `pkg` + installer Windows cu auto-start (post-pilot).
+
