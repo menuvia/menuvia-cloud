@@ -19,15 +19,18 @@ test.describe('Dashboard admin navigation', () => {
     await expect(page.locator('text=/(produs|categorii)/i').first()).toBeVisible()
   })
 
-  test('can navigate to Sănătate tab', async ({ page }) => {
-    // Nav-ul e pe grupuri: „Sănătate" stă sub grupul „Rapoarte" — îl deschidem întâi.
+  test('can navigate to Statistici tab', async ({ page }) => {
+    // Tab-ul „Sănătate" NU mai există în nav (health scores au devenit
+    // founder-only) — testăm în schimb „Statistici" (grupul „Rapoarte",
+    // minTier 3 — ownerul E2E e enterprise), păstrând acoperirea pe
+    // navigarea prin grupuri.
     await page.getByRole('button', { name: /rapoarte/i }).first().click()
     await page.waitForTimeout(300)
-    await page.getByRole('button', { name: /s[ăa]n[ăa]tate/i }).first().click()
+    await page.getByRole('button', { name: /statistici/i }).first().click()
     await page.waitForTimeout(1000)
 
-    // Hero text or loading visible
-    const possible = page.locator('text=/(scor|customer health|încarcă|nu a fost)/i')
+    // Conținutul tabului sau empty state-ul lui
+    const possible = page.locator('text=/(top produse|comenzi pe|nicio comandă|statistici)/i')
     await expect(possible.first()).toBeVisible({ timeout: 5_000 })
   })
 

@@ -32,8 +32,9 @@ export async function login(page: Page, email = TEST_EMAIL, password = TEST_PASS
   await page.getByLabel(/parol/i).fill(password)
   await page.getByRole('button', { name: /(intră|login|conectare)/i }).click()
 
-  // Wait for redirect to dashboard / kitchen / waiter
-  await page.waitForURL(/\/(dashboard|kitchen|waiter)/, { timeout: 10_000 })
+  // Wait for redirect to dashboard / kitchen / waiter.
+  // 15s: pe mobile-safari (WebKit emulat în CI) primul login depășea uneori 10s.
+  await page.waitForURL(/\/(dashboard|kitchen|waiter)/, { timeout: 15_000 })
 }
 
 /** Sign out din interfața dashboard. */
