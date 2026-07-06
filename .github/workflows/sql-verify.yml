@@ -1236,6 +1236,14 @@ jobs:
           # la 1 pe selection_type='single' misconfigurat.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/order_group_min_assertions.sql
 
+      - name: "Online table payments assertions (mig 202-203)"
+        if: ${{ hashFiles('supabase/migrations/20260706211000_migration_203_online_table_payments.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/table_payment_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:

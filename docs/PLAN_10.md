@@ -65,7 +65,7 @@ se merge mai departe).
 - ✔️ Criteriu: un bon fiscal REAL tipărit dintr-o comandă Menuvia la un local pilot.
 
 ### FAZA 4 — Golurile de produs pentru 10 (săpt. 3–5)
-- [ ] **Plata online la masă** (Stripe PaymentIntent, Plan 3, gate server-side, bonul fiscal rămâne pe casă). Cel mai mare gap vs. competiție. (EU)
+- [ ] **Plata online la masă** (Stripe PaymentIntent, Plan 3, gate server-side, bonul fiscal rămâne pe casă). Cel mai mare gap vs. competiție. (EU) — **stratul SQL LIVRAT** (6 iulie: design docs/ONLINE_PAYMENT.md, mig 202/203, RPC-uri service_role-only, teste TP1-TP6 verzi local); rămân funcțiile Netlify (intent+Connect+webhook), sheet-ul de plată în QR și Setările din dashboard.
 - [ ] **Loyalty v1** (puncte pe comandă, prag→recompensă; simplu, pe module). (EU)
 - [ ] **Onboarding de activare**: checklist ghidat primele 10 min (meniu → masă+QR → prima comandă test). (EU)
 - [ ] Dunning: retry + email la plată eșuată abonament. (EU)
