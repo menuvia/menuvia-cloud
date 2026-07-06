@@ -35,6 +35,10 @@ Client scanează QR (masă) → QrMenuPage → start_table_session (token)
   → create_order RPC (validări: sesiune, plan, stoc, limite)
   → KDS (KitchenPage): new → confirmed → preparing → ready
   → WaiterPage: served → [Plan 2] closed | [Plan 3] paid (PayModal, split, tips)
+  → [Plan 3 + modul online_payments] clientul plătește DIN TELEFON: PayTableSheet
+    → fn table-payment (suma DOAR server-side, begin_table_payment)
+    → Stripe pe contul CONECTAT al localului → webhook Connect → settle_table_payment
+    → orders paid (card_online) → același trigger fiscal → bonul iese pe casă
 Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în DB).
 ```
 
@@ -49,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (201) — grupate pe „de ce", nu pe număr
+## Migrațiile (204) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -74,6 +78,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Founder self-heal + feedback | 195–196 | trigger `trg_seed_platform_admin` (platform admins auto pe emailuri fondatoare) + `submit_order_feedback` |
 | **Meniu multilingv** | **197** | `products/categories.translations` (jsonb) + `restaurants.menu_languages`; grant column-level pe coloana nouă (restaurants e column-gated); traducerile manuale + fallback la original |
 | Perf meniu public | 198 | index compozit `categories(restaurant_id, display_order)` — cea mai fierbinte cale QR/public |
+| **Plata online la masă** | **202–204** + `tests/sql/table_payment_assertions.sql` | enum `card_online` (→ cod FiscalNet 7), `table_payments`, RPC-uri service_role-only (begin/attach/settle — suma DOAR server-side, settle idempotent), `set_restaurant_stripe_account`; design în `docs/ONLINE_PAYMENT.md` |
 | **Rezervare cu hartă („ca la cinema")** | **199–201** | `get_public_floor_plan` + `get_tables_availability` (gate modul mig 200) + `create_reservation_public` 10-arg cu `p_table_id` race-safe (199) și wrap-around program peste miezul nopții (201). Lanț 151→199→201, fără twin. |
 
 ## Founder + acces partener + comisioane (186–190, 193)
@@ -120,5 +125,6 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 ## Cum rulezi / verifici
 
 - Dev: `npm run dev` · Teste: `npm run test` · E2E local: `npm run test:e2e`
+- SQL fără CI: `bash scripts/verify-migrations-local.sh` (replay complet + asserțiile din sql-verify.yml pe Postgres 16 efemer) · Load test: Actions → „k6 Load Test" → Run workflow.
 - Migrații noi: fișier nou în `supabase/migrations/` (NU edita migrații aplicate) → CI le aplică pe Postgres efemer → apoi manual în Supabase SQL Editor, în ordine.
 - Orice feature cu bani: întreabă întâi „e tier 3?" — dacă da, gate în RPC, nu doar în UI.

@@ -248,6 +248,7 @@ export default function HomeTab({
   const [tablesCount, setTablesCount] = useState<number | null>(null)
   const [categoriesCount, setCategoriesCount] = useState<number | null>(null)
   const [teamCount, setTeamCount] = useState<number | null>(null)
+  const [everOrdered, setEverOrdered] = useState<boolean | null>(null)
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
 
@@ -287,6 +288,17 @@ export default function HomeTab({
           .gte('created_at', todayStart)
           .then(({ count }) => {
             if (alive) setOrdersToday(count ?? 0)
+          }),
+      )
+      // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist:
+      // owner-ul a văzut fluxul complet abia când o comandă a intrat în sistem.
+      counts.push(
+        supabase
+          .from('orders')
+          .select('id', head)
+          .eq('restaurant_id', restaurantId)
+          .then(({ count }) => {
+            if (alive) setEverOrdered((count ?? 0) > 0)
           }),
       )
       if (isAdmin) {
@@ -338,7 +350,14 @@ export default function HomeTab({
     ...(tier >= 2 && isAdmin
       ? [
           { label: 'Invită echipa', done: (teamCount ?? 0) > 1, target: 'echipa' as const },
-          { label: 'Comenzile de la masă: active', done: true },
+          // Pasul de ACTIVARE (PLAN_10 F4): fluxul e validat abia când o comandă
+          // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
+          // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
+          {
+            label: 'Prima comandă de test — deschide QR-ul unei mese și comandă',
+            done: everOrdered === true,
+            target: 'mese' as const,
+          },
         ]
       : []),
   ]

@@ -65,14 +65,14 @@ se merge mai departe).
 - ✔️ Criteriu: un bon fiscal REAL tipărit dintr-o comandă Menuvia la un local pilot.
 
 ### FAZA 4 — Golurile de produs pentru 10 (săpt. 3–5)
-- [ ] **Plata online la masă** (Stripe PaymentIntent, Plan 3, gate server-side, bonul fiscal rămâne pe casă). Cel mai mare gap vs. competiție. (EU) — **stratul SQL LIVRAT** (6 iulie: design docs/ONLINE_PAYMENT.md, mig 202/203, RPC-uri service_role-only, teste TP1-TP6 verzi local); rămân funcțiile Netlify (intent+Connect+webhook), sheet-ul de plată în QR și Setările din dashboard.
-- [ ] **Loyalty v1** (puncte pe comandă, prag→recompensă; simplu, pe module). (EU)
-- [ ] **Onboarding de activare**: checklist ghidat primele 10 min (meniu → masă+QR → prima comandă test). (EU)
+- [ ] **Plata online la masă** (Stripe PaymentIntent, Plan 3, gate server-side, bonul fiscal rămâne pe casă). Cel mai mare gap vs. competiție. (EU) — **COMPLET IN COD** (6 iulie, 3 valuri): design docs/ONLINE_PAYMENT.md; mig 202/203/204 + teste TP1-TP6 (verzi local, 205 migratii + 37/37); functii Netlify (table-payment cu suma server-side, stripe-connect onboarding, stripe-connect-webhook cu dedup + settle idempotent); PayTableSheet in QR (js.stripe.com, zero dependente noi) + OnlinePaymentsCard in Setari. Ramas pe USER: activare Connect in Stripe + STRIPE_PUBLISHABLE_KEY/STRIPE_CONNECT_WEBHOOK_SECRET in env + un test end-to-end pe test mode.
+- [ ] **Loyalty v1** — design scris (6 iulie, docs/LOYALTY.md): schema events + wallets, acumulare pe trigger-ul de paid, redeem staff-only. BLOCAT pe 2 decizii de fondator: identitatea clientului (hibrid telefon+card anonim?) si planul minim (growth+ vs pro+). Implementarea = 1 val dupa raspuns. (EU+USER)
+- [x] **Onboarding de activare** (6 iulie): checklist-ul „Setup restaurant” din HomeTab exista deja (pasi masurabili + navigare); completat cu pasul de ACTIVARE lipsa — „Prima comanda de test” (count real pe orders, inlocuieste o bifa permanenta falsa). (EU)
 - [x] Dunning (verificat 6 iulie — EXISTA deja, scorecard-ul îl subevalua): `invoice.payment_failed` → lifecycle event → email `payment_failed` prin coadă (mig 039/180); `past_due` ține planul viu pe durata retry-urilor Stripe (grace corect în webhook). Rămas opțional (nu blochează): escaladare la zi 3/7 + activarea Smart Retries din dashboard-ul Stripe (setare, nu cod — USER 1 min). (EU)
 - ✔️ Criteriu: un client nou ajunge singur de la signup la prima comandă test în <15 min; un client la masă poate plăti din telefon.
 
 ### FAZA 5 — Finisaj 10/10 (săpt. 5–6)
-- [ ] Pipeline imagini (resize/webp la upload) + verificare LCP pe prod. (EU)
+- [x] Pipeline imagini — verificat 6 iulie: EXISTA deja pe ambele cai de upload (ProductsTab + SettingsTab: canvas resize max 1200px + webp 0.85); scorecard-ul era depasit. Ramasa doar verificarea LCP pe prod dupa deploy (5 min, dupa VPS). (EU)
 - [ ] SEO meniuri publice (meta, OG, sitemap per restaurant). (EU)
 - [ ] Pagini legale complete (ToS, Privacy, program afiliere) verificate. (EU draft, USER avocat)
 - [ ] MFA pe toate conturile de platformă (Supabase, Netlify/VPS, GitHub, Stripe). (USER)
