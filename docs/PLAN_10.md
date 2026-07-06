@@ -37,7 +37,7 @@ se merge mai departe).
 
 ### FAZA 0 — Deblocare livrare (acum → 72h) — ținta: cap. 1 la 6
 - [x] **Decizie hosting**: VPS (decis 6 iulie). Pachetul deploy/ e complet; rămân pașii din docs/VPS_RUNBOOK.md (server + env + secrets + DNS).
-- [ ] **PR #182 merge** (bridge pilot) după CI verde. (EU)
+- [x] **PR #182 merged** (6 iulie, squash 8f6bd37) — TOATE check-urile verzi, inclusiv Playwright E2E (prima dată în istoria proiectului).
 - [ ] `PLATFORM_OPENAI_KEY` setat în env-ul de producție. (USER — 2 min)
 - [ ] Supabase Auth → leaked password protection ON. (USER — 1 min)
 - [ ] Frontend-ul nou public pentru clienți (prin oricare din căile de hosting). (EU+USER)
@@ -52,7 +52,7 @@ se merge mai departe).
 - ✔️ Criteriu: o eroare aruncată intenționat în FE apare în Sentry; oprirea health-ului alertează în <10 min; un restore de test reușește.
 
 ### FAZA 2 — QA la standard (săpt. 2) — ținta: cap. 3→8
-- [ ] E2E VERZI în CI: Supabase local (supabase start) + seed în workflow → cele 5 spec-uri rulează real; gate blocking. (EU)
+- [x] E2E VERZI în CI (6 iulie, 8 iterații): Supabase local ermetic + 202 migrații/PR + seed; primul run verde. Rămâne: 2-3 rulări stabile → promovare la gate BLOCKING. (EU)
 - [ ] Teste componente pe fluxurile de bani: coș QR (add/modifier/idempotență), WaiterEntry, EditOrder. Țintă: lib/ ≥80%, fluxuri critice acoperite. (EU)
 - [ ] Load test k6 pe meniul public (100 concurrent, p95 < 1s) + fix ce iese. (EU)
 - ✔️ Criteriu: CI-ul pică dacă un flux de comandă se strică; raport k6 în repo.
