@@ -36,7 +36,7 @@ următoare cu faza curentă roșie (excepție: itemii blocați pe acțiune uman�
 se merge mai departe).
 
 ### FAZA 0 — Deblocare livrare (acum → 72h) — ținta: cap. 1 la 6
-- [ ] **Decizie hosting** (USER): plată Netlify o dată SAU mergem direct pe VPS. Recomandat: VPS.
+- [x] **Decizie hosting**: VPS (decis 6 iulie). Pachetul deploy/ e complet; rămân pașii din docs/VPS_RUNBOOK.md (server + env + secrets + DNS).
 - [ ] **PR #182 merge** (bridge pilot) după CI verde. (EU)
 - [ ] `PLATFORM_OPENAI_KEY` setat în env-ul de producție. (USER — 2 min)
 - [ ] Supabase Auth → leaked password protection ON. (USER — 1 min)
