@@ -5,6 +5,8 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main]
+  # Declanșare manuală (diagnostic + validare pe branch când evenimentele nu ajung)
+  workflow_dispatch:
 
 # Anulează run-uri vechi pe același branch când vine push nou — economisește
 # minute CI și accelerează feedback-ul pe ultimul commit.
