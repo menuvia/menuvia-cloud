@@ -80,8 +80,16 @@ jobs:
             revoke insert, update, delete, references, truncate, trigger on tables from service_role;
           SQL
 
-      - name: Apply migrations (001→201)
-        run: supabase migration up
+      # psql, nu `supabase migration up`: mig 120/121 conțin meta-comenzi psql
+      # (\set ON_ERROR_STOP) pe care runner-ul CLI nu le înțelege. Același
+      # aplicator ca sql-verify.yml (calea deja dovedită).
+      - name: Apply migrations (001→201, via psql)
+        run: |
+          for f in supabase/migrations/*.sql; do
+            echo "── $f"
+            psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+              -v ON_ERROR_STOP=1 -q -f "$f"
+          done
 
       - name: Export local keys
         id: sb
