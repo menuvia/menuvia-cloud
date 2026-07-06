@@ -60,8 +60,28 @@ jobs:
         with:
           version: latest
 
-      - name: Start local Supabase (aplică migrațiile 001→201)
-        run: supabase start
+      # Pornim stack-ul FĂRĂ auto-migrații: pe local, default privileges acordă
+      # ALL lui service_role pe tabele noi (ca pe cloud), iar asserția fail-closed
+      # din mig 096B (corectă) ar pica la replay-from-zero — pe prod a trecut
+      # pentru că acolo privilegiile erau deja curate. Revocăm default-urile
+      # pentru service_role ÎNAINTE de a aplica migrațiile (echivalent cu prod),
+      # fără să atingem migrațiile aplicate (regula: nu se editează).
+      - name: Start local Supabase (fără auto-migrații)
+        run: |
+          sed -i '/^\[db\.migrations\]$/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
+          supabase start
+
+      - name: Pre-curățare privilegii service_role (paritate cu prod)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 <<'SQL'
+          alter default privileges for role postgres in schema public
+            revoke insert, update, delete, references, truncate, trigger on tables from service_role;
+          alter default privileges in schema public
+            revoke insert, update, delete, references, truncate, trigger on tables from service_role;
+          SQL
+
+      - name: Apply migrations (001→201)
+        run: supabase migration up
 
       - name: Export local keys
         id: sb
