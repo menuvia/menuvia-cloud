@@ -80,6 +80,16 @@ begin
     select id into v_rest_id from public.restaurants where slug = 'tinctura';
   end if;
 
+  -- 2b. Owner membership — invariantul mig 096 cere exact 1 owner membership
+  -- aliniat cu restaurants.owner_id, iar dashboard-ul (E2E) vede restaurantul
+  -- prin membership. Doar dacă owner-ul e user REAL din auth.users (fallback-ul
+  -- cu UUID fals n-ar trece FK-ul pe user_id).
+  if exists (select 1 from auth.users where id = v_owner_id) then
+    insert into public.restaurant_memberships (restaurant_id, user_id, role)
+      values (v_rest_id, v_owner_id, 'owner')
+      on conflict (restaurant_id, user_id) do nothing;
+  end if;
+
   -- 3. Categories — 4 buc cu meta_text editorial
   insert into public.categories (restaurant_id, name, emoji, display_order, meta_text)
   values
