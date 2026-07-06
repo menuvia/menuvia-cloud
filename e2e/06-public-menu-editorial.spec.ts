@@ -11,6 +11,12 @@ test.describe('Public menu — editorial design', () => {
   test('renders hero + tabs + cards + footer pentru /m/tinctura', async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
+    // Diagnostic: erorile de consolă (inclusiv [qr] fetchRestaurantBySlug) apar
+    // în mesajul de fail — altfel un RPC picat e indistinct de un testid lipsă.
+    const consoleErrors: string[] = []
+    page.on('console', (m) => {
+      if (m.type() === 'error') consoleErrors.push(m.text())
+    })
 
     await page.goto('/m/tinctura')
     await page.waitForLoadState('networkidle')
@@ -18,6 +24,18 @@ test.describe('Public menu — editorial design', () => {
     // Dacă restaurant-ul nu există în DB, sărim — nu e regresie a designului.
     const notFound = await page.getByText(/Restaurant negăsit/i).count()
     test.skip(notFound > 0, 'seed_tinctura_demo.sql nu e aplicat pe această instanță')
+
+    // Starea de eroare a paginii (MenuError afișează mereu acest titlu) — dacă
+    // e prezentă, raportăm CAUZA (text vizibil + console), nu „testid lipsă".
+    const errShown = await page.getByText(/Nu am putut încărca meniul/i).count()
+    if (errShown > 0) {
+      const visible = await page.locator('body').innerText()
+      throw new Error(
+        `Meniul a intrat în starea de eroare.\nEcran: ${visible.slice(0, 300)}\n` +
+          `Console: ${consoleErrors.slice(0, 5).join(' | ') || '(nimic)'}\n` +
+          `PageErrors: ${errors.slice(0, 3).join(' | ') || '(nimic)'}`,
+      )
+    }
 
     // 1. Hero cu numele restaurant-ului
     await expect(page.getByTestId('hero-name')).toContainText('Tinctura Café')
