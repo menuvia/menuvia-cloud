@@ -20,6 +20,7 @@ import {
   getQrIdempotencyKey,
   rotateQrIdempotencyKey,
 } from '../lib/orders'
+import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { T } from '../lib/constants'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -46,6 +47,7 @@ import MenuHeader from '../components/menu/MenuHeader'
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
+const PayTableSheet = lazy(() => import('../components/PayTableSheet'))
 
 // Cheile de idempotență (sessionStorage per token) trăiesc în lib/orders —
 // getQrIdempotencyKey / rotateQrIdempotencyKey — ca să fie unit-testate.
@@ -94,6 +96,13 @@ export default function QrMenuPage({ token }: Props) {
   // Opțional — null dacă restaurantul nu e pe Gate B sau RPC eșuează (graceful).
   const [sessionId, setSessionId] = useState<string | null>(null)
 
+  // Plata online la masă (Etapa 1): doar AFIȘAREA e condiționată de modul —
+  // gate-urile reale (plan + modul + cont Stripe) stau server-side în
+  // begin_table_payment. Eroare la citire → butonul rămâne „cere nota".
+  const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
+  const [showPaySheet, setShowPaySheet] = useState(false)
+  const [tablePaid, setTablePaid] = useState(false)
+
   function loadQr() {
     setResolving(true)
     setInvalid(false)
@@ -119,6 +128,12 @@ export default function QrMenuPage({ token }: Props) {
             // Loghează — submit-ul mai are un retry înainte de createOrder.
             console.warn('[QrMenuPage] openTableSession failed:', err)
           })
+        // Plăți online — non-blocking; doar pentru eticheta butonului de plată.
+        void fetchOnlinePaymentEnabled(result.restaurant.id)
+          .then((enabled) => {
+            if (!cancelled) setOnlinePayEnabled(enabled)
+          })
+          .catch(() => {})
         // Happy Hour activ — non-blocking; meniul se afișează chiar dacă pică.
         void fetchActiveHappyHour(result.restaurant.id)
           .then((rules) => {
@@ -272,7 +287,10 @@ export default function QrMenuPage({ token }: Props) {
       setPreviousOrders([])
       // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
       setSessionId(null)
+      // Grup nou = notă nouă — starea de „plătit online" nu se moștenește.
+      setTablePaid(false)
     }
+    setShowPaySheet(false)
     setCart([])
     setNotes('')
     setConfirmation(null)
@@ -1112,15 +1130,43 @@ export default function QrMenuPage({ token }: Props) {
             }}
             onAddToCart={(item) => setCart((prev) => [...prev, item])}
             sentOrders={previousOrders}
-            // „Plătește masa" = cere nota DOAR pentru ce e deja trimis la bucătărie
-            // (request-bill nu trimite coșul). Afișăm strict totalul comandat, ca
-            // suma de pe buton să corespundă cu ce se facturează (regula de aur).
+            // „Plătește masa": cu modulul de plăți online activ + sesiune → plata
+            // din telefon (PayTableSheet, suma se recalculează pe server); altfel
+            // fallback-ul istoric = cere nota (request-bill nu trimite coșul).
+            // Afișăm strict totalul comandat, ca suma de pe buton să corespundă
+            // cu ce se facturează (regula de aur).
             tableTotal={previousOrders.reduce((s, o) => s + o.total, 0)}
             onPayTable={
-              previousOrders.length > 0 ? () => void handleRequestBill() : undefined
+              previousOrders.length > 0
+                ? onlinePayEnabled && sessionId != null
+                  ? () => setShowPaySheet(true)
+                  : () => void handleRequestBill()
+                : undefined
             }
-            payDisabled={requestingBill || billRequested}
-            payLabel={billRequested ? 'Nota a fost cerută ✓' : 'Plătește masa'}
+            payDisabled={tablePaid || requestingBill || billRequested}
+            payLabel={
+              tablePaid
+                ? 'Plătit online ✓'
+                : onlinePayEnabled && sessionId != null
+                  ? 'Plătește online'
+                  : billRequested
+                    ? 'Nota a fost cerută ✓'
+                    : 'Plătește masa'
+            }
+          />
+        </Suspense>
+      )}
+
+      {/* Plata online a mesei — lazy, doar la cerere */}
+      {showPaySheet && sessionId != null && (
+        <Suspense fallback={null}>
+          <PayTableSheet
+            token={token}
+            sessionId={sessionId}
+            PUB={PUB}
+            accent={accent}
+            onClose={() => setShowPaySheet(false)}
+            onPaid={() => setTablePaid(true)}
           />
         </Suspense>
       )}

@@ -57,13 +57,19 @@
 - `trg_maybe_close_session` închide sesiunea când totul e plătit — nimic de făcut.
 - `enqueue_fiscal_receipt` sare curat dacă localul n-are bridge (fără queue orfan).
 
-## Ce urmează (după acest val SQL)
+## Stadiul implementării (6 iulie 2026)
 
-1. `netlify/functions/table-payment.js` (create-intent) + `stripe-connect.js`
-   (onboarding link + status) — șablon `stripe-checkout.js`.
-2. `stripe-webhook.js`: evenimentele de Connect → `settle_table_payment`.
-3. Client: `PayTableSheet` (Payment Element) + wiring `onPayTable` în QR.
-4. Dashboard → Setări → „Plăți online": buton conectare Stripe + toggle modul.
+- ✅ **Val 1 (SQL)**: mig 202/203/204 + `tests/sql/table_payment_assertions.sql`.
+- ✅ **Val 2 (funcții)**: `table-payment.js` (create-intent), `stripe-connect.js`
+  (onboarding + status), `stripe-connect-webhook.js` (endpoint separat de
+  Connect, dedup pe `stripe_events` + settle idempotent).
+- ✅ **Val 3 (client)**: `lib/payments.ts` (loader js.stripe.com + tipuri
+  minimale, fără `any`), `PayTableSheet.tsx` (Payment Element pe tokenii temei),
+  wiring în `QrMenuPage` (butonul devine „Plătește online" DOAR când modulul
+  e activ — altfel rămâne fallback-ul „cere nota"), `OnlinePaymentsCard.tsx`
+  în Setări → Comenzi (conectare Stripe + toggle modul, gated pe planTier ≥ 3).
+- ⏳ Rămas: test end-to-end pe Stripe test mode (după activarea Connect de
+  către fondator) + Etapa 2/3 de mai jos.
 
 ## Acțiuni fondator (o singură dată, când activăm)
 

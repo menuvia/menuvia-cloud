@@ -7,6 +7,7 @@ import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
+import OnlinePaymentsCard from './OnlinePaymentsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -1501,6 +1502,16 @@ export default function SettingsTab({
                   </div>
                 </div>
               </SettingsCard>
+            )}
+
+            {/* Plăți online la masă — Etapa 1 (docs/ONLINE_PAYMENT.md) */}
+            {modulesState && (
+              <OnlinePaymentsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
             )}
 
             {/* Pickup ordering settings */}
