@@ -11,7 +11,7 @@
 | # | Capitol | Notă | De ce nu e 10 (dovezi) |
 |---|---------|------|------------------------|
 | 1 | **Infra / deploy / hosting** | **2/10** | Producția e înghețată pe #76 (30 iun) — ~100 PR-uri nelivrate clienților. Creditele Netlify epuizate → deploy prod suspendat. Fără domeniu propriu (menuvia.netlify.app). Un singur host, fără plan B. |
-| 2 | **Observabilitate / reziliență** | **5/10** | `/health` + alerte Slack + RUNBOOK există (Val 1), DAR: zero error-tracking (nici FE, nici funcții — o eroare la client e invizibilă), zero uptime-monitor extern, zero dead-man's switch activ, zero backup propriu al DB (doar Supabase intern). |
+| 2 | **Observabilitate / reziliență** | **5/10** | `/health` + alerte Slack + RUNBOOK există (Val 1), DAR: error-tracking FE există (Sentry lazy în main.tsx, în spatele VITE_SENTRY_DSN + consent) însă DSN-ul nu e setat → efectiv oprit; pe funcții/backend zero, zero uptime-monitor extern, zero dead-man's switch activ, zero backup propriu al DB (doar Supabase intern). |
 | 3 | **Testare / QA** | **4/10** | 11 fișiere de teste unit pe tot FE. E2E cronic roșu în CI (secrets lipsă) = practic NU există E2E. Excelent doar pe fiscal-SQL (51 teste) și bridge (14). Zero load-testing pe meniul public (calea cea mai fierbinte). |
 | 4 | **Securitate / RLS / lockdown** | **9/10** | Advisor: 0 erori. Convenția lockdown matură (96A/B/C, gate-uri fiscale server-side, search_path peste tot). Rămân: leaked-password protection OFF în Supabase Auth, fără MFA pe conturile de platformă (Netlify arată mfa_enabled:false). |
 | 5 | **Fiscalizare (bridge FiscalNet)** | **7/10** | Cloud complet + 51 teste; pilot bridge scris + 14/14 verde; format confirmat pe webtest. Lipsesc: test pe casă demo reală, .exe/installer nebuildat, bacșiș pe bon (OUG 8/2023) nedefinit, flux storno inexistent. |
@@ -46,7 +46,7 @@ se merge mai departe).
 ### FAZA 1 — Fundație de operare (săpt. 1) — ținta: cap. 1→8, cap. 2→8
 - [ ] Pachet VPS în repo: `deploy/` cu shim Node pentru `/.netlify/functions/*` (handler-e NESCHIMBATE), node-cron pe aceleași intervale, Caddy (HTTPS auto), systemd, GH Action build+rsync. (EU)
 - [ ] Domeniu propriu (menuvia.ro) + Netlify vechi = redirect (protejează QR-urile tipărite). (USER cumpără/pointează, EU config)
-- [ ] Error tracking: Sentry free (FE + funcții), cu release tagging. (EU + USER creează cont)
+- [ ] Error tracking: FE există (Sentry lazy) — USER: cont Sentry + VITE_SENTRY_DSN la build. Backend: shim-ul VPS raportează erorile funcțiilor/cron în Slack (livrat). (parțial EU ✓)
 - [ ] Uptime monitor extern pe `/health` + dead-man's switch pe cron-uri (healthchecks.io free). (EU + USER cont)
 - [ ] Backup DB propriu: pg_dump nightly → storage extern + test de restore DOCUMENTAT. (EU)
 - ✔️ Criteriu: o eroare aruncată intenționat în FE apare în Sentry; oprirea health-ului alertează în <10 min; un restore de test reușește.

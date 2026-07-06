@@ -31,6 +31,27 @@ function log(level, msg) {
   (level === 'ERROR' ? process.stderr : process.stdout).write(line + '\n');
 }
 
+// Erorile de funcții/cron ajung și în Slack (dacă SLACK_WEBHOOK_URL e setat) —
+// error-tracking-ul de backend din Faza 1. Best-effort + rate-limit simplu
+// (max 20/oră) ca un failure-loop să nu inunde canalul.
+let slackCount = 0;
+let slackWindowStart = Date.now();
+function notifySlack(text) {
+  const url = process.env.SLACK_WEBHOOK_URL;
+  if (!url) return;
+  const now = Date.now();
+  if (now - slackWindowStart > 3600_000) {
+    slackWindowStart = now;
+    slackCount = 0;
+  }
+  if (++slackCount > 20) return;
+  fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: `🔴 [menuvia-vps] ${text}`.slice(0, 2900) }),
+  }).catch(() => {});
+}
+
 // ── Whitelist de funcții = fișierele .js din dir la pornire ─────────────────
 const available = new Set(
   fs.readdirSync(FUNCTIONS_DIR).filter((f) => f.endsWith('.js')).map((f) => f.slice(0, -3))
@@ -119,6 +140,7 @@ function startScheduler() {
         log('INFO', `Cron ${j.name}: ${res && res.statusCode} în ${Date.now() - t0}ms`);
       } catch (err) {
         log('ERROR', `Cron ${j.name} a aruncat: ${err.message}`);
+        notifySlack(`cron ${j.name}: ${err.message}`);
       } finally {
         running.delete(j.name);
       }
@@ -182,6 +204,7 @@ const server = http.createServer((req, res) => {
       );
     } catch (err) {
       log('ERROR', `${name}: ${err.stack || err.message}`);
+      notifySlack(`funcția ${name} a aruncat: ${err.message}`);
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Internal error' }));
     }
