@@ -70,9 +70,7 @@ exports.handler = async (event) => {
   // care tot regenerează intent-uri nu poate spama Stripe-ul localului.
   try {
     const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
-      // Bucket separat pentru cancel: renunțarea (mecanism de siguranță) nu
-      // trebuie să devină indisponibilă pentru că masa a tot deschis sheet-ul.
-      p_function_name: action === 'cancel' ? 'table_payment_cancel' : 'table_payment',
+      p_function_name: 'table_payment',
       p_scope_key: sessionId,
       p_max_requests: 10,
       p_window_minutes: 5,
@@ -116,13 +114,7 @@ exports.handler = async (event) => {
         stripeAccount: c.stripe_account_id,
       })
     } catch (e) {
-      // „A plătit deja" DOAR cu dovadă explicită: unexpected_state se ridică
-      // și pentru intent 'processing' (ne-anulabil, dar poate încă eșua) —
-      // nu-i spunem clientului „plătit" pe un regex generic.
-      const piStatus = e && e.payment_intent && e.payment_intent.status
-      const already =
-        piStatus === 'succeeded' ||
-        (e && e.code === 'payment_intent_unexpected_state' && /succeeded/i.test(e.message || ''))
+      const already = e && (e.code === 'payment_intent_unexpected_state' || /succeeded/i.test(e.message || ''))
       if (already) {
         return jsonResponse(409, { status: 'succeeded' })
       }
@@ -160,61 +152,15 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Sumă invalidă.' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
-
-  // 1b) Un singur intent live per sesiune (mig 211): intent-urile deschise de
-  // alte telefoane la aceeași masă se anulează la Stripe ÎNAINTE de a crea
-  // unul nou. Dacă unul a apucat să REUȘEASCĂ, nota e deja plătită — anulăm
-  // rândul nou și refuzăm curat (altfel al doilea client ar plăti și el tot).
-  const superseded = Array.isArray(begin.superseded_intents) ? begin.superseded_intents : []
-  for (const oldIntent of superseded) {
-    try {
-      await stripe.paymentIntents.cancel(oldIntent, { stripeAccount: begin.stripe_account_id })
-      const { error: oldSettleErr } = await supabase.rpc('settle_table_payment', {
-        p_intent_id: oldIntent,
-        p_outcome: 'canceled',
-        p_error_info: 'Înlocuit de o plată nouă (alt telefon la masă).',
-      })
-      if (oldSettleErr) {
-        // Intent-ul E anulat la Stripe — webhook-ul de canceled va marca rândul.
-        console.error('[table-payment] settle pe intent înlocuit a eșuat (webhook-ul preia):', oldSettleErr.message)
-      }
-    } catch (e) {
-      const piStatus = e && e.payment_intent && e.payment_intent.status
-      const paidMeanwhile =
-        piStatus === 'succeeded' ||
-        (e && e.code === 'payment_intent_unexpected_state' && /succeeded/i.test(e.message || ''))
-      if (paidMeanwhile) {
-        const { error: cancelNewErr } = await supabase.rpc('cancel_table_payment', {
-          p_payment_id: begin.payment_id,
-          p_session_id: sessionId,
-          p_token: token,
-        })
-        if (cancelNewErr) {
-          console.error('[table-payment] anularea plății noi după "plătit între timp" a eșuat:', cancelNewErr.message)
-        }
-        return jsonResponse(409, {
-          error: 'Nota tocmai a fost plătită de pe alt telefon de la masă.',
-          hint: 'nothing_to_pay',
-        })
-      }
-      console.error('[table-payment] cancel pe intent înlocuit a eșuat:', e && e.message)
-      // Continuăm: settle-ul intent-ului vechi sare oricum comenzile plătite.
-    }
-  }
-
   // 2) PaymentIntent pe contul conectat. Idempotency-Key = payment_id:
   // un retry de rețea al aceluiași begin NU dublează intent-ul.
+  const stripe = new Stripe(STRIPE_SECRET_KEY)
   let intent
   try {
     intent = await stripe.paymentIntents.create(
       {
         amount: amountBani,
-        // Moneda vine din RPC (mig 209 o gate-uiește pe RON cât timp bonul
-        // fiscal e FiscalNet) — nu o hardcodăm ca să nu mintă la extindere.
-        // NB: amountBani (*100) presupune monedă cu 2 zecimale — la relaxarea
-        // gate-ului, zecimalele se iau per monedă (HUF are 0).
-        currency: String(begin.currency || 'RON').toLowerCase(),
+        currency: 'ron',
         automatic_payment_methods: { enabled: true },
         ...(feeBani > 0 ? { application_fee_amount: feeBani } : {}),
         description: 'Menuvia — nota mesei',

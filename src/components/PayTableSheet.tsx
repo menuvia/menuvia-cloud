@@ -130,14 +130,6 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         setPhase('ready')
         return
       }
-      // „Plătit" DOAR pe succeeded explicit: unele metode rezolvă în
-      // 'processing' (pot încă eșua) — confirmarea reală vine prin webhook.
-      const piStatus = result.paymentIntent?.status
-      if (piStatus && piStatus !== 'succeeded') {
-        setErrorMsg('Plata se procesează — confirmarea apare în scurt timp. Nu mai încerca o dată.')
-        setPhase('ready')
-        return
-      }
       setPhase('paid')
       onPaid()
     } catch (e) {
