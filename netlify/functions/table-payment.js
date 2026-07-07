@@ -168,8 +168,15 @@ exports.handler = async (event) => {
   // rândul nou și refuzăm curat (altfel al doilea client ar plăti și el tot).
   const superseded = Array.isArray(begin.superseded_intents) ? begin.superseded_intents : []
   for (const oldIntent of superseded) {
+    // Continuăm la crearea noului intent DOAR dacă cel vechi e DOVEDIT mort
+    // (cancel reușit, ori Stripe confirmă că e deja 'canceled'). Orice altă
+    // stare — 'succeeded', 'processing', 'requires_action', necunoscută, sau
+    // o eroare de rețea la cancel — înseamnă că intent-ul vechi POATE încă
+    // încasa: a continua ar dubla nota (fereastra `processing` din review).
+    let provablyDead = false
     try {
       await stripe.paymentIntents.cancel(oldIntent, { stripeAccount: begin.stripe_account_id })
+      provablyDead = true
       const { error: oldSettleErr } = await supabase.rpc('settle_table_payment', {
         p_intent_id: oldIntent,
         p_outcome: 'canceled',
@@ -180,26 +187,29 @@ exports.handler = async (event) => {
         console.error('[table-payment] settle pe intent înlocuit a eșuat (webhook-ul preia):', oldSettleErr.message)
       }
     } catch (e) {
-      const piStatus = e && e.payment_intent && e.payment_intent.status
-      const paidMeanwhile =
-        piStatus === 'succeeded' ||
-        (e && e.code === 'payment_intent_unexpected_state' && /succeeded/i.test(e.message || ''))
-      if (paidMeanwhile) {
-        const { error: cancelNewErr } = await supabase.rpc('cancel_table_payment', {
-          p_payment_id: begin.payment_id,
-          p_session_id: sessionId,
-          p_token: token,
-        })
-        if (cancelNewErr) {
-          console.error('[table-payment] anularea plății noi după "plătit între timp" a eșuat:', cancelNewErr.message)
-        }
-        return jsonResponse(409, {
-          error: 'Nota tocmai a fost plătită de pe alt telefon de la masă.',
-          hint: 'nothing_to_pay',
-        })
+      // Deja anulat (ex. un begin anterior l-a curățat) = mort, benign.
+      if (e && e.payment_intent && e.payment_intent.status === 'canceled') {
+        provablyDead = true
+      } else {
+        console.error('[table-payment] cancel pe intent înlocuit — stare ne-terminală/eroare:',
+          (e && e.payment_intent && e.payment_intent.status) || (e && e.message))
       }
-      console.error('[table-payment] cancel pe intent înlocuit a eșuat:', e && e.message)
-      // Continuăm: settle-ul intent-ului vechi sare oricum comenzile plătite.
+    }
+    if (!provablyDead) {
+      // Nu putem dovedi că plata veche e moartă → posibil plătită/în curs.
+      // Anulăm rândul nou și refuzăm, ca să NU încasăm nota a doua oară.
+      const { error: cancelNewErr } = await supabase.rpc('cancel_table_payment', {
+        p_payment_id: begin.payment_id,
+        p_session_id: sessionId,
+        p_token: token,
+      })
+      if (cancelNewErr) {
+        console.error('[table-payment] anularea plății noi (supersede ne-mort) a eșuat:', cancelNewErr.message)
+      }
+      return jsonResponse(409, {
+        error: 'O plată a acestei mese este deja în curs sau finalizată. Cere nota ospătarului dacă nu ai plătit tu.',
+        hint: 'nothing_to_pay',
+      })
     }
   }
 

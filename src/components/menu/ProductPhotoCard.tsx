@@ -83,6 +83,7 @@ function ProductPhotoCard({
         accent={accent}
         PUB={PUB}
         theme={theme}
+        currency={currency}
       />
     )
   }

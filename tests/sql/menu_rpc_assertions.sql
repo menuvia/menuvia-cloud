@@ -55,7 +55,8 @@ begin
     (v_p_pub, 'Extra ardei',    1, 1, false);  -- indisponibil → NU apare
 
   insert into public.product_pairings (product_id, paired_product_id, display_order) values
-    (v_p_pub, v_p_oth, 0);
+    (v_p_pub, v_p_oth, 0),   -- pereche PUBLICATĂ (chiar cross-tenant) → vizibilă
+    (v_p_pub, v_p_drf, 1);   -- pereche către un produs DRAFT → NU trebuie expusă
 
   -- Grup de modificatori cu 2 opțiuni (una indisponibilă).
   insert into public.modifier_groups (id, restaurant_id, name, selection_type, is_required, min_select, display_order)

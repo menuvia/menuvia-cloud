@@ -122,6 +122,17 @@ prod_json as (
                     order by pr.display_order)
                from public.product_pairings pr
               where pr.product_id = p.id
+                -- Gate pe produsul PERECHE (paritate cu RLS `pairings: public read`,
+                -- mig 023): nu scurgem id-ul unui produs draft/inactiv/sold-out —
+                -- inclusiv al altui restaurant (admin manage verifică doar
+                -- product_id, nu paired_product_id).
+                and exists (
+                  select 1 from public.products pp
+                   where pp.id = pr.paired_product_id
+                     and pp.is_active = true
+                     and pp.is_draft = false
+                     and pp.is_sold_out = false
+                )
            ), '[]'::jsonb)
          ) as prod
     from pub_products p
@@ -169,6 +180,11 @@ begin
      or position('is_available' in v_def) = 0
      or position('is_restaurant_active' in v_def) = 0 then
     raise exception 'ASSERT FAIL: get_menu_for_restaurant fără filtrele de vizibilitate anon';
+  end if;
+  -- Gate pe produsul pereche (paritate RLS pairings): produsul pereche trebuie
+  -- verificat, altfel se scurge id-ul unui produs nepublicat/cross-tenant.
+  if position('is_sold_out' in v_def) = 0 then
+    raise exception 'ASSERT FAIL: get_menu_for_restaurant fără gate-ul pe produsul pereche (pairings leak)';
   end if;
   if position('search_path' in v_def) = 0 then
     raise exception 'ASSERT FAIL: get_menu_for_restaurant fără search_path fixat';
