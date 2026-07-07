@@ -46,6 +46,8 @@ const HINT_COPY: Record<string, string> = {
   feature_disabled: 'Plata online nu este disponibilă la acest local. Cere nota ospătarului.',
   nothing_to_pay: 'Nu există comenzi de plătit — probabil nota a fost deja încasată.',
   invalid_session: 'Sesiunea mesei a expirat. Scanează din nou codul QR.',
+  currency_not_supported:
+    'Plata online e disponibilă doar pentru meniuri în lei. Cere nota ospătarului.',
 }
 
 export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid, onPayOtherwise }: Props) {

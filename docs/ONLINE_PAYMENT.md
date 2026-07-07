@@ -82,6 +82,11 @@
   anulare, un tap întârziat pe „Plătește" putea încasa banii DUPĂ cash. Teste
   permanente TP8 (token străin respins, no-intent, re-begin după cancel,
   succeeded ne-anulabil).
+- ✅ **mig 209 (gate de monedă)**: mig 205 a permis meniuri în EUR/HUF/…, dar
+  begin întorcea 'RON' hardcodat și intent-ul se crea în 'ron' — un meniu în
+  EUR ar fi încasat 12 RON pentru €12. Acum: monedă ≠ RON → respins fail-closed
+  cu `currency_not_supported` (bonul fiscal e RON-only); funcția Netlify citește
+  `begin.currency` în loc să hardcodeze. Test permanent TP9.
 - ⏳ Rămas: test end-to-end pe Stripe test mode (după activarea Connect de
   către fondator) + Etapa 2/3 de mai jos.
 

@@ -30,6 +30,7 @@ const HINT_STATUS = {
   not_connected: 409,
   nothing_to_pay: 409,
   invalid_payment: 409,
+  currency_not_supported: 409,
 }
 
 exports.handler = async (event) => {

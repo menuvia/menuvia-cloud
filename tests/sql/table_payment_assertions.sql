@@ -19,6 +19,9 @@
 --        fără intent → canceled direct; succeeded nu e anulabil.
 --   TP7  Retry de card (mig 207): payment_failed NU e terminal — un
 --        succeeded ulterior pe ACELAȘI intent marchează comenzile plătite.
+--   TP9  Gate de monedă (mig 209): restaurant cu currency='EUR' → begin
+--        respins cu currency_not_supported (bonul fiscal e RON-only);
+--        după reset la RON, gate-ul nu mai blochează.
 --
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -366,6 +369,47 @@ begin
   end if;
 
   raise notice 'TP8 OK: opt-out validat pe masă; fără intent → direct; succeeded protejat';
+end $$;
+
+-- ── TP9: monedă ≠ RON → currency_not_supported (mig 209) ─────────────────────
+-- Gate-ul de monedă pică ÎNAINTE de calculul sumei, deci sesiunea nu are
+-- nevoie de comenzi; controlul pozitiv (după reset la RON) trebuie să ajungă
+-- la nothing_to_pay — dovada că DOAR moneda bloca.
+do $$
+declare
+  v_hint text;
+begin
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c3c3c3c3-3333-4333-8333-cccccccccccc','open');
+
+  update public.restaurants set currency = 'EUR'
+   where id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+
+  begin
+    perform public.begin_table_payment('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','tok_tp_race');
+    raise exception 'TP9 FAIL: begin a trecut cu moneda EUR (ar încasa RON pentru prețuri EUR)';
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    if v_hint <> 'currency_not_supported' then
+      raise;
+    end if;
+  end;
+
+  update public.restaurants set currency = 'RON'
+   where id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+
+  begin
+    perform public.begin_table_payment('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','tok_tp_race');
+    raise exception 'TP9 FAIL: begin a trecut pe o sesiune fără comenzi';
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    if v_hint <> 'nothing_to_pay' then
+      raise;
+    end if;
+  end;
+
+  raise notice 'TP9 OK: moneda ≠ RON e respinsă fail-closed; RON trece de gate';
 end $$;
 
 rollback;
