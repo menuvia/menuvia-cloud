@@ -60,6 +60,11 @@
 ## Stadiul implementării (6 iulie 2026)
 
 - ✅ **Val 1 (SQL)**: mig 202/203/204 + `tests/sql/table_payment_assertions.sql`.
+- ✅ **mig 207 (fix review advers)**: `failed` NU mai e terminal în settle —
+  Stripe emite `payment_failed` la fiecare încercare eșuată, iar intent-ul
+  rămâne confirmabil; fără fix, retry-ul reușit de card lăsa comenzile
+  nemarcate deși banii erau încasați. Test permanent TP7 (failed→succeeded
+  settle-ază; failed întârziat nu regresează succeeded).
 - ✅ **Val 2 (funcții)**: `table-payment.js` (create-intent), `stripe-connect.js`
   (onboarding + status), `stripe-connect-webhook.js` (endpoint separat de
   Connect, dedup pe `stripe_events` + settle idempotent).

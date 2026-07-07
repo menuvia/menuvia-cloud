@@ -23,6 +23,10 @@ interface Props {
 // până când utilizatorul le elimină explicit.
 interface EditCartItem extends CartItem {
   _orphan?: boolean
+  // Prețul per unitate REAL (item_total/qty din server) — include extras,
+  // pe care order_items nu le expune în selected_* (M1, mig 146). Fără el,
+  // subtotalul afișat subevalua liniile cu extras (serverul salva corect).
+  _unitWithAddons?: number
 }
 
 function orderItemsToCart(order: Order): EditCartItem[] {
@@ -35,10 +39,14 @@ function orderItemsToCart(order: Order): EditCartItem[] {
     selected_modifiers: it.selected_modifiers ?? [],
     notes: it.notes,
     _orphan: it.product_id == null,
+    _unitWithAddons: it.quantity > 0 ? it.item_total / it.quantity : it.unit_price_snapshot,
   }))
 }
 
-function lineTotal(item: CartItem): number {
+function lineTotal(item: EditCartItem): number {
+  // Liniile venite din DB au per-unit-ul real (cu extras); cele adăugate în
+  // sheet (fără extras) cad pe formula unit+modificatori — identic cu serverul.
+  if (item._unitWithAddons != null) return item._unitWithAddons * item.quantity
   const modD = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
   return (item.unit_price_snapshot + modD) * item.quantity
 }

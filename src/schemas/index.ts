@@ -93,7 +93,8 @@ export const restaurantSettingsSchema = z.object({
     .refine((v) => !v || CIF_RX.test(v), {
       message: 'CIF invalid (ex: RO12345678)',
     }),
-  currency: z.enum(['RON', 'EUR']).default('RON'),
+  // Sincron cu CHECK-ul din mig 205 (restaurants_currency_check).
+  currency: z.enum(['RON', 'EUR', 'HUF', 'BGN', 'MDL', 'USD', 'GBP']).default('RON'),
 })
 export type RestaurantSettingsInput = z.infer<typeof restaurantSettingsSchema>
 

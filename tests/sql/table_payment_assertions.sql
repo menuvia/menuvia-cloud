@@ -15,6 +15,9 @@
 --   TP6  Cablajul fiscal: triggerul enqueue_fiscal_receipt e atașat pe orders
 --        (bonul pleacă din aceeași tranziție 'paid') + maparea card_online→7.
 --
+--   TP7  Retry de card (mig 207): payment_failed NU e terminal — un
+--        succeeded ulterior pe ACELAȘI intent marchează comenzile plătite.
+--
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
 
@@ -239,6 +242,59 @@ begin
     raise exception 'TP6 FAIL: card_online nu e mapat la codul FiscalNet 7';
   end if;
   raise notice 'TP6 OK: bonul pleacă din aceeași tranziție paid (cod 7 pe P^)';
+end $$;
+
+
+-- ── TP7: retry de card — failed apoi succeeded pe ACELAȘI intent (mig 207) ───
+do $$
+declare
+  v_begin  jsonb;
+  v_fail   jsonb;
+  v_ok     jsonb;
+begin
+  -- Sesiune + comandă noi (sesiunile anterioare s-au închis la plată).
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('e7e7e7e7-7777-4777-8777-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c1c1c1c1-1111-4111-8111-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('f7f7f7f7-7777-4777-8777-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',33,
+     'e7e7e7e7-7777-4777-8777-eeeeeeeeeeee','c1c1c1c1-1111-4111-8111-cccccccccccc','d1d1d1d1-1111-4111-8111-dddddddddddd');
+
+  v_begin := public.begin_table_payment('e7e7e7e7-7777-4777-8777-eeeeeeeeeeee','tok_tp_ent');
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp_retry');
+
+  -- Prima încercare de card pică (webhook payment_failed).
+  v_fail := public.settle_table_payment('pi_tp_retry', 'failed', 'card_declined');
+  if v_fail->>'status' <> 'failed' then
+    raise exception 'TP7 FAIL: primul failed nu s-a înregistrat (%)', v_fail;
+  end if;
+
+  -- Clientul reîncearcă în același Payment Element și plata REUȘEȘTE.
+  v_ok := public.settle_table_payment('pi_tp_retry', 'succeeded');
+  if coalesce((v_ok->>'already_settled')::boolean, false) then
+    raise exception 'TP7 FAIL: succeeded după failed a fost blocat ca already_settled — banii luați, comenzile neplătite (bug-ul mig 203)';
+  end if;
+  if (v_ok->>'orders_paid')::int <> 1 then
+    raise exception 'TP7 FAIL: comanda nu a fost marcată plătită după retry (%)', v_ok;
+  end if;
+
+  if not exists (
+    select 1 from public.orders
+     where id = 'f7f7f7f7-7777-4777-8777-ffffffffffff'
+       and status = 'paid' and payment_method = 'card_online'
+  ) then
+    raise exception 'TP7 FAIL: statusul comenzii nu e paid/card_online';
+  end if;
+
+  -- Iar un failed ÎNTÂRZIAT (webhook out-of-order) nu mai regresează plata.
+  v_fail := public.settle_table_payment('pi_tp_retry', 'failed', 'late_event');
+  if coalesce((v_fail->>'already_settled')::boolean, false) is not true
+     or v_fail->>'status' <> 'succeeded' then
+    raise exception 'TP7 FAIL: failed întârziat a regresat starea succeeded (%)', v_fail;
+  end if;
+
+  raise notice 'TP7 OK: failed → succeeded settle-ază; succeeded rămâne terminal';
 end $$;
 
 rollback;
