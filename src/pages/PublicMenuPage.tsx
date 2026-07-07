@@ -1054,7 +1054,6 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             theme={theme}
             accent={accent}
             PUB={PUB}
-            currency={menuCurrency}
             onClose={() => setShowPickup(false)}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)

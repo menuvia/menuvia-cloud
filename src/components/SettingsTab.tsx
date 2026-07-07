@@ -5,7 +5,7 @@ import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
-import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
+import { MENU_CURRENCIES } from '../lib/currency'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -912,13 +912,7 @@ export default function SettingsTab({
               desc="Așa arată meniul clienților — se actualizează pe măsură ce schimbi."
             >
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <MenuPreview
-                  themeSettings={form.theme_settings}
-                  restaurantName={form.name}
-                  // Moneda din STAREA formularului — preview-ul reflectă LIVE
-                  // alegerea din selectorul „Moneda meniului", nu valoarea salvată.
-                  currency={resolveMenuCurrency(form.currency)}
-                />
+                <MenuPreview themeSettings={form.theme_settings} restaurantName={form.name} />
               </div>
             </SettingsCard>
 

@@ -4,7 +4,6 @@ import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
-import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
 import type { MenuTheme } from '../lib/themes'
 
@@ -27,8 +26,6 @@ export interface PickupCheckoutProps {
   PUB: PUBColors
   onClose: () => void
   onSuccess: (short_id: string, pickup_time: string | null, total: number) => void
-  // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
-  currency?: MenuCurrency
 }
 
 export default function PickupCheckoutSheet({
@@ -40,7 +37,6 @@ export default function PickupCheckoutSheet({
   PUB,
   onClose,
   onSuccess,
-  currency = 'RON',
 }: PickupCheckoutProps) {
   useBodyScrollLock(true)
   const [name, setName] = useState('')
@@ -393,7 +389,7 @@ export default function PickupCheckoutSheet({
               boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
             }}
           >
-            {submitting ? 'Se trimite...' : `Trimite comanda · ${fmtPrice(cartTotal, currency)}`}
+            {submitting ? 'Se trimite...' : `Trimite comanda · ${cartTotal.toFixed(2)} lei`}
           </button>
         </div>
       </div>
