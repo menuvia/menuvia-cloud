@@ -76,11 +76,9 @@ Platforma e construită (PLAN_10 la ~7/10, codul la 9). Faza A = livrare + dovad
 ## 4. FAZA D — „Scala" (apr 2028 – iun 2029) · ținta: 1.200 plătitori
 
 - Echipă 4–5: 2 vânzări, 1 suport/CS, 1 dev (fondatorul iese din operațional).
-- Expansiune pe UNA din axe (nu ambele simultan):
-  - **Geografic**: Bulgaria/Ungaria/Moldova — meniul e deja în 7 limbi;
-    bariera reală e fiscalizarea locală → intră întâi DOAR cu meniu+comenzi.
-  - **Vertical**: hoteluri, beach-bars, food-courts, lanțuri mici (multi-location
-    e pe roadmap) — ARPU mai mare, churn mai mic, aceeași țară.
+- **Axa de expansiune (DECISĂ de fondator, 6 iulie): INTERNAȚIONAL cu
+  planurile 1–2** — vezi secțiunea dedicată de mai jos. Verticalele RO
+  (hoteluri, lanțuri mici) rămân plan B dacă tracțiunea internațională întârzie.
 - Cifre: 1.200 × ~210 lei blended = **~250.000 lei MRR (~€600k ARR)**.
 - 🏁 **BORNA 2: €1M VENIT CUMULAT** se trece în această fază.
 - ✔️ GATE D: churn <2%/lună · marja brută >80% cu echipa plătită.
@@ -92,6 +90,45 @@ Platforma e construită (PLAN_10 la ~7/10, codul la 9). Faza A = livrare + dovad
 - **~417.000 lei MRR = 🏁 BORNA 3: €1M ARR.** Echipă 6–8, marjă >80%,
   profitabil — adică opționalitate: crești mai departe, ridici capital de
   accelerare SAU vinzi (la 4–6× ARR = exit €4–6M).
+
+## 5bis. Pista internațională — planurile 1–2 (decizie fondator, 6 iulie 2026)
+
+**Teza**: fiscalizarea e șanțul din RO, dar și lanțul — planurile 1–2
+(Meniu Digital + Meniu & Comenzi) NU ating bonul fiscal, deci călătoresc fără
+nicio integrare locală. Meniul client e DEJA în 7 limbi (ro/en/de/fr/it/hu/es).
+Modelul devine **two-track**: RO full-stack (ARPU mare, șanț fiscal) +
+internațional self-serve pe planurile 1–2 (volum, product-led).
+
+### Ce mai lipsește tehnic (audit făcut, 6 iulie)
+
+| Barieră | Stare | Efort |
+|---|---|---|
+| **Moneda** (era „lei" hardcodat în 9 fișiere client) | ✅ fundația LIVRATĂ (mig 205 `menu_currency` RON/EUR/HUF/BGN/MDL/USD/GBP + `lib/currency.ts` cu fmtPrice + teste); rămâne firul prin cele ~35 de afișări | S (1 val) |
+| **Dashboard-ul e doar în RO** | cea mai mare barieră — ownerul din Budapesta nu poate folosi un dashboard românesc | M–L: dicționar T() ca la meniu, START cu EN (acceptat internațional), apoi limbi locale pe tracțiune |
+| Stripe multi-currency | price ID-uri EUR (19€/49€ — aceleași cifre ca piața) + checkout locale | S |
+| Marketing site EN + domeniu .com | landing-ul e deja componentizat (MKT) | S–M |
+| Legal EN (ToS/Privacy) | GDPR e deja EU-wide în produs | S (draft eu, avocat tu) |
+| Onboarding self-serve | checklist-ul de activare livrat azi + AI menu import (foto→meniu) = diferențiatorul cheie la distanță | ✅ există |
+
+### Ordinea piețelor (cost de intrare crescător)
+
+1. **Moldova** — limba română, zero cost de i18n, MDL în mig 205; piață mică
+   dar GRATIS: pornește imediat după livrarea RO.
+2. **Self-serve global în EN** (accent UK/IE/expat-heavy EU) — product-led:
+   SEO + AI-import + free tier; fără vânzător local. Cere dashboard EN.
+3. **O țară vecină țintită** (HU sau BG — ambele limbi deja în meniul client,
+   ambele monede în mig 205) — abia după ce self-serve-ul EN dovedește
+   conversia; eventual cu un afiliat local (programul de comisioane există).
+
+### Ce schimbă în matematica milionului
+
+- TAM-ul sare de la ~20k la sute de mii de localuri → cei ~2.000 de clienți
+  nu mai cer 10–14% dintr-o singură piață, ci ~5% RO + coadă lungă intl.
+- ARPU intl planurile 1–2: 19€/49€ ≈ echivalent cu 99/249 lei — mixul blended
+  NU scade; churn-ul self-serve e mai mare (4–5%/lună) — compensat de CAC
+  aproape zero pe canalul product-led.
+- Realist: internaționalul ajunge **20–40% din baza de clienți în anii 3–4**
+  și scurtează drumul la €1M ARR cu ~6–12 luni în scenariul optimist.
 
 ## 6. Scenarii oneste
 

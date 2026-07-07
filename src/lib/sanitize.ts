@@ -36,6 +36,7 @@ export const RESTAURANT_UPDATE_FIELDS = [
   'google_place_id',
   'google_review_url',
   'menu_languages',
+  'menu_currency',
 ] as const satisfies readonly (keyof Restaurant)[]
 
 export const CATEGORY_UPDATE_FIELDS = [

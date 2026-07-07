@@ -75,6 +75,8 @@ export interface Restaurant {
   // Limbile în care restaurantul expune meniul (array de coduri, ex. ['en','de']).
   // Româna e mereu baza și NU apare aici. Vezi src/lib/i18nMenu.ts.
   menu_languages?: string[] | null
+  // Moneda afișată în meniul client (mig 205) — 'RON' default.
+  menu_currency?: string | null
   created_at: string
   updated_at: string
 }
