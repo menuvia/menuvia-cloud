@@ -1184,18 +1184,7 @@ export default function QrMenuPage({ token }: Props) {
             PUB={PUB}
             accent={accent}
             onClose={() => setShowPaySheet(false)}
-            onPaid={() => {
-              setTablePaid(true)
-              // Serverul a plătit TOATE comenzile neplătite ale sesiunii —
-              // marcăm ce cunoaștem local ca totalul butonului să nu le
-              // renumere la runda următoare.
-              setPaidOrderIds((prev) => {
-                const next = new Set(prev)
-                previousOrders.forEach((o) => next.add(o.id))
-                if (confirmation) next.add(confirmation.id)
-                return next
-              })
-            }}
+            onPaid={() => setTablePaid(true)}
             onPayOtherwise={() => {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
