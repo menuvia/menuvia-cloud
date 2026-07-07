@@ -115,6 +115,27 @@ export async function createTablePayment(
 }
 
 /**
+ * Opt-out-ul clientului („plătesc la ospătar"): anulează intent-ul Stripe ca
+ * să nu rămână confirmabil. Întoarce statusul final; 'succeeded' înseamnă că
+ * plata apucase să treacă — UI-ul arată starea de plătit, nu de anulat.
+ */
+export async function cancelTablePayment(
+  paymentId: string,
+  token: string,
+  sessionId: string,
+): Promise<'canceled' | 'succeeded'> {
+  const res = await fetch('/.netlify/functions/table-payment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'cancel', payment_id: paymentId, token, session_id: sessionId }),
+  })
+  const body = (await res.json().catch(() => ({}))) as { status?: string; error?: string }
+  if (body.status === 'succeeded') return 'succeeded'
+  if (res.ok) return 'canceled'
+  throw new Error(body.error || 'Anularea nu a reușit.')
+}
+
+/**
  * Modulul de plăți online e activ pentru restaurant? (anon-callable, mig 086)
  * Folosit DOAR pentru afișarea condiționată a butonului — gate-urile reale
  * (plan + modul + cont) stau server-side în begin_table_payment.

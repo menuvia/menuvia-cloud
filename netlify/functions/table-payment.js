@@ -6,6 +6,8 @@
 // Toată validarea de bani stă în RPC-ul begin_table_payment (service_role):
 // suma se calculează EXCLUSIV server-side, cu gate-urile de plan/modul/cont.
 // Funcția asta doar orchestrează: RPC → Stripe → attach intent → client_secret.
+// Acțiunea 'cancel' (mig 208): opt-out-ul clientului („plătesc la ospătar") —
+// validare ownership prin RPC → cancel la Stripe → settle('canceled').
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
@@ -52,8 +54,13 @@ exports.handler = async (event) => {
   }
   const token = String(body.token || '').slice(0, 128)
   const sessionId = String(body.session_id || '').slice(0, 64)
-  if (!token || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
+  const action = String(body.action || 'create')
+  const paymentId = String(body.payment_id || '')
+  if (!token || !/^[0-9a-f-]{36}$/i.test(sessionId) || !['create', 'cancel'].includes(action)) {
     return jsonResponse(400, { error: 'token și session_id sunt obligatorii.' })
+  }
+  if (action === 'cancel' && !/^[0-9a-f-]{36}$/i.test(paymentId)) {
+    return jsonResponse(400, { error: 'payment_id este obligatoriu la anulare.' })
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -77,6 +84,53 @@ exports.handler = async (event) => {
   } catch (e) {
     console.error('[table-payment] rate limit check threw (fail-closed):', e?.message)
     return jsonResponse(503, { error: 'Serviciul e ocupat. Reîncearcă imediat.' })
+  }
+
+  // Opt-out: clientul renunță la plata online („plătesc la ospătar").
+  if (action === 'cancel') {
+    const { data: c, error: cErr } = await supabase.rpc('cancel_table_payment', {
+      p_payment_id: paymentId,
+      p_session_id: sessionId,
+      p_token: token,
+    })
+    if (cErr) {
+      const status = HINT_STATUS[cErr.hint] || 500
+      if (status === 500) console.error('[table-payment] cancel RPC failed:', cErr.message)
+      return jsonResponse(status, { error: cErr.message, hint: cErr.hint || null })
+    }
+    if (c.cancelable === false) {
+      // succeeded = banii au fost deja încasați; canceled = nimic de făcut.
+      return jsonResponse(c.status === 'succeeded' ? 409 : 200, { status: c.status })
+    }
+    if (c.canceled === true) {
+      return jsonResponse(200, { status: 'canceled' })
+    }
+    // Are intent atașat: anulăm ÎNTÂI la Stripe (dacă între timp plata a
+    // reușit, Stripe refuză și clientul află că a plătit deja), apoi settle.
+    const stripeC = new Stripe(STRIPE_SECRET_KEY)
+    try {
+      await stripeC.paymentIntents.cancel(c.stripe_payment_intent_id, {
+        stripeAccount: c.stripe_account_id,
+      })
+    } catch (e) {
+      const already = e && (e.code === 'payment_intent_unexpected_state' || /succeeded/i.test(e.message || ''))
+      if (already) {
+        return jsonResponse(409, { status: 'succeeded' })
+      }
+      console.error('[table-payment] Stripe cancel failed:', e && e.message)
+      return jsonResponse(502, { error: 'Anularea nu a reușit. Reîncearcă sau cere nota ospătarului.' })
+    }
+    const { error: settleErr } = await supabase.rpc('settle_table_payment', {
+      p_intent_id: c.stripe_payment_intent_id,
+      p_outcome: 'canceled',
+      p_error_info: 'Anulat de client (plătește la ospătar).',
+    })
+    if (settleErr) {
+      // Intent-ul E anulat la Stripe (sigur); webhook-ul de canceled va marca
+      // rândul — doar logăm.
+      console.error('[table-payment] settle canceled failed (webhook-ul va prelua):', settleErr.message)
+    }
+    return jsonResponse(200, { status: 'canceled' })
   }
 
   // 1) Suma + gate-urile, server-side.

@@ -1175,6 +1175,11 @@ export default function QrMenuPage({ token }: Props) {
             accent={accent}
             onClose={() => setShowPaySheet(false)}
             onPaid={() => setTablePaid(true)}
+            onPayOtherwise={() => {
+              setShowPaySheet(false)
+              // Ospătarul află imediat că masa vrea să plătească altfel.
+              void handleRequestBill()
+            }}
           />
         </Suspense>
       )}

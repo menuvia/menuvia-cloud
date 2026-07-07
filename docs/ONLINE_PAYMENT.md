@@ -73,6 +73,15 @@
   wiring în `QrMenuPage` (butonul devine „Plătește online" DOAR când modulul
   e activ — altfel rămâne fallback-ul „cere nota"), `OnlinePaymentsCard.tsx`
   în Setări → Comenzi (conectare Stripe + toggle modul, gated pe planTier ≥ 3).
+- ✅ **mig 208 (opt-out client)**: `cancel_table_payment` (service_role-only,
+  validare sesiune+token ca la begin) + acțiunea `cancel` în `table-payment.js`
+  (Stripe cancel ÎNTÂI — dacă plata a reușit între timp, clientul vede „plătit",
+  nu „anulat" — apoi settle('canceled')). Client: butonul secundar
+  „Renunț — plătesc la ospătar" în `PayTableSheet` (fazele ready/error) →
+  anulează intent-ul și cheamă nota la ospătar (`handleRequestBill`). Fără
+  anulare, un tap întârziat pe „Plătește" putea încasa banii DUPĂ cash. Teste
+  permanente TP8 (token străin respins, no-intent, re-begin după cancel,
+  succeeded ne-anulabil).
 - ⏳ Rămas: test end-to-end pe Stripe test mode (după activarea Connect de
   către fondator) + Etapa 2/3 de mai jos.
 

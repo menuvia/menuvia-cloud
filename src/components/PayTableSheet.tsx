@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
+  cancelTablePayment,
   createTablePayment,
   loadStripeJs,
   type StripeClient,
@@ -32,6 +33,8 @@ interface Props {
   onClose: () => void
   /** Chemat DOAR după confirmarea Stripe reușită. */
   onPaid: () => void
+  /** Clientul renunță la plata online — părintele cheamă nota la ospătar. */
+  onPayOtherwise: () => void
 }
 
 type Phase = 'loading' | 'ready' | 'confirming' | 'paid' | 'error'
@@ -45,10 +48,11 @@ const HINT_COPY: Record<string, string> = {
   invalid_session: 'Sesiunea mesei a expirat. Scanează din nou codul QR.',
 }
 
-export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid }: Props) {
+export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid, onPayOtherwise }: Props) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
+  const [paymentId, setPaymentId] = useState<string | null>(null)
   // Moneda vine din răspunsul serverului (begin_table_payment) — nu din client.
   const [currency, setCurrency] = useState<MenuCurrency>('RON')
   const mountRef = useRef<HTMLDivElement | null>(null)
@@ -65,6 +69,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         const intent = await createTablePayment(token, sessionId)
         if (cancelled) return
         setAmount(intent.amount)
+        setPaymentId(intent.payment_id)
         setCurrency(resolveMenuCurrency(intent.currency))
         const Stripe = await loadStripeJs()
         if (cancelled) return
@@ -129,6 +134,27 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
       setErrorMsg(e instanceof Error ? e.message : 'Eroare la confirmare. Reîncearcă.')
       setPhase('ready')
     }
+  }
+
+
+  async function handlePayOtherwise(): Promise<void> {
+    // Anulăm intent-ul ca să nu rămână confirmabil (altfel un tap întârziat
+    // ar putea încasa banii DUPĂ ce ospătarul ia cash). Dacă între timp plata
+    // chiar a reușit, arătăm starea de plătit — nu chemăm nota degeaba.
+    if (paymentId) {
+      try {
+        const result = await cancelTablePayment(paymentId, token, sessionId)
+        if (result === 'succeeded') {
+          setPhase('paid')
+          onPaid()
+          return
+        }
+      } catch {
+        // Anularea a eșuat pe rețea — tot lăsăm clientul la ospătar; intent-ul
+        // neconfirmat expiră singur, iar settle-ul sare comenzile plătite cash.
+      }
+    }
+    onPayOtherwise()
   }
 
   const canConfirm = phase === 'ready'
@@ -284,6 +310,28 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
                   ? `Plătește ${fmtPrice(amount, currency)}`
                   : 'Plătește'}
         </button>
+
+        {(phase === 'ready' || phase === 'error') && (
+          <button
+            type="button"
+            onClick={() => void handlePayOtherwise()}
+            className="pressable"
+            style={{
+              background: 'transparent',
+              color: PUB.text2,
+              border: `1px solid ${PUB.borderStrong}`,
+              borderRadius: 16,
+              padding: '13px 0',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              minHeight: 44,
+            }}
+          >
+            Renunț — plătesc la ospătar
+          </button>
+        )}
       </div>
     </div>
   )

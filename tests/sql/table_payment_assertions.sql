@@ -15,6 +15,8 @@
 --   TP6  Cablajul fiscal: triggerul enqueue_fiscal_receipt e atașat pe orders
 --        (bonul pleacă din aceeași tranziție 'paid') + maparea card_online→7.
 --
+--   TP8  Opt-out client (mig 208): cancel validat pe sesiune+token; rândul
+--        fără intent → canceled direct; succeeded nu e anulabil.
 --   TP7  Retry de card (mig 207): payment_failed NU e terminal — un
 --        succeeded ulterior pe ACELAȘI intent marchează comenzile plătite.
 --
@@ -295,6 +297,75 @@ begin
   end if;
 
   raise notice 'TP7 OK: failed → succeeded settle-ază; succeeded rămâne terminal';
+end $$;
+
+
+-- ── TP8: opt-out-ul clientului — cancel_table_payment (mig 208) ──────────────
+do $$
+declare
+  v_begin jsonb;
+  v_c     jsonb;
+begin
+  -- Sesiune + comandă noi pe masa TP5 (sesiunile vechi s-au închis la plată).
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c3c3c3c3-3333-4333-8333-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('f8f8f8f8-8888-4888-8888-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',12,
+     'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','c3c3c3c3-3333-4333-8333-cccccccccccc','d3d3d3d3-3333-4333-8333-dddddddddddd');
+
+  v_begin := public.begin_table_payment('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+
+  -- (a) Token de la ALTĂ masă → respins (nu-ți poți anula plata vecinului).
+  begin
+    perform public.cancel_table_payment((v_begin->>'payment_id')::uuid,
+                                        'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_ent');
+    raise exception 'TP8 FAIL: cancel a trecut cu token de la altă masă';
+  exception when others then
+    if sqlerrm not ilike '%QR invalid%' then raise; end if;
+  end;
+
+  -- (b) Fără intent atașat → canceled direct în RPC.
+  v_c := public.cancel_table_payment((v_begin->>'payment_id')::uuid,
+                                     'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+  if coalesce((v_c->>'canceled')::boolean, false) is not true
+     or coalesce((v_c->>'no_intent')::boolean, false) is not true then
+    raise exception 'TP8 FAIL: rândul fără intent nu s-a anulat direct (%)', v_c;
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where id = (v_begin->>'payment_id')::uuid and status = 'canceled') then
+    raise exception 'TP8 FAIL: statusul plății nu e canceled';
+  end if;
+
+  -- (c) Cu intent atașat → RPC-ul întoarce datele pentru cancel-ul Stripe.
+  v_begin := public.begin_table_payment('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp_cancel');
+  v_c := public.cancel_table_payment((v_begin->>'payment_id')::uuid,
+                                     'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+  if coalesce((v_c->>'cancelable')::boolean, false) is not true
+     or v_c->>'stripe_payment_intent_id' <> 'pi_tp_cancel' then
+    raise exception 'TP8 FAIL: RPC-ul nu a întors intent-ul de anulat (%)', v_c;
+  end if;
+  perform public.settle_table_payment('pi_tp_cancel', 'canceled', 'Anulat de client.');
+
+  -- (d) Plata anulată nu blochează masa: un begin nou pe aceeași sesiune merge.
+  v_begin := public.begin_table_payment('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+  if (v_begin->>'amount')::numeric <> 12 then
+    raise exception 'TP8 FAIL: begin după cancel nu mai vede comanda (%)', v_begin;
+  end if;
+
+  -- (e) succeeded nu e anulabil.
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp_cancel2');
+  perform public.settle_table_payment('pi_tp_cancel2', 'succeeded');
+  v_c := public.cancel_table_payment((v_begin->>'payment_id')::uuid,
+                                     'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
+  if coalesce((v_c->>'cancelable')::boolean, true) is not false
+     or v_c->>'status' <> 'succeeded' then
+    raise exception 'TP8 FAIL: plata reușită a apărut anulabilă (%)', v_c;
+  end if;
+
+  raise notice 'TP8 OK: opt-out validat pe masă; fără intent → direct; succeeded protejat';
 end $$;
 
 rollback;
