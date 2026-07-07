@@ -103,7 +103,7 @@ internațional self-serve pe planurile 1–2 (volum, product-led).
 
 | Barieră | Stare | Efort |
 |---|---|---|
-| **Moneda** (era „lei" hardcodat în 9 fișiere client) | ✅ fundația LIVRATĂ (mig 205 `menu_currency` RON/EUR/HUF/BGN/MDL/USD/GBP + `lib/currency.ts` cu fmtPrice + teste); rămâne firul prin cele ~35 de afișări | S (1 val) |
+| **Moneda** (era „lei" hardcodat în 9 fișiere client) | ✅ fundația LIVRATĂ (mig 205 activează `restaurants.currency` (exista din mig 007, era moartă) cu whitelist RON/EUR/HUF/BGN/MDL/USD/GBP; mig 206 o expune pe QR + `lib/currency.ts` cu fmtPrice + teste); rămâne firul prin cele ~35 de afișări | S (1 val) |
 | **Dashboard-ul e doar în RO** | cea mai mare barieră — ownerul din Budapesta nu poate folosi un dashboard românesc | M–L: dicționar T() ca la meniu, START cu EN (acceptat internațional), apoi limbi locale pe tracțiune |
 | Stripe multi-currency | price ID-uri EUR (19€/49€ — aceleași cifre ca piața) + checkout locale | S |
 | Marketing site EN + domeniu .com | landing-ul e deja componentizat (MKT) | S–M |

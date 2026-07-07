@@ -2,7 +2,7 @@
 // currency.ts — afișarea prețurilor în meniul client (mig 205)
 // ─────────────────────────────────────────────────────────────
 // Fundația expansiunii internaționale pe planurile 1–2 (docs/PLAN_1M.md):
-// meniul e deja în 7 limbi, moneda vine din `restaurants.menu_currency`.
+// meniul e deja în 7 limbi, moneda vine din `restaurants.currency` (mig 007, activată în mig 205).
 // DOAR afișare — abonamentele Stripe și fiscalizarea RO nu trec pe aici.
 //
 // Convenție de afișare: RON păstrează formatul istoric „12,50 lei" (sufix,
