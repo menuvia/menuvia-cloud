@@ -4,6 +4,7 @@ import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
 import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
+import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
 import { DIETARY_TAGS } from '../../lib/constants'
 import ProductMinimalRow from './ProductMinimalRow'
@@ -50,6 +51,8 @@ interface ProductPhotoCardProps {
   accent: string
   PUB: PublicColors
   theme: MenuTheme
+  /** Moneda meniului (mig 205/206) — default 'RON' păstrează afișarea istorică. */
+  currency?: MenuCurrency
 }
 
 const FS_MICRO = 11
@@ -65,6 +68,7 @@ function ProductPhotoCard({
   accent,
   PUB,
   theme,
+  currency = 'RON',
 }: ProductPhotoCardProps) {
   // Fără imagine → rând compact tip listă (nu card gol). Aceeași interfață,
   // aceleași callback-uri — nimic de tradus.
@@ -109,8 +113,8 @@ function ProductPhotoCard({
   const priceColor = hasDiscount ? '#7BE093' : '#FFFFFF'
 
   const priceLabel = hasDiscount
-    ? `Preț redus ${effectivePrice.toFixed(2)} lei, de la ${basePrice.toFixed(2)} lei`
-    : `${hasRequiredMods ? 'De la ' : ''}${effectivePrice.toFixed(2)} lei`
+    ? `Preț redus ${fmtPrice(effectivePrice, currency)}, de la ${fmtPrice(basePrice, currency)}`
+    : `${hasRequiredMods ? 'De la ' : ''}${fmtPrice(effectivePrice, currency)}`
 
   return (
     <div
@@ -244,7 +248,7 @@ function ProductPhotoCard({
                     lineHeight: 1,
                   }}
                 >
-                  {basePrice.toFixed(2)}
+                  {basePrice.toFixed(currencyDecimals(currency))}
                 </span>
               )}
               <span
@@ -269,7 +273,7 @@ function ProductPhotoCard({
                   lineHeight: 1,
                 }}
               >
-                .{priceFrac}
+                {currencyDecimals(currency) > 0 ? `.${priceFrac}` : ''}
               </span>
               <span
                 aria-hidden
@@ -282,7 +286,7 @@ function ProductPhotoCard({
                   letterSpacing: '0.04em',
                 }}
               >
-                lei
+                {currencyLabel(currency)}
               </span>
             </span>
           </span>

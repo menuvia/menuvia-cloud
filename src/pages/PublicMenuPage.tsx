@@ -30,6 +30,7 @@ import type { Restaurant, Category, Product } from '../lib/qr'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
+import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import {
   resolveTheme,
   isDarkTheme,
@@ -107,6 +108,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   } | null>(null)
 
   const theme = useMemo(() => resolveTheme(restaurant?.theme_settings), [restaurant])
+  // Moneda meniului (mig 205) — get_restaurant_by_slug o expune de la mig 148.
+  const menuCurrency = resolveMenuCurrency(restaurant?.currency)
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
   // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
@@ -648,7 +651,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 {r.name} ·{' '}
                 {r.discount_type === 'percent'
                   ? `-${r.discount_value}%`
-                  : `-${r.discount_value} lei`}
+                  : `-${fmtPrice(Number(r.discount_value), menuCurrency)}`}
               </span>
             ))}
           </div>
@@ -711,6 +714,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -736,6 +740,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -753,6 +758,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -771,6 +777,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -820,7 +827,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 {cartCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}{' '}
                 {listMode ? T(lang, 'in_my_list') : T(lang, 'in_cart')}
               </span>
-              <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
+              <span style={{ fontFamily: theme.fonts.heading }}>{fmtPrice(cartTotal, menuCurrency)} →</span>
             </>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: PUB.text2 }}>
@@ -838,6 +845,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             accent={accent}
             theme={theme}
             onAdd={addToCart}
+            currency={menuCurrency}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
@@ -936,7 +944,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                         color: accent,
                       }}
                     >
-                      {lineTotal(item).toFixed(2)} lei
+                      {fmtPrice(lineTotal(item), menuCurrency)}
                     </span>
                     <button
                       onClick={() => removeFromCart(item._key)}
@@ -983,7 +991,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     color: PUB.text,
                   }}
                 >
-                  {cartTotal.toFixed(2)} lei
+                  {fmtPrice(cartTotal, menuCurrency)}
                 </span>
               </div>
               {listMode ? (
@@ -1140,7 +1148,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             </div>
             <div style={{ fontSize: 13, color: PUB.text3, marginBottom: 24 }}>
               Total de plată la ridicare:{' '}
-              <strong style={{ color: accent }}>{confirmation.total.toFixed(2)} lei</strong>
+              <strong style={{ color: accent }}>{fmtPrice(confirmation.total, menuCurrency)}</strong>
             </div>
             <button
               onClick={() => setConfirmation(null)}

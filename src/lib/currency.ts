@@ -48,3 +48,18 @@ export function fmtPrice(amount: number, currency: MenuCurrency = 'RON'): string
   const value = amount.toFixed(d.decimals)
   return d.prefix ? `${d.symbol}${value}` : `${value} ${d.symbol}`
 }
+
+/**
+ * Eticheta de monedă pentru layout-ul „split" al cardurilor de produs
+ * (întreg mare + zecimale mici + etichetă). În carduri eticheta stă mereu
+ * DUPĂ număr, indiferent de monedă — lizibil universal; formatul canonic
+ * cu prefix ($/£) rămâne în fmtPrice (aria-labels, totaluri pe un rând).
+ */
+export function currencyLabel(currency: MenuCurrency = 'RON'): string {
+  return DISPLAY[currency].symbol
+}
+
+/** Zecimalele monedei (HUF = 0) — cardurile ascund fracția când e 0. */
+export function currencyDecimals(currency: MenuCurrency = 'RON'): number {
+  return DISPLAY[currency].decimals
+}

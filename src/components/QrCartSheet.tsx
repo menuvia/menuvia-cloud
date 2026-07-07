@@ -9,6 +9,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 
 interface PUBColors {
   bg: string
@@ -46,6 +47,8 @@ export interface QrCartSheetProps {
   onSubmit: () => void
   onOpenProduct: (product: Product) => void
   onAddToCart: (item: CartItem) => void
+  /** Moneda meniului (mig 205/206) — default 'RON'. */
+  currency?: MenuCurrency
   // Opțional — modul „Masa ta" complet: comenzi deja trimise (La bucătărie) +
   // plata mesei. Dacă lipsesc, sheet-ul rămâne coș simplu (backward-compatible).
   sentOrders?: OrderConfirmationPayload[]
@@ -86,6 +89,7 @@ export default function QrCartSheet({
   onSubmit,
   onOpenProduct,
   onAddToCart,
+  currency = 'RON',
   sentOrders,
   tableTotal,
   onPayTable,
@@ -337,7 +341,7 @@ export default function QrCartSheet({
                     flexShrink: 0,
                   }}
                 >
-                  {o.total.toFixed(2)} lei
+                  {fmtPrice(o.total, currency)}
                 </span>
               </div>
             ))}
@@ -441,7 +445,7 @@ export default function QrCartSheet({
                     </div>
                   )}
                   <div style={{ color: PUB.text2, fontSize: 13, fontStyle: 'italic' }}>
-                    {onLineTotal(item).toFixed(2)} lei
+                    {fmtPrice(onLineTotal(item), currency)}
                   </div>
                 </div>
 
@@ -671,7 +675,7 @@ export default function QrCartSheet({
                           color: accent,
                         }}
                       >
-                        {s.price.toFixed(2)} lei
+                        {fmtPrice(s.price, currency)}
                       </span>
                       <button
                         type="button"
@@ -734,7 +738,7 @@ export default function QrCartSheet({
               color: PUB.text,
             }}
           >
-            {cartTotal.toFixed(2)} <span style={{ fontSize: 14, color: PUB.text2 }}>lei</span>
+            {fmtPrice(cartTotal, currency)}
           </span>
         </div>
         <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'right', marginTop: -8 }}>
@@ -799,7 +803,7 @@ export default function QrCartSheet({
         >
           {submitting
             ? 'Se trimite...'
-            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${cartTotal.toFixed(2)} lei`}
+            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${fmtPrice(cartTotal, currency)}`}
         </button>
 
         {/* CTA secundar — Plătește masa (cere nota; doar când există comenzi trimise) */}
@@ -823,7 +827,7 @@ export default function QrCartSheet({
             }}
           >
             {payLabel}
-            {typeof tableTotal === 'number' ? ` · ${tableTotal.toFixed(2)} lei` : ''}
+            {typeof tableTotal === 'number' ? ` · ${fmtPrice(tableTotal, currency)}` : ''}
           </button>
         )}
       </div>

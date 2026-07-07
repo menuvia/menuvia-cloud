@@ -5,6 +5,7 @@ import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
+import { MENU_CURRENCIES } from '../lib/currency'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -1446,6 +1447,37 @@ export default function SettingsTab({
                 })}
               </div>
             </SettingsCard>
+
+            {/* Moneda meniului (mig 205) — pista internațională, planurile 1-2. */}
+            <SettingsCard
+              icon="info"
+              title="Moneda meniului"
+              desc="Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate."
+              right={
+                <select
+                  aria-label="Moneda meniului"
+                  value={(form.currency as string) ?? 'RON'}
+                  onChange={(e) => upd('currency', e.target.value)}
+                  style={{
+                    background: D.s3,
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 8,
+                    color: D.t1,
+                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 14,
+                    padding: '10px 12px',
+                    minHeight: 44,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {MENU_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c === 'RON' ? 'RON (lei)' : c}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
           </>
         )}
 

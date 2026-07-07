@@ -1,7 +1,7 @@
 // Teste pe afișarea prețurilor multi-monedă (mig 205) — fundația
 // expansiunii internaționale pe planurile 1-2 (docs/PLAN_1M.md).
 import { describe, it, expect } from 'vitest'
-import { fmtPrice, resolveMenuCurrency } from '../currency'
+import { fmtPrice, resolveMenuCurrency, currencyLabel, currencyDecimals } from '../currency'
 
 describe('fmtPrice — afișarea prețului în meniul client', () => {
   it('RON păstrează formatul istoric „12.50 lei" (default, apeluri vechi identice)', () => {
@@ -34,5 +34,18 @@ describe('resolveMenuCurrency — coerce fail-safe din DB', () => {
     expect(resolveMenuCurrency(null)).toBe('RON')
     expect(resolveMenuCurrency(undefined)).toBe('RON')
     expect(resolveMenuCurrency(42)).toBe('RON')
+  })
+})
+
+describe('currencyLabel / currencyDecimals — layout-ul split din carduri', () => {
+  it('eticheta e simbolul monedei (mereu sufix în carduri)', () => {
+    expect(currencyLabel()).toBe('lei')
+    expect(currencyLabel('EUR')).toBe('€')
+    expect(currencyLabel('USD')).toBe('$')
+  })
+
+  it('zecimalele urmează moneda (HUF fără fracție)', () => {
+    expect(currencyDecimals('RON')).toBe(2)
+    expect(currencyDecimals('HUF')).toBe(0)
   })
 })

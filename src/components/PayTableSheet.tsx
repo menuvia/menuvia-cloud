@@ -12,6 +12,7 @@ import {
   type StripeElements,
   type StripePaymentElement,
 } from '../lib/payments'
+import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currency'
 
 interface PUBColors {
   bg: string
@@ -48,6 +49,8 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
   const [phase, setPhase] = useState<Phase>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
+  // Moneda vine din răspunsul serverului (begin_table_payment) — nu din client.
+  const [currency, setCurrency] = useState<MenuCurrency>('RON')
   const mountRef = useRef<HTMLDivElement | null>(null)
   const stripeRef = useRef<StripeClient | null>(null)
   const elementsRef = useRef<StripeElements | null>(null)
@@ -62,6 +65,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         const intent = await createTablePayment(token, sessionId)
         if (cancelled) return
         setAmount(intent.amount)
+        setCurrency(resolveMenuCurrency(intent.currency))
         const Stripe = await loadStripeJs()
         if (cancelled) return
         const stripe = Stripe(intent.publishable_key, {
@@ -181,7 +185,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
                 color: accent,
               }}
             >
-              {amount.toFixed(2)} lei
+              {fmtPrice(amount, currency)}
             </span>
           )}
         </div>
@@ -277,7 +281,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
               : phase === 'error'
                 ? 'Închide'
                 : amount != null
-                  ? `Plătește ${amount.toFixed(2)} lei`
+                  ? `Plătește ${fmtPrice(amount, currency)}`
                   : 'Plătește'}
         </button>
       </div>

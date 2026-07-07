@@ -12,6 +12,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
 
@@ -27,9 +28,11 @@ interface ProductSheetProps {
   theme: MenuTheme
   onAdd: (item: CartItem) => void
   onClose: () => void
+  /** Moneda meniului (mig 205/206) — default 'RON'. */
+  currency?: MenuCurrency
 }
 
-function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetProps) {
+function ProductSheet({ product, accent, theme, onAdd, onClose, currency = 'RON' }: ProductSheetProps) {
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -336,10 +339,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                   letterSpacing: '-0.01em',
                 }}
               >
-                {product.price.toFixed(2)}{' '}
-                <span style={{ fontSize: 15, fontFamily: 'DM Sans, sans-serif', fontWeight: 600 }}>
-                  lei
-                </span>
+                {fmtPrice(product.price, currency)}
               </div>
             </div>
 
@@ -607,7 +607,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                                 flexShrink: 0,
                               }}
                             >
-                              +{opt.price_delta.toFixed(2)} lei
+                              +{fmtPrice(opt.price_delta, currency)}
                             </span>
                           )}
                         </button>
@@ -737,7 +737,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                             flexShrink: 0,
                           }}
                         >
-                          +{Number(extra.price).toFixed(2)} lei
+                          +{fmtPrice(Number(extra.price), currency)}
                         </span>
                       </button>
                     )
@@ -1035,7 +1035,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
             {canAdd && (
               <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>
-                {totalPrice.toFixed(2)} lei
+                {fmtPrice(totalPrice, currency)}
               </span>
             )}
           </button>

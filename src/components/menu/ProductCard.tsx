@@ -4,6 +4,7 @@ import { hasMandatoryModifierGroups } from '../../lib/qr'
 import type { MenuTheme } from '../../lib/themes'
 import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
+import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
 import { DIETARY_TAGS } from '../../lib/constants'
 
@@ -47,6 +48,8 @@ interface ProductCardProps {
   accent: string
   PUB: PublicColors
   theme: MenuTheme
+  /** Moneda meniului (mig 205/206) — default 'RON' păstrează afișarea istorică. */
+  currency?: MenuCurrency
 }
 
 const THUMB = 88
@@ -67,6 +70,7 @@ function ProductCard({
   accent,
   PUB,
   theme,
+  currency = 'RON',
 }: ProductCardProps) {
   const t = menuType(theme.fonts)
 
@@ -105,8 +109,8 @@ function ProductCard({
   // Etichetă completă pentru screen-reader: descrie prețul (și reducerea) într-o
   // singură frază, în loc de cifre lipite citite separat.
   const priceLabel = hasDiscount
-    ? `Preț redus ${effectivePrice.toFixed(2)} lei, de la ${basePrice.toFixed(2)} lei`
-    : `${hasRequiredMods ? 'De la ' : ''}${effectivePrice.toFixed(2)} lei`
+    ? `Preț redus ${fmtPrice(effectivePrice, currency)}, de la ${fmtPrice(basePrice, currency)}`
+    : `${hasRequiredMods ? 'De la ' : ''}${fmtPrice(effectivePrice, currency)}`
 
   return (
     <div
@@ -210,7 +214,7 @@ function ProductCard({
                   lineHeight: 1,
                 }}
               >
-                {basePrice.toFixed(2)}
+                {basePrice.toFixed(currencyDecimals(currency))}
               </span>
             )}
             <span
@@ -233,7 +237,7 @@ function ProductCard({
                 lineHeight: 1,
               }}
             >
-              .{priceFrac}
+              {currencyDecimals(currency) > 0 ? `.${priceFrac}` : ''}
             </span>
             <span
               aria-hidden
@@ -246,7 +250,7 @@ function ProductCard({
                 letterSpacing: '0.04em',
               }}
             >
-              lei
+              {currencyLabel(currency)}
             </span>
           </span>
         </div>

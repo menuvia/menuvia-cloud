@@ -67,6 +67,8 @@ export interface Restaurant {
   } | null
   // Limbile expuse clientului (coduri, ex. ['en','de']). Româna e mereu baza.
   menu_languages: string[]
+  // Moneda meniului (mig 205/206) — 'RON' când RPC-ul nu o expune încă.
+  currency?: string | null
 }
 
 export interface QrToken {
@@ -252,9 +254,11 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
       checkout_suggestion_settings:
         restaurant.checkout_suggestion_settings as Restaurant['checkout_suggestion_settings'],
       theme_settings: restaurant.theme_settings as Restaurant['theme_settings'],
-      // Limbile de meniu — RPC-ul le expune doar dacă proiecția lui le include
-      // (fast-follow); până atunci parseMenuLanguages întoarce [] (switcher ascuns).
+      // Limbile de meniu — expuse de RPC din mig 206; parseMenuLanguages rămâne
+      // fail-safe ([] pe un RPC vechi nedeployat).
       menu_languages: parseMenuLanguages(restaurant.menu_languages),
+      // mig 206 o expune; pe un RPC vechi rămâne undefined → fmtPrice cade pe RON.
+      currency: (restaurant.currency as string | null | undefined) ?? null,
     },
     orderingAllowed: payload.orderingAllowed,
   }

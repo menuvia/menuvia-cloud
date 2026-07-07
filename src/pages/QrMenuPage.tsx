@@ -21,6 +21,7 @@ import {
   rotateQrIdempotencyKey,
 } from '../lib/orders'
 import { fetchOnlinePaymentEnabled } from '../lib/payments'
+import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/constants'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
@@ -304,6 +305,8 @@ export default function QrMenuPage({ token }: Props) {
 
   // ── Resolve theme from restaurant settings ──────────────────
   const theme = useMemo(() => resolveTheme(ctx?.restaurant.theme_settings), [ctx])
+  // Moneda meniului (mig 205/206) — fail-safe RON pe RPC vechi/absență.
+  const menuCurrency = resolveMenuCurrency(ctx?.restaurant.currency)
   // Memoizat: obiect nou la fiecare render înainte → prop instabil pentru
   // carduri/stări. Recalculat doar când se schimbă tema.
   const PUB = useMemo(
@@ -548,7 +551,7 @@ export default function QrMenuPage({ token }: Props) {
               }}
             >
               {r.name} ·{' '}
-              {r.discount_type === 'percent' ? `-${r.discount_value}%` : `-${r.discount_value} lei`}
+              {r.discount_type === 'percent' ? `-${r.discount_value}%` : `-${fmtPrice(Number(r.discount_value), menuCurrency)}`}
             </span>
           ))}
         </div>
@@ -645,6 +648,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -663,6 +667,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -680,6 +685,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -697,6 +703,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -841,7 +848,7 @@ export default function QrMenuPage({ token }: Props) {
                   {cart.length} {cart.length === 1 ? 'produs' : 'produse'}
                 </span>
                 <span>Vezi comanda</span>
-                <span>{cartTotal.toFixed(2)} lei</span>
+                <span>{fmtPrice(cartTotal, menuCurrency)}</span>
               </>
             ) : (
               <span style={{ color: PUB.text2, fontWeight: 600 }}>
@@ -859,6 +866,7 @@ export default function QrMenuPage({ token }: Props) {
           accent={accent}
           theme={theme}
           onAdd={addToCart}
+          currency={menuCurrency}
           onClose={() => setActiveProduct(null)}
         />
       )}
@@ -1030,8 +1038,7 @@ export default function QrMenuPage({ token }: Props) {
                         color: accent,
                       }}
                     >
-                      {p.price.toFixed(2)}{' '}
-                      <span style={{ fontSize: 10, fontFamily: theme.fonts.body }}>lei</span>
+                      {fmtPrice(p.price, menuCurrency)}
                     </span>
                     <button
                       onClick={() => {
@@ -1124,6 +1131,7 @@ export default function QrMenuPage({ token }: Props) {
             onUpdateQty={updateQty}
             onRemove={removeFromCart}
             onLineTotal={lineTotal}
+            currency={menuCurrency}
             onSubmit={() => void handleSubmit()}
             onOpenProduct={(product) => {
               setActiveProduct(product)
