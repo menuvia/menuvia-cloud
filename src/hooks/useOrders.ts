@@ -8,7 +8,6 @@ import {
   subscribeToOrders,
   type Order,
   type OrderStatus,
-  type PaymentMethod,
   type AdvanceOrderPayload,
   type RealtimeConnectionStatus,
 } from '../lib/orders'
@@ -24,44 +23,6 @@ const WAITER_EXCLUDED: OrderStatus[] = ['paid', 'cancelled']
 function belongsInView(order: Order, view: 'kitchen' | 'waiter'): boolean {
   if (view === 'kitchen') return KITCHEN_STATUSES.includes(order.status)
   return !WAITER_EXCLUDED.includes(order.status)
-}
-
-// Realtime poate livra coloanele numeric ca string — coercăm defensiv.
-function rtStr(v: unknown): string | null {
-  return typeof v === 'string' ? v : null
-}
-function rtNum(v: unknown): number | null {
-  if (typeof v === 'number' && Number.isFinite(v)) return v
-  if (typeof v === 'string' && v !== '') {
-    const n = Number(v)
-    return Number.isFinite(n) ? n : null
-  }
-  return null
-}
-
-// Aplică un UPDATE realtime peste comanda deja hidratată, FĂRĂ round-trip.
-// Sigur doar când totalul e neschimbat: orice editare de produse trece prin
-// update_order_items care recalculează totalul, deci total identic = doar
-// tranziție de status/plată — câmpurile de mai jos sunt exact ce scrie
-// advance_order. Toate se iau din rând (rândul realtime e complet), deci
-// două evenimente rapide pe aceeași comandă converg la starea finală.
-function mergeRealtimeOrder(existing: Order, row: Record<string, unknown>): Order {
-  return {
-    ...existing,
-    status: (rtStr(row.status) as OrderStatus | null) ?? existing.status,
-    payment_method: rtStr(row.payment_method) as PaymentMethod | null,
-    paid_amount: rtNum(row.paid_amount),
-    notes: rtStr(row.notes),
-    cancel_reason: rtStr(row.cancel_reason),
-    served_by: rtStr(row.served_by),
-    paid_by: rtStr(row.paid_by),
-    confirmed_at: rtStr(row.confirmed_at),
-    preparing_at: rtStr(row.preparing_at),
-    ready_at: rtStr(row.ready_at),
-    served_at: rtStr(row.served_at),
-    paid_at: rtStr(row.paid_at),
-    cancelled_at: rtStr(row.cancelled_at),
-  }
 }
 
 interface UseOrdersResult {
@@ -88,14 +49,6 @@ export function useOrders(
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
-
-  // Snapshot pentru handler-ul realtime (nu re-abonăm canalul la fiecare
-  // schimbare de listă). Poate fi cu un frame în urmă — inofensiv: merge-ul
-  // ia toate câmpurile volatile din rândul evenimentului, nu din snapshot.
-  const ordersRef = useRef<Order[]>([])
-  useEffect(() => {
-    ordersRef.current = orders
-  }, [orders])
 
   const upsertOrder = useCallback(
     (order: Order) => {
@@ -170,18 +123,6 @@ export function useOrders(
         }
         const orderId = newRow?.id
         if (typeof orderId !== 'string') return
-        // UPDATE pe o comandă deja hidratată, cu total neschimbat (= doar
-        // status/plată, vezi mergeRealtimeOrder) → aplicăm din payload.
-        // Evită un SELECT cu join-uri per eveniment pe Bucătărie + Ospătar
-        // în ora de vârf; INSERT-urile și editările de produse refetch-uiesc.
-        if (eventType === 'UPDATE') {
-          const existing = ordersRef.current.find((o) => o.id === orderId)
-          const newTotal = rtNum(newRow.total)
-          if (existing && newTotal !== null && Math.abs(newTotal - existing.total) < 0.005) {
-            upsertOrder(mergeRealtimeOrder(existing, newRow))
-            return
-          }
-        }
         try {
           const hydrated = await fetchOrderById(orderId)
           upsertOrder(hydrated)
