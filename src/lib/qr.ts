@@ -30,7 +30,8 @@ export interface Restaurant {
   primary_color: string
   logo_url: string | null
   cover_url?: string | null
-  currency?: string
+  // Moneda meniului (mig 007; activată în 205, expusă pe QR în 206).
+  currency?: string | null
   language?: string
   ordering_enabled?: boolean
   socials?: Socials | null
@@ -67,8 +68,6 @@ export interface Restaurant {
   } | null
   // Limbile expuse clientului (coduri, ex. ['en','de']). Româna e mereu baza.
   menu_languages: string[]
-  // Moneda meniului (mig 205/206) — 'RON' când RPC-ul nu o expune încă.
-  currency?: string | null
 }
 
 export interface QrToken {
