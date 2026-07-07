@@ -480,6 +480,7 @@ export default function QrMenuPage({ token }: Props) {
         onReset={handleReset}
         previousOrders={previousOrders}
         sessionId={sessionId}
+        currency={menuCurrency}
       />
     )
   }
@@ -519,6 +520,7 @@ export default function QrMenuPage({ token }: Props) {
             orders={previousOrders}
             accent={accent}
             sessionId={sessionId}
+            currency={menuCurrency}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -1184,7 +1186,18 @@ export default function QrMenuPage({ token }: Props) {
             PUB={PUB}
             accent={accent}
             onClose={() => setShowPaySheet(false)}
-            onPaid={() => setTablePaid(true)}
+            onPaid={() => {
+              setTablePaid(true)
+              // Serverul a plătit TOATE comenzile neplătite ale sesiunii —
+              // marcăm ce cunoaștem local ca totalul butonului să nu le
+              // renumere la runda următoare. (`confirmation` e mereu null
+              // aici — early-return-ul de mai sus randează OrderTracker.)
+              setPaidOrderIds((prev) => {
+                const next = new Set(prev)
+                previousOrders.forEach((o) => next.add(o.id))
+                return next
+              })
+            }}
             onPayOtherwise={() => {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
