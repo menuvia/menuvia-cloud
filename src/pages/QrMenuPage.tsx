@@ -28,7 +28,6 @@ import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
 
-import ProductSheet from '../components/ProductSheet'
 import {
   resolveTheme,
   resolveMenuLayout,
@@ -43,10 +42,14 @@ import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import ProductPhotoCard from '../components/menu/ProductPhotoCard'
-import FlipbookViewer from '../components/menu/FlipbookViewer'
 import MenuHeader from '../components/menu/MenuHeader'
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 
+// Lazy: ies din bundle-ul inițial al meniului QR (calea fierbinte = time-to-menu
+// pe telefoane slabe). ProductSheet (~1000 linii) se cere doar la tap pe produs;
+// FlipbookViewer doar pe layout-ul rar „flipbook". Precedent: PublicMenuPage.
+const ProductSheet = lazy(() => import('../components/ProductSheet'))
+const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 const PayTableSheet = lazy(() => import('../components/PayTableSheet'))
 
@@ -619,7 +622,11 @@ export default function QrMenuPage({ token }: Props) {
           Pe flipbook, DOAR catalogul e înlocuit de viewer — header-ul și
           butoanele de sesiune („Cheamă ospătarul"/„Cere nota") rămân. */}
       <div style={{ flex: 1, padding: '14px 16px 120px' }}>
-        {isFlipbook && <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />}
+        {isFlipbook && (
+          <Suspense fallback={null}>
+            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />
+          </Suspense>
+        )}
         {/* Empty states: catalog gol (nimic publicat) vs. căutare/categorie fără rezultate */}
         {!isFlipbook &&
           activeProducts.length === 0 &&
@@ -871,14 +878,16 @@ export default function QrMenuPage({ token }: Props) {
 
       {/* Product sheet */}
       {activeProduct != null && orderingAllowed && (
-        <ProductSheet
-          product={activeProduct}
-          accent={accent}
-          theme={theme}
-          onAdd={addToCart}
-          currency={menuCurrency}
-          onClose={() => setActiveProduct(null)}
-        />
+        <Suspense fallback={null}>
+          <ProductSheet
+            product={activeProduct}
+            accent={accent}
+            theme={theme}
+            onAdd={addToCart}
+            currency={menuCurrency}
+            onClose={() => setActiveProduct(null)}
+          />
+        </Suspense>
       )}
 
       {/* Pairing popup — appears after addToCart if product has pairings */}

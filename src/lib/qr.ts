@@ -422,7 +422,27 @@ interface RawModifierOptionRow {
   display_order: number
 }
 
+let menuRpcWarned = false
+
 export async function fetchMenuForRestaurant(restaurantId: string): Promise<Category[]> {
+  // Fast path: tot arborele într-un singur RTT (mig 212). Pe 4G de restaurant
+  // asta taie 2 round-trip-uri dependente (~200-400ms) la FIECARE scanare.
+  // Fallback pe implementarea pe straturi dacă RPC-ul lipsește (frontend
+  // deployat înaintea migrației) sau întoarce o formă neașteptată.
+  const { data, error } = await supabase.rpc('get_menu_for_restaurant', {
+    p_restaurant_id: restaurantId,
+  })
+  if (!error && Array.isArray(data)) {
+    return data as Category[]
+  }
+  if (error && !menuRpcWarned) {
+    menuRpcWarned = true
+    console.warn('[qr] get_menu_for_restaurant indisponibil, folosesc fallback-ul pe straturi:', error.message)
+  }
+  return fetchMenuLayered(restaurantId)
+}
+
+async function fetchMenuLayered(restaurantId: string): Promise<Category[]> {
   // ── Layer 1: categories + products în PARALEL ──────────────────
   // Ambele depind DOAR de restaurantId (nu una de alta). Serial degeaba →
   // pe 4G de restaurant, un round-trip Supabase e ~100-300ms. Rezultatul e
