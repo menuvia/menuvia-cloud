@@ -52,11 +52,16 @@ async function postCronNotice(jobName, message) {
   if (!slackWebhook) return
   try {
     const text = `🟡 Cron ${jobName}: ${message}`
-    await fetch(slackWebhook, {
+    const resp = await fetch(slackWebhook, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
+    // Notice-ul de payout-draft e SINGURUL semnal că afiliații au bani de
+    // procesat manual (Wise) — un POST Slack picat tăcut = payout-uri uitate.
+    if (!resp.ok) {
+      console.error(`[automation-cron] postCronNotice Slack non-ok (${resp.status}) pentru ${jobName}`)
+    }
   } catch (e) {
     console.error('[automation-cron] postCronNotice failed:', e.message)
   }

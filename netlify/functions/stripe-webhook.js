@@ -165,6 +165,16 @@ exports.handler = async (event) => {
           break
         }
 
+        // Gardă POZITIVĂ: doar sesiunile de ABONAMENT ating profiles.plan.
+        // Fără ea, orice sesiune mode='payment' ne-recunoscută ca ai_credits
+        // (metadata.type absent/redenumit) ar cădea în logica de abonament cu
+        // subscription=null → resolvePlan('free') → DOWNGRADE tăcut al unui
+        // plătitor care tocmai a cumpărat credite AI (același client_reference_id).
+        if (session.mode !== 'subscription') {
+          console.warn(`[stripe-webhook] checkout.session.completed mode='${session.mode}' neabonament, ignorat (${session.id})`)
+          break
+        }
+
         const refUserId = session.client_reference_id
         const customerId = session.customer
         const subscriptionId = session.subscription

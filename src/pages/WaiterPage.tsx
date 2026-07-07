@@ -422,17 +422,24 @@ export default function WaiterPage() {
     setAssignedTableIds('loading')
     void (async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('waiter_table_assignments')
           .select('table_id')
           .eq('restaurant_id', restaurantId)
           .eq('user_id', user.id)
+        // Un blip de rețea/RLS lasă `data:null` FĂRĂ throw (supabase-js). A cădea
+        // pe `null` = „arată toate mesele" ar extinde tăcut scope-ul ospătarului
+        // la toată sala pe un simplu blip. Pe eroare păstrăm starea anterioară.
+        if (error) {
+          setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
+          return
+        }
         const ids = data ?? []
         setAssignedTableIds(
           ids.length > 0 ? new Set(ids.map((r: Record<string, string>) => r.table_id)) : null,
         )
       } catch {
-        setAssignedTableIds(null)
+        setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
       }
     })()
   }, [restaurantId, user])
