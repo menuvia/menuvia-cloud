@@ -1,31 +1,33 @@
 # PLAN 10/10 — scorecard critic + drumul strict până la 10
 
-> Generat pe dovezi: 2 audituri la scară (194 + 378 agenți, medii 6.13 → 6.0 pe unități
-> slabe), audit de zone (66 agenți, „healthy"), starea reală prod (6 iulie 2026: DB la
-> mig 201 ✓, frontend prod ÎNGHEȚAT pe #76 din cauza creditelor Netlify), verificări
-> punctuale în repo. Notele de mai jos NU sunt medii istorice — sunt starea de AZI,
-> cu producția așa cum o vede un client.
+> RE-AUDIT 6 iulie seara (al 2-lea): dovezi la minut — prod Supabase la mig 201
+> (verificat MCP; 202–204 sunt pe PR #188), frontend prod TOT din 30 iunie
+> (deploy publicat 6a4429…, seria veche), GitHub Actions MORT din 12:28 UTC
+> (cotă/limită — 8 push-uri fără niciun run), PR #188 cu 12 commit-uri verzi pe
+> Netlify. Notele sunt starea de AZI SEARA, cu producția așa cum o vede un client.
 
 ## Scorecard (critic, starea de azi)
 
-| # | Capitol | Notă | De ce nu e 10 (dovezi) |
-|---|---------|------|------------------------|
-| 1 | **Infra / deploy / hosting** | **2/10** | Producția e înghețată pe #76 (30 iun) — ~100 PR-uri nelivrate clienților. Creditele Netlify epuizate → deploy prod suspendat. Fără domeniu propriu (menuvia.netlify.app). Un singur host, fără plan B. |
-| 2 | **Observabilitate / reziliență** | **5/10** | `/health` + alerte Slack + RUNBOOK există (Val 1), DAR: error-tracking FE există (Sentry lazy în main.tsx, în spatele VITE_SENTRY_DSN + consent) însă DSN-ul nu e setat → efectiv oprit; pe funcții/backend zero, zero uptime-monitor extern, zero dead-man's switch activ, zero backup propriu al DB (doar Supabase intern). |
-| 3 | **Testare / QA** | **4/10** | 11 fișiere de teste unit pe tot FE. E2E cronic roșu în CI (secrets lipsă) = practic NU există E2E. Excelent doar pe fiscal-SQL (51 teste) și bridge (14). Zero load-testing pe meniul public (calea cea mai fierbinte). |
-| 4 | **Securitate / RLS / lockdown** | **9/10** | Advisor: 0 erori. Convenția lockdown matură (96A/B/C, gate-uri fiscale server-side, search_path peste tot). Rămân: leaked-password protection OFF în Supabase Auth, fără MFA pe conturile de platformă (Netlify arată mfa_enabled:false). |
-| 5 | **Fiscalizare (bridge FiscalNet)** | **7/10** | Cloud complet + 51 teste; pilot bridge scris + 14/14 verde; format confirmat pe webtest. Lipsesc: test pe casă demo reală, .exe/installer nebuildat, bacșiș pe bon (OUG 8/2023) nedefinit, flux storno inexistent. |
-| 6 | **Plăți / Stripe / abonamente** | **7/10** | Webhook + checkout hardening trecute prin 3 valuri de fix. Lipsesc: plata ONLINE la masă (clientul nu poate plăti din telefon — gap de produs mare pentru Plan 3), dunning (recuperare plăți eșuate) doar bazic. |
-| 7 | **Comenzi / QR / waiter / kitchen** | **8/10** | Matur: realtime, idempotență rotită, Stadiu mese (grilă+hartă), audit istoric. Rămân: robustețe offline parțială, fără imprimare tichete bucătărie, necunoscut sub load real. |
-| 8 | **Meniu public (client)** | **8/10** | Redesign complet, 7 limbi, teme, flipbook, pass de perf. Rămân: fără pipeline de optimizare imagini (upload-urile merg raw din Supabase Storage — LCP suferă la poze mari), SEO pe meniurile publice minimal. |
-| 9 | **Dashboard / UX admin** | **8/10** | 7 zone lustruite + Setări restructurate + founder mode. Rămân: onboarding-ul de ACTIVARE (primele 10 min ale unui restaurant nou) e simplu, nu ghidat; a11y-ul complet (keyboard nav) neverificat sistematic. |
-| 10 | **AI** | **6/10** | Arhitectură bună (proxy, metering, cote, credite) DAR moartă în prod: `PLATFORM_OPENAI_KEY` nesetat → un cont nou primește eroare. Feature construit ≠ feature livrat. |
-| 11 | **Afiliere / founder ops** | **8/10** | Sistem complet (comisioane live, sub-afiliați, payout state-machine, founder dashboard). Rămân: faza 2 Wise manuală, fără pagini legale dedicate programului. |
-| 12 | **Rezervări** | **8/10** | Hartă „ca la cinema", wrap-around, remindere, rate-limit. Rămân: gestiune no-show (penalizare/depozit), confirmare SMS. |
+| # | Capitol | Notă | Ce e OK / ce NU / ce e GREȘIT |
+|---|---------|------|-------------------------------|
+| 1 | **Infra / deploy / hosting** | **2/10** → | GREȘIT: clientul vede și azi versiunea din 30 iunie — 7 zile de lucru nelivrate. NOU AZI: și CI-ul a murit (cota Actions, blocare tăcută). OK: pachetul VPS + GHID_FONDATOR reduc TOT blocajul la ~20 min de acțiune umană. Nota nu urcă până nu vede un client main-ul. |
+| 2 | **Observabilitate / reziliență** | **5/10** = | OK: /health, alerte Slack, backup nightly scriptat, RUNBOOK, verify-migrations-local (azi). NU: Sentry DSN nesetat (cod gata), zero uptime extern, restore netestat pe server real. GREȘIT (proces): moartea cotei Actions nu a alertat pe nimeni — exact tipul de orbire pe care F1 trebuie s-o închidă. |
+| 3 | **Testare / QA** | **4→7/10** | OK AZI: primul E2E verde din istoria repo-ului + ~25 teste componente pe fluxurile de bani + TP1-TP6 pe plata online + k6 one-click + harness SQL local (echivalență cu CI dovedită). NU: totul e paralizat de cota Actions — testele există dar nu RULEAZĂ pe push; E2E încă ne-blocking; k6 niciodată executat. |
+| 4 | **Securitate / RLS / lockdown** | **9/10** = | OK: 0 erori advisor, convenția lockdown respectată și de noile RPC-uri de plată (service_role-only, sumă server-side). NU: leaked-password OFF (1 click, la tine), fără MFA pe conturile de platformă. |
+| 5 | **Fiscalizare (bridge)** | **7/10** = | OK: cloud + bridge + 51+14 teste, format confirmat pe webtest, card_online mapat (cod 7, de confirmat EconMedia). NU: .exe nebuildat (cerea Actions/Windows), casă demo netestată, bacșiș OUG 8/2023 + storno așteaptă spec-ul EconMedia. Blocat pe telefonul tău. |
+| 6 | **Plăți / Stripe / abonamente** | **7→8,5/10** | OK AZI: plata online la masă COMPLETĂ în cod (SQL+funcții+client+Setări, teste verzi) — cel mai mare gap de produs închis; dunning s-a dovedit deja construit (scorecard-ul vechi era GREȘIT aici). NU: nelive — cere Connect activat + 2 env + test e2e pe test mode; tichetele de masă = Etapa 3. |
+| 7 | **Comenzi / QR / waiter / kitchen** | **8/10** = | OK: matur, realtime, idempotență testată acum și în vitest. NU: fără imprimare tichete bucătărie (cerință frecventă, MASTER_PLAN #6), comportament sub load real necunoscut (k6 nerulat). |
+| 8 | **Meniu public (client)** | **8→8,5/10** | GREȘIT în scorecard-ul vechi: pipeline-ul de imagini EXISTĂ (webp 0.85 + max 1200px pe ambele căi de upload) — verificat azi. NU: SEO real pe /m/:slug cere prerender/SSR (meta client-side nu ajută crawlerele) — decizie de design separată. |
+| 9 | **Dashboard / UX admin** | **8→8,5/10** | OK AZI: checklist-ul de activare dus până la „prima comandă de test" (măsurat real; bifa falsă eliminată). NU: a11y sistematic (keyboard nav) neverificat; AuthPage a avut labels rupte până ieri — semn că mai există. |
+| 10 | **AI** | **6/10** = | GREȘIT (nelivrat, nu nescris): platforma AI completă dar moartă în prod — PLATFORM_OPENAI_KEY tot nesetat. E în GHID pasul 1c; 2 minute după VPS. |
+| 11 | **Afiliere / founder ops** | **8/10** = | OK: sistem complet, comisioane live. NU: Wise faza 2 manuală, fără pagini legale dedicate programului. |
+| 12 | **Rezervări** | **8/10** = | OK: hartă, wrap-around, remindere. NU: no-show (penalizare/depozit), confirmare SMS. |
 
-**Media ponderată: ~6.5/10.** Diagnosticul dur și onest: **codul e la 8, operarea e la 3.**
-Diferența până la 10 NU se închide scriind mai mult cod de feature — se închide cu
-livrare (hosting), plase de siguranță (monitoring/QA) și 3 goluri de produs.
+**Media: ~7,0/10 (de la ~6,5 azi-dimineață).** Diagnosticul actualizat: **codul a urcat
+spre 9; livrarea a rămas la 2 — și e un singur om pe drumul critic.** Tot ce desparte
+7,0 de ~9 sunt acțiuni de minute, nu săptămâni: cota Actions (1 min), pașii din
+GHID_FONDATOR (20 min), Connect+env (5 min), telefonul EconMedia. Codul nou fără
+livrare = inventar, nu valoare.
 
 ---
 
