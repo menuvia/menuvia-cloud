@@ -399,6 +399,17 @@ export default function QrMenuPage({ token }: Props) {
     if (q.length > 0) return searchIndex.filter((e) => e.hay.includes(q)).map((e) => e.product)
     return localizedCategories.find((c) => c.id === activeCatId)?.products ?? []
   }, [searchIndex, localizedCategories, activeCatId, deferredSearch])
+  // Prop-ul pentru CategoryTabs: memoizat ca să nu se recreeze la fiecare
+  // tastă în căutare (altfel tab-urile se re-randează pe orice keystroke).
+  const categoryTabItems = useMemo(
+    () =>
+      localizedCategories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        count: cat.products?.length ?? 0,
+      })),
+    [localizedCategories],
+  )
   // Total produse publicate (toate categoriile) — distinge „catalog gol"
   // (restaurantul n-a publicat nimic) de „categoria/căutarea nu are rezultate".
   const totalProducts = useMemo(
@@ -575,11 +586,7 @@ export default function QrMenuPage({ token }: Props) {
           Pe flipbook nu există catalog de produse → fără tab-uri și căutare. */}
       {!isFlipbook && (
         <CategoryTabs
-          items={localizedCategories.map((cat) => ({
-            id: cat.id,
-            name: cat.name,
-            count: cat.products?.length ?? 0,
-          }))}
+          items={categoryTabItems}
           activeId={activeCatId}
           onSelect={setActiveCatId}
           accent={accent}
