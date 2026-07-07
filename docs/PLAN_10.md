@@ -1,7 +1,7 @@
 # PLAN 10/10 — scorecard critic + drumul strict până la 10
 
-> RE-AUDIT 6 iulie seara (al 2-lea): dovezi la minut — prod Supabase la mig 201
-> (verificat MCP; 202–204 sunt pe PR #188), frontend prod TOT din 30 iunie
+> RE-AUDIT 6 iulie seara (al 2-lea): dovezi la minut — prod Supabase la mig 204
+> (202–204 aplicate prin MCP pe 6 iulie seara, 0 erori advisor; markerii verificați), frontend prod TOT din 30 iunie
 > (deploy publicat 6a4429…, seria veche), GitHub Actions MORT din 12:28 UTC
 > (cotă/limită — 8 push-uri fără niciun run), PR #188 cu 12 commit-uri verzi pe
 > Netlify. Notele sunt starea de AZI SEARA, cu producția așa cum o vede un client.
