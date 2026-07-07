@@ -106,7 +106,7 @@ export default function QrMenuPage({ token }: Props) {
   // Comenzile deja plătite online (client-side, aproximare a settle-ului):
   // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
   // după plată re-activează butonul (serverul recalculează oricum exact).
-  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(new Set())
+  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(new Set<string>())
 
   function loadQr() {
     setResolving(true)
@@ -297,7 +297,7 @@ export default function QrMenuPage({ token }: Props) {
       setSessionId(null)
       // Grup nou = notă nouă — starea de „plătit online" nu se moștenește.
       setTablePaid(false)
-      setPaidOrderIds(new Set())
+      setPaidOrderIds(new Set<string>())
     }
     setShowPaySheet(false)
     setCart([])
