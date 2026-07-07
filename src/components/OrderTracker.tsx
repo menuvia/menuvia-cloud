@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from 'react'
 import type { OrderConfirmationPayload } from '../lib/orders'
 import { getOrderPublicStatus, requestFiscalReceipt } from '../lib/orders'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import PaymentConfirmedScreen from './PaymentConfirmedScreen'
 
 const ORDER_STEPS = [
@@ -26,6 +27,8 @@ interface OrderTrackerProps {
   // Sesiunea mesei — necesară pentru payload-ul complet (mig 092).
   // Fără ea, serverul întoarce doar statusul. NU se afișează în UI.
   sessionId?: string | null
+  // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
+  currency?: MenuCurrency
 }
 
 function OrderTracker({
@@ -34,6 +37,7 @@ function OrderTracker({
   onReset,
   previousOrders,
   sessionId = null,
+  currency = 'RON',
 }: OrderTrackerProps) {
   const [status, setStatus] = useState<string>(confirmation.status ?? 'new')
   const [tipsAmount, setTipsAmount] = useState<number>(0)
@@ -137,6 +141,7 @@ function OrderTracker({
         // Fără sesiune, submit_order_feedback respinge comenzile de la masă
         // (session-gate mig 094) — funnel-ul de recenzii ar fi mort silențios.
         sessionId={sessionId}
+        currency={currency}
       />
     )
   }
@@ -200,7 +205,7 @@ function OrderTracker({
           marginBottom: 32,
         }}
       >
-        {Number(confirmation.total).toFixed(2)} lei
+        {fmtPrice(Number(confirmation.total), currency)}
       </div>
 
       {isCancelled ? (
@@ -327,10 +332,11 @@ function OrderTracker({
       {previousOrders.length > 0 && !isCancelled && (
         <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#9A8C7A', textAlign: 'center' }}>
           Total sesiune:{' '}
-          {(
-            previousOrders.reduce((s, o) => s + Number(o.total), 0) + Number(confirmation.total)
-          ).toFixed(2)}{' '}
-          lei ({previousOrders.length + 1} comenzi)
+          {fmtPrice(
+            previousOrders.reduce((s, o) => s + Number(o.total), 0) + Number(confirmation.total),
+            currency,
+          )}{' '}
+          ({previousOrders.length + 1} comenzi)
         </div>
       )}
     </div>
@@ -358,9 +364,17 @@ interface ActiveOrdersBannerProps {
   orders: OrderConfirmationPayload[]
   accent: string
   onAddMore: () => void
+  // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
+  currency?: MenuCurrency
 }
 
-function ActiveOrdersBanner({ orders, accent, onAddMore, sessionId = null }: ActiveOrdersBannerProps) {
+function ActiveOrdersBanner({
+  orders,
+  accent,
+  onAddMore,
+  sessionId = null,
+  currency = 'RON',
+}: ActiveOrdersBannerProps) {
   const [expanded, setExpanded] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
     Object.fromEntries(orders.map((o) => [o.id, o.status])),
@@ -454,8 +468,8 @@ function ActiveOrdersBanner({ orders, accent, onAddMore, sessionId = null }: Act
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {orders.length} comandă{orders.length !== 1 ? '' : ''} · {totalSpent.toFixed(2)} lei
-              total
+              {orders.length} comandă{orders.length !== 1 ? '' : ''} ·{' '}
+              {fmtPrice(totalSpent, currency)} total
             </span>
             {activeCount > 0 && (
               <span
@@ -540,7 +554,7 @@ function ActiveOrdersBanner({ orders, accent, onAddMore, sessionId = null }: Act
                     {meta.label}
                   </span>
                   <span style={{ fontSize: '0.78rem', color: '#9A8C7A' }}>
-                    {Number(order.total).toFixed(2)} lei
+                    {fmtPrice(Number(order.total), currency)}
                   </span>
                 </div>
               </div>

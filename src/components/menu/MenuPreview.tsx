@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
+import type { MenuCurrency } from '../../lib/currency'
 import type { MenuTheme, ThemeSettings } from '../../lib/themes'
 import {
   resolveTheme,
@@ -28,6 +29,9 @@ import FlipbookViewer from './FlipbookViewer'
 interface MenuPreviewProps {
   themeSettings: ThemeSettings | null | undefined
   restaurantName?: string
+  // Moneda meniului (mig 205) — vine din starea formularului de setări, ca
+  // preview-ul să reflecte LIVE alegerea din selector, nu valoarea salvată.
+  currency?: MenuCurrency
 }
 
 // Paleta „publică" pe care o așteaptă cardurile comune (subset din theme.colors).
@@ -257,7 +261,11 @@ function HeroPill({ fonts, label }: { fonts: MenuTheme['fonts']; label: string }
   )
 }
 
-export default function MenuPreview({ themeSettings, restaurantName }: MenuPreviewProps) {
+export default function MenuPreview({
+  themeSettings,
+  restaurantName,
+  currency = 'RON',
+}: MenuPreviewProps) {
   const theme = resolveTheme(themeSettings)
   const layout = resolveMenuLayout(themeSettings)
   const elements = resolveMenuElements(themeSettings)
@@ -284,6 +292,7 @@ export default function MenuPreview({ themeSettings, restaurantName }: MenuPrevi
     accent,
     PUB,
     theme,
+    currency,
   }
 
   return (
