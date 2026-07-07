@@ -87,6 +87,19 @@
   EUR ar fi încasat 12 RON pentru €12. Acum: monedă ≠ RON → respins fail-closed
   cu `currency_not_supported` (bonul fiscal e RON-only); funcția Netlify citește
   `begin.currency` în loc să hardcodeze. Test permanent TP9.
+- ✅ **mig 211 (3 fixuri de bani, review advers)**: (F1) plata parțială cash
+  luată între begin și settle → comanda e SĂRITĂ la settle + notată (înainte
+  se marca integral card_online = dublă încasare tăcută); (F2) begin salvează
+  snapshot-ul totalurilor per comandă în `order_totals`, settle notează
+  diferențele (edit de staff în timpul plății = reconciliere vizibilă);
+  (F3) un singur intent live per sesiune — begin întoarce
+  `superseded_intents`, funcția Netlify le anulează la Stripe înainte de
+  intent-ul nou; dacă unul a REUȘIT între timp, plata nouă se anulează și
+  clientul află că nota e plătită (două telefoane la aceeași masă nu mai pot
+  plăti amândouă toată nota). + F4-F8: reset `tablePaid` la rundă nouă,
+  detecție `succeeded` explicită la cancel (nu regex pe unexpected_state),
+  bucket separat de rate-limit pentru cancel, „plătit" în client doar pe
+  `paymentIntent.status === 'succeeded'`. Teste permanente TP10–TP12.
 - ⏳ Rămas: test end-to-end pe Stripe test mode (după activarea Connect de
   către fondator) + Etapa 2/3 de mai jos.
 

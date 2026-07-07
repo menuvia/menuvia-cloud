@@ -22,6 +22,13 @@
 --   TP9  Gate de monedă (mig 209): restaurant cu currency='EUR' → begin
 --        respins cu currency_not_supported (bonul fiscal e RON-only);
 --        după reset la RON, gate-ul nu mai blochează.
+--   TP10 F1 (mig 211): plată parțială cash luată ÎNTRE begin și settle →
+--        comanda e SĂRITĂ (rămâne pe fluxul de staff) + notată.
+--   TP11 F2 (mig 211): totalul editat între begin și settle → comanda se
+--        plătește (banii au venit), dar diferența e notată în settle_note.
+--   TP12 F3 (mig 211): al doilea begin pe aceeași sesiune întoarce intent-ul
+--        vechi în superseded_intents (rândul rămâne processing — mutația e a
+--        funcției Netlify); rândurile 'created' fără intent se anulează direct.
 --
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -410,6 +417,148 @@ begin
   end;
 
   raise notice 'TP9 OK: moneda ≠ RON e respinsă fail-closed; RON trece de gate';
+end $$;
+
+-- ── TP10: plată parțială cash între begin și settle → sărită + notată (F1) ────
+do $$
+declare
+  v_begin jsonb;
+  v_res   jsonb;
+begin
+  insert into public.tables (id, restaurant_id, name, slug, seats, is_active) values
+    ('c4c4c4c4-4444-4444-8444-cccccccccccc','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','Masa TP10','masa-tp10',4,true);
+  insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active) values
+    ('d4d4d4d4-4444-4444-8444-dddddddddddd','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c4c4c4c4-4444-4444-8444-cccccccccccc','tok_tp10',true);
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('eaeaeaea-aaaa-4aaa-8aaa-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c4c4c4c4-4444-4444-8444-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('fafafafa-aaaa-4aaa-8aaa-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',50,
+     'eaeaeaea-aaaa-4aaa-8aaa-eeeeeeeeeeee','c4c4c4c4-4444-4444-8444-cccccccccccc','d4d4d4d4-4444-4444-8444-dddddddddddd');
+
+  v_begin := public.begin_table_payment('eaeaeaea-aaaa-4aaa-8aaa-eeeeeeeeeeee','tok_tp10');
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp10');
+
+  -- Ospătarul ia 20 cash parțial ÎNTRE begin și confirmarea online.
+  insert into public.order_payments (order_id, amount, method)
+  values ('fafafafa-aaaa-4aaa-8aaa-ffffffffffff', 20, 'cash');
+
+  v_res := public.settle_table_payment('pi_tp10', 'succeeded');
+  if (v_res->>'orders_partial')::int <> 1 or (v_res->>'orders_paid')::int <> 0 then
+    raise exception 'TP10 FAIL: comanda cu plată parțială nu a fost sărită (%)', v_res;
+  end if;
+  if exists (select 1 from public.orders
+              where id = 'fafafafa-aaaa-4aaa-8aaa-ffffffffffff' and status = 'paid') then
+    raise exception 'TP10 FAIL: comanda cu parțial cash a fost marcată card_online (dublă încasare)';
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp10'
+                    and status = 'succeeded'
+                    and settle_note ilike '%parțiale%') then
+    raise exception 'TP10 FAIL: settle_note nu semnalează plățile parțiale';
+  end if;
+
+  raise notice 'TP10 OK: plata parțială cash e sărită + notată (fără dublă încasare tăcută)';
+end $$;
+
+-- ── TP11: total editat între begin și settle → plătit + diferența notată (F2) ─
+do $$
+declare
+  v_begin jsonb;
+  v_res   jsonb;
+begin
+  insert into public.tables (id, restaurant_id, name, slug, seats, is_active) values
+    ('c5c5c5c5-5555-4555-8555-cccccccccccc','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','Masa TP11','masa-tp11',4,true);
+  insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active) values
+    ('d5d5d5d5-5555-4555-8555-dddddddddddd','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c5c5c5c5-5555-4555-8555-cccccccccccc','tok_tp11',true);
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ebebebeb-bbbb-4bbb-8bbb-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c5c5c5c5-5555-4555-8555-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('fbfbfbfb-bbbb-4bbb-8bbb-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',30,
+     'ebebebeb-bbbb-4bbb-8bbb-eeeeeeeeeeee','c5c5c5c5-5555-4555-8555-cccccccccccc','d5d5d5d5-5555-4555-8555-dddddddddddd');
+
+  v_begin := public.begin_table_payment('ebebebeb-bbbb-4bbb-8bbb-eeeeeeeeeeee','tok_tp11');
+  if (v_begin->'order_totals') is not null then
+    null; -- snapshot-ul nu se întoarce clientului; doar verificăm pe rând mai jos
+  end if;
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp11');
+
+  -- Staff-ul modifică comanda (30 → 35) în timp ce clientul confirmă 30.
+  update public.orders set total = 35
+   where id = 'fbfbfbfb-bbbb-4bbb-8bbb-ffffffffffff';
+
+  v_res := public.settle_table_payment('pi_tp11', 'succeeded');
+  if (v_res->>'orders_paid')::int <> 1 or (v_res->>'orders_changed')::int <> 1 then
+    raise exception 'TP11 FAIL: diferența de total nu a fost detectată (%)', v_res;
+  end if;
+  if not exists (select 1 from public.orders
+                  where id = 'fbfbfbfb-bbbb-4bbb-8bbb-ffffffffffff'
+                    and status = 'paid' and payment_method = 'card_online') then
+    raise exception 'TP11 FAIL: comanda nu a fost plătită (clientul chiar a plătit snapshot-ul)';
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp11'
+                    and settle_note ilike '%modificate%') then
+    raise exception 'TP11 FAIL: settle_note nu semnalează totalul modificat';
+  end if;
+
+  raise notice 'TP11 OK: totalul editat în timpul plății e plătit + reconciliere vizibilă';
+end $$;
+
+-- ── TP12: un singur intent live per sesiune — supersede la begin (F3) ─────────
+do $$
+declare
+  v1 jsonb;
+  v2 jsonb;
+  v3 jsonb;
+begin
+  insert into public.tables (id, restaurant_id, name, slug, seats, is_active) values
+    ('c6c6c6c6-6666-4666-8666-cccccccccccc','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','Masa TP12','masa-tp12',4,true);
+  insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active) values
+    ('d6d6d6d6-6666-4666-8666-dddddddddddd','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c6c6c6c6-6666-4666-8666-cccccccccccc','tok_tp12',true);
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ecececec-cccc-4ccc-8ccc-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c6c6c6c6-6666-4666-8666-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('fcfcfcfc-cccc-4ccc-8ccc-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',40,
+     'ecececec-cccc-4ccc-8ccc-eeeeeeeeeeee','c6c6c6c6-6666-4666-8666-cccccccccccc','d6d6d6d6-6666-4666-8666-dddddddddddd');
+
+  -- Telefonul A: primul begin — nimic de înlocuit.
+  v1 := public.begin_table_payment('ecececec-cccc-4ccc-8ccc-eeeeeeeeeeee','tok_tp12');
+  if v1->'superseded_intents' <> '[]'::jsonb then
+    raise exception 'TP12 FAIL: primul begin nu trebuia să înlocuiască nimic (%)', v1;
+  end if;
+  perform public.attach_payment_intent((v1->>'payment_id')::uuid, 'pi_tp12_a');
+
+  -- Telefonul B: al doilea begin — intent-ul lui A e raportat spre anulare,
+  -- dar rândul lui rămâne 'processing' (mutația vine DUPĂ cancel-ul Stripe).
+  v2 := public.begin_table_payment('ecececec-cccc-4ccc-8ccc-eeeeeeeeeeee','tok_tp12');
+  if not ((v2->'superseded_intents') ? 'pi_tp12_a') then
+    raise exception 'TP12 FAIL: intent-ul telefonului A nu apare în superseded_intents (%)', v2;
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp12_a' and status = 'processing') then
+    raise exception 'TP12 FAIL: rândul lui A a fost mutat în RPC (webhook-ul de succeeded nu l-ar mai găsi)';
+  end if;
+
+  -- Telefonul C: rândul lui B ('created', fără intent) se anulează DIRECT.
+  v3 := public.begin_table_payment('ecececec-cccc-4ccc-8ccc-eeeeeeeeeeee','tok_tp12');
+  if not exists (select 1 from public.table_payments
+                  where id = (v2->>'payment_id')::uuid and status = 'canceled') then
+    raise exception 'TP12 FAIL: rândul fără intent nu a fost anulat la begin-ul următor';
+  end if;
+  if not ((v3->'superseded_intents') ? 'pi_tp12_a') then
+    raise exception 'TP12 FAIL: intent-ul viu al lui A trebuie raportat și la al treilea begin (%)', v3;
+  end if;
+
+  raise notice 'TP12 OK: un singur intent live per sesiune; rândurile fără intent se curăță';
 end $$;
 
 rollback;
