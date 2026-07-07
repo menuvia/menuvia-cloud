@@ -103,6 +103,10 @@ export default function QrMenuPage({ token }: Props) {
   const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
   const [showPaySheet, setShowPaySheet] = useState(false)
   const [tablePaid, setTablePaid] = useState(false)
+  // Comenzile deja plătite online (client-side, aproximare a settle-ului):
+  // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
+  // după plată re-activează butonul (serverul recalculează oricum exact).
+  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(new Set<string>())
 
   function loadQr() {
     setResolving(true)
@@ -284,12 +288,16 @@ export default function QrMenuPage({ token }: Props) {
     // If full reset: clear everything including session history
     if (addMore && confirmation) {
       setPreviousOrders((prev) => [...prev, confirmation])
+      // Rundă nouă pe aceeași masă: nota veche poate fi plătită online, dar
+      // runda nouă e neplătită — butonul „Plătește masa" redevine activ.
+      setTablePaid(false)
     } else {
       setPreviousOrders([])
       // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
       setSessionId(null)
       // Grup nou = notă nouă — starea de „plătit online" nu se moștenește.
       setTablePaid(false)
+      setPaidOrderIds(new Set<string>())
     }
     setShowPaySheet(false)
     setCart([])
@@ -1143,7 +1151,9 @@ export default function QrMenuPage({ token }: Props) {
             // fallback-ul istoric = cere nota (request-bill nu trimite coșul).
             // Afișăm strict totalul comandat, ca suma de pe buton să corespundă
             // cu ce se facturează (regula de aur).
-            tableTotal={previousOrders.reduce((s, o) => s + o.total, 0)}
+            tableTotal={previousOrders
+              .filter((o) => !paidOrderIds.has(o.id))
+              .reduce((s, o) => s + o.total, 0)}
             onPayTable={
               previousOrders.length > 0
                 ? onlinePayEnabled && sessionId != null
@@ -1174,7 +1184,18 @@ export default function QrMenuPage({ token }: Props) {
             PUB={PUB}
             accent={accent}
             onClose={() => setShowPaySheet(false)}
-            onPaid={() => setTablePaid(true)}
+            onPaid={() => {
+              setTablePaid(true)
+              // Serverul a plătit TOATE comenzile neplătite ale sesiunii —
+              // marcăm ce cunoaștem local ca totalul butonului să nu le
+              // renumere la runda următoare.
+              setPaidOrderIds((prev) => {
+                const next = new Set(prev)
+                previousOrders.forEach((o) => next.add(o.id))
+                if (confirmation) next.add(confirmation.id)
+                return next
+              })
+            }}
             onPayOtherwise={() => {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
