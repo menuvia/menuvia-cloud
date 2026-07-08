@@ -192,16 +192,19 @@ exports.handler = async (event) => {
         try {
           finalPlan = await resolvePlan(stripe, subscriptionId)
         } catch (e) {
-          console.error(
-            `[stripe-webhook] ALERTĂ: resolvePlan a eșuat pentru subscription ${subscriptionId} ` +
-            `(user ${refUserId}) — NU aplicăm downgrade, planul curent rămâne neschimbat. Eroare:`,
-            e?.message || e,
-          )
-          // Nu marcăm eroarea ca fatală pentru webhook (nu vrem retry infinit pe
-          // un customer.id valid) — dar nici nu scriem 'free' peste un plan plătit.
-          // Ieșim din acest case fără update de plan; restul câmpurilor (customer_id/
-          // subscription_id) rămân neschimbate până la un eveniment ulterior reușit
-          // (ex. customer.subscription.updated) care va corecta planul.
+          // resolvePlan aruncă DOAR pe eroare Stripe tranzitorie (o subscripție
+          // anulată real nu aruncă — retrieve întoarce status='canceled' →
+          // normalizePlan fail-close 'free'). Deci un throw = tranzitoriu:
+          // marcăm processingError → 500 → Stripe RETRIMITE (backoff ~3 zile,
+          // finit; update-ul de profil e idempotent). Înainte făceam `break`
+          // (200, event 'completed') → clientul care tocmai a plătit rămânea pe
+          // 'free' fără retry garantat (recovery depindea de un
+          // customer.subscription.updated care poate să nu se declanșeze).
+          // NU scriem niciun 'free' aici — planul curent rămâne neatins.
+          processingError =
+            `resolvePlan tranzitoriu eșuat pentru subscription ${subscriptionId} ` +
+            `(user ${refUserId}): ${e?.message || String(e)}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
           break
         }
 
