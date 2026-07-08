@@ -68,7 +68,11 @@ async function postCronNotice(jobName, message) {
 }
 
 exports.handler = async () => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
+  // Fallback VITE_ pentru paritate cu health.js/send-health-slack-alerts —
+  // altfel cel mai critic cron (lifecycle + rapoarte + payout + GDPR) moare cu
+  // 500 ÎNAINTE de a putea alerta, dacă mediul are doar VITE_SUPABASE_URL.
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const { SUPABASE_SERVICE_ROLE_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return { statusCode: 500, body: 'Missing env' }
   }

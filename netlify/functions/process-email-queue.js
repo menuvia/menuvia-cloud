@@ -528,7 +528,8 @@ async function postEmailAlert(message) {
 
 // ── Main handler ──────────────────────────────────────────────
 exports.handler = async () => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY } = process.env
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const { SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY } = process.env
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return { statusCode: 500, body: 'Missing env' }
