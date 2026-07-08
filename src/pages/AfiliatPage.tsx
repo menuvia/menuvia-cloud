@@ -317,7 +317,13 @@ function AcasaTab({
         }}
       >
         <MetricCard label="Restaurante active" value={String(activeCount)} hint={`${totalCount} aduse în total`} accent />
-        <MetricCard label="Confirmat (de plată)" value={formatRON(e?.confirmed_cents, cur)} accent />
+        {/* „De plată" = confirmat − deja plătit (nu brutul confirmat, care ar
+            arăta bani deja trimiși). Clamp la 0; „Plătit" apare separat mai jos. */}
+        <MetricCard
+          label="De plată"
+          value={formatRON(Math.max(0, (e?.confirmed_cents ?? 0) - (e?.paid_cents ?? 0)), cur)}
+          accent
+        />
         <MetricCard label="În așteptare" value={formatRON(e?.pending_cents, cur)} hint="trece de hold în curând" />
         <MetricCard label="Total câștigat" value={formatRON(e?.total_cents, cur)} />
         <MetricCard label="Plătit" value={formatRON(e?.paid_cents, cur)} />
