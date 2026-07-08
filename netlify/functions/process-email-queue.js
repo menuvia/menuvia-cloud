@@ -566,15 +566,16 @@ exports.handler = async () => {
     if (!template) {
       // Template necunoscut aici ≠ eroare permanentă: enumul email_template_kind poate fi
       // extins într-o migrație fără ca deploy-ul acestui fișier să fi prins încă handler-ul.
-      // Tratăm identic cu eșecul tranzitoriu Resend (retry cu backoff), ca să nu pierdem
-      // emailul definitiv înainte de următorul deploy.
-      const attempts = email.failed_attempts + 1
+      // Cap pe TIMP (24h de la creare), NU pe failed_attempts: (a) deploy-ul JS poate
+      // întârzia ore față de migrație — 3 încercări/30min pierdeau emailul înainte de
+      // deploy; (b) NU incrementăm failed_attempts, ca să nu epuizăm bugetul de retry
+      // Resend când template-ul devine cunoscut. Peste 24h → 'failed' (enum orfan real).
+      const ageMs = Date.now() - new Date(email.created_at).getTime()
+      const tooOld = Number.isFinite(ageMs) && ageMs > 24 * 60 * 60_000
       await supabase.from('email_queue').update({
-        status: attempts >= 3 ? 'failed' : 'queued',
-        failed_attempts: attempts,
+        status: tooOld ? 'failed' : 'queued',
         last_error: `Unknown template: ${email.template_kind}`,
-        // Backoff: wait 10min × attempts before retry
-        scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
+        scheduled_for: new Date(Date.now() + 15 * 60_000).toISOString(),
       }).eq('id', email.id)
       failed++
       continue
