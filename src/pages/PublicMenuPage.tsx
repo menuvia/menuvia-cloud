@@ -31,6 +31,7 @@ import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSea
 import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
+import { useMenuSeo } from '../hooks/useMenuSeo'
 import {
   resolveTheme,
   isDarkTheme,
@@ -110,6 +111,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const theme = useMemo(() => resolveTheme(restaurant?.theme_settings), [restaurant])
   // Moneda meniului (mig 205) — get_restaurant_by_slug o expune de la mig 148.
   const menuCurrency = resolveMenuCurrency(restaurant?.currency)
+
+  // SEO dinamic: titlu/meta/Open Graph + JSON-LD schema.org Restaurant/Menu, ca
+  // Google să indexeze „<Restaurant> — Meniu" cu rich results, nu titlul generic.
+  useMenuSeo(restaurant, categories, menuCurrency)
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
   // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
