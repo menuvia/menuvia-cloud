@@ -393,6 +393,19 @@ exports.handler = async (event) => {
             invoice_id:      invoice.id,
             subscription_id: invoice.subscription,
           })
+          // Dunning — recuperare: attempt_count>1 ⇒ factura a eșuat cel puțin o
+          // dată înainte să reușească (clientul a primit deja emailul alarmant
+          // `payment_failed`). Închidem bucla cu emailul de reasigurare
+          // `payment_recovered` (mig 216). Pe reușită din prima (attempt_count≤1)
+          // NU emitem — altfel un email de „succes" la FIECARE ciclu recurent.
+          if (invoice.attempt_count > 1) {
+            await safeInsertLifecycleEvent(supabase, profile.id, 'payment_recovered', {
+              amount:     invoice.amount_paid,
+              currency:   invoice.currency,
+              invoice_id: invoice.id,
+              attempt:    invoice.attempt_count,
+            })
+          }
         } else {
           console.warn(`[stripe-webhook] invoice.paid: no profile for customer ${customerId}`)
         }
