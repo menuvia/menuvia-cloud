@@ -19,6 +19,7 @@ import {
 } from '../../lib/health'
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
+import { SubscriptionCard } from './SubscriptionCard'
 import { useInView, revealStyle } from '../../lib/motion'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
@@ -676,6 +677,14 @@ export default function HomeTab({
         </div>
       </div>
       </RevealItem>
+
+      {/* Abonament & facturare — doar plătitori (tier ≥ 2). Deschide Portalul
+          Stripe: destinația reală a CTA-urilor din emailurile de facturare. */}
+      {isAdmin && tier >= 2 && (
+        <RevealItem delay={300}>
+          <SubscriptionCard />
+        </RevealItem>
+      )}
 
       {/* Upgrade — doar tier 1, mereu ultimul */}
       {isAdmin && tier < 2 && (
