@@ -97,10 +97,22 @@ exports.handler = async () => {
       console.log(`[oblio] Issued ${oblio.seriesName}-${oblio.number} for invoice ${inv.invoice_id}`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error(`[oblio] Failed for invoice ${inv.invoice_id}:`, errMsg)
+      // Rezultat AMBIGUU (timeout/rețea în timpul POST-ului): Oblio POATE fi creat
+      // deja factura, iar retry-ul ar produce un DUPLICAT fiscal (HIGH-3). Nu putem
+      // preveni activ duplicatul fără un endpoint de căutare Oblio, dar marcăm clar
+      // riscul în last_error ca founderul să verifice în Oblio ÎNAINTE ca retry-ul
+      // să trimită din nou. O eroare 4xx de la Oblio = factura sigur NU s-a creat
+      // (retry sigur); un abort/network = incert.
+      const ambiguous =
+        (err && err.name === 'AbortError') ||
+        /aborted|timeout|network|fetch failed|ECONNRESET|ETIMEDOUT/i.test(errMsg)
+      const storedErr = ambiguous
+        ? `POSIBIL DUPLICAT — verifică în Oblio (order:${inv.order_id}) înainte de retry. Cauză: ${errMsg}`
+        : errMsg
+      console.error(`[oblio] Failed for invoice ${inv.invoice_id}${ambiguous ? ' (AMBIGUU/posibil duplicat)' : ''}:`, errMsg)
       await supabase.rpc('bridge_oblio_mark_failed', {
         p_invoice_id: inv.invoice_id,
-        p_error:      errMsg.slice(0, 1000),
+        p_error:      storedErr.slice(0, 1000),
       })
       failed++
 
@@ -181,9 +193,9 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     throw new Error(`Order ${orderId} has no items`)
   }
 
-  // Get VAT rates for the restaurant
+  // Get VAT rates for the restaurant + totalul REAL (post-discount) al comenzii.
   const { data: order } = await supabase
-    .from('orders').select('restaurant_id').eq('id', orderId).single()
+    .from('orders').select('restaurant_id, total, discount_amount').eq('id', orderId).single()
 
   const { data: vatRates } = await supabase
     .from('vat_rates')
@@ -195,7 +207,8 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     vatMap[v.vat_group] = parseFloat(v.rate_percent)
   }
 
-  return items.map((it) => {
+  // Normalizăm întâi liniile la GROSS/unitate (TVA inclus, ca order.total).
+  const rows = items.map((it) => {
     const name = it.products?.name || 'Produs'
     const vatGroup = it.products?.vat_group ?? 1
     // Aliniat cu src/lib/vat.ts getVatRate: o grupă TVA lipsă din configurație e un
@@ -206,8 +219,6 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       throw new Error(`Grupă TVA ${vatGroup} lipsă din configurație pentru produsul ${name}`)
     }
     const vatPercent = vatMap[vatGroup]
-    // #6: pretul de linie = item_total/quantity (include modifier + extras deltas), nu doar
-    // pretul de baza al produsului — altfel totalul facturii diverge de order.total.
     // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
     // a trimite la Oblio (altfel price s-ar calcula cu un fallback iar payload-ul ar trimite
     // cantitatea originală invalidă → total divergent).
@@ -215,24 +226,41 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new Error(`Cantitate invalidă pe linia de comandă (produs: ${name})`)
     }
-    // item_total / unit_price_snapshot sunt GROSS (prețul plătit de client, TVA INCLUS;
-    // order.total = Σ item_total). Oblio interpretează `price` în funcție de `vatIncluded`:
-    //   - vatIncluded=true  → price e gross, Oblio nu mai adaugă TVA;
-    //   - vatIncluded=false → price e NET, Oblio adaugă TVA pe deasupra.
-    // Trimiteam mereu gross-ul, dar cu vatIncluded din config → când config-ul cere
-    // prețuri fără TVA, Oblio adăuga TVA peste gross și totalul facturii ieșea
-    // order.total*(1+TVA), divergent de suma încasată. Fix: derivă NET-ul când
-    // vatIncluded=false, ca totalul facturii să rămână = gross-ul plătit în ambele cazuri.
+    // #6: prețul de linie = item_total/quantity (include modifier + extras deltas), nu doar
+    // prețul de bază al produsului. item_total/unit_price_snapshot sunt GROSS (TVA inclus).
     const grossUnit =
       it.item_total != null
         ? parseFloat(it.item_total) / qty
         : parseFloat(it.unit_price_snapshot)
-    const price = vatIncluded ? grossUnit : grossUnit / (1 + vatPercent / 100)
+    return { name, qty, vatPercent, grossUnit }
+  })
+
+  // ── Discount la nivel de comandă (HIGH-1) ──────────────────────────────────
+  // Liniile (item_total) sunt PRE-discount, dar order.total e POST-discount
+  // (mig 031: total = subtotal − discount_amount) — și exact order.total e ce a
+  // plătit clientul și ce s-a fiscalizat pe casă. Fără corecție, factura Oblio
+  // supra-factura cu discount_amount (TVA supradeclarat + factură ≠ bon ≠ încasat).
+  // Distribuim discount-ul PROPORȚIONAL scalând fiecare linie cu order.total/subtotal;
+  // TVA per linie rămâne corect (proporțional redus), iar Σ linii = order.total.
+  const subtotalGross = rows.reduce((s, r) => s + r.grossUnit * r.qty, 0)
+  const orderTotal = order && order.total != null ? parseFloat(order.total) : NaN
+  const discountAmount = order && order.discount_amount != null ? parseFloat(order.discount_amount) : 0
+  const factor =
+    discountAmount > 0 && subtotalGross > 0 && Number.isFinite(orderTotal)
+      ? orderTotal / subtotalGross
+      : 1
+
+  return rows.map((r) => {
+    const grossUnit = r.grossUnit * factor
+    // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
+    // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
+    // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
+    const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
     return {
-      name,
-      quantity: it.quantity,
+      name: r.name,
+      quantity: r.qty,
       price,
-      vatPercentage: vatPercent,
+      vatPercentage: r.vatPercent,
       vatIncluded,
     }
   })
