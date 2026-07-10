@@ -100,12 +100,23 @@ export default function FounderPage({ onBack }: Props) {
   const isMobile = useIsMobile()
   // Guard: null = se verifică; false = interzis (redirect); true = ok.
   const [allowed, setAllowed] = useState<boolean | null>(null)
+  // Eroare de VERIFICARE (rețea/infra) ≠ acces refuzat. Un blip nu mai scoate
+  // fondatorul din /founder (audit founder, MEDIUM) — arătăm „Reîncearcă".
+  const [checkErr, setCheckErr] = useState(false)
+  const [retryTick, setRetryTick] = useState(0)
   const [section, setSection] = useState<Section>('overview')
 
   useEffect(() => {
     let cancelled = false
+    setCheckErr(false)
+    setAllowed(null)
     void isPlatformAdmin().then((ok) => {
       if (cancelled) return
+      if (ok === null) {
+        // Nu am putut verifica — NU face onBack (ar fi echivalat blip = interzis).
+        setCheckErr(true)
+        return
+      }
       setAllowed(ok)
       if (!ok) onBack()
     })
@@ -113,7 +124,7 @@ export default function FounderPage({ onBack }: Props) {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [retryTick])
 
   if (allowed !== true) {
     return (
@@ -122,12 +133,39 @@ export default function FounderPage({ onBack }: Props) {
           minHeight: '100vh',
           background: D.bg,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 14,
           color: D.t2,
+          padding: 24,
+          textAlign: 'center',
         }}
       >
-        Se verifică accesul...
+        {checkErr ? (
+          <>
+            <div>Nu am putut verifica accesul (problemă de rețea).</div>
+            <button
+              onClick={() => setRetryTick((t) => t + 1)}
+              className="pressable"
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 9,
+                padding: '11px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                minHeight: 44,
+              }}
+            >
+              Reîncearcă
+            </button>
+          </>
+        ) : (
+          'Se verifică accesul...'
+        )}
       </div>
     )
   }
@@ -466,7 +504,7 @@ function RestaurantsSection() {
     if (plan === r.plan) return
     const ok = await confirm({
       title: `Schimbi planul pentru ${r.name}?`,
-      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
+      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. ⚠️ Planul e per-CONT: dacă proprietarul are mai multe restaurante, li se schimbă planul TUTUROR. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
       confirmLabel: 'Schimbă planul',
     })
     if (!ok) return

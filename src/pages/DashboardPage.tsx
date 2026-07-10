@@ -635,7 +635,9 @@ export default function DashboardPage({
   useEffect(() => {
     let cancelled = false
     void isPlatformAdmin().then((v) => {
-      if (!cancelled) setIsPlatAdmin(v)
+      // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde tab-ul
+      // AI global, fără consecințe de acces (spre deosebire de FounderPage).
+      if (!cancelled) setIsPlatAdmin(v === true)
     })
     return () => {
       cancelled = true
@@ -740,7 +742,11 @@ export default function DashboardPage({
       </div>
     )
 
-  const Sidebar = () => (
+  // Funcție de RANDARE (nu componentă inline): definirea unei componente în corpul
+  // altei componente îi schimbă identitatea la fiecare render → React demontează și
+  // remontează tot sub-arborele (pierde focus/scroll, flicker). Ca funcție apelată
+  // `{renderSidebar()}`, elementele se reconciliază normal (audit dashboard, MEDIUM).
+  const renderSidebar = () => (
     <>
       <div
         style={{
@@ -1095,7 +1101,7 @@ export default function DashboardPage({
           flexShrink: 0,
         }}
       >
-        <Sidebar />
+        {renderSidebar()}
       </div>
 
       {/* Mobile overlay */}
@@ -1120,7 +1126,7 @@ export default function DashboardPage({
               overflow: 'auto',
             }}
           >
-            <Sidebar />
+            {renderSidebar()}
           </div>
         </>
       )}

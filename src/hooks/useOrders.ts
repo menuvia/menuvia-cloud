@@ -45,6 +45,26 @@ function rtNum(v: unknown): number | null {
 // tranziție de status/plată — câmpurile de mai jos sunt exact ce scrie
 // advance_order. Toate se iau din rând (rândul realtime e complet), deci
 // două evenimente rapide pe aceeași comandă converg la starea finală.
+// True dacă payload-ul reprezintă o TRANZIȚIE de status/plată reală (un câmp de
+// status sau un timestamp de stadiu chiar s-a schimbat). Folosit ca gardă pentru
+// fast-path-ul de merge din realtime: o editare de PRODUSE cu total identic (swap
+// la același preț) nu schimbă niciun câmp de status → nu e „tranziție" → refetch,
+// ca să nu rămână produse STALE pe Bucătărie/Ospătar (audit comenzi, MEDIUM).
+function isStatusTransition(existing: Order, row: Record<string, unknown>): boolean {
+  const diff = (a: string | null, b: string | null) => (a ?? '') !== (b ?? '')
+  return (
+    diff(rtStr(row.status), existing.status) ||
+    diff(rtStr(row.confirmed_at), existing.confirmed_at) ||
+    diff(rtStr(row.preparing_at), existing.preparing_at) ||
+    diff(rtStr(row.ready_at), existing.ready_at) ||
+    diff(rtStr(row.served_at), existing.served_at) ||
+    diff(rtStr(row.paid_at), existing.paid_at) ||
+    diff(rtStr(row.cancelled_at), existing.cancelled_at) ||
+    diff(rtStr(row.payment_method), existing.payment_method) ||
+    (rtNum(row.paid_amount) ?? -1) !== (existing.paid_amount ?? -1)
+  )
+}
+
 function mergeRealtimeOrder(existing: Order, row: Record<string, unknown>): Order {
   return {
     ...existing,
@@ -177,7 +197,15 @@ export function useOrders(
         if (eventType === 'UPDATE') {
           const existing = ordersRef.current.find((o) => o.id === orderId)
           const newTotal = rtNum(newRow.total)
-          if (existing && newTotal !== null && Math.abs(newTotal - existing.total) < 0.005) {
+          // Fast-path DOAR pentru tranziții reale de status/plată (total neschimbat
+          // ȘI un câmp de status/timestamp chiar s-a schimbat). O editare de produse
+          // cu total identic cade pe refetch (altfel produse stale pe Bucătărie).
+          if (
+            existing &&
+            newTotal !== null &&
+            Math.abs(newTotal - existing.total) < 0.005 &&
+            isStatusTransition(existing, newRow)
+          ) {
             upsertOrder(mergeRealtimeOrder(existing, newRow))
             return
           }

@@ -149,9 +149,13 @@ export async function getAiQuota(restaurantId: string): Promise<AiQuota | null> 
 }
 
 // ── Admin fondator (Faza E) ──────────────────────────────────
-export async function isPlatformAdmin(): Promise<boolean> {
+// Tristate: true = admin, false = NU (răspuns valid), null = nu am putut verifica
+// (eroare de rețea/infra). Consumatorii NU trebuie să trateze null drept „interzis"
+// (un blip de rețea scotea fondatorul din /founder — audit founder, MEDIUM). Un
+// downgrade la false se face DOAR pe un `false` valid (fără eroare).
+export async function isPlatformAdmin(): Promise<boolean | null> {
   const { data, error } = await supabase.rpc('is_platform_admin')
-  if (error) return false
+  if (error) return null
   return data === true
 }
 
