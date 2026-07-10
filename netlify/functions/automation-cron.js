@@ -332,6 +332,19 @@ const MAX_CONSECUTIVE_REPORT_FAILURES = 10
 
 // ── Dispatch weekly reports for all active restaurants ──────────
 async function dispatchWeeklyReports(supabase) {
+  // Short-circuit (perf): fereastra de dispatch e largă (2h, catch-up pe tick ratat),
+  // dar odată ce raportul a fost trimis nu are rost să recomputăm compute_weekly_report
+  // pentru FIECARE restaurant la fiecare tick. Dacă există deja un email weekly cu
+  // weekTag-ul de azi, sărim tot batch-ul. Fail-open pe eroare de query (worst case:
+  // recompute, oricum deduplicat pe dedup_key).
+  const weekTag = new Date().toISOString().slice(0, 10)
+  const { data: alreadySent, error: chkErr } = await supabase
+    .from('email_queue')
+    .select('id')
+    .like('dedup_key', `weekly:%:${weekTag}`)
+    .limit(1)
+  if (!chkErr && alreadySent && alreadySent.length > 0) return 0
+
   const { data: restaurants, error } = await supabase
     .from('restaurants')
     .select('id, owner_id, name, profiles!inner(email, full_name)')
@@ -367,8 +380,7 @@ async function dispatchWeeklyReports(supabase) {
       // Skip if zero activity (no point spamming)
       if (!report || report.orders === 0) continue
 
-      // Enqueue email
-      const weekTag = new Date().toISOString().slice(0, 10)
+      // Enqueue email (weekTag calculat o dată sus, pentru short-circuit + dedup).
       const { error: enqErr } = await supabase.rpc('enqueue_email', {
         p_recipient_email: r.profiles.email,
         p_template_kind: 'weekly_report',
@@ -416,6 +428,20 @@ async function dispatchWeeklyReports(supabase) {
 // Raport pe ziua precedentă. Skip restaurante fără comenzi în acea zi
 // (n-are sens să trimiți „0 lei, 0 comenzi" zilnic).
 async function dispatchDailyReports(supabase) {
+  // Dedup tag = ziua acoperită de raport (ieri în Bucharest).
+  const yesterdayBuc = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+  // Short-circuit (perf): dacă raportul zilnic a fost deja trimis pentru ziua asta,
+  // nu recomputa compute_daily_report per restaurant la fiecare tick din fereastră.
+  const { data: alreadySent, error: chkErr } = await supabase
+    .from('email_queue')
+    .select('id')
+    .like('dedup_key', `daily:%:${yesterdayBuc}`)
+    .limit(1)
+  if (!chkErr && alreadySent && alreadySent.length > 0) return 0
+
   const { data: restaurants, error } = await supabase
     .from('restaurants')
     .select('id, owner_id, name, profiles!inner(email, full_name)')
@@ -423,11 +449,6 @@ async function dispatchDailyReports(supabase) {
 
   if (error) throw error
   if (!restaurants || restaurants.length === 0) return 0
-
-  // Dedup tag = ziua acoperită de raport (ieri în Bucharest).
-  const yesterdayBuc = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
 
   let dispatched = 0
   let consecutiveFailures = 0
