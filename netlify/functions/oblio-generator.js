@@ -110,7 +110,12 @@ exports.handler = async () => {
         ? `POSIBIL DUPLICAT — verifică în Oblio (order:${inv.order_id}) înainte de retry. Cauză: ${errMsg}`
         : errMsg
       console.error(`[oblio] Failed for invoice ${inv.invoice_id}${ambiguous ? ' (AMBIGUU/posibil duplicat)' : ''}:`, errMsg)
-      await supabase.rpc('bridge_oblio_mark_failed', {
+      // Eșec AMBIGUU (timeout/rețea): Oblio poate fi creat deja factura → un retry
+      // automat ar produce un DUPLICAT fiscal. Marcăm TERMINAL (mig 218:
+      // bridge_oblio_mark_ambiguous → status='failed', fără requeue) ca cron-ul să
+      // NU reia; founderul verifică în Oblio și retrimite MANUAL (admin_retry_invoice).
+      // Erorile clare (4xx: factură sigur necreată) trec prin mark_failed (retry auto sigur).
+      await supabase.rpc(ambiguous ? 'bridge_oblio_mark_ambiguous' : 'bridge_oblio_mark_failed', {
         p_invoice_id: inv.invoice_id,
         p_error:      storedErr.slice(0, 1000),
       })
