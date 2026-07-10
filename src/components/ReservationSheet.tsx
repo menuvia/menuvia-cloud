@@ -453,6 +453,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           lang === 'ro'
             ? 'Rezervările nu sunt active pentru acest restaurant.'
             : 'Reservations are not enabled for this restaurant.'
+      } else if (/nu acceptă rezervări|această zi|closed|închis|open_days/i.test(m)) {
+        // Ziua aleasă e închisă (RPC mig 201) — mesaj clar, nu fallback-ul generic.
+        friendly =
+          lang === 'ro'
+            ? 'Restaurantul e închis în ziua aleasă. Alege altă zi.'
+            : 'The restaurant is closed on the selected day. Pick another day.'
       } else {
         friendly =
           lang === 'ro'

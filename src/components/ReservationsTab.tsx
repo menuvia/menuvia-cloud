@@ -491,7 +491,7 @@ function ActionButton({
 
 // ── Settings section (collapsible) ───────────────────────────
 function SettingsSection({ restaurantId }: { restaurantId: string }) {
-  const { settings, loading, save } = useReservationSettings(restaurantId)
+  const { settings, loading, error, save, refetch } = useReservationSettings(restaurantId)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Partial<ReservationSettings>>({})
   const [saving, setSaving] = useState(false)
@@ -516,10 +516,46 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     }
   }, [save, draft, merged, toast])
 
-  if (loading || !merged) {
+  if (loading) {
     return (
       <div style={{ marginTop: 32 }}>
         <Skeleton variant="card" />
+      </div>
+    )
+  }
+  // Fără această ramură, o eroare de fetch (RLS block / blip de rețea / rând lipsă
+  // pe `.single()`) lăsa `merged=null` → skeleton la infinit, tăcut. Acum: mesaj + retry.
+  if (error || !merged) {
+    return (
+      <div
+        style={{
+          marginTop: 32,
+          padding: 20,
+          border: `1px solid ${D.border}`,
+          borderRadius: 12,
+          background: D.s2,
+          color: D.t2,
+          textAlign: 'center',
+        }}
+      >
+        <div style={{ marginBottom: 12 }}>Nu am putut încărca setările de rezervări.</div>
+        <button
+          onClick={() => void refetch()}
+          className="pressable"
+          style={{
+            background: D.gold,
+            color: '#000',
+            border: 'none',
+            borderRadius: 9,
+            padding: '10px 18px',
+            fontSize: '0.82rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            minHeight: 44,
+          }}
+        >
+          Reîncearcă
+        </button>
       </div>
     )
   }
