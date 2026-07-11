@@ -631,6 +631,27 @@ export default function DashboardPage({
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
 
+  // CTA-urile din emailurile de facturare (payment_failed/recovered, trial,
+  // factură) trimit la /dashboard?tab=billing — fără efectul ăsta parametrul
+  // era IGNORAT, iar userul (adesea unul cu plata picată) ateriza pe Acasă fără
+  // nicio direcție. Scroll + centrare pe cardul „Abonament & facturare"
+  // (HomeTab e lazy → poll scurt până apare elementul).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') !== 'billing') return
+    let tries = 0
+    const timer = setInterval(() => {
+      const el = document.getElementById('billing-card')
+      tries++
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        clearInterval(timer)
+      } else if (tries > 20) {
+        clearInterval(timer)
+      }
+    }, 250)
+    return () => clearInterval(timer)
+  }, [])
+
   // Platform admin (fondatorul) — deblochează tab-ul de consum AI global.
   useEffect(() => {
     let cancelled = false

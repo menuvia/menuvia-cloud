@@ -209,6 +209,7 @@ function ExpandableCard({
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         style={{
           display: 'block',
           width: '100%',
@@ -265,15 +266,15 @@ export default function HomeTab({
         .select('id', head)
         .eq('restaurant_id', restaurantId)
         .eq('is_active', true)
-        .then(({ count }) => {
-          if (alive) setTablesCount(count ?? 0)
+        .then(({ count, error }) => {
+          if (alive && !error) setTablesCount(count ?? 0)
         }),
       supabase
         .from('categories')
         .select('id', head)
         .eq('restaurant_id', restaurantId)
-        .then(({ count }) => {
-          if (alive) setCategoriesCount(count ?? 0)
+        .then(({ count, error }) => {
+          if (alive && !error) setCategoriesCount(count ?? 0)
         }),
     ]
 
@@ -289,8 +290,8 @@ export default function HomeTab({
           .eq('restaurant_id', restaurantId)
           .neq('status', 'cancelled')
           .gte('created_at', todayStart)
-          .then(({ count }) => {
-            if (alive) setOrdersToday(count ?? 0)
+          .then(({ count, error }) => {
+            if (alive && !error) setOrdersToday(count ?? 0)
           }),
       )
       // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist:
@@ -300,8 +301,8 @@ export default function HomeTab({
           .from('orders')
           .select('id', head)
           .eq('restaurant_id', restaurantId)
-          .then(({ count }) => {
-            if (alive) setEverOrdered((count ?? 0) > 0)
+          .then(({ count, error }) => {
+            if (alive && !error) setEverOrdered((count ?? 0) > 0)
           }),
       )
       if (isAdmin) {
@@ -310,8 +311,8 @@ export default function HomeTab({
             .from('restaurant_memberships')
             .select('user_id', head)
             .eq('restaurant_id', restaurantId)
-            .then(({ count }) => {
-              if (alive) setTeamCount(count ?? 0)
+            .then(({ count, error }) => {
+              if (alive && !error) setTeamCount(count ?? 0)
             }),
         )
       }
@@ -326,9 +327,13 @@ export default function HomeTab({
   useEffect(() => {
     if (!isAdmin || tier < 2) return
     let alive = true
-    void fetchHealthScore(restaurantId).then((h) => {
-      if (alive) setHealth(h)
-    })
+    void fetchHealthScore(restaurantId)
+      .then((h) => {
+        if (alive) setHealth(h)
+      })
+      .catch(() => {
+        /* scorul e informativ — pe eroare rămâne fallback-ul, fără crash */
+      })
     return () => {
       alive = false
     }
@@ -505,6 +510,8 @@ export default function HomeTab({
                   else handleViewMenu()
                 }}
                 className={it.done ? undefined : 'pressable'}
+                aria-disabled={it.done || undefined}
+                aria-label={it.done ? it.label + ' (completat)' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -512,7 +519,8 @@ export default function HomeTab({
                   background: 'transparent',
                   border: 'none',
                   borderRadius: 8,
-                  padding: '7px 8px',
+                  padding: '12px 8px',
+                  minHeight: 44,
                   margin: '0 -8px',
                   cursor: it.done ? 'default' : 'pointer',
                   fontFamily: 'DM Sans,sans-serif',
@@ -684,7 +692,11 @@ export default function HomeTab({
           Stripe: destinația reală a CTA-urilor din emailurile de facturare. */}
       {isAdmin && tier >= 2 && (
         <RevealItem delay={300}>
-          <SubscriptionCard />
+          {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
+              scroll aici, vezi efectul din DashboardPage). */}
+          <div id="billing-card">
+            <SubscriptionCard />
+          </div>
         </RevealItem>
       )}
 

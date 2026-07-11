@@ -25,7 +25,14 @@ export function SubscriptionCard({ planName }: { planName?: string }) {
       // openBillingPortal redirecționează la succes; nu ajungem aici.
     } catch (e) {
       const be = e as BillingError
-      setErr(be.message || 'Nu am putut deschide portalul de facturare.')
+      // Managerul (non-owner) nu are stripe_customer_id — planul aparține
+      // restaurantului, dar abonamentul e pe contul PROPRIETARULUI. Fără mesajul
+      // dedicat, managerul primea dead-end-ul derutant „Nu ai încă un abonament".
+      setErr(
+        be.code === 'no_customer'
+          ? 'Abonamentul e gestionat de contul proprietarului restaurantului.'
+          : be.message || 'Nu am putut deschide portalul de facturare.',
+      )
       setLoading(false)
     }
   }
