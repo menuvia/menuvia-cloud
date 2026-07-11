@@ -14,6 +14,7 @@ import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
 import { Icon, type IconName } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { fetchVatRates, getVatLabel, getVatRate, type VatRate } from '../lib/vat'
 import {
   fetchIngredients,
   createIngredient,
@@ -359,6 +360,23 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState<Ingredient | null>(null)
   const [adjustingId, setAdjustingId] = useState<string | null>(null)
+  // Cotele TVA REALE ale restaurantului (VatRatesEditor / mig cote 21-11) —
+  // hardcodarea 9/19/5/0 afișa cote pre-august 2025, contrazicând Raport TVA.
+  const [vatRates, setVatRates] = useState<VatRate[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchVatRates(restaurantId)
+      .then((r) => {
+        if (!cancelled) setVatRates(r)
+      })
+      .catch(() => {
+        /* fallback: etichete „Grupa N" din getVatLabel */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
 
   async function load() {
     setLoading(true)
@@ -507,7 +525,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
                   <span>
                     {ing.cost_per_unit.toFixed(2)} lei / {ing.unit}
                   </span>
-                  <span>TVA {[9, 19, 5, 0][ing.vat_group - 1]}%</span>
+                  <span>TVA {getVatLabel(vatRates, ing.vat_group)}</span>
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -546,6 +564,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
       {showAdd && (
         <IngredientModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           ingredient={null}
           onClose={() => setShowAdd(false)}
           onSave={() => {
@@ -557,6 +576,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
       {editing && (
         <IngredientModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           ingredient={editing}
           onClose={() => setEditing(null)}
           onSave={() => {
@@ -582,11 +602,13 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
 // ── Modal: Adaugă/Edit Ingredient ─────────────────────────────
 function IngredientModal({
   restaurantId,
+  vatRates,
   ingredient,
   onClose,
   onSave,
 }: {
   restaurantId: string
+  vatRates: VatRate[]
   ingredient: Ingredient | null
   onClose: () => void
   onSave: () => void
@@ -703,10 +725,23 @@ function IngredientModal({
                 value={vatGroup}
                 onChange={(e) => setVatGroup(parseInt(e.target.value))}
               >
-                <option value={1}>9% (mâncare)</option>
-                <option value={2}>19% (alcool)</option>
-                <option value={3}>5% (special)</option>
-                <option value={4}>0% (scutit)</option>
+                {/* Cotele REALE ale restaurantului (VatRatesEditor) — hardcodarea
+                    9/19/5/0 afișa cotele pre-august 2025. Fallback pe grupele
+                    generice doar dacă fetch-ul a eșuat. */}
+                {vatRates.length > 0 ? (
+                  vatRates.map((r) => (
+                    <option key={r.vat_group} value={r.vat_group}>
+                      {r.rate_percent}% ({r.label})
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value={1}>Grupa 1</option>
+                    <option value={2}>Grupa 2</option>
+                    <option value={3}>Grupa 3</option>
+                    <option value={4}>Grupa 4</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
@@ -1117,6 +1152,22 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  // Cotele TVA reale ale restaurantului — opțiunile NIR nu mai sunt hardcodate.
+  const [vatRates, setVatRates] = useState<VatRate[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchVatRates(restaurantId)
+      .then((r) => {
+        if (!cancelled) setVatRates(r)
+      })
+      .catch(() => {
+        /* fallback: opțiunile legacy din select */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
 
   async function load() {
     setLoading(true)
@@ -1286,6 +1337,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
       {showAdd && (
         <NirCreateModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           suppliers={suppliers}
           ingredients={ingredients}
           onClose={() => setShowAdd(false)}
@@ -1309,17 +1361,21 @@ interface NirItem {
 
 function NirCreateModal({
   restaurantId,
+  vatRates,
   suppliers,
   ingredients,
   onClose,
   onSave,
 }: {
   restaurantId: string
+  vatRates: VatRate[]
   suppliers: Supplier[]
   ingredients: Ingredient[]
   onClose: () => void
   onSave: () => void
 }) {
+  // Default de rând = cota grupei 1 (mâncare) din config; 19 doar ca ultim fallback.
+  const defaultVat = getVatRate(vatRates, 1) ?? 19
   const [supplierId, setSupplierId] = useState<string>('')
   const [supplierName, setSupplierName] = useState<string>('') // pentru autocomplete
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -1327,14 +1383,14 @@ function NirCreateModal({
   const [notes, setNotes] = useState('')
   const isMobile = useIsMobile()
   const [items, setItems] = useState<NirItem[]>([
-    { ingredient_id: '', quantity: '', unit_price: '', vat_rate: 19 },
+    { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat },
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [receiveImmediately, setReceiveImmediately] = useState(true)
 
   function addRow() {
-    setItems((prev) => [...prev, { ingredient_id: '', quantity: '', unit_price: '', vat_rate: 19 }])
+    setItems((prev) => [...prev, { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat }])
   }
 
   function removeRow(idx: number) {
@@ -1591,10 +1647,20 @@ function NirCreateModal({
                           value={it.vat_rate}
                           onChange={(e) => updateRow(idx, 'vat_rate', parseFloat(e.target.value))}
                         >
-                          <option value={0}>0%</option>
-                          <option value={5}>5%</option>
-                          <option value={9}>9%</option>
-                          <option value={19}>19%</option>
+                          {/* Cotele reale ale restaurantului; fallback legacy dacă
+                              fetch-ul a eșuat. Valoarea curentă rămâne selectabilă
+                              chiar dacă nu mai e în listă (rând vechi). */}
+                          {(vatRates.length > 0
+                            ? [...new Set(vatRates.map((r) => r.rate_percent).concat(it.vat_rate))]
+                            : [0, 5, 9, 19, it.vat_rate]
+                          )
+                            .filter((v, i, arr) => arr.indexOf(v) === i)
+                            .sort((a, b) => a - b)
+                            .map((v) => (
+                              <option key={v} value={v}>
+                                {v}%
+                              </option>
+                            ))}
                         </select>
                       </div>
                     </div>
