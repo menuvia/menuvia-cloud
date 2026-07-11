@@ -17,17 +17,22 @@ export function roPdfSafe(s: string): string {
 }
 
 // Patch pe INSTANȚĂ (shadow peste metoda de pe prototip): orice doc.text(...)
-// ulterior trece string-urile prin roPdfSafe. Semnătura structurală acoperă
-// forma folosită în repo (text, x, y, options?).
-interface PdfTextLike {
-  text: (text: string | string[], x: number, y: number, options?: unknown) => unknown
-}
-
-export function patchPdfDiacritics<T extends PdfTextLike>(doc: T): T {
-  const orig = doc.text.bind(doc)
-  doc.text = (text: string | string[], x: number, y: number, options?: unknown) => {
-    const safe = Array.isArray(text) ? text.map(roPdfSafe) : roPdfSafe(text)
-    return orig(safe, x, y, options)
+// ulterior trece string-urile prin roPdfSafe. Semnătura e intenționat OPACĂ
+// (variadic unknown, prin aserțiune structurală) ca să nu depindă de forma
+// exactă a tipurilor jsPDF — o semnătură structurală „prietenoasă" nu era
+// asignabilă înapoi peste metoda reală (return jsPDF, param TextOptionsLight)
+// și pica build-ul Netlify, invizibil local fără node_modules.
+export function patchPdfDiacritics(doc: object): void {
+  const d = doc as { text: (...args: unknown[]) => unknown }
+  const orig = d.text.bind(d)
+  d.text = (...args: unknown[]) => {
+    const [first, ...rest] = args
+    const safe =
+      typeof first === 'string'
+        ? roPdfSafe(first)
+        : Array.isArray(first)
+          ? first.map((s) => (typeof s === 'string' ? roPdfSafe(s) : (s as unknown)))
+          : first
+    return orig(safe, ...rest)
   }
-  return doc
 }
