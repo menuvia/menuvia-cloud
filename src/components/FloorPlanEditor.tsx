@@ -166,7 +166,15 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const [wallT, setWallT] = useState<WallType>('wall')
   const [decoT, setDecoT] = useState<DecoType>('plant')
   const [seats, setSeats] = useState(4)
-  const [tblNum, setTblNum] = useState(1)
+  // Contorul de etichete pornește din layout-ul EXISTENT (max numeric + 1) —
+  // constanta 1 producea etichete duplicate la redeschidere (strica auto-link-ul
+  // POS pe nume și statusul Live).
+  const [tblNum, setTblNum] = useState(() => {
+    const nums = (initialLayout?.floors ?? []).flatMap((f) =>
+      f.tables.map((t) => parseInt(t.label, 10)).filter((n) => Number.isFinite(n)),
+    )
+    return nums.length > 0 ? Math.max(...nums) + 1 : 1
+  })
   const [sel, setSel] = useState<{ type: string; id: string } | null>(null)
   const [drag, setDrag] = useState<string | null>(null)
   const [wallDraw, setWallDraw] = useState<{
@@ -310,15 +318,33 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     if (drag) {
       const nx = snap(p.x - off.current.x)
       const ny = snap(p.y - off.current.y)
+      // Clamp la canvas: fără el, elementul putea fi tras complet în afara
+      // zonei vizibile (overflow hidden) și devenea irecuperabil fără undo.
       if (sel?.type === 'table') {
         upd((f) => ({
           ...f,
-          tables: f.tables.map((t) => (t.id === drag ? { ...t, x: nx, y: ny } : t)),
+          tables: f.tables.map((t) =>
+            t.id === drag
+              ? {
+                  ...t,
+                  x: Math.min(Math.max(nx, 0), CANVAS_W - t.w),
+                  y: Math.min(Math.max(ny, 0), CANVAS_H - t.h),
+                }
+              : t,
+          ),
         }))
       } else if (sel?.type === 'deco') {
         upd((f) => ({
           ...f,
-          decos: f.decos.map((d) => (d.id === drag ? { ...d, x: nx, y: ny } : d)),
+          decos: f.decos.map((d) =>
+            d.id === drag
+              ? {
+                  ...d,
+                  x: Math.min(Math.max(nx, 0), CANVAS_W - d.size),
+                  y: Math.min(Math.max(ny, 0), CANVAS_H - d.size),
+                }
+              : d,
+          ),
         }))
       }
     }
@@ -868,7 +894,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 onChange={() => setShowGrid(!showGrid)}
                 style={{ accentColor: D.gold, width: 18, height: 18 }}
               />
-              Grid
+              Grilă
             </label>
           </div>
           {isMobile && (
@@ -1247,7 +1273,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 Masă #{selTable.label}
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Label</div>
+                <div style={propLabel}>Etichetă</div>
                 <input
                   style={inp}
                   aria-label="Etichetă masă"
@@ -1265,7 +1291,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   max={20}
                   aria-label="Număr de locuri"
                   value={selTable.seats}
-                  onChange={(e) => updTbl('seats', +e.target.value)}
+                  onChange={(e) => {
+                    // Câmp golit în timpul tastării: +'' = NaN → „NaN loc."; păstrăm valoarea.
+                    const n = parseInt(e.target.value, 10)
+                    updTbl('seats', Number.isFinite(n) ? Math.max(1, n) : selTable.seats)
+                  }}
                   {...focusRing}
                 />
               </div>
@@ -1298,8 +1328,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     type="number"
                     aria-label="Lățime masă (px)"
                     value={selTable.w}
-                    onChange={(e) => updTbl('w', +e.target.value)}
-                    placeholder="W"
+                    onChange={(e) => {
+                      // w=0 (câmp golit) făcea masa invizibilă pe canvas.
+                      const n = parseInt(e.target.value, 10)
+                      updTbl('w', Number.isFinite(n) ? Math.max(20, n) : selTable.w)
+                    }}
+                    placeholder="L"
                     {...focusRing}
                   />
                   <input
@@ -1307,8 +1341,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     type="number"
                     aria-label="Înălțime masă (px)"
                     value={selTable.h}
-                    onChange={(e) => updTbl('h', +e.target.value)}
-                    placeholder="H"
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10)
+                      updTbl('h', Number.isFinite(n) ? Math.max(20, n) : selTable.h)
+                    }}
+                    placeholder="Î"
                     {...focusRing}
                   />
                 </div>
