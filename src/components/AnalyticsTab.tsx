@@ -235,6 +235,12 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           .select('user_id, user:profiles(full_name,email)')
           .eq('restaurant_id', restaurantId),
       ])
+      // supabase-js NU aruncă pe eroare — fără verificare explicită, un blip
+      // RLS/rețea colapsează tăcut totul la [] și pagina minte cu „Nicio comandă".
+      // Aruncăm prima eroare găsită ca să activeze QueryError + Reîncearcă.
+      for (const r of [d, p, w, h, m]) {
+        if (r.error) throw r.error
+      }
       setDaily(d.data || [])
       setProducts(p.data || [])
       setWaiters(w.data || [])

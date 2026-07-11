@@ -13,6 +13,7 @@ import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
 
 interface QrTokenRow {
@@ -619,6 +620,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     try {
       const { default: jsPDF } = await import('jspdf')
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+      // Fonturile standard jsPDF nu au ă/ș/ț — fără patch, numele restaurantului
+      // și al meselor ieșeau cu caractere rupte în PDF-ul de print.
+      patchPdfDiacritics(doc)
       const accent = hexToRgb(restaurant.primary_color) || [200, 150, 60]
       const subtitleRo = 'Scanează pentru a comanda'
       const subtitleEn = 'Scan to order'

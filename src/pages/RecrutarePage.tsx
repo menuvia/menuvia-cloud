@@ -530,12 +530,12 @@ function Differentiators() {
           {[
             {
               k: 'Preț',
-              us: '49–99 RON/lună',
-              them: 'SmartBill 39 RON + POS 200 RON + Octopus 80 RON = 319 RON/lună',
+              us: 'de la 99 lei/lună, totul inclus',
+              them: 'SmartBill 39 lei + POS 200 lei + Octopus 80 lei = 319 lei/lună',
             },
             {
               k: 'TVA flexibil',
-              us: '9% / 19% / 5% pe fiecare produs, raport automat',
+              us: 'Cote configurabile (21% / 11% / 0%) pe fiecare produs, raport automat',
               them: 'Manual, prin Excel sau contabil extern',
             },
             {

@@ -296,11 +296,11 @@ export default function SettingsTab({
     for (const d of WEEK_DAY_KEYS) next[d] = { ...mon }
     upd('hours_structured', next)
   }
-  const slugify = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
+  // La TASTARE: normalizare lejeră FĂRĂ strip de cratime la capete — slugify-ul
+  // complet aplicat pe fiecare keystroke ștergea separatorul imediat ce era tastat
+  // („pizza-" → „pizza"), deci un slug cu cratimă era imposibil de scris manual.
+  // Curățarea capetelor o face RPC-ul change_restaurant_slug la salvare.
+  const slugifyWhileTyping = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
   const COLORS = ['#C8963C', '#E05555', '#4CAF6E', '#5B8DEF', '#9B72CF', '#E07B45', '#3ABFBF']
   // Nume RO pentru fiecare accent — folosite ca aria-label (screen reader) și
   // ca indicator ne-cromatic pentru utilizatorii care nu disting culorile.
@@ -950,7 +950,7 @@ export default function SettingsTab({
                 </span>
                 <Inp
                   value={form.slug || ''}
-                  onChange={(v) => upd('slug', slugify(v))}
+                  onChange={(v) => upd('slug', slugifyWhileTyping(v))}
                   placeholder="slug-url"
                 />
               </div>

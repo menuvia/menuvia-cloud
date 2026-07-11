@@ -192,6 +192,15 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
                 + {mod.option_name}
               </div>
             ))}
+            {/* Notița PER PRODUS („fără ceapă") e instrucțiune de preparare —
+                fără ea pe card, bucătarul gătea greșit deși clientul o scrisese. */}
+            {item.notes != null && item.notes.length > 0 && (
+              <div
+                style={{ fontSize: 12, color: D.amber, fontStyle: 'italic', paddingLeft: 12 }}
+              >
+                ✎ {item.notes}
+              </div>
+            )}
           </div>
         ))}
       </div>

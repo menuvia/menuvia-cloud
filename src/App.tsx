@@ -122,7 +122,11 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
       }}
     >
       <div>
-        <div style={{ fontFamily: 'Fraunces,serif', fontSize: 72, color: D.s3, fontWeight: 700 }}>
+        {/* D.s3 e token de SUPRAFAȚĂ — ca text era practic invizibil pe D.bg. */}
+        <div
+          aria-hidden="true"
+          style={{ fontFamily: 'Fraunces,serif', fontSize: 72, color: D.gold, fontWeight: 700 }}
+        >
           404
         </div>
         <div style={{ color: D.t2, fontSize: 16, marginBottom: 24 }}>Pagina nu a fost găsită.</div>

@@ -171,6 +171,27 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   const [resetSent, setResetSent] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
 
+  // Erorile Supabase vin în ENGLEZĂ (Invalid login credentials etc.) — publicul
+  // e non-tehnic și român. Mapăm mesajele cunoscute pe română; necunoscutele cad
+  // pe un mesaj generic acționabil (nu textul brut englez).
+  const translateAuthError = (msg: string): string => {
+    const m = msg.toLowerCase()
+    if (m.includes('invalid login credentials')) return 'Email sau parolă greșită.'
+    if (m.includes('already registered') || m.includes('already been registered'))
+      return 'Există deja un cont cu acest email. Încearcă autentificarea sau resetarea parolei.'
+    if (m.includes('email not confirmed'))
+      return 'Emailul nu e confirmat încă. Verifică inbox-ul (și spam-ul) pentru linkul de confirmare.'
+    if (m.includes('password should be') || m.includes('password is too short'))
+      return 'Parola e prea scurtă — folosește minim 6 caractere.'
+    if (m.includes('rate limit') || m.includes('too many requests'))
+      return 'Prea multe încercări. Așteaptă un minut și reîncearcă.'
+    if (m.includes('invalid email') || m.includes('unable to validate email'))
+      return 'Adresa de email nu pare validă. Verific-o și reîncearcă.'
+    if (m.includes('network') || m.includes('fetch') || m.includes('failed to'))
+      return 'Problemă de conexiune. Verifică internetul și reîncearcă.'
+    return 'Nu am putut procesa cererea. Verifică datele și reîncearcă.'
+  }
+
   const handle = async (evt: React.FormEvent) => {
     evt.preventDefault()
     setLoading(true)
@@ -183,7 +204,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         options: { data: { full_name: name } },
       })
       if (signUpErr) {
-        setError(signUpErr.message)
+        setError(translateAuthError(signUpErr.message))
         setLoading(false)
         return
       }
@@ -200,7 +221,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
 
     const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
     if (signInErr) {
-      setError(signInErr.message)
+      setError(translateAuthError(signInErr.message))
       setLoading(false)
       return
     }
@@ -208,14 +229,18 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   }
 
   const handleReset = async () => {
-    if (!resetEmail.trim()) return
+    // Email gol = feedback explicit, nu no-op tăcut (click-ul părea mort).
+    if (!resetEmail.trim()) {
+      setError('Scrie adresa de email a contului.')
+      return
+    }
     setLoading(true)
     setError(null)
     const { error: resetErr } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
       redirectTo: (import.meta.env.VITE_APP_URL || window.location.origin) + '/reset-password',
     })
     if (resetErr) {
-      setError(resetErr.message)
+      setError(translateAuthError(resetErr.message))
       setLoading(false)
       return
     }
@@ -283,7 +308,14 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28 }}>
           Introdu emailul și vei primi un link de resetare.
         </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* <form> real: Enter trimite (ca formularul principal de login). */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void handleReset()
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
           <div>
             <label htmlFor="reset-email" style={label}>
               Email
@@ -299,6 +331,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
           </div>
           {error && (
             <div
+              role="alert"
               style={{
                 background: A.errorBg,
                 border: `1px solid ${A.errorBorder}`,
@@ -311,16 +344,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               {error}
             </div>
           )}
-          <button
-            onClick={() => {
-              void handleReset()
-            }}
-            disabled={loading}
-            style={primaryBtn(loading)}
-          >
+          <button type="submit" disabled={loading} style={primaryBtn(loading)}>
             {loading ? 'Se procesează...' : 'Trimite link de resetare'}
           </button>
           <button
+            type="button"
             onClick={() => {
               setShowReset(false)
               setError(null)
@@ -337,7 +365,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
           >
             ← Înapoi la autentificare
           </button>
-        </div>
+        </form>
       </CenteredCard>
     )
   }

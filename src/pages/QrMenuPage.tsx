@@ -743,7 +743,10 @@ export default function QrMenuPage({ token }: Props) {
           disabled={callingWaiter || waiterCalled}
           style={{
             position: 'fixed',
-            bottom: cart.length > 0 ? 90 : 20,
+            // Bara „Comanda mea" e PERSISTENTĂ când comanda e permisă (chiar cu coș gol)
+            // — offset-ul urmează condiția EI de randare, nu coșul (altfel butoanele
+            // rămâneau acoperite de bară la coș gol).
+            bottom: orderingAllowed && !isFlipbook ? 90 : 20,
             left: 16,
             // Fundal derivat din temă (PUB.text = suprafață neutră de contrast),
             // nu maro hardcodat; verdele rămâne DOAR ca semnal de succes.
@@ -784,7 +787,10 @@ export default function QrMenuPage({ token }: Props) {
           disabled={requestingBill || billRequested}
           style={{
             position: 'fixed',
-            bottom: cart.length > 0 ? 90 : 20,
+            // Bara „Comanda mea" e PERSISTENTĂ când comanda e permisă (chiar cu coș gol)
+            // — offset-ul urmează condiția EI de randare, nu coșul (altfel butoanele
+            // rămâneau acoperite de bară la coș gol).
+            bottom: orderingAllowed && !isFlipbook ? 90 : 20,
             right: 16,
             // Fundal derivat din temă (vezi butonul „Cheamă ospătarul").
             background: billRequested ? '#4CAF6E' : PUB.text,

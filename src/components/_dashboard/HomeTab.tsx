@@ -20,6 +20,7 @@ import {
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
 import { SubscriptionCard } from './SubscriptionCard'
+import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
@@ -277,9 +278,10 @@ export default function HomeTab({
     ]
 
     if (tier >= 2) {
-      // Aceeași logică de „azi" ca ReportsTab (boundary explicit România),
-      // ca cifra din Acasă să bată cu raportul zilei.
-      const todayStart = new Date().toISOString().slice(0, 10) + 'T00:00:00+03:00'
+      // Aceeași logică de „azi" ca ReportsTab (boundary DST-aware România, lib/dates):
+      // data UTC + offset hardcodat +03:00 dădea cifra greșită lângă miezul nopții
+      // (ziua UTC ≠ ziua RO) și cu o oră deplasată iarna (EET e +02:00).
+      const todayStart = romaniaDayBoundaryISO(toRomaniaYMD(new Date()), false)
       counts.push(
         supabase
           .from('orders')

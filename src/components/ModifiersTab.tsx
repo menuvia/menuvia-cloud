@@ -63,8 +63,12 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   // Serverul (create_order, mig 145) respinge depășirea; aici owner-ul îl poate seta.
   const [gMaxSelect, setGMaxSelect] = useState('')
   const [saving, setSaving] = useState(false)
-  const [optName, setOptName] = useState('')
-  const [optPrice, setOptPrice] = useState('0')
+  // Draft-ul de „adaugă opțiune" e PER GRUP (map pe groupId): un singur state
+  // partajat făcea ca textul tastat într-un grup să apară în toate cardurile.
+  const [optDraft, setOptDraft] = useState<Record<string, { name: string; price: string }>>({})
+  const draftFor = (groupId: string) => optDraft[groupId] ?? { name: '', price: '0' }
+  const setDraftFor = (groupId: string, patch: Partial<{ name: string; price: string }>) =>
+    setOptDraft((d) => ({ ...d, [groupId]: { ...draftFor(groupId), ...patch } }))
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -188,21 +192,21 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function addOption(groupId: string) {
-    if (!optName.trim()) return
+    const draft = draftFor(groupId)
+    if (!draft.name.trim()) return
     setError(null)
     const maxOrder = groups.find((g) => g.id === groupId)?.modifier_options.length ?? 0
     const { error: e } = await supabase.from('modifier_options').insert({
       modifier_group_id: groupId,
-      name: optName.trim(),
-      price_delta: parseFloat(optPrice) || 0,
+      name: draft.name.trim(),
+      price_delta: parseFloat(draft.price) || 0,
       display_order: maxOrder,
     })
     if (e) {
       setError(e.message)
       return
     }
-    setOptName('')
-    setOptPrice('0')
+    setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
     await load()
   }
 
@@ -413,16 +417,18 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
             ))}
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <input
-                value={optName}
-                onChange={(e) => setOptName(e.target.value)}
+                value={draftFor(g.id).name}
+                onChange={(e) => setDraftFor(g.id, { name: e.target.value })}
                 placeholder="Nume opțiune"
+                aria-label={'Nume opțiune nouă pentru grupul ' + g.name}
                 style={{ ...inp, flex: '1 1 120px', height: 36, fontSize: '0.82rem' }}
               />
               <input
                 type="number"
-                value={optPrice}
-                onChange={(e) => setOptPrice(e.target.value)}
+                value={draftFor(g.id).price}
+                onChange={(e) => setDraftFor(g.id, { price: e.target.value })}
                 placeholder="+lei"
+                aria-label={'Preț suplimentar pentru opțiunea nouă din grupul ' + g.name}
                 style={{ ...inp, width: 70, height: 36, fontSize: '0.82rem' }}
               />
               <button

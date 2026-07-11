@@ -397,6 +397,18 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Scurtăturile NU se aplică în câmpuri editabile: fără guard, Backspace în
+      // „Etichetă masă"/„Nume zonă" ștergea chiar elementul editat, iar „r" îl rotea.
+      const el = e.target as HTMLElement | null
+      if (
+        el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable)
+      ) {
+        return
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') delSel()
       if (e.key === 'r' && sel) rotateSel()
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {

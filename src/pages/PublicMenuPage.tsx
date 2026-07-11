@@ -542,10 +542,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
 
-      {/* Gate D: CTA vizibil doar când modulul Rezervări e activat server-side.
-          Backward compat: dacă amenity 'reservations' bifat, păstrăm legacy
-          behavior până când admin-ul folosește toggle-ul nou. */}
-      {(reservationsModuleEnabled ?? restaurant.amenities?.includes('reservations')) && (
+      {/* Gate D: CTA vizibil DOAR când modulul Rezervări e activat server-side.
+          Fallback-ul legacy pe amenity era un flux MORT: fără rând în
+          restaurant_modules, create_reservation_public + get_tables_availability
+          resping oricum (is_module_enabled → false) — clientul completa formularul
+          degeaba. Amenity-ul rămâne doar badge informativ în hero. */}
+      {reservationsModuleEnabled === true && (
         <div style={{ padding: '14px 20px 0' }}>
           <button
             data-testid="reserve-cta"

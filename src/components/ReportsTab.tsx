@@ -21,6 +21,8 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { romaniaDayBoundaryISO, toRomaniaYMD } from '../lib/dates'
+import { patchPdfDiacritics } from '../lib/pdf'
 import {
   fetchWaiterSales,
   fetchHourlySales,
@@ -53,38 +55,8 @@ function addDays(d: Date, n: number) {
   return r
 }
 
-// Granița de zi (00:00:00 sau 23:59:59.999) pentru o dată YYYY-MM-DD, exprimată
-// ca instant UTC ISO, interpretată în fusul României — DST-aware (EET/EEST).
-// Calculează offset-ul real al fusului la acel instant (fără librării), ca să nu
-// hardcodăm +03:00 (greșit iarna). Trucul: ce offset are Europe/Bucharest față de
-// UTC la momentul respectiv = diferența dintre wall-time-ul redat în TZ și în UTC.
-function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
-  const [y, mo, d] = ymd.split('-').map(Number)
-  const h = endOfDay ? 23 : 0
-  const mi = endOfDay ? 59 : 0
-  const s = endOfDay ? 59 : 0
-  const ms = endOfDay ? 999 : 0
-  const guess = Date.UTC(y!, mo! - 1, d!, h, mi, s, ms)
-  const at = new Date(guess)
-  const asUtc = new Date(at.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-  const asBuc = new Date(at.toLocaleString('en-US', { timeZone: 'Europe/Bucharest' })).getTime()
-  const offsetMs = asBuc - asUtc // +7200000 iarna, +10800000 vara
-  return new Date(guess - offsetMs).toISOString()
-}
-
-// Data calendaristică (YYYY-MM-DD) a unui instant ÎN fusul României. `toISO`
-// folosea UTC → lângă miezul nopții „Azi" putea cădea pe ziua românească anterioară.
-function toRomaniaYMD(d: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Bucharest',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(d)
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}`
-}
-
+// Granițele de zi DST-aware au fost extrase în lib/dates (sursă unică) — HomeTab
+// reimplementase greșit „azi" cu +03:00 hardcodat exact din lipsa helperului comun.
 function periodRange(
   p: Period,
   custom: { from: string; to: string },
@@ -512,6 +484,9 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     try {
       const { default: jsPDF } = await import('jspdf')
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+      // Fonturile standard jsPDF nu au ă/ș/ț — fără patch, etichetele și numele
+      // de produse ieșeau cu caractere rupte în raportul exportat.
+      patchPdfDiacritics(doc)
       const label = periodLabel(period, range.from, range.to)
 
       doc.setFontSize(18)

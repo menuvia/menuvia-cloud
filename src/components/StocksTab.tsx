@@ -296,9 +296,16 @@ export default function StocksTab({ restaurantId }: Props) {
         </div>
       )}
 
-      {/* Sub-tabs */}
+      {/* Sub-tabs — scroll orizontal pe mobil (4 taburi nu încap pe 375px) */}
       <div
-        style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${D.border}`, paddingBottom: 0 }}
+        style={{
+          display: 'flex',
+          gap: 4,
+          borderBottom: `1px solid ${D.border}`,
+          paddingBottom: 0,
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        }}
       >
         {(
           [
