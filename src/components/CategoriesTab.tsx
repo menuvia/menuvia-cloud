@@ -134,7 +134,9 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
   const handleDelete = async () => {
     if (!delId) return
     const { error: e } = await remove(delId)
-    if (e) toast('Nu poți șterge o categorie cu produse', 'error')
+    // Mesajul hardcodat afirma o cauză FALSĂ (FK-ul e ON DELETE SET NULL —
+    // produsele nu blochează ștergerea); afișăm cauza reală.
+    if (e) toast('Nu s-a putut șterge categoria: ' + e.message, 'error')
     else toast('Ștearsă')
     setDelId(null)
   }

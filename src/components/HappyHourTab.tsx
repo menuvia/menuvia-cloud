@@ -144,17 +144,16 @@ export default function HappyHourTab({ restaurantId }: Props) {
   async function handleSave(
     rule: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>,
   ) {
-    try {
-      if (editing === 'new') {
-        await createHappyHourRule(restaurantId, rule)
-      } else if (editing) {
-        await updateHappyHourRule(editing.id, rule)
-      }
-      setEditing(null)
-      void load()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
+    // Eroarea se propagă în RuleEditor (setErr LOCAL, vizibil în modal) — înainte
+    // era scrisă pe bannerul părintelui, ACOPERIT de overlay-ul modalului rămas
+    // deschis → CTA-ul principal eșua fără niciun feedback vizibil.
+    if (editing === 'new') {
+      await createHappyHourRule(restaurantId, rule)
+    } else if (editing) {
+      await updateHappyHourRule(editing.id, rule)
     }
+    setEditing(null)
+    void load()
   }
 
   async function handleDelete() {
@@ -535,7 +534,7 @@ function RuleEditor({
   categories: Category[]
   products: Product[]
   onClose: () => void
-  onSave: (r: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => void
+  onSave: (r: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => Promise<void>
 }) {
   const [name, setName] = useState(rule?.name ?? '')
   const [startsAt, setStartsAt] = useState(rule?.starts_at?.slice(0, 5) ?? '17:00')
@@ -582,7 +581,7 @@ function RuleEditor({
       return
     }
     setErr(null)
-    onSave({
+    void onSave({
       name: name.trim(),
       is_active: isActive,
       starts_at: startsAt + ':00',
@@ -594,6 +593,8 @@ function RuleEditor({
       discount_type: discountType,
       discount_value: dv,
       max_discount: maxDiscount.trim().length > 0 ? Number(maxDiscount.replace(',', '.')) : null,
+    }).catch((e: unknown) => {
+      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
     })
   }
 

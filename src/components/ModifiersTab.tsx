@@ -4,6 +4,7 @@ import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { confirm as confirmDialog } from './ui/confirm'
 
 interface ModifierOption {
   id: string
@@ -70,23 +71,34 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   const setDraftFor = (groupId: string, patch: Partial<{ name: string; price: string }>) =>
     setOptDraft((d) => ({ ...d, [groupId]: { ...draftFor(groupId), ...patch } }))
   const [error, setError] = useState<string | null>(null)
+  // Eroare de ÎNCĂRCARE ≠ „niciun grup": fără ea, un refuz RLS/blip de rețea
+  // (supabase-js nu aruncă) randa fals empty state-ul peste date existente.
+  const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: gData } = await supabase
+    setLoadError(false)
+    const { data: gData, error: gErr } = await supabase
       .from('modifier_groups')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('display_order')
     const gIds = (gData ?? []).map((g: Record<string, unknown>) => g.id as string)
     let opts: Record<string, unknown>[] = []
+    let oErr: unknown = null
     if (gIds.length > 0) {
-      const { data: oData } = await supabase
+      const { data: oData, error: e2 } = await supabase
         .from('modifier_options')
         .select('*')
         .in('modifier_group_id', gIds)
         .order('display_order')
       opts = oData ?? []
+      oErr = e2
+    }
+    if (gErr || oErr) {
+      setLoadError(true)
+      setLoading(false)
+      return
     }
     const result: ModifierGroup[] = (gData ?? []).map((g: Record<string, unknown>) => ({
       id: g.id as string,
@@ -180,6 +192,20 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function deleteGroup(id: string) {
+    const g = groups.find((x) => x.id === id)
+    const nOpts = g?.modifier_options.length ?? 0
+    // Ștergere ireversibilă (FK on delete cascade pe opțiuni) — fără confirmare,
+    // o atingere greșită pierdea tot grupul; inconsistent cu CategoriesTab.
+    const ok = await confirmDialog({
+      title: `Ștergi grupul „${g?.name ?? ''}"?`,
+      description:
+        nOpts > 0
+          ? `Se șterg definitiv și cele ${nOpts} opțiuni ale lui.`
+          : 'Acțiunea nu poate fi anulată.',
+      confirmLabel: 'Șterge',
+      destructive: true,
+    })
+    if (!ok) return
     setError(null)
     const { error: e } = await supabase.from('modifier_groups').delete().eq('id', id)
     // Nu mai înghițim tăcut un refuz RLS / eroare de rețea: dacă pică, anunțăm
@@ -289,6 +315,22 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
 
       {loading ? (
         <Skeleton variant="card" count={2} />
+      ) : loadError ? (
+        <div
+          style={{
+            padding: 20,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            background: D.s2,
+            color: D.t2,
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ marginBottom: 12 }}>Nu am putut încărca grupurile de opțiuni.</div>
+          <button onClick={() => void load()} style={btn({ background: D.gold, color: '#000' })}>
+            Reîncearcă
+          </button>
+        </div>
       ) : groups.length === 0 ? (
         <EmptyState
           icon="tag"
@@ -393,6 +435,8 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     cursor: 'pointer',
                     fontSize: 14,
                     color: o.is_available ? D.green : D.t3,
+                    minWidth: 44,
+                    minHeight: 44,
                   }}
                 >
                   {/* Caracterele ●/○ direct — entitatea HTML NU se decodează într-o
@@ -408,7 +452,10 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     color: D.red,
+                    minWidth: 44,
+                    minHeight: 44,
                   }}
                 >
                   <Icon name="trash" size={14} />
