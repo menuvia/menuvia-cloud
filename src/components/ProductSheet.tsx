@@ -30,9 +30,20 @@ interface ProductSheetProps {
   onClose: () => void
   /** Moneda meniului (mig 205/206) — default 'RON'. */
   currency?: MenuCurrency
+  /** Reducere Happy Hour activă pe produs (%) — DOAR afișare, ca pe ProductCard.
+      Reducerea reală se aplică server-side la trimitere (trigger mig 077). */
+  happyHourPct?: number
 }
 
-function ProductSheet({ product, accent, theme, onAdd, onClose, currency = 'RON' }: ProductSheetProps) {
+function ProductSheet({
+  product,
+  accent,
+  theme,
+  onAdd,
+  onClose,
+  currency = 'RON',
+  happyHourPct = 0,
+}: ProductSheetProps) {
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -330,17 +341,70 @@ function ProductSheet({ product, accent, theme, onAdd, onClose, currency = 'RON'
                 {product.name}
               </h2>
 
-              <div
-                style={{
-                  fontFamily: 'Fraunces, Georgia, serif',
-                  fontSize: 22,
-                  fontWeight: 700,
-                  color: accent,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                {fmtPrice(product.price, currency)}
-              </div>
+              {/* Happy Hour: paritate de afișare cu ProductCard (preț tăiat +
+                  redus + „-N%"). Reducerea REALĂ se aplică server-side la
+                  trimiterea comenzii — aici doar informăm consistent. */}
+              {happyHourPct > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontSize: 16,
+                      color: PUB.textMuted,
+                      textDecoration: 'line-through',
+                    }}
+                  >
+                    {fmtPrice(product.price, currency)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontSize: 22,
+                      fontWeight: 700,
+                      color: '#4CAF6E',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {fmtPrice(product.price * (1 - happyHourPct / 100), currency)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#4CAF6E',
+                      background: 'rgba(76,175,110,0.12)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    -{Math.round(happyHourPct)}% Happy Hour
+                  </span>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontFamily: 'Fraunces, Georgia, serif',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: accent,
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  {fmtPrice(product.price, currency)}
+                </div>
+              )}
+              {happyHourPct > 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: PUB.textMuted,
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
+                >
+                  Reducerea Happy Hour se aplică automat la trimiterea comenzii.
+                </div>
+              )}
             </div>
 
             {/* Description */}

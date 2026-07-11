@@ -898,6 +898,7 @@ export default function QrMenuPage({ token }: Props) {
             theme={theme}
             onAdd={addToCart}
             currency={menuCurrency}
+            happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>

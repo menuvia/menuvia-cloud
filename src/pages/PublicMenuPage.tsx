@@ -853,6 +853,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             theme={theme}
             onAdd={addToCart}
             currency={menuCurrency}
+            happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
