@@ -87,7 +87,8 @@ function NavBar({ navigate }: { navigate: (p: string) => void }) {
               background: 'transparent',
               border: '1px solid rgba(255,255,255,0.1)',
               color: D.t2,
-              padding: '8px 16px',
+              padding: '12px 16px',
+              minHeight: 44,
               borderRadius: 8,
               fontSize: 13,
               cursor: 'pointer',
@@ -102,7 +103,8 @@ function NavBar({ navigate }: { navigate: (p: string) => void }) {
               background: D.gold,
               color: '#0A0908',
               border: 'none',
-              padding: '8px 18px',
+              padding: '12px 18px',
+              minHeight: 44,
               borderRadius: 8,
               fontSize: 13,
               cursor: 'pointer',
@@ -558,8 +560,10 @@ function Differentiators() {
               key={i}
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto 1fr 1fr',
-                gap: 24,
+                // auto-fit: pe 375px cele 3 coloane fixe nu încăpeau (text de ~85px);
+                // acum eticheta e rând-antet, iar Menuvia/concurența curg pe coloane.
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '10px 24px',
                 padding: '18px 0',
                 borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                 alignItems: 'baseline',
@@ -571,7 +575,7 @@ function Differentiators() {
                   fontSize: 16,
                   fontWeight: 600,
                   color: D.gold,
-                  minWidth: 100,
+                  gridColumn: '1 / -1',
                 }}
               >
                 {x.k}
@@ -719,6 +723,9 @@ function ContactForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+  // Consimțământ GDPR — recrutareSchema (schemas/index.ts) îl cere, dar formularul
+  // nu-l colecta deloc; fără el, prelucrarea datelor de contact n-are bază legală.
+  const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -733,15 +740,26 @@ function ContactForm() {
       setErr('Email invalid')
       return
     }
+    if (!consent) {
+      setErr('Trebuie să accepți prelucrarea datelor pentru contact')
+      return
+    }
     setBusy(true)
     setErr(null)
     try {
       const res = await fetch('/.netlify/functions/recrutare-contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, cafe, city, phone, email, message }),
+        body: JSON.stringify({ name, cafe, city, phone, email, message, consent }),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        // Backend-ul întoarce mesaje românești utile în corp (rate-limit etc.) —
+        // „HTTP 429" brut nu spune nimic unui patron de restaurant.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(
+          body?.error || 'Nu am putut trimite cererea. Încearcă din nou în câteva minute.',
+        )
+      }
       setDone(true)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare la trimitere')
@@ -759,7 +777,7 @@ function ContactForm() {
     fontSize: 15,
     color: D.t1,
     fontFamily: 'DM Sans, sans-serif',
-    outline: 'none',
+    // fără outline:'none' — pe fundal închis, focusul de tastatură trebuie să se vadă
     boxSizing: 'border-box',
   }
   const labelStyle: React.CSSProperties = {
@@ -847,8 +865,9 @@ function ContactForm() {
               }}
             >
               <div>
-                <label style={labelStyle}>Numele tău *</label>
+                <label htmlFor="rec-name" style={labelStyle}>Numele tău *</label>
                 <input
+                  id="rec-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   style={fieldStyle}
@@ -856,8 +875,9 @@ function ContactForm() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Cafenea / local *</label>
+                <label htmlFor="rec-cafe" style={labelStyle}>Cafenea / local *</label>
                 <input
+                  id="rec-cafe"
                   value={cafe}
                   onChange={(e) => setCafe(e.target.value)}
                   style={fieldStyle}
@@ -874,8 +894,9 @@ function ContactForm() {
               }}
             >
               <div>
-                <label style={labelStyle}>Oraș</label>
+                <label htmlFor="rec-city" style={labelStyle}>Oraș</label>
                 <input
+                  id="rec-city"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   style={fieldStyle}
@@ -883,8 +904,9 @@ function ContactForm() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Telefon *</label>
+                <label htmlFor="rec-phone" style={labelStyle}>Telefon *</label>
                 <input
+                  id="rec-phone"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   style={fieldStyle}
@@ -894,8 +916,9 @@ function ContactForm() {
             </div>
 
             <div>
-              <label style={labelStyle}>Email *</label>
+              <label htmlFor="rec-email" style={labelStyle}>Email *</label>
               <input
+                id="rec-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -905,8 +928,9 @@ function ContactForm() {
             </div>
 
             <div>
-              <label style={labelStyle}>Spune-mi pe scurt despre local (opțional)</label>
+              <label htmlFor="rec-message" style={labelStyle}>Spune-mi pe scurt despre local (opțional)</label>
               <textarea
+                id="rec-message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={3}
@@ -920,8 +944,36 @@ function ContactForm() {
               />
             </div>
 
+            {/* Consimțământ GDPR — cerut de recrutareSchema; fără el prelucrarea
+                datelor de contact n-are bază legală. */}
+            <label
+              htmlFor="rec-consent"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                fontSize: 13,
+                color: D.t2,
+                lineHeight: 1.5,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                id="rec-consent"
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 1, accentColor: D.gold, flexShrink: 0 }}
+              />
+              <span>
+                Sunt de acord ca datele mele de contact să fie folosite pentru a fi contactat despre
+                programul pilot Menuvia. *
+              </span>
+            </label>
+
             {err && (
               <div
+                role="alert"
                 style={{
                   padding: 12,
                   background: 'rgba(224,85,85,0.1)',

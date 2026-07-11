@@ -48,14 +48,30 @@ export default function LegalFooter() {
         <a href="https://anpc.ro" target="_blank" rel="noopener noreferrer" style={linkStyle}>
           ANPC
         </a>
+        {/* SOL/ODR (ec.europa.eu/consumers/odr) a fost desființată în iulie 2025 —
+            linkul mort a fost înlocuit cu SAL (ANPC). */}
         <a
-          href="https://ec.europa.eu/consumers/odr"
+          href="https://anpc.ro/ce-este-sal/"
           target="_blank"
           rel="noopener noreferrer"
           style={linkStyle}
         >
-          SOL
+          SAL
         </a>
+        {/* Redeschide bannerul de cookies (promisiunea din /cookies: retragerea
+            consimțământului „prin banner"). */}
+        <button
+          onClick={() => window.dispatchEvent(new Event('menuvia:open-cookie-settings'))}
+          style={{
+            ...linkStyle,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontFamily: 'DM Sans, sans-serif',
+          }}
+        >
+          Setări cookies
+        </button>
       </div>
       <div style={{ fontSize: 11, color: D.t3, opacity: 0.7 }}>
         Făcut în România · Date pe servere UE
@@ -69,4 +85,8 @@ const linkStyle: React.CSSProperties = {
   textDecoration: 'none',
   fontSize: 12,
   transition: 'color 0.15s',
+  // Țintă de touch ≥44px fără să schimbe layout-ul vizual (padding + margin negativ).
+  display: 'inline-block',
+  padding: '14px 8px',
+  margin: '-14px -8px',
 }
