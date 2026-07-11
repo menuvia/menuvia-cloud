@@ -634,7 +634,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {hourly.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Ore de vârf
+                Ore de vârf{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>· ultimele 30 de zile</span>
               </div>
               <div
                 style={{
@@ -681,7 +682,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {products.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Top produse
+                Top produse <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
               </div>
               <div
                 style={{
@@ -713,7 +714,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {waiters.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Performanță ospătar
+                Performanță ospătar{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
               </div>
               <div
                 style={{
