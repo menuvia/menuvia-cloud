@@ -172,6 +172,11 @@ export interface AdminAffiliateRow {
   recurring_bps?: number
   cascade_bps?: number
   recurring_cap_months?: number
+  // Datele cererii (mig 224) — pentru interviul telefonic. Tot opționale
+  // (FE poate ajunge înaintea migrației).
+  phone?: string | null
+  application_note?: string | null
+  reviewed_at?: string | null
 }
 
 export interface AdminAuditRow {
@@ -240,6 +245,16 @@ export function markPayoutPaid(id: string, wiseTransferId?: string): Promise<Adm
 
 export function listAffiliates(): Promise<AdminAffiliateRow[]> {
   return rpcJson<AdminAffiliateRow[]>('admin_list_affiliates')
+}
+
+// Decizia pe o cerere de afiliere (mig 224): aprobă (→active) sau respinge
+// (→rejected). Doar cererile pending/rejected sunt „reviewable" — suspendarea
+// și închiderea sunt mecanisme separate.
+export function reviewAffiliate(affiliateId: string, approve: boolean): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_review_affiliate', {
+    p_affiliate_id: affiliateId,
+    p_approve: approve,
+  })
 }
 
 export function setRestaurantPlan(restaurantId: string, plan: string): Promise<AdminActionResult> {

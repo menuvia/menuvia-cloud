@@ -23,6 +23,7 @@ import {
   listPayouts,
   markPayoutPaid,
   listAffiliates,
+  reviewAffiliate,
   setRestaurantPlan,
   toggleRestaurantActive,
   listAuditLog,
@@ -952,6 +953,31 @@ function AffiliatesSection() {
     }
   }
 
+  // Decizia pe o cerere (mig 224). Respingerea cere confirmare — e ce vede
+  // candidatul; aprobarea e acțiunea „fericită", fără fricțiune suplimentară.
+  async function doReview(a: AdminAffiliateRow, approve: boolean) {
+    if (!approve) {
+      const ok = await confirm({
+        title: 'Respingi cererea?',
+        description: `${a.full_name || a.email} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
+        confirmLabel: 'Respinge',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setBusyId(a.affiliate_id)
+    try {
+      const res = await reviewAffiliate(a.affiliate_id, approve)
+      if (!res.ok) throw new Error(res.error ?? 'Decizia nu a putut fi salvată')
+      toast.success(approve ? 'Partener aprobat — are acces la panou.' : 'Cerere respinsă.')
+      await affiliates.reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const affRows = affiliates.data ?? []
   // Arbore 1 nivel: părinți întâi, sub-afiliații imediat sub părinte, indentați.
   const parents = affRows.filter((a) => a.parent_affiliate_id == null)
@@ -1006,6 +1032,23 @@ function AffiliatesSection() {
                       {depth > 0 && <span style={{ color: D.t3 }}>↳ </span>}
                       {a.full_name || a.email}
                       <span style={{ color: D.t3, fontWeight: 400 }}> · cod {a.referral_code}</span>
+                      {a.status === 'pending' && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            background: D.goldA,
+                            color: D.gold,
+                            fontSize: '0.66rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          Cerere nouă
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
                       {a.email} · status {a.status}
@@ -1015,6 +1058,76 @@ function AffiliatesSection() {
                     Sold: {formatRon(a.balance_ron_cents)}
                   </div>
                 </div>
+                {/* Cererea de afiliere (mig 224): telefonul + nota candidatului
+                    pentru interviul telefonic + decizia Aprobă/Respinge. Pe
+                    'rejected' rămâne doar „Aprobă totuși" (repescuire). */}
+                {(a.status === 'pending' || a.status === 'rejected') && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: '10px 12px',
+                      background: D.s2,
+                      border: `1px solid ${a.status === 'pending' ? `${D.gold}44` : D.border}`,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div style={{ fontSize: '0.78rem', color: D.t1, marginBottom: 4 }}>
+                      <strong>Telefon:</strong>{' '}
+                      {a.phone ? (
+                        <a href={`tel:${a.phone.replace(/\s+/g, '')}`} style={{ color: D.gold, textDecoration: 'none' }}>
+                          {a.phone}
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                    </div>
+                    {a.application_note ? (
+                      <div style={{ fontSize: '0.76rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
+                        <strong style={{ color: D.t1 }}>Cum va recomanda:</strong> {a.application_note}
+                      </div>
+                    ) : null}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => void doReview(a, true)}
+                        disabled={busyId === a.affiliate_id}
+                        className="pressable"
+                        style={{
+                          background: D.gold,
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '9px 16px',
+                          minHeight: 40,
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {a.status === 'rejected' ? 'Aprobă totuși' : 'Aprobă'}
+                      </button>
+                      {a.status === 'pending' && (
+                        <button
+                          onClick={() => void doReview(a, false)}
+                          disabled={busyId === a.affiliate_id}
+                          className="pressable"
+                          style={{
+                            background: 'transparent',
+                            color: D.red,
+                            border: `1px solid ${D.red}55`,
+                            borderRadius: 8,
+                            padding: '9px 16px',
+                            minHeight: 40,
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Respinge
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <AffiliateCommissionRow affiliate={a} onSaved={() => void affiliates.reload()} />
                 {a.restaurants.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>

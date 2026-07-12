@@ -39,8 +39,8 @@ const DARK = {
 
 const STEPS: { title: string; text: string }[] = [
   {
-    title: 'Îți faci cont și primești linkul tău',
-    text: 'Înscrierea durează un minut. Primești un link unic de recomandare pe care îl dai mai departe.',
+    title: 'Aplici și facem cunoștință',
+    text: 'Cererea durează un minut. Te sunăm pentru o discuție scurtă, apoi primești linkul tău unic de recomandare și ghidul de start.',
   },
   {
     title: 'Recomanzi Menuvia restaurantelor',
@@ -67,6 +67,10 @@ const FAQ: { q: string; a: string }[] = [
   {
     q: 'Cine se poate înscrie?',
     a: 'Oricine — nu ai nevoie de experiență în vânzări. Singura condiție: la plată emiți factură către Menuvia, de pe PFA sau SRL.',
+  },
+  {
+    q: 'De ce e nevoie de o discuție telefonică?',
+    a: 'Vrem parteneri, nu doar linkuri distribuite la întâmplare. O discuție de 10 minute ne ajută să te cunoaștem, să-ți explicăm programul și să-ți răspundem la întrebări — apoi primești acces.',
   },
   {
     q: 'Când primesc banii?',
