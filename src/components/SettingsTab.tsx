@@ -1415,6 +1415,57 @@ export default function SettingsTab({
                     </div>
                   )
                 })}
+
+                {/* Badge „Creat cu Menuvia" — opt-out DOAR pe Plan 3 (beneficiu
+                    premium, E1). Citirea în meniuri e liberă (resolveHideBranding);
+                    aici gate-uim scrierea: sub tier 3 arătăm un chip de plan. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderTop: `1px solid ${D.s3}`,
+                    paddingTop: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                      {'Badge „Creat cu Menuvia"'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                      Linkul discret din josul meniului public.
+                      {planTier(plan) >= 3
+                        ? ' Pe planul tău îl poți ascunde.'
+                        : ' Se poate ascunde pe planul Fiscalizare.'}
+                    </div>
+                  </div>
+                  {planTier(plan) >= 3 ? (
+                    <Toggle
+                      value={!(form.theme_settings?.hide_branding ?? false)}
+                      onChange={(v) => updTheme({ hide_branding: !v })}
+                    />
+                  ) : (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        background: D.s3,
+                        color: D.t2,
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        padding: '5px 10px',
+                        borderRadius: 999,
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="lock" size={12} color={D.t2} />
+                      Plan Fiscalizare
+                    </span>
+                  )}
+                </div>
               </div>
             </SettingsCard>
 

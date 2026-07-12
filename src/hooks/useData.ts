@@ -62,6 +62,9 @@ export interface Restaurant {
       social?: boolean
     } | null
     flipbook_pages?: string[] | null
+    // Ascunde badge-ul „Creat cu Menuvia" (E1) — scrierea e gate-uită în UI
+    // pe Plan 3; citirea în meniuri e liberă (resolveHideBranding).
+    hide_branding?: boolean | null
   } | null
   pickup_settings: {
     enabled: boolean
