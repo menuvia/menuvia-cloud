@@ -2,8 +2,9 @@
 
 > Documentul-mamă: produs + tehnic + fiscal + infra + business + bani + riscuri + KPI.
 > Se citește împreună cu: `PLAN_10.md` (calitate, faze cu criterii), `COMPETITIE.md`
-> (piața), `ARCHITECTURE.md` (sistemul), `BRIDGE_FISCALNET_ARCHITECTURE.md` (fiscal).
-> Actualizat: 6 iulie 2026. Orice schimbare de direcție se scrie AICI, nu în chat.
+> (piața), `EXPANSION.md` (creștere: axe + valuri E1–E6), `ARCHITECTURE.md` (sistemul),
+> `BRIDGE_FISCALNET_ARCHITECTURE.md` (fiscal).
+> Actualizat: 12 iulie 2026. Orice schimbare de direcție se scrie AICI, nu în chat.
 
 ---
 
@@ -27,10 +28,14 @@ upsell), review-funnel Google, program de afiliere cu sub-afiliați, founder das
 
 ## 1. Starea de azi (rezumat scorecard — detalii în PLAN_10.md)
 
-Media ~6.5/10: **codul ~8, operarea ~3.** Cele 3 frâne: (1) producția înghețată pe #76
-(credite Netlify), (2) QA subțire (E2E roșu, 11 fișiere teste FE), (3) zero
-observabilitate reală (fără error-tracking / uptime / backup propriu). DB prod = la zi
-(mig 201, adus pe 6 iulie). Pilotul FiscalNet = cod complet, netestat pe casă reală.
+**Codul ~9, operarea ~3** (12 iulie). Săptămâna 6–12 iulie a închis: audit total
+(13 module backend + 28 pagini UI, ~150 findings reparate, scoruri 7–8.5), dunning
+cap-coadă + billing portal Stripe, lanțul plății online la masă (mig 202–211, TP1–12),
+meniul QR pe 1 RTT (mig 212), leak-uri închise (mig 217/219), migrații până la 222
+(215–222 validate local, DE APLICAT pe prod la reconectarea MCP). Frânele rămase sunt
+DOAR operaționale: (1) producția neaccesibilă public (FAZA 0), (2) E2E/QA (FAZA 2),
+(3) pilotul FiscalNet nepornit pe casă reală (FAZA 3). Direcția de creștere:
+`EXPANSION.md` (valurile E1–E6 rulează în paralel cu PLAN_10 F1–F3).
 
 ---
 
