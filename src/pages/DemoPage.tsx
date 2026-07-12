@@ -127,7 +127,7 @@ const DEMO_PRODUCTS = [
   },
 ]
 
-export default function DemoPage({ onBack }: { onBack: () => void }) {
+export default function DemoPage({ onBack, onStart }: { onBack: () => void; onStart: () => void }) {
   const toast = useToast()
   const [activeCat, setActiveCat] = useState('1')
   const [cartCount, setCartCount] = useState(0)
@@ -321,7 +321,7 @@ export default function DemoPage({ onBack }: { onBack: () => void }) {
             Meniul tău poate arăta exact așa — cu produsele și prețurile tale.
           </div>
           <button
-            onClick={onBack}
+            onClick={onStart}
             style={{
               background: ACCENT,
               color: '#fff',

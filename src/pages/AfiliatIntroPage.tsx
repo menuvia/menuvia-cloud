@@ -604,7 +604,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
             Prima recomandare poate fi săptămâna asta.
           </h3>
           <p style={{ color: DARK.text2, fontSize: 15, margin: '0 auto 28px', maxWidth: 480, lineHeight: 1.6 }}>
-            Cont în un minut, link unic pe loc. Restul — restaurantele pe care deja le cunoști.
+            Cont într-un minut, link unic pe loc. Restul — restaurantele pe care deja le cunoști.
           </p>
           <button onClick={onLogin} className="pressable hover-lift" style={goldCta}>
             Înscrie-te în program →

@@ -353,7 +353,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth')} />
       </Suspense>
     )
   if (state.view === 'recrutare')

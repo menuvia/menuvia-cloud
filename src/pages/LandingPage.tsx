@@ -458,7 +458,7 @@ export default function LandingPage({
       {/* How it works */}
       <div
         id="cum-functioneaza"
-        style={{ maxWidth: 880, margin: '0 auto', padding: '0 24px 80px' }}
+        style={{ scrollMarginTop: 80, maxWidth: 880, margin: '0 auto', padding: '0 24px 80px' }}
       >
         <RevealItem>
           <h2 style={{ ...sectionTitle, marginBottom: 44 }}>Pornești în 3 pași</h2>

@@ -22,11 +22,11 @@ function useElapsed(createdAt: string): string {
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   new: { label: 'Nou', color: D.t2, bg: D.s3 },
   confirmed: { label: 'Confirmat', color: D.amber, bg: 'rgba(232,160,32,0.12)' },
-  preparing: { label: 'In preparare', color: D.goldL, bg: D.goldA },
+  preparing: { label: 'În preparare', color: D.goldL, bg: D.goldA },
   ready: { label: 'Gata de servit', color: D.green, bg: 'rgba(76,175,110,0.12)' },
   served: { label: 'Servit', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
-  closed: { label: 'Inchis', color: D.t3, bg: D.s2 },
-  paid: { label: 'Platit', color: D.t3, bg: D.s2 },
+  closed: { label: 'Închis', color: D.t3, bg: D.s2 },
+  paid: { label: 'Plătit', color: D.t3, bg: D.s2 },
   cancelled: { label: 'Anulat', color: D.red, bg: 'rgba(224,85,85,0.10)' },
 }
 
