@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { toRomaniaYMD } from '../lib/dates'
 
 interface VatRow {
   restaurant_id: string
@@ -31,8 +32,8 @@ export default function VatReportTab({ restaurantId }: Props) {
   const today = new Date()
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [from, setFrom] = useState<string>(firstOfMonth.toISOString().slice(0, 10))
-  const [to, setTo] = useState<string>(today.toISOString().slice(0, 10))
+  const [from, setFrom] = useState<string>(toRomaniaYMD(firstOfMonth))
+  const [to, setTo] = useState<string>(toRomaniaYMD(today))
   const [rows, setRows] = useState<VatRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -262,8 +263,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             onClick={() => {
               const t = new Date()
               const f = new Date(t.getFullYear(), t.getMonth(), 1)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(t.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(t))
             }}
             style={presetBtn}
           >
@@ -274,8 +275,8 @@ export default function VatReportTab({ restaurantId }: Props) {
               const t = new Date()
               const f = new Date(t.getFullYear(), t.getMonth() - 1, 1)
               const l = new Date(t.getFullYear(), t.getMonth(), 0)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(l.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(l))
             }}
             style={presetBtn}
           >
@@ -285,8 +286,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             onClick={() => {
               const t = new Date()
               const f = new Date(t.getFullYear(), 0, 1)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(t.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(t))
             }}
             style={presetBtn}
           >

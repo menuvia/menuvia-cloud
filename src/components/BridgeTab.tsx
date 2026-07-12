@@ -17,6 +17,7 @@ import { confirm as confirmDialog } from './ui/confirm'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { toRomaniaYMD } from '../lib/dates'
 
 interface BridgeDevice {
   id: string
@@ -162,6 +163,7 @@ export default function BridgeTab({ restaurantId }: Props) {
   const [regModel, setRegModel] = useState('')
   const [regBusy, setRegBusy] = useState(false)
   const [newSecret, setNewSecret] = useState<{ deviceId: string; secret: string } | null>(null)
+  const [copiedKey, setCopiedKey] = useState(false)
 
   // VAT mapping editor
   const [showVatMap, setShowVatMap] = useState(false)
@@ -324,7 +326,8 @@ export default function BridgeTab({ restaurantId }: Props) {
   })
 
   // Stats today
-  const today = new Date().toISOString().slice(0, 10)
+  // Ora României, nu UTC — altfel statisticile „azi" săreau ziua noaptea.
+  const today = toRomaniaYMD(new Date())
   const todayReceipts = receipts.filter((r) => r.created_at.startsWith(today))
   const stats = {
     pending: todayReceipts.filter((r) => r.status === 'pending' || r.status === 'sent').length,
@@ -825,13 +828,18 @@ export default function BridgeTab({ restaurantId }: Props) {
               {newSecret.secret}
             </div>
             <button
-              onClick={() =>
-                navigator.clipboard?.writeText(newSecret.secret).catch(() => undefined)
-              }
+              onClick={() => {
+                // Feedback la copiere — înainte eșecul era înghițit tăcut și
+                // nu exista niciun semn că s-a copiat (cheie critică).
+                navigator.clipboard
+                  ?.writeText(newSecret.secret)
+                  .then(() => setCopiedKey(true))
+                  .catch(() => setCopiedKey(false))
+              }}
               style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
             >
               <Icon name="copy" size={15} />
-              Copiază cheia
+              {copiedKey ? 'Copiat ✓' : 'Copiază cheia'}
             </button>
             <div
               style={{

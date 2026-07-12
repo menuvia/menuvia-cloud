@@ -281,7 +281,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <div
           style={{
@@ -358,7 +358,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <div
           style={{
@@ -384,7 +384,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <QueryError message={error} onRetry={loadData} />
       </div>
@@ -411,7 +411,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               letterSpacing: '-0.02em',
             }}
           >
-            Analytics
+            Statistici
           </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
         </div>
@@ -446,8 +446,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         }}
       >
         <Stat label="Comenzi" value={totalOrders} />
-        <Stat label="Revenue" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
-        <Stat label="Ticket mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
+        <Stat label="Venit" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
+        <Stat label="Bon mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
         <Stat label="Rata QR" value={`${qrRate}%`} />
       </div>
 
@@ -469,7 +469,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               marginTop: 4,
             }}
           >
-            Revenue pe zi
+            Venit pe zi
           </div>
           <div
             style={{
@@ -492,7 +492,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <YAxis tick={{ fill: D_RAW.t3, fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={tt}
-                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Revenue']}
+                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Venit']}
                 />
                 <Line
                   type="monotone"
@@ -696,7 +696,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <DataTable
                   isMobile={isMobile}
                   gridCols="1fr 70px 70px 80px"
-                  headers={['Produs', 'Cant.', 'Comenzi', 'Revenue']}
+                  headers={['Produs', 'Cant.', 'Comenzi', 'Venit']}
                   rows={products.map((p) => ({
                     name: p.product_name as string,
                     cells: [
@@ -729,7 +729,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <DataTable
                   isMobile={isMobile}
                   gridCols="1fr 70px 70px 100px"
-                  headers={['Ospătar', 'Introd.', 'Servite', 'Revenue']}
+                  headers={['Ospătar', 'Introd.', 'Servite', 'Venit']}
                   rows={waiters.map((w) => {
                     const p = staffNames[w.user_id as string] ?? null
                     return {
