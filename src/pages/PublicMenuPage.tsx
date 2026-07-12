@@ -34,6 +34,7 @@ import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { useMenuSeo } from '../hooks/useMenuSeo'
 import {
   resolveTheme,
+  resolveHideBranding,
   isDarkTheme,
   resolveMenuLayout,
   resolveMenuElements,
@@ -42,7 +43,7 @@ import {
 
 import { DIETARY_TAGS, T } from '../lib/constants'
 import { supabase } from '../lib/supabase'
-import type { MenuTheme, MenuElements } from '../lib/themes'
+import type { MenuTheme, MenuElements, ThemeSettings } from '../lib/themes'
 import {
   IconBag,
   IconCalendar,
@@ -795,6 +796,29 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
         {/* FOOTER brand */}
         <FooterBrand restaurant={restaurant} theme={theme} accent={accent} PUB={PUB} lang={lang} />
+
+        {/* Badge discret „Creat cu Menuvia" (E1) — buclă virală: fiecare meniu
+            public e o vitrină. Opt-out prin theme_settings.hide_branding
+            (beneficiu Plan 3, gating-ul de scriere în Setări). */}
+        {!resolveHideBranding(restaurant.theme_settings as ThemeSettings | null) && (
+          <div style={{ textAlign: 'center', padding: '0 0 28px' }}>
+            <a
+              href="https://menuvia.netlify.app/?utm_source=menu&utm_medium=badge"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 11,
+                color: PUB.textMuted,
+                textDecoration: 'none',
+                fontFamily: theme.fonts.body,
+                display: 'inline-block',
+                padding: '12px 16px',
+              }}
+            >
+              Meniu digital creat cu Menuvia
+            </a>
+          </div>
+        )}
       </div>
 
       {/* Bară sticky — coș (pickup) sau „Lista mea" (meniu digital). Pentru „Lista
