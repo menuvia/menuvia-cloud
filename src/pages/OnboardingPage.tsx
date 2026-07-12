@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
@@ -340,6 +340,9 @@ function Step2Menu({
   const [prodEmoji, setProdEmoji] = useState('🍕')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Categoria creată se reține între încercări: pe retry după eșecul produsului,
+  // NU mai inserăm o categorie nouă (duplicat), refolosim id-ul deja creat.
+  const createdCatId = useRef<string | null>(null)
 
   const QUICK_CATS = [
     { name: 'Aperitive', emoji: '🥗' },
@@ -367,27 +370,30 @@ function Step2Menu({
     setSaving(true)
     setError(null)
 
-    // Create category
-    const { data: cat, error: catErr } = await supabase
-      .from('categories')
-      .insert({
-        restaurant_id: restaurantId,
-        name: catName.trim(),
-        emoji: catEmoji,
-        display_order: 0,
-      })
-      .select('id')
-      .single()
-    if (catErr) {
-      setError(catErr.message)
-      setSaving(false)
-      return
+    // Create category — o singură dată; pe retry refolosim id-ul reținut.
+    if (!createdCatId.current) {
+      const { data: cat, error: catErr } = await supabase
+        .from('categories')
+        .insert({
+          restaurant_id: restaurantId,
+          name: catName.trim(),
+          emoji: catEmoji,
+          display_order: 0,
+        })
+        .select('id')
+        .single()
+      if (catErr) {
+        setError(catErr.message)
+        setSaving(false)
+        return
+      }
+      createdCatId.current = cat.id as string
     }
 
     // Create product
     const { error: prodErr } = await supabase.from('products').insert({
       restaurant_id: restaurantId,
-      category_id: cat.id,
+      category_id: createdCatId.current,
       name: prodName.trim(),
       price,
       emoji: prodEmoji,
