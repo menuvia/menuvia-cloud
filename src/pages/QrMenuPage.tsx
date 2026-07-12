@@ -743,7 +743,7 @@ export default function QrMenuPage({ token }: Props) {
         )}
 
         {/* Badge discret „Creat cu Menuvia" (E1) — aceeași buclă virală ca pe
-            /m/:slug; opt-out prin theme_settings.hide_branding (Plan 3). */}
+            /m/:slug; opt-out prin theme_settings.hide_branding (Plan 2+). */}
         {!resolveHideBranding(ctx?.restaurant.theme_settings) && (
           <div style={{ textAlign: 'center', padding: '4px 0 96px' }}>
             <a

@@ -59,7 +59,7 @@ export interface Restaurant {
     } | null
     flipbook_pages?: string[] | null
     // Ascunde badge-ul „Creat cu Menuvia" (E1) — citit de QrMenuPage prin
-    // resolveHideBranding; scrierea e gate-uită în UI pe Plan 3.
+    // resolveHideBranding; scrierea e gate-uită în UI pe Plan 2+ (remove_branding).
     hide_branding?: boolean | null
   } | null
   pickup_settings?: {

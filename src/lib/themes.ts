@@ -352,8 +352,9 @@ export interface ThemeSettings {
   // Doar URL-uri https, maxim FLIPBOOK_MAX_PAGES — vezi resolveFlipbookPages.
   flipbook_pages?: string[] | null
   // Ascunde badge-ul „Creat cu Menuvia" de pe meniul public (E1, buclă virală).
-  // Default FALSE (badge vizibil); dezactivarea e gândită ca beneficiu Plan 3
-  // (gating-ul de scriere se face în UI-ul de Setări, citirea e liberă).
+  // Default FALSE (badge vizibil); dezactivarea e beneficiu de la Plan 2 în sus
+  // (plan_features.remove_branding, growth+ din mig 028 — gating-ul de scriere
+  // se face în UI-ul de Setări, citirea e liberă).
   hide_branding?: boolean | null
 }
 

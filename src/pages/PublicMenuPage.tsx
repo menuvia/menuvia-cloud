@@ -799,7 +799,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
         {/* Badge discret „Creat cu Menuvia" (E1) — buclă virală: fiecare meniu
             public e o vitrină. Opt-out prin theme_settings.hide_branding
-            (beneficiu Plan 3, gating-ul de scriere în Setări). */}
+            (beneficiu Plan 2+, gating-ul de scriere în Setări). */}
         {!resolveHideBranding(restaurant.theme_settings) && (
           <div style={{ textAlign: 'center', padding: '0 0 28px' }}>
             <a

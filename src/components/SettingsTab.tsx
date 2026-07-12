@@ -1416,9 +1416,11 @@ export default function SettingsTab({
                   )
                 })}
 
-                {/* Badge „Creat cu Menuvia" — opt-out DOAR pe Plan 3 (beneficiu
-                    premium, E1). Citirea în meniuri e liberă (resolveHideBranding);
-                    aici gate-uim scrierea: sub tier 3 arătăm un chip de plan. */}
+                {/* Badge „Creat cu Menuvia" — opt-out de la Plan 2 în sus, aliniat
+                    cu plan_features.remove_branding (growth+, mig 028) și cu
+                    promisiunea publică de pe cardul „Meniu + Comenzi" din pricing.
+                    Citirea în meniuri e liberă (resolveHideBranding); aici gate-uim
+                    scrierea: sub tier 2 arătăm un chip de plan. */}
                 <div
                   style={{
                     display: 'flex',
@@ -1435,12 +1437,12 @@ export default function SettingsTab({
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
                       Linkul discret din josul meniului public.
-                      {planTier(plan) >= 3
+                      {planTier(plan) >= 2
                         ? ' Pe planul tău îl poți ascunde.'
-                        : ' Se poate ascunde pe planul Fiscalizare.'}
+                        : ' Se poate ascunde de la Meniu + Comenzi în sus.'}
                     </div>
                   </div>
-                  {planTier(plan) >= 3 ? (
+                  {planTier(plan) >= 2 ? (
                     <Toggle
                       value={!(form.theme_settings?.hide_branding ?? false)}
                       onChange={(v) => updTheme({ hide_branding: !v })}
@@ -1462,7 +1464,7 @@ export default function SettingsTab({
                       }}
                     >
                       <Icon name="lock" size={12} color={D.t2} />
-                      Plan Fiscalizare
+                      Plan Meniu + Comenzi
                     </span>
                   )}
                 </div>
