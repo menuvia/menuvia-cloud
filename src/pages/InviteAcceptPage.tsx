@@ -30,7 +30,7 @@ interface InviteData {
   expires_at: string
 }
 
-type Step = 'loading' | 'invalid' | 'expired' | 'form' | 'confirm-email' | 'done'
+type Step = 'loading' | 'invalid' | 'error' | 'expired' | 'form' | 'confirm-email' | 'done'
 
 export default function InviteAcceptPage({
   token,
@@ -46,6 +46,7 @@ export default function InviteAcceptPage({
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [reloadTick, setReloadTick] = useState(0)
 
   useEffect(() => {
     if (!token) {
@@ -59,7 +60,13 @@ export default function InviteAcceptPage({
         // Does NOT expose internal IDs, invited_by, or raw token.
         const { data, error } = await supabase.rpc('preview_invite', { p_token: token })
         if (cancelled) return
-        if (error || !data) {
+        if (error) {
+          // Eroare de infra (rețea/RLS) — NU „link invalid" (supabase-js nu aruncă).
+          // Blipul nu trebuie să pară token stricat: oferim „Reîncearcă".
+          setStep('error')
+          return
+        }
+        if (!data) {
           setStep('invalid')
           return
         }
@@ -87,14 +94,14 @@ export default function InviteAcceptPage({
         setStep('form')
       } catch (err) {
         console.error('[InviteAcceptPage] load invite error:', err)
-        if (!cancelled) setStep('invalid')
+        if (!cancelled) setStep('error')
       }
     }
     loadInvite()
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [token, reloadTick])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -214,6 +221,38 @@ export default function InviteAcceptPage({
             }}
           >
             Acasă
+          </button>
+        </div>
+      </div>
+    )
+  if (step === 'error')
+    return (
+      <div style={wrap}>
+        <div style={card}>
+          <div
+            style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.t1, marginBottom: 12 }}
+          >
+            Nu am putut verifica invitația
+          </div>
+          <p style={{ color: D.t2, marginBottom: 24 }}>
+            Pare o problemă de conexiune, nu un link greșit. Reîncearcă.
+          </p>
+          <button
+            onClick={() => {
+              setStep('loading')
+              setReloadTick((t) => t + 1)
+            }}
+            style={{
+              background: D.gold,
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              padding: '10px 20px',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            Reîncearcă
           </button>
         </div>
       </div>
