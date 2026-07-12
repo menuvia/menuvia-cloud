@@ -810,6 +810,19 @@ function Step4Done({
   onComplete: () => void
 }) {
   const menuUrl = `${window.location.origin}/m/${slug}`
+  // Feedback la copiere — fără el, click-ul părea că nu face nimic (iar în
+  // browsere fără clipboard API eșua complet tăcut).
+  const [copied, setCopied] = useState(false)
+  const copyMenuUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(menuUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard indisponibil (permisiuni/HTTP) — selectăm măcar linkul nu
+      // putem; lăsăm userul să-l copieze manual din <a> de alături.
+    }
+  }
 
   const handleDone = async () => {
     await supabase
@@ -920,7 +933,7 @@ function Step4Done({
             {menuUrl}
           </a>
           <button
-            onClick={() => navigator.clipboard?.writeText(menuUrl)}
+            onClick={() => void copyMenuUrl()}
             aria-label="Copiază link-ul meniului"
             style={{
               display: 'inline-flex',
@@ -929,17 +942,17 @@ function Step4Done({
               padding: '6px 11px',
               minHeight: 32,
               fontSize: '0.72rem',
-              background: D.goldA,
-              color: D.goldL,
-              border: `1px solid ${D.gold}44`,
+              background: copied ? 'rgba(74,222,128,0.14)' : D.goldA,
+              color: copied ? D.green : D.goldL,
+              border: `1px solid ${copied ? `${D.green}55` : `${D.gold}44`}`,
               borderRadius: 6,
               cursor: 'pointer',
               fontFamily: 'DM Sans,sans-serif',
               flexShrink: 0,
             }}
           >
-            <Icon name="copy" size={13} />
-            Copiază
+            <Icon name={copied ? 'check' : 'copy'} size={13} />
+            {copied ? 'Copiat!' : 'Copiază'}
           </button>
         </div>
       </div>

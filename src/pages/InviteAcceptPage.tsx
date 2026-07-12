@@ -47,6 +47,10 @@ export default function InviteAcceptPage({
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
   const [reloadTick, setReloadTick] = useState(0)
+  // Sesiunea existentă (dacă e): userul deja logat cu emailul invitat acceptă
+  // dintr-un click, fără să-și rebage parola; alt email → avertisment clar
+  // (accept_invite ar respinge oricum cu email_mismatch, dar abia DUPĂ formular).
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null)
 
   useEffect(() => {
     if (!token) {
@@ -98,10 +102,66 @@ export default function InviteAcceptPage({
       }
     }
     loadInvite()
+    // Best-effort, în paralel cu preview-ul: o eroare aici lasă doar fluxul
+    // clasic cu parolă (nu blochează nimic).
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!cancelled) setSessionEmail(data.session?.user?.email ?? null)
+      })
+      .catch(() => {
+        /* fluxul cu parolă rămâne disponibil */
+      })
     return () => {
       cancelled = true
     }
   }, [token, reloadTick])
+
+  // Acceptarea propriu-zisă (RPC accept_invite + maparea motivelor de refuz) —
+  // comună fluxului cu parolă și celui cu sesiune existentă.
+  const acceptInvite = async (): Promise<void> => {
+    const { data: result, error: rpcError } = await supabase.rpc('accept_invite', {
+      p_token: token,
+    })
+    if (rpcError) throw rpcError
+
+    const r = result as { ok?: boolean; reason?: string } | null
+    if (!r?.ok) {
+      switch (r?.reason) {
+        case 'already_accepted':
+          setFormError('Această invitație a fost deja folosită.')
+          break
+        case 'expired':
+          setStep('expired')
+          break
+        case 'email_mismatch':
+          setFormError(
+            'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
+          )
+          break
+        case 'invalid':
+          setStep('invalid')
+          break
+        default:
+          setFormError('Nu am putut accepta invitația. Încearcă din nou.')
+      }
+      setSubmitting(false)
+      return
+    }
+    setStep('done')
+  }
+
+  // Userul e deja logat cu emailul invitat → un click, fără parolă.
+  const handleDirectAccept = async () => {
+    setSubmitting(true)
+    setFormError(null)
+    try {
+      await acceptInvite()
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Eroare. Încearcă din nou.')
+      setSubmitting(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -133,40 +193,9 @@ export default function InviteAcceptPage({
 
       // Server-side RPC: validates token, email match, inserts membership
       // with role from DB (not client-supplied), marks token as accepted.
-      // SECURITY DEFINER — bypasses RLS, runs atomically.
-      const { data: result, error: rpcError } = await supabase.rpc('accept_invite', {
-        p_token: token,
-      })
-
-      if (rpcError) throw rpcError
-
-      const r = result as { ok?: boolean; reason?: string } | null
-      if (!r?.ok) {
-        // Mapăm exact valorile `reason` întoarse de RPC-ul accept_invite (mig 096A)
-        // la mesaje specifice, acționabile, pentru un user ne-tehnic.
-        switch (r?.reason) {
-          case 'already_accepted':
-            setFormError('Această invitație a fost deja folosită.')
-            break
-          case 'expired':
-            setStep('expired')
-            break
-          case 'email_mismatch':
-            setFormError(
-              'Emailul contului tău nu corespunde cu emailul pentru care a fost trimisă invitația.',
-            )
-            break
-          case 'invalid':
-            setStep('invalid')
-            break
-          default:
-            setFormError('Nu am putut accepta invitația. Încearcă din nou.')
-        }
-        setSubmitting(false)
-        return
-      }
-
-      setStep('done')
+      // SECURITY DEFINER — bypasses RLS, runs atomically. Maparea motivelor
+      // de refuz (mig 096A) e în acceptInvite, comună cu fluxul fără parolă.
+      await acceptInvite()
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Eroare. Încearcă din nou.'
       setFormError(msg)
@@ -358,6 +387,90 @@ export default function InviteAcceptPage({
           <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>.
         </p>
 
+        {/* Deja logat cu emailul invitat → accept dintr-un click, fără parolă. */}
+        {sessionEmail != null &&
+        invite != null &&
+        sessionEmail.toLowerCase() === invite.email.toLowerCase() ? (
+          <div>
+            <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 16, lineHeight: 1.5 }}>
+              Ești conectat ca <strong style={{ color: D.t1 }}>{sessionEmail}</strong> — exact
+              contul invitat. Nu mai e nevoie de parolă.
+            </p>
+            {formError && (
+              <div
+                style={{
+                  background: D.redA,
+                  color: D.red,
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  fontSize: '0.82rem',
+                  marginBottom: 12,
+                }}
+              >
+                {formError}
+              </div>
+            )}
+            <button
+              onClick={() => void handleDirectAccept()}
+              disabled={submitting}
+              style={{
+                width: '100%',
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 9,
+                padding: '13px 0',
+                fontWeight: 700,
+                fontSize: '0.95rem',
+                cursor: 'pointer',
+                fontFamily: 'DM Sans,sans-serif',
+                opacity: submitting ? 0.6 : 1,
+              }}
+            >
+              {submitting ? 'Se acceptă…' : 'Acceptă invitația →'}
+            </button>
+          </div>
+        ) : sessionEmail != null && invite != null ? (
+          /* Logat cu ALT cont: accept_invite ar respinge cu email_mismatch —
+             îi spunem înainte, cu deconectare la un click. */
+          <div>
+            <div
+              style={{
+                background: D.s3,
+                borderRadius: 10,
+                padding: '12px 14px',
+                fontSize: '0.82rem',
+                color: D.t2,
+                lineHeight: 1.55,
+                marginBottom: 14,
+              }}
+            >
+              Ești conectat ca <strong style={{ color: D.t1 }}>{sessionEmail}</strong>, dar
+              invitația e pentru <strong style={{ color: D.t1 }}>{invite.email}</strong>.
+              Deconectează-te și acceptă invitația cu contul potrivit.
+            </div>
+            <button
+              onClick={() => {
+                void supabase.auth.signOut().then(() => setSessionEmail(null))
+              }}
+              style={{
+                width: '100%',
+                background: D.s3,
+                color: D.t1,
+                border: `1px solid ${D.border}`,
+                borderRadius: 9,
+                padding: '12px 0',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+                cursor: 'pointer',
+                fontFamily: 'DM Sans,sans-serif',
+              }}
+            >
+              Deconectează-mă
+            </button>
+          </div>
+        ) : (
+          <>
         <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
           {['Cont nou', 'Am deja cont'].map((label, i) => (
             <button
@@ -462,6 +575,8 @@ export default function InviteAcceptPage({
                 : 'Autentifică-te și acceptă'}
           </button>
         </form>
+          </>
+        )}
       </div>
     </div>
   )
