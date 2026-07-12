@@ -507,6 +507,8 @@ export interface WaiterCall {
   table_id: string | null
   // 'bill' = clientul cere nota; 'waiter' = chemare simplă (mig 091)
   call_type?: 'waiter' | 'bill'
+  // Bacșiș PROPUS de client la „cere nota" (mig 223) — intenție, nu plată.
+  tip_amount?: number | null
   status: 'pending' | 'resolved'
   created_at: string
   resolved_at: string | null
@@ -527,10 +529,14 @@ export async function fetchWaiterCalls(restaurantId: string): Promise<WaiterCall
 export async function callWaiter(
   qrTokenId: string,
   callType: 'waiter' | 'bill' = 'waiter',
+  // Bacșiș PROPUS de client la „cere nota" (mig 223) — intenție, nu plată;
+  // ospătarul îl vede pe apel și îl introduce la încasare.
+  tipAmount?: number | null,
 ): Promise<{ ok: boolean; message?: string }> {
   const { data, error } = await supabase.rpc('call_waiter', {
     p_qr_token_id: qrTokenId,
     p_call_type: callType,
+    p_tip_amount: callType === 'bill' && tipAmount != null && tipAmount > 0 ? tipAmount : null,
   })
   if (error) throw error
   return data as { ok: boolean; message?: string }

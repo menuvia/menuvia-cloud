@@ -1244,6 +1244,12 @@ export default function WaiterPage() {
                           }}
                         >
                           CERE NOTA
+                          {call.tip_amount != null && Number(call.tip_amount) > 0 && (
+                            <>
+                              {' '}
+                              · bacșiș propus {Number(call.tip_amount).toFixed(2)} lei
+                            </>
+                          )}
                         </span>
                       )}
                     </div>

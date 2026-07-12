@@ -273,12 +273,20 @@ export default function QrMenuPage({ token }: Props) {
 
   // „Cere nota" — același anti-spam ca la chemarea ospătarului (60s UI +
   // rate limit server-side per masă per tip, mig 091).
-  async function handleRequestBill(): Promise<void> {
+  // Sheet-ul de bacșiș la „Cere nota" (EXPANSION E1, mig 223): clientul își
+  // exprimă INTENȚIA de bacșiș — ospătarul o vede pe apel și o introduce la
+  // încasare (tips_amount, mig 043). Nu e plată; banii se dau ca până acum.
+  const [showTipSheet, setShowTipSheet] = useState(false)
+  const [customTip, setCustomTip] = useState('')
+
+  async function handleRequestBill(tipAmount?: number | null): Promise<void> {
     if (!ctx || requestingBill || billRequested) return
     setRequestingBill(true)
     try {
-      await callWaiter(ctx.token.id, 'bill')
+      await callWaiter(ctx.token.id, 'bill', tipAmount ?? null)
       setBillRequested(true)
+      setShowTipSheet(false)
+      setCustomTip('')
       setTimeout(() => setBillRequested(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] requestBill failed:', err)
@@ -781,9 +789,7 @@ export default function QrMenuPage({ token }: Props) {
       )}
       {ctx && orderingAllowed && !confirmation && (
         <button
-          onClick={() => {
-            void handleRequestBill()
-          }}
+          onClick={() => setShowTipSheet(true)}
           disabled={requestingBill || billRequested}
           style={{
             position: 'fixed',
@@ -821,6 +827,148 @@ export default function QrMenuPage({ token }: Props) {
               ? 'Se trimite...'
               : 'Cere nota'}
         </button>
+      )}
+
+      {/* Sheet bacșiș la „Cere nota" (E1, mig 223): intenția clientului — nu plată.
+          Procente pe totalul comenzilor din sesiune; fără total cunoscut → sume fixe. */}
+      {showTipSheet && ctx && (
+        <div
+          onClick={() => setShowTipSheet(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Cere nota cu bacșiș"
+            style={{
+              background: PUB.bg,
+              color: PUB.text,
+              borderRadius: '18px 18px 0 0',
+              padding: '20px 18px calc(20px + env(safe-area-inset-bottom))',
+              width: '100%',
+              maxWidth: 480,
+              fontFamily: theme.fonts.body,
+              boxShadow: '0 -6px 30px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: theme.fonts.heading,
+                fontSize: 19,
+                fontWeight: 700,
+                marginBottom: 4,
+              }}
+            >
+              Ceri nota
+            </div>
+            <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 14, lineHeight: 1.5 }}>
+              Vrei să lași bacșiș? Suma ajunge la ospătar odată cu nota — plătești ca de obicei.
+            </div>
+            {(() => {
+              const base = previousOrders.reduce((sum, o) => sum + o.total, 0)
+              const options: { label: string; value: number | null }[] =
+                base > 0
+                  ? [
+                      { label: 'Fără', value: 0 },
+                      ...[5, 10, 15].map((pct) => ({
+                        label: `${pct}% · ${fmtPrice(Math.round(base * pct) / 100, menuCurrency)}`,
+                        value: Math.round(base * pct) / 100,
+                      })),
+                    ]
+                  : [
+                      { label: 'Fără', value: 0 },
+                      ...[5, 10, 15].map((v) => ({
+                        label: fmtPrice(v, menuCurrency),
+                        value: v,
+                      })),
+                    ]
+              return (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {options.map((opt) => (
+                    <button
+                      key={opt.label}
+                      onClick={() => {
+                        void handleRequestBill(opt.value)
+                      }}
+                      disabled={requestingBill}
+                      className="pressable"
+                      style={{
+                        flex: '1 1 auto',
+                        minHeight: 44,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1.5px solid ${PUB.border}`,
+                        background: PUB.surface,
+                        color: PUB.text,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: theme.fonts.body,
+                        opacity: requestingBill ? 0.6 : 1,
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )
+            })()}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                value={customTip}
+                onChange={(e) => setCustomTip(e.target.value)}
+                placeholder="Altă sumă (lei)"
+                aria-label="Bacșiș — altă sumă în lei"
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: `1.5px solid ${PUB.border}`,
+                  background: PUB.surface,
+                  color: PUB.text,
+                  fontSize: 14,
+                  fontFamily: theme.fonts.body,
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                onClick={() => {
+                  const v = parseFloat(customTip.replace(',', '.'))
+                  void handleRequestBill(Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : 0)
+                }}
+                disabled={requestingBill}
+                className="pressable"
+                style={{
+                  minHeight: 44,
+                  padding: '10px 18px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: accent,
+                  color: readableTextOn(accent, PUB.bg),
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: theme.fonts.body,
+                  opacity: requestingBill ? 0.6 : 1,
+                }}
+              >
+                {requestingBill ? 'Se trimite...' : 'Trimite'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Bară „Comanda mea" — PERSISTENTĂ când comanda e permisă (chiar cu coș gol),
