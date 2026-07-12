@@ -378,11 +378,15 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
     }
   }, [restaurantId])
 
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const data = await fetchIngredients(restaurantId)
       setItems(data)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -393,6 +397,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se încarcă stocurile..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca ingredientele." onRetry={() => void load()} />
 
   const lowStock = items.filter(
     (i) => i.min_stock_alert != null && i.current_stock < i.min_stock_alert,
@@ -964,11 +969,15 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   const [email, setEmail] = useState('')
   const [vatId, setVatId] = useState('')
 
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const data = await fetchSuppliers(restaurantId)
       setItems(data)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -995,6 +1004,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   }
 
   if (loading) return <InlineSpinner label="Se încarcă furnizorii..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca furnizorii." onRetry={() => void load()} />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1169,8 +1179,10 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
     }
   }, [restaurantId])
 
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const [pos, sups, ings] = await Promise.all([
         fetchPurchaseOrders(restaurantId),
@@ -1180,6 +1192,8 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
       setItems(pos)
       setSuppliers(sups)
       setIngredients(ings)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -1190,6 +1204,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se încarcă NIR-urile..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca NIR-urile." onRetry={() => void load()} />
 
   const canCreate = ingredients.length > 0
 
@@ -2053,6 +2068,26 @@ const lbl: React.CSSProperties = {
   color: D.t2,
   marginBottom: 5,
   fontFamily: 'DM Sans, sans-serif',
+}
+
+function LoadErrorBox({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return (
+    <div
+      style={{
+        padding: 20,
+        border: `1px solid ${D.border}`,
+        borderRadius: 12,
+        background: D.s2,
+        color: D.t2,
+        textAlign: 'center',
+      }}
+    >
+      <div style={{ marginBottom: 12 }}>{label}</div>
+      <button onClick={onRetry} style={btn({ background: D.gold, color: '#000' })}>
+        Reîncearcă
+      </button>
+    </div>
+  )
 }
 
 const modalBg: React.CSSProperties = {
