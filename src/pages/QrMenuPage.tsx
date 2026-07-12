@@ -35,7 +35,6 @@ import {
   resolveFlipbookPages,
   readableTextOn,
 } from '../lib/themes'
-import type { ThemeSettings } from '../lib/themes'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
@@ -745,7 +744,7 @@ export default function QrMenuPage({ token }: Props) {
 
         {/* Badge discret „Creat cu Menuvia" (E1) — aceeași buclă virală ca pe
             /m/:slug; opt-out prin theme_settings.hide_branding (Plan 3). */}
-        {!resolveHideBranding(ctx?.restaurant.theme_settings as ThemeSettings | null) && (
+        {!resolveHideBranding(ctx?.restaurant.theme_settings) && (
           <div style={{ textAlign: 'center', padding: '4px 0 96px' }}>
             <a
               href="https://menuvia.netlify.app/?utm_source=qr&utm_medium=badge"
