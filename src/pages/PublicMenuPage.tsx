@@ -808,7 +808,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               rel="noopener noreferrer"
               style={{
                 fontSize: 11,
-                color: PUB.textMuted,
+                color: PUB.text3,
                 textDecoration: 'none',
                 fontFamily: theme.fonts.body,
                 display: 'inline-block',
