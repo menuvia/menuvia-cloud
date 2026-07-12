@@ -188,6 +188,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
   const isMobile = useIsMobile()
 
   // Aggregated metrics
@@ -481,6 +482,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   // ─── Export PDF ──────────────────────────────────────────────
   async function exportPdf() {
     setExporting(true)
+    setExportError(null)
     try {
       const { default: jsPDF } = await import('jspdf')
       const doc = new jsPDF({ unit: 'mm', format: 'a4' })
@@ -567,6 +569,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       doc.save(`Raport-Menuvia-${range.from}${range.from !== range.to ? '-' + range.to : ''}.pdf`)
     } catch (e) {
       console.error('PDF export failed', e)
+      setExportError('Nu s-a putut genera PDF-ul. Reîncearcă.')
     }
     setExporting(false)
   }
@@ -678,6 +681,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             )}
           </button>
         </div>
+        {/* Eșecul exportului PDF era doar în consolă — acum vizibil pentru user. */}
+        {exportError && (
+          <div role="alert" style={{ color: D.red, fontSize: '0.8rem', marginTop: 8 }}>
+            {exportError}
+          </div>
+        )}
       </div>
 
       {/* Period selector */}

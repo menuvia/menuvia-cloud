@@ -450,8 +450,8 @@ function ProductModal({
               Preț (lei) *
             </label>
             <Inp
-              value={String(form.price || 0)}
-              onChange={(v) => upd('price', parseFloat(v) || 0)}
+              value={form.price != null ? String(form.price) : ''}
+              onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
               placeholder="32.00"
             />
@@ -2400,8 +2400,9 @@ export default function ProductsTab({
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     onClick={async () => {
-                      await toggleSoldOut(p.id, p.is_sold_out)
-                      toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
+                      const r = await toggleSoldOut(p.id, p.is_sold_out)
+                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      else toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
                     }}
                     aria-label={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
                     title={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
@@ -2423,8 +2424,9 @@ export default function ProductsTab({
                   </button>
                   <button
                     onClick={async () => {
-                      await toggleDailySpecial(p.id, p.is_daily_special)
-                      toast(p.is_daily_special ? 'Normal' : 'Special!')
+                      const r = await toggleDailySpecial(p.id, p.is_daily_special)
+                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      else toast(p.is_daily_special ? 'Normal' : 'Special!')
                     }}
                     aria-label={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
                     title={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
