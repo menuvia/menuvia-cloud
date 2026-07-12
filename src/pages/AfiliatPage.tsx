@@ -567,6 +567,24 @@ function AcasaTab({
   )
 }
 
+// „Intră pe dashboard" cu feedback: enterFounderView așteaptă audit-ul
+// vizitei (până la ~2s) înainte să navigheze — fără busy, butonul părea mort.
+function PartnerEnterButton({ restaurantId }: { restaurantId: string }) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        setBusy(true)
+        void enterFounderView(restaurantId, 'afiliat')
+      }}
+      disabled={busy}
+      style={{ ...goldBtn, opacity: busy ? 0.6 : 1 }}
+    >
+      {busy ? 'Se deschide…' : 'Intră pe dashboard'}
+    </button>
+  )
+}
+
 // ── Tab: Restaurante ─────────────────────────────────────────────────────────
 // Restaurantele partenere cu acces activ (mig 187): afiliatul poate intra
 // pe dashboardul lor (rol virtual de manager, revocabil de owner, cu banner
@@ -624,9 +642,7 @@ function PartnerAccessList() {
                 {(p.city ?? '—') + ' · ' + (p.is_active ? 'activ' : 'inactiv')}
               </div>
             </div>
-            <button onClick={() => void enterFounderView(p.restaurant_id, 'afiliat')} style={goldBtn}>
-              Intră pe dashboard
-            </button>
+            <PartnerEnterButton restaurantId={p.restaurant_id} />
           </div>
         ))}
       </div>

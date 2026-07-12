@@ -1807,7 +1807,7 @@ export default function ProductsTab({
     const r = vatRates.find((r) => r.vat_group === (g || 1))
     return r ? `${r.rate_percent}%` : `${g || 1}`
   }
-  const { canAddProduct } = usePlanLimits(plan)
+  const { canAddProduct, limits } = usePlanLimits(plan)
   const {
     products,
     loading,
@@ -2505,6 +2505,7 @@ export default function ProductsTab({
         <Suspense fallback={null}>
           <ProductsCsvImport
             restaurantId={restaurantId}
+            remainingSlots={Math.max(0, limits.max_products - products.length)}
             existingCategories={categories.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
             onClose={() => setCsvImportOpen(false)}
             onDone={(n) => {

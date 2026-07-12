@@ -84,9 +84,16 @@ export default function StocksTab({ restaurantId }: Props) {
     totalStockValue: number
   } | null>(null)
 
+  // Eroarea de stats nu mai e mută: fără ea, cardurile de sus lipseau tăcut
+  // (stats rămânea null) și nici ghidul de bun venit nu apărea. Bara de
+  // eroare e discretă (stats-urile-s secundare), dar oferă „Reîncearcă".
+  const [statsError, setStatsError] = useState(false)
+  const [statsReload, setStatsReload] = useState(0)
+
   // Load quick stats
   useEffect(() => {
     void (async () => {
+      setStatsError(false)
       try {
         const [ings, sups, pos] = await Promise.all([
           fetchIngredients(restaurantId),
@@ -107,9 +114,10 @@ export default function StocksTab({ restaurantId }: Props) {
         })
       } catch (err) {
         console.error('Stats load error:', err)
+        setStatsError(true)
       }
     })()
-  }, [restaurantId, subTab]) // refresh when changing sub-tabs
+  }, [restaurantId, subTab, statsReload]) // refresh when changing sub-tabs
 
   const isFirstTime = stats != null && stats.ingredientsCount === 0 && stats.suppliersCount === 0
 
@@ -134,6 +142,43 @@ export default function StocksTab({ restaurantId }: Props) {
           Stocuri, rețete, furnizori, profitabilitate.
         </div>
       </div>
+
+      {/* Eroare la sumarul de sus — discretă, cu retry (nu blochează tab-urile). */}
+      {statsError && stats == null && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap',
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 10,
+            padding: '10px 14px',
+            fontSize: '0.8rem',
+            color: D.t2,
+          }}
+        >
+          Nu am putut încărca sumarul stocurilor.
+          <button
+            onClick={() => setStatsReload((n) => n + 1)}
+            style={{
+              background: 'transparent',
+              color: D.gold,
+              border: `1px solid ${D.gold}55`,
+              borderRadius: 8,
+              padding: '7px 12px',
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          >
+            Reîncearcă
+          </button>
+        </div>
+      )}
 
       {/* Quick stats — appear when there's data */}
       {stats != null && !isFirstTime && (
@@ -1859,18 +1904,32 @@ function NirCreateModal({
 function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
   const [items, setItems] = useState<ProductProfitability[]>([])
   const [loading, setLoading] = useState(true)
+  // Eroarea de încărcare NU cade pe lista goală („niciun produs cu rețetă")
+  // — un blip de rețea ar arăta un fals empty state; pattern-ul LoadErrorBox
+  // din celelalte 3 secțiuni.
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
+  function load() {
     setLoading(true)
+    setLoadError(false)
     fetchProductProfitability(restaurantId)
       .then((data) => {
         setItems(data)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
-  }, [restaurantId])
+      .catch(() => {
+        setLoadError(true)
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    load()
+  }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se calculează profitabilitatea..." />
+  if (loadError)
+    return <LoadErrorBox label="Nu am putut calcula profitabilitatea." onRetry={load} />
 
   const withCost = items.filter((i) => i.cost_price > 0)
   const noCost = items.filter((i) => i.cost_price === 0)

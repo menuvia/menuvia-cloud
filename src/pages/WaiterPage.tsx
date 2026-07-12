@@ -1478,7 +1478,7 @@ export default function WaiterPage() {
                 color: D.t1,
               }}
             >
-              Plata partiala
+              Plată parțială
             </div>
             <div>
               <div style={{ color: D.t2, fontSize: 13 }}>Masa: {splitOrder.table?.name ?? '-'}</div>
@@ -1497,7 +1497,7 @@ export default function WaiterPage() {
             {splitPayments.length > 0 && (
               <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
                 <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
-                  Plati inregistrate:
+                  Plăți înregistrate:
                 </div>
                 {splitPayments.map((p) => (
                   <div
@@ -1527,7 +1527,7 @@ export default function WaiterPage() {
                     fontWeight: 600,
                   }}
                 >
-                  <span style={{ color: D.t2 }}>Ramas:</span>
+                  <span style={{ color: D.t2 }}>Rămas:</span>
                   <span style={{ color: D.t1 }}>
                     {Math.max(
                       0,
@@ -1604,7 +1604,7 @@ export default function WaiterPage() {
                 minHeight: 48,
               }}
             >
-              {splitLoading ? 'Se proceseaza...' : 'Adauga plata'}
+              {splitLoading ? 'Se procesează...' : 'Adaugă plata'}
             </button>
             <button
               className="pressable"
@@ -1621,7 +1621,7 @@ export default function WaiterPage() {
                 cursor: 'pointer',
               }}
             >
-              Inchide
+              Închide
             </button>
           </div>
         </div>

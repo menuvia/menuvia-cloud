@@ -284,6 +284,38 @@ const cardStyle: CSSProperties = {
   padding: 18,
 }
 
+// „Intră pe cont" cu feedback: enterFounderView așteaptă audit-ul vizitei
+// (până la ~2s, mig 187) înainte să navigheze — fără stare de busy, butonul
+// părea mort și invita la click-uri repetate. Starea nu se resetează:
+// pagina se descarcă la navigare.
+function EnterAccountButton({
+  restaurantId,
+  style,
+  title,
+  label = 'Intră pe cont',
+}: {
+  restaurantId: string
+  style: CSSProperties
+  title?: string
+  label?: string
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        setBusy(true)
+        void enterFounderView(restaurantId)
+      }}
+      disabled={busy}
+      className="pressable"
+      style={{ ...style, opacity: busy ? 0.6 : 1 }}
+      title={title}
+    >
+      {busy ? 'Se deschide…' : label}
+    </button>
+  )
+}
+
 const thStyle: CSSProperties = {
   textAlign: 'left',
   fontSize: '0.68rem',
@@ -684,14 +716,11 @@ function RestaurantsSection() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => void enterFounderView(r.restaurant_id)}
-                  className="pressable"
+                <EnterAccountButton
+                  restaurantId={r.restaurant_id}
                   style={{ ...primaryBtn, flex: 1, minHeight: 44 }}
                   title="Deschide dashboardul acestui restaurant în mod fondator"
-                >
-                  Intră pe cont
-                </button>
+                />
                 <button
                   onClick={() => void toggleActive(r)}
                   disabled={busyId === r.restaurant_id}
@@ -740,14 +769,11 @@ function RestaurantsSection() {
                   </td>
                   <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={() => void enterFounderView(r.restaurant_id)}
-                        className="pressable"
+                      <EnterAccountButton
+                        restaurantId={r.restaurant_id}
                         style={primaryBtn}
                         title="Deschide dashboardul acestui restaurant în mod fondator"
-                      >
-                        Intră pe cont
-                      </button>
+                      />
                       <button
                         onClick={() => void toggleActive(r)}
                         disabled={busyId === r.restaurant_id}
@@ -1132,11 +1158,11 @@ function AffiliatesSection() {
                 {a.restaurants.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {a.restaurants.map((r) => (
-                      <button
+                      <EnterAccountButton
                         key={r.restaurant_id}
-                        onClick={() => void enterFounderView(r.restaurant_id)}
-                        className="pressable"
+                        restaurantId={r.restaurant_id}
                         title="Deschide dashboardul restaurantului în mod fondator"
+                        label={`${r.name} · ${PLAN_LABELS[r.plan] || r.plan}`}
                         style={{
                           padding: '8px 14px',
                           minHeight: 44,
@@ -1147,9 +1173,7 @@ function AffiliatesSection() {
                           fontSize: '0.74rem',
                           cursor: 'pointer',
                         }}
-                      >
-                        {r.name} · {PLAN_LABELS[r.plan] || r.plan}
-                      </button>
+                      />
                     ))}
                   </div>
                 )}

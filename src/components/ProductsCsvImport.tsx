@@ -27,6 +27,11 @@ interface Props {
   existingCategories: { id: string; name: string; emoji: string | null }[]
   onClose: () => void
   onDone: (createdCount: number) => void
+  // Câte produse mai încap în planul curent (max_products − produse existente).
+  // Serverul respinge oricum peste limită (trg_enforce_product_limit, mig 013/038),
+  // dar fără plafon client-side userul afla abia din eroarea brută, la mijlocul
+  // importului, cu rânduri deja inserate. undefined = necunoscut → fără plafon aici.
+  remainingSlots?: number
 }
 
 interface ParsedRow {
@@ -211,6 +216,7 @@ export default function ProductsCsvImport({
   existingCategories,
   onClose,
   onDone,
+  remainingSlots,
 }: Props) {
   // Blochează scroll-ul paginii cât modalul e deschis (altfel pagina din spate
   // rămâne scrollabilă și modalul pare deplasat / cere scroll manual — fix #74).
@@ -267,12 +273,21 @@ export default function ProductsCsvImport({
   const validRows = parsed.filter((r) => r.errors.length === 0)
   const invalidRows = parsed.filter((r) => r.errors.length > 0)
 
-  // Categories needed (unique, not yet existing)
+  // Plafonul planului, aplicat ÎNAINTE de import: importăm doar primele
+  // `remainingSlots` rânduri valide și spunem explicit câte au rămas pe
+  // dinafară — altfel trigger-ul server oprea importul la mijloc, cu eroare
+  // brută și rânduri deja inserate.
+  const importRows =
+    remainingSlots != null ? validRows.slice(0, Math.max(0, remainingSlots)) : validRows
+  const truncatedCount = validRows.length - importRows.length
+
+  // Categories needed (unique, not yet existing) — doar pentru rândurile care
+  // chiar se importă (nu creăm categorii pentru rânduri tăiate de plafon).
   const newCategories = useMemo(() => {
     const existing = new Set(existingCategories.map((c) => c.name.toLowerCase()))
-    const wanted = new Set(validRows.map((r) => r.categorie.toLowerCase()))
+    const wanted = new Set(importRows.map((r) => r.categorie.toLowerCase()))
     return Array.from(wanted).filter((c) => !existing.has(c))
-  }, [validRows, existingCategories])
+  }, [importRows, existingCategories])
 
   function downloadTemplate() {
     const blob = new Blob(['\uFEFF' + TEMPLATE], { type: 'text/csv;charset=utf-8;' })
@@ -292,7 +307,7 @@ export default function ProductsCsvImport({
   }
 
   async function doImport() {
-    if (validRows.length === 0) return
+    if (importRows.length === 0) return
     setStep('importing')
     setError(null)
     setProgress(0)
@@ -305,7 +320,7 @@ export default function ProductsCsvImport({
       }
       for (const [index, newCatName] of newCategories.entries()) {
         const original =
-          validRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
+          importRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
         const { data, error: catErr } = await supabase
           .from('categories')
           .insert({
@@ -326,8 +341,8 @@ export default function ProductsCsvImport({
       // 2. Insert products in batches of 20 (avoid huge single insert)
       const batchSize = 20
       let inserted = 0
-      for (let i = 0; i < validRows.length; i += batchSize) {
-        const batch = validRows.slice(i, i + batchSize)
+      for (let i = 0; i < importRows.length; i += batchSize) {
+        const batch = importRows.slice(i, i + batchSize)
         const rows = batch.map((r) => ({
           restaurant_id: restaurantId,
           category_id: catMap.get(r.categorie.toLowerCase())!,
@@ -341,7 +356,7 @@ export default function ProductsCsvImport({
         const { error: insErr } = await supabase.from('products').insert(rows)
         if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
         inserted += batch.length
-        setProgress(Math.round((100 * inserted) / validRows.length))
+        setProgress(Math.round((100 * inserted) / importRows.length))
       }
 
       setImportedCount(inserted)
@@ -685,6 +700,36 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
               </div>
             )}
 
+            {/* Plafonul planului — anunțat ÎNAINTE de import, nu ca eroare brută
+                la mijloc. Zero locuri → mesaj clar; parțial → câte intră/rămân. */}
+            {truncatedCount > 0 && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  background: D.goldA,
+                  color: D.t1,
+                  borderRadius: 8,
+                  fontSize: '0.82rem',
+                  lineHeight: 1.5,
+                }}
+              >
+                {importRows.length === 0 ? (
+                  <>
+                    Ai atins limita de produse a planului tău — importul nu poate adăuga
+                    produse noi. Șterge produse sau treci la un plan mai mare.
+                  </>
+                ) : (
+                  <>
+                    Planul tău mai are loc pentru <strong>{importRows.length}</strong>{' '}
+                    {importRows.length === 1 ? 'produs' : 'produse'} — se importă primele{' '}
+                    {importRows.length}, iar {truncatedCount}{' '}
+                    {truncatedCount === 1 ? 'rând rămâne' : 'rânduri rămân'} pe dinafară.
+                  </>
+                )}
+              </div>
+            )}
+
             <div
               style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 12 }}
             >
@@ -696,10 +741,10 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
               </button>
               <button
                 onClick={() => void doImport()}
-                disabled={validRows.length === 0}
+                disabled={importRows.length === 0}
                 style={btn({ background: D.gold, color: '#000' })}
               >
-                Importă {validRows.length} produse →
+                Importă {importRows.length} produse →
               </button>
             </div>
           </div>
