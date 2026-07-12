@@ -1482,7 +1482,11 @@ function NirCreateModal({
   }
 
   return (
-    <div onClick={onClose} style={modalBg}>
+    <div
+      // Formular greu (furnizor, factură, rânduri) — un tap pe fundal pierdea
+      // tot; închiderea rămâne pe butoanele explicite (X / Anulează).
+      style={modalBg}
+    >
       <div onClick={(e) => e.stopPropagation()} style={{ ...modalCard, maxWidth: 720 }}>
         <div
           style={{

@@ -795,6 +795,9 @@ export default function BridgeTab({ restaurantId }: Props) {
       {/* ── New Secret Display ─── */}
       {newSecret && (
         <Modal
+          // Cheia de instalare se afișează O SINGURĂ DATĂ („nu mai poate fi
+          // recuperată") — un tap accidental pe fundal o pierdea definitiv.
+          dismissable={false}
           onClose={() => {
             setNewSecret(null)
             setShowRegister(false)
@@ -969,14 +972,17 @@ function Modal({
   title,
   onClose,
   children,
+  dismissable = true,
 }: {
   title: string
   onClose: () => void
   children: React.ReactNode
+  /** false = backdrop-ul NU închide (conținut critic, ex. cheia de instalare). */
+  dismissable?: boolean
 }) {
   return (
     <div
-      onClick={onClose}
+      onClick={dismissable ? onClose : undefined}
       style={{
         position: 'fixed',
         inset: 0,

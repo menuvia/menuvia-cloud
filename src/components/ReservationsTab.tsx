@@ -17,6 +17,7 @@ import { Skeleton } from './ui/Skeleton'
 import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
+import { confirm as confirmDialog } from './ui/confirm'
 
 const STATUS_LABEL: Record<ReservationStatus, string> = {
   pending: 'În așteptare',
@@ -100,6 +101,17 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
   const handleStatus = useCallback(
     async (id: string, status: ReservationStatus, label: string) => {
+      // cancelled/no_show sunt terminale (cardul nu mai oferă niciun buton după) —
+      // un singur tap le executa fără confirmare și fără cale de revenire.
+      if (status === 'cancelled' || status === 'no_show') {
+        const ok = await confirmDialog({
+          title: status === 'cancelled' ? 'Anulezi rezervarea?' : 'Marchezi ca no-show?',
+          description: 'Acțiunea nu poate fi anulată din aplicație.',
+          confirmLabel: status === 'cancelled' ? 'Anulează rezervarea' : 'Marchează no-show',
+          destructive: true,
+        })
+        if (!ok) return
+      }
       try {
         await updateStatus(id, status)
         toast.success(label)

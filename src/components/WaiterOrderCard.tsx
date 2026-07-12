@@ -104,6 +104,7 @@ function PayModal({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 200,
+        padding: 16,
       }}
     >
       <div
@@ -114,6 +115,11 @@ function PayModal({
           borderRadius: 16,
           padding: 28,
           width: 360,
+          // Pe ecrane mici / conținut lung (multe metode de plată + bacșiș),
+          // modalul depășea viewport-ul fără scroll → butoanele inaccesibile.
+          maxWidth: 'calc(100vw - 32px)',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
           gap: 20,

@@ -356,7 +356,7 @@ export default function ComparatiePage({ navigate }: Props) {
             Vezi singur, fără risc
           </h2>
           <p style={{ fontSize: 16, color: MKT.text2, margin: '0 0 24px', lineHeight: 1.55 }}>
-            30 de zile gratuit, anulezi oricând. Fără card la înscriere.
+            30 de zile gratuit, anulezi oricând.
           </p>
           <button
             onClick={() => navigate('/auth')}

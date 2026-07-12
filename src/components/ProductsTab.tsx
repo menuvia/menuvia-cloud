@@ -40,7 +40,7 @@ function ProductModal({
 }: {
   product: Product | null
   categories: Category[]
-  onSave: (f: Partial<Product>) => void
+  onSave: (f: Partial<Product>) => void | Promise<void>
   onClose: () => void
   restaurantId: string
   userId: string
@@ -49,6 +49,8 @@ function ProductModal({
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
   const [uploading, setUploading] = useState(false)
+  // Anti dublu-submit: al doilea click pe conexiune lentă crea produs duplicat.
+  const [saving, setSaving] = useState(false)
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
   // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
@@ -1617,11 +1619,19 @@ function ProductModal({
             Anulează
           </button>
           <button
-            onClick={() => onSave(form)}
-            disabled={uploading}
-            style={btn({ background: D.gold, color: '#000', opacity: uploading ? 0.7 : 1 })}
+            onClick={async () => {
+              if (saving || uploading) return
+              setSaving(true)
+              try {
+                await onSave(form)
+              } finally {
+                setSaving(false)
+              }
+            }}
+            disabled={uploading || saving}
+            style={btn({ background: D.gold, color: '#000', opacity: uploading || saving ? 0.7 : 1 })}
           >
-            Salvează
+            {saving ? 'Se salvează…' : 'Salvează'}
           </button>
         </div>
       </div>
