@@ -41,6 +41,7 @@ const LegalPage = lazy(() => import('./pages/LegalPage'))
 const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
 const FounderPage = lazy(() => import('./pages/FounderPage'))
+const VerticalPage = lazy(() => import('./pages/VerticalPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
@@ -64,6 +65,9 @@ type View =
   | 'legal-dpa'
   | 'afiliat'
   | 'founder'
+  | 'vertical-hoteluri'
+  | 'vertical-terase'
+  | 'vertical-cafenele'
   | 'notfound'
 
 interface RouteState {
@@ -87,6 +91,9 @@ function parsePath(): RouteState {
   if (p === '/demo') return { view: 'demo' }
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
   if (p === '/comparatie' || p === '/de-ce-menuvia') return { view: 'comparatie' }
+  if (p === '/hoteluri') return { view: 'vertical-hoteluri' }
+  if (p === '/terase') return { view: 'vertical-terase' }
+  if (p === '/cafenele') return { view: 'vertical-cafenele' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/founder') return { view: 'founder' }
@@ -318,6 +325,9 @@ function AppRouter() {
         'reset-password',
         'demo',
         'comparatie',
+        'vertical-hoteluri',
+        'vertical-terase',
+        'vertical-cafenele',
         'notfound',
         'landing',
         'afiliat',
@@ -368,6 +378,22 @@ function AppRouter() {
         <ComparatiePage navigate={navigate} />
       </Suspense>
     )
+  if (
+    state.view === 'vertical-hoteluri' ||
+    state.view === 'vertical-terase' ||
+    state.view === 'vertical-cafenele'
+  ) {
+    // 'vertical-hoteluri' → 'hoteluri' (cheia de config din VerticalPage)
+    const vertical = state.view.replace('vertical-', '') as
+      | 'hoteluri'
+      | 'terase'
+      | 'cafenele'
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <VerticalPage vertical={vertical} navigate={navigate} />
+      </Suspense>
+    )
+  }
   if (state.view === 'legal-terms')
     return (
       <Suspense fallback={<PageSpinner />}>

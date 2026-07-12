@@ -26,6 +26,14 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     ],
   },
   {
+    title: 'Soluții',
+    links: [
+      { label: 'Pentru hoteluri & pensiuni', href: '/hoteluri' },
+      { label: 'Pentru terase', href: '/terase' },
+      { label: 'Pentru cafenele', href: '/cafenele' },
+    ],
+  },
+  {
     title: 'Companie',
     links: [
       { label: 'Contact', href: 'mailto:contact@menuvia.ro' },
