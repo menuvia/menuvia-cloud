@@ -42,6 +42,7 @@ const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
 const FounderPage = lazy(() => import('./pages/FounderPage'))
 const VerticalPage = lazy(() => import('./pages/VerticalPage'))
+const CaseDeMarcatPage = lazy(() => import('./pages/CaseDeMarcatPage'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
@@ -68,6 +69,7 @@ type View =
   | 'vertical-hoteluri'
   | 'vertical-terase'
   | 'vertical-cafenele'
+  | 'case-de-marcat'
   | 'notfound'
 
 interface RouteState {
@@ -94,6 +96,7 @@ function parsePath(): RouteState {
   if (p === '/hoteluri') return { view: 'vertical-hoteluri' }
   if (p === '/terase') return { view: 'vertical-terase' }
   if (p === '/cafenele') return { view: 'vertical-cafenele' }
+  if (p === '/case-de-marcat' || p === '/compatibilitate') return { view: 'case-de-marcat' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/founder') return { view: 'founder' }
@@ -328,6 +331,7 @@ function AppRouter() {
         'vertical-hoteluri',
         'vertical-terase',
         'vertical-cafenele',
+        'case-de-marcat',
         'notfound',
         'landing',
         'afiliat',
@@ -394,6 +398,12 @@ function AppRouter() {
       </Suspense>
     )
   }
+  if (state.view === 'case-de-marcat')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <CaseDeMarcatPage navigate={navigate} />
+      </Suspense>
+    )
   if (state.view === 'legal-terms')
     return (
       <Suspense fallback={<PageSpinner />}>
