@@ -27,6 +27,13 @@ import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSea
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
+import {
+  fetchLoyaltyState,
+  attachOrderToLoyalty,
+  getStoredLoyaltyPhone,
+  storeLoyaltyPhone,
+  type LoyaltyState,
+} from '../lib/loyalty'
 
 import {
   resolveTheme,
@@ -234,6 +241,14 @@ export default function QrMenuPage({ token }: Props) {
         // acestei comenzi au folosit deja cheia veche în interiorul buclei.
         setIdempotencyKey(rotateQrIdempotencyKey(token))
         setConfirmation(result)
+        // Loyalty (mig 226): legăm comanda de cardul de puncte — best-effort,
+        // eșecul nu are voie să atingă confirmarea. Punctele se acordă
+        // server-side abia la închiderea/plata comenzii.
+        void attachOrderToLoyalty(result.id, ctx.token.id).then((r) => {
+          if (r.ok && ctx.token.id) {
+            void fetchLoyaltyState(ctx.token.id).then(setLoyalty)
+          }
+        })
         return
       } catch (e: unknown) {
         lastError = e
@@ -281,6 +296,35 @@ export default function QrMenuPage({ token }: Props) {
   const [customTip, setCustomTip] = useState('')
   // Sumă custom neparsabilă (ex. „abc") — semnalată vizual, nu trimisă tăcut ca 0.
   const [customTipInvalid, setCustomTipInvalid] = useState(false)
+
+  // ── Loyalty v1 (mig 226): cardul de puncte al clientului ──────────────
+  // null = necunoscut/RPC nedeployat (secțiunea nu se afișează);
+  // {enabled:false} = program inactiv/plan sub growth.
+  const [loyalty, setLoyalty] = useState<LoyaltyState | null>(null)
+  const [loyaltyPhone, setLoyaltyPhone] = useState(() => getStoredLoyaltyPhone())
+  const [loyaltyPhoneSaved, setLoyaltyPhoneSaved] = useState(false)
+
+  useEffect(() => {
+    if (!ctx?.token.id) return
+    let cancelled = false
+    void fetchLoyaltyState(ctx.token.id).then((s) => {
+      if (!cancelled) setLoyalty(s)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ctx?.token.id])
+
+  function saveLoyaltyPhone(): void {
+    const p = loyaltyPhone.trim()
+    if (p.replace(/\D/g, '').length < 8) return
+    storeLoyaltyPhone(p)
+    setLoyaltyPhoneSaved(true)
+    // Re-citim starea cu telefonul — dacă există deja un wallet pe număr
+    // (alt device), punctele lui apar imediat.
+    if (ctx?.token.id) void fetchLoyaltyState(ctx.token.id).then(setLoyalty)
+    setTimeout(() => setLoyaltyPhoneSaved(false), 2500)
+  }
 
   async function handleRequestBill(tipAmount?: number | null): Promise<void> {
     if (!ctx || requestingBill || billRequested) return
@@ -741,6 +785,132 @@ export default function QrMenuPage({ token }: Props) {
                 currency={menuCurrency}
               />
             ))}
+          </div>
+        )}
+
+        {/* Loyalty v1 (mig 226): cardul de puncte — progres spre recompensă,
+            cod de arătat staff-ului, telefon opțional (anti-pierdere puncte). */}
+        {loyalty?.enabled && (
+          <div
+            style={{
+              margin: '16px 0 4px',
+              padding: '16px 16px 14px',
+              borderRadius: 16,
+              border: `1.5px solid ${loyalty.reward_available ? accent : PUB.border}`,
+              background: PUB.surface,
+              fontFamily: theme.fonts.body,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 10,
+                marginBottom: 8,
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: 15, color: PUB.text }}>
+                Puncte de fidelitate
+              </span>
+              <span style={{ fontSize: 13, color: PUB.text2 }}>
+                {loyalty.points ?? 0} / {loyalty.reward_threshold}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 8,
+                borderRadius: 4,
+                background: PUB.border,
+                overflow: 'hidden',
+                marginBottom: 10,
+              }}
+              role="progressbar"
+              aria-valuenow={Math.min(loyalty.points ?? 0, loyalty.reward_threshold ?? 0)}
+              aria-valuemin={0}
+              aria-valuemax={loyalty.reward_threshold ?? 0}
+              aria-label="Progres puncte de fidelitate"
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, Math.round(((loyalty.points ?? 0) / Math.max(1, loyalty.reward_threshold ?? 1)) * 100))}%`,
+                  background: accent,
+                  borderRadius: 4,
+                  transition: 'width 300ms ease',
+                }}
+              />
+            </div>
+            {loyalty.reward_available && loyalty.short_code ? (
+              <div
+                style={{
+                  background: PUB.bg,
+                  border: `1px dashed ${accent}`,
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  color: PUB.text,
+                  lineHeight: 1.5,
+                }}
+              >
+                🎉 Ai o recompensă: <strong>{loyalty.reward_description}</strong>. Arată codul{' '}
+                <strong style={{ letterSpacing: '0.12em' }}>{loyalty.short_code}</strong>{' '}
+                ospătarului.
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: PUB.text2, lineHeight: 1.5 }}>
+                Primești puncte la fiecare comandă. La {loyalty.reward_threshold} puncte:{' '}
+                {loyalty.reward_description}.
+              </div>
+            )}
+            {getStoredLoyaltyPhone() === '' ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={loyaltyPhone}
+                    onChange={(e) => setLoyaltyPhone(e.target.value)}
+                    placeholder="Telefon (opțional)"
+                    aria-label="Telefon pentru puncte de fidelitate"
+                    style={{
+                      flex: 1,
+                      minHeight: 40,
+                      padding: '8px 12px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${PUB.border}`,
+                      background: PUB.bg,
+                      color: PUB.text,
+                      fontSize: 13,
+                      fontFamily: theme.fonts.body,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <button
+                    onClick={saveLoyaltyPhone}
+                    className="pressable"
+                    style={{
+                      minHeight: 40,
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${PUB.border}`,
+                      background: PUB.surface,
+                      color: PUB.text,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: theme.fonts.body,
+                    }}
+                  >
+                    {loyaltyPhoneSaved ? 'Salvat ✓' : 'Salvează'}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: PUB.text3, marginTop: 6, lineHeight: 1.45 }}>
+                  Cu telefonul nu-ți pierzi punctele dacă schimbi dispozitivul. Îl folosim doar
+                  pentru puncte și îl stocăm criptat (hash), nu ca număr.
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
 

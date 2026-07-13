@@ -9,6 +9,7 @@ import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
+import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -1598,6 +1599,16 @@ export default function SettingsTab({
             {/* Plăți online la masă — Etapa 1 (docs/ONLINE_PAYMENT.md) */}
             {modulesState && (
               <OnlinePaymentsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
+            )}
+
+            {/* Fidelizare — Loyalty v1 (mig 226): puncte + prag + recompensă */}
+            {modulesState && (
+              <LoyaltySettingsCard
                 restaurantId={restaurant.id}
                 plan={plan}
                 modulesState={modulesState}

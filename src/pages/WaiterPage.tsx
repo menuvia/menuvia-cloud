@@ -29,6 +29,7 @@ import {
   applyOrderDiscount,
 } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
+import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard } from '../components/WaiterOrderCard'
 import DiscountModal from '../components/DiscountModal'
@@ -884,6 +885,11 @@ export default function WaiterPage() {
           </div>
         )}
 
+        {/* Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului.
+            RPC-ul e gate-uit server-side (modul + plan + program activ) —
+            butonul e mereu vizibil, răspunsul spune clar dacă nu e cazul. */}
+        {restaurantId != null && <LoyaltyRedeem restaurantId={restaurantId} />}
+
         {/* Section 0 — Rezervări azi */}
         {activeReservations.length > 0 && (
           <div style={{ marginBottom: 18 }}>
@@ -1724,6 +1730,148 @@ export default function WaiterPage() {
             setEntryTableId(null)
           }}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului ─────────
+// Clientul își arată codul de 6 caractere de pe cardul de puncte; ospătarul
+// îl introduce aici. RPC-ul redeem_loyalty_reward e gate-uit server-side
+// (is_member + modul + plan + program activ) și scade pragul atomic.
+function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function doRedeem(): Promise<void> {
+    if (busy || code.trim().length < 4) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const r = await redeemLoyaltyReward(restaurantId, code)
+      if (r.ok) {
+        setResult({
+          ok: true,
+          text: `Recompensă: ${r.reward_description}. Puncte rămase: ${r.points_left ?? 0}.`,
+        })
+        setCode('')
+      } else if (r.reason === 'not_enough_points') {
+        setResult({
+          ok: false,
+          text: `Puncte insuficiente: ${r.points ?? 0} din ${r.threshold ?? '—'} necesare.`,
+        })
+      } else if (r.reason === 'not_found') {
+        setResult({ ok: false, text: 'Cod negăsit — verifică-l cu clientul.' })
+      } else if (r.reason === 'program_inactive') {
+        setResult({ ok: false, text: 'Programul de fidelizare nu e activ.' })
+      } else {
+        setResult({ ok: false, text: 'Nu am putut verifica codul. Încearcă din nou.' })
+      }
+    } catch (e) {
+      setResult({ ok: false, text: e instanceof Error ? e.message : 'Eroare' })
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div style={{ alignSelf: 'flex-start' }}>
+      <button
+        onClick={() => {
+          setOpen((v) => !v)
+          setResult(null)
+        }}
+        className="pressable"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          minHeight: 40,
+          padding: '0 14px',
+          borderRadius: 10,
+          border: `1px solid ${D.border}`,
+          background: D.s2,
+          color: D.t2,
+          fontFamily: 'DM Sans, sans-serif',
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        <Icon name="star" size={15} color={D.gold} />
+        Fidelizare — cod client
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '12px 14px',
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            maxWidth: 380,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Ex: A1B2C3"
+              maxLength={6}
+              aria-label="Codul de fidelizare al clientului"
+              style={{
+                flex: 1,
+                minHeight: 40,
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: `1px solid ${D.border}`,
+                background: D.s3,
+                color: D.t1,
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 14,
+                letterSpacing: '0.15em',
+                textTransform: 'uppercase',
+                boxSizing: 'border-box',
+              }}
+            />
+            <button
+              onClick={() => void doRedeem()}
+              disabled={busy || code.trim().length < 4}
+              className="pressable"
+              style={{
+                minHeight: 40,
+                padding: '0 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: D.gold,
+                color: '#000',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                opacity: busy || code.trim().length < 4 ? 0.6 : 1,
+              }}
+            >
+              {busy ? 'Se verifică…' : 'Răscumpără'}
+            </button>
+          </div>
+          {result && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: result.ok ? 'rgba(74,222,128,0.12)' : D.redA,
+                color: result.ok ? D.green : D.red,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              {result.text}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
