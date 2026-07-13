@@ -994,7 +994,16 @@ function AffiliatesSection() {
     setBusyId(a.affiliate_id)
     try {
       const res = await reviewAffiliate(a.affiliate_id, approve)
-      if (!res.ok) throw new Error(res.error ?? 'Decizia nu a putut fi salvată')
+      if (!res.ok) {
+        // RPC-ul refuză cu `reason`, nu cu `error` — mapăm la mesaje clare.
+        const msg =
+          res.reason === 'not_reviewable'
+            ? `Cererea nu mai e în așteptare (status: ${res.status ?? 'necunoscut'}) — reîncarcă lista.`
+            : res.reason === 'not_found'
+              ? 'Cererea nu mai există.'
+              : (res.error ?? 'Decizia nu a putut fi salvată')
+        throw new Error(msg)
+      }
       toast.success(approve ? 'Partener aprobat — are acces la panou.' : 'Cerere respinsă.')
       await affiliates.reload()
     } catch (e) {

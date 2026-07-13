@@ -193,6 +193,10 @@ export interface AdminAuditRow {
 export interface AdminActionResult {
   ok: boolean
   error?: string
+  // admin_review_affiliate (mig 224) refuză cu `reason` (not_found /
+  // not_reviewable), nu cu `error` — consumatorii trebuie să mapeze ambele.
+  reason?: string
+  status?: string
   old_plan?: string
   new_plan?: string
 }

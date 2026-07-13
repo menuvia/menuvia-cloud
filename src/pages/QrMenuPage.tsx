@@ -279,6 +279,8 @@ export default function QrMenuPage({ token }: Props) {
   // încasare (tips_amount, mig 043). Nu e plată; banii se dau ca până acum.
   const [showTipSheet, setShowTipSheet] = useState(false)
   const [customTip, setCustomTip] = useState('')
+  // Sumă custom neparsabilă (ex. „abc") — semnalată vizual, nu trimisă tăcut ca 0.
+  const [customTipInvalid, setCustomTipInvalid] = useState(false)
 
   async function handleRequestBill(tipAmount?: number | null): Promise<void> {
     if (!ctx || requestingBill || billRequested) return
@@ -897,14 +899,21 @@ export default function QrMenuPage({ token }: Props) {
             </div>
             {(() => {
               const base = previousOrders.reduce((sum, o) => sum + o.total, 0)
+              // Plafonul serverului (mig 223) e 2000 — peste el, RPC-ul aruncă
+              // TĂCUT bacșișul (v_tip=null) și confirmă ok. Clamp-uim aici ca
+              // pe note mari (sau monede slabe) preset-ul de 15% să rămână valid.
+              const TIP_CAP = 2000
               const options: { label: string; value: number | null }[] =
                 base > 0
                   ? [
                       { label: 'Fără', value: 0 },
-                      ...[5, 10, 15].map((pct) => ({
-                        label: `${pct}% · ${fmtPrice(Math.round(base * pct) / 100, menuCurrency)}`,
-                        value: Math.round(base * pct) / 100,
-                      })),
+                      ...[5, 10, 15].map((pct) => {
+                        const amt = Math.min(TIP_CAP, Math.round(base * pct) / 100)
+                        return {
+                          label: `${pct}% · ${fmtPrice(amt, menuCurrency)}`,
+                          value: amt,
+                        }
+                      }),
                     ]
                   : [
                       { label: 'Fără', value: 0 },
@@ -945,20 +954,26 @@ export default function QrMenuPage({ token }: Props) {
               )
             })()}
             <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              {/* type="text": un „12,5" într-un input number e sanitizat de
+                  browser la gol → parseFloat dădea NaN și trimiteam TĂCUT
+                  „fără bacșiș" cu confirmare de succes. Cu text, virgula
+                  ajunge la noi și o convertim explicit. */}
               <input
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min={0}
                 value={customTip}
-                onChange={(e) => setCustomTip(e.target.value)}
-                placeholder="Altă sumă (lei)"
-                aria-label="Bacșiș — altă sumă în lei"
+                onChange={(e) => {
+                  setCustomTip(e.target.value)
+                  if (customTipInvalid) setCustomTipInvalid(false)
+                }}
+                placeholder="Altă sumă"
+                aria-label="Bacșiș — altă sumă"
                 style={{
                   flex: 1,
                   minHeight: 44,
                   padding: '10px 12px',
                   borderRadius: 12,
-                  border: `1.5px solid ${PUB.border}`,
+                  border: `1.5px solid ${customTipInvalid ? '#E05555' : PUB.border}`,
                   background: PUB.surface,
                   color: PUB.text,
                   fontSize: 14,
@@ -968,8 +983,17 @@ export default function QrMenuPage({ token }: Props) {
               />
               <button
                 onClick={() => {
-                  const v = parseFloat(customTip.replace(',', '.'))
-                  void handleRequestBill(Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : 0)
+                  const raw = customTip.trim()
+                  const v = parseFloat(raw.replace(',', '.'))
+                  // Sumă neparsabilă/negativă NU se trimite ca „fără bacșiș"
+                  // cu confirmare falsă — semnalăm și lăsăm userul să corecteze.
+                  if (raw !== '' && (!Number.isFinite(v) || v < 0)) {
+                    setCustomTipInvalid(true)
+                    return
+                  }
+                  void handleRequestBill(
+                    raw === '' || v <= 0 ? 0 : Math.min(2000, Math.round(v * 100) / 100),
+                  )
                 }}
                 disabled={requestingBill}
                 className="pressable"

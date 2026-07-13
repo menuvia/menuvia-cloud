@@ -533,12 +533,29 @@ export async function callWaiter(
   // ospătarul îl vede pe apel și îl introduce la încasare.
   tipAmount?: number | null,
 ): Promise<{ ok: boolean; message?: string }> {
+  // 0 EXPLICIT se trimite (nu se aruncă la null): „Fără" după un bacșiș
+  // anterior trebuie să RETRAGĂ suma de pe apelul pending (mig 223 face
+  // UPDATE doar când v_tip nu e null) — altfel ospătarul vede bacșișul vechi.
   const { data, error } = await supabase.rpc('call_waiter', {
     p_qr_token_id: qrTokenId,
     p_call_type: callType,
-    p_tip_amount: callType === 'bill' && tipAmount != null && tipAmount > 0 ? tipAmount : null,
+    p_tip_amount: callType === 'bill' && tipAmount != null && tipAmount >= 0 ? tipAmount : null,
   })
-  if (error) throw error
+  if (error) {
+    // Fallback pe DB fără mig 223 (frontend înaintea migrației): semnătura
+    // veche call_waiter(uuid,text) nu cunoaște p_tip_amount → PGRST202.
+    // Fără fallback, „Cheamă ospătarul"/„Cere nota" ar muri complet —
+    // retrimitem fără bacșiș (doar intenția se pierde, apelul ajunge).
+    if ((error as { code?: string }).code === 'PGRST202') {
+      const retry = await supabase.rpc('call_waiter', {
+        p_qr_token_id: qrTokenId,
+        p_call_type: callType,
+      })
+      if (retry.error) throw retry.error
+      return retry.data as { ok: boolean; message?: string }
+    }
+    throw error
+  }
   return data as { ok: boolean; message?: string }
 }
 
