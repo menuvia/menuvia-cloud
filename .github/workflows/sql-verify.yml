@@ -1260,6 +1260,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/advance_order_tip_assertions.sql
 
+      - name: "Kitchen ticket assertions (mig 227)"
+        if: ${{ hashFiles('supabase/migrations/20260713100000_migration_227_kitchen_tickets.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/kitchen_ticket_assertions.sql
+
       - name: "Loyalty v1 assertions (mig 226)"
         if: ${{ hashFiles('supabase/migrations/20260712160000_migration_226_loyalty_v1.sql') != '' }}
         env:

@@ -72,20 +72,21 @@ begin
   end if;
   raise notice 'CS5 PASS: cash_collected_for_shift/cash_expected revocate de la authenticated (#8)';
 
-  -- ─── CS6: growth → INSERT direct bridge_devices respins (#17) ──
+  -- ─── CS6: bridge_devices pe growth — contract SCHIMBAT de mig 227 ──
+  -- Până la 227, INSERT-ul pe growth era respins (device = doar casă fiscală,
+  -- Plan 3). De la 227, device-ul poate servi și imprimanta de bucătărie
+  -- (feature kitchen_tickets, growth+) → INSERT-ul pe growth TRECE. Lanțul
+  -- FISCAL rămâne închis (gate-urile pe pending_receipts/'paid' neatinse);
+  -- respingerea sub growth e acoperită de kitchen_ticket_assertions (KT8).
   perform set_config('request.jwt.claim.sub', v_grw::text, true);
-  v_blocked := false;
   begin
     insert into public.bridge_devices (restaurant_id, name, device_secret)
       values (v_rg, 'Casa 1', 'secret-xyz');
+    raise notice 'CS6 PASS: bridge_devices pe growth acceptat (gate dublu mig 227)';
   exception when others then
-    if position('fiscal_receipt' in lower(sqlerrm)) = 0 then
-      raise exception 'CS6 FAIL: bridge_devices a eșuat din alt motiv decât gate-ul fiscal_receipt: %', sqlerrm;
-    end if;
-    v_blocked := true;
-    raise notice 'CS6 PASS: bridge_devices direct pe growth respins de gate-ul fiscal_receipt: %', sqlerrm;
+    raise exception 'CS6 FAIL: bridge_devices pe growth respins după mig 227: %', sqlerrm;
   end;
-  if not v_blocked then raise exception 'CS6 FAIL: bridge_devices direct acceptat pe growth (#17)'; end if;
+  v_blocked := false; -- variabila rămâne folosită (fără warning de unused)
 
   raise notice 'ALL PASS';
 end$$;
