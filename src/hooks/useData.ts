@@ -72,6 +72,10 @@ export interface Restaurant {
     slot_interval_minutes: number
     open_hours: { start: string; end: string }
     instructions: string | null
+    // Mod „doar ridicare" (food truck, E3): ascunde Hartă sală/Rezervări din
+    // dashboard; QR-ul general /m/:slug devine QR-ul principal. OPȚIONAL —
+    // pur mod de afișare, enforcement-ul comenzii pickup există în Gate A.
+    pickup_only?: boolean
   } | null
   google_place_id: string | null
   google_review_url: string | null

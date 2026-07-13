@@ -4,7 +4,7 @@ import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
-import { fetchRestaurantFeatures, getLimit } from '../lib/features'
+import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
 
 // ─── Helpers ─────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -560,6 +560,9 @@ function Step3Table({
   const [count, setCount] = useState(5)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Comenzile pentru ridicare sunt growth+ (Gate A) — pe tier 1 arătăm hintul
+  // de plan sub butonul „Nu am mese" (acțiunea rămâne permisă, flag-ul e inert).
+  const [hasPickup, setHasPickup] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -568,6 +571,7 @@ function Step3Table({
         if (cancelled) return
         const lim = getLimit(f, 'max_tables') // null = nelimitat
         setMaxTables(lim)
+        setHasPickup(hasFeature(f, 'pickup_orders'))
         // Clamp valoarea inițială (5) la limită ca să nu pornim peste plafon.
         if (lim !== null) setCount((c) => Math.min(c, Math.max(1, lim)))
       })
@@ -622,6 +626,34 @@ function Step3Table({
     const { error: qrErr } = await supabase.from('qr_tokens').insert(tokens)
 
     await markOnboarding(restaurantId, { table_created: true, qr_generated: !qrErr })
+    onNext()
+  }
+
+  // Ramura „fără mese": activăm pickup + pickup_only (UPDATE direct e permis —
+  // pickup_settings are grant column-level 096B + e în RESTAURANT_UPDATE_FIELDS)
+  // și marcăm pașii de mese/QR ca rezolvați semantic (QR-ul general = slug-ul).
+  const handlePickupOnly = async () => {
+    setSaving(true)
+    setError(null)
+    const { error: pErr } = await supabase
+      .from('restaurants')
+      .update({
+        pickup_settings: {
+          enabled: true,
+          min_lead_time_minutes: 20,
+          slot_interval_minutes: 15,
+          open_hours: { start: '09:00', end: '21:00' },
+          instructions: null,
+          pickup_only: true,
+        },
+      })
+      .eq('id', restaurantId)
+    if (pErr) {
+      setError('Nu am putut activa modul de ridicare. Reîncearcă.')
+      setSaving(false)
+      return
+    }
+    await markOnboarding(restaurantId, { table_created: true, qr_generated: true })
     onNext()
   }
 
@@ -792,6 +824,24 @@ function Step3Table({
         <button onClick={onSkip} style={btnSecondary}>
           Sari peste acest pas →
         </button>
+        {/* Food truck / tejghea (E3): activează pickup + modul „doar ridicare"
+            — fără mese; QR-ul general /m/:slug devine QR-ul principal. */}
+        <button onClick={handlePickupOnly} disabled={saving} style={btnSecondary}>
+          Nu am mese — doar ridicare (food truck) →
+        </button>
+        {!hasPickup && (
+          <div
+            style={{
+              fontSize: '0.74rem',
+              color: D.t3,
+              textAlign: 'center',
+              lineHeight: 1.5,
+            }}
+          >
+            Comenzile pentru ridicare necesită planul 🛎 Meniu + Comenzi — meniul QR general
+            funcționează și pe planul curent.
+          </div>
+        )}
       </div>
     </Shell>
   )

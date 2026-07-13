@@ -382,6 +382,101 @@ function TableModal({
   )
 }
 
+// ── QR-ul meniului general (/m/:slug) ────────────────────────
+// Link-ul public e deja indexabil (mig 217/219) — un QR descărcabil pentru
+// el e util universal (vitrine, flyere), iar pentru food truck (mod „doar
+// ridicare") devine QR-ul principal.
+function GeneralMenuQrCard({
+  restaurant,
+  toast,
+}: {
+  restaurant: Restaurant
+  toast: (msg: string, type?: string) => void
+}) {
+  const [qr, setQr] = useState<string | null>(null)
+  const menuUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/m/${restaurant.slug}`
+
+  useEffect(() => {
+    let cancelled = false
+    QRCode.toDataURL(menuUrl, {
+      width: 480,
+      margin: 1,
+      color: { dark: '#1A1208', light: '#F8F3EB' },
+    })
+      .then((url) => {
+        if (!cancelled) setQr(url)
+      })
+      .catch(() => {
+        /* QR-ul general e secundar — fără el, link-ul rămâne copiabil */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [menuUrl])
+
+  return (
+    <div
+      style={{
+        background: D.s2,
+        border: `1px solid ${D.border}`,
+        borderRadius: 12,
+        padding: '14px 16px',
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        flexWrap: 'wrap',
+      }}
+    >
+      {qr && (
+        <img
+          src={qr}
+          alt="QR meniu general"
+          width={72}
+          height={72}
+          style={{ borderRadius: 8, flexShrink: 0 }}
+        />
+      )}
+      <div style={{ flex: 1, minWidth: 180 }}>
+        <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.9rem' }}>QR meniu general</div>
+        <div style={{ color: D.t2, fontSize: '0.74rem', marginTop: 2, lineHeight: 1.5 }}>
+          Duce la <span style={{ color: D.gold }}>/m/{restaurant.slug}</span> — clienții văd
+          meniul; cu comenzile pentru ridicare active pot și comanda. Bun pentru vitrină,
+          flyere sau tejghea.
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          onClick={() => {
+            if (!qr) return
+            const a = document.createElement('a')
+            a.href = qr
+            a.download = `QR-meniu-${restaurant.slug}.png`
+            a.click()
+          }}
+          disabled={!qr}
+          style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+        >
+          <Icon name="download" size={15} />
+          PNG
+        </button>
+        <button
+          onClick={() => {
+            navigator.clipboard
+              .writeText(menuUrl)
+              .then(() => toast('Link copiat'))
+              .catch(() => toast('Nu am putut copia linkul', 'error'))
+          }}
+          style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+        >
+          <Icon name="link" size={15} />
+          Copiază link
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── TablesManager ─────────────────────────────────────────────
 export default function TablesManager({ restaurant }: { restaurant: Restaurant }) {
   const { toasts, toast } = useToast()
@@ -924,6 +1019,30 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           </button>
         </div>
       </div>
+
+      {/* QR-ul meniului GENERAL (/m/:slug) — util oricui (vitrină, flyere),
+          iar în modul „doar ridicare" (food truck) devine QR-ul principal. */}
+      <GeneralMenuQrCard restaurant={restaurant} toast={toast} />
+
+      {/* Empty state dedicat modului „doar ridicare": fără prompt de mese. */}
+      {tables.length === 0 && (restaurant.pickup_settings?.pickup_only ?? false) && (
+        <div
+          style={{
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            padding: '14px 16px',
+            marginBottom: 16,
+            fontSize: '0.82rem',
+            color: D.t2,
+            lineHeight: 1.55,
+          }}
+        >
+          Mod „doar ridicare" activ — nu ai nevoie de mese. Printează QR-ul general de mai
+          sus; clienții comandă și ridică de la tejghea. Poți adăuga mese oricând, dacă
+          situația se schimbă.
+        </div>
+      )}
 
       {/* QR domain warning — shown when VITE_APP_URL differs from current origin or is a preview URL */}
       {(() => {

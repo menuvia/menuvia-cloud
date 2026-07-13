@@ -48,6 +48,7 @@ const PICKUP_DEFAULTS: NonNullable<Restaurant['pickup_settings']> = {
   slot_interval_minutes: 15,
   open_hours: { start: '09:00', end: '21:00' },
   instructions: null,
+  pickup_only: false,
 }
 
 // ── Secțiuni de setări — navigabile (ca la FounderPage), nu un scroll unic.
@@ -1623,7 +1624,7 @@ export default function SettingsTab({
               desc={
                 <>
                   Activează pagina ta publică{' '}
-                  <span style={{ color: D.gold }}>menuvia.ro/r/{form.slug || 'slug'}</span>. Clienții
+                  <span style={{ color: D.gold }}>menuvia.ro/m/{form.slug || 'slug'}</span>. Clienții
                   pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
                   ridicare.
                 </>
@@ -1637,6 +1638,31 @@ export default function SettingsTab({
             >
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                  {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
+                      ascunde Hartă sală/Rezervări din nav; QR-ul general /m/:slug
+                      devine QR-ul principal (card în Mese & QR-uri). */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                        Mod „doar ridicare" (fără mese)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                        Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din
+                        dashboard. QR-ul general din tab-ul Mese devine QR-ul tău principal.
+                      </div>
+                    </div>
+                    <Toggle
+                      value={form.pickup_settings?.pickup_only ?? false}
+                      onChange={(v) => updPickup({ pickup_only: v })}
+                    />
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                     <div>
                       <label

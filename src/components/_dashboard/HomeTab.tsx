@@ -51,6 +51,8 @@ interface Props {
   tier: PlanTier
   isAdmin: boolean
   productCount: number
+  // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
+  pickupOnly: boolean
   onNavigate: (tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa') => void
   onViewMenu: () => void
   onPricing: () => void
@@ -240,6 +242,7 @@ export default function HomeTab({
   tier,
   isAdmin,
   productCount,
+  pickupOnly,
   onNavigate,
   onViewMenu,
   onPricing,
@@ -350,10 +353,20 @@ export default function HomeTab({
   }
 
   // ── Checklist de setup: doar pași MĂSURABILI (fără bife false) ──
+  // În modul „doar ridicare" pasul de mese dispare (nu e nimic de făcut —
+  // fără bifă falsă), iar comanda de test se dă din meniul public.
   const setupItems: SetupItem[] = [
     { label: 'Adaugă produse', done: productCount > 0, target: 'products' },
     { label: 'Creează categorii', done: (categoriesCount ?? 0) > 0, target: 'categories' },
-    { label: 'Generează QR-uri pentru mese', done: (tablesCount ?? 0) > 0, target: 'mese' },
+    ...(pickupOnly
+      ? []
+      : [
+          {
+            label: 'Generează QR-uri pentru mese',
+            done: (tablesCount ?? 0) > 0,
+            target: 'mese' as const,
+          },
+        ]),
     { label: 'Verifică meniul public', done: menuChecked },
     ...(tier >= 2 && isAdmin
       ? [
@@ -362,7 +375,9 @@ export default function HomeTab({
           // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
           // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
           {
-            label: 'Prima comandă de test — deschide QR-ul unei mese și comandă',
+            label: pickupOnly
+              ? 'Prima comandă de test — deschide meniul public și comandă'
+              : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
             done: everOrdered === true,
             target: 'mese' as const,
           },
@@ -378,11 +393,13 @@ export default function HomeTab({
   // Metricele secundare — aceeași importanță între ele, sub hero.
   const secondaryMetrics = [
     { label: 'Produse active', value: String(productCount), hint: undefined as string | undefined },
-    {
-      label: 'QR-uri active',
-      value: tablesCount == null ? '…' : String(tablesCount),
-      hint: 'mese scanabile',
-    },
+    pickupOnly
+      ? { label: 'QR-uri active', value: '1', hint: 'QR general (doar ridicare)' }
+      : {
+          label: 'QR-uri active',
+          value: tablesCount == null ? '…' : String(tablesCount),
+          hint: 'mese scanabile',
+        },
     {
       label: 'Setup',
       value: `${setupDone}/${setupTotal}`,

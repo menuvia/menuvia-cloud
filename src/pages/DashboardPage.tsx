@@ -432,6 +432,8 @@ interface SubTab {
   adminOnly?: boolean
   minTier?: PlanTier
   platformAdminOnly?: boolean
+  // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
+  hiddenPickupOnly?: boolean
 }
 interface NavGroup {
   id: string
@@ -471,10 +473,10 @@ const NAV_GROUPS: NavGroup[] = [
       // Rezervările stau aici (nu sub „Comenzi"): modulul e permis pe TOATE
       // planurile (mig 086), iar grupul „Comenzi" are minTier 2 — l-ar ascunde
       // greșit pe Plan 1. adminOnly: ospătarii au deja rezervările în WaiterPage.
-      { id: 'reservations', label: 'Rezervări', adminOnly: true },
+      { id: 'reservations', label: 'Rezervări', adminOnly: true, hiddenPickupOnly: true },
       // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
       // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
-      { id: 'arhitectura', label: 'Hartă sală', minTier: 3 },
+      { id: 'arhitectura', label: 'Hartă sală', minTier: 3, hiddenPickupOnly: true },
     ],
   },
   {
@@ -510,10 +512,18 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-function isSubTabVisible(st: SubTab, isAdmin: boolean, tier: PlanTier, isPlatAdmin: boolean): boolean {
+function isSubTabVisible(
+  st: SubTab,
+  isAdmin: boolean,
+  tier: PlanTier,
+  isPlatAdmin: boolean,
+  pickupOnly: boolean,
+): boolean {
   if (st.platformAdminOnly && !isPlatAdmin) return false
   if (st.adminOnly && !isAdmin) return false
   if (st.minTier && tier < st.minTier) return false
+  // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
+  if (st.hiddenPickupOnly && pickupOnly) return false
   return true
 }
 
@@ -682,11 +692,19 @@ export default function DashboardPage({
   // Tier comercial derivat din planul restaurantului.
   const tier: PlanTier = planTier(plan)
 
+  // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
+  // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.
+  const pickupOnly =
+    (restaurant?.pickup_settings?.enabled ?? false) &&
+    (restaurant?.pickup_settings?.pickup_only ?? false)
+
   // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
   // sub-tab vizibil dispare complet din sidebar.
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter((st) => isSubTabVisible(st, isAdminRole, tier, isPlatAdmin)),
+    subTabs: g.subTabs.filter((st) =>
+      isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly),
+    ),
   })).filter(
     (g) =>
       (!g.adminOnly || isAdminRole) &&
@@ -1368,6 +1386,7 @@ export default function DashboardPage({
                     tier={tier}
                     isAdmin={isAdminRole}
                     productCount={productCount}
+                    pickupOnly={pickupOnly}
                     onNavigate={setTab}
                     onViewMenu={() => onViewMenu(restaurant.slug)}
                     onPricing={onPricing}
