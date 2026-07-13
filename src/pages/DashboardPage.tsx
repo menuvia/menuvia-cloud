@@ -490,7 +490,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'analytics', label: 'Statistici', minTier: 3 },
       { id: 'tva', label: 'TVA', minTier: 3 },
       { id: 'casa-tura', label: 'Încasări', minTier: 3 },
-      { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
+      // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
+      { id: 'casa-marcat', label: 'Casă & tichete', minTier: 2 },
       { id: 'invoices', label: 'Facturi', minTier: 3 },
       // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
       { id: 'gestiune', label: 'Stocuri', minTier: 2 },
@@ -1560,17 +1561,19 @@ export default function DashboardPage({
                   />
                 ))}
               {tab === 'casa-marcat' &&
-                (tier >= 3 ? (
+                // Tier 2 = tichete de bucătărie (mig 227); tier 3 adaugă
+                // secțiunile fiscale. Sub tier 2 rămâne upgrade prompt.
+                (tier >= 2 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <BridgeTab restaurantId={restaurant.id} />
+                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={tier >= 3} />
                   </Suspense>
                 ) : (
                   <UpgradePrompt
                     currentPlan={plan}
-                    featureName="Casă de marcat"
+                    featureName="Casă & tichete"
                     emoji="🖨️"
-                    description="Conectează casa de marcat fiscală. Disponibil pe planul Fiscalizare."
-                    requiredTier={3}
+                    description="Tipărește comenzile în bucătărie (din planul Meniu + Comenzi) și conectează casa de marcat fiscală (planul Fiscalizare)."
+                    requiredTier={2}
                     onUpgrade={onPricing}
                   />
                 ))}

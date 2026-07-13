@@ -21,6 +21,7 @@ export type FeatureName =
   | 'floor_plan'
   | 'shifts'
   | 'split_bill'
+  | 'kitchen_tickets'
   | 'themes'
   | 'remove_branding'
   | 'max_products'

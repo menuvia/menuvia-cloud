@@ -80,6 +80,11 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Perf meniu public | 198 | index compozit `categories(restaurant_id, display_order)` — cea mai fierbinte cale QR/public |
 | **Plata online la masă** | **202–204** + `tests/sql/table_payment_assertions.sql` | enum `card_online` (→ cod FiscalNet 7), `table_payments`, RPC-uri service_role-only (begin/attach/settle — suma DOAR server-side, settle idempotent), `set_restaurant_stripe_account`; design în `docs/ONLINE_PAYMENT.md` |
 | **Rezervare cu hartă („ca la cinema")** | **199–201** | `get_public_floor_plan` + `get_tables_availability` (gate modul mig 200) + `create_reservation_public` 10-arg cu `p_table_id` race-safe (199) și wrap-around program peste miezul nopții (201). Lanț 151→199→201, fără twin. |
+| Val optimizare + dunning | 205–223 | meniu QR 1-RTT (212), proiecție publică fără secrete (217/219), dunning complet (216/220), Oblio ambiguu terminal (218), slug TOCTOU (221), tips (222/223) |
+| **Afiliere cu cerere + aprobare** | **224** | `register_affiliate(text,text,text)` → status `pending` + telefon obligatoriu; fondatorul decide prin `admin_review_affiliate`; gate-urile pe `status='active'` fac pending/rejected inerți |
+| Branding server-gate | 225 | `hide_branding` normalizat server-side pe feature `remove_branding` (tier 2+) |
+| **Loyalty v1** | **226** + `tests/sql/loyalty_assertions.sql` | programe/wallets/events (earn la intrarea în `paid`/`closed`, UN singur earn per comandă); telefon doar hash md5 normalizat RO; RPC-uri anon attach + redeem is_member |
+| **Tichete bucătărie** | **227** + `tests/sql/kitchen_ticket_assertions.sql` | coadă NEfiscală `kitchen_tickets` (growth+), enqueue DEFERRED la COMMIT cu catch-all, bridge dual-gate (030→133→227 + mig 149 lărgit), print ESC/POS TCP 9100 / file-drop în `bridge/lib/kitchenPrinter.js` |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

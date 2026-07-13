@@ -119,6 +119,24 @@ exports.handler = async () => {
     }
   }
 
+  // ── Job 1c: tichete bucătărie blocate pe 'sent' (orar) ──
+  // Un bridge care a revendicat tichetul dar a murit înainte de confirm lasă
+  // tichetul agățat în 'sent' — îl marcăm error (BRIDGE_TIMEOUT) ca să apară
+  // butonul „Reîncearcă" în dashboard; purge pe terminale >30 zile (mig 227).
+  if (minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('kitchen_tickets_mark_stale')
+      // PGRST202 = mig 227 neaplicată încă (deploy frontend înaintea DB-ului)
+      // — nu alertăm orar pentru o funcție care nu există încă.
+      if (error && error.code !== 'PGRST202') throw error
+      if (!error) results.kitchen_tickets_stale = data
+    } catch (e) {
+      console.error('[automation-cron] kitchen tickets stale FAILED:', e.message)
+      await postCronAlert('kitchen-tickets-stale', e.message)
+      results.kitchen_tickets_stale_error = e.message
+    }
+  }
+
   // ── Job 2: compute health scores (every 30 min) ──
   if (minute < 15 || (minute >= 30 && minute < 45)) {
     try {

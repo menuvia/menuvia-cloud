@@ -24,6 +24,11 @@ function fnField(fromFile, key) {
   return fromFile && fromFile.fiscalnet ? fromFile.fiscalnet[key] : undefined;
 }
 
+// Citește o cheie din secțiunea kitchen (tichete de bucătărie, mig 227).
+function ktField(fromFile, key) {
+  return fromFile && fromFile.kitchen ? fromFile.kitchen[key] : undefined;
+}
+
 function findConfigFile() {
   // Ordine: lângă cwd → lângă executabil (cazul .exe pornit din autostart, cwd=system32)
   // → lângă sursă (dev). Prima existentă câștigă.
@@ -68,6 +73,20 @@ function loadConfig() {
       timeoutMs: num(env.FISCALNET_TIMEOUT_MS, fnField(fromFile, 'timeoutMs')) || 30000,
       pollResponseMs: num(env.FISCALNET_POLL_RESPONSE_MS, fnField(fromFile, 'pollResponseMs')) || 500,
     },
+    // Tichete de bucătărie (mig 227) — imprimantă termică, NU FiscalNet.
+    // enabled=false implicit: bridge-urile existente nu-și schimbă comportamentul.
+    kitchen: {
+      enabled: String(env.KITCHEN_ENABLED ?? ktField(fromFile, 'enabled') ?? 'false') === 'true'
+        || ktField(fromFile, 'enabled') === true,
+      // tcp = ESC/POS pe port 9100 (standard Epson/Xprinter); file = .txt drop.
+      mode: String(env.KITCHEN_MODE || ktField(fromFile, 'mode') || 'tcp').toLowerCase(),
+      host: env.KITCHEN_HOST || ktField(fromFile, 'host') || '',
+      port: num(env.KITCHEN_PORT, ktField(fromFile, 'port')) || 9100,
+      dir: env.KITCHEN_DIR || ktField(fromFile, 'dir') || '',
+      timeoutMs: num(env.KITCHEN_TIMEOUT_MS, ktField(fromFile, 'timeoutMs')) || 10000,
+      // Imprimantele termice ieftine nu au UTF-8 — implicit transliterăm ăâîșț.
+      transliterate: String(env.KITCHEN_TRANSLITERATE ?? ktField(fromFile, 'transliterate') ?? 'true') !== 'false',
+    },
   };
 
   validate(cfg);
@@ -90,6 +109,17 @@ function validate(cfg) {
   if (cfg.fiscalnet.mode === 'file') {
     if (!cfg.fiscalnet.bonuriDir) errs.push('fiscalnet.bonuriDir lipsește (necesar în mod file)');
     if (!cfg.fiscalnet.raspunsDir) errs.push('fiscalnet.raspunsDir lipsește (necesar în mod file)');
+  }
+  if (cfg.kitchen.enabled) {
+    if (!['tcp', 'file'].includes(cfg.kitchen.mode)) {
+      errs.push(`kitchen.mode invalid: "${cfg.kitchen.mode}" (accept: tcp | file)`);
+    }
+    if (cfg.kitchen.mode === 'tcp' && !cfg.kitchen.host) {
+      errs.push('kitchen.host lipsește (IP-ul imprimantei termice, necesar în mod tcp)');
+    }
+    if (cfg.kitchen.mode === 'file' && !cfg.kitchen.dir) {
+      errs.push('kitchen.dir lipsește (folderul de tichete, necesar în mod file)');
+    }
   }
   if (errs.length) {
     throw new Error('Config invalid:\n  - ' + errs.join('\n  - '));
