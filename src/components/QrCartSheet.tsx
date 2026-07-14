@@ -56,6 +56,8 @@ export interface QrCartSheetProps {
   onPayTable?: () => void
   payDisabled?: boolean
   payLabel?: string
+  /** Split pe itemi (mig 229): deschide selecția „plătește partea ta". */
+  onPaySplit?: () => void
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -95,6 +97,7 @@ export default function QrCartSheet({
   onPayTable,
   payDisabled = false,
   payLabel = 'Plătește masa',
+  onPaySplit,
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -828,6 +831,30 @@ export default function QrCartSheet({
           >
             {payLabel}
             {typeof tableTotal === 'number' ? ` · ${fmtPrice(tableTotal, currency)}` : ''}
+          </button>
+        )}
+
+        {/* Split pe itemi — plătește doar partea ta (mig 229) */}
+        {onPaySplit && !payDisabled && (
+          <button
+            type="button"
+            onClick={onPaySplit}
+            className="pressable"
+            style={{
+              background: 'transparent',
+              color: PUB.text2,
+              border: 'none',
+              padding: '10px 0',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: 3,
+              minHeight: 44,
+            }}
+          >
+            Împarte nota — plătește partea ta
           </button>
         )}
       </div>

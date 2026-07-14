@@ -83,19 +83,81 @@ export interface TablePaymentIntent {
   currency: string
 }
 
+// ── Split pe itemi (mig 229) ──────────────────────────────────
+export interface SplitClaimInput {
+  order_item_id: string
+  quantity: number
+}
+
+export interface TableBillItem {
+  id: string
+  name: string
+  quantity: number
+  item_total: number
+  claimed_qty: number
+  remaining_qty: number
+}
+
+export interface TableBillOrder {
+  id: string
+  short_id: string
+  total: number
+  subtotal: number
+  discount_amount: number
+  /** true = are plăți parțiale de staff (cash) — se încheie la ospătar. */
+  locked: boolean
+  items: TableBillItem[]
+}
+
+export interface TableBill {
+  currency: string
+  orders: TableBillOrder[]
+}
+
+/**
+ * Nota mesei pentru împărțirea pe itemi: comenzile deschise ale sesiunii cu
+ * cantitățile deja revendicate de alte plăți. Aruncă Error REAL cu `.hint`.
+ */
+export async function fetchTableBill(token: string, sessionId: string): Promise<TableBill> {
+  const res = await fetch('/.netlify/functions/table-payment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bill', token, session_id: sessionId }),
+  })
+  const body = (await res.json().catch(() => ({}))) as Partial<TableBill> & {
+    error?: string
+    hint?: string
+  }
+  if (!res.ok) {
+    const err = new Error(body.error || 'Nota nu a putut fi încărcată.') as Error & {
+      hint?: string
+    }
+    err.hint = body.hint ?? undefined
+    throw err
+  }
+  return { currency: body.currency || 'RON', orders: body.orders ?? [] }
+}
+
 /**
  * Cere serverului să inițieze plata mesei. Aruncă Error REAL (nu răspuns
  * brut) — hint-urile de business (module_disabled / not_connected /
  * nothing_to_pay...) ajung în `hint` ca UI-ul să poată explica curat.
+ * Cu `claims` → split pe itemi (begin_split_payment, mig 229): clientul
+ * plătește DOAR produsele selectate; suma finală o calculează serverul.
  */
 export async function createTablePayment(
   token: string,
   sessionId: string,
+  claims?: readonly SplitClaimInput[],
 ): Promise<TablePaymentIntent> {
   const res = await fetch('/.netlify/functions/table-payment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, session_id: sessionId }),
+    body: JSON.stringify({
+      token,
+      session_id: sessionId,
+      ...(claims && claims.length > 0 ? { items: claims } : {}),
+    }),
   })
   const body = (await res.json().catch(() => ({}))) as Partial<TablePaymentIntent> & {
     error?: string

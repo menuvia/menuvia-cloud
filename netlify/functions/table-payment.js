@@ -31,7 +31,12 @@ const HINT_STATUS = {
   nothing_to_pay: 409,
   invalid_payment: 409,
   currency_not_supported: 409,
+  // Split pe itemi (mig 229)
+  invalid_items: 400,
+  items_already_claimed: 409,
 }
+
+const UUID_RE = /^[0-9a-f-]{36}$/i
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -57,11 +62,30 @@ exports.handler = async (event) => {
   const sessionId = String(body.session_id || '').slice(0, 64)
   const action = String(body.action || 'create')
   const paymentId = String(body.payment_id || '')
-  if (!token || !/^[0-9a-f-]{36}$/i.test(sessionId) || !['create', 'cancel'].includes(action)) {
+  if (!token || !UUID_RE.test(sessionId) || !['create', 'cancel', 'bill'].includes(action)) {
     return jsonResponse(400, { error: 'token și session_id sunt obligatorii.' })
   }
-  if (action === 'cancel' && !/^[0-9a-f-]{36}$/i.test(paymentId)) {
+  if (action === 'cancel' && !UUID_RE.test(paymentId)) {
     return jsonResponse(400, { error: 'payment_id este obligatoriu la anulare.' })
+  }
+
+  // Split pe itemi (mig 229): body.items nevid pe 'create' → begin_split_payment.
+  // Validare de SHAPE aici (uuid + întreg 1..99, max 60); conținutul (există
+  // itemul, e liber, sesiunea lui) se validează în RPC, sub lock-ul sesiunii.
+  let claims = null
+  if (action === 'create' && Array.isArray(body.items) && body.items.length > 0) {
+    if (body.items.length > 60) {
+      return jsonResponse(400, { error: 'Selecție prea mare.', hint: 'invalid_items' })
+    }
+    claims = []
+    for (const it of body.items) {
+      const id = it && typeof it.order_item_id === 'string' ? it.order_item_id : ''
+      const qty = it ? Number(it.quantity) : NaN
+      if (!UUID_RE.test(id) || !Number.isInteger(qty) || qty < 1 || qty > 99) {
+        return jsonResponse(400, { error: 'Selecție invalidă.', hint: 'invalid_items' })
+      }
+      claims.push({ order_item_id: id, quantity: qty })
+    }
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -72,9 +96,15 @@ exports.handler = async (event) => {
     const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
       // Bucket separat pentru cancel: renunțarea (mecanism de siguranță) nu
       // trebuie să devină indisponibilă pentru că masa a tot deschis sheet-ul.
-      p_function_name: action === 'cancel' ? 'table_payment_cancel' : 'table_payment',
+      // Bucket separat și pentru bill/split — nota se poate reîncărca des
+      // (mai multe telefoane) fără să consume bugetul de create.
+      p_function_name:
+        action === 'cancel' ? 'table_payment_cancel'
+        : action === 'bill' ? 'table_payment_bill'
+        : claims ? 'table_payment_split'
+        : 'table_payment',
       p_scope_key: sessionId,
-      p_max_requests: 10,
+      p_max_requests: action === 'bill' || claims ? 30 : 10,
       p_window_minutes: 5,
     })
     if (rlErr) {
@@ -87,6 +117,21 @@ exports.handler = async (event) => {
   } catch (e) {
     console.error('[table-payment] rate limit check threw (fail-closed):', e?.message)
     return jsonResponse(503, { error: 'Serviciul e ocupat. Reîncearcă imediat.' })
+  }
+
+  // Nota mesei pentru split (mig 229): comenzile deschise + cantitățile
+  // rămase per item. Read-only; toată validarea (token+sesiune+gate-uri) e în RPC.
+  if (action === 'bill') {
+    const { data: bill, error: billErr } = await supabase.rpc('get_table_bill', {
+      p_session_id: sessionId,
+      p_token: token,
+    })
+    if (billErr) {
+      const status = HINT_STATUS[billErr.hint] || (billErr.message?.includes('Featurea') ? 403 : 500)
+      if (status === 500) console.error('[table-payment] bill failed:', billErr.message)
+      return jsonResponse(status, { error: billErr.message, hint: billErr.hint || null })
+    }
+    return jsonResponse(200, bill)
   }
 
   // Opt-out: clientul renunță la plata online („plătesc la ospătar").
@@ -142,11 +187,19 @@ exports.handler = async (event) => {
     return jsonResponse(200, { status: 'canceled' })
   }
 
-  // 1) Suma + gate-urile, server-side.
-  const { data: begin, error: beginErr } = await supabase.rpc('begin_table_payment', {
-    p_session_id: sessionId,
-    p_token: token,
-  })
+  // 1) Suma + gate-urile, server-side. Cu claims → split pe itemi (mig 229);
+  // fără → toată nota (mig 211). Ambele întorc superseded_intents — bucla de
+  // supersede de mai jos se aplică identic.
+  const { data: begin, error: beginErr } = claims
+    ? await supabase.rpc('begin_split_payment', {
+        p_session_id: sessionId,
+        p_token: token,
+        p_claims: claims,
+      })
+    : await supabase.rpc('begin_table_payment', {
+        p_session_id: sessionId,
+        p_token: token,
+      })
   if (beginErr) {
     const status = HINT_STATUS[beginErr.hint] || (beginErr.message?.includes('Featurea') ? 403 : 500)
     if (status === 500) console.error('[table-payment] begin failed:', beginErr.message)
@@ -227,9 +280,10 @@ exports.handler = async (event) => {
         currency: String(begin.currency || 'RON').toLowerCase(),
         automatic_payment_methods: { enabled: true },
         ...(feeBani > 0 ? { application_fee_amount: feeBani } : {}),
-        description: 'Menuvia — nota mesei',
+        description: claims ? 'Menuvia — parte din nota mesei' : 'Menuvia — nota mesei',
         metadata: {
           menuvia_payment_id: begin.payment_id,
+          menuvia_kind: claims ? 'split' : 'table',
           session_id: sessionId,
         },
       },

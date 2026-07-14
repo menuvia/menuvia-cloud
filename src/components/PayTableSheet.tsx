@@ -9,6 +9,7 @@ import {
   cancelTablePayment,
   createTablePayment,
   loadStripeJs,
+  type SplitClaimInput,
   type StripeClient,
   type StripeElements,
   type StripePaymentElement,
@@ -35,6 +36,8 @@ interface Props {
   onPaid: () => void
   /** Clientul renunță la plata online — părintele cheamă nota la ospătar. */
   onPayOtherwise: () => void
+  /** Split pe itemi (mig 229): plătește DOAR produsele selectate. */
+  claims?: readonly SplitClaimInput[]
 }
 
 type Phase = 'loading' | 'ready' | 'confirming' | 'paid' | 'error'
@@ -48,9 +51,17 @@ const HINT_COPY: Record<string, string> = {
   invalid_session: 'Sesiunea mesei a expirat. Scanează din nou codul QR.',
   currency_not_supported:
     'Plata online e disponibilă doar pentru meniuri în lei. Cere nota ospătarului.',
+  items_already_claimed:
+    'Cineva de la masă plătește deja o parte din aceste produse. Alege altele sau reîncearcă.',
+  invalid_items: 'Nota s-a schimbat între timp — redeschide împărțirea notei.',
 }
 
-export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid, onPayOtherwise }: Props) {
+// Cheia sessionStorage cu ultimul intent split al ACESTUI telefon: dacă
+// sheet-ul a murit mid-flow (refresh/crash), claims-urile lui ar rămâne
+// blocate — la redeschidere anulăm best-effort plata veche înainte de una nouă.
+const splitPidKey = (sessionId: string): string => `menuvia_split_pid_${sessionId}`
+
+export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid, onPayOtherwise, claims }: Props) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
@@ -68,10 +79,27 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
     let cancelled = false
     async function init(): Promise<void> {
       try {
-        const intent = await createTablePayment(token, sessionId)
+        if (claims && claims.length > 0) {
+          // Eliberăm claims-urile unei încercări anterioare crăpate mid-flow
+          // (best-effort — dacă plata veche chiar a reușit, cancel-ul e refuzat
+          // și webhook-ul ei își vede de drum).
+          const stalePid = sessionStorage.getItem(splitPidKey(sessionId))
+          if (stalePid) {
+            try {
+              await cancelTablePayment(stalePid, token, sessionId)
+            } catch {
+              /* best-effort */
+            }
+            sessionStorage.removeItem(splitPidKey(sessionId))
+          }
+        }
+        const intent = await createTablePayment(token, sessionId, claims)
         if (cancelled) return
         setAmount(intent.amount)
         setPaymentId(intent.payment_id)
+        if (claims && claims.length > 0) {
+          sessionStorage.setItem(splitPidKey(sessionId), intent.payment_id)
+        }
         setCurrency(resolveMenuCurrency(intent.currency))
         const Stripe = await loadStripeJs()
         if (cancelled) return
@@ -138,6 +166,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         setPhase('ready')
         return
       }
+      sessionStorage.removeItem(splitPidKey(sessionId))
       setPhase('paid')
       onPaid()
     } catch (e) {
@@ -154,6 +183,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
     if (paymentId) {
       try {
         const result = await cancelTablePayment(paymentId, token, sessionId)
+        sessionStorage.removeItem(splitPidKey(sessionId))
         if (result === 'succeeded') {
           setPhase('paid')
           onPaid()
@@ -169,9 +199,22 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
 
   const canConfirm = phase === 'ready'
 
+  function handleClose(): void {
+    // În modul split, închiderea fără plată eliberează claims-urile
+    // (best-effort) — altfel colegii de masă văd produsele „revendicate".
+    if (claims && claims.length > 0 && paymentId && phase !== 'paid') {
+      void cancelTablePayment(paymentId, token, sessionId)
+        .then(() => sessionStorage.removeItem(splitPidKey(sessionId)))
+        .catch(() => {
+          /* best-effort: TTL-ul de 15 min + pid-ul din sessionStorage preiau */
+        })
+    }
+    onClose()
+  }
+
   return (
     <div
-      onClick={phase === 'confirming' ? undefined : onClose}
+      onClick={phase === 'confirming' ? undefined : handleClose}
       className="animate-backdrop"
       style={{
         position: 'fixed',
@@ -210,7 +253,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
               color: PUB.text,
             }}
           >
-            Plătește masa
+            {claims && claims.length > 0 ? 'Plătește partea ta' : 'Plătește masa'}
           </span>
           {amount != null && (
             <span
@@ -288,7 +331,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         <button
           type="button"
           disabled={!canConfirm && phase !== 'paid' && phase !== 'error'}
-          onClick={phase === 'paid' || phase === 'error' ? onClose : () => void handleConfirm()}
+          onClick={phase === 'paid' || phase === 'error' ? handleClose : () => void handleConfirm()}
           className={canConfirm || phase === 'paid' || phase === 'error' ? 'pressable' : ''}
           style={{
             background:

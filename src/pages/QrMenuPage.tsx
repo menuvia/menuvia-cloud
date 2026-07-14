@@ -60,6 +60,7 @@ const ProductSheet = lazy(() => import('../components/ProductSheet'))
 const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
 const PayTableSheet = lazy(() => import('../components/PayTableSheet'))
+const SplitBillSheet = lazy(() => import('../components/SplitBillSheet'))
 
 // Cheile de idempotență (sessionStorage per token) trăiesc în lib/orders —
 // getQrIdempotencyKey / rotateQrIdempotencyKey — ca să fie unit-testate.
@@ -114,6 +115,7 @@ export default function QrMenuPage({ token }: Props) {
   const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
   const [showPaySheet, setShowPaySheet] = useState(false)
   const [tablePaid, setTablePaid] = useState(false)
+  const [showSplitSheet, setShowSplitSheet] = useState(false)
   // Comenzile deja plătite online (client-side, aproximare a settle-ului):
   // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
   // după plată re-activează butonul (serverul recalculează oricum exact).
@@ -1552,6 +1554,12 @@ export default function QrMenuPage({ token }: Props) {
                 : undefined
             }
             payDisabled={tablePaid || requestingBill || billRequested}
+            // Split pe itemi (mig 229): doar cu plata online activă + sesiune.
+            onPaySplit={
+              onlinePayEnabled && sessionId != null && previousOrders.length > 0 && !tablePaid
+                ? () => setShowSplitSheet(true)
+                : undefined
+            }
             payLabel={
               tablePaid
                 ? 'Plătit online ✓'
@@ -1590,6 +1598,24 @@ export default function QrMenuPage({ token }: Props) {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
               void handleRequestBill()
+            }}
+          />
+        </Suspense>
+      )}
+
+      {/* Split pe itemi (mig 229) — plătește doar partea ta */}
+      {showSplitSheet && sessionId != null && (
+        <Suspense fallback={null}>
+          <SplitBillSheet
+            token={token}
+            sessionId={sessionId}
+            PUB={PUB}
+            accent={accent}
+            onClose={() => setShowSplitSheet(false)}
+            onPaid={() => {
+              // Plată PARȚIALĂ a mesei: NU setăm tablePaid/paidOrderIds —
+              // serverul marchează 'paid' doar comenzile acoperite integral;
+              // restul mesei se plătește în continuare (split sau ospătar).
             }}
           />
         </Suspense>
