@@ -921,4 +921,103 @@ begin
   raise notice 'TP20 OK: nota expune claimed/remaining + locked pe fluxul de staff';
 end $$;
 
+-- ── TP21: cash de staff luat ÎNTRE begin_split și settle → notat (echiv. F1) ─
+do $$
+declare
+  v_begin  jsonb;
+  v_settle jsonb;
+begin
+  update public.table_sessions set status = 'closed'
+   where id = 'ed20ed20-2020-4202-8202-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed21ed21-2121-4212-8212-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id) values
+    ('a22aa22a-2222-4222-8222-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed21ed21-2121-4212-8212-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11221122-2222-4222-8222-000000000001','a22aa22a-2222-4222-8222-ffffffffffff','Friptura TP',60,1,60),
+    ('11221122-2222-4222-8222-000000000002','a22aa22a-2222-4222-8222-ffffffffffff','Garnitura TP',40,1,40);
+
+  v_begin := public.begin_split_payment('ed21ed21-2121-4212-8212-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11221122-2222-4222-8222-000000000001","quantity":1}]'::jsonb);
+  if (v_begin->>'amount')::numeric <> 60 then
+    raise exception 'TP21 FAIL: suma claim-ului e % (așteptat 60)', v_begin->>'amount';
+  end if;
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp21');
+
+  -- Ospătarul ia 50 cash parțial ÎN FEREASTRA begin→confirmare (3DS).
+  insert into public.order_payments (order_id, amount, method)
+  values ('a22aa22a-2222-4222-8222-ffffffffffff', 50, 'cash');
+
+  v_settle := public.settle_table_payment('pi_tp21', 'succeeded');
+  -- Banii online se înregistrează (au fost încasați); 50+60=110 >= 100 → paid,
+  -- dar suprapunerea cu cash-ul de staff TREBUIE să fie vizibilă.
+  if (v_settle->>'orders_staff_race')::int <> 1 then
+    raise exception 'TP21 FAIL: suprapunerea cu plata de staff nu e raportată (%)', v_settle;
+  end if;
+  if not exists (select 1 from public.orders
+                  where id = 'a22aa22a-2222-4222-8222-ffffffffffff'
+                    and status = 'paid' and payment_method = 'other' and paid_amount = 110) then
+    raise exception 'TP21 FAIL: comanda nu e paid/other/110 (mix cash+online)';
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp21'
+                    and status = 'succeeded' and settle_note ilike '%staff%') then
+    raise exception 'TP21 FAIL: settle_note nu semnalează plățile de staff din fereastră';
+  end if;
+  raise notice 'TP21 OK: cash-ul de staff din fereastra begin→settle e notat (nu tăcut)';
+end $$;
+
+-- ── TP22: claim cu sumă zero (produs gratuit) NU avortează settle-ul ─────────
+do $$
+declare
+  v_begin  jsonb;
+  v_settle jsonb;
+begin
+  update public.table_sessions set status = 'closed'
+   where id = 'ed21ed21-2121-4212-8212-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed22ed22-2222-4222-8222-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id) values
+    ('a23aa23a-2323-4232-8232-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed22ed22-2222-4222-8222-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc'),
+    ('a24aa24a-2424-4242-8242-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed22ed22-2222-4222-8222-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11231123-2323-4232-8232-000000000001','a23aa23a-2323-4232-8232-ffffffffffff','Limonada TP',16,1,16),
+    ('11241124-2424-4242-8242-000000000001','a24aa24a-2424-4242-8242-ffffffffffff','Apa din partea casei',0,1,0);
+
+  -- Claim pe ambele: comanda gratuită contribuie 0 la sumă.
+  v_begin := public.begin_split_payment('ed22ed22-2222-4222-8222-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11231123-2323-4232-8232-000000000001","quantity":1},
+      {"order_item_id":"11241124-2424-4242-8242-000000000001","quantity":1}]'::jsonb);
+  if (v_begin->>'amount')::numeric <> 16 then
+    raise exception 'TP22 FAIL: suma e % (așteptat 16)', v_begin->>'amount';
+  end if;
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp22');
+
+  -- Settle-ul NU are voie să pice pe insert de 0 în order_payments (CHECK
+  -- amount > 0, mig 017): grupul zero se sare, plata validă se înregistrează.
+  v_settle := public.settle_table_payment('pi_tp22', 'succeeded');
+  if v_settle->>'status' <> 'succeeded' or (v_settle->>'orders_paid')::int <> 1 then
+    raise exception 'TP22 FAIL: settle a raportat % (așteptat succeeded, paid=1)', v_settle;
+  end if;
+  if exists (select 1 from public.order_payments
+              where order_id = 'a24aa24a-2424-4242-8242-ffffffffffff') then
+    raise exception 'TP22 FAIL: s-a inserat un rând de 0 lei în order_payments';
+  end if;
+  if not exists (select 1 from public.orders
+                  where id = 'a23aa23a-2323-4232-8232-ffffffffffff'
+                    and status = 'paid' and paid_amount = 16) then
+    raise exception 'TP22 FAIL: comanda plătită valid nu a fost înregistrată';
+  end if;
+  raise notice 'TP22 OK: claim-ul de 0 lei e sărit; settle-ul nu se rostogolește';
+end $$;
+
 rollback;

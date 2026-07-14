@@ -127,7 +127,9 @@ declare
   v_sess     record;
   v_tok      record;
   v_currency text;
+  v_account  text;
   v_orders   jsonb;
+  v_stale    jsonb;
 begin
   select id, restaurant_id, table_id, status
     into v_sess
@@ -157,8 +159,23 @@ begin
       using errcode = 'P0001', hint = 'module_disabled';
   end if;
 
-  select upper(coalesce(currency, 'RON')) into v_currency
+  select upper(coalesce(currency, 'RON')), stripe_account_id
+    into v_currency, v_account
     from public.restaurants where id = v_sess.restaurant_id;
+
+  -- Intent-uri SPLIT stale (>15 min, neconfirmate): claims-urile unui telefon
+  -- mort mid-flow. Funcția Netlify (action 'bill') le anulează la Stripe cu
+  -- disciplina provably-dead ÎNAINTE să arate nota — altfel itemii rămân
+  -- „revendicați" pe toată sesiunea. NU se eliberează aici, în SQL (intent-ul
+  -- ar rămâne confirmabil → dublă încasare).
+  select coalesce(jsonb_agg(stripe_payment_intent_id), '[]'::jsonb)
+    into v_stale
+    from public.table_payments
+   where session_id = p_session_id
+     and kind = 'split'
+     and status in ('created', 'processing')
+     and stripe_payment_intent_id is not null
+     and created_at < now() - interval '15 minutes';
 
   select coalesce(jsonb_agg(jsonb_build_object(
            'id',              o.id,
@@ -199,7 +216,12 @@ begin
    where o.session_id = p_session_id
      and o.status not in ('paid', 'cancelled', 'closed');
 
-  return jsonb_build_object('currency', v_currency, 'orders', v_orders);
+  return jsonb_build_object(
+    'currency', v_currency,
+    'orders', v_orders,
+    'stale_split_intents', v_stale,
+    'stripe_account_id', v_account
+  );
 end;
 $$;
 
@@ -462,13 +484,25 @@ begin
      and status = 'created'
      and stripe_payment_intent_id is null;
 
+  -- Spre anulare la Stripe (bucla provably-dead din funcția Netlify):
+  --   • TOATE intent-urile full-table vii (o plată pe toată nota acoperă și
+  --     itemii de aici);
+  --   • intent-urile SPLIT stale (>15 min, neconfirmate) — un telefon mort
+  --     mid-flow și-ar ține altfel claims-urile pe toată sesiunea (TTL-ul de
+  --     mai sus acoperă doar rândurile FĂRĂ intent). Split-urile RECENTE ale
+  --     altora rămân neatinse (pot fi mid-confirm — fereastră de dublă
+  --     încasare). Dacă un intent stale nu poate fi dovedit mort la Stripe,
+  --     funcția Netlify refuză plata nouă — fail-closed, ca la mig 211/F3.
   select coalesce(jsonb_agg(stripe_payment_intent_id), '[]'::jsonb)
     into v_superseded
     from public.table_payments
    where session_id = p_session_id
-     and kind = 'table'
      and status in ('created', 'processing')
-     and stripe_payment_intent_id is not null;
+     and stripe_payment_intent_id is not null
+     and (
+       kind = 'table'
+       or (kind = 'split' and created_at < now() - interval '15 minutes')
+     );
 
   insert into public.table_payments
     (restaurant_id, session_id, order_ids, amount, currency, application_fee, kind)
@@ -571,6 +605,13 @@ begin
        where tpi.payment_id = v_pay.id
        group by tpi.order_id
     loop
+      -- Grup cu sumă zero (claims doar pe produse gratuite / absorbție după
+      -- edit de staff): order_payments cere amount > 0 (mig 017) — un insert
+      -- de 0 ar avorta TOT settle-ul (inclusiv comenzile plătite valid) și ar
+      -- bloca webhook-ul Stripe în retry infinit. Comanda rămâne deschisă
+      -- (se închide la ospătar — 0 lei de încasat).
+      continue when v_ord.amt <= 0;
+
       select * into v_order
         from public.orders
        where id = v_ord.order_id
@@ -580,6 +621,17 @@ begin
       if v_order.status in ('paid', 'cancelled', 'closed') then
         v_skipped := v_skipped + 1;
         continue;
+      end if;
+      -- Echivalentul F1 (mig 211) pentru split: begin a garantat că NU existau
+      -- plăți de staff pe comandă, deci orice rând ne-card_online prezent acum
+      -- a apărut în fereastra begin→confirmare (3DS poate dura minute). Banii
+      -- online se înregistrează ORICUM (au fost încasați), dar suprapunerea se
+      -- notează — reconciliere vizibilă, nu tăcere.
+      if exists (
+        select 1 from public.order_payments op
+         where op.order_id = v_ord.order_id and op.method <> 'card_online'
+      ) then
+        v_changed := v_changed + 1;
       end if;
       insert into public.order_payments (order_id, amount, method, paid_by)
       values (v_ord.order_id, v_ord.amt, 'card_online', null);
@@ -618,7 +670,10 @@ begin
                v_skipped) end,
              case when v_partial > 0 then format(
                '%s comenzi plătite parțial prin split — restul se achită la masă.',
-               v_partial) end
+               v_partial) end,
+             case when v_changed > 0 then format(
+               '%s comenzi cu plăți de staff apărute între inițierea split-ului și confirmare — suma online se poate suprapune, verifică refund.',
+               v_changed) end
            )), '')
      where id = v_pay.id;
 
@@ -627,7 +682,8 @@ begin
       'kind', 'split',
       'orders_paid', v_paid,
       'orders_partial', v_partial,
-      'orders_skipped', v_skipped
+      'orders_skipped', v_skipped,
+      'orders_staff_race', v_changed
     );
   end if;
 

@@ -52,11 +52,12 @@ function printViaTcp(cfg, ticket) {
     socket.on('error', (err) =>
       done({ success: false, errorCode: 'PRINTER_UNREACHABLE', errorInfo: err.message }));
     socket.on('connect', () => {
-      socket.end(bytes, 'binary');
-    });
-    // close după end = totul scris (nu există ACK — vezi antet).
-    socket.on('close', (hadError) => {
-      if (!hadError) done({ success: true, errorCode: null, errorInfo: null });
+      // Succes = datele scrise complet (callback-ul lui end = flush terminat).
+      // NU așteptăm 'close': multe imprimante termice acceptă datele dar nu
+      // trimit niciodată FIN — fiecare print ar fi raportat fals PRINT_TIMEOUT
+      // (zgomot + retry-uri manuale degeaba). 9100 rămâne fire-and-forget.
+      socket.end(bytes, 'binary', () =>
+        done({ success: true, errorCode: null, errorInfo: null }));
     });
   });
 }

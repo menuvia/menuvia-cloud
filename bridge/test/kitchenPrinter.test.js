@@ -30,8 +30,16 @@ test('buildEscPos: init la început, cut la final, payload inclus', () => {
 
 test('tcp: scrie ESC/POS pe un server local și întoarce success', async () => {
   const received = [];
+  // Succesul se raportează la FLUSH-ul clientului (fire-and-forget, fără ACK) —
+  // serverul primește datele un tick mai târziu, deci așteptăm cut-ul final
+  // înainte de a citi ce a ajuns.
+  let gotAll;
+  const allReceived = new Promise((r) => { gotAll = r; });
   const server = net.createServer((socket) => {
-    socket.on('data', (d) => received.push(d));
+    socket.on('data', (d) => {
+      received.push(d);
+      if (Buffer.concat(received).toString('binary').includes('\x1d\x56\x42\x00')) gotAll();
+    });
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
@@ -39,6 +47,7 @@ test('tcp: scrie ESC/POS pe un server local și întoarce success', async () => 
   const result = await printTicket(cfgWith({ port }), {
     id: 't1', payload: '*** COMANDA NOUA ***\nMASA: Terasă 3\n2x Mici',
   });
+  await allReceived;
   server.close();
 
   assert.equal(result.success, true);

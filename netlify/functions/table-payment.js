@@ -120,9 +120,9 @@ exports.handler = async (event) => {
   }
 
   // Nota mesei pentru split (mig 229): comenzile deschise + cantitățile
-  // rămase per item. Read-only; toată validarea (token+sesiune+gate-uri) e în RPC.
+  // rămase per item. Toată validarea (token+sesiune+gate-uri) e în RPC.
   if (action === 'bill') {
-    const { data: bill, error: billErr } = await supabase.rpc('get_table_bill', {
+    let { data: bill, error: billErr } = await supabase.rpc('get_table_bill', {
       p_session_id: sessionId,
       p_token: token,
     })
@@ -131,6 +131,45 @@ exports.handler = async (event) => {
       if (status === 500) console.error('[table-payment] bill failed:', billErr.message)
       return jsonResponse(status, { error: billErr.message, hint: billErr.hint || null })
     }
+
+    // Curățare claims stale: intent-urile split neconfirmate >15 min (telefon
+    // mort mid-flow) se anulează la Stripe cu disciplina provably-dead — DOAR
+    // cancel-ul reușit eliberează claims-urile (settle 'canceled'). Un eșec de
+    // cancel NU blochează nota (itemii respectivi rămân „în plată").
+    const staleIntents = Array.isArray(bill.stale_split_intents) ? bill.stale_split_intents : []
+    if (staleIntents.length > 0 && bill.stripe_account_id) {
+      const stripeS = new Stripe(STRIPE_SECRET_KEY)
+      let freed = 0
+      for (const stale of staleIntents) {
+        try {
+          await stripeS.paymentIntents.cancel(stale, { stripeAccount: bill.stripe_account_id })
+        } catch (e) {
+          if (!(e && e.payment_intent && e.payment_intent.status === 'canceled')) {
+            // Ne-anulabil (posibil mid-confirm/succeeded) — îl lăsăm în pace.
+            continue
+          }
+        }
+        const { error: staleSettleErr } = await supabase.rpc('settle_table_payment', {
+          p_intent_id: stale,
+          p_outcome: 'canceled',
+          p_error_info: 'Selecție abandonată (telefon inactiv) — anulată la încărcarea notei.',
+        })
+        if (staleSettleErr) {
+          console.error('[table-payment] settle pe intent split stale a eșuat:', staleSettleErr.message)
+        } else {
+          freed++
+        }
+      }
+      // Claims eliberate → cantitățile rămase s-au schimbat; re-luăm nota.
+      if (freed > 0) {
+        const retry = await supabase.rpc('get_table_bill', { p_session_id: sessionId, p_token: token })
+        if (!retry.error && retry.data) bill = retry.data
+      }
+    }
+
+    // Câmpurile interne nu pleacă spre client.
+    delete bill.stale_split_intents
+    delete bill.stripe_account_id
     return jsonResponse(200, bill)
   }
 
@@ -294,6 +333,16 @@ exports.handler = async (event) => {
     )
   } catch (e) {
     console.error('[table-payment] Stripe create failed:', e?.message)
+    // Eliberăm rândul nou (și claims-urile lui, la split) în loc să așteptăm
+    // TTL-ul de 15 min — best-effort, rândul e 'created' fără intent.
+    const { error: cancelErr } = await supabase.rpc('cancel_table_payment', {
+      p_payment_id: begin.payment_id,
+      p_session_id: sessionId,
+      p_token: token,
+    })
+    if (cancelErr) {
+      console.error('[table-payment] anularea după create-fail a eșuat:', cancelErr.message)
+    }
     return jsonResponse(502, {
       error: 'Plata nu a putut fi inițiată. Cere nota ospătarului.',
     })
@@ -312,6 +361,16 @@ exports.handler = async (event) => {
       await stripe.paymentIntents.cancel(intent.id, { stripeAccount: begin.stripe_account_id })
     } catch (cancelErr) {
       console.error('[table-payment] cancel after attach-fail also failed:', cancelErr?.message)
+    }
+    // Rândul nu are intent atașat (attach-ul a picat) → RPC-ul îl anulează
+    // direct și eliberează claims-urile split (best-effort).
+    const { error: rowCancelErr } = await supabase.rpc('cancel_table_payment', {
+      p_payment_id: begin.payment_id,
+      p_session_id: sessionId,
+      p_token: token,
+    })
+    if (rowCancelErr) {
+      console.error('[table-payment] anularea rândului după attach-fail a eșuat:', rowCancelErr.message)
     }
     return jsonResponse(500, { error: 'Plata nu a putut fi inițiată. Reîncearcă.' })
   }

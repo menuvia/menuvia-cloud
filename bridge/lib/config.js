@@ -76,8 +76,12 @@ function loadConfig() {
     // Tichete de bucătărie (mig 227) — imprimantă termică, NU FiscalNet.
     // enabled=false implicit: bridge-urile existente nu-și schimbă comportamentul.
     kitchen: {
-      enabled: String(env.KITCHEN_ENABLED ?? ktField(fromFile, 'enabled') ?? 'false') === 'true'
-        || ktField(fromFile, 'enabled') === true,
+      // Prioritatea documentată (env > config.json) se respectă STRICT:
+      // KITCHEN_ENABLED=false trebuie să poată dezactiva peste enabled:true
+      // din fișier (vechea formulă cu `||` nu permitea opt-out din env).
+      enabled: env.KITCHEN_ENABLED != null
+        ? String(env.KITCHEN_ENABLED) === 'true'
+        : ktField(fromFile, 'enabled') === true,
       // tcp = ESC/POS pe port 9100 (standard Epson/Xprinter); file = .txt drop.
       mode: String(env.KITCHEN_MODE || ktField(fromFile, 'mode') || 'tcp').toLowerCase(),
       host: env.KITCHEN_HOST || ktField(fromFile, 'host') || '',

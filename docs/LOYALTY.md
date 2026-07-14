@@ -45,3 +45,16 @@ telefon + ștergere în fluxul existent de GDPR (mig 042/179).
 
 Puncte pe produs specific, niveluri (bronze/silver/gold), expirare puncte,
 cupoane procentuale — toate sunt v2+, schema de events le permite ulterior.
+
+## Risc rezidual acceptat (v1): lookup pe telefon expune codul cardului
+
+`get_loyalty_state` (anon) rezolvă wallet-ul și DOAR pe telefon (fără OTP /
+dovadă de posesie) și întoarce `short_code` + punctele — regăsirea cardului de
+pe alt dispozitiv, doar cu numărul de telefon, e chiar feature-ul de
+cross-device (LY4). Consecința: cine știe telefonul unui client (și
+restaurantul lui) îi poate afla codul și soldul. Acceptat în v1 pentru că:
+(1) recompensa e de valoare mică și răscumpărarea cere un staff `is_member`
+care o dă fizic persoanei DE LA MASĂ; (2) OTP-ul ar omorî UX-ul fluxului QR.
+De revizuit în v2 (OTP prin SMS — infrastructura există din mig 228) dacă
+programele cresc în valoare. Confirmat ca finding real (low) în review-ul
+adversarial din 2026-07-14.

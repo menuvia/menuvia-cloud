@@ -72,6 +72,11 @@ create policy sms_queue_admin_read on public.sms_queue
 
 revoke all on public.sms_queue from public, anon, authenticated;
 grant select on public.sms_queue to authenticated;
+-- Workerul (process-sms-queue.js, service_role) marchează sent/failed prin
+-- UPDATE DIRECT — iar default privileges pe prod NU mai dau write lui
+-- service_role pe tabelele noi (curățarea pre-096B; email_queue merge doar
+-- pentru că e din era veche). Fără grant explicit, coada s-ar bloca tăcut.
+grant select, update on public.sms_queue to service_role;
 
 -- ── B. Whitelist module + set_restaurant_module ──────────────────────
 -- CHECK-ul pe restaurant_modules.module_key e inline din mig 086 → numele e
@@ -500,6 +505,11 @@ begin
   end if;
   if not has_function_privilege('authenticated', 'public.get_sms_usage(uuid)', 'execute') then
     raise exception 'mig 228: authenticated nu poate executa get_sms_usage';
+  end if;
+  -- Workerul scrie DIRECT pe sms_queue: fără UPDATE explicit, pe prod
+  -- (default privileges curate) fiecare SMS ar rămâne blocat în 'sending'.
+  if not has_table_privilege('service_role', 'public.sms_queue', 'update') then
+    raise exception 'mig 228: service_role nu poate marca sent/failed pe sms_queue';
   end if;
 
   -- 5) Corpurile funcțiilor conțin invariantele critice.

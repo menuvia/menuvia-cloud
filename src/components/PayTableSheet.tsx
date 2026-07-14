@@ -94,12 +94,27 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
           }
         }
         const intent = await createTablePayment(token, sessionId, claims)
-        if (cancelled) return
-        setAmount(intent.amount)
-        setPaymentId(intent.payment_id)
+        // Checkpoint-ul pid-ului se scrie ÎNAINTE de verificarea `cancelled`:
+        // dacă sheet-ul a fost închis/demontat cât timp cererea era pe fir,
+        // serverul TOT a creat plata (cu claims) — fără pid, nimic n-ar mai
+        // elibera claims-urile de pe acest telefon.
         if (claims && claims.length > 0) {
           sessionStorage.setItem(splitPidKey(sessionId), intent.payment_id)
         }
+        if (cancelled) {
+          // Sheet închis mid-request: anulăm best-effort plata abia creată
+          // (eliberează claims-urile imediat, nu la TTL/redeschidere).
+          if (claims && claims.length > 0) {
+            void cancelTablePayment(intent.payment_id, token, sessionId)
+              .then(() => sessionStorage.removeItem(splitPidKey(sessionId)))
+              .catch(() => {
+                /* best-effort: pid-ul din sessionStorage preia la redeschidere */
+              })
+          }
+          return
+        }
+        setAmount(intent.amount)
+        setPaymentId(intent.payment_id)
         setCurrency(resolveMenuCurrency(intent.currency))
         const Stripe = await loadStripeJs()
         if (cancelled) return
