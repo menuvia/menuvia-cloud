@@ -561,4 +561,364 @@ begin
   raise notice 'TP12 OK: un singur intent live per sesiune; rândurile fără intent se curăță';
 end $$;
 
+-- ═════════════════════════════════════════════════════════════════════════════
+-- TP13–TP20: split pe itemi (mig 229). Comenzile de aici au order_items REALE —
+-- INSERT-ul în order_items declanșează recalc_order_subtotal → orders.total se
+-- calculează singur (NU se setează manual pe aceste comenzi).
+-- ═════════════════════════════════════════════════════════════════════════════
+
+-- ── TP13: gate dublu — plan free + split_bill OFF pe enterprise ──────────────
+do $$
+begin
+  -- (a) Plan free → respins la gate-ul de plan (claims shape-valide ca să
+  -- ajungem la gate, conținutul nu mai contează).
+  begin
+    perform public.begin_split_payment('e2e2e2e2-2222-4222-8222-eeeeeeeeeeee','tok_tp_free',
+      '[{"order_item_id":"00000000-0000-4000-8000-000000000000","quantity":1}]'::jsonb);
+    raise exception 'TP13 FAIL: begin_split_payment a trecut pe plan free';
+  exception when others then
+    if sqlerrm like '%Featurea%' or sqlerrm ilike '%plan%' then null; else raise; end if;
+  end;
+
+  -- (b) split_bill dezactivat pe enterprise → respins (online_payments singur
+  -- NU e suficient).
+  update public.plan_features set enabled = false
+   where plan = 'enterprise' and feature = 'split_bill';
+  begin
+    perform public.begin_split_payment('e9e9e9e9-9999-4999-8999-eeeeeeeeeeee','tok_tp_race',
+      '[{"order_item_id":"00000000-0000-4000-8000-000000000000","quantity":1}]'::jsonb);
+    raise exception 'TP13 FAIL: begin_split_payment a trecut fără split_bill';
+  exception when others then
+    if sqlerrm like '%Featurea%' or sqlerrm ilike '%plan%' then null; else raise; end if;
+  end;
+  update public.plan_features set enabled = true
+   where plan = 'enterprise' and feature = 'split_bill';
+
+  raise notice 'TP13 OK: gate dublu online_payments + split_bill (regula de aur)';
+end $$;
+
+-- Seed comun split: masă + sesiune + comandă cu 2 itemi (2×10 + 1×30 → total 50).
+insert into public.tables (id, restaurant_id, name, slug, seats, is_active) values
+  ('c7c7c7c7-7777-4777-8777-cccccccccccc','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','Masa TP14','masa-tp14',4,true);
+insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active) values
+  ('d7d7d7d7-7777-4777-8777-dddddddddddd','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+   'c7c7c7c7-7777-4777-8777-cccccccccccc','tok_tp14',true);
+insert into public.table_sessions (id, restaurant_id, table_id, status) values
+  ('ed14ed14-1414-4141-8141-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+   'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                           table_id, qr_token_id) values
+  ('a14aa14a-1414-4141-8141-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',0,
+   'ed14ed14-1414-4141-8141-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc','d7d7d7d7-7777-4777-8777-dddddddddddd');
+insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                quantity, item_total) values
+  ('11141114-1414-4141-8141-000000000001','a14aa14a-1414-4141-8141-ffffffffffff','Pizza TP',10,2,20),
+  ('11141114-1414-4141-8141-000000000002','a14aa14a-1414-4141-8141-ffffffffffff','Paste TP',30,1,30);
+
+-- ── TP14: happy path parțial — claim 1×Pizza → 10 lei; comanda RĂMÂNE ne-paid ─
+do $$
+declare
+  v_begin  jsonb;
+  v_settle jsonb;
+begin
+  v_begin := public.begin_split_payment('ed14ed14-1414-4141-8141-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11141114-1414-4141-8141-000000000001","quantity":1}]'::jsonb);
+  if (v_begin->>'amount')::numeric <> 10 then
+    raise exception 'TP14 FAIL: suma claim-ului e % (așteptat 10)', v_begin->>'amount';
+  end if;
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp14');
+
+  v_settle := public.settle_table_payment('pi_tp14', 'succeeded');
+  if v_settle->>'kind' <> 'split'
+     or (v_settle->>'orders_partial')::int <> 1
+     or (v_settle->>'orders_paid')::int <> 0 then
+    raise exception 'TP14 FAIL: settle split a raportat % (așteptat partial=1)', v_settle;
+  end if;
+  if not exists (
+    select 1 from public.order_payments
+     where order_id = 'a14aa14a-1414-4141-8141-ffffffffffff'
+       and method = 'card_online' and amount = 10
+  ) then
+    raise exception 'TP14 FAIL: plata parțială nu a intrat în order_payments';
+  end if;
+  if exists (select 1 from public.orders
+              where id = 'a14aa14a-1414-4141-8141-ffffffffffff' and status = 'paid') then
+    raise exception 'TP14 FAIL: comanda a fost marcată paid la 10/50';
+  end if;
+  raise notice 'TP14 OK: split parțial → order_payments(card_online), comanda deschisă';
+end $$;
+
+-- ── TP15: completarea — restul itemilor → comanda devine paid + bonul unic ────
+do $$
+declare
+  v_begin  jsonb;
+  v_settle jsonb;
+begin
+  v_begin := public.begin_split_payment('ed14ed14-1414-4141-8141-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11141114-1414-4141-8141-000000000001","quantity":1},
+      {"order_item_id":"11141114-1414-4141-8141-000000000002","quantity":1}]'::jsonb);
+  -- Restul comenzii: 50 − 10 deja plătit = 40 EXACT (absorbția restului).
+  if (v_begin->>'amount')::numeric <> 40 then
+    raise exception 'TP15 FAIL: restul e % (așteptat 40)', v_begin->>'amount';
+  end if;
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp15');
+
+  v_settle := public.settle_table_payment('pi_tp15', 'succeeded');
+  if (v_settle->>'orders_paid')::int <> 1 then
+    raise exception 'TP15 FAIL: comanda nu a fost închisă la acoperirea totalului (%)', v_settle;
+  end if;
+  if not exists (
+    select 1 from public.orders
+     where id = 'a14aa14a-1414-4141-8141-ffffffffffff'
+       and status = 'paid' and payment_method = 'card_online' and paid_amount = 50
+  ) then
+    raise exception 'TP15 FAIL: comanda nu e paid/card_online/50';
+  end if;
+  raise notice 'TP15 OK: completarea split-ului → paid, UN bon prin triggerul fiscal';
+end $$;
+
+-- ── TP16: conflict de claims între telefoane + eliberare prin cancel ──────────
+do $$
+declare
+  v_a jsonb;
+  v_b jsonb;
+begin
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed16ed16-1616-4161-8161-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('a16aa16a-1616-4161-8161-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',0,
+     'ed16ed16-1616-4161-8161-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc','d7d7d7d7-7777-4777-8777-dddddddddddd');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11161116-1616-4161-8161-000000000001','a16aa16a-1616-4161-8161-ffffffffffff','Mici TP',16,1,16);
+
+  -- Telefonul A revendică singurul item (rând 'created', fără intent).
+  v_a := public.begin_split_payment('ed16ed16-1616-4161-8161-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11161116-1616-4161-8161-000000000001","quantity":1}]'::jsonb);
+
+  -- Telefonul B pe ACELAȘI item → refuz curat.
+  begin
+    perform public.begin_split_payment('ed16ed16-1616-4161-8161-eeeeeeeeeeee','tok_tp14',
+      '[{"order_item_id":"11161116-1616-4161-8161-000000000001","quantity":1}]'::jsonb);
+    raise exception 'TP16 FAIL: claims duplicate acceptate (dublă încasare posibilă)';
+  exception when others then
+    if sqlerrm not ilike '%revendicate%' then raise; end if;
+  end;
+
+  -- A se răzgândește (cancel pe rândul fără intent) → claims eliberate → B trece.
+  perform public.cancel_table_payment((v_a->>'payment_id')::uuid,
+                                      'ed16ed16-1616-4161-8161-eeeeeeeeeeee','tok_tp14');
+  v_b := public.begin_split_payment('ed16ed16-1616-4161-8161-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11161116-1616-4161-8161-000000000001","quantity":1}]'::jsonb);
+  if (v_b->>'amount')::numeric <> 16 then
+    raise exception 'TP16 FAIL: după cancel claims-urile nu s-au eliberat (%)', v_b;
+  end if;
+  raise notice 'TP16 OK: conflict → items_already_claimed; cancel eliberează claims-urile';
+end $$;
+
+-- ── TP17: discount pe comandă — suma claims == orders.total EXACT ─────────────
+do $$
+declare
+  v_begin jsonb;
+  v_total numeric;
+  v_sum   numeric;
+begin
+  -- Masa TP14 permite o singură sesiune deschisă — o închidem pe cea veche.
+  update public.table_sessions set status = 'closed' where id = 'ed16ed16-1616-4161-8161-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed17ed17-1717-4171-8171-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('a17aa17a-1717-4171-8171-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',0,
+     'ed17ed17-1717-4171-8171-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc','d7d7d7d7-7777-4777-8777-dddddddddddd');
+  -- 3 itemi de 10 → subtotal 30; discount 1 leu → total 29; factor 29/30
+  -- produce rest de rotunjire (3 × 9,67 = 29,01) → absorbit de ultimul claim.
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11171117-1717-4171-8171-000000000001','a17aa17a-1717-4171-8171-ffffffffffff','Fel A',10,1,10),
+    ('11171117-1717-4171-8171-000000000002','a17aa17a-1717-4171-8171-ffffffffffff','Fel B',10,1,10),
+    ('11171117-1717-4171-8171-000000000003','a17aa17a-1717-4171-8171-ffffffffffff','Fel C',10,1,10);
+  update public.orders set discount_type = 'amount', discount_value = 1
+   where id = 'a17aa17a-1717-4171-8171-ffffffffffff';
+  perform public._refresh_order_totals('a17aa17a-1717-4171-8171-ffffffffffff');
+
+  select total into v_total from public.orders
+   where id = 'a17aa17a-1717-4171-8171-ffffffffffff';
+  if v_total <> 29 then
+    raise exception 'TP17 FAIL: seed greșit — totalul e % (așteptat 29)', v_total;
+  end if;
+
+  v_begin := public.begin_split_payment('ed17ed17-1717-4171-8171-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11171117-1717-4171-8171-000000000001","quantity":1},
+      {"order_item_id":"11171117-1717-4171-8171-000000000002","quantity":1},
+      {"order_item_id":"11171117-1717-4171-8171-000000000003","quantity":1}]'::jsonb);
+  if (v_begin->>'amount')::numeric <> 29 then
+    raise exception 'TP17 FAIL: suma claims e % (așteptat EXACT 29 — restul de rotunjire neabsorbit)',
+      v_begin->>'amount';
+  end if;
+  select sum(amount) into v_sum from public.table_payment_items
+   where payment_id = (v_begin->>'payment_id')::uuid;
+  if v_sum <> 29 then
+    raise exception 'TP17 FAIL: suma pe claims individuale e % (așteptat 29)', v_sum;
+  end if;
+  raise notice 'TP17 OK: discount proporțional + absorbția restului → sum(claims) == total';
+end $$;
+
+-- ── TP18: coexistența split ↔ plata pe toată masa ─────────────────────────────
+do $$
+declare
+  v_full  jsonb;
+  v_split jsonb;
+  v_hint  text;
+begin
+  -- Masa TP14 permite o singură sesiune deschisă — o închidem pe cea veche.
+  update public.table_sessions set status = 'closed' where id = 'ed17ed17-1717-4171-8171-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed18ed18-1818-4181-8181-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id, qr_token_id) values
+    ('a18aa18a-1818-4181-8181-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',0,
+     'ed18ed18-1818-4181-8181-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc','d7d7d7d7-7777-4777-8777-dddddddddddd');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11181118-1818-4181-8181-000000000001','a18aa18a-1818-4181-8181-ffffffffffff','Platou TP',20,2,40);
+
+  -- (a) Plata pe toată masa e live → begin_split o raportează spre anulare
+  -- și NU îi mută rândul (webhook-ul trebuie să-l mai găsească).
+  v_full := public.begin_table_payment('ed18ed18-1818-4181-8181-eeeeeeeeeeee','tok_tp14');
+  perform public.attach_payment_intent((v_full->>'payment_id')::uuid, 'pi_tp18_full');
+  v_split := public.begin_split_payment('ed18ed18-1818-4181-8181-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11181118-1818-4181-8181-000000000001","quantity":1}]'::jsonb);
+  if not ((v_split->'superseded_intents') ? 'pi_tp18_full') then
+    raise exception 'TP18 FAIL: intent-ul full-table nu apare în superseded (%)', v_split;
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp18_full' and status = 'processing') then
+    raise exception 'TP18 FAIL: rândul full-table a fost mutat de begin_split (webhook orfan)';
+  end if;
+
+  -- (b) Invers: begin_table_payment raportează intent-ul split viu.
+  perform public.attach_payment_intent((v_split->>'payment_id')::uuid, 'pi_tp18_split');
+  v_full := public.begin_table_payment('ed18ed18-1818-4181-8181-eeeeeeeeeeee','tok_tp14');
+  if not ((v_full->'superseded_intents') ? 'pi_tp18_split') then
+    raise exception 'TP18 FAIL: intent-ul split nu apare în superseded la full begin (%)', v_full;
+  end if;
+
+  -- (c) O comandă cu plăți card_online (split reușit) e EXCLUSĂ din
+  -- begin_table_payment (regula order_payments, mig 211).
+  perform public.settle_table_payment('pi_tp18_split', 'succeeded');
+  perform public.settle_table_payment('pi_tp18_full', 'canceled', 'test');
+  begin
+    perform public.begin_table_payment('ed18ed18-1818-4181-8181-eeeeeeeeeeee','tok_tp14');
+    raise exception 'TP18 FAIL: begin_table_payment a inclus comanda cu plăți split (dublă încasare)';
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    if v_hint <> 'nothing_to_pay' then raise; end if;
+  end;
+  raise notice 'TP18 OK: split ↔ full-table coexistă pe mecanismul superseded_intents';
+end $$;
+
+-- ── TP19: race staff — comanda plătită cash între split-begin și settle ───────
+do $$
+declare
+  v_begin  jsonb;
+  v_settle jsonb;
+begin
+  -- Masa TP14 permite o singură sesiune deschisă — o închidem pe cea veche.
+  update public.table_sessions set status = 'closed' where id = 'ed18ed18-1818-4181-8181-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed19ed19-1919-4191-8191-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  -- Sursă 'waiter' (fără qr_token): evită rate-limit-ul QR (mig 090) pe
+  -- token-ul refolosit de TP14–TP18; split-ul lucrează pe sesiune, nu pe sursă.
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id) values
+    ('a19aa19a-1919-4191-8191-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed19ed19-1919-4191-8191-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11191119-1919-4191-8191-000000000001','a19aa19a-1919-4191-8191-ffffffffffff','Desert TP',18,1,18);
+
+  v_begin := public.begin_split_payment('ed19ed19-1919-4191-8191-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11191119-1919-4191-8191-000000000001","quantity":1}]'::jsonb);
+  perform public.attach_payment_intent((v_begin->>'payment_id')::uuid, 'pi_tp19');
+
+  -- Ospătarul închide comanda cash ÎNTRE begin și confirmare.
+  update public.orders
+     set status='paid', payment_method='cash', paid_amount=total, paid_at=now()
+   where id = 'a19aa19a-1919-4191-8191-ffffffffffff';
+
+  v_settle := public.settle_table_payment('pi_tp19', 'succeeded');
+  if (v_settle->>'orders_skipped')::int <> 1 or (v_settle->>'orders_paid')::int <> 0 then
+    raise exception 'TP19 FAIL: settle split pe comanda închisă a raportat % (așteptat skipped=1)', v_settle;
+  end if;
+  if exists (select 1 from public.order_payments
+              where order_id = 'a19aa19a-1919-4191-8191-ffffffffffff' and method = 'card_online') then
+    raise exception 'TP19 FAIL: s-a inserat plată card_online peste comanda închisă cash';
+  end if;
+  if not exists (select 1 from public.table_payments
+                  where stripe_payment_intent_id = 'pi_tp19'
+                    and status = 'succeeded' and settle_note is not null) then
+    raise exception 'TP19 FAIL: settle_note nu semnalează banii de verificat pentru refund';
+  end if;
+  raise notice 'TP19 OK: comanda închisă între timp e sărită + notată (refund uman)';
+end $$;
+
+-- ── TP20: get_table_bill — claimed/remaining + locked pe parțial de staff ─────
+do $$
+declare
+  v_bill  jsonb;
+  v_order jsonb;
+  v_item  jsonb;
+begin
+  -- Masa TP14 permite o singură sesiune deschisă — o închidem pe cea veche.
+  update public.table_sessions set status = 'closed' where id = 'ed19ed19-1919-4191-8191-eeeeeeeeeeee';
+  insert into public.table_sessions (id, restaurant_id, table_id, status) values
+    ('ed20ed20-2020-4202-8202-eeeeeeeeeeee','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb',
+     'c7c7c7c7-7777-4777-8777-cccccccccccc','open');
+  insert into public.orders (id, restaurant_id, source, status, total, session_id,
+                             table_id) values
+    ('a20aa20a-2020-4202-8202-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed20ed20-2020-4202-8202-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc'),
+    ('a21aa21a-2121-4212-8212-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','waiter','served',0,
+     'ed20ed20-2020-4202-8202-eeeeeeeeeeee','c7c7c7c7-7777-4777-8777-cccccccccccc');
+  insert into public.order_items (id, order_id, product_name_snapshot, unit_price_snapshot,
+                                  quantity, item_total) values
+    ('11201120-2020-4202-8202-000000000001','a20aa20a-2020-4202-8202-ffffffffffff','Bere TP',8,2,16),
+    ('11211121-2121-4212-8212-000000000001','a21aa21a-2121-4212-8212-ffffffffffff','Vin TP',25,1,25);
+
+  -- Un claim viu de 1×Bere + un parțial cash de staff pe comanda cu Vin.
+  perform public.begin_split_payment('ed20ed20-2020-4202-8202-eeeeeeeeeeee','tok_tp14',
+    '[{"order_item_id":"11201120-2020-4202-8202-000000000001","quantity":1}]'::jsonb);
+  insert into public.order_payments (order_id, amount, method)
+  values ('a21aa21a-2121-4212-8212-ffffffffffff', 5, 'cash');
+
+  v_bill := public.get_table_bill('ed20ed20-2020-4202-8202-eeeeeeeeeeee','tok_tp14');
+  if jsonb_array_length(v_bill->'orders') <> 2 then
+    raise exception 'TP20 FAIL: nota are % comenzi (așteptat 2)', jsonb_array_length(v_bill->'orders');
+  end if;
+
+  select ord into v_order from jsonb_array_elements(v_bill->'orders') ord
+   where ord->>'id' = 'a20aa20a-2020-4202-8202-ffffffffffff';
+  if (v_order->>'locked')::boolean is not false then
+    raise exception 'TP20 FAIL: comanda cu claims online apare locked';
+  end if;
+  select it into v_item from jsonb_array_elements(v_order->'items') it
+   where it->>'id' = '11201120-2020-4202-8202-000000000001';
+  if (v_item->>'claimed_qty')::int <> 1 or (v_item->>'remaining_qty')::int <> 1 then
+    raise exception 'TP20 FAIL: claimed/remaining greșite (%)', v_item;
+  end if;
+
+  select ord into v_order from jsonb_array_elements(v_bill->'orders') ord
+   where ord->>'id' = 'a21aa21a-2121-4212-8212-ffffffffffff';
+  if (v_order->>'locked')::boolean is not true then
+    raise exception 'TP20 FAIL: comanda cu parțial cash de staff nu apare locked';
+  end if;
+  raise notice 'TP20 OK: nota expune claimed/remaining + locked pe fluxul de staff';
+end $$;
+
 rollback;

@@ -86,6 +86,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **Loyalty v1** | **226** + `tests/sql/loyalty_assertions.sql` | programe/wallets/events (earn la intrarea în `paid`/`closed`, UN singur earn per comandă); telefon doar hash md5 normalizat RO; RPC-uri anon attach + redeem is_member |
 | **Tichete bucătărie** | **227** + `tests/sql/kitchen_ticket_assertions.sql` | coadă NEfiscală `kitchen_tickets` (growth+), enqueue DEFERRED la COMMIT cu catch-all, bridge dual-gate (030→133→227 + mig 149 lărgit), print ESC/POS TCP 9100 / file-drop în `bridge/lib/kitchenPrinter.js` |
 | **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron 1 min) |
+| **Split pe itemi** | **229** + TP13–TP20 în `tests/sql/table_payment_assertions.sql` | `table_payment_items` (claims cu snapshot, fără FK pe order_items), `begin_split_payment`/`get_table_bill` service_role-only, settle lanț 203→207→211→229 (ramura `kind='split'` → order_payments `card_online`, paid la acoperirea totalului → UN bon fiscal) |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

@@ -115,3 +115,38 @@
   devine `items jsonb`; bonuri parțiale per plătitor pe casă).
 - **Etapa 3**: tichete de masă Edenred/Pluxee/Up (`P^4`/`P^5` există în spec
   FiscalNet; enum-ul primește valorile la momentul respectiv).
+
+## Split pe itemi (v1, mig 229)
+
+Fiecare client își plătește DOAR produsele lui, cu cardul, din meniul QR:
+
+```
+Client → QrCartSheet „Împarte nota" → SplitBillSheet (fetch action 'bill')
+  → selecție itemi (remaining_qty) → PayTableSheet cu claims
+  → table-payment.js action 'create' + body.items → begin_split_payment
+      (lock sesiune → gate online_payments+split_bill+RON → claims validate
+       → sumă proporțională cu discountul + absorbția restului de rotunjire
+       → supersede intent-urile FULL-table → rând table_payments kind='split'
+       → rânduri table_payment_items cu snapshot)
+  → Stripe confirm → webhook → settle_table_payment (lanț 203→207→211→229)
+      ramura kind='split': INSERT order_payments (method='card_online') per
+      comandă; comanda devine 'paid' abia când sum(order_payments) ≥ total
+      → UN bon fiscal per comandă, prin triggerul existent (mig 030).
+```
+
+Decizii cheie (detalii în antetul mig 229):
+- **UN bon per comandă la final** — bon per PLĂTITOR e v2 (cere payload
+  FiscalNet din subset de itemi + `pending_receipts.payment_id` + idempotență
+  per plată, adică o rescriere a lanțului fiscal 050→053; v1 e 100% corectă
+  fiscal: un bon cu totalul real, cod P 7 integral online / 8 mix).
+- **Conflict de claims** = refuz curat `items_already_claimed`; claims ținute
+  de plăți `created/processing/failed/succeeded` ('failed' e retryable, mig
+  207). Eliberare: cancel_table_payment (cancel-on-close din UI + pid în
+  sessionStorage) + TTL 15 min DOAR pe rândurile `created` fără intent.
+  Rezidual: un `processing` stale (telefon dispărut mid-confirm) se rezolvă
+  la ospătar — NU adăuga supersede automat pe split-urile altora (fereastră
+  de dublă încasare).
+- **`table_payment_items` fără FK pe order_items** — editările de staff
+  (update_order_items) șterg/recreează itemi; banii intră oricum în
+  order_payments din snapshot, iar `paid_amount > total` devine vizibil la
+  reconciliere (aceeași clasă de onestitate ca F2/mig 211).
