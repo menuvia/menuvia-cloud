@@ -10,6 +10,7 @@ import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
+import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -1610,6 +1611,16 @@ export default function SettingsTab({
             {/* Fidelizare — Loyalty v1 (mig 226): puncte + prag + recompensă */}
             {modulesState && (
               <LoyaltySettingsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
+            )}
+
+            {/* SMS tranzacționale (mig 228): confirmare rezervare + pickup gata */}
+            {modulesState && (
+              <SmsNotificationsCard
                 restaurantId={restaurant.id}
                 plan={plan}
                 modulesState={modulesState}

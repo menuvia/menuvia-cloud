@@ -85,6 +85,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Branding server-gate | 225 | `hide_branding` normalizat server-side pe feature `remove_branding` (tier 2+) |
 | **Loyalty v1** | **226** + `tests/sql/loyalty_assertions.sql` | programe/wallets/events (earn la intrarea în `paid`/`closed`, UN singur earn per comandă); telefon doar hash md5 normalizat RO; RPC-uri anon attach + redeem is_member |
 | **Tichete bucătărie** | **227** + `tests/sql/kitchen_ticket_assertions.sql` | coadă NEfiscală `kitchen_tickets` (growth+), enqueue DEFERRED la COMMIT cu catch-all, bridge dual-gate (030→133→227 + mig 149 lărgit), print ESC/POS TCP 9100 / file-drop în `bridge/lib/kitchenPrinter.js` |
+| **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron 1 min) |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

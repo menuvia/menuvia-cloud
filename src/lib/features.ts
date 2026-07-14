@@ -22,6 +22,7 @@ export type FeatureName =
   | 'shifts'
   | 'split_bill'
   | 'kitchen_tickets'
+  | 'sms_notifications'
   | 'themes'
   | 'remove_branding'
   | 'max_products'

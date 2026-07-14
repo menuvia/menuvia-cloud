@@ -6,7 +6,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-export type ModuleKey = 'reservations' | 'online_payments' | 'loyalty' | 'delivery' | 'gift_cards'
+export type ModuleKey =
+  | 'reservations'
+  | 'online_payments'
+  | 'loyalty'
+  | 'delivery'
+  | 'gift_cards'
+  | 'sms_notifications'
 
 interface UseRestaurantModulesResult {
   modules: Record<ModuleKey, boolean>
@@ -22,6 +28,7 @@ const DEFAULT_MODULES: Record<ModuleKey, boolean> = {
   loyalty: false,
   delivery: false,
   gift_cards: false,
+  sms_notifications: false,
 }
 
 export function useRestaurantModules(

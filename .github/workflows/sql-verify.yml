@@ -1276,6 +1276,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/loyalty_assertions.sql
 
+      - name: "SMS notifications assertions (mig 228)"
+        if: ${{ hashFiles('supabase/migrations/20260713120000_migration_228_sms_notifications.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/sms_queue_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
