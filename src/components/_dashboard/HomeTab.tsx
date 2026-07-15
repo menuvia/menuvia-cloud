@@ -400,11 +400,17 @@ export default function HomeTab({
           value: tablesCount == null ? '…' : String(tablesCount),
           hint: 'mese scanabile',
         },
-    {
-      label: 'Setup',
-      value: `${setupDone}/${setupTotal}`,
-      hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
-    },
+    // Metrica „Setup" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
+    // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
+    ...(isAdmin
+      ? [
+          {
+            label: 'Setup',
+            value: `${setupDone}/${setupTotal}`,
+            hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -499,6 +505,11 @@ export default function HomeTab({
             </div>
           </div>
           <div
+            role="progressbar"
+            aria-valuenow={setupDone}
+            aria-valuemin={0}
+            aria-valuemax={setupTotal}
+            aria-label="Progres setup"
             style={{
               height: 6,
               background: D.s3,

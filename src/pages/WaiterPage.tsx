@@ -39,6 +39,7 @@ import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happy
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -275,6 +276,9 @@ export default function WaiterPage() {
     Array<{ id: string; amount: number; method: string; created_at: string }>
   >([])
   const [splitLoading, setSplitLoading] = useState(false)
+  // Scroll-lock pe fundal cât e deschis modalul Split Bill — consistent cu
+  // PayModal/DiscountModal (altfel pe iOS pagina derulează sub overlay).
+  useBodyScrollLock(splitOrder != null && paymentsEnabled)
 
   function openSplitBill(order: Order): void {
     setSplitOrder(order)
@@ -532,6 +536,15 @@ export default function WaiterPage() {
     setShowEntry(true)
   }, [])
 
+  // Textul stării de conexiune — expus și non-vizual (aria-label + role=status),
+  // nu doar prin culoare + title (title nu apare la touch, mobilul e cazul principal).
+  const connectionLabel =
+    connectionStatus === 'connected'
+      ? 'Live conectat'
+      : connectionStatus === 'connecting'
+        ? 'Se conectează…'
+        : 'Deconectat — se face refresh automat la 30s'
+
   if (loading) {
     return (
       <div
@@ -627,13 +640,9 @@ export default function WaiterPage() {
                 {isAdminRole ? 'Comenzi live' : 'Ospătar'}
               </span>
               <span
-                title={
-                  connectionStatus === 'connected'
-                    ? 'Live conectat'
-                    : connectionStatus === 'connecting'
-                      ? 'Se conectează…'
-                      : 'Deconectat — se face refresh automat la 30s'
-                }
+                role="status"
+                aria-label={connectionLabel}
+                title={connectionLabel}
                 style={{
                   width: 8,
                   height: 8,
@@ -960,7 +969,7 @@ export default function WaiterPage() {
                           ? 'AȘEZAT'
                           : r.status === 'confirmed'
                             ? 'CONFIRMAT'
-                            : 'PENDING'}
+                            : 'ÎN AȘTEPTARE'}
                       </span>
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
@@ -1235,7 +1244,7 @@ export default function WaiterPage() {
                         color={D.amber}
                         label={call.call_type === 'bill' ? 'Cere nota' : 'Apel ospătar'}
                       />
-                      {call.table?.name ?? 'Masa necunoscuta'}
+                      {call.table?.name ?? 'Masă necunoscută'}
                       {call.call_type === 'bill' && (
                         <span
                           style={{
@@ -1500,50 +1509,54 @@ export default function WaiterPage() {
               </div>
             </div>
 
-            {splitPayments.length > 0 && (
-              <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
-                  Plăți înregistrate:
-                </div>
-                {splitPayments.map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 13,
-                      color: D.t2,
-                      padding: '2px 0',
-                    }}
-                  >
-                    <span>
-                      {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : 'Altul'}
-                    </span>
-                    <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
+            {/* „Rămas" e mereu vizibil (egal cu totalul când nu există plăți) —
+                e exact informația de care are nevoie ospătarul ca să împartă nota. */}
+            <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
+              {splitPayments.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
+                    Plăți înregistrate:
                   </div>
-                ))}
-                <div
-                  style={{
-                    borderTop: '1px solid ' + D.border,
-                    marginTop: 8,
-                    paddingTop: 8,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 14,
-                    fontWeight: 600,
-                  }}
-                >
-                  <span style={{ color: D.t2 }}>Rămas:</span>
-                  <span style={{ color: D.t1 }}>
-                    {Math.max(
-                      0,
-                      splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
-                    ).toFixed(2)}{' '}
-                    lei
-                  </span>
-                </div>
+                  {splitPayments.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: 13,
+                        color: D.t2,
+                        padding: '2px 0',
+                      }}
+                    >
+                      <span>
+                        {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : 'Altul'}
+                      </span>
+                      <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div
+                style={{
+                  borderTop: splitPayments.length > 0 ? '1px solid ' + D.border : 'none',
+                  marginTop: splitPayments.length > 0 ? 8 : 0,
+                  paddingTop: splitPayments.length > 0 ? 8 : 0,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                <span style={{ color: D.t2 }}>Rămas:</span>
+                <span style={{ color: D.t1 }}>
+                  {Math.max(
+                    0,
+                    splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
+                  ).toFixed(2)}{' '}
+                  lei
+                </span>
               </div>
-            )}
+            </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
               {(['cash', 'card_pos', 'other'] as PaymentMethod[]).map((m) => (

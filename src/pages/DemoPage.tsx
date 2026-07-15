@@ -167,6 +167,9 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
             fontFamily: 'inherit',
             fontSize: 13,
             fontWeight: 600,
+            // Țintă de atingere ≥44px fără să crească înălțimea vizuală a bannerului
+            padding: '13px 8px',
+            margin: '-13px -8px',
           }}
         >
           ← Înapoi la Menuvia
@@ -222,11 +225,13 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
           <button
             key={cat.id}
             onClick={() => setActiveCat(cat.id)}
+            aria-pressed={activeCat === cat.id}
             style={{
               background: 'transparent',
-              borderBottom: activeCat === cat.id ? `2px solid ${ACCENT}` : '2px solid transparent',
               border: 'none',
-              padding: '10px 16px',
+              borderBottom: activeCat === cat.id ? `2px solid ${ACCENT}` : '2px solid transparent',
+              padding: '13px 16px',
+              minHeight: 44,
               color: activeCat === cat.id ? ACCENT : '#5C4A2A',
               fontFamily: 'DM Sans, sans-serif',
               fontSize: 14,
@@ -249,13 +254,15 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
             key={p.id}
             disabled={p.soldOut}
             onClick={() => setCartCount((c) => c + 1)}
+            aria-label={
+              p.soldOut ? undefined : `Adaugă ${p.name} în coș — ${p.price.toFixed(2)} lei`
+            }
             style={{
               background: '#fff',
               border: '1px solid #E8DFD0',
               borderRadius: 14,
               padding: '14px 16px',
               cursor: p.soldOut ? 'default' : 'pointer',
-              opacity: p.soldOut ? 0.6 : 1,
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
@@ -265,7 +272,9 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
           >
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: '#1A1208' }}>
-                {p.name}
+                {/* Atenuarea „epuizat" se aplică doar pe text; badge-ul Epuizat
+                    rămâne la opacitate plină ca să-și păstreze contrastul. */}
+                <span style={{ opacity: p.soldOut ? 0.6 : 1 }}>{p.name}</span>
                 {p.soldOut && (
                   <span style={{ color: '#c0392b', fontSize: 12, marginLeft: 8 }}>Epuizat</span>
                 )}
@@ -275,7 +284,15 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 12, color: '#5C4A2A', marginTop: 3, lineHeight: 1.4 }}>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: '#5C4A2A',
+                  marginTop: 3,
+                  lineHeight: 1.4,
+                  opacity: p.soldOut ? 0.6 : 1,
+                }}
+              >
                 {p.desc}
               </div>
               <div
@@ -285,11 +302,33 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
                   fontWeight: 700,
                   color: ACCENT,
                   marginTop: 6,
+                  opacity: p.soldOut ? 0.6 : 1,
                 }}
               >
                 {p.price.toFixed(2)} lei
               </div>
             </div>
+            {!p.soldOut && (
+              <span
+                aria-hidden="true"
+                style={{
+                  width: 44,
+                  height: 44,
+                  minWidth: 44,
+                  borderRadius: 12,
+                  background: ACCENT,
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 22,
+                  fontWeight: 700,
+                  marginLeft: 12,
+                }}
+              >
+                +
+              </span>
+            )}
           </button>
         ))}
 
@@ -349,7 +388,8 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
             transform: 'translateX(-50%)',
             width: '100%',
             maxWidth: 480,
-            padding: '12px 16px 24px',
+            padding: '12px 16px',
+            paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
             background: '#F8F3EB',
             borderTop: '1px solid #D4C8B8',
             zIndex: 50,

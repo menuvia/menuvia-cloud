@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { Icon } from '../components/ui/Icon'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -253,7 +254,9 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
       return (
         <CenteredCard>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '2.5rem', marginBottom: 16 }}>✉️</div>
+            <div style={{ marginBottom: 16 }}>
+              <Icon name="mail" size={40} color={A.accent} />
+            </div>
             <h2
               style={{
                 fontFamily: 'Fraunces,serif',
@@ -327,6 +330,8 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               onChange={(e) => setResetEmail(e.target.value)}
               placeholder="email@restaurant.ro"
               style={inp}
+              onFocus={(e) => (e.target.style.borderColor = A.accent)}
+              onBlur={(e) => (e.target.style.borderColor = A.border)}
             />
           </div>
           {error && (
@@ -360,7 +365,10 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               cursor: 'pointer',
               fontSize: '0.85rem',
               fontFamily: 'DM Sans,sans-serif',
-              marginTop: 4,
+              // Touch target ≥44px fără să schimbe ritmul vizual (margin negativ).
+              padding: '12px 8px',
+              minHeight: 44,
+              margin: '-8px 0 -12px',
             }}
           >
             ← Înapoi la autentificare
@@ -375,7 +383,9 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
     return (
       <CenteredCard>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '2.5rem', marginBottom: 16 }}>📬</div>
+          <div style={{ marginBottom: 16 }}>
+            <Icon name="mail" size={40} color={A.accent} />
+          </div>
           <h2
             style={{
               fontFamily: 'Fraunces,serif',
@@ -559,6 +569,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Numele tău"
+                  required
                   style={inp}
                   onFocus={(e) => (e.target.style.borderColor = A.accent)}
                   onBlur={(e) => (e.target.style.borderColor = A.border)}
@@ -601,6 +612,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
 
             {error && (
               <div
+                role="alert"
                 style={{
                   background: A.errorBg,
                   border: `1px solid ${A.errorBorder}`,
@@ -634,9 +646,12 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
                   cursor: 'pointer',
                   fontSize: '0.82rem',
                   fontFamily: 'DM Sans,sans-serif',
-                  marginBottom: 8,
                   display: 'block',
                   width: '100%',
+                  // Touch target ≥44px; marginul negativ păstrează spațierea vizuală.
+                  padding: '12px 8px',
+                  minHeight: 44,
+                  margin: '-12px 0 -4px',
                 }}
               >
                 Ai uitat parola?
@@ -656,6 +671,13 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
                 fontSize: '0.85rem',
                 fontWeight: 600,
                 fontFamily: 'DM Sans,sans-serif',
+                // Touch target ≥44px pe buton inline: padding + margin negativ
+                // simetric ca textul să rămână aliniat cu rândul.
+                padding: '12px 8px',
+                margin: '-12px -8px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                minHeight: 44,
               }}
             >
               {mode === 'login' ? 'Creează unul' : 'Intră în cont'}

@@ -181,6 +181,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   const [regBusy, setRegBusy] = useState(false)
   const [newSecret, setNewSecret] = useState<{ deviceId: string; secret: string } | null>(null)
   const [copiedKey, setCopiedKey] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
 
   // VAT mapping editor
   const [showVatMap, setShowVatMap] = useState(false)
@@ -490,8 +491,8 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              minWidth: 28,
-              minHeight: 28,
+              minWidth: 44,
+              minHeight: 44,
               background: 'transparent',
               border: 'none',
               color: D.red,
@@ -616,7 +617,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                       background: 'transparent',
                       color: D.red,
                       border: `1px solid ${D.border}`,
-                      height: 32,
+                      height: 44,
                       fontSize: '0.78rem',
                     })}
                   >
@@ -658,7 +659,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
           }}
         >
           <h2 style={{ ...h2, margin: 0 }}>Bonuri fiscale</h2>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {(['active', 'error', 'done', 'all'] as const).map((s) => (
               <button
                 key={s}
@@ -667,7 +668,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                   background: statusFilter === s ? D.goldA : D.s2,
                   color: statusFilter === s ? D.goldL : D.t2,
                   border: `1px solid ${statusFilter === s ? D.gold : D.border}`,
-                  height: 32,
+                  height: 44,
                   fontSize: '0.78rem',
                 })}
               >
@@ -826,12 +827,12 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                               background: 'transparent',
                               color: D.goldL,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
                           >
-                            Retrimit
+                            Retrimite
                           </button>
                         )}
                         {r.status === 'pending' && (
@@ -841,7 +842,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                               background: 'transparent',
                               color: D.red,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
@@ -965,7 +966,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                               background: 'transparent',
                               color: D.goldL,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
@@ -980,7 +981,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                               background: 'transparent',
                               color: D.red,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
@@ -1054,8 +1055,8 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               }}
             >
               {fiscalEnabled
-                ? 'După înregistrare vei primi o cheie unică (device_secret). O folosești o singură dată la instalarea Bridge-ului pe PC-ul cu FiscalNet. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'
-                : 'După înregistrare vei primi o cheie unică (device_secret). O folosești o singură dată la instalarea Bridge-ului pe PC-ul conectat la imprimanta din bucătărie. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'}
+                ? 'După înregistrare vei primi o cheie unică de instalare. O folosești o singură dată la instalarea Bridge-ului pe PC-ul cu FiscalNet. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'
+                : 'După înregistrare vei primi o cheie unică de instalare. O folosești o singură dată la instalarea Bridge-ului pe PC-ul conectat la imprimanta din bucătărie. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'}
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <button
@@ -1087,6 +1088,8 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
             setShowRegister(false)
             setRegName('Casa de marcat principală')
             setRegModel('')
+            setCopiedKey(false)
+            setCopyFailed(false)
           }}
           title="Casă înregistrată"
         >
@@ -1112,16 +1115,32 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               onClick={() => {
                 // Feedback la copiere — înainte eșecul era înghițit tăcut și
                 // nu exista niciun semn că s-a copiat (cheie critică).
+                if (!navigator.clipboard) {
+                  setCopiedKey(false)
+                  setCopyFailed(true)
+                  return
+                }
                 navigator.clipboard
-                  ?.writeText(newSecret.secret)
-                  .then(() => setCopiedKey(true))
-                  .catch(() => setCopiedKey(false))
+                  .writeText(newSecret.secret)
+                  .then(() => {
+                    setCopiedKey(true)
+                    setCopyFailed(false)
+                  })
+                  .catch(() => {
+                    setCopiedKey(false)
+                    setCopyFailed(true)
+                  })
               }}
               style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
             >
               <Icon name="copy" size={15} />
               {copiedKey ? 'Copiat ✓' : 'Copiază cheia'}
             </button>
+            {copyFailed && (
+              <div style={{ fontSize: '0.78rem', color: D.red, lineHeight: 1.5 }}>
+                Nu s-a putut copia automat — selectează cheia de mai sus și copiaz-o manual.
+              </div>
+            )}
             <div
               style={{
                 display: 'flex',
@@ -1149,6 +1168,8 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                 setShowRegister(false)
                 setRegName('Casa de marcat principală')
                 setRegModel('')
+                setCopiedKey(false)
+                setCopyFailed(false)
               }}
               style={btn({ background: D.gold, color: '#0a0a0a', alignSelf: 'flex-end' })}
             >
@@ -1167,6 +1188,23 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               de mai jos corespunde cu setarea reală a casei tale — altfel bonurile vor ieși cu TVA
               greșit.
             </div>
+            {vatRates.length === 0 && (
+              <div
+                style={{
+                  padding: '18px 14px',
+                  textAlign: 'center',
+                  color: D.t2,
+                  fontSize: '0.84rem',
+                  lineHeight: 1.55,
+                  background: D.s2,
+                  borderRadius: 8,
+                  border: `1px solid ${D.border}`,
+                }}
+              >
+                Nu ai cote TVA configurate încă. Adaugă întâi cotele de TVA în setările
+                restaurantului, apoi revino aici ca să le mapezi pe grupele casei de marcat.
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {vatRates.map((v) => (
                 <div
@@ -1213,8 +1251,12 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               </button>
               <button
                 onClick={handleSaveVatMap}
-                disabled={vatBusy}
-                style={btn({ background: D.gold, color: '#0a0a0a', opacity: vatBusy ? 0.6 : 1 })}
+                disabled={vatBusy || vatRates.length === 0}
+                style={btn({
+                  background: D.gold,
+                  color: '#0a0a0a',
+                  opacity: vatBusy || vatRates.length === 0 ? 0.6 : 1,
+                })}
               >
                 {vatBusy ? 'Se salvează...' : 'Salvează maparea'}
               </button>
@@ -1266,7 +1308,7 @@ function Modal({
   title: string
   onClose: () => void
   children: React.ReactNode
-  /** false = backdrop-ul NU închide (conținut critic, ex. cheia de instalare). */
+  /** false = nici backdrop-ul, nici X-ul NU închid (conținut critic, ex. cheia de instalare). */
   dismissable?: boolean
 }) {
   return (
@@ -1315,25 +1357,28 @@ function Modal({
           >
             {title}
           </h2>
-          <button
-            onClick={onClose}
-            aria-label="Închide"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: 32,
-              minHeight: 32,
-              background: 'transparent',
-              border: 'none',
-              color: D.t2,
-              cursor: 'pointer',
-              lineHeight: 1,
-              padding: 4,
-            }}
-          >
-            <Icon name="close" size={18} />
-          </button>
+          {dismissable && (
+            <button
+              onClick={onClose}
+              aria-label="Închide"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: 44,
+                minHeight: 44,
+                background: 'transparent',
+                border: 'none',
+                color: D.t2,
+                cursor: 'pointer',
+                lineHeight: 1,
+                padding: 4,
+                margin: -8,
+              }}
+            >
+              <Icon name="close" size={18} />
+            </button>
+          )}
         </div>
         {children}
       </div>

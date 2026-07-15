@@ -5,6 +5,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm as confirmDialog } from './ui/confirm'
+import { Modal } from './_dashboard/sharedUI'
 
 interface ModifierOption {
   id: string
@@ -143,7 +144,11 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function saveGroup() {
-    if (!gName.trim()) return
+    // Fără return tăcut: click pe „Salvează" cu numele gol arăta un buton „stricat".
+    if (!gName.trim()) {
+      setError('Numele e obligatoriu')
+      return
+    }
     setSaving(true)
     setError(null)
     // max_select se aplică DOAR la „multiple"; gol/0/negativ = nelimitat (null).
@@ -372,6 +377,10 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   {g.selection_type === 'single'
                     ? 'Selecție unică'
                     : 'Selecție multiplă'}
+                  {/* Plafonul de selecții e vizibil pe card — altfel patronul trebuia
+                      să redeschidă editorul ca să verifice ce aplică serverul la comenzi. */}
+                  {g.max_select != null &&
+                    ` · max ${g.max_select} ${g.max_select === 1 ? 'opțiune' : 'opțiuni'}`}
                   {g.is_required && (
                     <span style={{ color: D.gold, marginLeft: 6 }}>Obligatoriu</span>
                   )}
@@ -422,8 +431,19 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 }}
               >
                 <span style={{ flex: 1, fontSize: '0.85rem', color: D.t1 }}>{o.name}</span>
-                <span style={{ fontSize: '0.82rem', color: o.price_delta > 0 ? D.gold : D.t3 }}>
-                  {o.price_delta > 0 ? '+' + o.price_delta + ' lei' : 'Inclus'}
+                {/* Negativul e o REDUCERE și trebuie văzut ca atare — afișat ca „Inclus"
+                    ascundea o greșeală de introducere. Virgulă zecimală (ro-RO), nu punct. */}
+                <span
+                  style={{
+                    fontSize: '0.82rem',
+                    color: o.price_delta > 0 ? D.gold : o.price_delta < 0 ? D.green : D.t3,
+                  }}
+                >
+                  {o.price_delta > 0
+                    ? '+' + o.price_delta.toLocaleString('ro-RO') + ' lei'
+                    : o.price_delta < 0
+                      ? '−' + Math.abs(o.price_delta).toLocaleString('ro-RO') + ' lei'
+                      : 'Inclus'}
                 </span>
                 <button
                   onClick={() => void toggleOption(o.id, o.is_available)}
@@ -498,40 +518,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       )}
 
       {editGroup != null && (
-        <div
-          onClick={() => setEditGroup(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
+        /* Modal partajat (sharedUI): portal la <body> + scroll-lock + maxHeight 90vh —
+           overlay-ul construit manual lăsa pagina să deruleze sub modal pe mobil. */
+        <Modal
+          title={editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
+          onClose={() => setEditGroup(null)}
+          width={400}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 16,
-              width: '100%',
-              maxWidth: 400,
-              padding: 24,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: '1.05rem',
-                color: D.t1,
-                marginBottom: 20,
-              }}
-            >
-              {editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
-            </div>
+          <div>
             <div style={{ marginBottom: 14 }}>
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
@@ -649,7 +643,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
