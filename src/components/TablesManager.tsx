@@ -101,21 +101,44 @@ async function generateQRDataURL(token: string, size: number): Promise<string> {
 }
 
 // ── QRImage component — generates QR locally on mount ────────
-function QRImage({ token, size = 80 }: { token: string; size?: number }) {
+function QRImage({ token, size = 80, label }: { token: string; size?: number; label?: string }) {
   const [src, setSrc] = useState('')
+  // UX: eșecul de generare se distinge vizual de starea de încărcare (alertă vs pătrat gol).
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
-    generateQRDataURL(token, size * 2)
+    setFailed(false)
+    generateQRDataURL(token, size * 2) // 2x for sharpness
       .then(setSrc)
-      .catch(() => setSrc('')) // 2x for sharpness
+      .catch(() => {
+        setSrc('')
+        setFailed(true)
+      })
   }, [token, size])
   if (!src)
-    return <div style={{ width: size, height: size, background: '#F8F3EB', borderRadius: 4 }} />
+    return (
+      <div
+        role={failed ? 'img' : undefined}
+        aria-label={failed ? 'Codul QR nu a putut fi generat' : undefined}
+        title={failed ? 'Codul QR nu a putut fi generat' : undefined}
+        style={{
+          width: size,
+          height: size,
+          background: '#F8F3EB',
+          borderRadius: 4,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {failed && <Icon name="alert" size={Math.min(20, Math.round(size / 2))} color="#8A6D3B" />}
+      </div>
+    )
   return (
     <img
       src={src}
       width={size}
       height={size}
-      alt="QR"
+      alt={label ? `Cod QR pentru ${label}` : 'Cod QR'}
       style={{ display: 'block', borderRadius: 4 }}
     />
   )
@@ -134,6 +157,9 @@ function useToast() {
 function Toast({ toasts }: { toasts: { id: string; msg: string; type: string }[] }) {
   return (
     <div
+      // A11y: regiune live — confirmările/erorile sunt anunțate de screen readere.
+      role="status"
+      aria-live="polite"
       style={{
         position: 'fixed',
         bottom: 80,
@@ -148,6 +174,7 @@ function Toast({ toasts }: { toasts: { id: string; msg: string; type: string }[]
       {toasts.map((t) => (
         <div
           key={t.id}
+          role={t.type === 'error' ? 'alert' : undefined}
           style={{
             background: D.s3,
             borderLeft: `3px solid ${t.type === 'error' ? D.red : D.green}`,
@@ -187,6 +214,15 @@ function TableModal({
   const [error, setError] = useState<string | null>(null)
   const auto = !table
 
+  // UX: blochează scroll-ul paginii din fundal cât timp modalul e deschis.
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -224,7 +260,14 @@ function TableModal({
       ? await supabase.from('tables').update(payload).eq('id', table.id)
       : await supabase.from('tables').insert({ ...payload, restaurant_id: restaurantId })
     if (e) {
-      setError(e.message)
+      // Copy: nu afișăm mesajul PostgREST brut (engleză) patronului — mapăm codurile
+      // cunoscute pe română; detaliul tehnic rămâne în consolă pentru diagnoză.
+      console.error('[TablesManager] save:', e)
+      setError(
+        e.code === '23505'
+          ? 'Există deja o masă cu acest identificator. Alege alt nume sau slug.'
+          : 'Nu s-a putut salva masa. Verifică datele și încearcă din nou.',
+      )
       setSaving(false)
       return
     }
@@ -261,6 +304,10 @@ function TableModal({
           width: '100%',
           maxWidth: 400,
           padding: 24,
+          // Responsive: pe ecrane mici (tastatură deschisă) conținutul derulează
+          // în interiorul cardului — butonul Salvează rămâne accesibil.
+          maxHeight: '90dvh',
+          overflowY: 'auto',
         }}
       >
         <div
@@ -304,7 +351,7 @@ function TableModal({
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
           <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
-            Identificator unic în URL-ul QR
+            Identificator intern al mesei — nu afectează QR-urile deja printate
           </div>
         </div>
         <div style={{ marginBottom: 14 }}>
@@ -344,7 +391,7 @@ function TableModal({
             </datalist>
           )}
           <div style={{ fontSize: '0.7rem', color: D.t2, marginTop: 4 }}>
-            Filtru pentru sheet-ul de rezervări publice (Terasa vs Interior)
+            Clienții pot alege zona (ex. Terasă vs Interior) când fac o rezervare online
           </div>
         </div>
         {error && (
@@ -494,6 +541,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   // Dropdown „Descarcă QR-uri" — colapsează cele 3 butoane de export într-unul.
   const [pdfMenuOpen, setPdfMenuOpen] = useState(false)
   const pdfMenuRef = useRef<HTMLDivElement>(null)
+  // A11y: la Escape, focusul revine pe butonul care a deschis meniul.
+  const pdfTriggerRef = useRef<HTMLButtonElement>(null)
   // Căutare + filtru pe zonă pentru lista de mese (utile la zeci de mese).
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
@@ -570,7 +619,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           .insert(missing.map((table_id) => ({ restaurant_id: restaurant.id, table_id })))
       await load()
     } catch {
-      toast('Eroare la generarea tokenurilor QR', 'error')
+      toast('Eroare la generarea QR-urilor', 'error')
     }
   }
 
@@ -619,9 +668,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       // fereastra în care masa rămânea fără token activ (mig 166).
       const { error } = await supabase.rpc('rotate_qr_token', { p_table_id: t.id })
       if (error) throw error
-      toast('Token reînnoit')
+      toast('QR nou generat')
     } catch {
-      toast('Eroare la reînnoire token', 'error')
+      toast('Eroare la generarea QR-ului', 'error')
     }
     await load()
     setRotating(null)
@@ -675,7 +724,18 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       setBulkCount('')
       toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
     } catch (e) {
-      toast('Eroare la generare: ' + (e instanceof Error ? e.message : 'unknown'), 'error')
+      // Copy: mesaj în română pentru patron; detaliul tehnic doar în consolă.
+      console.error('[TablesManager] bulkGenerate:', e)
+      const code =
+        typeof e === 'object' && e !== null && 'code' in e
+          ? (e as { code?: string }).code
+          : undefined
+      toast(
+        code === '23505'
+          ? 'Unele mese există deja — reîmprospătează lista și încearcă din nou.'
+          : 'Nu s-au putut genera mesele. Încearcă din nou.',
+        'error',
+      )
     }
     setBulkBusy(false)
   }
@@ -708,7 +768,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const downloadPdf = async (format: PdfFormat = 'grid') => {
     const active = tables.filter((t) => t.is_active && t.active_token)
     if (!active.length) {
-      toast('Nicio masă activă cu token', 'error')
+      toast('Nicio masă activă cu QR', 'error')
       return
     }
     setDownloading(format)
@@ -925,8 +985,19 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {tables.length > 0 && (
-            <div ref={pdfMenuRef} style={{ position: 'relative' }}>
+            <div
+              ref={pdfMenuRef}
+              // A11y: Escape închide meniul de export și readuce focusul pe trigger.
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && pdfMenuOpen) {
+                  setPdfMenuOpen(false)
+                  pdfTriggerRef.current?.focus()
+                }
+              }}
+              style={{ position: 'relative' }}
+            >
               <button
+                ref={pdfTriggerRef}
                 onClick={() => setPdfMenuOpen((o) => !o)}
                 disabled={downloading !== null}
                 aria-haspopup="menu"
@@ -1053,6 +1124,12 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         if (!isPreview && !mismatch) return null
         return (
           <div
+            // Copy: mesaj orientat pe consecință pentru patron; detaliul tehnic stă în tooltip.
+            title={
+              isPreview
+                ? 'Detaliu tehnic: VITE_APP_URL nu e setat — se folosește URL-ul de preview.'
+                : 'Detaliu tehnic: domeniul curent diferă de VITE_APP_URL.'
+            }
             style={{
               background: 'rgba(232,160,32,0.1)',
               border: '1px solid rgba(232,160,32,0.25)',
@@ -1067,14 +1144,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             <Icon name="alert" size={18} color="#E8A020" />
             <div style={{ fontSize: '0.78rem', color: '#E8A020', lineHeight: 1.5 }}>
               {isPreview
-                ? 'VITE_APP_URL nu e setat — QR-urile generate vor conține URL-ul de preview, nu domeniul final.'
-                : 'Ești pe un domeniu diferit de VITE_APP_URL. QR-urile generate vor folosi domeniul din setări, nu cel curent.'}
-              {isPreview && (
-                <span style={{ color: D.t2 }}>
-                  {' '}
-                  Setează-l în Netlify env vars înainte de a printa QR-uri.
-                </span>
-              )}
+                ? 'Atenție: QR-urile generate acum vor conține o adresă temporară de test, nu adresa finală a meniului. Nu le printa încă — contactează suportul dacă ai nevoie de ajutor.'
+                : 'Ești pe o altă adresă decât cea configurată pentru meniu. QR-urile generate vor folosi adresa configurată, nu pe cea curentă.'}
             </div>
           </div>
         )
@@ -1120,6 +1191,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               }}
               onKeyDown={(e) => e.key === 'Enter' && void bulkGenerate()}
               placeholder="Câte mese? ex. 80"
+              aria-label="Numărul de mese"
               style={{
                 background: D.s3,
                 border: `1px solid ${D.border}`,
@@ -1243,7 +1315,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           )}
           {visibleTables.length === 0 ? (
             <p style={{ color: D.t2, fontSize: '0.85rem', padding: '12px 2px' }}>
-              Nicio masă nu corespunde căutării.
+              Nicio masă nu corespunde filtrelor.
             </p>
           ) : null}
           {groups.map((g) => (
@@ -1361,7 +1433,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               {/* FIX: QRImage generates locally — no api.qrserver.com */}
               {t.active_token && (
                 <div style={{ background: '#F8F3EB', borderRadius: 8, padding: 4, flexShrink: 0 }}>
-                  <QRImage token={t.active_token.token} size={48} />
+                  <QRImage token={t.active_token.token} size={48} label={t.name} />
                 </div>
               )}
               </div>
@@ -1423,7 +1495,11 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   aria-label={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   style={{
-                    width: 44,
+                    // UX: fără QR, butonul are text vizibil „Generează QR" (mesajul de
+                    // status trimite la el); cu QR rămâne icon-only ca celelalte acțiuni.
+                    width: t.active_token ? 44 : 'auto',
+                    padding: t.active_token ? 0 : '0 14px',
+                    gap: 6,
                     height: 44,
                     minWidth: 44,
                     minHeight: 44,
@@ -1436,9 +1512,13 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     justifyContent: 'center',
                     cursor: 'pointer',
                     opacity: rotating === t.id ? 0.5 : 1,
+                    fontFamily: 'DM Sans,sans-serif',
+                    fontSize: '0.85rem',
+                    fontWeight: 500,
                   }}
                 >
                   <Icon name="refresh" size={16} />
+                  {!t.active_token && 'Generează QR'}
                 </button>
                 <button
                   onClick={() => toggleActive(t)}
@@ -1628,7 +1708,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               Șterge masă
             </div>
             <p style={{ color: D.t2, marginBottom: 22, fontSize: '0.875rem' }}>
-              Toate tokenurile QR asociate vor fi șterse. Comenzile existente nu sunt afectate.
+              Toate codurile QR asociate vor fi șterse. Comenzile existente nu sunt afectate.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button

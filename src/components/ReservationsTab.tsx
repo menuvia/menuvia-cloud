@@ -22,7 +22,7 @@ import { confirm as confirmDialog } from './ui/confirm'
 const STATUS_LABEL: Record<ReservationStatus, string> = {
   pending: 'În așteptare',
   confirmed: 'Confirmată',
-  seated: 'Așezat',
+  seated: 'La masă',
   completed: 'Finalizată',
   cancelled: 'Anulată',
   no_show: 'No-show',
@@ -32,7 +32,8 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
   pending: { bg: 'rgba(232,160,32,0.14)', fg: D.amber },
   confirmed: { bg: 'rgba(200,150,60,0.12)', fg: D.gold },
   seated: { bg: 'rgba(76,175,110,0.14)', fg: D.green },
-  completed: { bg: D.s2, fg: D.t3 },
+  // s3 (nu s2) — cardul are fundal s2, pastila trebuie să rămână vizibilă pe el.
+  completed: { bg: D.s3, fg: D.t3 },
   cancelled: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
   no_show: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
 }
@@ -52,10 +53,27 @@ function formatTime(iso: string): string {
   })
 }
 
+// Cheia de zi pe data LOCALĂ, nu felia UTC din ISO — o rezervare la 00:30 ora
+// României are data UTC din ziua precedentă și ar ateriza sub headerul greșit
+// (headerul formatează local prin formatDay; cheia trebuie să fie consistentă).
+function localDayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+// Plural românesc: „1 rezervare", „2 rezervări", dar „21 de rezervări" —
+// numerele cu restul %100 în afara intervalului 2–19 (și diferite de 0) cer „de".
+function plural(n: number, one: string, many: string): string {
+  if (n === 1) return `1 ${one}`
+  const rem = n % 100
+  const needsDe = n !== 0 && !(rem >= 2 && rem <= 19)
+  return `${n} ${needsDe ? 'de ' : ''}${many}`
+}
+
 function groupByDay(reservations: Reservation[]): Map<string, Reservation[]> {
   const map = new Map<string, Reservation[]>()
   for (const r of reservations) {
-    const key = r.starts_at.slice(0, 10)
+    const key = localDayKey(r.starts_at)
     const list = map.get(key)
     if (list) list.push(r)
     else map.set(key, [r])
@@ -91,6 +109,15 @@ export default function ReservationsTab({ restaurantId }: Props) {
     if (range.from === wk.from && range.to === wk.to) return 'week'
     return 'custom'
   }, [range])
+
+  // Valoarea inputului de dată e legată de range: pe preseturi (Azi/Mâine/Săptămâna)
+  // se golește, ca să nu sugereze vizual că două filtre de dată sunt active simultan.
+  const customDateValue = useMemo(() => {
+    if (activeRangeKey !== 'custom') return ''
+    const d = new Date(range.from)
+    const pad = (x: number) => String(x).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }, [activeRangeKey, range.from])
 
   const filtered = useMemo(() => {
     if (!pendingOnly) return reservations
@@ -146,7 +173,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
           Rezervări
         </h2>
         <div style={{ fontSize: 13, color: D.t2 }}>
-          {filtered.length} {filtered.length === 1 ? 'rezervare' : 'rezervări'} în interval
+          {plural(filtered.length, 'rezervare', 'rezervări')} în interval
         </div>
       </div>
 
@@ -162,6 +189,8 @@ export default function ReservationsTab({ restaurantId }: Props) {
         </FilterChip>
         <input
           type="date"
+          aria-label="Alege o zi anume"
+          value={customDateValue}
           onChange={(e) => {
             if (e.target.value) {
               const [y, mo, d] = e.target.value.split('-').map(Number)
@@ -201,7 +230,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             onChange={(e) => setPendingOnly(e.target.checked)}
             style={{ margin: 0 }}
           />
-          Doar pending
+          Doar în așteptare
         </label>
         <button
           onClick={() => void refetch()}
@@ -224,7 +253,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
         </button>
       </div>
 
-      {error && (
+      {/* Pe eroare NU randăm și empty state-ul „Nicio rezervare" — mesajele ar fi
+          contradictorii (hook-ul golește lista la eșec). Doar mesaj RO + retry. */}
+      {error ? (
         <div
           style={{
             padding: 14,
@@ -233,23 +264,55 @@ export default function ReservationsTab({ restaurantId }: Props) {
             border: '1px solid rgba(224,85,85,0.20)',
             color: D.red,
             marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
           }}
         >
-          {error}
+          <span>Nu am putut încărca rezervările.</span>
+          <button
+            onClick={() => void refetch()}
+            className="pressable"
+            style={{
+              background: D.gold,
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              padding: '10px 18px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              minHeight: 44,
+            }}
+          >
+            Reîncearcă
+          </button>
         </div>
-      )}
-
-      {loading ? (
+      ) : loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Skeleton variant="card" />
           <Skeleton variant="card" />
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState
-          icon="calendar"
-          title="Nicio rezervare în intervalul ales"
-          description="Schimbă filtrul de dată sau verifică setările"
-        />
+        pendingOnly && reservations.length > 0 ? (
+          // Rezervări EXISTĂ în interval — doar filtrul de status le ascunde;
+          // mesajul generic ar trimite utilizatorul spre data greșită.
+          <EmptyState
+            icon="calendar"
+            title="Nicio rezervare în așteptare"
+            description={
+              'Debifează „Doar în așteptare" ca să vezi toate rezervările din interval'
+            }
+          />
+        ) : (
+          <EmptyState
+            icon="calendar"
+            title="Nicio rezervare în intervalul ales"
+            description="Schimbă filtrul de dată sau verifică setările"
+          />
+        )
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           {[...grouped.entries()].map(([dayKey, list]) => (
@@ -272,9 +335,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
                     key={r.id}
                     r={r}
                     onConfirm={() => handleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
-                    onSeated={() => handleStatus(r.id, 'seated', 'Marcat ca așezat')}
+                    onSeated={() => handleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')}
                     onCancel={() => handleStatus(r.id, 'cancelled', 'Rezervare anulată')}
-                    onNoShow={() => handleStatus(r.id, 'no_show', 'Marcat ca no-show')}
+                    onNoShow={() => handleStatus(r.id, 'no_show', 'Rezervare marcată ca no-show')}
                     onComplete={() => handleStatus(r.id, 'completed', 'Rezervare finalizată')}
                   />
                 ))}
@@ -364,13 +427,18 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
         </div>
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
         <div style={{ fontSize: 13, color: D.t2 }}>
-          · {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
+          · {plural(r.party_size, 'persoană', 'persoane')}
         </div>
         {r.table && (
           <div style={{ fontSize: 12, color: D.t2 }}>
             · {r.table.name}
             {r.table.zone ? ' (' + r.table.zone + ')' : ''}
           </div>
+        )}
+        {/* Preferința clientului din widgetul public — vizibilă cât timp nu e
+            deja acoperită de zona mesei alocate, ca să nu fie așezat greșit. */}
+        {r.requested_zone && r.table?.zone !== r.requested_zone && (
+          <div style={{ fontSize: 12, color: D.t2 }}>· zonă cerută: {r.requested_zone}</div>
         )}
         <div
           style={{
@@ -452,7 +520,7 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {r.status === 'pending' && <ActionButton onClick={onConfirm}>Confirmă</ActionButton>}
         {(r.status === 'pending' || r.status === 'confirmed') && (
-          <ActionButton onClick={onSeated}>Așezat</ActionButton>
+          <ActionButton onClick={onSeated}>Așază la masă</ActionButton>
         )}
         {r.status === 'seated' && <ActionButton onClick={onComplete}>Finalizează</ActionButton>}
         {r.status === 'confirmed' && (
@@ -583,6 +651,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     >
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         style={{
           width: '100%',
           padding: '14px 16px',
@@ -726,6 +795,8 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               disabled={saving || Object.keys(draft).length === 0}
               style={{
                 padding: '10px 18px',
+                // Țintă tactilă ≥44px, ca restul butoanelor din tab.
+                minHeight: 44,
                 background: D.gold,
                 color: '#000',
                 border: 'none',
@@ -747,6 +818,8 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
 
 const settingsInputStyle: CSSProperties = {
   width: '100%',
+  // Țintă tactilă ≥44px și pe inputurile/select-urile din setări.
+  minHeight: 44,
   padding: '8px 10px',
   border: `1px solid ${D.border}`,
   borderRadius: 8,

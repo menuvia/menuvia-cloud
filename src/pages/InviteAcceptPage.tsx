@@ -2,12 +2,30 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import type { MemberRole } from '../lib/constants'
+import { Icon } from '../components/ui/Icon'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Owner',
   manager: 'Manager',
   waiter: 'Ospătar',
   kitchen: 'Bucătărie',
+}
+
+// Mesajele AuthError de la supabase-js vin în engleză („Invalid login
+// credentials", „User already registered"…) — le mapăm pe română pentru
+// publicul non-tehnic; fallback generic pentru orice altceva (eroarea brută
+// rămâne în console pentru diagnoză).
+function authErrorRo(err: unknown): string {
+  const msg = err instanceof Error ? err.message : ''
+  if (/invalid login credentials/i.test(msg)) return 'Email sau parolă greșită.'
+  if (/already (registered|exists)/i.test(msg))
+    return 'Există deja un cont cu acest email — alege „Am deja cont".'
+  if (/password should be at least/i.test(msg)) return 'Parola trebuie să aibă minim 8 caractere.'
+  if (/email not confirmed/i.test(msg))
+    return 'Emailul nu e confirmat încă — deschide linkul de confirmare primit pe email.'
+  if (/rate limit|too many requests/i.test(msg))
+    return 'Prea multe încercări. Așteaptă puțin și încearcă din nou.'
+  return 'Nu am putut procesa cererea. Încearcă din nou.'
 }
 
 const inp: React.CSSProperties = {
@@ -158,7 +176,8 @@ export default function InviteAcceptPage({
     try {
       await acceptInvite()
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Eroare. Încearcă din nou.')
+      console.error('[InviteAcceptPage] direct accept error:', err)
+      setFormError(authErrorRo(err))
       setSubmitting(false)
     }
   }
@@ -166,7 +185,7 @@ export default function InviteAcceptPage({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (password.length < 8) {
-      setFormError('Parola trebuie să aibă cel puțin 8 caractere.')
+      setFormError('Parola trebuie să aibă minim 8 caractere.')
       return
     }
     setSubmitting(true)
@@ -197,8 +216,8 @@ export default function InviteAcceptPage({
       // de refuz (mig 096A) e în acceptInvite, comună cu fluxul fără parolă.
       await acceptInvite()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Eroare. Încearcă din nou.'
-      setFormError(msg)
+      console.error('[InviteAcceptPage] submit error:', err)
+      setFormError(authErrorRo(err))
       setSubmitting(false)
     }
   }
@@ -219,6 +238,13 @@ export default function InviteAcceptPage({
     justifyContent: 'center',
     padding: 20,
   }
+  // Termenul invitației (aceleași date le afișează și TeamManager la „expiră …");
+  // string gol / dată invalidă → nu afișăm rândul deloc.
+  const expiresDate = invite?.expires_at ? new Date(invite.expires_at) : null
+  const expiresLabel =
+    expiresDate && !Number.isNaN(expiresDate.getTime())
+      ? expiresDate.toLocaleDateString('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' })
+      : null
 
   if (step === 'loading')
     return (
@@ -246,6 +272,7 @@ export default function InviteAcceptPage({
               border: `1px solid ${D.border}`,
               borderRadius: 9,
               padding: '10px 20px',
+              minHeight: 44,
               cursor: 'pointer',
             }}
           >
@@ -277,6 +304,7 @@ export default function InviteAcceptPage({
               border: 'none',
               borderRadius: 9,
               padding: '10px 20px',
+              minHeight: 44,
               fontWeight: 700,
               cursor: 'pointer',
             }}
@@ -306,6 +334,7 @@ export default function InviteAcceptPage({
               border: `1px solid ${D.border}`,
               borderRadius: 9,
               padding: '10px 20px',
+              minHeight: 44,
               cursor: 'pointer',
             }}
           >
@@ -328,6 +357,30 @@ export default function InviteAcceptPage({
             <strong style={{ color: D.t1 }}>{invite?.email}</strong>. Confirmă contul, apoi revino
             la acest link pentru a-ți accepta invitația.
           </p>
+          <button
+            onClick={() => {
+              // După confirmare, contul EXISTĂ deja → revenim pe formular
+              // preselectat pe „Am deja cont" (sau direct pe accept dintr-un
+              // click, dacă sesiunea a apărut între timp în același browser).
+              setIsNew(false)
+              setFormError(null)
+              setStep('loading')
+              setReloadTick((t) => t + 1)
+            }}
+            style={{
+              background: D.gold,
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              padding: '10px 20px',
+              minHeight: 44,
+              fontWeight: 700,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          >
+            Am confirmat — continuă
+          </button>
         </div>
       </div>
     )
@@ -336,9 +389,18 @@ export default function InviteAcceptPage({
       <div style={wrap}>
         <div style={card}>
           <div
-            style={{ fontFamily: 'Fraunces,serif', fontSize: 22, color: D.green, marginBottom: 12 }}
+            style={{
+              fontFamily: 'Fraunces,serif',
+              fontSize: 22,
+              color: D.green,
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}
           >
-            ✓ Invitație acceptată
+            <Icon name="check" size={22} color={D.green} />
+            Invitație acceptată
           </div>
           <p style={{ color: D.t2, marginBottom: 24 }}>
             Acum faci parte din echipa{' '}
@@ -352,6 +414,7 @@ export default function InviteAcceptPage({
               border: 'none',
               borderRadius: 9,
               padding: '12px 24px',
+              minHeight: 44,
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: 'DM Sans,sans-serif',
@@ -381,11 +444,20 @@ export default function InviteAcceptPage({
         >
           Invitație la {invite?.restaurant_name}
         </h1>
-        <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: 20 }}>
-          Ai fost invitat ca{' '}
-          <strong style={{ color: D.gold }}>{invite ? ROLE_LABELS[invite.role] : ''}</strong> la{' '}
-          <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>.
+        <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: expiresLabel ? 6 : 20 }}>
+          Ai fost invitat(ă) ca{' '}
+          <strong style={{ color: D.gold }}>
+            {/* Rol neprevăzut din RPC → afișăm valoarea brută, nu string gol
+                (același fallback ca WaiterAssignments). */}
+            {invite ? (ROLE_LABELS[invite.role] ?? invite.role) : ''}
+          </strong>{' '}
+          la <strong style={{ color: D.t1 }}>{invite?.restaurant_name}</strong>.
         </p>
+        {expiresLabel && (
+          <p style={{ color: D.t3, fontSize: '0.78rem', marginBottom: 20 }}>
+            Invitația expiră la {expiresLabel}.
+          </p>
+        )}
 
         {/* Deja logat cu emailul invitat → accept dintr-un click, fără parolă. */}
         {sessionEmail != null &&
@@ -400,7 +472,7 @@ export default function InviteAcceptPage({
               <div
                 style={{
                   background: D.redA,
-                  color: D.red,
+                  color: D.redText,
                   borderRadius: 8,
                   padding: '10px 12px',
                   fontSize: '0.82rem',
@@ -420,6 +492,7 @@ export default function InviteAcceptPage({
                 border: 'none',
                 borderRadius: 9,
                 padding: '13px 0',
+                minHeight: 44,
                 fontWeight: 700,
                 fontSize: '0.95rem',
                 cursor: 'pointer',
@@ -460,6 +533,7 @@ export default function InviteAcceptPage({
                 border: `1px solid ${D.border}`,
                 borderRadius: 9,
                 padding: '12px 0',
+                minHeight: 44,
                 fontWeight: 600,
                 fontSize: '0.9rem',
                 cursor: 'pointer',
@@ -475,10 +549,17 @@ export default function InviteAcceptPage({
           {['Cont nou', 'Am deja cont'].map((label, i) => (
             <button
               key={label}
-              onClick={() => setIsNew(i === 0)}
+              type="button"
+              aria-pressed={isNew === (i === 0)}
+              onClick={() => {
+                setIsNew(i === 0)
+                // Eroarea de la modul precedent nu are sens sub celălalt formular.
+                setFormError(null)
+              }}
               style={{
                 flex: 1,
                 padding: '10px 0',
+                minHeight: 44,
                 background: isNew === (i === 0) ? D.goldA : D.s3,
                 border: `1px solid ${isNew === (i === 0) ? D.gold : D.border}`,
                 borderRadius: 8,
@@ -496,10 +577,14 @@ export default function InviteAcceptPage({
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
+            <label
+              htmlFor="invite-email"
+              style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
+            >
               Email
             </label>
             <input
+              id="invite-email"
               value={invite?.email ?? ''}
               disabled
               style={{ ...inp, opacity: 0.6, cursor: 'not-allowed' }}
@@ -509,28 +594,36 @@ export default function InviteAcceptPage({
           {isNew && (
             <div>
               <label
+                htmlFor="invite-name"
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
               >
                 Nume
               </label>
               <input
+                id="invite-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Numele tău"
+                autoComplete="name"
                 style={inp}
               />
             </div>
           )}
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
+            <label
+              htmlFor="invite-password"
+              style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}
+            >
               Parolă
             </label>
             <input
+              id="invite-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimum 8 caractere"
+              placeholder="Minim 8 caractere"
+              autoComplete={isNew ? 'new-password' : 'current-password'}
               required
               minLength={8}
               style={inp}
@@ -540,12 +633,12 @@ export default function InviteAcceptPage({
           {formError && (
             <div
               style={{
-                background: 'rgba(224,85,85,0.1)',
-                border: '1px solid rgba(224,85,85,0.3)',
+                background: D.redA,
+                border: `1px solid ${D.red}`,
                 borderRadius: 8,
                 padding: '10px 14px',
                 fontSize: 13,
-                color: '#E05555',
+                color: D.redText,
               }}
             >
               {formError}

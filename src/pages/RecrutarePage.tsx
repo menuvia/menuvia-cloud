@@ -7,6 +7,7 @@
 // =============================================================
 import { useState } from 'react'
 import { D } from '../lib/constants'
+import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 
 interface Props {
@@ -179,7 +180,7 @@ function Hero() {
             fontFamily: 'Fraunces, serif',
           }}
         >
-          cafenelele tale.
+          cafeneaua ta.
         </span>
       </h1>
 
@@ -194,7 +195,8 @@ function Hero() {
         }}
       >
         Comenzi prin QR, gestiune stocuri, raport Z fiscal, închidere zi cu un click. Toate într-un
-        singur loc, fără SmartBill peste. <strong style={{ color: D.t1 }}>3 luni gratuit</strong>{' '}
+        singur loc, fără un abonament SmartBill în plus.{' '}
+        <strong style={{ color: D.t1 }}>3 luni gratuit</strong>{' '}
         pentru primele 10 cafenele care intră în program.
       </p>
 
@@ -319,7 +321,7 @@ function Problem() {
             { i: '✕', t: 'Gestiune în Excel', d: 'Tracking stocuri manual, cu erori și uitări.' },
             {
               i: '✕',
-              t: 'Zero report-uri',
+              t: 'Zero rapoarte',
               d: 'Nu știi ce vinde mai bine, când e peak, cine vinde cât.',
             },
           ].map((x, i) => (
@@ -354,47 +356,53 @@ function Problem() {
 
 // ── Features ─────────────────────────────────────────────────
 function Features() {
-  const items = [
+  // Iconuri vectoriale monocrome (componenta Icon) în loc de emoji — randare
+  // consistentă între OS-uri și paritate cu restul iconografiei aplicației.
+  const items: { n: string; icon: IconName; t: string; d: string }[] = [
     {
       n: '01',
-      emoji: '☕',
+      icon: 'qr',
       t: 'Meniu cu QR',
       d: 'Clientul scanează codul de pe masă și comandă direct. Comenzile apar pe ecranul tău și al bucătăriei în timp real. Reduce timpul de așteptare cu 40%.',
     },
     {
       n: '02',
-      emoji: '🧾',
+      icon: 'receipt',
       t: 'Bridge FiscalNet',
       d: 'Conectare directă la casa de marcat (Datecs, Activa, Tremol). Tipărește bon fiscal automat la plată. Raport Z cu un click la închidere.',
     },
     {
       n: '03',
-      emoji: '📦',
+      icon: 'box',
       t: 'Gestiune stocuri',
       d: 'Adaugi rețete (50ml lapte + 7g espresso = cappuccino). Stocurile se decontează automat la vânzare. Alerte când rămâi fără.',
     },
     {
       n: '04',
-      emoji: '📊',
+      icon: 'chart',
       t: 'Rapoarte cu sens',
       d: 'Vânzări pe oră, pe ospătar, pe categorie. Top 10 produse. Export PDF/CSV pentru contabil. Tot ce înseamnă "cifre" într-un singur loc.',
     },
     {
       n: '05',
-      emoji: '💰',
+      icon: 'clock',
       t: 'Casă & închidere zi',
       d: 'Fond inițial, mișcări (cheltuieli, depuneri), numărare seara cu diferență automată. Z fiscal generat și trimis prin Bridge.',
     },
     {
       n: '06',
-      emoji: '🎉',
+      icon: 'percent',
       t: 'Happy Hour automat',
       d: 'Setezi reguli ("17-19 reducere 20% pe tot"). Sistemul îți sugerează aplicarea la plată. Zero greșeli manuale.',
     },
   ]
 
   return (
-    <section id="features" style={{ maxWidth: 1180, margin: '0 auto', padding: '90px 24px' }}>
+    <section
+      id="features"
+      // scrollMarginTop: ancora #features nu mai aterizează sub navbar-ul sticky
+      style={{ maxWidth: 1180, margin: '0 auto', padding: '90px 24px', scrollMarginTop: 72 }}
+    >
       <div
         style={{
           fontSize: 12,
@@ -455,7 +463,7 @@ function Features() {
                 marginBottom: 18,
               }}
             >
-              <span style={{ fontSize: 32 }}>{x.emoji}</span>
+              <Icon name={x.icon} size={28} color={D.gold} />
               <span
                 style={{
                   fontFamily: 'Fraunces, serif',
@@ -797,6 +805,8 @@ function ContactForm() {
         borderTop: '1px solid rgba(255,255,255,0.05)',
         padding: '90px 0',
         background: 'rgba(255,255,255,0.015)',
+        // ancora #contact nu mai aterizează sub navbar-ul sticky
+        scrollMarginTop: 72,
       }}
     >
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 24px' }}>
@@ -853,7 +863,7 @@ function ContactForm() {
             >
               Cererea ta a ajuns la mine.
             </div>
-            <div style={{ fontSize: 15, color: D.t2 }}>Te sun în maximum 24 ore. Răbdare!</div>
+            <div style={{ fontSize: 15, color: D.t2 }}>Te sun în maximum 24 de ore. Mulțumesc!</div>
           </div>
         ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -868,6 +878,7 @@ function ContactForm() {
                 <label htmlFor="rec-name" style={labelStyle}>Numele tău *</label>
                 <input
                   id="rec-name"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   style={fieldStyle}
@@ -878,6 +889,7 @@ function ContactForm() {
                 <label htmlFor="rec-cafe" style={labelStyle}>Cafenea / local *</label>
                 <input
                   id="rec-cafe"
+                  autoComplete="organization"
                   value={cafe}
                   onChange={(e) => setCafe(e.target.value)}
                   style={fieldStyle}
@@ -907,6 +919,9 @@ function ContactForm() {
                 <label htmlFor="rec-phone" style={labelStyle}>Telefon *</label>
                 <input
                   id="rec-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   style={fieldStyle}
@@ -920,6 +935,7 @@ function ContactForm() {
               <input
                 id="rec-email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={fieldStyle}
@@ -940,7 +956,7 @@ function ContactForm() {
                   minHeight: 80,
                   fontFamily: 'DM Sans, sans-serif',
                 }}
-                placeholder="Câte mese, ce vinzi cel mai mult, ce ești frustrat de softul actual..."
+                placeholder="Câte mese, ce vinzi cel mai mult, ce te frustrează la softul actual..."
               />
             </div>
 

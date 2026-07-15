@@ -39,6 +39,8 @@ const btnSecondary: React.CSSProperties = {
   fontSize: '0.85rem',
   cursor: 'pointer',
   padding: '8px 0',
+  // Touch target ≥44px (onboarding-ul se face tipic de pe telefon)
+  minHeight: 44,
   textDecoration: 'underline',
 }
 const btnDisabled: React.CSSProperties = {
@@ -94,7 +96,14 @@ function Progress({ step, total = 4 }: { step: number; total?: number }) {
           {Math.round((step / total) * 100)}%
         </span>
       </div>
-      <div style={{ height: 4, background: D.s3, borderRadius: 2, overflow: 'hidden' }}>
+      <div
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={total}
+        aria-valuenow={step}
+        aria-label={`Pas ${step} din ${total}`}
+        style={{ height: 4, background: D.s3, borderRadius: 2, overflow: 'hidden' }}
+      >
         <div
           style={{
             height: '100%',
@@ -105,8 +114,11 @@ function Progress({ step, total = 4 }: { step: number; total?: number }) {
           }}
         />
       </div>
-      {/* Step dots */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
+      {/* Step dots — pur decorative; informația e deja în „Pas X din Y" */}
+      <div
+        aria-hidden="true"
+        style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}
+      >
         {Array.from({ length: total }, (_, i) => (
           <div
             key={i}
@@ -248,8 +260,11 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label style={label}>Numele restaurantului *</label>
+          <label htmlFor="ob-name" style={label}>
+            Numele restaurantului *
+          </label>
           <input
+            id="ob-name"
             value={name}
             onChange={(e) => {
               setName(e.target.value)
@@ -263,8 +278,11 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           />
         </div>
         <div>
-          <label style={label}>Oraș</label>
+          <label htmlFor="ob-city" style={label}>
+            Oraș
+          </label>
           <input
+            id="ob-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Focșani"
@@ -274,7 +292,9 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           />
         </div>
         <div>
-          <label style={label}>URL meniu public</label>
+          <label htmlFor="ob-slug" style={label}>
+            URL meniu public
+          </label>
           <div
             style={{
               display: 'flex',
@@ -301,6 +321,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
               menuvia.ro/m/
             </span>
             <input
+              id="ob-slug"
               value={slug}
               onChange={(e) => setSlug(slugify(e.target.value))}
               placeholder="la-bella-trattoria"
@@ -431,7 +452,9 @@ function Step2Menu({
 
       {/* Quick cat select */}
       <div style={{ marginBottom: 14 }}>
-        <label style={label}>Categorie</label>
+        <label htmlFor="ob-cat-name" style={label}>
+          Categorie
+        </label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
           {QUICK_CATS.map((c) => (
             <button
@@ -440,8 +463,10 @@ function Step2Menu({
                 setCatName(c.name)
                 setCatEmoji(c.emoji)
               }}
+              aria-pressed={catName === c.name}
               style={{
                 padding: '5px 11px',
+                minHeight: 44,
                 fontSize: '0.78rem',
                 borderRadius: 7,
                 fontFamily: 'DM Sans,sans-serif',
@@ -460,6 +485,7 @@ function Step2Menu({
           <input
             value={catEmoji}
             onChange={(e) => setCatEmoji(e.target.value)}
+            aria-label="Emoji categorie"
             style={{
               ...inp,
               width: 60,
@@ -471,6 +497,7 @@ function Step2Menu({
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
           <input
+            id="ob-cat-name"
             value={catName}
             onChange={(e) => setCatName(e.target.value)}
             placeholder="Feluri principale"
@@ -485,11 +512,14 @@ function Step2Menu({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
         <div>
-          <label style={label}>Produs *</label>
+          <label htmlFor="ob-prod-name" style={label}>
+            Produs *
+          </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               value={prodEmoji}
               onChange={(e) => setProdEmoji(e.target.value)}
+              aria-label="Emoji produs"
               style={{
                 ...inp,
                 width: 60,
@@ -501,6 +531,7 @@ function Step2Menu({
               onBlur={(e) => (e.target.style.borderColor = D.border)}
             />
             <input
+              id="ob-prod-name"
               value={prodName}
               onChange={(e) => setProdName(e.target.value)}
               placeholder="Spaghete Carbonara"
@@ -512,8 +543,11 @@ function Step2Menu({
           </div>
         </div>
         <div>
-          <label style={label}>Preț (lei) *</label>
+          <label htmlFor="ob-prod-price" style={label}>
+            Preț (lei) *
+          </label>
           <input
+            id="ob-prod-price"
             value={prodPrice}
             onChange={(e) => setProdPrice(e.target.value)}
             placeholder="32"
@@ -610,10 +644,14 @@ function Step3Table({
       .select('id')
     if (tErr || !createdTables) {
       // Nu expunem textul brut Postgres; mapăm cazurile cunoscute.
+      // Când limita planului nu e cunoscută (fetch features eșuat → maxTables null),
+      // NU interpolăm plafonul implicit de UI (50) — ar afișa un maxim fals.
       const m = tErr?.message || ''
       setError(
         /limit|maxim|plan/i.test(m)
-          ? `Planul tău permite maximum ${cap} mese. Alege mai puține sau fă upgrade pentru mai multe.`
+          ? maxTables !== null
+            ? `Planul tău permite maximum ${maxTables} mese. Alege mai puține sau fă upgrade pentru mai multe.`
+            : 'Planul tău nu permite atâtea mese. Alege mai puține sau fă upgrade pentru mai multe.'
           : 'Nu am putut crea mesele. Reîncearcă.',
       )
       setSaving(false)
@@ -767,8 +805,11 @@ function Step3Table({
           <button
             key={n}
             onClick={() => setCount(n)}
+            aria-pressed={count === n}
             style={{
               padding: '5px 13px',
+              minHeight: 44,
+              minWidth: 44,
               fontSize: '0.82rem',
               borderRadius: 7,
               fontFamily: 'DM Sans,sans-serif',
@@ -805,7 +846,7 @@ function Step3Table({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="check" size={14} color={D.green} />
             <span>
-              PDF gata de printat din tab-ul <strong style={{ color: D.t1 }}>Mese</strong>
+              PDF gata de printat din tab-ul <strong style={{ color: D.t1 }}>Mese & QR</strong>
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -874,7 +915,12 @@ function Step4Done({
     }
   }
 
+  // Feedback de salvare pe CTA-ul final — fără el, pe conexiune lentă butonul
+  // părea mort și invita la double-click.
+  const [finishing, setFinishing] = useState(false)
   const handleDone = async () => {
+    if (finishing) return
+    setFinishing(true)
     await supabase
       .from('onboarding_state')
       .update({ completed_at: new Date().toISOString() })
@@ -1019,7 +1065,7 @@ function Step4Done({
       >
         <div style={{ fontSize: '0.78rem', color: D.t2 }}>
           <strong style={{ color: D.t1, display: 'block', marginBottom: 8 }}>
-            Următori pași în dashboard:
+            Următorii pași în dashboard:
           </strong>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1028,22 +1074,28 @@ function Step4Done({
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="printer" size={15} color={D.t3} />
-              <span>Printează QR-urile din tab-ul Mese</span>
+              <span>Printează QR-urile din tab-ul Mese & QR</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="users" size={15} color={D.t3} />
-              <span>Invită ospătarul și bucătarul din tab-ul Echipă</span>
+              <span>
+                Invită echipa din Setări → Echipă (de la planul Meniu + Comenzi)
+              </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="chart" size={15} color={D.t3} />
-              <span>Urmărește comenzile live din Kitchen</span>
+              <span>Urmărește comenzile live din Bucătărie</span>
             </div>
           </div>
         </div>
       </div>
 
-      <button onClick={handleDone} style={btnPrimary}>
-        Deschide dashboard-ul →
+      <button
+        onClick={() => void handleDone()}
+        disabled={finishing}
+        style={finishing ? btnDisabled : btnPrimary}
+      >
+        {finishing ? 'Se deschide...' : 'Deschide dashboard-ul →'}
       </button>
     </Shell>
   )

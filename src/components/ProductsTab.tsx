@@ -60,11 +60,11 @@ function ProductModal({
     if (!file || uploading) return
     // Validare client tip + dimensiune înainte de decode/resize pe canvas (eroare prietenoasă).
     if (!file.type.startsWith('image/')) {
-      window.alert('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).')
+      pmToast('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).', 'error')
       return
     }
     if (file.size > 10 * 1024 * 1024) {
-      window.alert('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.')
+      pmToast('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.', 'error')
       return
     }
     setUploading(true)
@@ -564,9 +564,9 @@ function ProductModal({
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {(
               [
-                ['is_active', 'Activ', 'Apare in meniu'],
-                ['is_daily_special', 'Specialitate', '⭐ apare evidentiat'],
-                ['is_sold_out', 'Epuizat', 'Afisat dezactivat'],
+                ['is_active', 'Activ', 'Apare în meniu'],
+                ['is_daily_special', 'Specialitate', '⭐ apare evidențiat'],
+                ['is_sold_out', 'Epuizat', 'Afișat dezactivat'],
               ] as [keyof Product, string, string][]
             ).map(([k, l, desc]) => (
               <div
@@ -640,6 +640,15 @@ function ProductModal({
             </div>
           ) : (
             <label
+              role="button"
+              tabIndex={0}
+              aria-label="Încarcă imagine produs"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.currentTarget.querySelector('input')?.click()
+                }
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -714,7 +723,9 @@ function ProductModal({
                   key={tag.id}
                   type="button"
                   onClick={() => toggleDiet(tag.id)}
+                  aria-pressed={active}
                   style={{
+                    minHeight: isMobile ? 44 : undefined,
                     padding: '4px 10px',
                     borderRadius: 100,
                     fontSize: '0.75rem',
@@ -758,7 +769,9 @@ function ProductModal({
                   type="button"
                   onClick={() => toggleAllergen(a.id)}
                   title={a.desc}
+                  aria-pressed={active}
                   style={{
+                    minHeight: isMobile ? 44 : undefined,
                     padding: '5px 8px',
                     borderRadius: 7,
                     fontSize: '0.75rem',
@@ -987,9 +1000,13 @@ function ProductModal({
                 [
                   form.prep_time_minutes != null,
                   form.portion_size != null && form.portion_size.length > 0,
+                  form.calories != null,
+                  form.protein_g != null,
+                  form.carbs_g != null,
+                  form.fat_g != null,
                 ].filter(Boolean).length
               }{' '}
-              completate
+              din 6 completate
             </span>
           </button>
 
@@ -1148,7 +1165,8 @@ function ProductModal({
               <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-              {extras.length} extras · {pairings.length} pereche
+              {extras.length} {extras.length === 1 ? 'extra' : 'extra-uri'} · {pairings.length}{' '}
+              {pairings.length === 1 ? 'pereche' : 'perechi'}
             </span>
           </button>
 
@@ -1196,7 +1214,7 @@ function ProductModal({
                       style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}
                     >
                       Adaos LA produs cu cost extra. Ex: „+5 lei brânză extra", „+3 lei bacon".
-                      Clientul le bifează ÎN ProductSheet, înainte de Add.
+                      Clientul le bifează în fereastra produsului, înainte să adauge în coș.
                     </div>
 
                     {extras.length > 0 && (
@@ -1259,7 +1277,7 @@ function ProductModal({
                     {extras.length < 6 && <ExtraForm onAdd={addExtra} />}
                   </div>
 
-                  {/* ── Pereche (sugestii după Add) ──────────────────── */}
+                  {/* ── Pereche (sugestii după adăugarea în coș) ─────── */}
                   <div>
                     <div
                       style={{
@@ -1270,7 +1288,7 @@ function ProductModal({
                       }}
                     >
                       <label style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                        💡 Pereche (sugerări după Add)
+                        💡 Pereche (sugestii după adăugarea în coș)
                       </label>
                       <span style={{ fontSize: '0.7rem', color: D.t3 }}>{pairings.length} / 3</span>
                     </div>
@@ -1595,7 +1613,7 @@ function ProductModal({
                             <span
                               style={{
                                 marginLeft: 8,
-                                color: margin > 60 ? D.green : margin > 30 ? D.gold : '#c0392b',
+                                color: margin > 60 ? D.green : margin > 30 ? D.gold : D.red,
                                 fontWeight: 700,
                               }}
                             >
@@ -1727,7 +1745,7 @@ function RecipeAddForm({
           opacity: selectedId.length === 0 || quantity.length === 0 ? 0.5 : 1,
         })}
       >
-        + Add
+        + Adaugă
       </button>
     </div>
   )
@@ -1926,12 +1944,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.gold,
               border: `1px solid ${D.gold}55`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '✨' : '✨ Generează AI'}
+            <Icon name="sparkle" size={16} />
+            {mob ? 'AI' : 'Generează AI'}
           </button>
           <button
             onClick={() => setAiImportOpen(true)}
@@ -1941,12 +1961,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.t1,
               border: `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '📸' : '📸 Import din poză'}
+            <Icon name="camera" size={16} />
+            {mob ? 'Poză' : 'Import din poză'}
           </button>
           <button
             onClick={() => setCsvImportOpen(true)}
@@ -1956,12 +1978,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.t1,
               border: `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '📥' : '📥 Import CSV'}
+            <Icon name="download" size={16} />
+            {mob ? 'CSV' : 'Import CSV'}
           </button>
           <button
             onClick={() => {
@@ -1975,11 +1999,19 @@ export default function ProductsTab({
               background: canAdd ? D.gold : D.s3,
               color: canAdd ? '#000' : D.t2,
               border: canAdd ? 'none' : `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.82rem' : '0.9rem',
+              gap: 6,
             })}
           >
-            {canAdd ? '+ Adaugă produs' : '🔒 Limită atinsă — Upgrade'}
+            {canAdd ? (
+              '+ Adaugă produs'
+            ) : (
+              <>
+                <Icon name="lock" size={16} />
+                Limită atinsă — Upgrade
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -2194,7 +2226,7 @@ export default function ProductsTab({
                     }}
                   >
                     <div style={{ fontSize: '0.9rem', color: D.gold, fontWeight: 600 }}>
-                      {p.price} lei
+                      {p.price.toFixed(2)} lei
                     </div>
                     <div style={{ fontSize: '0.62rem', color: D.t3, fontWeight: 500 }}>
                       TVA {vatLabel(p.vat_group ?? 1)}
@@ -2253,7 +2285,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    ✏
+                    <Icon name="edit" size={18} />
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
@@ -2272,7 +2304,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={18} />
                   </button>
                 </div>
               </div>
@@ -2362,7 +2394,7 @@ export default function ProductsTab({
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
-                    {p.price} lei
+                    {p.price.toFixed(2)} lei
                   </div>
                   <div style={{ fontSize: '0.65rem', color: D.t3, fontWeight: 500, marginTop: 2 }}>
                     TVA {vatLabel(p.vat_group ?? 1)}
@@ -2417,10 +2449,9 @@ export default function ProductsTab({
                       alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
-                      fontSize: '0.72rem',
                     }}
                   >
-                    🔴
+                    <Icon name="alert" size={15} />
                   </button>
                   <button
                     onClick={async () => {
@@ -2441,10 +2472,9 @@ export default function ProductsTab({
                       alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
-                      fontSize: '0.72rem',
                     }}
                   >
-                    ⭐
+                    <Icon name="star" size={15} />
                   </button>
                   <button
                     onClick={() => setModal(p)}
@@ -2463,7 +2493,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    ✏
+                    <Icon name="edit" size={15} />
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
@@ -2482,7 +2512,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={15} />
                   </button>
                 </div>
               </div>

@@ -115,6 +115,14 @@ interface OrderCardProps {
 }
 function OrderCard({ order, onAdvance }: OrderCardProps) {
   const next = KITCHEN_NEXT[order.status]
+  // Re-render la 10s (aceeași cadență ca ElapsedTimer) — altfel border-ul/fundalul
+  // cardului rămâneau „calme" până la următorul poll (~30s) deși chip-ul de timp
+  // devenise deja amber/roșu: stare vizuală contradictorie pe același card.
+  const [, setUrgencyTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setUrgencyTick((t) => t + 1), 10_000)
+    return () => clearInterval(id)
+  }, [])
   const level = urgencyLevel(order.created_at)
   const urgColor = urgencyLevelColor(level)
   const isNew = order.status === 'new'
@@ -215,7 +223,7 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
             padding: '8px 10px',
           }}
         >
-          "{order.notes}"
+          „{order.notes}”
         </div>
       )}
       {next != null && (
@@ -264,6 +272,7 @@ function RestaurantSelector({
     <select
       value={activeId ?? ''}
       onChange={(e) => setActive(e.target.value)}
+      aria-label={'Selectează restaurantul'}
       style={{
         background: D.s3,
         border: `1px solid ${D.s3}`,
@@ -275,6 +284,11 @@ function RestaurantSelector({
         fontFamily: 'DM Sans, sans-serif',
         cursor: 'pointer',
         outline: 'none',
+        // Numele lungi de restaurant nu au voie să împingă header-ul în overflow la 375px.
+        maxWidth: 140,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
       }}
     >
       {memberships.map((m) => (
@@ -299,6 +313,10 @@ export default function KitchenPage() {
   // Primul snapshot hidratat NU e „comandă nouă" — altfel beep-ul suna la încărcarea
   // paginii sau după schimbarea restaurantului. Sunăm doar de la al doilea snapshot.
   const hasSeenInitialSnapshot = useRef(false)
+  // Dismiss local pe banner-ul de eroare: pe un ecran deschis toată ziua, o eroare
+  // tranzientă nu trebuie să lase un banner roșu perpetuu. O eroare NOUĂ (text diferit)
+  // redeschide bannerul.
+  const [dismissedError, setDismissedError] = useState<string | null>(null)
 
   const { orders, loading, error, advance, byStatus, connectionStatus } = useOrders(
     restaurantId,
@@ -306,7 +324,16 @@ export default function KitchenPage() {
   )
   // Indicatorul reflectă starea REALĂ a canalului de comenzi (useOrders), nu un canal de
   // prezență separat care putea arăta „Conectat" când realtime-ul comenzilor era căzut.
-  const connected = connectionStatus === 'connected'
+  // Cele 3 stări rămân distincte: 'connecting' (starea inițială, câteva secunde la fiecare
+  // deschidere) NU e „Deconectat" — altfel staff-ul vede o alarmă falsă roșie la fiecare load.
+  const connDot =
+    connectionStatus === 'connected' ? D.green : connectionStatus === 'connecting' ? D.amber : D.red
+  const connLabel =
+    connectionStatus === 'connected'
+      ? 'Conectat'
+      : connectionStatus === 'connecting'
+        ? 'Se conectează...'
+        : 'Deconectat'
   const {
     supported: pushSupported,
     permission: pushPerm,
@@ -317,10 +344,12 @@ export default function KitchenPage() {
   } = usePushNotifications(restaurantId)
 
 
-  // Reset la schimbarea restaurantului — noul prim snapshot nu trebuie să sune.
+  // Reset la schimbarea restaurantului — noul prim snapshot nu trebuie să sune,
+  // iar o eroare închisă pe vechiul restaurant nu ascunde una de pe cel nou.
   useEffect(() => {
     prevOrderIds.current = new Set<string>()
     hasSeenInitialSnapshot.current = false
+    setDismissedError(null)
   }, [restaurantId])
 
   useEffect(() => {
@@ -386,11 +415,17 @@ export default function KitchenPage() {
             fontSize: 18,
             fontWeight: 700,
             color: D.t1,
+            // La 375px cu selector multi-restaurant, titlul cedează primul:
+            // ellipsis în loc de wrap/overflow în înălțimea fixă de 56px.
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
           }}
         >
           Bucătărie{restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           {/* Restaurant selector — only visible for multi-restaurant users */}
           <RestaurantSelector
             memberships={memberships}
@@ -402,11 +437,13 @@ export default function KitchenPage() {
               onClick={() => {
                 void (pushSubscribed ? pushUnsubscribe() : pushSubscribe())
               }}
-              disabled={pushLoading}
+              disabled={pushLoading || (!pushSubscribed && pushPerm === 'denied')}
               aria-label={
                 pushSubscribed
                   ? 'Notificări active — dezactivează'
-                  : 'Activează notificările pentru comenzi noi'
+                  : pushPerm === 'denied'
+                    ? 'Notificările sunt blocate din setările browserului'
+                    : 'Activează notificările pentru comenzi noi'
               }
               title={
                 pushSubscribed
@@ -428,11 +465,14 @@ export default function KitchenPage() {
                 color: pushSubscribed ? D.gold : D.t2,
                 fontSize: 13,
                 fontFamily: 'DM Sans,sans-serif',
-                opacity: pushLoading ? 0.6 : 1,
+                opacity: pushLoading || (!pushSubscribed && pushPerm === 'denied') ? 0.6 : 1,
               }}
             >
               <Icon name="bell" size={16} />
-              <span style={{ fontSize: 12 }}>{pushSubscribed ? 'Activ' : 'Notificări'}</span>
+              {/* „Blocate" e vizibil și pe touch — title-ul nu se afișează pe tablete KDS */}
+              <span style={{ fontSize: 12 }}>
+                {pushSubscribed ? 'Activ' : pushPerm === 'denied' ? 'Blocate' : 'Notificări'}
+              </span>
             </button>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -441,12 +481,11 @@ export default function KitchenPage() {
                 width: 10,
                 height: 10,
                 borderRadius: '50%',
-                background: connected ? D.green : D.red,
+                background: connDot,
+                flexShrink: 0,
               }}
             />
-            <span style={{ fontSize: 12, color: D.t2 }}>
-              {connected ? 'Conectat' : 'Deconectat'}
-            </span>
+            <span style={{ fontSize: 12, color: D.t2, whiteSpace: 'nowrap' }}>{connLabel}</span>
           </div>
         </div>
       </div>
@@ -497,9 +536,44 @@ export default function KitchenPage() {
         </div>
       )}
 
-      {error != null && (
-        <div style={{ background: `${D.red}22`, color: D.red, padding: '8px 24px', fontSize: 13 }}>
-          {error}
+      {error != null && error !== dismissedError && (
+        <div
+          style={{
+            background: `${D.red}22`,
+            color: D.red,
+            padding: '4px 12px 4px 24px',
+            fontSize: 13,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          {/* Mesaj acționabil în română — erorile din useOrders vin brute (engleză/tehnice);
+              detaliul tehnic rămâne vizibil, secundar, pentru diagnoză. */}
+          <span style={{ minWidth: 0 }}>
+            Nu am putut sincroniza comenzile. Verifică conexiunea și reîncearcă.{' '}
+            <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
+          </span>
+          <button
+            onClick={() => setDismissedError(error)}
+            aria-label={'Închide mesajul de eroare'}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: D.red,
+              cursor: 'pointer',
+              minWidth: 44,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              padding: 0,
+            }}
+          >
+            <Icon name="close" size={16} />
+          </button>
         </div>
       )}
 

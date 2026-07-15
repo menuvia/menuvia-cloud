@@ -9,6 +9,7 @@ import { D } from '../lib/constants'
 import { useAffiliate } from '../hooks/useAffiliate'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { useToast } from '../components/ui/useToast'
+import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
 import {
@@ -30,11 +31,16 @@ const goldBtn = {
   border: 'none',
   borderRadius: 9,
   padding: '10px 16px',
+  minHeight: 44,
   fontSize: '0.85rem',
   fontWeight: 600,
   cursor: 'pointer',
   fontFamily: 'DM Sans,sans-serif',
 } as const
+
+// Stil aplicat peste goldBtn când butonul e disabled — altfel butonul rămâne
+// gold plin cu cursor pointer și utilizatorul nu vede că nu poate apăsa.
+const disabledBtn = { opacity: 0.55, cursor: 'not-allowed' } as const
 
 function MetricCard({
   label,
@@ -115,7 +121,10 @@ export default function AfiliatPage() {
   if (error) {
     return (
       <div style={{ maxWidth: 560, margin: '80px auto', padding: 24, textAlign: 'center', color: D.t2 }}>
-        Nu am putut încărca panoul de afiliat. Reîncarcă pagina.
+        <div style={{ marginBottom: 14 }}>Nu am putut încărca panoul de afiliat.</div>
+        <button style={goldBtn} onClick={() => window.location.reload()}>
+          Reîncearcă
+        </button>
       </div>
     )
   }
@@ -152,7 +161,9 @@ export default function AfiliatPage() {
     return (
       <div style={{ maxWidth: 560, margin: '60px auto', padding: 24 }}>
         <div style={{ ...card, padding: '36px 28px' }}>
-          <div style={{ fontSize: '2.4rem', marginBottom: 12, textAlign: 'center' }} aria-hidden="true">🤝</div>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+            <Icon name="users" size={40} color={D.gold} />
+          </div>
           <h1
             style={{
               fontFamily: 'Fraunces,serif',
@@ -224,10 +235,17 @@ export default function AfiliatPage() {
             value={parentCode}
             onChange={(e) => setParentCode(e.target.value)}
             placeholder="Cod de invitație (opțional)"
+            aria-label="Cod de invitație (opțional)"
             style={{ ...inputStyle, marginBottom: 18 }}
           />
           <button
-            style={{ ...goldBtn, padding: '12px 22px', width: '100%', opacity: phoneOk ? 1 : 0.6 }}
+            style={{
+              ...goldBtn,
+              padding: '12px 22px',
+              width: '100%',
+              opacity: phoneOk ? 1 : 0.6,
+              ...(registering ? disabledBtn : null),
+            }}
             disabled={registering}
             onClick={() => void join()}
           >
@@ -321,11 +339,15 @@ export default function AfiliatPage() {
         <h1 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.8rem', margin: '4px 0 0' }}>Panoul tău</h1>
       </header>
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
+      {/* Tab bar — semantică de tabs pentru screen readere; starea activă e
+          comunicată și non-cromatic (greutatea fontului), nu doar prin culoare. */}
+      <div role="tablist" aria-label="Secțiunile panoului de afiliat" style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
         {TABS.map((t) => (
           <button
             key={t.id}
+            id={`aff-tab-${t.id}`}
+            role="tab"
+            aria-selected={tab === t.id}
             onClick={() => setTab(t.id)}
             style={{
               background: tab === t.id ? D.goldA : 'transparent',
@@ -333,8 +355,9 @@ export default function AfiliatPage() {
               border: `1px solid ${tab === t.id ? `${D.gold}55` : D.border}`,
               borderRadius: 9,
               padding: '8px 14px',
+              minHeight: 44,
               fontSize: '0.85rem',
-              fontWeight: 600,
+              fontWeight: tab === t.id ? 700 : 500,
               cursor: 'pointer',
               fontFamily: 'DM Sans,sans-serif',
             }}
@@ -344,6 +367,7 @@ export default function AfiliatPage() {
         ))}
       </div>
 
+      <div role="tabpanel" aria-labelledby={`aff-tab-${tab}`}>
       {tab === 'acasa' ? (
         <AcasaTab
           activeCount={activeCount}
@@ -381,6 +405,7 @@ export default function AfiliatPage() {
           toast={toast}
         />
       ) : null}
+      </div>
     </div>
   )
 }
@@ -483,6 +508,7 @@ function AcasaTab({
                     border: `1px solid ${D.gold}55`,
                     borderRadius: 8,
                     padding: '8px 12px',
+                    minHeight: 44,
                     fontSize: '0.78rem',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -555,9 +581,15 @@ function AcasaTab({
         <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           Următoarea plată estimată
         </div>
-        <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.t1, marginTop: 6 }}>
-          {formatDateRo(nextPayoutAt)}
-        </div>
+        {nextPayoutAt ? (
+          <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.t1, marginTop: 6 }}>
+            {formatDateRo(nextPayoutAt)}
+          </div>
+        ) : (
+          <div style={{ fontSize: '0.85rem', color: D.t1, marginTop: 6, lineHeight: 1.5 }}>
+            Nimic programat încă — data apare după primul comision confirmat.
+          </div>
+        )}
         <div style={{ fontSize: '0.78rem', color: D.t2, marginTop: 8, lineHeight: 1.5 }}>
           Comisioanele de activare au un hold de 60 de zile (protecție anti-fraudă); cele lunare, 14 zile.
           Plata se face după ce emiți factura către Menuvia.
@@ -578,7 +610,7 @@ function PartnerEnterButton({ restaurantId }: { restaurantId: string }) {
         void enterFounderView(restaurantId, 'afiliat')
       }}
       disabled={busy}
-      style={{ ...goldBtn, opacity: busy ? 0.6 : 1 }}
+      style={{ ...goldBtn, ...(busy ? disabledBtn : null) }}
     >
       {busy ? 'Se deschide…' : 'Intră pe dashboard'}
     </button>
@@ -667,7 +699,7 @@ function RestauranteTab({
   if (restaurants.length === 0) {
     return (
       <div style={{ ...card, textAlign: 'center', padding: '40px 24px', color: D.t2 }}>
-        Încă n-ai adus niciun restaurant. Împărtășește link-ul tău din tab-ul „Unelte".
+        Încă n-ai adus niciun restaurant. Împărtășește link-ul tău din tab-ul „Unelte”.
       </div>
     )
   }
@@ -679,9 +711,9 @@ function RestauranteTab({
         return (
           <div
             key={r.attribution_id}
-            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
           >
-            <div>
+            <div style={{ minWidth: 0 }}>
               <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.95rem' }}>{name}</div>
               <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 2 }}>
                 {(r.city ?? '—') + ' · ' + statusLabel(r.status)}
@@ -742,7 +774,7 @@ function SubafiliatiTab({
           Recrutează un afiliat
         </div>
         <div style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.5, marginBottom: 10 }}>
-          Dă-i codul tău. Când se înscrie ca afiliat, îl pune în câmpul „Cod de invitație" și intră
+          Dă-i codul tău. Când se înscrie ca afiliat, îl pune în câmpul „Cod de invitație” și intră
           sub tine.
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -774,10 +806,10 @@ function SubafiliatiTab({
         subs.map((s) => (
           <div
             key={s.referral_code}
-            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
           >
-            <div>
-              <div style={{ color: D.t1, fontWeight: 600 }}>cod: {s.referral_code}</div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: D.t1, fontWeight: 600, wordBreak: 'break-all' }}>cod: {s.referral_code}</div>
               <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 2 }}>
                 {statusLabel(s.status)} · înscris {formatDateRo(s.joined_at)}
               </div>
@@ -850,7 +882,7 @@ function UnelteTab({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div style={card}>
         <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-          Link-ul tău de referral
+          Link-ul tău de recomandare
         </div>
         <div
           style={{
@@ -877,6 +909,7 @@ function UnelteTab({
               border: `1px solid ${D.border}`,
               borderRadius: 9,
               padding: '10px 16px',
+              minHeight: 44,
               fontSize: '0.85rem',
               fontWeight: 600,
               cursor: 'pointer',
@@ -894,12 +927,12 @@ function UnelteTab({
           Cod QR (printabil pentru flyere)
         </div>
         {qr ? (
-          <img src={qr} alt="QR referral" style={{ width: 220, height: 220, borderRadius: 12 }} />
+          <img src={qr} alt="Cod QR cu link-ul tău de recomandare" style={{ width: 220, height: 220, borderRadius: 12 }} />
         ) : (
           <div style={{ color: D.t2, fontSize: '0.82rem', padding: 40 }}>Se generează…</div>
         )}
         <div style={{ marginTop: 12 }}>
-          <button style={goldBtn} disabled={!qr} onClick={downloadQr}>
+          <button style={{ ...goldBtn, ...(qr ? null : disabledBtn) }} disabled={!qr} onClick={downloadQr}>
             Descarcă PNG
           </button>
         </div>
@@ -1059,8 +1092,9 @@ function PayoutProfileForm({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={labelStyle}>Formă juridică</label>
+            <label htmlFor="payout-legal-form" style={labelStyle}>Formă juridică</label>
             <select
+              id="payout-legal-form"
               value={legalForm}
               onChange={(e) => setLegalForm(e.target.value as 'pfa' | 'srl' | 'other')}
               style={inputStyle}
@@ -1071,12 +1105,19 @@ function PayoutProfileForm({
             </select>
           </div>
           <div>
-            <label style={labelStyle}>CUI / CIF</label>
-            <input value={cui} onChange={(e) => setCui(e.target.value)} placeholder="RO12345678" style={inputStyle} />
+            <label htmlFor="payout-cui" style={labelStyle}>CUI / CIF</label>
+            <input
+              id="payout-cui"
+              value={cui}
+              onChange={(e) => setCui(e.target.value)}
+              placeholder="RO12345678"
+              style={inputStyle}
+            />
           </div>
           <div>
-            <label style={labelStyle}>Nume beneficiar (cont)</label>
+            <label htmlFor="payout-beneficiary" style={labelStyle}>Nume beneficiar (cont)</label>
             <input
+              id="payout-beneficiary"
               value={beneficiary}
               onChange={(e) => setBeneficiary(e.target.value)}
               placeholder="Ex: Popescu Ion PFA"
@@ -1084,8 +1125,9 @@ function PayoutProfileForm({
             />
           </div>
           <div>
-            <label style={labelStyle}>IBAN</label>
+            <label htmlFor="payout-iban" style={labelStyle}>IBAN</label>
             <input
+              id="payout-iban"
               value={iban}
               onChange={(e) => setIban(e.target.value)}
               placeholder="RO49 AAAA 1B31 0075 9384 0000"
@@ -1093,7 +1135,7 @@ function PayoutProfileForm({
             />
           </div>
           <div>
-            <button style={goldBtn} disabled={saving} onClick={save}>
+            <button style={{ ...goldBtn, ...(saving ? disabledBtn : null) }} disabled={saving} onClick={save}>
               {saving ? 'Se salvează…' : 'Salvează datele de plată'}
             </button>
           </div>
@@ -1135,7 +1177,7 @@ function GhidTab({
 
   const steps: { t: string; d: string }[] = [
     {
-      t: 'Ia-ți linkul din tab-ul „Unelte"',
+      t: 'Ia-ți linkul din tab-ul „Unelte”',
       d: 'Linkul și codul QR sunt ale tale. Oricine își face cont prin ele rămâne recomandarea ta — chiar dacă plătește abia peste câteva săptămâni.',
     },
     {
@@ -1148,7 +1190,7 @@ function GhidTab({
     },
     {
       t: 'Urmărește câștigurile și emite factura',
-      d: 'În „Acasă" vezi banii în timp real. Comisioanele de activare au un hold de 60 de zile (anti-fraudă), cele lunare de 14 zile. Plata vine după ce emiți factura către Menuvia — datele de plată le completezi în „Unelte".',
+      d: 'În „Acasă” vezi banii în timp real. Comisioanele de activare au un hold de 60 de zile (anti-fraudă), cele lunare de 14 zile. Plata vine după ce emiți factura către Menuvia — datele de plată le completezi în „Unelte”.',
     },
   ]
 
@@ -1167,7 +1209,7 @@ function GhidTab({
     },
     {
       q: 'Trebuie să fiu firmă ca să primesc banii?',
-      a: 'Plata se face pe bază de factură (PFA, SRL sau altă formă). Completezi datele o singură dată în „Unelte" → Date de plată.',
+      a: 'Plata se face pe bază de factură (PFA, SRL sau altă formă). Completezi datele o singură dată în „Unelte” → Date de plată.',
     },
   ]
 
@@ -1268,7 +1310,7 @@ function statusLabel(status: string): string {
     case 'canceled':
       return 'Anulat'
     case 'refunded':
-      return 'Refundat'
+      return 'Rambursat'
     case 'expired':
       return 'Expirat'
     case 'downgraded':

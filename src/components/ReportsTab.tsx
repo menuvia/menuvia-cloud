@@ -46,9 +46,6 @@ interface Props {
 type Period = 'today' | 'week' | 'month' | 'custom'
 
 // ─── Date helpers ─────────────────────────────────────────────
-function toISO(d: Date) {
-  return d.toISOString().slice(0, 10)
-}
 function addDays(d: Date, n: number) {
   const r = new Date(d)
   r.setDate(r.getDate() + n)
@@ -132,6 +129,8 @@ function StatCard({
 
 const btn = (active?: boolean): React.CSSProperties => ({
   padding: '7px 14px',
+  // Touch target ≥44px — controale primare, folosite frecvent pe telefon.
+  minHeight: 44,
   fontSize: '0.8rem',
   fontFamily: 'DM Sans,sans-serif',
   fontWeight: active ? 600 : 400,
@@ -184,7 +183,11 @@ function ReportMetric({
 // ─── Main component ───────────────────────────────────────────
 export default function ReportsTab({ restaurantId, fiscalReports = true }: Props) {
   const [period, setPeriod] = useState<Period>('today')
-  const [custom, setCustom] = useState({ from: toISO(new Date()), to: toISO(new Date()) })
+  // Ziua curentă în fusul României (toISO/UTC dădea „ieri" între 00:00–03:00 ora RO).
+  const [custom, setCustom] = useState({
+    from: toRomaniaYMD(new Date()),
+    to: toRomaniaYMD(new Date()),
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
@@ -513,7 +516,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       doc.text(`Total comenzi: ${m.totalOrders}`, 24, y)
       y += 6
       doc.text(
-        `Revenue: ${m.revenue.toFixed(2)} lei  |  Bon mediu: ${m.avgTicket.toFixed(2)} lei`,
+        `Venituri: ${m.revenue.toFixed(2)} lei  |  Bon mediu: ${m.avgTicket.toFixed(2)} lei`,
         24,
         y,
       )
@@ -537,7 +540,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         doc.text('#', 22, y)
         doc.text('Produs', 30, y)
         doc.text('Buc.', 130, y)
-        doc.text('Revenue', 155, y)
+        doc.text('Venituri', 155, y)
         y += 7
         doc.setFont('helvetica', 'normal')
         topProducts.forEach((p, i) => {
@@ -634,7 +637,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               alignItems: 'center',
               gap: 6,
               padding: '0 14px',
-              height: 38,
+              minHeight: 44,
               borderRadius: 9,
               fontSize: '0.85rem',
               fontWeight: 500,
@@ -653,12 +656,13 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           <button
             onClick={() => void exportPdf()}
             disabled={exporting || loading || totalOrders === 0}
+            title={'PDF: sumar și top produse. Pentru toate secțiunile folosește Export CSV.'}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
               gap: 6,
               padding: '0 16px',
-              height: 38,
+              minHeight: 44,
               borderRadius: 9,
               fontSize: '0.85rem',
               fontWeight: 500,
@@ -700,14 +704,26 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         }}
       >
         {(['today', 'week', 'month', 'custom'] as Period[]).map((p) => (
-          <button key={p} style={btn(period === p)} onClick={() => setPeriod(p)}>
-            {p === 'today' ? 'Azi' : p === 'week' ? '7 zile' : p === 'month' ? '30 zile' : 'Custom'}
+          <button
+            key={p}
+            style={btn(period === p)}
+            aria-pressed={period === p}
+            onClick={() => setPeriod(p)}
+          >
+            {p === 'today'
+              ? 'Azi'
+              : p === 'week'
+                ? '7 zile'
+                : p === 'month'
+                  ? '30 zile'
+                  : 'Alt interval'}
           </button>
         ))}
         {period === 'custom' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 4 }}>
             <input
               type="date"
+              aria-label="De la data"
               value={custom.from}
               max={custom.to}
               onChange={(e) => setCustom((c) => ({ ...c, from: e.target.value }))}
@@ -716,6 +732,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                 border: `1px solid ${D.border}`,
                 borderRadius: 7,
                 padding: '6px 10px',
+                minHeight: 44,
                 color: D.t1,
                 fontSize: '0.8rem',
                 fontFamily: 'DM Sans,sans-serif',
@@ -724,15 +741,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             <span style={{ color: D.t3, fontSize: 12 }}>→</span>
             <input
               type="date"
+              aria-label="Până la data"
               value={custom.to}
               min={custom.from}
-              max={toISO(new Date())}
+              max={toRomaniaYMD(new Date())}
               onChange={(e) => setCustom((c) => ({ ...c, to: e.target.value }))}
               style={{
                 background: D.s3,
                 border: `1px solid ${D.border}`,
                 borderRadius: 7,
                 padding: '6px 10px',
+                minHeight: 44,
                 color: D.t1,
                 fontSize: '0.8rem',
                 fontFamily: 'DM Sans,sans-serif',
@@ -801,7 +820,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             <StatCard label="Comenzi" value={String(totalOrders)} />
             {fiscalReports && (
               <>
-                <StatCard label="Revenue" value={`${revenue.toFixed(0)} lei`} color={D.gold} />
+                <StatCard label="Venituri" value={`${revenue.toFixed(0)} lei`} color={D.gold} />
                 <StatCard
                   label="Bon mediu"
                   value={`${avgTicket.toFixed(2)} lei`}
@@ -957,7 +976,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               }}
             >
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1, marginBottom: 14 }}>
-                Revenue zilnic
+                Venituri zilnice
               </div>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={chartData} margin={{ top: 0, right: 0, bottom: 0, left: -20 }}>
@@ -981,7 +1000,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       fontSize: '0.8rem',
                       color: D.t1,
                     }}
-                    formatter={(v: number) => [`${v.toFixed(0)} lei`, 'Revenue']}
+                    formatter={(v: number) => [`${v.toFixed(0)} lei`, 'Venituri']}
                   />
                   <Bar dataKey="revenue" fill={D_RAW.gold} radius={[3, 3, 0, 0]} />
                 </BarChart>
@@ -1041,7 +1060,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                             textAlign: 'center',
                           }}
                         >
-                          {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                          {i + 1}
                         </span>
                         <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
                         <span style={{ fontSize: '0.9rem', color: D.t1, fontWeight: 600 }}>
@@ -1053,12 +1072,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       >
                         <ReportMetric label="Buc." value={String(p.qty)} />
                         <ReportMetric
-                          label="Revenue"
+                          label="Venituri"
                           value={fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
                           accent
                         />
                         <ReportMetric
-                          label="Bon med."
+                          label="Preț mediu"
                           value={fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
                         />
                       </div>
@@ -1077,7 +1096,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         borderBottom: `1px solid ${D.border}`,
                       }}
                     >
-                      {['#', 'Produs', 'Buc.', 'Revenue', 'Bon med.'].map((h) => (
+                      {['#', 'Produs', 'Buc.', 'Venituri', 'Preț mediu'].map((h) => (
                     <div
                       key={h}
                       style={{
@@ -1109,7 +1128,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     <div
                       style={{ fontSize: '0.78rem', color: i < 3 ? D.gold : D.t3, fontWeight: 700 }}
                     >
-                      {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}`}
+                      {i + 1}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: '1rem' }}>{p.emoji}</span>
