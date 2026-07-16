@@ -43,10 +43,12 @@ const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
 const FounderPage = lazy(() => import('./pages/FounderPage'))
 const VerticalPage = lazy(() => import('./pages/VerticalPage'))
 const CaseDeMarcatPage = lazy(() => import('./pages/CaseDeMarcatPage'))
+const LandingPageEn = lazy(() => import('./pages/LandingPageEn'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
   | 'landing'
+  | 'landing-en'
   | 'auth'
   | 'onboarding'
   | 'dashboard'
@@ -106,6 +108,7 @@ function parsePath(): RouteState {
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
   if (p === '/') return { view: 'landing' }
+  if (p === '/en') return { view: 'landing-en' }
   return { view: 'notfound' }
 }
 
@@ -344,6 +347,7 @@ function AppRouter() {
         'case-de-marcat',
         'notfound',
         'landing',
+        'landing-en',
         'afiliat',
       ].includes(state.view))
   )
@@ -528,6 +532,22 @@ function AppRouter() {
       />
     )
 
+  // ── Landing EN (unauthenticated, diaspora) ──────────────────
+  if (state.view === 'landing-en' && !user)
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <LandingPageEn
+          onStartPlan={(p) => {
+            writePlanIntent(p)
+            navigate('/auth?plan=' + p)
+          }}
+          onLogin={() => navigate('/auth')}
+          onPricing={() => navigate('/pricing')}
+          onDemo={() => navigate('/demo')}
+        />
+      </Suspense>
+    )
+
   // ── Auth ───────────────────────────────────────────────────
   if (state.view === 'auth' || !user) {
     return (
@@ -574,6 +594,10 @@ function AppRouter() {
 
   // ── Authenticated: landing redirects to dashboard ──────────
   if (state.view === 'landing') {
+    navigate('/dashboard')
+    return <PageSpinner />
+  }
+  if (state.view === 'landing-en') {
     navigate('/dashboard')
     return <PageSpinner />
   }

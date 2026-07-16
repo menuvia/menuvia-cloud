@@ -294,6 +294,15 @@ export default function LandingPage({
         cta={{ label: 'Începe gratuit', onClick: () => onStartPlan('growth') }}
       />
 
+      {/* Link discret spre landing-ul EN (diaspora / parteneri non-RO) —
+          nu intră în MarketingHeader (nu se modifică), stă ca bandă mică
+          deasupra hero-ului. */}
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '10px 24px 0', textAlign: 'right' }}>
+        <a href="/en" style={{ color: MKT.text3, fontSize: 12.5, textDecoration: 'none' }}>
+          EN
+        </a>
+      </div>
+
       {/* Hero split: mesaj + CTA-uri în stânga, produsul REAL în dreapta */}
       <div
         style={{
