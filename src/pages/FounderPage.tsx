@@ -71,13 +71,51 @@ function formatMoney(cents: number, currency: string): string {
   return currency === 'RON' ? v + ' lei' : v + ' ' + currency
 }
 
+// Facturile Oblio vin cu totalul în UNITĂȚI (numeric 12,2, mig 041), nu în
+// cenți — nu putem delega direct la formatMoney (care primește cenți).
+function formatMoneyUnits(value: number, currency: string): string {
+  const v = value.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return currency === 'RON' ? v + ' lei' : v + ' ' + currency
+}
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('ro-RO', {
+  const d = new Date(iso)
+  return d.toLocaleString('ro-RO', {
     day: 'numeric',
     month: 'short',
+    // Anul apare doar când nu e cel curent — auditul (100 de acțiuni) și
+    // payout-urile plătite pot acoperi peste 12 luni, altfel devin ambigue.
+    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// Etichete RO pentru enum-urile interne afișate în UI — fallback pe valoarea
+// brută, ca un status nou să nu dispară din ecran.
+const AFFILIATE_STATUS_LABELS: Record<string, string> = {
+  pending: 'în așteptare',
+  active: 'activ',
+  suspended: 'suspendat',
+  closed: 'închis',
+  rejected: 'respins',
+}
+
+const PAYOUT_STATUS_LABELS: Record<string, string> = {
+  draft: 'ciornă',
+  awaiting_invoice: 'așteaptă factura',
+  invoice_matched: 'factură confirmată',
+  processing: 'în procesare',
+  paid: 'plătit',
+  failed: 'eșuat',
+  on_hold: 'în verificare',
+  canceled: 'anulat',
+}
+
+const ACTOR_KIND_LABELS: Record<string, string> = {
+  founder: 'fondator',
+  affiliate: 'afiliat',
+  owner: 'proprietar',
 }
 
 // Semnal ne-cromatic pentru scorul de health: pe lângă culoare, o etichetă
@@ -218,7 +256,7 @@ export default function FounderPage({ onBack }: Props) {
                 style={{
                   flexShrink: 0,
                   padding: '9px 16px',
-                  minHeight: 40,
+                  minHeight: 44,
                   fontSize: '0.82rem',
                   fontFamily: 'DM Sans,sans-serif',
                   fontWeight: active ? 600 : 400,
@@ -254,7 +292,7 @@ export default function FounderPage({ onBack }: Props) {
 // ── Stiluri comune ───────────────────────────────────────────
 const ghostBtn: CSSProperties = {
   padding: '9px 16px',
-  minHeight: 40,
+  minHeight: 44,
   borderRadius: 10,
   border: `1px solid ${D.border}`,
   background: 'transparent',
@@ -266,7 +304,7 @@ const ghostBtn: CSSProperties = {
 
 const primaryBtn: CSSProperties = {
   padding: '8px 14px',
-  minHeight: 38,
+  minHeight: 44,
   borderRadius: 9,
   border: 'none',
   background: D.gold,
@@ -537,7 +575,7 @@ function RestaurantsSection() {
     if (plan === r.plan) return
     const ok = await confirm({
       title: `Schimbi planul pentru ${r.name}?`,
-      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. ⚠️ Planul e per-CONT: dacă proprietarul are mai multe restaurante, li se schimbă planul TUTUROR. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
+      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. Planul e pe cont (nu pe restaurant): dacă proprietarul are mai multe restaurante, li se schimbă planul tuturor. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
       confirmLabel: 'Schimbă planul',
     })
     if (!ok) return
@@ -588,6 +626,7 @@ function RestaurantsSection() {
         aria-label={`Planul pentru ${r.name}`}
         style={{
           padding: '6px 8px',
+          minHeight: 44,
           border: `1px solid ${D.border}`,
           borderRadius: 8,
           background: D.s3,
@@ -779,7 +818,7 @@ function RestaurantsSection() {
                         disabled={busyId === r.restaurant_id}
                         className="pressable"
                         style={withBusy(
-                          { ...ghostBtn, minHeight: 38, color: r.is_active ? D.red : D.green },
+                          { ...ghostBtn, color: r.is_active ? D.red : D.green },
                           busyId === r.restaurant_id,
                         )}
                       >
@@ -925,7 +964,7 @@ function OperationsSection() {
                   <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
                     {i.restaurant_name}{' '}
                     <span style={{ color: D.t3, fontWeight: 400 }}>
-                      · {i.customer_name} · {i.total_with_vat} {i.currency}
+                      · {i.customer_name} · {formatMoneyUnits(i.total_with_vat, i.currency)}
                     </span>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.red, overflowWrap: 'anywhere' }}>
@@ -1086,7 +1125,7 @@ function AffiliatesSection() {
                       )}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
-                      {a.email} · status {a.status}
+                      {a.email} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
                     </div>
                   </div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: a.balance_ron_cents > 0 ? D.green : D.t2 }}>
@@ -1132,7 +1171,7 @@ function AffiliatesSection() {
                           border: 'none',
                           borderRadius: 8,
                           padding: '9px 16px',
-                          minHeight: 40,
+                          minHeight: 44,
                           fontSize: '0.78rem',
                           fontWeight: 700,
                           cursor: 'pointer',
@@ -1151,7 +1190,7 @@ function AffiliatesSection() {
                             border: `1px solid ${D.red}55`,
                             borderRadius: 8,
                             padding: '9px 16px',
-                            minHeight: 40,
+                            minHeight: 44,
                             fontSize: '0.78rem',
                             fontWeight: 600,
                             cursor: 'pointer',
@@ -1224,7 +1263,7 @@ function AffiliatesSection() {
                     {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    {p.status}
+                    {PAYOUT_STATUS_LABELS[p.status] ?? p.status}
                     {p.invoice_number ? ` · factura ${p.invoice_number}` : ''}
                     {p.paid_at ? ` · plătit ${formatDate(p.paid_at)}` : ''}
                     {p.failure_reason ? ` · ${p.failure_reason}` : ''}
@@ -1334,7 +1373,7 @@ function CommissionFields({
         />
       </label>
       <label style={labelStyle}>
-        Cascade (%)
+        Cascadă (%)
         <input
           type="number"
           min={0}
@@ -1456,7 +1495,7 @@ function CommissionDefaultsCard({ onApplied }: { onApplied: () => void }) {
               disabled={busy}
               className="pressable"
               style={withBusy(
-                { ...ghostBtn, minHeight: 38, color: D.red, borderColor: 'rgba(224,85,85,0.3)' },
+                { ...ghostBtn, color: D.red, borderColor: 'rgba(224,85,85,0.3)' },
                 busy,
               )}
             >
@@ -1527,7 +1566,7 @@ function AffiliateCommissionRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.74rem', color: D.t2 }}>
             {hasBps
-              ? `Activare ${(affiliate.setup_bps! / 100).toLocaleString('ro-RO')}% · Lunar ${(affiliate.recurring_bps! / 100).toLocaleString('ro-RO')}% (${affiliate.recurring_cap_months} luni) · Cascade ${(affiliate.cascade_bps! / 100).toLocaleString('ro-RO')}%`
+              ? `Activare ${(affiliate.setup_bps! / 100).toLocaleString('ro-RO')}% · Lunar ${(affiliate.recurring_bps! / 100).toLocaleString('ro-RO')}% (${affiliate.recurring_cap_months} luni) · Cascadă ${(affiliate.cascade_bps! / 100).toLocaleString('ro-RO')}%`
               : 'Comision: — (rulează migrația 188)'}
           </span>
           {hasBps && (
@@ -1565,7 +1604,7 @@ function AffiliateCommissionRow({
               onClick={() => setEditing(false)}
               disabled={busy}
               className="pressable"
-              style={withBusy({ ...ghostBtn, minHeight: 38 }, busy)}
+              style={withBusy(ghostBtn, busy)}
             >
               Anulează
             </button>
@@ -1639,7 +1678,7 @@ function AuditSection() {
               <span style={{ fontSize: '0.72rem', color: D.t3 }}>{formatDate(row.created_at)}</span>
               <span style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
                 {row.actor_email}
-                <span style={{ color: D.t3 }}> ({row.actor_kind})</span>
+                <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </span>
             </div>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', overflowWrap: 'anywhere' }}>{row.action}</div>
@@ -1677,7 +1716,7 @@ function AuditSection() {
               <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(row.created_at)}</td>
               <td style={tdStyle}>
                 {row.actor_email}
-                <span style={{ color: D.t3 }}> ({row.actor_kind})</span>
+                <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </td>
               <td style={tdStyle}>{row.action}</td>
               <td style={tdStyle}>{row.restaurant_name ?? '—'}</td>

@@ -26,13 +26,14 @@ interface Props {
 
 // Valoare de celulă: boolean → bifă verde / liniuță gri; string → text scurt
 // (ex. „Pilot", „Variabil") acolo unde un boolean ar supra-promite.
+// „—" (nu se aplică) primește același icon minus ca boolean false — o singură
+// redare vizuală + un nume accesibil real pentru screen readere.
 function Cell({ value }: { value: string | boolean }) {
-  if (typeof value === 'boolean') {
-    return value ? (
-      <Icon name="check" size={18} color={MKT.success} label="Da" />
-    ) : (
-      <Icon name="minus" size={18} color={MKT.text3} label="Nu" />
-    )
+  if (value === false || value === '—') {
+    return <Icon name="minus" size={18} color={MKT.text3} label="Nu" />
+  }
+  if (value === true) {
+    return <Icon name="check" size={18} color={MKT.success} label="Da" />
   }
   return <span style={{ fontSize: 13, color: MKT.text2, fontWeight: 600 }}>{value}</span>
 }

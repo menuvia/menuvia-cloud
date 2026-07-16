@@ -42,6 +42,7 @@ import {
   resolveFlipbookPages,
   readableTextOn,
 } from '../lib/themes'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
@@ -67,6 +68,15 @@ const SplitBillSheet = lazy(() => import('../components/SplitBillSheet'))
 
 interface Props {
   token: string
+}
+
+// Scroll-lock pentru popup-ul de pairing: hook-urile nu pot fi apelate
+// condiționat direct în QrMenuPage, deci montăm acest copil DOAR cât timp
+// popup-ul e deschis — aceeași disciplină ca ProductSheet/QrCartSheet
+// (altfel un swipe pe backdrop derulează meniul din spate).
+function PairingPopupScrollLock(): null {
+  useBodyScrollLock(true)
+  return null
 }
 
 // ── QrMenuPage ────────────────────────────────────────────────
@@ -207,6 +217,10 @@ export default function QrMenuPage({ token }: Props) {
   }
 
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
+  // Numărul REAL de produse din coș (sumă pe cantități, ca `cartCount` din
+  // PublicMenuPage) — un singur rând cu qty 3 trebuie să arate „3 produse",
+  // altfel badge-ul contrazice totalul (lineTotal înmulțește cu quantity).
+  const cartItemCount = cart.reduce((s, i) => s + i.quantity, 0)
 
   async function handleSubmit(): Promise<void> {
     if (ctx == null) return
@@ -661,8 +675,8 @@ export default function QrMenuPage({ token }: Props) {
             onChange={(e) => setSearch(e.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
-            placeholder="Caută în meniu..."
-            aria-label="Caută în meniu"
+            placeholder={T(lang, 'search_placeholder')}
+            aria-label={T(lang, 'search_placeholder')}
             enterKeyHint="search"
             style={{
               width: '100%',
@@ -705,7 +719,7 @@ export default function QrMenuPage({ token }: Props) {
               </div>
               <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
                 {searchQuery
-                  ? `Niciun produs găsit pentru „${search.trim()}"`
+                  ? `${T(lang, 'no_results')} · „${search.trim()}”`
                   : 'Momentan meniul nu este disponibil.'}
               </div>
               <div style={{ fontSize: 13 }}>
@@ -960,6 +974,8 @@ export default function QrMenuPage({ token }: Props) {
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
+            // Țintă de atingere ≥44px (a11y) — restul paginii e deja la standard.
+            minHeight: 44,
             fontSize: 13,
             fontWeight: 600,
             cursor: callingWaiter || waiterCalled ? 'default' : 'pointer',
@@ -1001,6 +1017,8 @@ export default function QrMenuPage({ token }: Props) {
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
+            // Țintă de atingere ≥44px (a11y) — restul paginii e deja la standard.
+            minHeight: 44,
             fontSize: 13,
             fontWeight: 600,
             cursor: requestingBill || billRequested ? 'default' : 'pointer',
@@ -1242,9 +1260,9 @@ export default function QrMenuPage({ token }: Props) {
                     fontSize: 13,
                   }}
                 >
-                  {cart.length} {cart.length === 1 ? 'produs' : 'produse'}
+                  {cartItemCount} {cartItemCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}
                 </span>
-                <span>Vezi comanda</span>
+                <span>{T(lang, 'view_cart')}</span>
                 <span>{fmtPrice(cartTotal, menuCurrency)}</span>
               </>
             ) : (
@@ -1286,6 +1304,7 @@ export default function QrMenuPage({ token }: Props) {
             zIndex: 250,
           }}
         >
+          <PairingPopupScrollLock />
           <div
             onClick={(e) => e.stopPropagation()}
             className="animate-sheet"
