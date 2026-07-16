@@ -1276,6 +1276,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/loyalty_assertions.sql
 
+      - name: "Meal voucher assertions (mig 230/231)"
+        if: ${{ hashFiles('supabase/migrations/20260716110000_migration_231_meal_voucher_flow.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/meal_voucher_assertions.sql
+
       - name: "SMS notifications assertions (mig 228)"
         if: ${{ hashFiles('supabase/migrations/20260713120000_migration_228_sms_notifications.sql') != '' }}
         env:

@@ -1529,7 +1529,7 @@ export default function WaiterPage() {
                       }}
                     >
                       <span>
-                        {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : 'Altul'}
+                        {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : p.method === 'meal_voucher' ? 'Tichete de masă' : 'Altul'}
                       </span>
                       <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
                     </div>
@@ -1559,7 +1559,7 @@ export default function WaiterPage() {
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
-              {(['cash', 'card_pos', 'other'] as PaymentMethod[]).map((m) => (
+              {(['cash', 'card_pos', 'meal_voucher', 'other'] as PaymentMethod[]).map((m) => (
                 <button
                   key={m}
                   className="pressable"
@@ -1577,7 +1577,7 @@ export default function WaiterPage() {
                     cursor: 'pointer',
                   }}
                 >
-                  {m === 'cash' ? 'Cash' : m === 'card_pos' ? 'Card' : 'Altul'}
+                  {m === 'cash' ? 'Cash' : m === 'card_pos' ? 'Card' : m === 'meal_voucher' ? 'Tichete' : 'Altul'}
                 </button>
               ))}
             </div>

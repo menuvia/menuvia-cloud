@@ -11,7 +11,7 @@ export type OrderStatus =
   | 'paid'
   | 'cancelled'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
-export type PaymentMethod = 'cash' | 'card_pos' | 'other'
+export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher'
 
 export interface SelectedExtra {
   id: string

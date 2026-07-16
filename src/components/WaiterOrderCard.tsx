@@ -91,6 +91,9 @@ function PayModal({
   const methods: { key: PaymentMethod; label: string }[] = [
     { key: 'cash', label: 'Cash' },
     { key: 'card_pos', label: 'Card POS' },
+    // Tichete de masă (mig 230/231) — legal acoperă doar produse alimentare
+    // (fără alcool/tutun); verificarea rămâne la staff, ca la POS-urile clasice.
+    { key: 'meal_voucher', label: 'Tichete de masă' },
     { key: 'other', label: 'Altă metodă' },
   ]
 
