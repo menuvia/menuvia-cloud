@@ -70,7 +70,7 @@ export const PLANS: Plan[] = [
   {
     id: 'growth',
     name: 'Meniu + Comenzi',
-    emoji: '🛎',
+    emoji: '🛎️',
     priceMonthly: 249,
     priceYearly: 208,
     badge: 'Recomandat',
@@ -78,7 +78,7 @@ export const PLANS: Plan[] = [
     included: [
       'Tot din Meniu Digital +',
       'Până la 1.000 de produse',
-      'Până la 300 mese active / QR-uri',
+      'Până la 300 mese / QR-uri',
       'Comenzi prin QR (identificare automată a mesei)',
       'Dashboard bucătărie + flux ospătar',
       'Pre-comandă pentru ridicare (pickup)',
@@ -108,7 +108,7 @@ export const PLANS: Plan[] = [
     included: [
       'Tot din Meniu + Comenzi +',
       'Până la 2.000 de produse',
-      'Până la 500 mese active / QR-uri',
+      'Până la 500 mese / QR-uri',
       'Plăți în aplicație: cash, card, plata împărțită',
       'Plata online la masă, din telefonul clientului',
       'Bon fiscal pe casa ta (Datecs / Activa / Tremol)',
@@ -169,7 +169,7 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
     growth: 'Până la 1.000',
     pro: 'Până la 2.000',
   },
-  { label: 'Mese + QR-uri', starter: 'Până la 120', growth: 'Până la 300', pro: 'Până la 500' },
+  { label: 'Mese / QR-uri', starter: 'Până la 120', growth: 'Până la 300', pro: 'Până la 500' },
   { label: 'Meniu în 7 limbi', starter: true, growth: true, pro: true },
   { label: 'Teme premium + flipbook', starter: true, growth: true, pro: true },
   {
@@ -191,7 +191,7 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
     label: 'Rapoarte',
     starter: false,
     growth: 'Zilnice + săptămânale',
-    pro: 'Zilnice + TVA + încasări pe tură',
+    pro: 'Zilnice + săptămânale + TVA/tură',
   },
   { label: 'Membri echipă', starter: '1', growth: 'Până la 10', pro: 'Până la 1.000' },
   {

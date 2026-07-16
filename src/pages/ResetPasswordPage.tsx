@@ -1,18 +1,58 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+
+// ─────────────────────────────────────────────────────────────
+// Paleta caldă-luminoasă (aliniată cu A din AuthPage.tsx — /reset-password
+// e parte din funnel-ul public, NU din dashboard, deci NU folosește D).
+// A nu e exportată din AuthPage.tsx (react-refresh/only-export-components),
+// deci ținem o copie locală aici — valorile TREBUIE ținute în sincron.
+// ─────────────────────────────────────────────────────────────
+const A = {
+  bg: '#FAF9F6',
+  surface: '#FFFFFF',
+  text: '#1A1208',
+  text2: '#5C4A2A',
+  text3: '#9A8C7A',
+  border: '#E8E0D2',
+  accent: '#C8963C',
+  error: '#B3403F',
+  errorBg: 'rgba(179,64,63,0.08)',
+  errorBorder: 'rgba(179,64,63,0.3)',
+  success: '#2D8659',
+  warning: '#A66A15',
+}
 
 const inp: React.CSSProperties = {
   width: '100%',
-  background: D.s3,
-  border: `1px solid ${D.border}`,
-  borderRadius: 9,
+  background: A.surface,
+  border: `1px solid ${A.border}`,
+  borderRadius: 10,
   padding: '12px 14px',
   fontSize: '0.95rem',
-  color: D.t1,
+  color: A.text,
   outline: 'none',
   fontFamily: 'DM Sans,sans-serif',
   boxSizing: 'border-box',
+}
+
+const cardStyle: React.CSSProperties = {
+  background: A.surface,
+  border: `1px solid ${A.border}`,
+  borderRadius: 18,
+  padding: 36,
+  width: '100%',
+  maxWidth: 420,
+  boxShadow: '0 8px 32px rgba(26,18,8,0.06)',
+}
+
+const pageStyle: React.CSSProperties = {
+  minHeight: '100vh',
+  background: A.bg,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 20,
+  fontFamily: 'DM Sans,sans-serif',
 }
 
 // Simple password strength: 0=weak, 1=ok, 2=strong
@@ -30,9 +70,9 @@ function passwordStrength(p: string): 0 | 1 | 2 {
 }
 
 const STRENGTH_META = {
-  0: { label: 'Slabă', color: D.red, width: '25%' },
-  1: { label: 'Acceptabilă', color: D.amber, width: '60%' },
-  2: { label: 'Puternică', color: D.green, width: '100%' },
+  0: { label: 'Slabă', color: A.error, width: '25%' },
+  1: { label: 'Acceptabilă', color: A.warning, width: '60%' },
+  2: { label: 'Puternică', color: A.success, width: '100%' },
 }
 
 export default function ResetPasswordPage({ navigate }: { navigate: (p: string) => void }) {
@@ -111,18 +151,8 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   // ─── Checking token ───────────────────────────────────────
   if (tokenState === null) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: D.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 20,
-          fontFamily: 'DM Sans,sans-serif',
-        }}
-      >
-        <div style={{ textAlign: 'center', color: D.t3 }}>
+      <div style={pageStyle}>
+        <div style={{ textAlign: 'center', color: A.text3 }}>
           <div style={{ fontSize: '1.5rem', marginBottom: 12, opacity: 0.5 }}>⏳</div>
           <div style={{ fontSize: '0.875rem' }}>Se verifică link-ul...</div>
         </div>
@@ -133,55 +163,36 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   // ─── Token invalid / expired ──────────────────────────────
   if (tokenState === false) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: D.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 20,
-          fontFamily: 'DM Sans,sans-serif',
-        }}
-      >
-        <div
-          style={{
-            background: D.s1,
-            border: `1px solid ${D.border}`,
-            borderRadius: 18,
-            padding: 36,
-            width: '100%',
-            maxWidth: 420,
-            textAlign: 'center',
-          }}
-        >
+      <div style={pageStyle}>
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
           <div style={{ fontSize: '2rem', marginBottom: 16 }}>⚠️</div>
           <h2
             style={{
               fontFamily: 'Fraunces,serif',
               fontSize: '1.3rem',
-              color: D.t1,
+              color: A.text,
               marginBottom: 10,
             }}
           >
             Link invalid sau expirat
           </h2>
-          <p style={{ color: D.t2, fontSize: '0.875rem', lineHeight: 1.6, marginBottom: 24 }}>
+          <p style={{ color: A.text2, fontSize: '0.875rem', lineHeight: 1.6, marginBottom: 24 }}>
             Link-urile de resetare sunt valabile 1 oră și pot fi folosite o singură dată. Solicită
             un link nou dacă ai nevoie.
           </p>
           <button
             onClick={() => navigate('/auth')}
             style={{
-              background: D.gold,
-              color: '#000',
+              background: A.accent,
+              color: '#fff',
               border: 'none',
-              borderRadius: 9,
+              borderRadius: 10,
               padding: '12px 24px',
               fontFamily: 'DM Sans,sans-serif',
               fontWeight: 600,
               cursor: 'pointer',
               fontSize: '0.9rem',
+              boxShadow: '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
             Solicită link nou
@@ -194,54 +205,35 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
   // ─── Done ─────────────────────────────────────────────────
   if (done) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          background: D.bg,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 20,
-          fontFamily: 'DM Sans,sans-serif',
-        }}
-      >
-        <div
-          style={{
-            background: D.s1,
-            border: `1px solid ${D.border}`,
-            borderRadius: 18,
-            padding: 36,
-            width: '100%',
-            maxWidth: 420,
-            textAlign: 'center',
-          }}
-        >
+      <div style={pageStyle}>
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
           <div style={{ fontSize: '2.5rem', marginBottom: 16 }}>✅</div>
           <h2
             style={{
               fontFamily: 'Fraunces,serif',
               fontSize: '1.3rem',
-              color: D.green,
+              color: A.success,
               marginBottom: 10,
             }}
           >
             Parolă schimbată
           </h2>
-          <p style={{ color: D.t2, fontSize: '0.875rem', marginBottom: 24 }}>
+          <p style={{ color: A.text2, fontSize: '0.875rem', marginBottom: 24 }}>
             Noua parolă a fost salvată. Poți intra în dashboard.
           </p>
           <button
             onClick={() => navigate('/dashboard')}
             style={{
-              background: D.gold,
-              color: '#000',
+              background: A.accent,
+              color: '#fff',
               border: 'none',
-              borderRadius: 9,
+              borderRadius: 10,
               padding: '12px 24px',
               fontFamily: 'DM Sans,sans-serif',
               fontWeight: 600,
               cursor: 'pointer',
               fontSize: '0.9rem',
+              boxShadow: '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
             Intră în dashboard →
@@ -253,33 +245,15 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
 
   // ─── Form ─────────────────────────────────────────────────
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: D.bg,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 20,
-        fontFamily: 'DM Sans,sans-serif',
-      }}
-    >
-      <div
-        style={{
-          background: D.s1,
-          border: `1px solid ${D.border}`,
-          borderRadius: 18,
-          padding: 36,
-          width: '100%',
-          maxWidth: 420,
-        }}
-      >
+    <div style={pageStyle}>
+      <div style={cardStyle}>
         <div
           style={{
             fontFamily: 'Fraunces,serif',
             fontSize: '1rem',
-            color: D.gold,
+            color: A.accent,
             marginBottom: 24,
+            fontWeight: 700,
           }}
         >
           Menuvia
@@ -289,32 +263,36 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
           style={{
             fontFamily: 'Fraunces,serif',
             fontSize: '1.5rem',
-            color: D.t1,
+            color: A.text,
             marginBottom: 6,
             letterSpacing: '-0.02em',
           }}
         >
           Parolă nouă
         </h1>
-        <p style={{ color: D.t3, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
+        <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
           Alege o parolă sigură pentru contul tău.
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Password field */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
+            <label
+              htmlFor="new-password"
+              style={{ display: 'block', fontSize: '0.78rem', color: A.text2, marginBottom: 6 }}
+            >
               Parolă nouă
             </label>
             <input
+              id="new-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimum 8 caractere"
               autoFocus
               style={inp}
-              onFocus={(e) => (e.target.style.borderColor = D.gold)}
-              onBlur={(e) => (e.target.style.borderColor = D.border)}
+              onFocus={(e) => (e.target.style.borderColor = A.accent)}
+              onBlur={(e) => (e.target.style.borderColor = A.border)}
             />
             {/* Strength meter */}
             {password.length > 0 && strengthMeta && (
@@ -322,7 +300,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
                 <div
                   style={{
                     height: 3,
-                    background: D.s3,
+                    background: A.border,
                     borderRadius: 2,
                     overflow: 'hidden',
                     marginBottom: 4,
@@ -347,10 +325,14 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
 
           {/* Confirm field */}
           <div>
-            <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 6 }}>
+            <label
+              htmlFor="confirm-password"
+              style={{ display: 'block', fontSize: '0.78rem', color: A.text2, marginBottom: 6 }}
+            >
               Confirmă parola
             </label>
             <input
+              id="confirm-password"
               type="password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -358,21 +340,24 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               style={{
                 ...inp,
                 borderColor:
-                  confirm.length > 0 ? (confirm === password ? D.green : D.red) : D.border,
+                  confirm.length > 0 ? (confirm === password ? A.success : A.error) : A.border,
               }}
-              onFocus={(e) => (e.target.style.borderColor = confirm === password ? D.green : D.red)}
+              onFocus={(e) =>
+                (e.target.style.borderColor =
+                  confirm.length > 0 ? (confirm === password ? A.success : A.error) : A.accent)
+              }
               onBlur={(e) =>
                 (e.target.style.borderColor =
-                  confirm.length > 0 ? (confirm === password ? D.green : D.red) : D.border)
+                  confirm.length > 0 ? (confirm === password ? A.success : A.error) : A.border)
               }
             />
             {confirm.length > 0 && confirm !== password && (
-              <div style={{ fontSize: '0.72rem', color: D.red, marginTop: 4 }}>
+              <div style={{ fontSize: '0.72rem', color: A.error, marginTop: 4 }}>
                 Parolele nu coincid
               </div>
             )}
             {confirm.length > 0 && confirm === password && (
-              <div style={{ fontSize: '0.72rem', color: D.green, marginTop: 4 }}>
+              <div style={{ fontSize: '0.72rem', color: A.success, marginTop: 4 }}>
                 ✓ Parolele coincid
               </div>
             )}
@@ -380,13 +365,14 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
 
           {error && (
             <div
+              role="alert"
               style={{
-                background: D.redA,
-                border: `1px solid rgba(224,85,85,.3)`,
+                background: A.errorBg,
+                border: `1px solid ${A.errorBorder}`,
                 borderRadius: 8,
                 padding: '10px 14px',
                 fontSize: '0.82rem',
-                color: D.red,
+                color: A.error,
               }}
             >
               {error}
@@ -399,10 +385,10 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             }}
             disabled={loading || password.length < 8 || password !== confirm}
             style={{
-              background: loading || password.length < 8 || password !== confirm ? D.s3 : D.gold,
-              color: loading || password.length < 8 || password !== confirm ? D.t3 : '#000',
+              background: loading || password.length < 8 || password !== confirm ? A.border : A.accent,
+              color: loading || password.length < 8 || password !== confirm ? A.text3 : '#fff',
               border: 'none',
-              borderRadius: 9,
+              borderRadius: 10,
               padding: '14px 0',
               fontFamily: 'DM Sans,sans-serif',
               fontSize: '0.95rem',
@@ -411,6 +397,10 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
                 loading || password.length < 8 || password !== confirm ? 'not-allowed' : 'pointer',
               marginTop: 4,
               transition: 'background .2s',
+              boxShadow:
+                loading || password.length < 8 || password !== confirm
+                  ? 'none'
+                  : '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
             {loading ? 'Se salvează...' : 'Salvează parola'}
@@ -421,7 +411,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             style={{
               background: 'none',
               border: 'none',
-              color: D.t3,
+              color: A.text3,
               cursor: 'pointer',
               fontSize: '0.82rem',
               fontFamily: 'DM Sans,sans-serif',

@@ -6,6 +6,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
+import { Icon } from './ui/Icon'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -230,6 +231,11 @@ function PayModal({
               onClick={onDiscountClick}
               style={{
                 marginTop: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                minHeight: 44,
                 background: hasDiscount ? D.goldA : 'transparent',
                 border: `1px solid ${hasDiscount ? D.gold : D.border}`,
                 borderRadius: 8,
@@ -242,7 +248,8 @@ function PayModal({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {hasDiscount ? '🎁 Modifică / scoate reducerea' : '🎁 Aplică reducere'}
+              <Icon name="tag" size={14} />
+              {hasDiscount ? 'Modifică / scoate reducerea' : 'Aplică reducere'}
             </button>
           )}
         </div>
@@ -258,7 +265,7 @@ function PayModal({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 20 }}>🎉</span>
+              <Icon name="sparkle" size={20} color={D.gold} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: D.gold }}>
                   Promoție activă!
@@ -506,6 +513,9 @@ function OrderCard({
             {/* Source badge */}
             <span
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
                 fontSize: '0.65rem',
                 padding: '2px 7px',
                 borderRadius: 100,
@@ -521,11 +531,8 @@ function OrderCard({
                 border: `1px solid ${order.source === 'qr' ? D.gold + '44' : 'rgba(76,175,110,.3)'}`,
               }}
             >
-              {order.source === 'qr'
-                ? '📱 QR'
-                : order.source === 'pickup'
-                  ? '📦 Pickup'
-                  : '🧑‍💼 Manual'}
+              <Icon name={order.source === 'qr' ? 'qr' : order.source === 'pickup' ? 'box' : 'users'} size={11} />
+              {order.source === 'qr' ? 'QR' : order.source === 'pickup' ? 'Pickup' : 'Manual'}
             </span>
           </div>
           <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
@@ -592,6 +599,11 @@ function OrderCard({
               onClick={() => onEdit(order)}
               style={{
                 flex: 1,
+                minHeight: 44,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
                 background: 'transparent',
                 color: D.gold,
                 border: `1px solid ${D.gold}77`,
@@ -603,7 +615,8 @@ function OrderCard({
                 cursor: 'pointer',
               }}
             >
-              ✎ Editează
+              <Icon name="edit" size={14} />
+              Editează
             </button>
           )}
           {onCancel && (
@@ -611,6 +624,10 @@ function OrderCard({
               onClick={() => onCancel(order)}
               style={{
                 flex: 1,
+                minHeight: 44,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 background: 'transparent',
                 color: D.red,
                 border: `1px solid ${D.red}77`,
@@ -633,6 +650,9 @@ function OrderCard({
         <button
           onClick={() => onAudit(order)}
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
             background: 'transparent',
             color: D.t3,
             border: 'none',
@@ -647,7 +667,8 @@ function OrderCard({
             textUnderlineOffset: 3,
           }}
         >
-          🕘 Vezi istoric
+          <Icon name="history" size={13} />
+          Vezi istoric
         </button>
       )}
 
@@ -660,6 +681,10 @@ function OrderCard({
             onClick={() => onPayOpen(order)}
             style={{
               flex: 1,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: D.green,
               color: '#fff',
               border: 'none',
@@ -677,6 +702,10 @@ function OrderCard({
             onClick={() => onSplitOpen(order)}
             style={{
               flex: 1,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: D.s3,
               color: D.t1,
               border: '1px solid ' + D.border,
@@ -697,6 +726,10 @@ function OrderCard({
           <button
             onClick={() => onCloseOrder(order)}
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
               background: D.green,
               color: '#fff',
               border: 'none',
@@ -709,7 +742,8 @@ function OrderCard({
               width: '100%',
             }}
           >
-            ✓ Închide comanda
+            <Icon name="check" size={15} color="#fff" />
+            Închide comanda
           </button>
           <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
             Plata și bonul se fac pe casa de marcat existentă

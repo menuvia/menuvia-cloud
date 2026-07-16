@@ -111,7 +111,8 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               margin: '0 auto 24px',
             }}
           >
-            Conectează contul tău Oblio (~50 RON/lună pe oblio.eu) și emite facturi conform
+            Contul Oblio e gratuit de creat; abonamentul pentru emiterea facturilor pornește de
+            la ~50 RON/lună (vezi oblio.eu). Conectează-l aici și emite facturi conform
             legislației române direct din Menuvia. Suportă și e-Factura SPV ANAF pentru B2B.
           </p>
           <button
@@ -202,9 +203,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               border: 'none',
               borderRadius: 8,
               padding: '8px 14px',
+              minHeight: 40,
               fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             + Factură nouă
@@ -217,10 +222,12 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               border: `1px solid ${D.border}`,
               borderRadius: 8,
               padding: '8px 14px',
+              minHeight: 40,
               fontSize: 13,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 6,
             }}
           >
@@ -251,7 +258,30 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
           icon="receipt"
           title="Nicio factură emisă încă"
           description={
-            'Pentru a emite o factură, mergi la o comandă plătită și apasă "Emite factură" în detalii.'
+            'Apasă „+ Factură nouă" mai sus, sau mergi la o comandă plătită și apasă „Emite factură" în detalii.'
+          }
+          action={
+            <button
+              onClick={() => setShowIssue(true)}
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 16px',
+                minHeight: 40,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <Icon name="plus" size={15} />
+              Factură nouă
+            </button>
           }
         />
       ) : (
@@ -415,8 +445,12 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
               textDecoration: 'none',
               borderRadius: 6,
               padding: '6px 12px',
+              minHeight: 40,
               fontSize: 12,
               fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             PDF →
@@ -432,8 +466,12 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
               border: `1px solid ${D.border}`,
               borderRadius: 6,
               padding: '6px 10px',
+              minHeight: 40,
               fontSize: 12,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             Anulează

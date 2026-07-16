@@ -484,6 +484,9 @@ export default function SettingsTab({
                     color: D.t2,
                     fontSize: '0.7rem',
                     padding: '4px 10px',
+                    minHeight: 44,
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     cursor: 'pointer',
                   }}
                 >
@@ -594,44 +597,20 @@ export default function SettingsTab({
               title="Logo"
               desc="Logo pătrat. Opțional, folosit ca avatar / favicon viitor."
             >
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                 {form.logo_url ? (
-                  <div style={{ position: 'relative' }}>
-                    <img
-                      src={form.logo_url}
-                      alt="Logo"
-                      style={{
-                        width: 80,
-                        height: 80,
-                        objectFit: 'cover',
-                        borderRadius: 12,
-                        border: `1px solid ${D.border}`,
-                        background: D.s3,
-                      }}
-                    />
-                    <button
-                      onClick={() => upd('logo_url', null)}
-                      aria-label="Șterge logo"
-                      style={{
-                        position: 'absolute',
-                        top: -6,
-                        right: -6,
-                        width: 22,
-                        height: 22,
-                        background: D.s2,
-                        color: D.t2,
-                        border: `1px solid ${D.border}`,
-                        borderRadius: '50%',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 0,
-                      }}
-                    >
-                      <Icon name="close" size={12} color={D.t2} />
-                    </button>
-                  </div>
+                  <img
+                    src={form.logo_url}
+                    alt="Logo"
+                    style={{
+                      width: 80,
+                      height: 80,
+                      objectFit: 'cover',
+                      borderRadius: 12,
+                      border: `1px solid ${D.border}`,
+                      background: D.s3,
+                    }}
+                  />
                 ) : (
                   <div
                     style={{
@@ -671,6 +650,15 @@ export default function SettingsTab({
                     }}
                   />
                 </label>
+                {form.logo_url && (
+                  <button
+                    type="button"
+                    onClick={() => upd('logo_url', null)}
+                    style={btn({ background: 'transparent', color: D.t2, border: `1px solid ${D.border}` })}
+                  >
+                    Șterge logo
+                  </button>
+                )}
               </div>
             </SettingsCard>
 
@@ -708,7 +696,10 @@ export default function SettingsTab({
                       color: '#fff',
                       border: 'none',
                       borderRadius: 100,
-                      padding: '4px 10px',
+                      padding: '4px 14px',
+                      minHeight: 44,
+                      display: 'inline-flex',
+                      alignItems: 'center',
                       fontSize: '0.7rem',
                       cursor: 'pointer',
                     }}
@@ -772,11 +763,15 @@ export default function SettingsTab({
                       key={a.id}
                       type="button"
                       onClick={() => toggleAmenity(a.id)}
+                      aria-pressed={active}
                       style={{
                         background: active ? D.goldA : D.s3,
                         border: `1px solid ${active ? D.gold : D.border}`,
                         color: active ? D.goldL : D.t2,
                         padding: '6px 12px',
+                        minHeight: 44,
+                        display: 'inline-flex',
+                        alignItems: 'center',
                         borderRadius: 100,
                         fontSize: '0.78rem',
                         fontWeight: active ? 600 : 500,
@@ -1018,6 +1013,7 @@ export default function SettingsTab({
                           accent_override: form.theme_settings?.accent_override ?? null,
                         })
                       }
+                      aria-pressed={isSelected}
                       style={{
                         padding: '12px 10px',
                         border: `2px solid ${isSelected ? D.gold : D.border}`,
@@ -1095,8 +1091,11 @@ export default function SettingsTab({
                   lineHeight: 1.5,
                 }}
               >
-                💡 După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
-                meniului.
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="info" size={13} color={D.t3} />
+                  După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
+                  meniului.
+                </span>
               </div>
             </SettingsCard>
 
@@ -1117,31 +1116,31 @@ export default function SettingsTab({
                   [
                     {
                       id: 'list',
-                      emoji: '☰',
+                      icon: 'menu',
                       name: 'Listă',
                       desc: 'Poză mică + text. Clasic și compact.',
                     },
                     {
                       id: 'grid',
-                      emoji: '▦',
+                      icon: 'image',
                       name: 'Galerie foto',
                       desc: 'Poze mari, 2 coloane. Cel mai vizual.',
                     },
                     {
                       id: 'minimal',
-                      emoji: '≡',
+                      icon: 'minus',
                       name: 'Minimal elegant',
                       desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
                     },
                     {
                       id: 'photo',
-                      emoji: '🖼',
+                      icon: 'camera',
                       name: 'Foto-first',
                       desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
                     },
                     {
                       id: 'flipbook',
-                      emoji: '📖',
+                      icon: 'copy',
                       name: 'Flipbook (PDF/pagini)',
                       desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
                     },
@@ -1156,6 +1155,7 @@ export default function SettingsTab({
                         // Păstrăm tema/accentul; schimbăm doar layout-ul.
                         updTheme({ menu_layout: l.id })
                       }
+                      aria-pressed={isSelected}
                       style={{
                         padding: '14px 12px',
                         border: `2px solid ${isSelected ? D.gold : D.border}`,
@@ -1170,7 +1170,7 @@ export default function SettingsTab({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '1.1rem' }}>{l.emoji}</span>
+                        <Icon name={l.icon} size={16} color={isSelected ? D.gold : D.t2} />
                         <span
                           style={{
                             fontSize: '0.82rem',
@@ -1244,8 +1244,8 @@ export default function SettingsTab({
                               border: `1px solid ${D.border}`,
                               borderRadius: 6,
                               color: idx === 0 ? D.t3 : D.t1,
-                              width: 30,
-                              height: 30,
+                              width: 44,
+                              height: 44,
                               cursor: idx === 0 ? 'default' : 'pointer',
                               opacity: idx === 0 ? 0.4 : 1,
                             }}
@@ -1262,8 +1262,8 @@ export default function SettingsTab({
                               border: `1px solid ${D.border}`,
                               borderRadius: 6,
                               color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
-                              width: 30,
-                              height: 30,
+                              width: 44,
+                              height: 44,
                               cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
                               opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
                             }}
@@ -1281,7 +1281,8 @@ export default function SettingsTab({
                               color: D.t2,
                               fontSize: '0.7rem',
                               padding: '0 10px',
-                              height: 30,
+                              minWidth: 44,
+                              height: 44,
                               cursor: 'pointer',
                             }}
                           >
@@ -1345,8 +1346,11 @@ export default function SettingsTab({
                         lineHeight: 1.5,
                       }}
                     >
-                      💡 Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
-                      disponibilă pe acest stil; chemarea ospătarului rămâne.
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="info" size={13} color={D.t3} />
+                        Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
+                        disponibilă pe acest stil; chemarea ospătarului rămâne.
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1488,6 +1492,7 @@ export default function SettingsTab({
                       key={l.code}
                       type="button"
                       onClick={() => toggleMenuLang(l.code)}
+                      aria-pressed={active}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1496,6 +1501,7 @@ export default function SettingsTab({
                         border: `1px solid ${active ? D.gold : D.border}`,
                         color: active ? D.goldL : D.t2,
                         padding: '6px 12px',
+                        minHeight: 44,
                         borderRadius: 100,
                         fontSize: '0.78rem',
                         fontWeight: active ? 600 : 500,
@@ -1790,7 +1796,8 @@ export default function SettingsTab({
                       lineHeight: 1.5,
                     }}
                   >
-                    💡 Comenzile pickup apar în KitchenPage cu badge{' '}
+                    <Icon name="info" size={13} color={D.t3} />{' '}
+                    Comenzile pickup apar în KitchenPage cu badge{' '}
                     <strong style={{ color: D.gold }}>📦 Pickup</strong>. Numele clientului și ora
                     ridicării sunt vizibile.
                   </div>

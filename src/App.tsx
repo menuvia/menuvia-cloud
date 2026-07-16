@@ -118,6 +118,13 @@ async function getUserRoles(userId: string): Promise<MemberRole[]> {
 }
 
 function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
+  useEffect(() => {
+    const prevTitle = document.title
+    document.title = 'Pagina nu a fost găsită — Menuvia'
+    return () => {
+      document.title = prevTitle
+    }
+  }, [])
   return (
     <div
       style={{
@@ -139,7 +146,9 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
         >
           404
         </div>
-        <div style={{ color: D.t2, fontSize: 16, marginBottom: 24 }}>Pagina nu a fost găsită.</div>
+        <h1 style={{ color: D.t2, fontSize: 16, fontWeight: 400, marginBottom: 24 }}>
+          Pagina nu a fost găsită.
+        </h1>
         <button
           onClick={() => navigate('/')}
           style={{
@@ -148,6 +157,7 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
             border: 'none',
             borderRadius: 10,
             padding: '12px 28px',
+            minHeight: 44,
             fontWeight: 600,
             fontSize: 14,
             cursor: 'pointer',

@@ -319,7 +319,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               cursor: 'pointer',
             }}
           >
-            Upgrade la Pro
+            Treci la Fiscalizare
           </button>
         </div>
       </div>
@@ -431,24 +431,10 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 color: days === d ? D.goldL : D.t2,
               }}
             >
-              {d}z
+              {d} zile
             </button>
           ))}
         </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        <Stat label="Comenzi" value={totalOrders} />
-        <Stat label="Venit" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
-        <Stat label="Bon mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
-        <Stat label="Rata QR" value={`${qrRate}%`} />
       </div>
 
       {daily.length === 0 ? (
@@ -459,6 +445,20 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         />
       ) : (
         <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
+              gap: 10,
+              marginBottom: 20,
+            }}
+          >
+            <Stat label="Comenzi" value={totalOrders} />
+            <Stat label="Venit" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
+            <Stat label="Bon mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
+            <Stat label="Rata QR" value={`${qrRate}%`} />
+          </div>
+
           {/* Revenue chart */}
           <div
             style={{
@@ -728,8 +728,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               >
                 <DataTable
                   isMobile={isMobile}
-                  gridCols="1fr 70px 70px 100px"
-                  headers={['Ospătar', 'Introd.', 'Servite', 'Venit']}
+                  gridCols="1fr 80px 70px 100px"
+                  headers={['Ospătar', 'Introduse', 'Servite', 'Venit']}
                   rows={waiters.map((w) => {
                     const p = staffNames[w.user_id as string] ?? null
                     return {

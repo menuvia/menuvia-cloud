@@ -315,7 +315,7 @@ function OrderTracker({
           onClick={() => onReset(false)}
           style={{
             background: 'transparent',
-            color: '#9A8C7A',
+            color: '#6B5A3F',
             border: '1px solid #D4C8B8',
             borderRadius: 12,
             padding: '12px 0',
@@ -330,7 +330,7 @@ function OrderTracker({
       </div>
       {/* Show session total if there are previous orders */}
       {previousOrders.length > 0 && !isCancelled && (
-        <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#9A8C7A', textAlign: 'center' }}>
+        <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#6B5A3F', textAlign: 'center' }}>
           Total sesiune:{' '}
           {fmtPrice(
             previousOrders.reduce((s, o) => s + Number(o.total), 0) + Number(confirmation.total),
@@ -468,7 +468,7 @@ function ActiveOrdersBanner({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {orders.length} comandă{orders.length !== 1 ? '' : ''} ·{' '}
+              {orders.length} {orders.length === 1 ? 'comandă' : 'comenzi'} ·{' '}
               {fmtPrice(totalSpent, currency)} total
             </span>
             {activeCount > 0 && (

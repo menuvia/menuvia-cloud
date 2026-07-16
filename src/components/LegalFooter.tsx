@@ -30,22 +30,54 @@ export default function LegalFooter() {
           marginBottom: 8,
         }}
       >
-        <a href="/termeni" style={linkStyle}>
+        <a
+          href="/termeni"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           Termeni
         </a>
-        <a href="/confidentialitate" style={linkStyle}>
+        <a
+          href="/confidentialitate"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           Confidențialitate
         </a>
-        <a href="/cookies" style={linkStyle}>
+        <a
+          href="/cookies"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           Cookies
         </a>
-        <a href="/dpa" style={linkStyle}>
+        <a
+          href="/dpa"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           DPA
         </a>
-        <a href="mailto:contact@menuvia.ro" style={linkStyle}>
+        <a
+          href="mailto:contact@menuvia.ro"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           Contact
         </a>
-        <a href="https://anpc.ro" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+        <a
+          href="https://anpc.ro"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
+        >
           ANPC
         </a>
         {/* SOL/ODR (ec.europa.eu/consumers/odr) a fost desființată în iulie 2025 —
@@ -55,6 +87,8 @@ export default function LegalFooter() {
           target="_blank"
           rel="noopener noreferrer"
           style={linkStyle}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
         >
           SAL
         </a>
@@ -69,6 +103,8 @@ export default function LegalFooter() {
             cursor: 'pointer',
             fontFamily: 'DM Sans, sans-serif',
           }}
+          onMouseEnter={handleLinkEnter}
+          onMouseLeave={handleLinkLeave}
         >
           Setări cookies
         </button>
@@ -82,11 +118,22 @@ export default function LegalFooter() {
 
 const linkStyle: React.CSSProperties = {
   color: D.t3,
-  textDecoration: 'none',
+  // Underline subtil — diferențiator vizual real (WCAG 1.4.1), nu doar culoarea
+  // textului din jur.
+  textDecoration: 'underline',
+  textUnderlineOffset: '3px',
   fontSize: 12,
   transition: 'color 0.15s',
   // Țintă de touch ≥44px fără să schimbe layout-ul vizual (padding + margin negativ).
   display: 'inline-block',
   padding: '14px 8px',
   margin: '-14px -8px',
+}
+
+// Hover: culoare mai deschisă (D.t2), ca tranziția să aibă efectiv ce anima.
+function handleLinkEnter(e: React.MouseEvent<HTMLElement>) {
+  e.currentTarget.style.color = D.t2
+}
+function handleLinkLeave(e: React.MouseEvent<HTMLElement>) {
+  e.currentTarget.style.color = D.t3
 }

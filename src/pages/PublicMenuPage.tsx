@@ -32,6 +32,7 @@ import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { useMenuSeo } from '../hooks/useMenuSeo'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
   resolveTheme,
   resolveHideBranding,
@@ -429,6 +430,13 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     },
     [addToCart],
   )
+
+  // Blochează scroll-ul paginii din spate cât timp sheet-ul de coș sau
+  // confirmarea comenzii sunt deschise — celelalte overlay-uri lazy (Product/
+  // Pickup/Reservation Sheet) o fac deja intern; acestea două sunt inline în
+  // pagină, deci lock-ul trebuie apelat aici, necondiționat (hooks rule).
+  useBodyScrollLock(showCart)
+  useBodyScrollLock(confirmation != null)
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
   // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
@@ -937,7 +945,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               )}
               {cart.length === 0 && (
                 <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
-                  {T(lang, 'list_empty')}
+                  {listMode ? T(lang, 'list_empty') : 'Coșul e gol — adaugă produse din meniu.'}
                 </div>
               )}
               {cart.map((item) => (
@@ -1054,6 +1062,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     setShowCart(false)
                     setShowPickup(true)
                   }}
+                  disabled={cart.length === 0}
                   style={{
                     width: '100%',
                     padding: '15px',
@@ -1064,8 +1073,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     fontFamily: theme.fonts.body,
                     fontSize: 15,
                     fontWeight: 700,
-                    cursor: 'pointer',
-                    boxShadow: `0 4px 14px ${accent}55`,
+                    cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: cart.length === 0 ? 0.5 : 1,
+                    boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
                   }}
                 >
                   Continuă la ridicare →

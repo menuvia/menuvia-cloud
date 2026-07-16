@@ -11,7 +11,7 @@
 //
 // Permisiune: admin/manager only (RPC-urile blochează waiter).
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId, useRef } from 'react'
 import { D } from '../lib/constants'
 import {
   getCurrentShift,
@@ -26,6 +26,7 @@ import {
   type ShiftSummary,
   type CashMovementType,
 } from '../lib/cashShifts'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
@@ -295,7 +296,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
                       textTransform: 'uppercase',
                     }}
                   >
-                    Δ
+                    Dif.
                   </th>
                   <th></th>
                 </tr>
@@ -497,7 +498,11 @@ function CurrentShiftCard({
           >
             ● TURĂ ACTIVĂ
           </div>
-          <h2 style={{ ...h2, margin: 0 }}>Deschisă acum {relTime(shift.opened_at)}</h2>
+          <h2 style={{ ...h2, margin: 0 }}>
+            {relTime(shift.opened_at) === 'acum'
+              ? 'Deschisă chiar acum'
+              : `Deschisă acum ${relTime(shift.opened_at)}`}
+          </h2>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
             {new Date(shift.opened_at).toLocaleString('ro-RO')}
           </div>
@@ -1258,6 +1263,26 @@ function Modal({
   children: React.ReactNode
   wide?: boolean
 }) {
+  useBodyScrollLock(true)
+  const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    // Mută focusul în modal la deschidere, doar dacă niciun câmp din interior
+    // nu l-a preluat deja (ex: input-urile cu autoFocus).
+    if (document.activeElement === document.body) {
+      dialogRef.current?.focus()
+    }
+  }, [])
+
   return (
     <div
       onClick={onClose}
@@ -1273,6 +1298,11 @@ function Modal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: D.s1,
@@ -1294,6 +1324,7 @@ function Modal({
           }}
         >
           <h2
+            id={titleId}
             style={{
               fontSize: '1rem',
               fontWeight: 600,

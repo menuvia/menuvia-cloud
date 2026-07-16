@@ -6,6 +6,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { getAdminAiOverview, setAiLimit, type AiOverviewRow } from '../lib/ai'
+import { InlineSpinner } from './PageLoader'
+import { EmptyState } from './ui/EmptyState'
 
 export default function FounderAiPanel() {
   const isMobile = useIsMobile()
@@ -35,7 +37,7 @@ export default function FounderAiPanel() {
   async function saveLimit(restaurantId: string) {
     const n = parseInt(draftLimit, 10)
     if (!isFinite(n) || n < 0) {
-      setError('Limita trebuie să fie un număr pozitiv.')
+      setError('Limita trebuie să fie un număr mai mare sau egal cu 0.')
       return
     }
     if (n > 1_000_000_000) {
@@ -61,13 +63,13 @@ export default function FounderAiPanel() {
   const th = { textAlign: 'left' as const, fontSize: '0.68rem', color: D.t3, textTransform: 'uppercase' as const, letterSpacing: '0.05em', padding: '8px 10px', fontWeight: 700, whiteSpace: 'nowrap' as const }
   const td = { fontSize: '0.85rem', color: D.t1, padding: '10px', borderTop: `1px solid ${D.border}`, whiteSpace: 'nowrap' as const }
 
-  if (loading) return <div style={{ color: D.t2, padding: 20 }}>Se încarcă…</div>
+  if (loading) return <InlineSpinner label="Se încarcă consumul AI..." />
 
   return (
     <div style={{ maxWidth: 980 }}>
-      <h1 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.5rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
+      <h2 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.5rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
         Consum AI · Fondator
-      </h1>
+      </h2>
       <p style={{ color: D.t2, fontSize: '0.9rem', marginBottom: 20 }}>
         Consumul AI pe ultimele 30 de zile, per restaurant. Setează limita lunară inclusă pentru fiecare.
       </p>
@@ -99,8 +101,12 @@ export default function FounderAiPanel() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
-                <tr><td style={td} colSpan={7}>Niciun restaurant.</td></tr>
+              {rows.length === 0 && !error && (
+                <tr>
+                  <td colSpan={7} style={{ padding: 0 }}>
+                    <EmptyState icon="chart" title="Niciun restaurant" description="Nu există încă date de consum AI." compact />
+                  </td>
+                </tr>
               )}
               {rows.map((r) => (
                 <tr key={r.restaurant_id}>
@@ -112,8 +118,10 @@ export default function FounderAiPanel() {
                       <input
                         autoFocus
                         type="number"
+                        min={0}
                         value={draftLimit}
                         onChange={(e) => setDraftLimit(e.target.value)}
+                        aria-label={`Limita lunară pentru ${r.restaurant_name}`}
                         style={{ width: 100, background: D.s3, border: `1px solid ${D.gold}55`, borderRadius: 6, color: D.t1, padding: '5px 7px', fontSize: '0.82rem' }}
                       />
                     ) : (
@@ -125,10 +133,19 @@ export default function FounderAiPanel() {
                   <td style={td}>
                     {editing === r.restaurant_id ? (
                       <span style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => void saveLimit(r.restaurant_id)} disabled={savingId === r.restaurant_id} style={{ background: D.green, color: '#000', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}>
+                        <button
+                          onClick={() => void saveLimit(r.restaurant_id)}
+                          disabled={savingId === r.restaurant_id}
+                          className="pressable"
+                          style={{ background: D.green, color: '#000', border: 'none', borderRadius: 6, padding: '8px 14px', minHeight: 44, fontSize: '0.76rem', fontWeight: 700, cursor: 'pointer' }}
+                        >
                           {savingId === r.restaurant_id ? '…' : 'Salvează'}
                         </button>
-                        <button onClick={() => setEditing(null)} style={{ background: 'transparent', color: D.t3, border: `1px solid ${D.border}`, borderRadius: 6, padding: '5px 10px', fontSize: '0.76rem', cursor: 'pointer' }}>
+                        <button
+                          onClick={() => setEditing(null)}
+                          className="pressable"
+                          style={{ background: 'transparent', color: D.t3, border: `1px solid ${D.border}`, borderRadius: 6, padding: '8px 14px', minHeight: 44, fontSize: '0.76rem', cursor: 'pointer' }}
+                        >
                           Anulează
                         </button>
                       </span>
@@ -136,7 +153,7 @@ export default function FounderAiPanel() {
                       <button
                         onClick={() => { setEditing(r.restaurant_id); setDraftLimit(String(r.included_tokens ?? 50000)) }}
                         className="pressable"
-                        style={{ background: 'transparent', color: D.gold, border: `1px solid ${D.gold}55`, borderRadius: 6, padding: '5px 12px', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}
+                        style={{ background: 'transparent', color: D.gold, border: `1px solid ${D.gold}55`, borderRadius: 6, padding: '8px 16px', minHeight: 44, fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}
                       >
                         Setează limită
                       </button>

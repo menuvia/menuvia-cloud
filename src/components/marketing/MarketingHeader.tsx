@@ -6,8 +6,9 @@ import { useIsMobile } from '../../hooks/useIsMobile'
 // MarketingHeader — header sticky reutilizabil pe paleta MKT
 // (landing, pricing, pagini de marketing). Logo „Menuvia" (Fraunces),
 // nav-uri opționale prin props, CTA opțional, variantă „back"
-// (← Înapoi + logo). Pe mobil (<720px) nav-urile se ascund —
-// rămân logo + CTA + linkurile marcate keepOnMobile (ex. login).
+// (← Înapoi + logo). Pe mobil (<900px, sincron cu pragul de stack al
+// hero-ului) nav-urile se ascund — rămân logo + CTA + linkurile marcate
+// keepOnMobile (ex. login).
 // ─────────────────────────────────────────────────────────────
 
 export interface MarketingNavLink {
@@ -28,9 +29,13 @@ const navLinkStyle: CSSProperties = {
   fontWeight: 500,
   cursor: 'pointer',
   padding: '8px 10px',
+  // Ținta de atingere ≥44px pe mobil (nav-ul e singura cale de acțiune
+  // vizibilă în viewport-ul inițial pentru „Intră în cont" / „← Înapoi").
+  minHeight: 44,
   fontFamily: 'DM Sans,sans-serif',
   textDecoration: 'none',
-  display: 'inline-block',
+  display: 'inline-flex',
+  alignItems: 'center',
 }
 
 export default function MarketingHeader({
@@ -43,7 +48,9 @@ export default function MarketingHeader({
   /** Prezent → varianta „back": buton ← Înapoi lângă logo, fără nav-uri. */
   onBack?: () => void
 }) {
-  const isMobile = useIsMobile(720)
+  // 900px, sincron cu pragul la care hero-ul de pe LandingPage colapsează
+  // pe o coloană (altfel nav-ul de 5 linkuri + CTA se înghesuie 720-900px).
+  const isMobile = useIsMobile(900)
 
   // Ancorele interne primesc scroll lin (păstrăm href-ul pentru a11y/SEO).
   const smoothScroll = (href: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -136,6 +143,12 @@ export default function MarketingHeader({
                 border: 'none',
                 borderRadius: 10,
                 padding: '9px 18px',
+                // Ținta de atingere ≥44px — e singurul CTA vizibil pe mobil
+                // până apare butonul din hero.
+                minHeight: 44,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 fontWeight: 700,
                 fontSize: 14,
                 cursor: 'pointer',
