@@ -28,6 +28,11 @@ interface Props {
   restaurantId: string
 }
 
+// Formatare RO: virgulă zecimală (ex. „1234,56"), consistent cu restul dashboard-ului.
+function fmt(n: number): string {
+  return n.toFixed(2).replace('.', ',')
+}
+
 export default function VatReportTab({ restaurantId }: Props) {
   const today = new Date()
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
@@ -148,7 +153,7 @@ export default function VatReportTab({ restaurantId }: Props) {
     lines.push('')
     lines.push(
       row([
-        'GRAND TOTAL',
+        'TOTAL GENERAL',
         '',
         '',
         '',
@@ -324,9 +329,9 @@ export default function VatReportTab({ restaurantId }: Props) {
         <div
           style={{
             padding: 16,
-            background: 'rgba(192,57,43,0.1)',
+            background: D.redA,
             borderRadius: 10,
-            color: '#c0392b',
+            color: D.red,
             fontSize: '0.85rem',
           }}
         >
@@ -348,11 +353,11 @@ export default function VatReportTab({ restaurantId }: Props) {
               gap: 10,
             }}
           >
-            {[...byVatGroup.values()]
-              .sort((a, b) => a.rate - b.rate)
-              .map((agg) => (
+            {[...byVatGroup.entries()]
+              .sort(([, a], [, b]) => a.rate - b.rate)
+              .map(([group, agg]) => (
                 <div
-                  key={agg.label}
+                  key={group}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.border}`,
@@ -382,12 +387,12 @@ export default function VatReportTab({ restaurantId }: Props) {
                       marginBottom: 4,
                     }}
                   >
-                    {agg.gross.toFixed(2)} lei
+                    {fmt(agg.gross)} lei
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                    TVA: <strong style={{ color: D.gold }}>{agg.vat.toFixed(2)}</strong>
+                    TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
                     <br />
-                    Net: {agg.net.toFixed(2)}
+                    Net: {fmt(agg.net)}
                   </div>
                 </div>
               ))}
@@ -421,12 +426,12 @@ export default function VatReportTab({ restaurantId }: Props) {
                   marginBottom: 4,
                 }}
               >
-                {totalGross.toFixed(2)} lei
+                {fmt(totalGross)} lei
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5 }}>
-                TVA: <strong style={{ color: D.gold }}>{totalVat.toFixed(2)}</strong>
+                TVA: <strong style={{ color: D.gold }}>{fmt(totalVat)}</strong>
                 <br />
-                Net: {totalNet.toFixed(2)}
+                Net: {fmt(totalNet)}
               </div>
             </div>
           </div>
@@ -497,13 +502,13 @@ export default function VatReportTab({ restaurantId }: Props) {
                       </td>
                       <td style={{ padding: '10px 14px', color: D.t2 }}>{r.orders_count}</td>
                       <td style={{ padding: '10px 14px', color: D.t1, fontWeight: 600 }}>
-                        {Number(r.gross_total).toFixed(2)}
+                        {fmt(Number(r.gross_total))}
                       </td>
                       <td style={{ padding: '10px 14px', color: D.gold, fontWeight: 600 }}>
-                        {Number(r.vat_amount).toFixed(2)}
+                        {fmt(Number(r.vat_amount))}
                       </td>
                       <td style={{ padding: '10px 14px', color: D.t2 }}>
-                        {Number(r.net_total).toFixed(2)}
+                        {fmt(Number(r.net_total))}
                       </td>
                     </tr>
                   ))}

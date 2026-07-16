@@ -546,16 +546,30 @@ function OrdersHub({
   onViewWaiter,
   onViewKitchen,
   onHistory,
+  isAdmin,
+  tier,
 }: {
   onViewWaiter: () => void
   onViewKitchen: () => void
   onHistory: () => void
+  isAdmin: boolean
+  tier: PlanTier
 }) {
-  const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
-    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
-    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
-    { icon: 'users', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
-    { icon: 'history', title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
+  const cards: { icon: IconName; title: string; desc: string; fn: () => void; external?: boolean }[] = [
+    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter, external: true },
+    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen, external: true },
+    {
+      icon: 'users',
+      title: 'Ospătar',
+      desc: tier >= 3 ? 'Preluare manuală + plăți la masă' : 'Preluare manuală a comenzilor',
+      fn: onViewWaiter,
+      external: true,
+    },
+    // Vizibil doar pentru admin (owner/manager): tab-ul „Rapoarte" e adminOnly,
+    // altfel cardul ar arunca staff-ul (ospătar/bucătărie) tăcut înapoi pe Acasă.
+    ...(isAdmin
+      ? [{ icon: 'history' as IconName, title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory }]
+      : []),
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -584,6 +598,7 @@ function OrdersHub({
             onClick={c.fn}
             className="hover-lift pressable"
             style={{
+              position: 'relative',
               background: D.s2,
               border: `1px solid ${D.border}`,
               borderRadius: 14,
@@ -593,11 +608,21 @@ function OrdersHub({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
+            {c.external && (
+              <div style={{ position: 'absolute', top: 18, right: 16, color: D.t3 }}>
+                <Icon name="chevronRight" size={16} />
+              </div>
+            )}
             <div style={{ marginBottom: 10, color: D.gold }}><Icon name={c.icon} size={26} /></div>
             <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>
               {c.title}
             </div>
-            <div style={{ color: D.t3, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
+            <div style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
+            {c.external && (
+              <div style={{ color: D.t3, fontSize: '0.68rem', lineHeight: 1.4, marginTop: 6 }}>
+                Se deschide un ecran nou
+              </div>
+            )}
           </button>
         ))}
       </div>
@@ -1402,6 +1427,8 @@ export default function DashboardPage({
                   // listă reală de istoric (ID, masă, oră, produse, status,
                   // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
+                  isAdmin={isAdminRole}
+                  tier={tier}
                 />
               )}
               {tab === 'products' && (

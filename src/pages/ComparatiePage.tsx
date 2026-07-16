@@ -173,18 +173,22 @@ export default function ComparatiePage({ navigate }: Props) {
               }}
             >
               <table
+                aria-label="Comparație Menuvia cu alte categorii de soluții"
                 style={{
                   width: '100%',
-                  borderCollapse: 'collapse',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
                   minWidth: 560,
                 }}
               >
                 <thead>
                   <tr>
                     <th
+                      scope="col"
                       style={{
                         position: 'sticky',
                         left: 0,
+                        zIndex: 2,
                         background: MKT.surface,
                         textAlign: 'left',
                         padding: '16px 14px',
@@ -192,7 +196,8 @@ export default function ComparatiePage({ navigate }: Props) {
                         fontWeight: 700,
                         color: MKT.text3,
                         borderBottom: `1px solid ${MKT.border}`,
-                        minWidth: 210,
+                        minWidth: 176,
+                        boxShadow: '2px 0 4px rgba(26,18,8,0.05)',
                       }}
                     >
                       Caracteristică
@@ -200,6 +205,7 @@ export default function ComparatiePage({ navigate }: Props) {
                     {COLUMNS.map((col, i) => (
                       <th
                         key={col}
+                        scope="col"
                         style={{
                           padding: '16px 14px',
                           fontSize: 14,
@@ -221,20 +227,24 @@ export default function ComparatiePage({ navigate }: Props) {
                     const isLast = ri === ROWS.length - 1
                     return (
                       <tr key={row.feature}>
-                        <td
+                        <th
+                          scope="row"
                           style={{
                             position: 'sticky',
                             left: 0,
+                            zIndex: 1,
                             background: MKT.surface,
+                            textAlign: 'left',
                             padding: '14px',
                             fontSize: 14,
                             color: MKT.text,
                             fontWeight: 500,
                             borderBottom: isLast ? 'none' : `1px solid ${MKT.border}`,
+                            boxShadow: '2px 0 4px rgba(26,18,8,0.05)',
                           }}
                         >
                           {row.feature}
-                        </td>
+                        </th>
                         {row.values.map((v, ci) => (
                           <td
                             key={ci}
@@ -288,7 +298,7 @@ export default function ComparatiePage({ navigate }: Props) {
             Multe soluții „inteligente" vin cu un terminal nou, un POS nou sau o casă de
             marcat nouă. Menuvia stă peste ce ai deja: comanda pleacă din telefonul
             clientului direct în bucătărie, iar bonul iese pe casa ta prin puntea FiscalNet
-            (în pilot). Zero echipament în plus, zero recalificat personalul.
+            (în pilot). Zero echipament în plus, zero recalificare pentru personal.
           </p>
           <div
             style={{

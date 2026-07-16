@@ -7,7 +7,7 @@
 //   • Detalii (alergeni, dietetic) colapsabile — secundar
 //   • Sticky bottom CTA cu prețul actualizat live
 // ─────────────────────────────────────────────────────────────
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
@@ -15,6 +15,7 @@ import type { CartItem, SelectedModifier } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
+import Icon, { type IconName } from './ui/Icon'
 
 type Selections = Record<string, string | Set<string> | null>
 
@@ -60,6 +61,20 @@ function ProductSheet({
   const [notes, setNotes] = useState('')
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
   const [moreInfoOpen, setMoreInfoOpen] = useState(false)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Semantică de dialog modal: focus pe butonul de închidere la deschidere +
+  // Escape → onClose (screen reader-ul anunță dialogul, tastatura nu rămâne
+  // blocată pe lista de produse din spate).
+  useEffect(() => {
+    closeBtnRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const groups = product.modifier_groups
 
@@ -169,23 +184,23 @@ function ProductSheet({
   const totalPrice = unitTotal * qty
 
   // Top compact badges (priority: special > diet > prep time > portion > allergens)
-  const topBadges: { emoji: string; label: string; color: string }[] = []
-  if (product.is_daily_special)
-    topBadges.push({ emoji: '⭐', label: 'Specialitate', color: accent })
+  // icon: null → nu există un icon vectorial potrivit (ex. porție), rămâne text simplu.
+  const topBadges: { icon: IconName | null; label: string; color: string }[] = []
+  if (product.is_daily_special) topBadges.push({ icon: 'star', label: 'Specialitate', color: accent })
   if (product.dietary_tags?.includes('vegan'))
-    topBadges.push({ emoji: '🌱', label: 'Vegan', color: '#388E3C' })
+    topBadges.push({ icon: 'leaf', label: 'Vegan', color: '#388E3C' })
   else if (product.dietary_tags?.includes('vegetarian'))
-    topBadges.push({ emoji: '🥗', label: 'Vegetarian', color: '#4CAF6E' })
+    topBadges.push({ icon: 'leaf', label: 'Vegetarian', color: '#4CAF6E' })
   // Prep time: doar dacă e setat
   if (product.prep_time_minutes && product.prep_time_minutes > 0) {
-    topBadges.push({ emoji: '⏱️', label: `~${product.prep_time_minutes} min`, color: '#5A8DBA' })
+    topBadges.push({ icon: 'clock', label: `~${product.prep_time_minutes} min`, color: '#5A8DBA' })
   }
   // Porție: text liber dacă e setat
   if (product.portion_size && product.portion_size.length > 0) {
-    topBadges.push({ emoji: '📏', label: product.portion_size, color: '#7A6A52' })
+    topBadges.push({ icon: null, label: product.portion_size, color: '#7A6A52' })
   }
   if (product.allergens && product.allergens.length > 0) {
-    topBadges.push({ emoji: '⚠️', label: 'Alergeni', color: '#8B6914' })
+    topBadges.push({ icon: 'alert', label: 'Alergeni', color: '#8B6914' })
   }
 
   return (
@@ -203,6 +218,9 @@ function ProductSheet({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={product.name}
         style={{
           background: PUB.bg,
           borderRadius: '20px 20px 0 0',
@@ -231,6 +249,7 @@ function ProductSheet({
             Backdrop-ul + drag handle rămân; ăsta e afordanța vizibilă. */}
         <button
           type="button"
+          ref={closeBtnRef}
           onClick={onClose}
           aria-label="Închide"
           className="pressable"
@@ -314,11 +333,10 @@ function ProductSheet({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 80,
                 background: accentGradient,
               }}
             >
-              🍽️
+              <Icon name="utensils" size={56} color="rgba(255,255,255,0.6)" strokeWidth={1.3} />
             </div>
           )}
 
@@ -494,7 +512,7 @@ function ProductSheet({
                       gap: 4,
                     }}
                   >
-                    <span>{b.emoji}</span>
+                    {b.icon && <Icon name={b.icon} size={13} color={b.color} />}
                     <span>{b.label}</span>
                   </span>
                 ))}
@@ -544,9 +562,13 @@ function ProductSheet({
                         fontFamily: 'DM Sans, sans-serif',
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
                       }}
                     >
-                      {groupMin > 0 ? (groupMet ? '✓ ales' : 'Obligatoriu') : 'Opțional'}
+                      {groupMin > 0 && groupMet && <Icon name="check" size={11} color="#4CAF6E" />}
+                      {groupMin > 0 ? (groupMet ? 'ales' : 'Obligatoriu') : 'Opțional'}
                     </div>
                   </div>
 
@@ -638,16 +660,7 @@ function ProductSheet({
                                     }}
                                   />
                                 ) : (
-                                  <span
-                                    style={{
-                                      color: '#fff',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    ✓
-                                  </span>
+                                  <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
                                 ))}
                             </span>
                             <span
@@ -767,18 +780,7 @@ function ProductSheet({
                               transition: 'all 0.15s',
                             }}
                           >
-                            {isSel && (
-                              <span
-                                style={{
-                                  color: '#fff',
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  lineHeight: 1,
-                                }}
-                              >
-                                ✓
-                              </span>
-                            )}
+                            {isSel && <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />}
                           </span>
                           <span
                             style={{
@@ -838,10 +840,10 @@ function ProductSheet({
                   disabled={qty === 1}
                   aria-label="Scade cantitatea"
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 44,
+                    height: 44,
                     borderRadius: '50%',
-                    background: qty === 1 ? PUB.border : '#fff',
+                    background: qty === 1 ? PUB.border : PUB.surface,
                     border: `1.5px solid ${qty === 1 ? PUB.border : PUB.borderStrong}`,
                     color: qty === 1 ? PUB.textMuted : PUB.text,
                     fontSize: 18,
@@ -869,10 +871,10 @@ function ProductSheet({
                   onClick={() => setQty((q) => q + 1)}
                   aria-label="Crește cantitatea"
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 44,
+                    height: 44,
                     borderRadius: '50%',
-                    background: '#fff',
+                    background: PUB.surface,
                     border: `1.5px solid ${PUB.borderStrong}`,
                     color: PUB.text,
                     fontSize: 20,
@@ -921,6 +923,7 @@ function ProductSheet({
               >
                 <button
                   onClick={() => setMoreInfoOpen((v) => !v)}
+                  aria-expanded={moreInfoOpen}
                   style={{
                     width: '100%',
                     background: 'transparent',
@@ -939,13 +942,13 @@ function ProductSheet({
                   <span>Mai multe info</span>
                   <span
                     style={{
-                      fontSize: 16,
+                      display: 'inline-flex',
                       color: PUB.textMuted,
                       transform: moreInfoOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                       transition: 'transform 0.2s',
                     }}
                   >
-                    ▾
+                    <Icon name="chevronDown" size={16} />
                   </span>
                 </button>
 
@@ -1010,9 +1013,12 @@ function ProductSheet({
                             textTransform: 'uppercase',
                             letterSpacing: '0.07em',
                             marginBottom: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
                         >
-                          ⚠️ Alergeni
+                          <Icon name="alert" size={12} color="#8B6914" /> Alergeni
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.allergens.map((id) => {
@@ -1076,7 +1082,7 @@ function ProductSheet({
             }}
             style={{
               background: canAdd ? accent : PUB.borderStrong,
-              color: canAdd ? '#fff' : '#8C7A60',
+              color: canAdd ? '#fff' : PUB.textMuted,
               border: 'none',
               borderRadius: 14,
               padding: '15px 20px',
@@ -1092,7 +1098,7 @@ function ProductSheet({
               justifyContent: 'center',
               gap: 10,
               transition: 'background 0.15s',
-              boxShadow: canAdd ? '0 4px 14px rgba(200,150,60,0.35)' : 'none',
+              boxShadow: canAdd ? `0 4px 14px ${accent}59` : 'none',
             }}
           >
             <span>{canAdd ? 'Adaugă în coș' : 'Selectează opțiunile obligatorii'}</span>
