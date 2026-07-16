@@ -539,9 +539,9 @@ function AppRouter() {
         <LandingPageEn
           onStartPlan={(p) => {
             writePlanIntent(p)
-            navigate('/auth?plan=' + p)
+            navigate('/auth?plan=' + p + '&lang=en')
           }}
-          onLogin={() => navigate('/auth')}
+          onLogin={() => navigate('/auth?lang=en')}
           onPricing={() => navigate('/pricing')}
           onDemo={() => navigate('/demo')}
         />
