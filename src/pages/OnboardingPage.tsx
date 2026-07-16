@@ -567,8 +567,12 @@ function Step2Menu({
   onNext: () => void
   onSkip: () => void
 }) {
-  const [catName, setCatName] = useState(t.step2.defaultCatName)
-  const [catEmoji, setCatEmoji] = useState(t.step2.defaultCatEmoji)
+  // <string> explicit: fără el, tipurile React inferează LITERALUL din
+  // `as const` („Feluri principale" | „Main Courses") → setCatName(e.target.value)
+  // pică pe Netlify cu TS2345 (invizibil pe tsc-ul standalone — capcana din
+  // CLAUDE.md cu erorile dependente de tipurile React).
+  const [catName, setCatName] = useState<string>(t.step2.defaultCatName)
+  const [catEmoji, setCatEmoji] = useState<string>(t.step2.defaultCatEmoji)
   const [prodName, setProdName] = useState('')
   const [prodPrice, setProdPrice] = useState('')
   const [prodEmoji, setProdEmoji] = useState('🍕')
