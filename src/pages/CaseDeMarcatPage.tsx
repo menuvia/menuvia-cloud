@@ -69,7 +69,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -118,7 +118,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/auth?lang=ro')}
               className="pressable"
               style={{
                 background: MKT.accent,
@@ -361,7 +361,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
             discutăm direct.
           </p>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             className="pressable"
             style={{
               background: MKT.accent,

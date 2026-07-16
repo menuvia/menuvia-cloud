@@ -332,6 +332,9 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const qrRate = totalOrders > 0 ? Math.round((qrOrders / totalOrders) * 100) : 0
   const cashRev = daily.reduce((s, d) => s + Number(d.cash_revenue || 0), 0)
   const cardRev = daily.reduce((s, d) => s + Number(d.card_revenue || 0), 0)
+  // voucher_revenue apare abia în mig 232 — tolerant la coloana absentă
+  // (frontend înaintea migrației): lipsă → 0 → felia nu se randează.
+  const voucherRev = daily.reduce((s, d) => s + Number(d.voucher_revenue || 0), 0)
 
   const chartData = daily.map((d) => ({
     zi: new Date(d.day as string).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }),
@@ -341,6 +344,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const payPie = [
     { name: 'Cash', value: cashRev, color: D.green },
     { name: 'Card', value: cardRev, color: '#7EB8F7' },
+    { name: 'Tichete de masă', value: voucherRev, color: D.goldL },
   ].filter((x) => x.value > 0)
   const srcPie = [
     { name: 'QR', value: qrOrders, color: D.gold },

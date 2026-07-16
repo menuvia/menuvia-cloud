@@ -128,13 +128,19 @@ begin
 end $$;
 
 -- ── MV5: regula de aur — tichetele pe growth sunt respinse de gate ───────────
+-- Suma e PARȚIALĂ (20 din 50) intenționat: la plata integrală, tranziția →paid
+-- ar declanșa trg_orders_paid_fiscal_gate (mig 124), care aruncă ACELAȘI mesaj
+-- „Featurea fiscal_receipt..." și ar masca dispariția gate-ului din
+-- add_partial_payment (verificat empiric: cu gate-ul șters din RPC, varianta
+-- pe sumă integrală trecea verde). Sub total, trigger-ul nu se atinge — doar
+-- gate-ul propriu al RPC-ului poate respinge.
 set local role authenticated;
 set local request.jwt.claim.sub = 'a1b20000-0000-4000-8000-0000000000e2';
 
 do $$
 begin
   begin
-    perform public.add_partial_payment('c1d30000-0000-4000-8000-0000000000e3', 50, 'meal_voucher');
+    perform public.add_partial_payment('c1d30000-0000-4000-8000-0000000000e3', 20, 'meal_voucher');
     raise exception 'MV5 FAIL: plată cu tichete acceptată pe growth (regula de aur spartă)';
   exception when others then
     if sqlerrm like '%Featurea%' or sqlerrm ilike '%plan%' then
@@ -146,6 +152,16 @@ begin
 end $$;
 
 reset role;
+
+-- Defense-in-depth: niciun ban înregistrat pe comanda growth, indiferent de
+-- mesajul de eroare care a oprit apelul.
+do $$
+begin
+  if (select count(*) from public.order_payments
+       where order_id = 'c1d30000-0000-4000-8000-0000000000e3') <> 0 then
+    raise exception 'MV5 FAIL: order_payments are rânduri pe comanda growth (bani fără Plan 3)';
+  end if;
+end $$;
 
 select 'MEAL VOUCHER ASSERTIONS: MV1–MV5 PASS' as result;
 

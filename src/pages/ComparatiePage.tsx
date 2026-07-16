@@ -68,7 +68,7 @@ export default function ComparatiePage({ navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -124,7 +124,7 @@ export default function ComparatiePage({ navigate }: Props) {
             }}
           >
             <button
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/auth?lang=ro')}
               style={{
                 background: MKT.accent,
                 color: MKT.onAccent,
@@ -370,7 +370,7 @@ export default function ComparatiePage({ navigate }: Props) {
             30 de zile gratuit, anulezi oricând.
           </p>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             style={{
               background: MKT.accent,
               color: MKT.onAccent,

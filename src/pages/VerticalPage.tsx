@@ -242,7 +242,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -289,7 +289,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/auth?lang=ro')}
               className="pressable"
               style={{
                 background: MKT.accent,
@@ -479,7 +479,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
             {cfg.ctaSub}
           </p>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             className="pressable"
             style={{
               background: MKT.accent,

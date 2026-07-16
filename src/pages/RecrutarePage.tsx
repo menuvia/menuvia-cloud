@@ -99,7 +99,7 @@ function NavBar({ navigate }: { navigate: (p: string) => void }) {
             Prețuri normale
           </button>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             style={{
               background: D.gold,
               color: '#0A0908',

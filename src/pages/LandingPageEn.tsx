@@ -219,24 +219,34 @@ export default function LandingPageEn({
               </button>
             </nav>
           )}
-          <button
-            onClick={() => onStartPlan('growth')}
-            className="pressable"
-            style={{
-              background: MKT.accent,
-              color: MKT.onAccent,
-              border: 'none',
-              borderRadius: 10,
-              padding: '10px 18px',
-              fontWeight: 700,
-              fontSize: 14,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Start free
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+            {/* Pe mobil nav-ul complet dispare, dar clientul existent trebuie
+                să aibă o cale de login din header (paritate cu keepOnMobile
+                din MarketingHeader pe landing-ul RO). */}
+            {stacked && (
+              <button onClick={onLogin} style={navLinkStyle}>
+                Log in
+              </button>
+            )}
+            <button
+              onClick={() => onStartPlan('growth')}
+              className="pressable"
+              style={{
+                background: MKT.accent,
+                color: MKT.onAccent,
+                border: 'none',
+                borderRadius: 10,
+                padding: '10px 18px',
+                fontWeight: 700,
+                fontSize: 14,
+                cursor: 'pointer',
+                fontFamily: 'DM Sans,sans-serif',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Start free
+            </button>
+          </div>
         </div>
       </header>
 

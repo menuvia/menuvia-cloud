@@ -193,7 +193,7 @@ function AffiliateRoute({ navigate }: { navigate: (p: string) => void }) {
             } catch {
               /* private mode — fallback: userul ajunge la dashboard */
             }
-            navigate('/auth')
+            navigate('/auth?lang=ro')
           }}
         />
       </Suspense>
@@ -381,7 +381,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
       </Suspense>
     )
   if (state.view === 'recrutare')
@@ -447,7 +447,7 @@ function AppRouter() {
       <Suspense fallback={<PageSpinner />}>
         <PricingPage
           onBack={() => navigate('/')}
-          onLogin={() => navigate('/auth')}
+          onLogin={() => navigate('/auth?lang=ro')}
           onCheckout={async (plan) => {
             if (!user) {
               // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
@@ -458,7 +458,7 @@ function AppRouter() {
               } catch {
                 /* ignore */
               }
-              navigate('/auth?plan=' + encodeURIComponent(plan))
+              navigate('/auth?plan=' + encodeURIComponent(plan) + '&lang=ro')
               return
             }
             try {
@@ -524,9 +524,11 @@ function AppRouter() {
       <LandingPage
         onStartPlan={(p) => {
           writePlanIntent(p)
-          navigate('/auth?plan=' + p)
+          // ?lang=ro explicit: anulează un menuvia_ui_lang='en' rămas dintr-o
+          // vizită pe /en — funnel-ul RO nu trebuie să devină tăcut englezesc.
+          navigate('/auth?plan=' + p + '&lang=ro')
         }}
-        onLogin={() => navigate('/auth')}
+        onLogin={() => navigate('/auth?lang=ro')}
         onPricing={() => navigate('/pricing')}
         onDemo={() => navigate('/demo')}
       />
@@ -593,12 +595,14 @@ function AppRouter() {
   }
 
   // ── Authenticated: landing redirects to dashboard ──────────
+  // replace(), nu navigate() (FE-001): push ar lăsa /-ul sau /en în istoric și
+  // Back ar re-declanșa redirectul — utilizatorul n-ar mai putea ieși din site.
   if (state.view === 'landing') {
-    navigate('/dashboard')
+    replace('/dashboard')
     return <PageSpinner />
   }
   if (state.view === 'landing-en') {
-    navigate('/dashboard')
+    replace('/dashboard')
     return <PageSpinner />
   }
 

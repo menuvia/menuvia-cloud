@@ -65,6 +65,10 @@ const S = {
       title: 'Câte mese are restaurantul?',
       subtitle:
         'Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le redenumești din dashboard.',
+      // Numele/slug-ul meselor create urmează limba fluxului — subtitlul de
+      // mai sus promite exact schema asta de numire.
+      tableName: (n: number) => `Masa ${n}`,
+      tableSlug: (n: number) => `masa-${n}`,
       decreaseAria: 'Scade numărul de mese',
       increaseAria: 'Crește numărul de mese',
       tablesUnit: 'mese',
@@ -166,6 +170,8 @@ const S = {
       title: 'How many tables does your restaurant have?',
       subtitle:
         "We'll create automatically numbered tables (Table 1, Table 2...) with QR codes ready to print. You can rename them from the dashboard.",
+      tableName: (n: number) => `Table ${n}`,
+      tableSlug: (n: number) => `table-${n}`,
       decreaseAria: 'Decrease table count',
       increaseAria: 'Increase table count',
       tablesUnit: 'tables',
@@ -840,11 +846,11 @@ function Step3Table({
     setSaving(true)
     setError(null)
 
-    // Create N tables named "Masa 1", "Masa 2"...
+    // Create N tables named "Masa 1"/"Table 1"... (limba fluxului de onboarding)
     const tables = Array.from({ length: count }, (_, i) => ({
       restaurant_id: restaurantId,
-      name: `Masa ${i + 1}`,
-      slug: `masa-${i + 1}`,
+      name: t.step3.tableName(i + 1),
+      slug: t.step3.tableSlug(i + 1),
       seats: 4,
       is_active: true,
     }))

@@ -200,6 +200,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     revenue: 0,
     cashRev: 0,
     cardRev: 0,
+    voucherRev: 0,
     qrOrders: 0,
     waiterOrders: 0,
     avgTicket: 0,
@@ -271,12 +272,26 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       const cardRev = paidOrders
         .filter((o) => o.payment_method === 'card_pos')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      // Tichetele de masă se decontează separat cu emitentul (Edenred/Sodexo/Up) —
+      // operatorul are nevoie de totalul lor distinct pentru reconciliere.
+      const voucherRev = paidOrders
+        .filter((o) => o.payment_method === 'meal_voucher')
+        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
       // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
       const avgTicket = paidOrders.length > 0 ? revenue / paidOrders.length : 0
 
-      setMetrics({ totalOrders, revenue, cashRev, cardRev, qrOrders, waiterOrders, avgTicket })
+      setMetrics({
+        totalOrders,
+        revenue,
+        cashRev,
+        cardRev,
+        voucherRev,
+        qrOrders,
+        waiterOrders,
+        avgTicket,
+      })
 
       // ── Build daily chart data (client-side aggregation) ──
       // Comenzile (count) se grupează după created_at; venitul după paid_at
@@ -412,6 +427,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           'Bon mediu (lei)': avgTicket.toFixed(2),
           'Cash (lei)': cashRev.toFixed(2),
           'Card (lei)': cardRev.toFixed(2),
+          'Tichete de masă (lei)': voucherRev.toFixed(2),
           'Comenzi QR': qrOrders,
           'Comenzi ospătar': waiterOrders,
         },
@@ -521,7 +537,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         y,
       )
       y += 6
-      doc.text(`Cash: ${m.cashRev.toFixed(2)} lei  |  Card: ${m.cardRev.toFixed(2)} lei`, 24, y)
+      doc.text(
+        `Cash: ${m.cashRev.toFixed(2)} lei  |  Card: ${m.cardRev.toFixed(2)} lei  |  Tichete: ${m.voucherRev.toFixed(2)} lei`,
+        24,
+        y,
+      )
       y += 6
       doc.text(`QR: ${m.qrOrders} comenzi  |  Ospătar manual: ${m.waiterOrders} comenzi`, 24, y)
       y += 14
@@ -577,7 +597,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     setExporting(false)
   }
 
-  const { totalOrders, revenue, cashRev, cardRev, qrOrders, waiterOrders, avgTicket } = metrics
+  const { totalOrders, revenue, cashRev, cardRev, voucherRev, qrOrders, waiterOrders, avgTicket } =
+    metrics
   const qrPct = totalOrders > 0 ? Math.round((qrOrders / totalOrders) * 100) : 0
   const waiterPct = 100 - qrPct
 
@@ -838,6 +859,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                   color="#7EB8F7"
                   sub={revenue > 0 ? `${Math.round((cardRev / revenue) * 100)}%` : undefined}
                 />
+                {voucherRev > 0 && (
+                  <StatCard
+                    label="Tichete de masă"
+                    value={`${voucherRev.toFixed(0)} lei`}
+                    color={D.goldL}
+                    sub={revenue > 0 ? `${Math.round((voucherRev / revenue) * 100)}%` : undefined}
+                  />
+                )}
               </>
             )}
           </div>

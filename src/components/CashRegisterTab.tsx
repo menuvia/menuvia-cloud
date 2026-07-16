@@ -1154,7 +1154,17 @@ function SummaryDetailModal({ shiftId, onClose }: { shiftId: string; onClose: ()
               Object.entries(data.payments_by_method).map(([m, v]) => (
                 <Row
                   key={m}
-                  label={m === 'cash' ? '💵 Cash:' : m === 'card_pos' ? '💳 Card:' : '📋 Alte:'}
+                  label={
+                    m === 'cash'
+                      ? '💵 Cash:'
+                      : m === 'card_pos'
+                        ? '💳 Card:'
+                        : m === 'meal_voucher'
+                          ? '🎫 Tichete de masă:'
+                          : m === 'card_online'
+                            ? '📱 Card online:'
+                            : '📋 Alte:'
+                  }
                   value={ron(v as number)}
                 />
               ))
