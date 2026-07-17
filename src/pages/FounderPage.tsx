@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react'
 import { D, PLAN_LABELS } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { isPlatformAdmin } from '../lib/ai'
+import { supabase } from '../lib/supabase'
 import { confirm } from '../components/ui/confirm'
 import { useToast } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
@@ -142,22 +143,41 @@ export default function FounderPage({ onBack }: Props) {
   // Eroare de VERIFICARE (rețea/infra) ≠ acces refuzat. Un blip nu mai scoate
   // fondatorul din /founder (audit founder, MEDIUM) — arătăm „Reîncearcă".
   const [checkErr, setCheckErr] = useState(false)
+  // MFA (mig 235): contul cere aal2 dar sesiunea curentă e doar aal1 —
+  // explicăm în loc să redirectăm tăcut (userul E fondatorul, dar sesiunea
+  // n-a trecut pasul de cod, ex. sesiune veche de dinainte de enrollment).
+  const [mfaPending, setMfaPending] = useState(false)
   const [retryTick, setRetryTick] = useState(0)
   const [section, setSection] = useState<Section>('overview')
 
   useEffect(() => {
     let cancelled = false
     setCheckErr(false)
+    setMfaPending(false)
     setAllowed(null)
-    void isPlatformAdmin().then((ok) => {
+    void isPlatformAdmin().then(async (ok) => {
       if (cancelled) return
       if (ok === null) {
         // Nu am putut verifica — NU face onBack (ar fi echivalat blip = interzis).
         setCheckErr(true)
         return
       }
+      if (!ok) {
+        try {
+          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (!cancelled && aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            setMfaPending(true)
+            return
+          }
+        } catch {
+          /* cădere pe redirectul standard */
+        }
+        if (cancelled) return
+        setAllowed(false)
+        onBack()
+        return
+      }
       setAllowed(ok)
-      if (!ok) onBack()
     })
     return () => {
       cancelled = true
@@ -181,7 +201,32 @@ export default function FounderPage({ onBack }: Props) {
           textAlign: 'center',
         }}
       >
-        {checkErr ? (
+        {mfaPending ? (
+          <>
+            <div style={{ maxWidth: 420, lineHeight: 1.5 }}>
+              Contul tău cere autentificare în doi pași, iar sesiunea curentă nu a
+              trecut pasul de cod. Deconectează-te și autentifică-te din nou — vei fi
+              întrebat de codul din aplicația de autentificare.
+            </div>
+            <button
+              onClick={onBack}
+              className="pressable"
+              style={{
+                background: D.s2,
+                color: D.t2,
+                border: `1px solid ${D.border}`,
+                borderRadius: 9,
+                padding: '11px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                minHeight: 44,
+              }}
+            >
+              Înapoi la dashboard
+            </button>
+          </>
+        ) : checkErr ? (
           <>
             <div>Nu am putut verifica accesul (problemă de rețea).</div>
             <button

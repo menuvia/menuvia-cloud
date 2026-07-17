@@ -1292,6 +1292,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/sms_queue_assertions.sql
 
+      - name: "MFA platform assertions (mig 235)"
+        if: ${{ hashFiles('supabase/migrations/20260717120000_migration_235_platform_admin_mfa.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/mfa_platform_assertions.sql
+
       - name: "Reservation no-show assertions (mig 233/234)"
         if: ${{ hashFiles('supabase/migrations/20260717110000_migration_234_reservation_no_show.sql') != '' }}
         env:

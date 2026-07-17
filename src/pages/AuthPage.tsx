@@ -153,6 +153,12 @@ const S = {
     hasAccount: 'Ai deja cont?',
     createOne: 'Creează unul',
     errorGeneric: 'Nu am putut procesa cererea. Verifică datele și reîncearcă.',
+    mfaTitle: 'Verificare în doi pași',
+    mfaSubtitle: 'Introdu codul de 6 cifre din aplicația ta de autentificare.',
+    mfaCodeLabel: 'Cod de verificare',
+    mfaVerifyBtn: 'Verifică',
+    mfaInvalidCode: 'Cod incorect sau expirat. Încearcă din nou.',
+    mfaBack: '← Înapoi la autentificare',
   },
   en: {
     brand: 'Menuvia',
@@ -200,6 +206,12 @@ const S = {
     hasAccount: 'Already have an account?',
     createOne: 'Create one',
     errorGeneric: 'We couldn’t process your request. Please check your details and try again.',
+    mfaTitle: 'Two-step verification',
+    mfaSubtitle: 'Enter the 6-digit code from your authenticator app.',
+    mfaCodeLabel: 'Verification code',
+    mfaVerifyBtn: 'Verify',
+    mfaInvalidCode: 'Incorrect or expired code. Please try again.',
+    mfaBack: '← Back to sign in',
   },
 } as const
 
@@ -306,6 +318,10 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   const [showReset, setShowReset] = useState(false)
   const [resetSent, setResetSent] = useState(false)
   const [resetEmail, setResetEmail] = useState('')
+  // MFA (mig 235): după parolă, conturile cu factor TOTP verificat trec prin
+  // pasul de cod (aal1 → aal2). null = pasul nu e activ.
+  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null)
+  const [mfaCode, setMfaCode] = useState('')
 
   // Erorile Supabase vin în ENGLEZĂ (Invalid login credentials etc.) — publicul
   // e non-tehnic și român. Mapăm mesajele cunoscute pe română; necunoscutele cad
@@ -364,7 +380,54 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
       setLoading(false)
       return
     }
+
+    // MFA (mig 235): dacă contul are un factor TOTP verificat, sesiunea de
+    // după parolă e doar aal1 — cerem codul înainte de onSuccess. Orice eroare
+    // aici lasă fluxul să continue: enforcement-ul REAL e server-side
+    // (is_platform_admin cere aal2), pasul din UI e doar drumul prietenos.
+    try {
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+        const { data: factors } = await supabase.auth.mfa.listFactors()
+        const totp = (factors?.totp ?? []).find((f) => f.status === 'verified')
+        if (totp) {
+          setMfaFactorId(totp.id)
+          setMfaCode('')
+          setLoading(false)
+          return
+        }
+      }
+    } catch {
+      /* fallback: continuăm fără pasul MFA din UI */
+    }
     onSuccess()
+  }
+
+  const handleMfaVerify = async (evt: React.FormEvent) => {
+    evt.preventDefault()
+    if (!mfaFactorId || mfaCode.trim().length < 6) return
+    setLoading(true)
+    setError(null)
+    try {
+      const { data: ch, error: cErr } = await supabase.auth.mfa.challenge({
+        factorId: mfaFactorId,
+      })
+      if (cErr) throw cErr
+      const { error: vErr } = await supabase.auth.mfa.verify({
+        factorId: mfaFactorId,
+        challengeId: ch.id,
+        code: mfaCode.trim(),
+      })
+      if (vErr) {
+        setError(t.mfaInvalidCode)
+        setLoading(false)
+        return
+      }
+      onSuccess()
+    } catch {
+      setError(t.mfaInvalidCode)
+      setLoading(false)
+    }
   }
 
   const handleReset = async () => {
@@ -509,6 +572,99 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
             }}
           >
             {t.backToLoginArrow}
+          </button>
+        </form>
+      </CenteredCard>
+    )
+  }
+
+  // Pasul MFA (mig 235) — sesiunea există (aal1), dar contul cere codul TOTP.
+  if (mfaFactorId) {
+    return (
+      <CenteredCard>
+        <div
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: '1.1rem',
+            color: A.accent,
+            marginBottom: 24,
+            fontWeight: 700,
+          }}
+        >
+          {t.brand}
+        </div>
+        <h1
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: '1.5rem',
+            color: A.text,
+            marginBottom: 6,
+          }}
+        >
+          {t.mfaTitle}
+        </h1>
+        <p style={{ color: A.text3, fontSize: '0.85rem', marginBottom: 28 }}>{t.mfaSubtitle}</p>
+        <form
+          onSubmit={handleMfaVerify}
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          <div>
+            <label htmlFor="mfa-code" style={label}>
+              {t.mfaCodeLabel}
+            </label>
+            <input
+              id="mfa-code"
+              value={mfaCode}
+              onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              autoFocus
+              style={{ ...inp, letterSpacing: '0.25em', fontVariantNumeric: 'tabular-nums' }}
+              onFocus={(e) => (e.target.style.borderColor = A.accent)}
+              onBlur={(e) => (e.target.style.borderColor = A.border)}
+            />
+          </div>
+          {error && (
+            <div
+              role="alert"
+              style={{
+                background: A.errorBg,
+                border: `1px solid ${A.errorBorder}`,
+                borderRadius: 8,
+                padding: '10px 14px',
+                fontSize: 13,
+                color: A.error,
+              }}
+            >
+              {error}
+            </div>
+          )}
+          <button type="submit" disabled={loading || mfaCode.length < 6} style={primaryBtn(loading)}>
+            {loading ? t.processingBtn : t.mfaVerifyBtn}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              // Înapoi = renunță la sesiunea aal1 pe jumătate autentificată.
+              void supabase.auth.signOut()
+              setMfaFactorId(null)
+              setMfaCode('')
+              setError(null)
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: A.text3,
+              cursor: 'pointer',
+              fontSize: '0.85rem',
+              fontFamily: 'DM Sans,sans-serif',
+              padding: '12px 8px',
+              minHeight: 44,
+              margin: '-8px 0 -12px',
+            }}
+          >
+            {t.mfaBack}
           </button>
         </form>
       </CenteredCard>

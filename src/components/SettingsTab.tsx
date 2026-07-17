@@ -10,6 +10,7 @@ import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
+import MfaCard from './MfaCard'
 import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
@@ -1871,6 +1872,8 @@ export default function SettingsTab({
 
         {section === 'account' && (
           <>
+            <MfaCard />
+
             <SettingsCard icon="star" title="Plan curent">
               <span
                 style={{
