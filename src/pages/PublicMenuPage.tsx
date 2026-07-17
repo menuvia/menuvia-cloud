@@ -62,6 +62,7 @@ import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A): stări premium + bară categorii unificată
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+import { MenuBrandBadge } from '../components/menu/MenuBrandBadge'
 import { LangSwitcher } from '../components/menu/MenuHeader'
 // Scala tipografică comună a meniului — aceleași token-uri ca în componentele
 // de card/header, ca titlurile să nu mai drifteze cu valori hand-typed.
@@ -807,25 +808,15 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
         {/* Badge discret „Creat cu Menuvia" (E1) — buclă virală: fiecare meniu
             public e o vitrină. Opt-out prin theme_settings.hide_branding
-            (beneficiu Plan 2+, gating-ul de scriere în Setări). */}
+            (beneficiu Plan 2+, gating-ul de scriere în Setări). Pe domeniile
+            de agenție (white-label v1, mig 236) afișează brandingul agenției. */}
         {!resolveHideBranding(restaurant.theme_settings) && (
-          <div style={{ textAlign: 'center', padding: '0 0 28px' }}>
-            <a
-              href="https://menuvia.netlify.app/?utm_source=menu&utm_medium=badge"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontSize: 11,
-                color: PUB.text3,
-                textDecoration: 'none',
-                fontFamily: theme.fonts.body,
-                display: 'inline-block',
-                padding: '12px 16px',
-              }}
-            >
-              Meniu digital creat cu Menuvia
-            </a>
-          </div>
+          <MenuBrandBadge
+            utmSource="menu"
+            color={PUB.text3}
+            fontFamily={theme.fonts.body}
+            padding="0 0 28px"
+          />
         )}
       </div>
 

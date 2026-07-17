@@ -33,6 +33,9 @@ import {
   setAffiliateDefaults,
   setAffiliateCommission,
   applyDefaultsToAllAffiliates,
+  setAffiliateBranding,
+  getMonthlyBenchmark,
+  type MonthlyBenchmark,
   type AffiliateCommissionDefaults,
   type CommissionInput,
   type PlatformOverview,
@@ -46,11 +49,12 @@ import {
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 
-type Section = 'overview' | 'restaurante' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
+type Section = 'overview' | 'restaurante' | 'benchmark' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Vedere generală' },
   { id: 'restaurante', label: 'Restaurante' },
+  { id: 'benchmark', label: 'Benchmark' },
   { id: 'operatiuni', label: 'Operațiuni' },
   { id: 'afiliati', label: 'Afiliați' },
   { id: 'ai', label: 'Consum AI' },
@@ -321,6 +325,7 @@ export default function FounderPage({ onBack }: Props) {
 
         {section === 'overview' && <OverviewSection onGoTo={setSection} />}
         {section === 'restaurante' && <RestaurantsSection />}
+        {section === 'benchmark' && <BenchmarkSection />}
         {section === 'operatiuni' && <OperationsSection />}
         {section === 'afiliati' && <AffiliatesSection />}
         {section === 'ai' && (
@@ -1248,6 +1253,7 @@ function AffiliatesSection() {
                   </div>
                 )}
                 <AffiliateCommissionRow affiliate={a} onSaved={() => void affiliates.reload()} />
+                <AffiliateBrandingRow affiliate={a} onSaved={() => void affiliates.reload()} />
                 {a.restaurants.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {a.restaurants.map((r) => (
@@ -1654,6 +1660,371 @@ function AffiliateCommissionRow({
               Anulează
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── White-label (mig 236) — editorul de branding per agenție ──
+// Domeniul e CNAME-uit de agenție spre Netlify (pașii în docs/WHITE_LABEL.md);
+// meniul public de pe acel domeniu afișează numele + logo-ul de aici.
+function AffiliateBrandingRow({
+  affiliate,
+  onSaved,
+}: {
+  affiliate: AdminAffiliateRow
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [domain, setDomain] = useState('')
+  const [name, setName] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // undefined = migrația 236 neaplicată încă → afișăm „—" fără editor.
+  const migrated = affiliate.brand_domain !== undefined
+
+  function startEdit() {
+    setDomain(affiliate.brand_domain ?? '')
+    setName(affiliate.brand_name ?? '')
+    setLogoUrl(affiliate.brand_logo_url ?? '')
+    setEditing(true)
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      const res = await setAffiliateBranding(
+        affiliate.affiliate_id,
+        domain.trim() || null,
+        name.trim() || null,
+        logoUrl.trim() || null,
+      )
+      if (!res.ok) {
+        const msg =
+          res.error === 'invalid_domain'
+            ? 'Domeniu invalid — introdu doar hostname-ul (ex. menu.agentia.ro).'
+            : res.error === 'reserved_domain'
+              ? 'Domeniile Menuvia nu pot fi folosite pentru white-label.'
+              : res.error === 'domain_taken'
+                ? 'Domeniul e deja folosit de altă agenție.'
+                : (res.error ?? 'Eroare')
+        throw new Error(msg)
+      }
+      toast.success('Branding salvat — activ pe domeniul agenției')
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputStyle: CSSProperties = {
+    background: D.s3,
+    border: `1px solid ${D.border}`,
+    borderRadius: 8,
+    color: D.t1,
+    padding: '9px 11px',
+    fontSize: '0.78rem',
+    minWidth: 170,
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {!editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.74rem', color: D.t2 }}>
+            {!migrated
+              ? 'White-label: — (rulează migrația 236)'
+              : affiliate.brand_domain
+                ? `White-label: ${affiliate.brand_domain}${affiliate.brand_name ? ' · ' + affiliate.brand_name : ''}`
+                : 'White-label: neconfigurat'}
+          </span>
+          {migrated && (
+            <button
+              onClick={startEdit}
+              className="pressable"
+              style={{
+                padding: '8px 14px',
+                minHeight: 44,
+                borderRadius: 100,
+                border: `1px solid ${D.border}`,
+                background: 'transparent',
+                color: D.t2,
+                fontSize: '0.7rem',
+                cursor: 'pointer',
+              }}
+            >
+              Configurează
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Domeniu (CNAME)</span>
+            <input
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="menu.agentia.ro"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Nume afișat</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Agenția Digital"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Logo (URL)</span>
+            <input
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://.../logo.png"
+              style={inputStyle}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => void save()}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(primaryBtn, busy)}
+            >
+              {busy ? 'Se salvează...' : 'Salvează'}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(ghostBtn, busy)}
+            >
+              Anulează
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Benchmark lunar (mig 237) — „localul tău vs. media" ──────
+function currentMonthKey(): string {
+  // 'YYYY-MM' în fusul României (sv-SE dă formatul ISO).
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Bucharest' })
+    .format(new Date())
+    .slice(0, 7)
+}
+
+function shiftMonthKey(key: string, delta: number): string {
+  const [y, m] = key.split('-').map(Number)
+  const d = new Date(y!, (m ?? 1) - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function BenchmarkSection() {
+  const isMobile = useIsMobile()
+  const [month, setMonth] = useState<string>(currentMonthKey)
+  const [data, setData] = useState<MonthlyBenchmark | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async (m: string) => {
+    setLoading(true)
+    setError(null)
+    try {
+      setData(await getMonthlyBenchmark(m))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Eroare la încărcare.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load(month)
+  }, [month, load])
+
+  const fmtLei = (v: number | null) =>
+    v == null ? '—' : v.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) + ' lei'
+  const vsAvg = (orders: number): { text: string; color: string } | null => {
+    const avg = data?.platform.avg_orders ?? 0
+    if (avg <= 0) return null
+    const pct = Math.round((orders / avg - 1) * 100)
+    if (pct === 0) return { text: 'la medie', color: D.t3 }
+    return pct > 0
+      ? { text: `+${pct}% vs. media`, color: D.green }
+      : { text: `${pct}% vs. media`, color: D.red }
+  }
+
+  const monthNav = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      <button
+        onClick={() => setMonth((m) => shiftMonthKey(m, -1))}
+        className="pressable"
+        aria-label="Luna anterioară"
+        style={ghostBtn}
+      >
+        ‹
+      </button>
+      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: D.t1, minWidth: 84, textAlign: 'center' }}>
+        {month}
+      </span>
+      <button
+        onClick={() => setMonth((m) => shiftMonthKey(m, 1))}
+        disabled={month >= currentMonthKey()}
+        className="pressable"
+        aria-label="Luna următoare"
+        style={{ ...ghostBtn, opacity: month >= currentMonthKey() ? 0.4 : 1 }}
+      >
+        ›
+      </button>
+    </div>
+  )
+
+  if (loading)
+    return (
+      <div>
+        {monthNav}
+        <InlineSpinner label="Se calculează benchmark-ul..." />
+      </div>
+    )
+  if (error || !data)
+    return (
+      <div>
+        {monthNav}
+        <SectionError message={error ?? 'Eroare'} onRetry={() => void load(month)} />
+      </div>
+    )
+
+  const p = data.platform
+  const stats: { label: string; value: string }[] = [
+    { label: 'Restaurante cu comenzi', value: `${p.restaurants_with_orders}/${p.restaurants}` },
+    { label: 'Medie comenzi', value: String(p.avg_orders) },
+    { label: 'Mediană comenzi', value: String(Math.round(Number(p.median_orders))) },
+    { label: 'Medie %QR', value: `${p.avg_qr_share_pct}%` },
+    { label: 'Medie venit (fiscal)', value: fmtLei(p.avg_revenue_fiscal) },
+  ]
+
+  return (
+    <div>
+      {monthNav}
+      <p style={{ color: D.t3, fontSize: '0.74rem', margin: '0 0 14px' }}>
+        Comenzile se compară pe toate planurile; venitul DOAR între restaurantele cu
+        fiscalizare (Plan 3) — pe restul, câmpurile de bani nu există.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))',
+          gap: 10,
+          marginBottom: 18,
+        }}
+      >
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 10,
+              padding: '12px 14px',
+            }}
+          >
+            <div style={{ ...mobilePairLabel, marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: D.t1 }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {data.rows.length === 0 ? (
+        <EmptyState icon="chart" title="Nicio dată" description="Niciun restaurant activ în luna aleasă." compact />
+      ) : isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {data.rows.map((r) => {
+            const v = vsAvg(r.orders)
+            return (
+              <div
+                key={r.restaurant_id}
+                style={{
+                  background: D.s2,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600, color: D.t1, fontSize: '0.85rem' }}>{r.name}</span>
+                  <span style={{ fontSize: '0.7rem', color: D.t3 }}>{PLAN_LABELS[r.plan] || r.plan}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <div style={mobilePairLabel}>Comenzi</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>
+                      {r.orders}
+                      {v && <span style={{ color: v.color, marginLeft: 6, fontSize: '0.7rem' }}>{v.text}</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>%QR</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>
+                      {r.qr_share_pct == null ? '—' : `${r.qr_share_pct}%`}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>Venit</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>{fmtLei(r.revenue)}</div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>Bon mediu</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>{fmtLei(r.avg_ticket)}</div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Restaurant</th>
+                <th style={thStyle}>Plan</th>
+                <th style={thStyle}>Comenzi</th>
+                <th style={thStyle}>vs. media</th>
+                <th style={thStyle}>%QR</th>
+                <th style={thStyle}>Venit</th>
+                <th style={thStyle}>Bon mediu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => {
+                const v = vsAvg(r.orders)
+                return (
+                  <tr key={r.restaurant_id}>
+                    <td style={tdStyle}>{r.name}</td>
+                    <td style={{ ...tdStyle, color: D.t2 }}>{PLAN_LABELS[r.plan] || r.plan}</td>
+                    <td style={tdStyle}>{r.orders}</td>
+                    <td style={{ ...tdStyle, color: v?.color ?? D.t3, fontSize: '0.74rem' }}>
+                      {v?.text ?? '—'}
+                    </td>
+                    <td style={tdStyle}>{r.qr_share_pct == null ? '—' : `${r.qr_share_pct}%`}</td>
+                    <td style={tdStyle}>{fmtLei(r.revenue)}</td>
+                    <td style={tdStyle}>{fmtLei(r.avg_ticket)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
