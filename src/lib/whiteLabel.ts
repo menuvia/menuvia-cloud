@@ -36,23 +36,26 @@ export function isCustomDomain(): boolean {
 // apelurile concurente (PublicMenuPage + QrMenuPage) să nu dubleze fetch-ul.
 let cached: Promise<AgencyBranding | null> | null = null
 
+// async → Promise REAL (builderul supabase-js e doar PromiseLike; lanțuirea
+// .then() pe el nu satisface anotarea Promise<> sub tipurile complete).
+async function resolveBranding(): Promise<AgencyBranding | null> {
+  try {
+    const { data, error } = await supabase.rpc('resolve_agency_branding', {
+      p_domain: window.location.hostname,
+    })
+    // Orice eroare (inclusiv migrația neaplicată încă) = fallback tăcut la
+    // badge-ul Menuvia — brandingul e cosmetic, nu blochează meniul.
+    if (error || !Array.isArray(data) || data.length === 0) return null
+    const row = data[0] as { brand_name: string | null; brand_logo_url: string | null }
+    if (!row.brand_name) return null
+    return { name: row.brand_name, logoUrl: row.brand_logo_url }
+  } catch {
+    return null
+  }
+}
+
 export function fetchAgencyBranding(): Promise<AgencyBranding | null> {
   if (!isCustomDomain()) return Promise.resolve(null)
-  if (cached) return cached
-  const pending: Promise<AgencyBranding | null> = supabase
-    .rpc('resolve_agency_branding', { p_domain: window.location.hostname })
-    .then(({ data, error }) => {
-      // Orice eroare (inclusiv migrația neaplicată încă) = fallback tăcut la
-      // badge-ul Menuvia — brandingul e cosmetic, nu blochează meniul.
-      if (error || !Array.isArray(data) || data.length === 0) return null
-      const row = data[0] as { brand_name: string | null; brand_logo_url: string | null }
-      if (!row.brand_name) return null
-      return { name: row.brand_name, logoUrl: row.brand_logo_url }
-    })
-    .then(
-      (v) => v,
-      () => null,
-    )
-  cached = pending
-  return pending
+  if (!cached) cached = resolveBranding()
+  return cached
 }

@@ -1825,8 +1825,10 @@ function currentMonthKey(): string {
 }
 
 function shiftMonthKey(key: string, delta: number): string {
-  const [y, m] = key.split('-').map(Number)
-  const d = new Date(y!, (m ?? 1) - 1 + delta, 1)
+  const parts = key.split('-').map(Number)
+  const y = parts[0] || new Date().getFullYear()
+  const m = parts[1] || 1
+  const d = new Date(y, m - 1 + delta, 1)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
