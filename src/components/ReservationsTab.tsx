@@ -1,8 +1,9 @@
 // Reservations admin tab — list, filter, status flow + settings card.
 // Owner/manager only (RLS).
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { D } from '../lib/constants'
+import { supabase } from '../lib/supabase'
 import {
   useReservations,
   useReservationSettings,
@@ -18,6 +19,14 @@ import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
 import { confirm as confirmDialog } from './ui/confirm'
+
+// Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
+// get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
+// ultimele 9 cifre. NU hash-ul loyalty (capcana din CLAUDE.md).
+function phoneKey(phone: string): string | null {
+  const digits = (phone || '').replace(/\D/g, '')
+  return digits.length >= 9 ? digits.slice(-9) : null
+}
 
 const STATUS_LABEL: Record<ReservationStatus, string> = {
   pending: 'În așteptare',
@@ -95,6 +104,30 @@ export default function ReservationsTab({ restaurantId }: Props) {
     range,
   )
   const toast = useToast()
+
+  // Istoric no-show per telefon (mig 234) — badge de risc pe rezervările
+  // viitoare. Eșecul RPC-ului (ex. migrația neaplicată încă, PGRST202) lasă
+  // tăcut badge-urile goale — informația e un plus, nu blochează tabul.
+  const [noShowCounts, setNoShowCounts] = useState<Record<string, number>>({})
+  useEffect(() => {
+    let alive = true
+    supabase
+      .rpc('get_reservation_no_show_counts', { p_restaurant_id: restaurantId })
+      .then(({ data, error: rpcErr }) => {
+        if (!alive) return
+        if (rpcErr || !Array.isArray(data)) return
+        const map: Record<string, number> = {}
+        for (const row of data as { phone_key: string; no_show_count: number }[]) {
+          if (row.phone_key) map[row.phone_key] = Number(row.no_show_count) || 0
+        }
+        setNoShowCounts(map)
+      })
+    return () => {
+      alive = false
+    }
+    // `reservations` e dependență intenționat: un no-show nou (manual sau din
+    // cron, sosit pe realtime) reîmprospătează istoricul afișat.
+  }, [restaurantId, reservations])
 
   // Care preset de interval e activ acum — ca să evidențiem chip-ul corect
   // (patronul trebuie să vadă ce filtru e aplicat, nu doar să apese orbește).
@@ -334,6 +367,10 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   <ReservationCard
                     key={r.id}
                     r={r}
+                    noShowCount={(() => {
+                      const k = phoneKey(r.customer_phone)
+                      return k ? (noShowCounts[k] ?? 0) : 0
+                    })()}
                     onConfirm={() => handleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
                     onSeated={() => handleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')}
                     onCancel={() => handleStatus(r.id, 'cancelled', 'Rezervare anulată')}
@@ -387,6 +424,7 @@ function FilterChip({
 
 interface CardProps {
   r: Reservation
+  noShowCount: number
   onConfirm: () => void
   onSeated: () => void
   onCancel: () => void
@@ -394,7 +432,15 @@ interface CardProps {
   onComplete: () => void
 }
 
-function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplete }: CardProps) {
+function ReservationCard({
+  r,
+  noShowCount,
+  onConfirm,
+  onSeated,
+  onCancel,
+  onNoShow,
+  onComplete,
+}: CardProps) {
   const status = STATUS_COLOR[r.status]
   return (
     <div
@@ -426,6 +472,24 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
           {formatTime(r.starts_at)}
         </div>
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
+        {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul
+            poate suna să reconfirme. Doar pe rezervările încă ne-terminale. */}
+        {noShowCount > 0 && (r.status === 'pending' || r.status === 'confirmed') && (
+          <span
+            title={`Acest număr de telefon are ${noShowCount} no-show în istoric`}
+            style={{
+              padding: '3px 8px',
+              borderRadius: 100,
+              background: 'rgba(224,85,85,0.10)',
+              color: D.red,
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⚠ {noShowCount} no-show
+          </span>
+        )}
         <div style={{ fontSize: 13, color: D.t2 }}>
           · {plural(r.party_size, 'persoană', 'persoane')}
         </div>

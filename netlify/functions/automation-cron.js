@@ -137,6 +137,23 @@ exports.handler = async () => {
     }
   }
 
+  // ── Job 1d: auto no-show pe rezervări (orar, mig 234) ──
+  // Rezervările 'confirmed' cu starts_at depășit de >120 min fără să fi fost
+  // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de
+  // recidivist din ReservationsTab fără să depindă de disciplina staff-ului.
+  if (minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('auto_mark_reservation_no_show')
+      // PGRST202 = mig 234 neaplicată încă (deploy frontend înaintea DB-ului).
+      if (error && error.code !== 'PGRST202') throw error
+      if (!error) results.reservations_auto_no_show = data
+    } catch (e) {
+      console.error('[automation-cron] auto no-show FAILED:', e.message)
+      await postCronAlert('reservations-auto-no-show', e.message)
+      results.reservations_auto_no_show_error = e.message
+    }
+  }
+
   // ── Job 2: compute health scores (every 30 min) ──
   if (minute < 15 || (minute >= 30 && minute < 45)) {
     try {

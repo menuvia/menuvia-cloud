@@ -57,6 +57,14 @@ const TEMPLATES = {
     const name = stripDiacritics(d.restaurant_name || 'Restaurantul').slice(0, 40)
     return `${name}: Comanda #${d.short_id || ''} este gata de ridicare. Te asteptam!`.slice(0, 160)
   },
+  // Reminder pre-sosire (mig 233/234) — anti no-show pe rezervările telefonice.
+  reservation_reminder: (d) => {
+    const name = stripDiacritics(d.restaurant_name || 'Restaurantul').slice(0, 30)
+    const when = formatDateTimeRo(d.starts_at)
+    const base = `${name}: Reminder rezervare ${when} pentru ${d.party_size || '?'} pers. Cod: ${d.confirmation_code || '-'}.`
+    const withPhone = d.restaurant_phone ? `${base} Nu ajungi? ${d.restaurant_phone}` : base
+    return (withPhone.length <= 160 ? withPhone : base).slice(0, 160)
+  },
 }
 
 // Parsarea răspunsului SMSO e izolată aici — dacă forma API-ului diferă,
