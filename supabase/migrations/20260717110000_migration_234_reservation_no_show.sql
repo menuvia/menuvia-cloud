@@ -28,11 +28,15 @@ begin;
 set local lock_timeout      = '10s';
 set local statement_timeout = '120s';
 
--- ── A. claim_reservation_reminders — lanț 057→234 ────────────────────
--- Copia exactă a mig 057 cu O singură lărgire de eligibilitate: email
+-- ── A. claim_reservation_reminders — lanț 057→215→234 ────────────────
+-- Copia exactă a mig 215 (care păstra 057 + pasul de RECLAIM pe rândurile
+-- revendicate-dar-neprocesate) cu O singură lărgire de eligibilitate: email
 -- non-null SAU (mobil RO valid + modul SMS pornit + feature de plan).
 -- Semnătura și forma de retur rămân identice (workerul citește ambele
--- canale din același rând).
+-- canale din același rând). Reclaim-ul rămâne DOAR pe canalul email
+-- (deliberat): pe canalul SMS, enqueue_sms=null e skip definitiv în worker
+-- (plafon/modul) — un reclaim pe telefon ar re-revendica aceeași rezervare
+-- la nesfârșit fără să existe vreo livrare posibilă.
 create or replace function public.claim_reservation_reminders(
   p_batch_size integer default 100
 )
@@ -53,6 +57,22 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
+  -- ── Reclaim (mig 215): rândurile revendicate-dar-neprocesate la un kill de
+  -- proces. reminder_sent_at setat >15 min în urmă (un lot normal se termină în
+  -- secunde), rezervarea încă validă pentru reminder, DAR emailul nu a ajuns în
+  -- coadă → l-am pierdut; îl re-eliberăm. Sigur prin idempotența dedup_key.
+  update public.reservations r
+     set reminder_sent_at = null
+   where r.reminder_sent_at is not null
+     and r.reminder_sent_at < now() - interval '15 minutes'
+     and r.status = 'confirmed'
+     and r.customer_email is not null
+     and r.starts_at > now()
+     and not exists (
+       select 1 from public.email_queue eq
+        where eq.dedup_key = 'reservation_reminder:' || r.id::text
+     );
+
   return query
   with claimed as (
     update public.reservations r
@@ -107,10 +127,16 @@ as $$
 declare
   v_count integer;
 begin
+  -- Fereastră RULANTĂ de 48h (review E5): fără ea, primul tick de cron ar fi
+  -- convertit retroactiv TOT istoricul de 'confirmed' nefinalizate (obicei
+  -- comun pre-feature) în no-show-uri false, otrăvind ireversibil badge-ul de
+  -- recidivist. Cron-ul e orar, deci orice rezervare viitoare e prinsă la
+  -- prima oră după grație; ce e mai vechi de 48h nu se mai rescrie niciodată.
   update public.reservations r
   set status = 'no_show'
   where r.status = 'confirmed'
-    and r.starts_at < now() - make_interval(mins => greatest(coalesce(p_grace_minutes, 120), 30));
+    and r.starts_at < now() - make_interval(mins => greatest(coalesce(p_grace_minutes, 120), 30))
+    and r.starts_at > now() - interval '48 hours';
   get diagnostics v_count = row_count;
   return v_count;
 end;
@@ -176,6 +202,10 @@ begin
      or v_def not ilike '%restaurant_has_feature%' then
     raise exception 'mig 234: claim_reservation_reminders nu are ambele canale gate-uite';
   end if;
+  -- pasul de reclaim din mig 215 e păstrat (lanțul e 057→215→234)
+  if v_def not ilike '%15 minutes%' or v_def not ilike '%email_queue%' then
+    raise exception 'mig 234: reclaim-ul din mig 215 s-a pierdut din claim_reservation_reminders';
+  end if;
 
   -- auto-mark: doar service_role, doar confirmed
   if has_function_privilege('anon', 'public.auto_mark_reservation_no_show(integer)', 'execute')
@@ -185,6 +215,9 @@ begin
   v_def := pg_get_functiondef('public.auto_mark_reservation_no_show(integer)'::regprocedure);
   if v_def not like '%''confirmed''%' or v_def not like '%no_show%' then
     raise exception 'mig 234: auto_mark_reservation_no_show nu țintește confirmed→no_show';
+  end if;
+  if v_def not ilike '%48 hours%' then
+    raise exception 'mig 234: auto_mark_reservation_no_show fără fereastra anti-backfill de 48h';
   end if;
 
   -- counts: gate is_member prezent, anon fără EXECUTE

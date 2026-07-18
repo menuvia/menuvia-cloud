@@ -67,6 +67,10 @@ export default function MfaCard() {
   const [enroll, setEnroll] = useState<EnrollState | null>(null)
   const [code, setCode] = useState('')
   const [disabling, setDisabling] = useState(false)
+  // Factor verificat + enforcement oprit (ex. rpc-ul a eșuat după verify, sau
+  // dezactivare parțială): reactivăm cu FACTORUL EXISTENT — un enroll nou ar
+  // pica pe conflictul de friendly_name cu factorul verificat.
+  const [reactivating, setReactivating] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -171,13 +175,36 @@ export default function MfaCard() {
       if (!(await verifyCode(verifiedFactorId))) return
       const { error: rpcErr } = await supabase.rpc('set_my_mfa_enforced', { p_enforced: false })
       if (rpcErr) throw rpcErr
-      await supabase.auth.mfa.unenroll({ factorId: verifiedFactorId })
+      // Un unenroll eșuat NU e succes: fără verificare, cardul ar afișa
+      // „dezactivat" cu factorul încă înrolat (stare derutantă la re-login).
+      const { error: unErr } = await supabase.auth.mfa.unenroll({ factorId: verifiedFactorId })
+      if (unErr) throw unErr
       toast.success('MFA dezactivat')
       setDisabling(false)
       setCode('')
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Dezactivarea nu a reușit')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const confirmReactivate = async () => {
+    if (!verifiedFactorId || code.trim().length < 6) return
+    setBusy(true)
+    setError(null)
+    try {
+      // verify → aal2, apoi repornim enforcement-ul pe factorul existent.
+      if (!(await verifyCode(verifiedFactorId))) return
+      const { error: rpcErr } = await supabase.rpc('set_my_mfa_enforced', { p_enforced: true })
+      if (rpcErr) throw rpcErr
+      toast.success('MFA reactivat — contul cere de acum codul din aplicație')
+      setReactivating(false)
+      setCode('')
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reactivarea nu a reușit')
     } finally {
       setBusy(false)
     }
@@ -299,6 +326,45 @@ export default function MfaCard() {
         <button onClick={() => setDisabling(true)} style={ghostBtn}>
           Dezactivează MFA…
         </button>
+      ) : verifiedFactorId ? (
+        reactivating ? (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ color: D.t2, fontSize: '0.82rem' }}>
+              Confirmă cu codul din aplicație:
+            </span>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="000000"
+              aria-label="Cod de verificare din aplicație"
+              style={inputStyle}
+            />
+            <button
+              onClick={confirmReactivate}
+              disabled={busy || code.length < 6}
+              style={primaryBtn}
+            >
+              {busy ? 'Se verifică…' : 'Reactivează MFA'}
+            </button>
+            <button
+              onClick={() => {
+                setReactivating(false)
+                setCode('')
+                setError(null)
+              }}
+              disabled={busy}
+              style={ghostBtn}
+            >
+              Renunță
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setReactivating(true)} style={primaryBtn}>
+            Activează MFA
+          </button>
+        )
       ) : (
         <button onClick={startEnroll} disabled={busy} style={primaryBtn}>
           {busy ? 'Se pregătește…' : 'Activează MFA'}

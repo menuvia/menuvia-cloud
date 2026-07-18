@@ -43,22 +43,26 @@ on conflict (restaurant_id, user_id) do nothing;
 -- (modulul sms_notifications e OFF la acest punct).
 insert into public.reservations
   (id, restaurant_id, customer_name, customer_phone, party_size,
-   starts_at, ends_at, status) values
+   starts_at, ends_at, status, created_at) values
   -- NS1: confirmed, depășită cu 3h → trebuie marcată no_show
   ('c1d10000-0000-4000-8000-0000000000f1','b1c10000-0000-4000-8000-0000000000f1',
-   'Vlad','0722111222',2, now() - interval '3 hours', now() - interval '1 hour','confirmed'),
+   'Vlad','0722111222',2, now() - interval '3 hours', now() - interval '1 hour','confirmed', now() - interval '30 minutes'),
   -- NS1: confirmed, depășită cu doar 1h (< grația de 2h) → rămâne confirmed
   ('c1d20000-0000-4000-8000-0000000000f2','b1c10000-0000-4000-8000-0000000000f1',
-   'Ana','0733222333',2, now() - interval '1 hour', now() + interval '1 hour','confirmed'),
+   'Ana','0733222333',2, now() - interval '1 hour', now() + interval '1 hour','confirmed', now() - interval '30 minutes'),
   -- NS1: pending depășită → decizie de staff, rămâne pending
   ('c1d30000-0000-4000-8000-0000000000f3','b1c10000-0000-4000-8000-0000000000f1',
-   'Radu','0744333444',4, now() - interval '3 hours', now() - interval '1 hour','pending'),
+   'Radu','0744333444',4, now() - interval '3 hours', now() - interval '1 hour','pending', now() - interval '30 minutes'),
   -- NS1: seated depășită → clientul A venit, rămâne seated
   ('c1d40000-0000-4000-8000-0000000000f4','b1c10000-0000-4000-8000-0000000000f1',
-   'Ioana','0755444555',3, now() - interval '3 hours', now() - interval '1 hour','seated'),
+   'Ioana','0755444555',3, now() - interval '3 hours', now() - interval '1 hour','seated', now() - interval '30 minutes'),
+  -- NS1: confirmed VECHE (pre-feature, în afara ferestrei de 48h) → NU se
+  -- rescrie retroactiv (anti-backfill: istoricul confirmed ≠ no_show)
+  ('c1d45000-0000-4000-8000-0000000000fa','b1c10000-0000-4000-8000-0000000000f1',
+   'Vechi','0788777666',2, now() - interval '10 days', now() - interval '10 days' + interval '2 hours','confirmed', now() - interval '30 minutes'),
   -- NS3: istoric no_show pe ACELAȘI telefon ca Vlad, în format internațional
   ('c1d50000-0000-4000-8000-0000000000f5','b1c10000-0000-4000-8000-0000000000f1',
-   'Vlad','+40 722 111 222',2, now() - interval '7 days', now() - interval '7 days' + interval '2 hours','no_show');
+   'Vlad','+40 722 111 222',2, now() - interval '7 days', now() - interval '7 days' + interval '2 hours','no_show', now() - interval '30 minutes');
 
 -- ── NS1: auto-mark doar confirmed + depășit de grație ────────────────────────
 do $$
@@ -80,7 +84,10 @@ begin
   if (select status from public.reservations where id = 'c1d40000-0000-4000-8000-0000000000f4') <> 'seated' then
     raise exception 'NS1 FAIL: seated a fost atinsă de auto-mark';
   end if;
-  raise notice 'NS1 OK: auto-mark doar confirmed depășite de grație';
+  if (select status from public.reservations where id = 'c1d45000-0000-4000-8000-0000000000fa') <> 'confirmed' then
+    raise exception 'NS1 FAIL: rezervarea pre-feature (>48h) a fost rescrisă retroactiv';
+  end if;
+  raise notice 'NS1 OK: auto-mark doar confirmed depășite de grație, în fereastra de 48h';
 end $$;
 
 -- ── NS2: claim-ul de remindere — canal SMS gate-uit pe modul ─────────────────
@@ -89,11 +96,34 @@ end $$;
 --   • doar-email (telefon fix, ne-mobil — normalizarea întoarce null).
 insert into public.reservations
   (id, restaurant_id, customer_name, customer_phone, customer_email, party_size,
-   starts_at, ends_at, status) values
+   starts_at, ends_at, status, created_at) values
   ('c1d60000-0000-4000-8000-0000000000f6','b1c10000-0000-4000-8000-0000000000f1',
-   'Doar Telefon','0766555666',null,2, now() + interval '2 hours', now() + interval '4 hours','confirmed'),
+   'Doar Telefon','0766555666',null,2, now() + interval '2 hours', now() + interval '4 hours','confirmed', now() - interval '30 minutes'),
   ('c1d70000-0000-4000-8000-0000000000f7','b1c10000-0000-4000-8000-0000000000f1',
-   'Doar Email','0212345678','doar.email@ns.test',2, now() + interval '2 hours', now() + interval '4 hours','confirmed');
+   'Doar Email','0212345678','doar.email@ns.test',2, now() + interval '2 hours', now() + interval '4 hours','confirmed', now() - interval '30 minutes'),
+  -- Probe negative pentru gate-urile SMS (anti-vacuitate, review E5): fix
+  -- FĂRĂ email, ca singura cale de eligibilitate să fie canalul SMS.
+  ('c1d80000-0000-4000-8000-0000000000f8','b1c10000-0000-4000-8000-0000000000f1',
+   'Fix Fara Email','0212345679',null,2, now() + interval '2 hours', now() + interval '4 hours','confirmed', now() - interval '30 minutes');
+
+-- Restaurant pe plan FREE cu modulul SMS pornit (set_restaurant_module nu are
+-- gate de plan — stare atinsă real prin downgrade): mobilul valid NU trebuie
+-- revendicat, feature-ul de plan lipsește.
+insert into auth.users (id, email) values
+  ('a1b30000-0000-4000-8000-0000000000f3','ns-owner-free@ns.test');
+insert into public.restaurants (id, owner_id, name, slug, city, is_active) values
+  ('b1c20000-0000-4000-8000-0000000000f2','a1b30000-0000-4000-8000-0000000000f3',
+   'NS Free','ns-free-slug','Cluj',true);
+-- (fără insert explicit de membership: ownerul primește automat unul la
+-- crearea restaurantului, iar pe free limita de membri e 1)
+insert into public.restaurant_modules (restaurant_id, module_key, enabled)
+values ('b1c20000-0000-4000-8000-0000000000f2','sms_notifications',true)
+on conflict (restaurant_id, module_key) do update set enabled = true;
+insert into public.reservations
+  (id, restaurant_id, customer_name, customer_phone, customer_email, party_size,
+   starts_at, ends_at, status, created_at) values
+  ('c1d90000-0000-4000-8000-0000000000f9','b1c20000-0000-4000-8000-0000000000f2',
+   'Mobil Free','0777888999',null,2, now() + interval '2 hours', now() + interval '4 hours','confirmed', now() - interval '30 minutes');
 
 do $$
 declare v_ids uuid[];
@@ -122,7 +152,21 @@ begin
        where id = 'c1d60000-0000-4000-8000-0000000000f6') is null then
     raise exception 'NS2 FAIL: reminder_sent_at nu a fost marcat la claim';
   end if;
-  raise notice 'NS2 OK: canal SMS gate-uit pe modul; canalul email neatins';
+
+  -- Gate-urile individuale ale canalului SMS (anti-vacuitate, review E5):
+  -- telefon FIX fără email → ne-mobil, nerevendicat chiar cu modulul ON
+  if 'c1d80000-0000-4000-8000-0000000000f8' = any(v_ids) then
+    raise exception 'NS2 FAIL: telefon fix fără email revendicat (gate-ul mobil RO a dispărut)';
+  end if;
+  -- plan FREE cu modulul ON → feature-ul de plan lipsește, nerevendicat
+  if 'c1d90000-0000-4000-8000-0000000000f9' = any(v_ids) then
+    raise exception 'NS2 FAIL: rezervare pe plan free revendicată (gate-ul de plan a dispărut)';
+  end if;
+  if (select reminder_sent_at from public.reservations
+       where id = 'c1d90000-0000-4000-8000-0000000000f9') is not null then
+    raise exception 'NS2 FAIL: reminder_sent_at ars pe plan free (fără canal de livrare)';
+  end if;
+  raise notice 'NS2 OK: toate cele 3 gate-uri SMS (modul + plan + mobil RO); canalul email neatins';
 end $$;
 
 -- ── NS3: recidiviști — aceeași cheie indiferent de format + gate is_member ───

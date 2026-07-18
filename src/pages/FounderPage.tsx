@@ -169,9 +169,27 @@ export default function FounderPage({ onBack }: Props) {
       if (!ok) {
         try {
           const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-          if (!cancelled && aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-            setMfaPending(true)
-            return
+          if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            // Ecranul explicativ DOAR pentru conturi care chiar sunt platform
+            // admin (flag-ul brut din profiles, own-row RLS) — un user obișnuit
+            // cu MFA înrolat care nimerește pe /founder primește redirectul
+            // standard, nu un mesaj care sugerează că ar avea acces.
+            const { data: userData } = await supabase.auth.getUser()
+            const uid = userData?.user?.id
+            if (uid) {
+              const { data: prof } = await supabase
+                .from('profiles')
+                .select('is_platform_admin')
+                .eq('id', uid)
+                .maybeSingle()
+              if (
+                !cancelled &&
+                (prof as { is_platform_admin?: boolean } | null)?.is_platform_admin === true
+              ) {
+                setMfaPending(true)
+                return
+              }
+            }
           }
         } catch {
           /* cădere pe redirectul standard */
@@ -1838,22 +1856,28 @@ function BenchmarkSection() {
   const [data, setData] = useState<MonthlyBenchmark | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [retryTick, setRetryTick] = useState(0)
 
-  const load = useCallback(async (m: string) => {
+  // Fetch-ul trăiește în effect cu flag de anulare: la navigarea rapidă între
+  // luni, un răspuns întârziat pentru luna veche nu mai suprascrie luna nouă.
+  useEffect(() => {
+    let cancelled = false
     setLoading(true)
     setError(null)
-    try {
-      setData(await getMonthlyBenchmark(m))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Eroare la încărcare.')
-    } finally {
-      setLoading(false)
+    getMonthlyBenchmark(month)
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Eroare la încărcare.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }, [])
-
-  useEffect(() => {
-    void load(month)
-  }, [month, load])
+  }, [month, retryTick])
 
   const fmtLei = (v: number | null) =>
     v == null ? '—' : v.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) + ' lei'
@@ -1903,7 +1927,7 @@ function BenchmarkSection() {
     return (
       <div>
         {monthNav}
-        <SectionError message={error ?? 'Eroare'} onRetry={() => void load(month)} />
+        <SectionError message={error ?? 'Eroare'} onRetry={() => setRetryTick((t) => t + 1)} />
       </div>
     )
 

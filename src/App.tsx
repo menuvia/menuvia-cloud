@@ -281,45 +281,62 @@ function AppRouter() {
   useEffect(() => {
     if (loading || !user || state.view !== 'auth') return
     if (autoRedirectedRef.current) return // FE-001: don't re-redirect
-    autoRedirectedRef.current = true
-    // Intenția de afiliere are prioritate (concurează cu onSuccess din
-    // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
-    let afiliatIntent: string | null = null
-    try {
-      afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
-    } catch {
-      /* ignore */
-    }
-    if (afiliatIntent === '1') {
+    let cancelled = false
+    void (async () => {
+      // MFA (mig 235, review E5): după parolă, un cont cu factor TOTP verificat
+      // are sesiune doar aal1 — AuthPage tocmai afișează pasul de cod, iar un
+      // redirect aici l-ar demonta. Nu redirectăm; onSuccess navighează DUPĂ
+      // verify. Conturile fără MFA au nextLevel=currentLevel → redirect normal.
       try {
-        sessionStorage.removeItem('menuvia.afiliat_intent')
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') return
+      } catch {
+        /* verificarea a eșuat — continuăm cu redirectul standard */
+      }
+      if (cancelled || autoRedirectedRef.current) return
+      autoRedirectedRef.current = true
+      // Intenția de afiliere are prioritate (concurează cu onSuccess din
+      // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
+      let afiliatIntent: string | null = null
+      try {
+        afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
       } catch {
         /* ignore */
       }
-      replace('/afiliat')
-      return
-    }
-    getUserRoles(user.id)
-      .then((roles) => {
-        if (roles.length === 0) {
+      if (afiliatIntent === '1') {
+        try {
+          sessionStorage.removeItem('menuvia.afiliat_intent')
+        } catch {
+          /* ignore */
+        }
+        replace('/afiliat')
+        return
+      }
+      getUserRoles(user.id)
+        .then((roles) => {
+          if (roles.length === 0) {
+            replace('/dashboard')
+            return
+          }
+          const isOnlyKitchen = roles.every((r) => r === 'kitchen')
+          const isOnlyWaiter = roles.every((r) => r === 'waiter')
+          if (isOnlyKitchen) {
+            replace('/kitchen')
+            return
+          }
+          if (isOnlyWaiter) {
+            replace('/waiter')
+            return
+          }
           replace('/dashboard')
-          return
-        }
-        const isOnlyKitchen = roles.every((r) => r === 'kitchen')
-        const isOnlyWaiter = roles.every((r) => r === 'waiter')
-        if (isOnlyKitchen) {
-          replace('/kitchen')
-          return
-        }
-        if (isOnlyWaiter) {
-          replace('/waiter')
-          return
-        }
-        replace('/dashboard')
-      })
-      .catch(() => {
-        replace('/dashboard')
-      })
+        })
+        .catch(() => {
+          replace('/dashboard')
+        })
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [user, loading, state.view])
 
   // Reset auto-redirect flag when user signs out
@@ -552,6 +569,15 @@ function AppRouter() {
 
   // ── Auth ───────────────────────────────────────────────────
   if (state.view === 'auth' || !user) {
+    // MFA (review E5): pe un view protejat fără sesiune normalizăm întâi
+    // URL-ul la /auth — altfel, imediat după parolă, flip-ul lui `user` ar
+    // randa view-ul protejat și ar DEMONTA AuthPage înainte de pasul TOTP
+    // (contul cu MFA ar sări peste cod). Post-login, efectul de auto-redirect
+    // duce oricum userul la destinația corectă pe roluri.
+    if (state.view !== 'auth') {
+      replace('/auth')
+      return <PageSpinner />
+    }
     return (
       <Suspense fallback={<PageSpinner />}>
       <AuthPage

@@ -71,19 +71,19 @@ begin
   v := public.admin_set_affiliate_branding(
     'b2c10000-0000-4000-8000-0000000000e5',
     'https://Menu.Agentia.RO/vreo/cale', 'Agentia Digital', 'https://cdn.agentia.ro/logo.png');
-  if (v->>'ok')::boolean is not true or v->>'brand_domain' <> 'menu.agentia.ro' then
+  if (v->>'ok')::boolean is not true or v->>'brand_domain' is distinct from 'menu.agentia.ro' then
     raise exception 'WB1 FAIL: normalizarea domeniului a eșuat (%)', v;
   end if;
 
   v := public.admin_set_affiliate_branding(
     'b2c20000-0000-4000-8000-0000000000e6', 'app.menuvia.ro', 'X', null);
-  if v->>'error' <> 'reserved_domain' then
+  if v->>'error' is distinct from 'reserved_domain' then
     raise exception 'WB1 FAIL: domeniul platformei nu a fost respins (%)', v;
   end if;
 
   v := public.admin_set_affiliate_branding(
     'b2c20000-0000-4000-8000-0000000000e6', 'nu e domeniu', 'X', null);
-  if v->>'error' <> 'invalid_domain' then
+  if v->>'error' is distinct from 'invalid_domain' then
     raise exception 'WB1 FAIL: formatul invalid nu a fost respins (%)', v;
   end if;
   raise notice 'WB1 OK: normalizare + validare + rezervate';
@@ -144,7 +144,7 @@ begin
   select elem into v
     from jsonb_array_elements(public.admin_list_affiliates()) elem
    where elem->>'affiliate_id' = 'b2c10000-0000-4000-8000-0000000000e5';
-  if v->>'brand_domain' <> 'menu.agentia.ro' or v->>'brand_name' <> 'Agentia Digital' then
+  if v is null or v->>'brand_domain' is distinct from 'menu.agentia.ro' or v->>'brand_name' is distinct from 'Agentia Digital' then
     raise exception 'WB3 FAIL: admin_list_affiliates fără branding (%)', v;
   end if;
   raise notice 'WB3 OK: listarea founder include brandingul';
@@ -167,18 +167,21 @@ begin
   select elem into v_growth from jsonb_array_elements(v->'rows') elem
    where elem->>'restaurant_id' = 'c3d20000-0000-4000-8000-0000000000e6';
 
-  if (v_pro->>'orders')::int <> 3 or (v_growth->>'orders')::int <> 2 then
+  if v_pro is null or v_growth is null then
+    raise exception 'WB4 FAIL: rând lipsă în benchmark (pro=%, growth=%)', v_pro, v_growth;
+  end if;
+  if (v_pro->>'orders')::int is distinct from 3 or (v_growth->>'orders')::int is distinct from 2 then
     raise exception 'WB4 FAIL: numărul de comenzi greșit (pro=%, growth=%)',
       v_pro->>'orders', v_growth->>'orders';
   end if;
-  if (v_pro->>'revenue')::numeric <> 150 or (v_pro->>'avg_ticket')::numeric <> 75 then
+  if (v_pro->>'revenue')::numeric is distinct from 150 or (v_pro->>'avg_ticket')::numeric is distinct from 75 then
     raise exception 'WB4 FAIL: venitul pro greșit (%)', v_pro;
   end if;
   -- Regula de aur: growth nu are câmpuri de bani.
   if v_growth->'revenue' <> 'null'::jsonb or v_growth->'avg_ticket' <> 'null'::jsonb then
     raise exception 'WB4 FAIL: growth are câmpuri de bani în benchmark (%)', v_growth;
   end if;
-  if (v_pro->>'qr_share_pct')::int <> 67 or (v_growth->>'qr_share_pct')::int <> 50 then
+  if (v_pro->>'qr_share_pct')::int is distinct from 67 or (v_growth->>'qr_share_pct')::int is distinct from 50 then
     raise exception 'WB4 FAIL: qr_share greșit (pro=%, growth=%)',
       v_pro->>'qr_share_pct', v_growth->>'qr_share_pct';
   end if;
@@ -208,7 +211,7 @@ declare v jsonb;
 begin
   v := public.admin_set_affiliate_branding(
     'b2c20000-0000-4000-8000-0000000000e6', 'menu.agentia.ro', 'Copiator SRL', null);
-  if v->>'error' <> 'domain_taken' then
+  if v->>'error' is distinct from 'domain_taken' then
     raise exception 'WB5 FAIL: domeniul duplicat nu a fost respins (%)', v;
   end if;
   raise notice 'WB5 OK: un domeniu = o agenție';
