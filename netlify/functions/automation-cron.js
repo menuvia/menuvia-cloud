@@ -137,6 +137,24 @@ exports.handler = async () => {
     }
   }
 
+  // ── Job 1e: facturi Oblio blocate în 'generating' (orar, mig 239) ──
+  // Un kill de proces între claim și emitere lasă factura agățată în
+  // 'generating' pentru totdeauna — o marcăm 'failed' cu eroare ambiguă
+  // (NU o re-punem în coadă: risc de duplicat fiscal), ca să apară în lista
+  // de eșecuri a founderului pentru retry manual după verificare în Oblio.
+  if (minute < 15) {
+    try {
+      const { data, error } = await supabase.rpc('oblio_reclaim_stale_generating')
+      // PGRST202 = mig 239 neaplicată încă (deploy frontend înaintea DB-ului).
+      if (error && error.code !== 'PGRST202') throw error
+      if (!error) results.oblio_stale_generating = data
+    } catch (e) {
+      console.error('[automation-cron] oblio stale generating FAILED:', e.message)
+      await postCronAlert('oblio-stale-generating', e.message)
+      results.oblio_stale_generating_error = e.message
+    }
+  }
+
   // ── Job 1d: auto no-show pe rezervări (orar, mig 234) ──
   // Rezervările 'confirmed' cu starts_at depășit de >120 min fără să fi fost
   // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de
