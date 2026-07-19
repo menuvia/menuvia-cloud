@@ -1300,6 +1300,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/mfa_platform_assertions.sql
 
+      - name: "Reservation service-day assertions (mig 241)"
+        if: ${{ hashFiles('supabase/migrations/20260718130000_migration_241_reservation_service_day.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_service_day_assertions.sql
+
       - name: "Security Q4 assertions (mig 240)"
         if: ${{ hashFiles('supabase/migrations/20260718120000_migration_240_security_hardening_q4.sql') != '' }}
         env:
