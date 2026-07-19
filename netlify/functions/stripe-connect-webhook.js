@@ -60,6 +60,38 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Invalid signature' })
   }
 
+  // account.application.deauthorized: contul conectat a revocat platforma din
+  // propriul Stripe Dashboard (sau a fost șters). Fără curățare, stripe_account_id
+  // rămâne stale: action 'status'/'link' pică permanent, iar begin_table_payment
+  // folosește un cont mort. Îl golim (mig 204 acceptă null = deconectare) ca
+  // localul să poată reconecta din UI (audit săpt. 10). Poartă `account`, nu un
+  // payment_intent — deci ramură separată înaintea fluxului de intent.
+  if (stripeEvent.type === 'account.application.deauthorized') {
+    const acctId = stripeEvent.account
+    if (!acctId) return jsonResponse(200, { received: true, ignored: 'no_account' })
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    const { data: rest, error: findErr } = await supabase
+      .from('restaurants')
+      .select('id')
+      .eq('stripe_account_id', acctId)
+      .maybeSingle()
+    if (findErr) {
+      console.error('[connect-webhook] deauthorized lookup failed:', findErr.message)
+      return jsonResponse(500, { error: 'DB error' }) // Stripe retrimite
+    }
+    if (rest?.id) {
+      const { error: clearErr } = await supabase.rpc('set_restaurant_stripe_account', {
+        p_restaurant_id: rest.id,
+        p_account_id: null,
+      })
+      if (clearErr) {
+        console.error('[connect-webhook] deauthorized clear failed:', clearErr.message)
+        return jsonResponse(500, { error: 'DB error' })
+      }
+    }
+    return jsonResponse(200, { received: true, deauthorized: acctId })
+  }
+
   const outcome = OUTCOME_BY_EVENT[stripeEvent.type]
   if (!outcome) {
     // Evenimente Connect care nu ne privesc (account.updated etc.) — ack.
