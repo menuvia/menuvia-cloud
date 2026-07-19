@@ -17,6 +17,9 @@ export type ModuleKey =
 interface UseRestaurantModulesResult {
   modules: Record<ModuleKey, boolean>
   loading: boolean
+  // Eroare de CITIRE ≠ toate modulele OFF. Consumatorii pot afișa un banner
+  // „nu am putut citi starea modulelor" în loc să prezinte tăcut fallback-ul.
+  loadError: boolean
   isEnabled: (key: ModuleKey) => boolean
   setModule: (key: ModuleKey, enabled: boolean) => Promise<void>
   reload: () => Promise<void>
@@ -36,6 +39,7 @@ export function useRestaurantModules(
 ): UseRestaurantModulesResult {
   const [modules, setModules] = useState<Record<ModuleKey, boolean>>(DEFAULT_MODULES)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   // Token de secvență: ignoră răspunsuri întârziate pentru un restaurantId vechi.
   const loadSeqRef = useRef(0)
 
@@ -44,6 +48,7 @@ export function useRestaurantModules(
     if (!restaurantId) {
       if (seq === loadSeqRef.current) {
         setModules(DEFAULT_MODULES)
+        setLoadError(false)
         setLoading(false)
       }
       return
@@ -59,9 +64,14 @@ export function useRestaurantModules(
       for (const row of data ?? []) {
         next[row.module_key as ModuleKey] = row.enabled
       }
-      if (seq === loadSeqRef.current) setModules(next)
+      if (seq === loadSeqRef.current) {
+        setModules(next)
+        setLoadError(false)
+      }
     } catch (err) {
       console.error('[useRestaurantModules] load error:', err)
+      // NU colapsăm tăcut la fallback: semnalăm eroarea de citire ca stare.
+      if (seq === loadSeqRef.current) setLoadError(true)
     }
     if (seq === loadSeqRef.current) setLoading(false)
   }
@@ -89,6 +99,7 @@ export function useRestaurantModules(
   return {
     modules,
     loading,
+    loadError,
     isEnabled: (key) => modules[key] ?? false,
     setModule,
     reload: load,

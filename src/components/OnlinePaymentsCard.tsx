@@ -46,6 +46,9 @@ async function callConnect(
 export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, toast }: Props) {
   const eligible = planTier(plan) >= 3
   const [status, setStatus] = useState<ConnectStatus | null>(null)
+  // Eroare de VERIFICARE ≠ „neconectat": pe blip, cardul afișa fals butonul
+  // „Conectează contul", sugerând că un cont deja conectat s-ar fi pierdut.
+  const [statusError, setStatusError] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const refreshStatus = useCallback(async () => {
@@ -56,9 +59,12 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
         charges_enabled: body.charges_enabled === true,
         details_submitted: body.details_submitted === true,
       })
+      setStatusError(false)
     } catch {
-      // Status necunoscut (funcție nedeployată / rețea) — nu blocăm cardul.
+      // Status necunoscut (funcție nedeployată / rețea) — semnalăm distinct,
+      // NU cădem pe „neconectat".
       setStatus(null)
+      setStatusError(true)
     }
   }, [restaurantId])
 
@@ -134,14 +140,35 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
                 1. Contul de încasare (Stripe)
               </div>
-              <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                {connected
-                  ? chargesReady
-                    ? 'Cont conectat și activ — poți încasa.'
-                    : 'Cont creat, dar onboarding-ul Stripe nu e finalizat.'
-                  : 'Creezi contul și completezi datele firmei la Stripe (~5 min).'}
+              <div style={{ fontSize: '0.72rem', color: statusError ? D.red : D.t2, marginTop: 2 }}>
+                {statusError
+                  ? 'Nu am putut verifica starea contului — reîncearcă. (Dacă ai deja un cont conectat, e în siguranță.)'
+                  : connected
+                    ? chargesReady
+                      ? 'Cont conectat și activ — poți încasa.'
+                      : 'Cont creat, dar onboarding-ul Stripe nu e finalizat.'
+                    : 'Creezi contul și completezi datele firmei la Stripe (~5 min).'}
               </div>
             </div>
+            {statusError ? (
+              <button
+                onClick={() => void refreshStatus()}
+                style={{
+                  background: D.s3,
+                  color: D.t1,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 8,
+                  padding: '9px 16px',
+                  fontFamily: 'DM Sans, sans-serif',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  minHeight: 44,
+                }}
+              >
+                Reîncearcă
+              </button>
+            ) : (
             <button
               onClick={() => void handleConnect()}
               disabled={busy}
@@ -166,6 +193,7 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
                     : 'Finalizează onboarding-ul'
                   : 'Conectează contul Stripe'}
             </button>
+            )}
           </div>
 
           {/* Pasul 2 — toggle-ul modulului */}

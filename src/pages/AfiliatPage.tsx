@@ -631,8 +631,11 @@ function PartnerAccessList() {
       .then((rows) => {
         if (!cancelled) setPartners(rows)
       })
-      .catch(() => {
-        /* fără acces / eroare — secțiunea nu se afișează */
+      .catch((e: unknown) => {
+        // Secțiunea nu se afișează pe eroare (decizie deliberată), DAR lăsăm o
+        // urmă de diagnostic — altfel un blip de rețea e indistinguibil de o
+        // revocare reală de acces la debugging în prod.
+        console.error('[AfiliatPage] listPartnerRestaurants error:', e)
       })
       .finally(() => {
         if (!cancelled) setLoaded(true)

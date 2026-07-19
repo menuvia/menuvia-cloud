@@ -236,16 +236,20 @@ export default function WaiterPage() {
 
   useEffect(() => {
     if (!restaurantId) return
-    fetchWaiterCalls(restaurantId)
-      .then(setWaiterCalls)
-      .catch(() => {})
-    const ch = subscribeToWaiterCalls(restaurantId, () => {
+    const refresh = () => {
       fetchWaiterCalls(restaurantId)
         .then(setWaiterCalls)
         .catch(() => {})
-    })
+    }
+    refresh()
+    const ch = subscribeToWaiterCalls(restaurantId, refresh)
+    // Plasă de siguranță: realtime-ul poate cădea tăcut (același motiv pentru
+    // care useOrders poll-uiește la 30s). Fără ea, un „Cheamă ospătar" pe canal
+    // căzut nu apărea NICIODATĂ până la reload — clientul rămâne neservit.
+    const poll = setInterval(refresh, 30000)
     return () => {
       ch.unsubscribe()
+      clearInterval(poll)
     }
   }, [restaurantId])
 

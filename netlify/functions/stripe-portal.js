@@ -67,11 +67,19 @@ exports.handler = async (event) => {
     return jsonResponse(503, { error: 'Rate limit service unavailable' })
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('stripe_customer_id')
     .eq('id', user.id)
     .single()
+
+  // Eroare de DB (rețea/RLS tranzitoriu) ≠ „fără abonament": fără verificare,
+  // un blip la exact endpoint-ul care rezolvă problema de plată răspundea fals
+  // 404 „nu ai abonament" unui admin cu abonament activ (audit săpt. 10).
+  if (profileErr) {
+    console.error('[stripe-portal] profile lookup failed:', profileErr.message)
+    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+  }
 
   const customerId = profile?.stripe_customer_id
   // Fără customer Stripe = niciodată n-a pornit un abonament → nimic de gestionat.

@@ -104,11 +104,19 @@ exports.handler = async (event) => {
   // Get or create Stripe customer
   const stripe = new Stripe(STRIPE_SECRET_KEY)
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('stripe_customer_id, email')
     .eq('id', user.id)
     .single()
+
+  // Eroare de DB tranzitorie ≠ „profil inexistent" — fără verificare, un blip
+  // ar crea un customer Stripe DUPLICAT (customerId rămâne undefined → ramura
+  // de creare) pentru un user care are deja unul (audit săpt. 10).
+  if (profileErr) {
+    console.error('[stripe-checkout] profile lookup failed:', profileErr.message)
+    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+  }
 
   let customerId = profile?.stripe_customer_id
 

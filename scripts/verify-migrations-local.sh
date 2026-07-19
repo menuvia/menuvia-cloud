@@ -92,6 +92,32 @@ for t in $(grep -oP "tests/sql/[a-z0-9_/]+\.sql" "$WORKFLOW" | awk '!seen[$0]++'
     tail -8 "$WORKDIR/test.log"
   fi
 done
+
+# Harness-ul de catalog-drift (18 cazuri): în workflow e un glob
+# `tests/sql/catalog_drift/*.sql`, pe care grep-ul de mai sus NU-l prinde
+# (char-class-ul nu include `*`) — fără blocul ăsta, replay-ul local raporta
+# fals „TOTUL VERDE" sărind toate cele 18 teste anti-regresie (audit săpt. 10).
+# Helper-ul assert_security_audit_shape e deja încărcat în bucla de sus (path
+# literal în workflow) și NU e drop-uit local, deci cazurile îl găsesc.
+if grep -q "tests/sql/catalog_drift/\*.sql" "$WORKFLOW"; then
+  DRIFT=(tests/sql/catalog_drift/*.sql)
+  if [ "${#DRIFT[@]}" -ne 18 ]; then
+    echo "  ✗ DRIFT FAIL: așteptate 18 cazuri, găsite ${#DRIFT[@]}"
+    FAIL=$((FAIL + 1))
+  else
+    for t in "${DRIFT[@]}"; do
+      if "${PSQL[@]}" -d menuvia_test -v ON_ERROR_STOP=1 -q -f "$t" >"$WORKDIR/test.log" 2>&1; then
+        PASS=$((PASS + 1))
+      else
+        FAIL=$((FAIL + 1))
+        echo "  ✗ FAIL: $t"
+        tail -8 "$WORKDIR/test.log"
+      fi
+    done
+    echo "  ✓ catalog_drift: 18 cazuri anti-drift rulate"
+  fi
+fi
+
 echo "── rezultat: $PASS PASS / $FAIL FAIL"
 [ "$FAIL" = "0" ] || exit 1
 echo "✓ TOTUL VERDE — lanțul de migrații + asserțiile CI trec local"
