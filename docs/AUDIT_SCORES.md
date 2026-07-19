@@ -59,25 +59,33 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   **Fix:** header cu `access_token` din sesiune + tip de rol restrâns.
   `quickSetup.ts`.
 
-### Rămase (backlog Q4 — MEDIUM, niciuna bani/securitate)
-- Notele de reconciliere `settle_note` (avertismente de refund pe plata online la
-  masă) nu au nicio suprafață în UI — îngropate în DB.
-- Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
-  setează starea) — inert, dar merită curățat sau conectat.
-- Facturi Oblio blocate în `generating` fără cale de recuperare din UI (există
-  `admin_retry_invoice` founder-side; lipsește butonul owner-side).
-- `device_secret` citibil de orice membru prin politica RLS members-read pe
-  bridge_devices — de restrâns la admin.
-- Backup DB fără copie offsite (trăiește pe același VPS) — risc DR documentat în
-  RUNBOOK, dar neautomatizat.
-- MFA platform fără backup codes — lockout permanent posibil dacă se pierde
-  factorul TOTP (clichetul anti-downgrade cere aal2 tocmai pentru dezactivare).
+### Reparate în valurile Q4 (post-scorecard)
+- **Q4-1** (mig —): 6 erori de UI înghițite tăcut acum vizibile (useFeatures,
+  useRestaurantModules, OnlinePaymentsCard, PartnerAccessList, WaiterPage poll,
+  stripe-portal/checkout) + fix integritate script replay (18 teste
+  catalog_drift sărite tăcut → 46→64 teste).
+- **Q4-2** (mig 238/239): raport TVA aplică discount-ul (supradeclarare TVA
+  reparată) + recuperarea facturilor Oblio blocate în `generating`.
+- **Q4-3** (mig 240): `orders.table_id` UPDATE cross-tenant închis +
+  `device_secret` RLS restrâns la admin.
+- **Q4-4** (mig 241): ziua de serviciu pe program peste miezul nopții
+  (sloturile post-miezul-nopții nu mai sunt fals respinse).
+- **Q4-5** (mig 242): email zombie `queued`→`failed` la plafon + ai-import
+  refund pe eșec de rețea + Stripe Connect deauthorized curăță contul mort.
 
-### LOW (deferate cu motiv)
-~20 findings LOW: erori de load înghițite în `console.error` fără stare vizibilă
-(useRestaurantModules, PartnerAccessList, status-fetch Stripe Connect), lipsă de
-teste unitare pe helperi puri (i18nMenu), rezidii de rate-limit anon-callable,
-sloturi pickup peste miezul nopții. Toate documentate, niciuna pe calea de bani.
+### Rămase (backlog Q4 — MEDIUM/LOW, niciuna bani/securitate)
+- Notele de reconciliere `settle_note` (avertismente de refund pe plata online la
+  masă) nu au nicio suprafață în UI — cere un view admin nou (deferat, feature
+  dedicat).
+- Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
+  setează starea) — inert, de curățat sau conectat.
+- Backup DB fără copie offsite (trăiește pe același VPS) — risc DR documentat în
+  RUNBOOK, dar neautomatizat (decizie de infrastructură + secrete VPS = founder).
+- MFA platform fără backup codes — lockout permanent posibil dacă se pierde
+  factorul TOTP.
+- ~15 findings LOW rămase: lipsă de teste unitare pe helperi puri (i18nMenu),
+  rezidii de rate-limit anon-callable, sloturi pickup peste miezul nopții.
+  Toate documentate, niciuna pe calea de bani/securitate.
 
 ## Metodă
 
