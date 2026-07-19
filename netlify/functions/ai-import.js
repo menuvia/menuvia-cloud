@@ -110,19 +110,30 @@ exports.handler = async (event) => {
     if (slotId) await supabase.from('ai_import_log').delete().eq('id', slotId)
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key':         process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type':      'application/json',
-    },
-    body: JSON.stringify({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      messages,
-    }),
-  })
+  // Eșecul de REȚEA (DNS/timeout) face fetch să ARUNCE — fără try/catch,
+  // excepția ieșea din handler ÎNAINTE de refundSlot(), consumând tăcut un
+  // slot de import lunar pe un blip tranzitoriu (audit săpt. 10). Îl prindem
+  // și eliberăm slotul, exact ca pe ramura !res.ok.
+  let res
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key':         process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages,
+      }),
+    })
+  } catch (e) {
+    console.error('Anthropic fetch failed:', e.message)
+    await refundSlot()
+    return jsonResponse(502, { error: 'AI request failed' })
+  }
 
   if (!res.ok) {
     const err = await res.text()
