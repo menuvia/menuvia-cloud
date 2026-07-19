@@ -212,16 +212,29 @@ export interface InviteResult {
 }
 
 export async function sendInvite(
+  // Rolurile acceptate de send-invite.js — 'admin' e respins server-side (400),
+  // deci nu-l mai oferim din tip (audit săpt. 10).
   email: string,
-  role: 'manager' | 'waiter' | 'kitchen' | 'admin',
+  role: 'manager' | 'waiter' | 'kitchen',
   restaurantId: string,
   restaurantName: string,
   invitedByName: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    // send-invite.js cere Authorization: Bearer <jwt> (getUser pe token) —
+    // fără el răspundea 401 la fiecare invitație (funcționalitate moartă).
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    if (!session?.access_token) {
+      return { ok: false, error: 'Sesiune expirată — reautentifică-te.' }
+    }
     const res = await fetch('/.netlify/functions/send-invite', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
       body: JSON.stringify({
         email,
         role,

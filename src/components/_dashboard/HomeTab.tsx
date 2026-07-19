@@ -716,9 +716,12 @@ export default function HomeTab({
       </div>
       </RevealItem>
 
-      {/* Abonament & facturare — doar plătitori (tier ≥ 2). Deschide Portalul
-          Stripe: destinația reală a CTA-urilor din emailurile de facturare. */}
-      {isAdmin && tier >= 2 && (
+      {/* Abonament & facturare — ORICE plan plătit (tier ≥ 1 = starter+).
+          Deschide Portalul Stripe: destinația reală a CTA-urilor din emailurile
+          de facturare/dunning. Starter e plan plătit (99 lei/lună) — gate-ul pe
+          tier ≥ 2 îl lăsa fără nicio cale în app de a-și schimba cardul, deci
+          CTA-ul „Actualizează metoda de plată" era dead-end (audit săpt. 10). */}
+      {isAdmin && tier >= 1 && (
         <RevealItem delay={300}>
           {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
               scroll aici, vezi efectul din DashboardPage). */}

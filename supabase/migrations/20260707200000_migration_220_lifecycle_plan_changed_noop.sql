@@ -93,7 +93,14 @@ begin
             v_email, 'payment_failed'::email_template_kind,
             jsonb_build_object('owner_name', v_name) || evt.event_data,
             evt.user_id, v_name, null,
-            'pmt_fail:' || evt.user_id::text || ':' || (evt.event_data->>'attempt')
+            -- dedup per FACTURĂ+attempt (ca payment_recovered): cheia veche
+            -- 'pmt_fail:user:attempt' se repeta identic la al doilea episod de
+            -- dunning (attempt-urile reincep de la 1) → on conflict do nothing
+            -- inghitea toate emailurile, bucla de dunning murea de la al 2-lea
+            -- esec incolo (audit sapt. 10). invoice_id il face unic per ciclu.
+            'pmt_fail:' || evt.user_id::text || ':'
+              || coalesce(evt.event_data->>'invoice_id', evt.id::text)
+              || ':' || coalesce(evt.event_data->>'attempt', '0')
           );
 
         when 'payment_recovered' then
