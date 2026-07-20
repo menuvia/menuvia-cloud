@@ -3,6 +3,7 @@
 import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
+import { buildPickupSlots } from '../lib/pickupSlots'
 import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
@@ -52,41 +53,12 @@ export default function PickupCheckoutSheet({
   // ambiguitate de rețea) refolosesc aceeași cheie → fără comenzi duplicate.
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
-  const slots = useMemo(() => {
-    const settings = restaurant.pickup_settings
-    if (!settings) return []
-    const now = new Date()
-    const lead = settings.min_lead_time_minutes
-    const interval = settings.slot_interval_minutes
-    const earliest = new Date(now.getTime() + lead * 60_000)
-
-    // Lower bound = ora de deschidere (nu putem oferi sloturi înainte de open).
-    const [openH, openM] = settings.open_hours.start.split(':').map(Number)
-    const open = new Date(now)
-    open.setHours(openH, openM, 0, 0)
-    if (earliest.getTime() < open.getTime()) {
-      earliest.setTime(open.getTime())
-    }
-
-    const min = earliest.getMinutes()
-    const remainder = min % interval
-    if (remainder > 0) earliest.setMinutes(min + (interval - remainder))
-    earliest.setSeconds(0)
-    earliest.setMilliseconds(0)
-
-    const [closeH, closeM] = settings.open_hours.end.split(':').map(Number)
-    const close = new Date(now)
-    close.setHours(closeH, closeM, 0, 0)
-    if (close.getTime() < earliest.getTime()) return []
-
-    const result: string[] = []
-    let cursor = new Date(earliest)
-    while (cursor.getTime() <= close.getTime() && result.length < 16) {
-      result.push(cursor.toISOString())
-      cursor = new Date(cursor.getTime() + interval * 60_000)
-    }
-    return result
-  }, [restaurant.pickup_settings])
+  // Helper pur (lib/pickupSlots) — suportă și programul peste miezul nopții
+  // (ex. food truck 18:00–02:00), cu aceeași doctrină ca rezervările (mig 201).
+  const slots = useMemo(
+    () => buildPickupSlots(restaurant.pickup_settings),
+    [restaurant.pickup_settings],
+  )
 
   async function submitOrder() {
     if (slots.length === 0) {

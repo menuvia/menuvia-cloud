@@ -76,6 +76,10 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   VIZIBILE — card „Reconciliere plăți online" în tabul Încasări
   (CashRegisterTab), citit prin politica RLS `table_payments_admin_read`
   existentă (mig 203); apare doar când există observații.
+- **Q4-7** (fără migrație): sloturile pickup suportă programul peste miezul
+  nopții (extras `lib/pickupSlots.ts`, doctrina mig 201 — un food truck
+  18:00–02:00 nu mai era fals „închis" toată seara) + teste unitare noi pe
+  helperii puri (`pickupSlots.test.ts`, `i18nMenu.test.ts`).
 
 ### Rămase (backlog Q4 — MEDIUM/LOW, niciuna bani/securitate)
 - Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
@@ -84,9 +88,9 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   RUNBOOK, dar neautomatizat (decizie de infrastructură + secrete VPS = founder).
 - MFA platform fără backup codes — lockout permanent posibil dacă se pierde
   factorul TOTP.
-- ~15 findings LOW rămase: lipsă de teste unitare pe helperi puri (i18nMenu),
-  rezidii de rate-limit anon-callable, sloturi pickup peste miezul nopții.
-  Toate documentate, niciuna pe calea de bani/securitate.
+- ~13 findings LOW rămase (ex. rezidii de rate-limit anon-callable) — toate
+  documentate, niciuna pe calea de bani/securitate. Testele pe helperi puri și
+  sloturile pickup peste miezul nopții au fost închise ca Q4-7.
 
 ## Metodă
 
