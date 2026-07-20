@@ -80,6 +80,14 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   nopții (extras `lib/pickupSlots.ts`, doctrina mig 201 — un food truck
   18:00–02:00 nu mai era fals „închis" toată seara) + teste unitare noi pe
   helperii puri (`pickupSlots.test.ts`, `i18nMenu.test.ts`).
+- **Q4-8** (mig 243): `advance_order` mark_paid respinge `card_online` manual
+  (paritate cu `add_partial_payment` — staff nu poate marca plăți online fără
+  plată Stripe reală) + `register_affiliate` idempotent sub cursă de
+  dublu-submit (handler unique_violation) + oracle-ul de rate-limit pe
+  telefoane închis (revoke EXECUTE anon/authenticated pe
+  `check_reservation_rate_limit`) + `assertSafeBaseUrl` sincronizat în
+  ai-config.js (userinfo respins ca în ai-proxy) + test PERMANENT post-lanț pe
+  invariantul anti-leak al proiecției publice (LH1–LH6).
 
 ### Rămase (backlog Q4 — MEDIUM/LOW, niciuna bani/securitate)
 - Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
@@ -88,9 +96,11 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   RUNBOOK, dar neautomatizat (decizie de infrastructură + secrete VPS = founder).
 - MFA platform fără backup codes — lockout permanent posibil dacă se pierde
   factorul TOTP.
-- ~13 findings LOW rămase (ex. rezidii de rate-limit anon-callable) — toate
-  documentate, niciuna pe calea de bani/securitate. Testele pe helperi puri și
-  sloturile pickup peste miezul nopții au fost închise ca Q4-7.
+- ~9 findings LOW rămase (ex. sync-ul offline blocat pe sesiune expirată fără
+  self-heal, ciclul payout draft→processing neoperabil din app) — toate
+  documentate, niciuna pe calea de bani/securitate. Q4-7 a închis helperii
+  puri + pickup-ul peste miezul nopții; Q4-8 a închis gate-ul de metodă,
+  cursa de afiliere, oracle-ul de rate-limit și divergența assertSafeBaseUrl.
 
 ## Metodă
 

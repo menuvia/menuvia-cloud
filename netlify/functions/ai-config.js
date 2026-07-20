@@ -57,6 +57,11 @@ async function assertSafeBaseUrl(raw) {
   }
   if (u.protocol !== 'https:') throw new Error('base_url trebuie să fie https')
   if (u.port && u.port !== '443') throw new Error('port nepermis (doar 443)')
+  // Fără userinfo (user:pass@host) — poate fi folosit la confuzia parserului/host-ului.
+  // Sincron cu ai-proxy.js (divergență prinsă la re-audit: aici lipsea checul,
+  // deci un base_url cu userinfo trecea de validarea de la SALVARE și pica abia
+  // la re-validarea din fetch — mai bine respins consistent din prima).
+  if (u.username || u.password) throw new Error('userinfo nepermis în base_url')
   const host = u.hostname.toLowerCase()
   if (
     host === 'localhost' ||
