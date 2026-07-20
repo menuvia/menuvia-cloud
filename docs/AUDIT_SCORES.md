@@ -72,11 +72,12 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   (sloturile post-miezul-nopții nu mai sunt fals respinse).
 - **Q4-5** (mig 242): email zombie `queued`→`failed` la plafon + ai-import
   refund pe eșec de rețea + Stripe Connect deauthorized curăță contul mort.
+- **Q4-6** (fără migrație): notele de reconciliere `settle_note` sunt acum
+  VIZIBILE — card „Reconciliere plăți online" în tabul Încasări
+  (CashRegisterTab), citit prin politica RLS `table_payments_admin_read`
+  existentă (mig 203); apare doar când există observații.
 
 ### Rămase (backlog Q4 — MEDIUM/LOW, niciuna bani/securitate)
-- Notele de reconciliere `settle_note` (avertismente de refund pe plata online la
-  masă) nu au nicio suprafață în UI — cere un view admin nou (deferat, feature
-  dedicat).
 - Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
   setează starea) — inert, de curățat sau conectat.
 - Backup DB fără copie offsite (trăiește pe același VPS) — risc DR documentat în
@@ -100,5 +101,6 @@ Codul e la **~8/10** — de la 6.13, printr-un an de valuri disciplinate (fiecar
 cu teste permanente + review adversarial). Rămâne un cap de finisaj pe
 observabilitate/DR și pe stările de eroare din UI; niciun finding rămas nu
 atinge banii sau securitatea. Următorul prag (≥9) cere: backup offsite
-automatizat, sweep pe stările de eroare tăcute din UI (un val „fără catch mut"),
-și suprafețele founder-side lipsă (retry factură owner, settle_note vizibil).
+automatizat, sweep pe stările de eroare tăcute din UI (un val „fără catch mut" —
+livrat ca Q4-1), și suprafețele founder-side lipsă (retry factură owner;
+settle_note vizibil — livrat ca Q4-6).

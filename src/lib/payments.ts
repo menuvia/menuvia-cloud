@@ -197,6 +197,43 @@ export async function cancelTablePayment(
   throw new Error(body.error || 'Anularea nu a reușit.')
 }
 
+// ── Reconciliere plăți online (admin, mig 211) ────────────────
+export interface SettleNoteRow {
+  id: string
+  amount: number
+  currency: string
+  settle_note: string
+  created_at: string
+  /** Embed table_sessions → tables; null dacă RLS-ul pe sesiune nu trece. */
+  session?: { table?: { name: string } | null } | null
+}
+
+/**
+ * Plățile online la masă încheiate cu OBSERVAȚII de reconciliere (mig 211,
+ * `settle_note`): comenzi plătite/anulate între begin și confirmare sau
+ * totaluri editate de staff în timpul plății — situații care pot cere refund
+ * parțial. Citire directă prin politica `table_payments_admin_read` (mig 203,
+ * admin only — waiter/kitchen primesc pur și simplu zero rânduri prin RLS).
+ * Aruncă pe eroare (fără catch mut) — apelantul afișează bannerul.
+ */
+export async function listSettleNotes(
+  restaurantId: string,
+  days: number = 30,
+): Promise<SettleNoteRow[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString()
+  const { data, error } = await supabase
+    .from('table_payments')
+    .select('id, amount, currency, settle_note, created_at, session:table_sessions(table:tables(name))')
+    .eq('restaurant_id', restaurantId)
+    .eq('status', 'succeeded')
+    .not('settle_note', 'is', null)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return (data ?? []) as unknown as SettleNoteRow[]
+}
+
 /**
  * Modulul de plăți online e activ pentru restaurant? (anon-callable, mig 086)
  * Folosit DOAR pentru afișarea condiționată a butonului — gate-urile reale
