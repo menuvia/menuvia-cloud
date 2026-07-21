@@ -228,7 +228,11 @@ const STATUS_TO_ACTION: Record<string, string> = {
 export async function advanceOrderStatus(
   orderId: string,
   payload: AdvanceOrderPayload,
-): Promise<Order> {
+  // OPT-5: hydrate=false sare refetch-ul complet (join dublu) de după RPC —
+  // folosit când canalul realtime e conectat și aduce oricum rândul
+  // autoritativ prin evenimentul UPDATE. Default true = contractul existent.
+  opts?: { hydrate?: boolean },
+): Promise<Order | null> {
   const current = payload._currentStatus
   const target = payload.status
   let action: string
@@ -261,6 +265,7 @@ export async function advanceOrderStatus(
     p_cancel_reason: payload.cancel_reason ?? null,
   })
   if (rpcError) throw rpcError
+  if (opts?.hydrate === false) return null
   return fetchOrderById(orderId)
 }
 

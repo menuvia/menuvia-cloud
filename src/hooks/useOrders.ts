@@ -280,11 +280,16 @@ export function useOrders(
       })
       pendingAdvancesRef.current += 1
       try {
-        const updated = await advanceOrderStatus(orderId, {
-          ...payload,
-          _currentStatus: currentStatus,
-        })
-        upsertOrder(updated)
+        // OPT-5: cu realtime conectat, evenimentul UPDATE aduce rândul
+        // autoritativ prin fast-path-ul de merge — refetch-ul cu join dublu
+        // de după RPC e redundant. Pe connecting/disconnected hidratăm ca
+        // înainte (starea optimistă ar rămâne altfel singura sursă).
+        const updated = await advanceOrderStatus(
+          orderId,
+          { ...payload, _currentStatus: currentStatus },
+          { hydrate: connectionStatusRef.current !== 'connected' },
+        )
+        if (updated) upsertOrder(updated)
         return true
       } catch (e: unknown) {
         if (previous !== undefined) {

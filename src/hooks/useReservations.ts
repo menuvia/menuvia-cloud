@@ -131,7 +131,64 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
               playSound(880, 140)
             }
           }
-          void fetchReservations()
+          // OPT-5: merge INCREMENTAL în loc de refetch integral al range-ului
+          // (SELECT + join tables) la FIECARE eveniment, per consumator montat.
+          // UPDATE cu table_id neschimbat și rând deja în state → merge
+          // in-place (payload-ul nu conține cheia `table`, join-ul rămâne
+          // valid; starts_at nu se editează din UI → ordinea se păstrează).
+          // INSERT / table_id schimbat / rând absent → fetch UN singur rând cu
+          // join și upsert sortat. DELETE → scoatere locală. Orice formă
+          // neașteptată cade pe refetch-ul integral (plasa de siguranță).
+          if (payload.eventType === 'DELETE') {
+            const id = (payload.old as { id?: string } | null)?.id
+            if (id) {
+              setReservations((prev) => prev.filter((r) => r.id !== id))
+              return
+            }
+            void fetchReservations()
+            return
+          }
+          const row = payload.new as (Partial<Reservation> & { id?: string }) | null
+          const id = row?.id
+          if (!id) {
+            void fetchReservations()
+            return
+          }
+          if (payload.eventType === 'UPDATE') {
+            let merged = false
+            setReservations((prev) => {
+              const existing = prev.find((r) => r.id === id)
+              if (existing && existing.table_id === (row.table_id ?? null)) {
+                merged = true
+                return prev.map((r) => (r.id === id ? { ...r, ...row } : r))
+              }
+              return prev
+            })
+            if (merged) return
+          }
+          // INSERT sau UPDATE ne-mergeabil → un singur rând cu join.
+          void supabase
+            .from('reservations')
+            .select('*, table:tables(id,name,seats,zone)')
+            .eq('id', id)
+            .maybeSingle()
+            .then(({ data: fresh, error: fe }) => {
+              if (fe) {
+                void fetchReservations()
+                return
+              }
+              setReservations((prev) => {
+                const without = prev.filter((r) => r.id !== id)
+                const f = fresh as Reservation | null
+                // Rând dispărut sau ieșit din fereastra curentă → doar scoatere.
+                if (!f || f.starts_at < range.from || f.starts_at > range.to) {
+                  return without
+                }
+                const next = [...without, f]
+                next.sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+                return next
+              })
+            })
         },
       )
       .subscribe()
