@@ -223,7 +223,7 @@ export default function QrMenuPage({ token }: Props) {
   // altfel badge-ul contrazice totalul (lineTotal înmulțește cu quantity).
   const cartItemCount = cart.reduce((s, i) => s + i.quantity, 0)
 
-  async function handleSubmit(): Promise<void> {
+  async function handleSubmit(notesValue: string): Promise<void> {
     if (ctx == null) return
     setSubmitting(true)
     setSubmitError(null)
@@ -246,7 +246,7 @@ export default function QrMenuPage({ token }: Props) {
           source: 'qr',
           table_id: ctx.table.id,
           qr_token_id: ctx.token.id,
-          notes: notes.length > 0 ? notes : null,
+          notes: notesValue.length > 0 ? notesValue : null,
           cart,
           idempotency_key: idempotencyKey,
           session_id: activeSessionId,
@@ -1542,7 +1542,13 @@ export default function QrMenuPage({ token }: Props) {
             onRemove={removeFromCart}
             onLineTotal={lineTotal}
             currency={menuCurrency}
-            onSubmit={() => void handleSubmit()}
+            onSubmit={(v) => {
+              // Sursa de adevăr rămâne părintele (nota supraviețuiește
+              // re-deschiderii sheet-ului); submit-ul primește valoarea ca
+              // argument — NU din state (stale closure).
+              setNotes(v)
+              void handleSubmit(v)
+            }}
             onOpenProduct={(product) => {
               setActiveProduct(product)
             }}

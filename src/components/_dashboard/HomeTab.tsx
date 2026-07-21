@@ -297,15 +297,18 @@ export default function HomeTab({
             if (alive && !error) setOrdersToday(count ?? 0)
           }),
       )
-      // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist:
-      // owner-ul a văzut fluxul complet abia când o comandă a intrat în sistem.
+      // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
+      // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
+      // comenzile restaurantului la fiecare mount, pentru un boolean care
+      // devine permanent true după prima comandă (OPT-1).
       counts.push(
         supabase
           .from('orders')
-          .select('id', head)
+          .select('id')
           .eq('restaurant_id', restaurantId)
-          .then(({ count, error }) => {
-            if (alive && !error) setEverOrdered((count ?? 0) > 0)
+          .limit(1)
+          .then(({ data, error }) => {
+            if (alive && !error) setEverOrdered((data?.length ?? 0) > 0)
           }),
       )
       if (isAdmin) {

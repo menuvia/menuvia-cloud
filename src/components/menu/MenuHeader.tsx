@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import BlurImage from '../ui/BlurImage'
 import { menuType } from '../../lib/menuType'
@@ -221,7 +222,7 @@ function StatusPill({
   )
 }
 
-export default function MenuHeader({
+function MenuHeader({
   variant,
   restaurantName,
   coverUrl,
@@ -509,3 +510,9 @@ export default function MenuHeader({
     </header>
   )
 }
+
+// OPT-2: memo — toate props-urile vin memoizate/stabile din QrMenuPage; fără
+// memo, fiecare tastă de căutare / add-to-cart re-randa întreg header-ul
+// (511 linii, LangSwitcher + menuType). LangSwitcher rămâne ne-memoizat
+// (primește labelStyle obiect nou per render — memo ar fi inert acolo).
+export default memo(MenuHeader)

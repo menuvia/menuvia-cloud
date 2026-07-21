@@ -4,7 +4,7 @@
 // thumbnail-uri, RECOMANDATE ALĂTURI pe orizontală, CTA cu prețul în buton.
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
-import { useMemo, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
@@ -44,7 +44,7 @@ export interface QrCartSheetProps {
   onUpdateQty: (key: string, delta: number) => void
   onRemove: (key: string) => void
   onLineTotal: (item: CartItem) => number
-  onSubmit: () => void
+  onSubmit: (notes: string) => void
   onOpenProduct: (product: Product) => void
   onAddToCart: (item: CartItem) => void
   /** Moneda meniului (mig 205/206) — default 'RON'. */
@@ -166,12 +166,23 @@ export default function QrCartSheet({
   const suggestionMsg =
     checkoutSuggestionSettings?.message ?? 'Ai vrea ceva în plus înainte să trimiți?'
 
+  // OPT-2: nota pentru bucătărie e stare LOCALĂ cât timp sheet-ul e deschis —
+  // fiecare tastă re-randa altfel întreaga pagină de meniu din spatele
+  // sheet-ului (părintele ținea state-ul). Părintele rămâne sursa de adevăr
+  // între deschideri: primește valoarea la close/submit prin onNotesChange.
+  const [localNotes, setLocalNotes] = useState(notes)
+
+  function handleClose(): void {
+    onNotesChange(localNotes)
+    onClose()
+  }
+
   function handleAddSuggestion(s: Product): void {
     // Minim efectiv > 0 (is_required SAU min_select > 0) → quick-add interzis;
     // serverul respinge sub minim (mig 191), deci deschidem ProductSheet.
     const hasRequired = hasMandatoryModifierGroups(s.modifier_groups)
     if (hasRequired) {
-      onClose()
+      handleClose()
       onOpenProduct(s)
       return
     }
@@ -191,7 +202,7 @@ export default function QrCartSheet({
 
   return (
     <div
-      onClick={onClose}
+      onClick={handleClose}
       className="animate-backdrop"
       style={{
         position: 'fixed',
@@ -237,7 +248,7 @@ export default function QrCartSheet({
         {/* X close — afordanță explicită (cerere UX) */}
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleClose}
           aria-label="Închide"
           className="pressable"
           style={{
@@ -556,8 +567,9 @@ export default function QrCartSheet({
           <div style={sectionLabelStyle(PUB.text2)}>Notă pentru bucătărie</div>
           <textarea
             placeholder="Fără ceapă, vă rog..."
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
+            value={localNotes}
+            onChange={(e) => setLocalNotes(e.target.value)}
+            onBlur={() => onNotesChange(localNotes)}
             rows={2}
             style={{
               background: PUB.surface,
@@ -763,7 +775,7 @@ export default function QrCartSheet({
             </div>
             <button
               type="button"
-              onClick={onSubmit}
+              onClick={() => onSubmit(localNotes)}
               className="pressable"
               style={{
                 background: 'rgba(192,57,43,0.15)',
@@ -786,7 +798,7 @@ export default function QrCartSheet({
         <button
           type="button"
           disabled={!canSubmit}
-          onClick={onSubmit}
+          onClick={() => onSubmit(localNotes)}
           className={canSubmit ? 'pressable' : ''}
           style={{
             // Coș gol / trimitere în curs → stare dezactivată clară (surface +

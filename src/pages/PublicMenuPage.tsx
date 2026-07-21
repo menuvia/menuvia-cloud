@@ -241,6 +241,24 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         return
       }
       setRestaurant(r as unknown as Restaurant)
+      // OPT-2 (LCP): coverul e elementul LCP dar hero-ul se montează abia
+      // DUPĂ al doilea RTT (meniul). URL-ul e deja cunoscut AICI — pornim
+      // descărcarea în paralel cu fetch-ul meniului, sub același gate ca
+      // hero-ul (resolveMenuElements). Preload cu fetchpriority=high, cu
+      // guard de duplicat (StrictMode double-mount / schimbare de slug).
+      const coverUrl = (r as { cover_url?: string | null }).cover_url
+      if (
+        coverUrl &&
+        resolveMenuElements((r as { theme_settings?: Parameters<typeof resolveMenuElements>[0] }).theme_settings).cover &&
+        !document.querySelector(`link[rel="preload"][href="${CSS.escape(coverUrl)}"]`)
+      ) {
+        const l = document.createElement('link')
+        l.rel = 'preload'
+        l.as = 'image'
+        l.setAttribute('fetchpriority', 'high')
+        l.href = coverUrl
+        document.head.appendChild(l)
+      }
       const rid = (r as { id: string }).id
       const cats = await fetchMenuForRestaurant(rid)
       setCategories(cats)
@@ -334,6 +352,16 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),
     [localizedCategories],
+  )
+
+  // OPT-2: items memoizate ca memo-ul de pe CategoryTabs să aibă efect —
+  // inline, array-ul era identitate nouă la fiecare render al paginii.
+  const categoryTabItems = useMemo(
+    () => [
+      { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
+      ...localizedCategories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
+    ],
+    [localizedCategories, allProducts.length, lang],
   )
 
   // Index de căutare precalculat: haystack-ul normalizat pentru fiecare produs
@@ -594,10 +622,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           Pe flipbook nu există catalog de produse → fără tab-uri/căutare/filtre. */}
       {!isFlipbook && (
         <CategoryTabs
-          items={[
-            { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
-            ...localizedCategories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
-          ]}
+          items={categoryTabItems}
           activeId={activeCat}
           onSelect={setActiveCat}
           accent={accent}

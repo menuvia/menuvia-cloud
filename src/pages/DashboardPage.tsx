@@ -753,6 +753,10 @@ export default function DashboardPage({
       setProductCount(0)
       return
     }
+    // OPT-2: count-ul alimentează DOAR UpgradeBanner (vizibil doar pe free)
+    // și HomeTab (tab 'home') — pe un plan plătit, navigarea între celelalte
+    // tab-uri emitea un query per click fără niciun efect vizibil.
+    if (plan !== 'free' && tab !== 'home') return
     let cancelled = false
     void supabase
       .from('products')
@@ -764,7 +768,7 @@ export default function DashboardPage({
     return () => {
       cancelled = true
     }
-  }, [restaurant?.id, tab]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurant?.id, tab, plan]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Badge „Rezervări": câte rezervări PENDING viitoare așteaptă confirmare.
   // Count ieftin (head:true), reîmprospătat la schimbarea de tab/restaurant —
