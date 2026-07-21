@@ -167,6 +167,9 @@ export function useOrders(
   // Câte operații advance() sunt in-flight. Polling-ul nu suprascrie state-ul
   // cât timp > 0 (altfel ar reverti update-ul optimist înainte de RPC).
   const pendingAdvancesRef = useRef(0)
+  // OPT-3: statusul realtime într-un ref — polling-ul îl consultă fără să
+  // re-creeze intervalul la fiecare flap de status.
+  const connectionStatusRef = useRef<RealtimeConnectionStatus>('connecting')
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -218,6 +221,7 @@ export function useOrders(
         }
       },
       (status) => {
+        connectionStatusRef.current = status
         setConnectionStatus(status)
         if (status === 'connected' && connectTimeoutRef.current) {
           clearTimeout(connectTimeoutRef.current)
@@ -244,9 +248,16 @@ export function useOrders(
   useEffect(() => {
     if (!restaurantId) return
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
+    // OPT-3: heartbeat, nu full-skip — cu realtime 'connected', fetch-ul
+    // integral (join dublu pe toată lista) rulează doar la fiecare al 4-lea
+    // tick (~120s); pe 'connecting'/'disconnected' rămâne la fiecare tick.
+    // NU se sare definitiv: heartbeat-ul rar prinde căderile TĂCUTE de canal.
+    let tick = 0
     const interval = setInterval(() => {
+      tick += 1
       if (typeof document !== 'undefined' && document.hidden) return
       if (pendingAdvancesRef.current > 0) return
+      if (connectionStatusRef.current === 'connected' && tick % 4 !== 0) return
       fetcher(restaurantId)
         .then((data) => {
           // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
