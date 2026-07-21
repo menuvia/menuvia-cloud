@@ -18,7 +18,7 @@ import {
 import type { ReactNode, CSSProperties } from 'react'
 import { useInView, revealStyle } from '../lib/motion'
 import {
-  fetchRestaurantBySlug,
+  fetchMenuBySlug,
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
@@ -234,12 +234,15 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const r = await fetchRestaurantBySlug(slug)
-      if (!r) {
+      // OPT-4 (mig 245): restaurant + meniu într-UN singur RTT; fallback-ul
+      // în doi pași e în fetchMenuBySlug (qr.ts).
+      const combined = await fetchMenuBySlug(slug)
+      if (!combined) {
         setError('Restaurant negăsit')
         setLoading(false)
         return
       }
+      const r = combined.restaurant
       setRestaurant(r as unknown as Restaurant)
       // OPT-2 (LCP): coverul e elementul LCP dar hero-ul se montează abia
       // DUPĂ al doilea RTT (meniul). URL-ul e deja cunoscut AICI — pornim
@@ -260,7 +263,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         document.head.appendChild(l)
       }
       const rid = (r as { id: string }).id
-      const cats = await fetchMenuForRestaurant(rid)
+      // Meniul e deja în răspunsul compus; doar pe fallback (menu null) îl
+      // aducem separat.
+      const cats = combined.menu ?? (await fetchMenuForRestaurant(rid))
       setCategories(cats)
       setLoading(false)
       // Happy Hour — non-blocking

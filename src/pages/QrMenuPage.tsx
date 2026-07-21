@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, lazy, Suspense } from 'react'
 import {
-  resolveQrToken,
+  resolveQrMenu,
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
@@ -137,14 +137,17 @@ export default function QrMenuPage({ token }: Props) {
     setInvalid(false)
     setNetworkError(false)
     let cancelled = false
-    resolveQrToken(token)
-      .then((result) => {
+    // OPT-4 (mig 245): resolve + meniu într-UN singur RTT — RPC-ul compus
+    // resolve_qr_menu; fallback-ul în doi pași e în resolveQrMenu (qr.ts).
+    resolveQrMenu(token)
+      .then((combined) => {
         if (cancelled) return
-        if (result == null) {
+        if (combined == null) {
           setInvalid(true)
           setResolving(false)
           return
         }
+        const result = combined.resolved
         setCtx(result)
         // Gate B: deschide sesiunea la scanare (non-blocking, graceful fallback).
         // Dacă RPC-ul lipsește sau eșuează → session_id rămâne null, create_order
@@ -169,7 +172,13 @@ export default function QrMenuPage({ token }: Props) {
             if (!cancelled) setHappyHour(rules)
           })
           .catch(() => {})
-        return fetchMenuForRestaurant(result.restaurant.id).then((cats) => {
+        // Meniul e deja în răspunsul compus; doar pe forma neașteptată
+        // (menu null de la un RPC vechi) cădem pe fetch-ul separat.
+        const menuPromise =
+          combined.menu != null
+            ? Promise.resolve(combined.menu)
+            : fetchMenuForRestaurant(result.restaurant.id)
+        return menuPromise.then((cats) => {
           if (cancelled) return
           setCategories(cats)
           setActiveCatId(cats[0]?.id ?? null)

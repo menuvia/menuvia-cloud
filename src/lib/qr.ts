@@ -226,7 +226,13 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
   // Folosim acum RPC SECURITY DEFINER care expune doar câmpurile publice.
   const { data, error } = await supabase.rpc('resolve_qr_token', { p_token: rawToken })
   if (error || data == null) return null
+  return mapResolvedQrPayload(data)
+}
 
+// Maparea payload-ului jsonb al resolve_qr_token → ResolvedQrToken. Partajată
+// cu resolveQrMenu (mig 245, RPC-ul compus) — o singură sursă de adevăr.
+function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
+  if (data == null || typeof data !== 'object') return null
   const payload = data as {
     token: QrToken
     table: Table
@@ -266,6 +272,42 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
   }
 }
 
+// ── RPC compus (mig 245): scanarea QR pe UN SINGUR RTT ─────────────────
+export interface ResolvedQrMenu {
+  resolved: ResolvedQrToken
+  menu: Category[] | null
+}
+
+let composedQrWarned = false
+
+/**
+ * resolve_qr_menu = resolve_qr_token + get_menu_for_restaurant compuse
+ * server-side (mig 245). Fallback AUTOMAT pe fluxul în doi pași dacă RPC-ul
+ * lipsește (frontend înaintea migrației) sau întoarce o formă neașteptată —
+ * fallback-ul NU se șterge (aceeași disciplină ca fetchMenuForRestaurant).
+ */
+export async function resolveQrMenu(rawToken: string): Promise<ResolvedQrMenu | null> {
+  const { data, error } = await supabase.rpc('resolve_qr_menu', { p_token: rawToken })
+  if (!error && data != null && typeof data === 'object') {
+    const payload = data as { resolved?: unknown; menu?: unknown }
+    const resolved = mapResolvedQrPayload(payload.resolved)
+    if (resolved) {
+      return {
+        resolved,
+        menu: Array.isArray(payload.menu) ? (payload.menu as Category[]) : null,
+      }
+    }
+  }
+  if (error && !composedQrWarned) {
+    composedQrWarned = true
+    console.warn('[qr] resolve_qr_menu indisponibil, folosesc fluxul în doi pași:', error.message)
+  }
+  const resolved = await resolveQrToken(rawToken)
+  if (!resolved) return null
+  const menu = await fetchMenuForRestaurant(resolved.restaurant.id)
+  return { resolved, menu }
+}
+
 /** Fetch restaurant by slug using SECURITY DEFINER RPC (no full-scan) */
 export async function fetchRestaurantBySlug(slug: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase.rpc('get_restaurant_by_slug', { p_slug: slug })
@@ -281,6 +323,46 @@ export async function fetchRestaurantBySlug(slug: string): Promise<Record<string
   // Normalizăm menu_languages la string[] (RPC-ul îl expune doar dacă proiecția
   // lui îl include — fast-follow; până atunci rămâne []).
   return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
+}
+
+// ── RPC compus (mig 245): /m/:slug pe UN SINGUR RTT ────────────────────
+export interface MenuBySlug {
+  restaurant: Record<string, unknown>
+  menu: Category[] | null
+}
+
+let composedSlugWarned = false
+
+/**
+ * get_menu_by_slug = get_restaurant_by_slug + get_menu_for_restaurant compuse
+ * server-side (mig 245). `null` fără eroare = slug inexistent (404-ul
+ * existent). Pe eroare (ex. RPC nedeployat) cade pe fluxul în doi pași —
+ * fallback-ul NU se șterge.
+ */
+export async function fetchMenuBySlug(slug: string): Promise<MenuBySlug | null> {
+  const { data, error } = await supabase.rpc('get_menu_by_slug', { p_slug: slug })
+  if (!error) {
+    if (data == null) return null // slug inexistent (contractul RPC)
+    if (typeof data === 'object') {
+      const payload = data as { restaurant?: Record<string, unknown> | null; menu?: unknown }
+      if (payload.restaurant && typeof payload.restaurant === 'object') {
+        return {
+          restaurant: {
+            ...payload.restaurant,
+            menu_languages: parseMenuLanguages(payload.restaurant.menu_languages),
+          },
+          menu: Array.isArray(payload.menu) ? (payload.menu as Category[]) : null,
+        }
+      }
+    }
+  }
+  if (error && !composedSlugWarned) {
+    composedSlugWarned = true
+    console.warn('[qr] get_menu_by_slug indisponibil, folosesc fluxul în doi pași:', error.message)
+  }
+  const r = await fetchRestaurantBySlug(slug)
+  if (!r) return null
+  return { restaurant: r, menu: null } // meniul îl aduce apelantul separat
 }
 
 // ── Harta sălii publică + disponibilitate mese (rezervare cu alegere pe hartă) ──

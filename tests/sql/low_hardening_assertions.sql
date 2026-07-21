@@ -161,8 +161,30 @@ begin
   raise notice 'LH5+LH6 OK: secrete null la anon, menu_languages prezent';
 end $$;
 
+-- ── LH7: RPC-ul COMPUS get_menu_by_slug (mig 245) moștenește anti-leak-ul ────
+do $$
+declare v jsonb;
+begin
+  v := public.get_menu_by_slug('lh-ent-slug');
+  if v is null then
+    raise exception 'LH7 FAIL: get_menu_by_slug nu a întors restaurantul';
+  end if;
+  if v->'restaurant'->>'wifi_password' is not null
+     or v->'restaurant'->>'qr_token' is not null then
+    raise exception 'LH7 FAIL: compusul scurge secrete la anon';
+  end if;
+  if jsonb_typeof(v->'menu') is distinct from 'array' then
+    raise exception 'LH7 FAIL: compusul nu întoarce meniul ca array (%)',
+      jsonb_typeof(v->'menu');
+  end if;
+  if public.get_menu_by_slug('slug-inexistent-xyz') is not null then
+    raise exception 'LH7 FAIL: slug inexistent nu întoarce null';
+  end if;
+  raise notice 'LH7 OK: compusul pe slug moștenește whitelist-ul + null pe 404';
+end $$;
+
 reset role;
 
-select 'LOW HARDENING ASSERTIONS: LH1–LH6 PASS' as result;
+select 'LOW HARDENING ASSERTIONS: LH1–LH7 PASS' as result;
 
 rollback;
