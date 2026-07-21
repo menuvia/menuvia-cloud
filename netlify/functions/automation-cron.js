@@ -409,6 +409,45 @@ exports.handler = async () => {
 // mai bine oprim devreme și alertăm decât să irosim tot batch-ul degeaba.
 const MAX_CONSECUTIVE_REPORT_FAILURES = 10
 
+// OPT-5: dispecer partajat de rapoarte — chunk-uri PARALELE (per restaurant
+// secvența compute→enqueue rămâne serială în interiorul thunk-ului). La 50 de
+// restaurante: ~100 RTT-uri seriale (~10-20s, peste limita de 10s Netlify →
+// batch omorât la mijloc) devin ~13 valuri (~2-3s). Circuit-breaker-ul
+// păstrează semantica „eșecuri consecutive": ORICE succes/skip din chunk
+// resetează contorul; doar chunk-urile integral eșuate îl cresc — un contor
+// global ne-resetabil ar avorta batch-uri mari pe eșecuri izolate răspândite.
+// perRestaurant întoarce 'sent' | 'skip' sau ARUNCĂ pe eșec (logat de apelant).
+const REPORT_CHUNK_SIZE = 8
+
+async function dispatchReportsChunked(restaurants, alertKey, perRestaurant) {
+  let dispatched = 0
+  let consecutiveFailures = 0
+  for (let i = 0; i < restaurants.length; i += REPORT_CHUNK_SIZE) {
+    const chunk = restaurants.slice(i, i + REPORT_CHUNK_SIZE)
+    const settled = await Promise.allSettled(chunk.map((r) => perRestaurant(r)))
+    let anyOk = false
+    let failures = 0
+    for (const st of settled) {
+      if (st.status === 'fulfilled') {
+        anyOk = true
+        if (st.value === 'sent') dispatched++
+      } else {
+        failures++
+      }
+    }
+    if (anyOk) consecutiveFailures = 0
+    consecutiveFailures += failures
+    if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+      await postCronAlert(
+        alertKey,
+        `${consecutiveFailures} eșecuri consecutive, posibil bug sistemic — dispatch oprit după ${dispatched} rapoarte trimise`,
+      )
+      break
+    }
+  }
+  return dispatched
+}
+
 // ── Dispatch weekly reports for all active restaurants ──────────
 async function dispatchWeeklyReports(supabase) {
   // Short-circuit (perf): fereastra de dispatch e largă (2h, catch-up pe tick ratat),
@@ -432,75 +471,33 @@ async function dispatchWeeklyReports(supabase) {
   if (error) throw error
   if (!restaurants || restaurants.length === 0) return 0
 
-  let dispatched = 0
-  let consecutiveFailures = 0
-  for (const r of restaurants) {
-    try {
-      // Compute report data
-      const { data: report, error: repErr } = await supabase.rpc('compute_weekly_report', {
-        p_restaurant_id: r.id,
-        p_week_start: null,
-      })
-
-      if (repErr) {
-        console.warn(`[automation-cron] Report failed for ${r.id}:`, repErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'weekly-reports',
-            `${consecutiveFailures} eșecuri consecutive la compute_weekly_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      // Skip if zero activity (no point spamming)
-      if (!report || report.orders === 0) continue
-
-      // Enqueue email (weekTag calculat o dată sus, pentru short-circuit + dedup).
-      const { error: enqErr } = await supabase.rpc('enqueue_email', {
-        p_recipient_email: r.profiles.email,
-        p_template_kind: 'weekly_report',
-        p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
-        p_user_id: r.owner_id,
-        p_recipient_name: r.profiles.full_name,
-        p_scheduled_for: null,
-        p_dedup_key: `weekly:${r.id}:${weekTag}`,
-      })
-
-      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
-      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
-      if (enqErr) {
-        console.warn(`[automation-cron] Weekly enqueue failed for ${r.id}:`, enqErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'weekly-reports',
-            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      dispatched++
-    } catch (e) {
-      console.warn(`[automation-cron] Weekly report exception for ${r.id}:`, e.message)
-      consecutiveFailures++
-      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-        await postCronAlert(
-          'weekly-reports',
-          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-        )
-        break
-      }
+  return dispatchReportsChunked(restaurants, 'weekly-reports', async (r) => {
+    const { data: report, error: repErr } = await supabase.rpc('compute_weekly_report', {
+      p_restaurant_id: r.id,
+      p_week_start: null,
+    })
+    if (repErr) {
+      console.warn(`[automation-cron] Report failed for ${r.id}:`, repErr.message)
+      throw new Error(repErr.message)
     }
-  }
-
-  return dispatched
+    // Skip if zero activity (no point spamming) — compute reușit = non-eșec.
+    if (!report || report.orders === 0) return 'skip'
+    const { error: enqErr } = await supabase.rpc('enqueue_email', {
+      p_recipient_email: r.profiles.email,
+      p_template_kind: 'weekly_report',
+      p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
+      p_user_id: r.owner_id,
+      p_recipient_name: r.profiles.full_name,
+      p_scheduled_for: null,
+      p_dedup_key: `weekly:${r.id}:${weekTag}`,
+    })
+    // Un enqueue eșuat NU e succes — contribuie la pragul de bug sistemic.
+    if (enqErr) {
+      console.warn(`[automation-cron] Weekly enqueue failed for ${r.id}:`, enqErr.message)
+      throw new Error(enqErr.message)
+    }
+    return 'sent'
+  })
 }
 
 // ── Dispatch daily reports for all active restaurants ──────────
@@ -529,70 +526,30 @@ async function dispatchDailyReports(supabase) {
   if (error) throw error
   if (!restaurants || restaurants.length === 0) return 0
 
-  let dispatched = 0
-  let consecutiveFailures = 0
-  for (const r of restaurants) {
-    try {
-      const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
-        p_restaurant_id: r.id,
-        p_day: null,
-      })
-
-      if (repErr) {
-        console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'daily-reports',
-            `${consecutiveFailures} eșecuri consecutive la compute_daily_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      if (!report || report.orders === 0) continue
-
-      const { error: enqErr } = await supabase.rpc('enqueue_email', {
-        p_recipient_email: r.profiles.email,
-        p_template_kind: 'daily_report',
-        p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
-        p_user_id: r.owner_id,
-        p_recipient_name: r.profiles.full_name,
-        p_scheduled_for: null,
-        p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
-      })
-
-      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
-      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
-      if (enqErr) {
-        console.warn(`[automation-cron] Daily enqueue failed for ${r.id}:`, enqErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'daily-reports',
-            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      dispatched++
-    } catch (e) {
-      console.warn(`[automation-cron] Daily report exception for ${r.id}:`, e.message)
-      consecutiveFailures++
-      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-        await postCronAlert(
-          'daily-reports',
-          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-        )
-        break
-      }
+  return dispatchReportsChunked(restaurants, 'daily-reports', async (r) => {
+    const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
+      p_restaurant_id: r.id,
+      p_day: null,
+    })
+    if (repErr) {
+      console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
+      throw new Error(repErr.message)
     }
-  }
-
-  return dispatched
+    if (!report || report.orders === 0) return 'skip'
+    const { error: enqErr } = await supabase.rpc('enqueue_email', {
+      p_recipient_email: r.profiles.email,
+      p_template_kind: 'daily_report',
+      p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
+      p_user_id: r.owner_id,
+      p_recipient_name: r.profiles.full_name,
+      p_scheduled_for: null,
+      p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
+    })
+    // Un enqueue eșuat NU e succes — contribuie la pragul de bug sistemic.
+    if (enqErr) {
+      console.warn(`[automation-cron] Daily enqueue failed for ${r.id}:`, enqErr.message)
+      throw new Error(enqErr.message)
+    }
+    return 'sent'
+  })
 }
