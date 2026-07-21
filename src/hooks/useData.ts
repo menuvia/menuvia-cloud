@@ -310,7 +310,15 @@ export function useCategories(restaurantId: string | null) {
   const update = async (id: string, form: Partial<Category>) => {
     const safe = pickAllowed(form, CATEGORY_UPDATE_FIELDS)
     const r = await supabase.from('categories').update(safe).eq('id', id).select().single()
-    if (!r.error) await load()
+    // OPT-5: rândul actualizat E în răspuns — merge local (+ re-sort pe
+    // display_order, invariantul lui load()), fără refetch integral.
+    if (!r.error && r.data) {
+      setCategories((prev) =>
+        prev
+          .map((c) => (c.id === id ? (r.data as Category) : c))
+          .sort((a, b) => a.display_order - b.display_order),
+      )
+    }
     return r
   }
   const remove = async (id: string) => {
@@ -379,9 +387,35 @@ export function useProducts(restaurantId: string | null) {
     if (!r.error) await load()
     return r
   }
+  // OPT-5: update/toggle primesc rândul actualizat prin .select().single() —
+  // merge local (+ re-sort pe display_order) în loc de refetch integral
+  // select('*') al întregii liste (sute de rânduri cu jsonb) per operație.
+  // load() rămâne pe create/remove (resincronizare completă) și ca refetch
+  // pentru scrierile externe (AiBulkGenerate/CSV import).
+  const mergeRow = (row: Product) => {
+    setProducts((prev) =>
+      prev
+        .map((p) => (p.id === row.id ? row : p))
+        .sort((a, b) => a.display_order - b.display_order),
+    )
+  }
   const update = async (id: string, form: Partial<Product>) => {
     const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
     const r = await supabase.from('products').update(safe).eq('id', id).select().single()
+    if (!r.error && r.data) mergeRow(r.data as Product)
+    return r
+  }
+  // OPT-5: import în LOT (AI import) — UN singur INSERT pentru N produse
+  // (display_order incremental din maxOrder) + UN singur load() la final,
+  // în loc de N×(insert + refetch integral) — ~100 RTT-uri → 2 la 50 produse.
+  const createMany = async (forms: Partial<Product>[]) => {
+    const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
+    const rows = forms.map((form, i) => ({
+      ...pickAllowed(form, PRODUCT_UPDATE_FIELDS),
+      restaurant_id: restaurantId,
+      display_order: maxOrder + 1 + i,
+    }))
+    const r = await supabase.from('products').insert(rows).select()
     if (!r.error) await load()
     return r
   }
@@ -391,18 +425,33 @@ export function useProducts(restaurantId: string | null) {
     return r
   }
   const toggleActive = async (id: string, current: boolean) => {
-    const r = await supabase.from('products').update({ is_active: !current }).eq('id', id)
-    if (!r.error) await load()
+    const r = await supabase
+      .from('products')
+      .update({ is_active: !current })
+      .eq('id', id)
+      .select()
+      .single()
+    if (!r.error && r.data) mergeRow(r.data as Product)
     return r
   }
   const toggleSoldOut = async (id: string, current: boolean) => {
-    const r = await supabase.from('products').update({ is_sold_out: !current }).eq('id', id)
-    if (!r.error) await load()
+    const r = await supabase
+      .from('products')
+      .update({ is_sold_out: !current })
+      .eq('id', id)
+      .select()
+      .single()
+    if (!r.error && r.data) mergeRow(r.data as Product)
     return r
   }
   const toggleDailySpecial = async (id: string, current: boolean) => {
-    const r = await supabase.from('products').update({ is_daily_special: !current }).eq('id', id)
-    if (!r.error) await load()
+    const r = await supabase
+      .from('products')
+      .update({ is_daily_special: !current })
+      .eq('id', id)
+      .select()
+      .single()
+    if (!r.error && r.data) mergeRow(r.data as Product)
     return r
   }
 
@@ -412,6 +461,7 @@ export function useProducts(restaurantId: string | null) {
     error,
     refetch: load,
     create,
+    createMany,
     update,
     remove,
     toggleActive,

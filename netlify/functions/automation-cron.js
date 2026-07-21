@@ -93,30 +93,43 @@ exports.handler = async () => {
 
   const results = {}
 
+  // OPT-5: sub-joburile RPC independente (1, 1b–1e, 2, 8) porneau serial —
+  // durata tick-ului era SUMA lor. Acum pornesc CONCURENT la definire (fiecare
+  // își prinde singur erorile → promisiunile nu resping niciodată) și se
+  // așteaptă TOATE înainte de return (altfel Netlify ar încheia funcția cu
+  // joburi neterminate). Gate-urile temporale rămân neschimbate, în afara
+  // fiecărui push. Joburile 3–7 (zilnice/rare) rămân seriale — se suprapun
+  // oricum cu grupul concurent.
+  const quickJobs = []
+
   // ── Job 1: process lifecycle events (every tick) ──
-  try {
-    const { data, error } = await supabase.rpc('process_lifecycle_events', { p_batch_size: 50 })
-    if (error) throw error
-    results.lifecycle_processed = data
-  } catch (e) {
-    console.error('[automation-cron] lifecycle events FAILED:', e.message)
-    await postCronAlert('lifecycle-events', e.message)
-    results.lifecycle_error = e.message
-  }
+  quickJobs.push((async () => {
+    try {
+      const { data, error } = await supabase.rpc('process_lifecycle_events', { p_batch_size: 50 })
+      if (error) throw error
+      results.lifecycle_processed = data
+    } catch (e) {
+      console.error('[automation-cron] lifecycle events FAILED:', e.message)
+      await postCronAlert('lifecycle-events', e.message)
+      results.lifecycle_error = e.message
+    }
+  })())
 
   // ── Job 1b: expiră sesiunile de masă inactive (orar) ──
   // Sesiunile QR rămase deschise (clientul a plecat fără a închide) blochează masa pentru
   // următorii clienți. Le expirăm orar (inactiv > 3h). Idempotent — un tick ratat se reia.
   if (minute < 15) {
-    try {
-      const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
-      if (error) throw error
-      results.sessions_expired = data
-    } catch (e) {
-      console.error('[automation-cron] expire sessions FAILED:', e.message)
-      await postCronAlert('expire-sessions', e.message)
-      results.sessions_expire_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
+        if (error) throw error
+        results.sessions_expired = data
+      } catch (e) {
+        console.error('[automation-cron] expire sessions FAILED:', e.message)
+        await postCronAlert('expire-sessions', e.message)
+        results.sessions_expire_error = e.message
+      }
+    })())
   }
 
   // ── Job 1c: tichete bucătărie blocate pe 'sent' (orar) ──
@@ -124,17 +137,19 @@ exports.handler = async () => {
   // tichetul agățat în 'sent' — îl marcăm error (BRIDGE_TIMEOUT) ca să apară
   // butonul „Reîncearcă" în dashboard; purge pe terminale >30 zile (mig 227).
   if (minute < 15) {
-    try {
-      const { data, error } = await supabase.rpc('kitchen_tickets_mark_stale')
-      // PGRST202 = mig 227 neaplicată încă (deploy frontend înaintea DB-ului)
-      // — nu alertăm orar pentru o funcție care nu există încă.
-      if (error && error.code !== 'PGRST202') throw error
-      if (!error) results.kitchen_tickets_stale = data
-    } catch (e) {
-      console.error('[automation-cron] kitchen tickets stale FAILED:', e.message)
-      await postCronAlert('kitchen-tickets-stale', e.message)
-      results.kitchen_tickets_stale_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('kitchen_tickets_mark_stale')
+        // PGRST202 = mig 227 neaplicată încă (deploy frontend înaintea DB-ului)
+        // — nu alertăm orar pentru o funcție care nu există încă.
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.kitchen_tickets_stale = data
+      } catch (e) {
+        console.error('[automation-cron] kitchen tickets stale FAILED:', e.message)
+        await postCronAlert('kitchen-tickets-stale', e.message)
+        results.kitchen_tickets_stale_error = e.message
+      }
+    })())
   }
 
   // ── Job 1e: facturi Oblio blocate în 'generating' (orar, mig 239) ──
@@ -143,16 +158,18 @@ exports.handler = async () => {
   // (NU o re-punem în coadă: risc de duplicat fiscal), ca să apară în lista
   // de eșecuri a founderului pentru retry manual după verificare în Oblio.
   if (minute < 15) {
-    try {
-      const { data, error } = await supabase.rpc('oblio_reclaim_stale_generating')
-      // PGRST202 = mig 239 neaplicată încă (deploy frontend înaintea DB-ului).
-      if (error && error.code !== 'PGRST202') throw error
-      if (!error) results.oblio_stale_generating = data
-    } catch (e) {
-      console.error('[automation-cron] oblio stale generating FAILED:', e.message)
-      await postCronAlert('oblio-stale-generating', e.message)
-      results.oblio_stale_generating_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('oblio_reclaim_stale_generating')
+        // PGRST202 = mig 239 neaplicată încă (deploy frontend înaintea DB-ului).
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.oblio_stale_generating = data
+      } catch (e) {
+        console.error('[automation-cron] oblio stale generating FAILED:', e.message)
+        await postCronAlert('oblio-stale-generating', e.message)
+        results.oblio_stale_generating_error = e.message
+      }
+    })())
   }
 
   // ── Job 1d: auto no-show pe rezervări (orar, mig 234) ──
@@ -160,30 +177,34 @@ exports.handler = async () => {
   // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de
   // recidivist din ReservationsTab fără să depindă de disciplina staff-ului.
   if (minute < 15) {
-    try {
-      const { data, error } = await supabase.rpc('auto_mark_reservation_no_show')
-      // PGRST202 = mig 234 neaplicată încă (deploy frontend înaintea DB-ului).
-      if (error && error.code !== 'PGRST202') throw error
-      if (!error) results.reservations_auto_no_show = data
-    } catch (e) {
-      console.error('[automation-cron] auto no-show FAILED:', e.message)
-      await postCronAlert('reservations-auto-no-show', e.message)
-      results.reservations_auto_no_show_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('auto_mark_reservation_no_show')
+        // PGRST202 = mig 234 neaplicată încă (deploy frontend înaintea DB-ului).
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.reservations_auto_no_show = data
+      } catch (e) {
+        console.error('[automation-cron] auto no-show FAILED:', e.message)
+        await postCronAlert('reservations-auto-no-show', e.message)
+        results.reservations_auto_no_show_error = e.message
+      }
+    })())
   }
 
   // ── Job 2: compute health scores (every 30 min) ──
   if (minute < 15 || (minute >= 30 && minute < 45)) {
-    try {
-      const { data, error } = await supabase.rpc('compute_health_scores')
-      if (error) throw error
-      results.health_scores_computed = (data || []).length
-      results.health_alerts = (data || []).filter(r => r.alert_needed).length
-    } catch (e) {
-      console.error('[automation-cron] health scores FAILED:', e.message)
-      await postCronAlert('health-scores', e.message)
-      results.health_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('compute_health_scores')
+        if (error) throw error
+        results.health_scores_computed = (data || []).length
+        results.health_alerts = (data || []).filter(r => r.alert_needed).length
+      } catch (e) {
+        console.error('[automation-cron] health scores FAILED:', e.message)
+        await postCronAlert('health-scores', e.message)
+        results.health_error = e.message
+      }
+    })())
   }
 
   // ── Job 3: cleanup rate limits (once daily at 03:15) ──
@@ -335,6 +356,7 @@ exports.handler = async () => {
   // nu la fiecare tick de 15 min. Nota: coloana de timp e `received_at`
   // (mig 038), nu `created_at`.
   if (minute < 15) {
+    quickJobs.push((async () => {
     try {
       const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
       const { data, count, error } = await supabase
@@ -364,7 +386,11 @@ exports.handler = async () => {
       await postCronAlert('stripe-failed-events', e.message)
       results.stripe_failed_scan_error = e.message
     }
+    })())
   }
+
+  // Barieră: toate sub-joburile concurente s-au încheiat înainte de return.
+  await Promise.allSettled(quickJobs)
 
   return {
     statusCode: 200,
