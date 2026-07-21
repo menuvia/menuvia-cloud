@@ -6,6 +6,7 @@ import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
+import { thumbUrlFor } from '../../lib/images'
 import { DIETARY_TAGS } from '../../lib/constants'
 
 // ─────────────────────────────────────────────────────────────
@@ -386,7 +387,15 @@ function Thumbnail({
   if (product.image_url) {
     return (
       <div style={base}>
-        <BlurImage src={product.image_url} alt={product.name} aspectRatio="1 / 1" skeleton />
+        <BlurImage
+          // OPT-6: thumb ~320px (~20KB) în loc de originalul 1200px; fallback
+          // automat pe original pentru imaginile vechi fără thumb.
+          src={thumbUrlFor(product.image_url) ?? product.image_url}
+          fallbackSrc={product.image_url}
+          alt={product.name}
+          aspectRatio="1 / 1"
+          skeleton
+        />
       </div>
     )
   }

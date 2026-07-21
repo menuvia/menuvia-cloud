@@ -10,6 +10,7 @@ import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
+import { thumbUrlFor } from '../lib/images'
 
 interface PUBColors {
   bg: string
@@ -396,7 +397,13 @@ export default function QrCartSheet({
               >
                 {prod?.image_url ? (
                   <img
-                    src={prod.image_url}
+                    src={thumbUrlFor(prod.image_url) ?? prod.image_url}
+                    onError={(e) => {
+                      // Imagine veche fără thumb → o singură trecere pe original.
+                      if (prod.image_url && e.currentTarget.src !== prod.image_url) {
+                        e.currentTarget.src = prod.image_url
+                      }
+                    }}
                     alt={item.product_name_snapshot}
                     loading="lazy"
                     decoding="async"
@@ -631,7 +638,12 @@ export default function QrCartSheet({
                 >
                   {s.image_url ? (
                     <img
-                      src={s.image_url}
+                      src={thumbUrlFor(s.image_url) ?? s.image_url}
+                      onError={(e) => {
+                        if (s.image_url && e.currentTarget.src !== s.image_url) {
+                          e.currentTarget.src = s.image_url
+                        }
+                      }}
                       alt={s.name}
                       loading="lazy"
                       decoding="async"

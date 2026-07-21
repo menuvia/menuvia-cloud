@@ -17,6 +17,7 @@ import { useState, type CSSProperties } from 'react'
 // ─────────────────────────────────────────────────────────────
 export function BlurImage({
   src,
+  fallbackSrc,
   alt,
   style,
   className,
@@ -25,6 +26,9 @@ export function BlurImage({
   loading = 'lazy',
 }: {
   src: string
+  /** URL de rezervă încercat O dată la eroarea lui `src` (ex. originalul
+   *  1200px când thumb-ul _t.webp nu există — imagini vechi, OPT-6). */
+  fallbackSrc?: string
   alt: string
   style?: CSSProperties
   className?: string
@@ -36,6 +40,9 @@ export function BlurImage({
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [useFallback, setUseFallback] = useState(false)
+
+  const effectiveSrc = useFallback && fallbackSrc ? fallbackSrc : src
 
   // Fallback pe imagine eșuată: fundal neutru + inițiala din alt (monogramă).
   // Nu avem tema aici (componenta e generică), deci folosim un gri translucid
@@ -65,7 +72,7 @@ export function BlurImage({
 
   const img = (
     <img
-      src={src}
+      src={effectiveSrc}
       alt={alt}
       loading={loading}
       decoding="async"
@@ -87,6 +94,11 @@ export function BlurImage({
       // Imagine eșuată (404/rețea): oprim skeleton-ul și trecem pe fallback
       // (altfel ar rămâne vizibilă iconița „broken image" a browserului).
       onError={() => {
+        // Întâi fallback-ul (o singură dată), abia apoi monograma de eșec.
+        if (fallbackSrc && !useFallback) {
+          setUseFallback(true)
+          return
+        }
         setLoaded(true)
         setFailed(true)
       }}

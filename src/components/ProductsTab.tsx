@@ -88,11 +88,34 @@ function ProductModal({
       const blob = await new Promise<Blob>((res) =>
         canvas.toBlob((b) => res(b!), 'image/webp', 0.85),
       )
-      const path = userId + '/' + restaurantId + '/' + crypto.randomUUID() + '.webp'
+      // OPT-6: al DOILEA blob de ~320px pentru thumbnail-uri — cardurile de
+      // listă (88px) și coșul (52px) descărcau originalul de 1200px
+      // (~150-400KB) pentru fiecare poză; thumb-ul e ~20KB. Convenție de nume
+      // {uuid}_t.webp lângă original (thumbUrlFor din lib/images derivă URL-ul;
+      // fallback onError la original acoperă toate imaginile vechi — fără
+      // migrație DB, fără coloană nouă).
+      const thumbW = 320
+      const tScale = canvas.width > thumbW ? thumbW / canvas.width : 1
+      const tCanvas = document.createElement('canvas')
+      tCanvas.width = Math.round(canvas.width * tScale)
+      tCanvas.height = Math.round(canvas.height * tScale)
+      tCanvas.getContext('2d')!.drawImage(canvas, 0, 0, tCanvas.width, tCanvas.height)
+      const thumbBlob = await new Promise<Blob>((res) =>
+        tCanvas.toBlob((b) => res(b!), 'image/webp', 0.8),
+      )
+      const baseName = crypto.randomUUID()
+      const path = userId + '/' + restaurantId + '/' + baseName + '.webp'
+      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.webp'
       const { error } = await supabase.storage
         .from('product-images')
         .upload(path, blob, { contentType: 'image/webp' })
       if (error) throw error
+      // Thumb-ul e best-effort: dacă upload-ul lui pică, cardurile cad oricum
+      // pe original prin fallback-ul onError — nu blocăm salvarea produsului.
+      const { error: thumbErr } = await supabase.storage
+        .from('product-images')
+        .upload(thumbPath, thumbBlob, { contentType: 'image/webp' })
+      if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
       const {
         data: { publicUrl },
       } = supabase.storage.from('product-images').getPublicUrl(path)
