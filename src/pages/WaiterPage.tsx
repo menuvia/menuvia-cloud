@@ -284,7 +284,9 @@ export default function WaiterPage() {
   // PayModal/DiscountModal (altfel pe iOS pagina derulează sub overlay).
   useBodyScrollLock(splitOrder != null && paymentsEnabled)
 
-  function openSplitBill(order: Order): void {
+  // OPT-8: handleri stabili (useCallback) — altfel memo-ul de pe OrderCard
+  // e inert: fiecare render al paginii le dădea identitate nouă.
+  const openSplitBill = useCallback((order: Order): void => {
     setSplitOrder(order)
     setSplitAmount('')
     setSplitMethod('cash')
@@ -295,7 +297,7 @@ export default function WaiterPage() {
         setSplitLoading(false)
       })
       .catch(() => setSplitLoading(false))
-  }
+  }, [])
 
   async function handlePartialPay(): Promise<void> {
     if (!splitOrder) return
@@ -490,10 +492,13 @@ export default function WaiterPage() {
     prevReadyIds.current = new Set(readyOrders.map((o) => o.id))
   }, [orders])
 
-  function handleServit(order: Order): void {
-    if (user == null) return
-    void advance(order.id, 'ready', { status: 'served', served_by: user.id })
-  }
+  const handleServit = useCallback(
+    (order: Order): void => {
+      if (user == null) return
+      void advance(order.id, 'ready', { status: 'served', served_by: user.id })
+    },
+    [user, advance],
+  )
 
   async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<void> {
     if (payOrder == null || user == null) return
@@ -516,13 +521,21 @@ export default function WaiterPage() {
 
   // Plan 1/2: închidere NON-fiscală (served → closed). Fără sumă, fără metodă
   // de plată — clientul plătește la casa de marcat existentă a localului.
-  function handleCloseOrder(order: Order): void {
-    if (user == null) return
-    void advance(order.id, 'served', { status: 'closed' })
-  }
+  const handleCloseOrder = useCallback(
+    (order: Order): void => {
+      if (user == null) return
+      void advance(order.id, 'served', { status: 'closed' })
+    },
+    [user, advance],
+  )
 
-  const readyOrders = byStatus(['ready'])
-  const openOrders = byStatus(['new', 'confirmed', 'preparing', 'ready', 'served'])
+  // OPT-8: memoizate — byStatus e stabil (useCallback pe [orders]) și listele
+  // își schimbă identitatea doar când chiar se schimbă comenzile.
+  const readyOrders = useMemo(() => byStatus(['ready']), [byStatus])
+  const openOrders = useMemo(
+    () => byStatus(['new', 'confirmed', 'preparing', 'ready', 'served']),
+    [byStatus],
+  )
 
   // Mesele afișate în panoul „Stadiu mese": dacă ospătarul are mese alocate,
   // doar ale lui; altfel toate (consistent cu filtrarea comenzilor de mai sus).

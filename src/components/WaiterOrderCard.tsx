@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // PayModal + OrderCard — extracted from WaiterPage
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect } from 'react'
+import { memo, useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
@@ -475,7 +475,7 @@ interface OrderCardProps {
   onCloseOrder?: (order: Order) => void
 }
 
-function OrderCard({
+function OrderCardInner({
   order,
   onPayOpen,
   onSplitOpen,
@@ -756,5 +756,10 @@ function OrderCard({
     </div>
   )
 }
+
+// OPT-8: memo — cardul (~280 linii JSX) e randat per comandă în WaiterPage și
+// TableStatusBoard; fără memo, fiecare eveniment realtime re-randa toate
+// cardurile. Handlerii din părinți sunt stabilizați cu useCallback.
+const OrderCard = memo(OrderCardInner)
 
 export { PayModal, OrderCard, STATUS_META }

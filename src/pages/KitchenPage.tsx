@@ -4,7 +4,7 @@
 // Restaurant selection via RestaurantContext — no local membership query.
 // =============================================================
 
-import { useState, useEffect, useRef, CSSProperties, ReactNode } from 'react'
+import { memo, useCallback, useState, useEffect, useRef, CSSProperties, ReactNode } from 'react'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import type { Order, OrderStatus } from '../lib/orders'
@@ -112,7 +112,7 @@ interface OrderCardProps {
   order: Order
   onAdvance: (id: string, cur: OrderStatus, next: OrderStatus) => void
 }
-function OrderCard({ order, onAdvance }: OrderCardProps) {
+const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) {
   const next = KITCHEN_NEXT[order.status]
   // Re-render la 10s (aceeași cadență ca ElapsedTimer) — altfel border-ul/fundalul
   // cardului rămâneau „calme" până la următorul poll (~30s) deși chip-ul de timp
@@ -254,7 +254,7 @@ function OrderCard({ order, onAdvance }: OrderCardProps) {
       )}
     </div>
   )
-}
+})
 
 // ── Restaurant selector — shown only when user has access to multiple restaurants ──
 function RestaurantSelector({
@@ -365,9 +365,13 @@ export default function KitchenPage() {
     prevOrderIds.current = currentIds
   }, [orders])
 
-  function handleAdvance(orderId: string, current: OrderStatus, next: OrderStatus): void {
-    void advance(orderId, current, { status: next })
-  }
+  // OPT-8: stabil — altfel memo-ul de pe OrderCard e inert (prop nou/render).
+  const handleAdvance = useCallback(
+    (orderId: string, current: OrderStatus, next: OrderStatus): void => {
+      void advance(orderId, current, { status: next })
+    },
+    [advance],
+  )
 
   if (ctxLoading || loading) {
     return (
