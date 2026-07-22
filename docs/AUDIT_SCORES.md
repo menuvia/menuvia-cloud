@@ -89,6 +89,30 @@ lipsă) — niciuna nu e o gaură de bani sau securitate.
   ai-config.js (userinfo respins ca în ai-proxy) + test PERMANENT post-lanț pe
   invariantul anti-leak al proiecției publice (LH1–LH6).
 
+### Campania de optimizare OPT (22 iul 2026)
+Audit dedicat de performanță (workflow: 10 lentile × verificare adversarială,
+68 agenți, ~5,2M tokeni): **42 findings confirmate, 16 refuzate**. Implementate
+**41/42** în 15 valuri (OPT-1…OPT-11, fiecare cu preview verde):
+- **DB (mig 244/246)**: 5 indexuri pe căile fierbinți (incl. rate-limit-ul QR
+  serializat sub advisory lock), availability sargabil, `group_options`
+  agregate o dată per grup, drop pe un index redundant.
+- **RTT**: scanarea QR + /m/:slug pe **1 RTT** (mig 245, compuneri pure),
+  CRUD meniu cu merge local, import AI ~100→2 RTT, advance fără refetch
+  redundant, rezervări cu merge incremental.
+- **Bundle/LCP**: posthog + Sentry + dicționarul i18n (7 limbi) scoase din
+  entry (~80-115KB gz), preload pe cover, thumbnails ~320px (8MB→1MB la
+  scroll), lazy sheets în WaiterPage.
+- **Reziliență**: timeout pe TOATE fetch-urile outbound (Anthropic cu refund
+  garantat, SMSO, Resend, Slack), cron cu sub-joburi concurente, rapoartele
+  în chunk-uri paralele cu circuit-breaker corect (batch-ul nu mai era omorât
+  la limita de 10s).
+- **Render**: memo end-to-end pe ecranele POS (OrderCard/BoardTableCard/
+  TableStatusMap/CategoryTabs/MenuHeader + handleri stabili + reconciliere
+  de referințe la polling + timer unic pe Kitchen + derivări memoizate).
+Deferate cu motiv: dedup-ul structural pe fetch-ul de restaurante (atinge
+capcana useRestaurants/onboarding, câștig mic) și batching-ul triggerului
+`order_items_subtotal_sync` (risky — lanțul de audit al comenzilor).
+
 ### Rămase (backlog Q4 — MEDIUM/LOW, niciuna bani/securitate)
 - Gate-ul de atribuire terminală din mig 193 e cod mort (niciun producător
   setează starea) — inert, de curățat sau conectat.
