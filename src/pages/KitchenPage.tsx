@@ -66,12 +66,11 @@ function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: numb
 }
 
 // Timer mare, citibil de la distanță. Culoarea + intensitatea cresc cu vârsta.
+// OPT-7: FĂRĂ interval propriu — părintele (OrderCard) se re-randează deja la
+// 10s prin urgencyTick, deci elapsed() calculat la render e mereu proaspăt.
+// Înainte: 2 timere per card (60 la 30 de comenzi), re-render-uri decalate.
 function ElapsedTimer({ createdAt }: { createdAt: string }) {
-  const [val, setVal] = useState(() => elapsed(createdAt))
-  useEffect(() => {
-    const id = setInterval(() => setVal(elapsed(createdAt)), 10_000)
-    return () => clearInterval(id)
-  }, [createdAt])
+  const val = elapsed(createdAt)
   const level = urgencyLevel(createdAt)
   const color = urgencyLevelColor(level) ?? D.t2
   const calm = level === 'calm'

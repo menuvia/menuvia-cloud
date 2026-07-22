@@ -84,6 +84,7 @@ async function postSmsAlert(message) {
   try {
     const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: `🔴 process-sms-queue: ${message}` }),
     })
@@ -159,6 +160,9 @@ exports.handler = async () => {
     try {
       const res = await fetch('https://app.smso.ro/api/v1/send', {
         method: 'POST',
+        // OPT-7: un SMS agățat nu mai pierde tot tick-ul de 1 min (riscul de
+        // dublu-send pe abort e IDENTIC cu kill-ul la 10s, deja documentat).
+        signal: AbortSignal.timeout(8000),
         headers: {
           'X-Authorization': SMSO_API_KEY,
           'Content-Type': 'application/json',

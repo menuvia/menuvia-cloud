@@ -118,6 +118,9 @@ exports.handler = async (event) => {
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
+      // OPT-7: un TCP agățat nu ARUNCĂ — funcția era omorâtă la limită fără
+      // să ruleze refundSlot(), consumând tăcut un slot lunar de import.
+      signal: AbortSignal.timeout(25_000),
       headers: {
         'x-api-key':         process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
@@ -135,14 +138,22 @@ exports.handler = async (event) => {
     return jsonResponse(502, { error: 'AI request failed' })
   }
 
-  if (!res.ok) {
-    const err = await res.text()
-    console.error('Anthropic error:', err)
+  // Citirea body-ului poate ARUNCA TimeoutError sub semnal — o ținem pe
+  // aceeași cale de refund ca fetch-ul (zero sloturi pierdute).
+  let data
+  try {
+    if (!res.ok) {
+      const err = await res.text()
+      console.error('Anthropic error:', err)
+      await refundSlot()
+      return jsonResponse(500, { error: 'AI request failed' })
+    }
+    data = await res.json()
+  } catch (e) {
+    console.error('Anthropic body read failed:', e.message)
     await refundSlot()
-    return jsonResponse(500, { error: 'AI request failed' })
+    return jsonResponse(502, { error: 'AI request failed' })
   }
-
-  const data = await res.json()
   const text = data.content?.[0]?.text || '[]'
 
   try {

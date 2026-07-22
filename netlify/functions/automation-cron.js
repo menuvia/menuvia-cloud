@@ -31,6 +31,7 @@ async function postCronAlert(jobName, message) {
     const text = `🔴 Cron job ${jobName} a eșuat: ${message}`
     const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
@@ -54,6 +55,7 @@ async function postCronNotice(jobName, message) {
     const text = `🟡 Cron ${jobName}: ${message}`
     const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })

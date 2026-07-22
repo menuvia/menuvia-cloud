@@ -517,6 +517,7 @@ async function postEmailAlert(message) {
   try {
     const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: `🔴 process-email-queue: ${message}` }),
     })

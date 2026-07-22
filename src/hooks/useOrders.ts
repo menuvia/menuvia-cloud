@@ -26,6 +26,26 @@ function belongsInView(order: Order, view: 'kitchen' | 'waiter'): boolean {
   return !WAITER_EXCLUDED.includes(order.status)
 }
 
+// Reconciliere de polling (OPT-7): pentru fiecare comandă nouă, dacă cea
+// veche cu același id e IDENTICĂ structural (JSON stabil — include items și
+// embed-ul table), păstrăm obiectul VECHI ca referința să nu se schimbe.
+// Dacă totul e identic și ordinea/lungimea coincid, întoarcem chiar array-ul
+// vechi → setState devine no-op și nimic nu se re-randează.
+function reconcileOrders(prev: Order[], next: Order[]): Order[] {
+  const byId = new Map(prev.map((o) => [o.id, o]))
+  let allSame = prev.length === next.length
+  const merged = next.map((n, i) => {
+    const old = byId.get(n.id)
+    if (old && JSON.stringify(old) === JSON.stringify(n)) {
+      if (allSame && prev[i] !== old) allSame = false
+      return old
+    }
+    allSame = false
+    return n
+  })
+  return allSame ? prev : merged
+}
+
 // Realtime poate livra coloanele numeric ca string — coercăm defensiv.
 function rtStr(v: unknown): string | null {
   return typeof v === 'string' ? v : null
@@ -199,6 +219,14 @@ export function useOrders(
         // în ora de vârf; INSERT-urile și editările de produse refetch-uiesc.
         if (eventType === 'UPDATE') {
           const existing = ordersRef.current.find((o) => o.id === orderId)
+          // OPT-7: comandă ABSENTĂ din state, cu status în payload care nu
+          // aparține view-ului (ex. served→paid pe Bucătărie) → zero interes,
+          // sărim SELECT-ul cu join-uri. Statusul lipsă cade pe refetch.
+          const newStatus = rtStr(newRow.status)
+          if (!existing && newStatus !== null) {
+            const phantom = { status: newStatus } as Order
+            if (!belongsInView(phantom, view)) return
+          }
           const newTotal = rtNum(newRow.total)
           // Fast-path DOAR pentru tranziții reale de status/plată (total neschimbat
           // ȘI un câmp de status/timestamp chiar s-a schimbat). O editare de produse
@@ -262,7 +290,10 @@ export function useOrders(
         .then((data) => {
           // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
           if (pendingAdvancesRef.current > 0) return
-          setOrders(data)
+          // OPT-7: reconciliere pe id cu păstrarea REFERINȚELOR — altfel
+          // fiecare heartbeat crea obiecte noi pentru comenzi neschimbate,
+          // re-randând tot arborele și invalidând orice memo pe carduri.
+          setOrders((prev) => reconcileOrders(prev, data))
         })
         .catch(() => {
           /* ignore — păstrăm state-ul curent */
