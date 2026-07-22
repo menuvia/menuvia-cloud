@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
-import { T } from '../lib/constants'
+import { T } from '../lib/publicMenuStrings'
 import type { Restaurant } from '../lib/qr'
 import {
   fetchPublicFloorPlan,

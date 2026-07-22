@@ -42,7 +42,8 @@ import {
   resolveFlipbookPages,
 } from '../lib/themes'
 
-import { DIETARY_TAGS, T } from '../lib/constants'
+import { DIETARY_TAGS } from '../lib/constants'
+import { T } from '../lib/publicMenuStrings'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme, MenuElements } from '../lib/themes'
 import {
