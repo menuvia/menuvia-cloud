@@ -8,6 +8,7 @@
 // D și culorile de status, nu paleta publică.
 // =============================================================
 
+import { memo } from 'react'
 import type { KeyboardEvent } from 'react'
 import { CANVAS_W, CANVAS_H, resolveTableId, type FloorLayout } from '../lib/floorPlan'
 import { D } from '../lib/constants'
@@ -30,7 +31,7 @@ interface Props {
 
 const WALL_COLOR = { wall: '#64748b', window: '#7EB8F7', door: '#9B72CF' } as const
 
-export default function TableStatusMap({
+function TableStatusMap({
   layout,
   stateById,
   tablesByName,
@@ -218,3 +219,7 @@ export default function TableStatusMap({
     </div>
   )
 }
+
+// OPT-9: memo — canvasul hărții nu se mai redesenează la fiecare render al
+// board-ului (expand/selecție); props-urile vin acum stabile din derived.
+export default memo(TableStatusMap)
