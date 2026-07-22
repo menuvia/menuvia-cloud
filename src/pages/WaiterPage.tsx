@@ -3,7 +3,7 @@
 // Waiter Dashboard (/waiter). Dark theme. No `any`.
 // =============================================================
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
@@ -16,10 +16,13 @@ import { playSound } from '../lib/utils'
 import { useInView, revealStyle } from '../lib/motion'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import ManualOrderSheet from '../components/ManualOrderSheet'
-import EditOrderSheet from '../components/EditOrderSheet'
-import CancelOrderDialog from '../components/CancelOrderDialog'
-import OrderAuditSheet from '../components/OrderAuditSheet'
+// OPT-10: sheet-urile/modalele condiționale sunt lazy (pattern QrMenuPage) —
+// ~2.000+ LOC amânate din chunk-ul inițial al paginii de ospătar. WaiterEntry
+// rămâne static (partajează ModifierSheet, folosit imediat la comanda nouă).
+const ManualOrderSheet = lazy(() => import('../components/ManualOrderSheet'))
+const EditOrderSheet = lazy(() => import('../components/EditOrderSheet'))
+const CancelOrderDialog = lazy(() => import('../components/CancelOrderDialog'))
+const OrderAuditSheet = lazy(() => import('../components/OrderAuditSheet'))
 import {
   fetchWaiterCalls,
   resolveWaiterCall,
@@ -32,8 +35,8 @@ import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard } from '../components/WaiterOrderCard'
-import DiscountModal from '../components/DiscountModal'
-import TableStatusBoard from '../components/TableStatusBoard'
+const DiscountModal = lazy(() => import('../components/DiscountModal'))
+const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
@@ -1387,6 +1390,7 @@ export default function WaiterPage() {
         </div>
           </>
         ) : (
+          <Suspense fallback={null}>
           <TableStatusBoard
             tables={boardTables}
             orders={openOrders}
@@ -1406,6 +1410,7 @@ export default function WaiterPage() {
               />
             )}
           />
+          </Suspense>
         )}
       </div>
 
@@ -1459,14 +1464,16 @@ export default function WaiterPage() {
             return null
           }
           return (
-            <DiscountModal
-              order={target}
-              onClose={() => setDiscountOrderId(null)}
-              onApplied={() => {
-                // Realtime din useOrders va aduce update-ul; nu mai trebuie să facem nimic.
-                // Lăsăm DiscountModal să se închidă singur prin onClose.
-              }}
-            />
+            <Suspense fallback={null}>
+              <DiscountModal
+                order={target}
+                onClose={() => setDiscountOrderId(null)}
+                onApplied={() => {
+                  // Realtime din useOrders va aduce update-ul; nu mai trebuie să facem nimic.
+                  // Lăsăm DiscountModal să se închidă singur prin onClose.
+                }}
+              />
+            </Suspense>
           )
         })()}
 
@@ -1663,6 +1670,7 @@ export default function WaiterPage() {
         </div>
       )}
 
+      <Suspense fallback={null}>
       {editOrder != null && (
         <EditOrderSheet
           order={editOrder}
@@ -1704,6 +1712,7 @@ export default function WaiterPage() {
           }}
         />
       )}
+      </Suspense>
 
       {lastManualOrder && (
         <div
