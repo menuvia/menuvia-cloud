@@ -1348,6 +1348,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/subtotal_stmt_assertions.sql
 
+      - name: "Stock deduction on closed assertions (mig 250)"
+        if: ${{ hashFiles('supabase/migrations/20260723140000_migration_250_stock_deduct_on_closed.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/stock_deduction_assertions.sql
+
       - name: "White-label + benchmark assertions (mig 236/237)"
         if: ${{ hashFiles('supabase/migrations/20260717140000_migration_237_founder_monthly_benchmark.sql') != '' }}
         env:
