@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import type { CSSProperties } from 'react'
 import type { Product } from '../../lib/qr'
 import type { MenuCurrency } from '../../lib/currency'
@@ -261,7 +262,7 @@ function HeroPill({ fonts, label }: { fonts: MenuTheme['fonts']; label: string }
   )
 }
 
-export default function MenuPreview({
+function MenuPreview({
   themeSettings,
   restaurantName,
   currency = 'RON',
@@ -368,3 +369,8 @@ export default function MenuPreview({
     </div>
   )
 }
+
+// OPT-R2: memo — SettingsTab re-randează MenuPreview la fiecare tastă în form;
+// prop-urile ei sunt 2 primitive + 1 referință stabilă în timpul editării
+// non-temă, deci memo-ul e efectiv (re-randează doar la schimbarea reală).
+export default memo(MenuPreview)

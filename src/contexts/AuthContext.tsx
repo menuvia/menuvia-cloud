@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react'
-import type { User, Session } from '@supabase/supabase-js'
+import type { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 
 export interface Profile {
@@ -12,7 +12,6 @@ export interface Profile {
 interface AuthContextValue {
   user: User | null
   profile: Profile | null
-  session: Session | null
   loading: boolean
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -21,7 +20,6 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue>({
   user: null,
   profile: null,
-  session: null,
   loading: true,
   signOut: async () => {},
   refreshProfile: async () => {},
@@ -33,7 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // un TOKEN_REFRESHED (obiect nou, același id) fără efecte în updater.
   const lastUserIdRef = useRef<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
 
   async function loadProfile(userId: string) {
@@ -62,7 +59,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth
       .getSession()
       .then(({ data: { session: s } }) => {
-        setSession(s)
         setUser(s?.user ?? null)
         lastUserIdRef.current = s?.user?.id ?? null
         if (s?.user) void loadProfile(s.user.id)
@@ -75,8 +71,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-      // OPT-3: TOKEN_REFRESHED (~orar) emite un obiect user NOU cu același id —
+      // OPT-3/OPT-R2: TOKEN_REFRESHED (~orar) emite un obiect user NOU cu același id —
       // identitatea nouă redeclanșa efectele pe [user] din useData/RestaurantContext
       // (cascadă de refetch-uri + remount pe ecranele POS la fiecare ~55 min).
       // Păstrăm identitatea obiectului când id-ul nu s-a schimbat; profilul se
@@ -103,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   )

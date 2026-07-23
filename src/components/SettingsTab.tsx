@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
@@ -355,7 +355,11 @@ export default function SettingsTab({
   // Formular „murdar": s-a schimbat ceva față de restaurantul salvat. Ordinea
   // cheilor e stabilă (form pornește ca {...restaurant}), deci comparația JSON
   // e suficientă pentru a decide dacă arătăm bara de salvare de jos.
-  const dirty = JSON.stringify(form) !== JSON.stringify(restaurant)
+  // OPT-R2: latura STABILĂ (restaurant) se serializează o singură dată; doar
+  // `form` (se schimbă la fiecare tastă) rămâne serializat inline. Înainte se
+  // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
+  const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
+  const dirty = JSON.stringify(form) !== restaurantJson
 
   return (
     <div>
