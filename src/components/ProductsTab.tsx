@@ -343,7 +343,12 @@ function ProductModal({
   const [recipeLoading, setRecipeLoading] = useState(false)
 
   useEffect(() => {
-    if (!product?.id) {
+    // Secțiunea Rețetă e colapsată implicit (showRecipe=false) și datele ei
+    // (recipeRows/allIngredients) se folosesc DOAR în blocul expandat — nu și în
+    // antet (fără contor). Nu descărcăm rețeta + TOATE ingredientele decât când
+    // userul deschide secțiunea (fetchIngredients aducea tot inventarul degeaba
+    // la fiecare deschidere de modal).
+    if (!product?.id || !showRecipe) {
       return
     }
     setRecipeLoading(true)
@@ -360,7 +365,7 @@ function ProductModal({
       }
       setRecipeLoading(false)
     })()
-  }, [product?.id, restaurantId])
+  }, [product?.id, restaurantId, showRecipe])
 
   async function setRecipeQty(ingredientId: string, quantity: number) {
     if (!product?.id) return
