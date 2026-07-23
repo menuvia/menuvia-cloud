@@ -259,7 +259,7 @@ function ProtectedRoute({
 
 function AppRouter() {
   const { user, loading, signOut } = useAuth()
-  const { restaurants, loading: rLoading, refetch } = useRestaurants()
+  const { restaurants, loading: rLoading, refetch, update } = useRestaurants()
   const [state, setState] = useState<RouteState>(parsePath)
 
   // FE-001 FIX: separate navigate (push) from replace (no history entry).
@@ -672,6 +672,9 @@ function AppRouter() {
   return (
     <Suspense fallback={<PageSpinner />}>
       <DashboardPage
+        restaurants={restaurants}
+        restaurantsLoading={rLoading}
+        updateRestaurant={update}
         onViewMenu={(slug) => navigate(`/m/${slug}`)}
         onViewWaiter={() => navigate('/waiter')}
         onViewKitchen={() => navigate('/kitchen')}

@@ -636,16 +636,28 @@ export default function DashboardPage({
   onViewKitchen,
   onPricing,
   onSignOut,
+  restaurants,
+  restaurantsLoading,
+  updateRestaurant,
 }: {
   onViewMenu: (slug: string) => void
   onViewWaiter: () => void
   onViewKitchen: () => void
   onPricing: () => void
   onSignOut: () => Promise<void>
+  restaurants: ReturnType<typeof useRestaurants>['restaurants']
+  restaurantsLoading: ReturnType<typeof useRestaurants>['loading']
+  updateRestaurant: ReturnType<typeof useRestaurants>['update']
 }) {
   const { user } = useAuth()
   const { activeId, activeRole, setActive, founderViewId } = useRestaurantCtx()
-  const { restaurants, loading: rLoading, update } = useRestaurants()
+  // OPT-R2: lista de restaurante + `update` vin ca props din AppRouter (o
+  // SINGURĂ instanță useRestaurants). Înainte DashboardPage rula o A DOUA
+  // instanță → 4 query-uri identice la boot ȘI două copii de state care puteau
+  // diverge după un update de setări. Sursă unică acum; tipurile derivate din
+  // hook garantează paritate exactă cu ce trimite AppRouter.
+  const rLoading = restaurantsLoading
+  const update = updateRestaurant
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
   // Originea vizitei e persistată la enterFounderView — sincronă, spre
