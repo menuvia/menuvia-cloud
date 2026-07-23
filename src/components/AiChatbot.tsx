@@ -159,6 +159,8 @@ function AiChatbotPanel({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // Set de chei „acțiune în curs de aplicare" — lock sincron anti dublu-submit.
+  const applyingRef = useRef<Set<string>>(new Set())
 
   const products = useProducts(restaurantId)
   const categories = useCategories(restaurantId)
@@ -225,6 +227,14 @@ function AiChatbotPanel({
     // Guard: nu re-executa o acțiune deja aplicată/respinsă/eronată.
     const existing = turns[turnIdx]?.actions?.find((a) => a.id === actionId)
     if (existing && existing.status !== 'pending') return
+    // Lock SINCRON anti dublu-click: setStatus e async (React batch), deci două
+    // click-uri în ACELAȘI tick treceau ambele de guardul pe status (citesc
+    // closure-ul vechi) și inserau DE DOUĂ ORI (create_product/create_category nu
+    // sunt idempotente). actionId nu e unic global (`a${idx}` per turn) → cheie
+    // compusă cu turnIdx.
+    const lockKey = `${turnIdx}:${actionId}`
+    if (applyingRef.current.has(lockKey)) return
+    applyingRef.current.add(lockKey)
     const setStatus = (status: PendingAction['status'], errorMsg?: string) =>
       setTurns((prev) =>
         prev.map((t, i) =>
@@ -254,6 +264,8 @@ function AiChatbotPanel({
       else setStatus('applied')
     } catch (e) {
       setStatus('error', e instanceof Error ? e.message : 'Eroare')
+    } finally {
+      applyingRef.current.delete(lockKey)
     }
   }
 
