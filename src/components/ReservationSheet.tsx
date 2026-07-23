@@ -1,7 +1,7 @@
 // ReservationSheet — bottom sheet pentru rezervări publice (anon).
 // Submit prin RPC create_reservation_public (SECURITY DEFINER, advisory lock).
 // Layout inspirat de design ialoc.ro: chip-pills orizontale + trust strip.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
@@ -1048,6 +1048,24 @@ interface ShellProps {
 }
 
 function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps) {
+  // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
+  // deschidere, restaurare la închidere + Escape → onClose. Ref-ul pe onClose
+  // ține varianta curentă fără să re-monteze efectul la fiecare re-randare.
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+  }, [])
   return (
     <div
       onClick={onClose}
@@ -1062,6 +1080,11 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
       }}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: PUB.bg,
@@ -1071,6 +1094,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
           maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
+          outline: 'none',
         }}
       >
         {/* Accent header bar */}

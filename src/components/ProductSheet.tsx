@@ -600,6 +600,9 @@ function ProductSheet({
                         <button
                           key={opt.id}
                           disabled={isDisabled}
+                          role={g.selection_type === 'single' ? 'radio' : undefined}
+                          aria-checked={g.selection_type === 'single' ? isSel : undefined}
+                          aria-pressed={g.selection_type === 'single' ? undefined : isSel}
                           onClick={() =>
                             g.selection_type === 'single'
                               ? toggleSingle(g.id, opt.id)
@@ -737,6 +740,7 @@ function ProductSheet({
                     return (
                       <button
                         key={extra.id}
+                        aria-pressed={isSel}
                         onClick={() => toggleExtra(extra.id)}
                         style={{
                           background: isSel ? `${accent}14` : PUB.surface,

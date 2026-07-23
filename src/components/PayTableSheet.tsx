@@ -234,6 +234,29 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
     onClose()
   }
 
+  // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
+  // deschidere, restaurare la închidere + Escape → handleClose. Escape respectă
+  // aceeași gardă ca backdrop-ul (blocat în timpul confirmării Stripe); ref-ul
+  // ține varianta curentă, nu una stale de la montare.
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const escCloseRef = useRef<() => void>(() => {})
+  escCloseRef.current = () => {
+    if (phase !== 'confirming') handleClose()
+  }
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') escCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <div
       onClick={phase === 'confirming' ? undefined : handleClose}
@@ -249,6 +272,11 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
       }}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Plătește masa"
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: PUB.bg,
@@ -261,6 +289,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
           display: 'flex',
           flexDirection: 'column',
           gap: 14,
+          outline: 'none',
         }}
       >
         <div

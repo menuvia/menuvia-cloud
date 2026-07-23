@@ -297,6 +297,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     for (let i = floor.tables.length - 1; i >= 0; i--) {
       const t = floor.tables[i]
       if (p.x >= t.x && p.x <= t.x + t.w && p.y >= t.y && p.y <= t.y + t.h) {
+        // Snapshot ÎNAINTE de mutare — altfel pushHist din onUp captura starea
+        // DE DUPĂ deplasare, iar undo devenea no-op (nu revenea la poziția veche).
+        pushHist()
         setSel({ type: 'table', id: t.id })
         setDrag(t.id)
         off.current = { x: p.x - t.x, y: p.y - t.y }
@@ -305,6 +308,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     }
     for (const d of floor.decos) {
       if (p.x >= d.x && p.x <= d.x + d.size && p.y >= d.y && p.y <= d.y + d.size) {
+        pushHist()
         setSel({ type: 'deco', id: d.id })
         setDrag(d.id)
         off.current = { x: p.x - d.x, y: p.y - d.y }
@@ -355,7 +359,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
   const onUp = () => {
     if (drag) {
-      pushHist()
+      // pushHist se face acum la ÎNCEPUTUL drag-ului (onDown), înainte de mutare.
       setDrag(null)
     }
     if (wallDraw) {

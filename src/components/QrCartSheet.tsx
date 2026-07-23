@@ -4,7 +4,7 @@
 // thumbnail-uri, RECOMANDATE ALĂTURI pe orizontală, CTA cu prețul în buton.
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
@@ -178,6 +178,26 @@ export default function QrCartSheet({
     onClose()
   }
 
+  // Semantică de dialog modal (paritate cu ProductSheet): focus pe butonul de
+  // închidere la deschidere, restaurare la închidere + Escape → handleClose
+  // (persistă nota, ca și backdrop-ul). Ref pentru a evita închiderea stale.
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(handleClose)
+  onCloseRef.current = handleClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    closeBtnRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function handleAddSuggestion(s: Product): void {
     // Minim efectiv > 0 (is_required SAU min_select > 0) → quick-add interzis;
     // serverul respinge sub minim (mig 191), deci deschidem ProductSheet.
@@ -218,6 +238,9 @@ export default function QrCartSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="animate-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Masa ta"
         style={{
           background: PUB.bg,
           borderRadius: '22px 22px 0 0',
@@ -249,6 +272,7 @@ export default function QrCartSheet({
         {/* X close — afordanță explicită (cerere UX) */}
         <button
           type="button"
+          ref={closeBtnRef}
           onClick={handleClose}
           aria-label="Închide"
           className="pressable"
