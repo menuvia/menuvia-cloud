@@ -139,27 +139,32 @@ exports.handler = async (event) => {
     const staleIntents = Array.isArray(bill.stale_split_intents) ? bill.stale_split_intents : []
     if (staleIntents.length > 0 && bill.stripe_account_id) {
       const stripeS = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
-      let freed = 0
-      for (const stale of staleIntents) {
-        try {
-          await stripeS.paymentIntents.cancel(stale, { stripeAccount: bill.stripe_account_id })
-        } catch (e) {
-          if (!(e && e.payment_intent && e.payment_intent.status === 'canceled')) {
-            // Ne-anulabil (posibil mid-confirm/succeeded) — îl lăsăm în pace.
-            continue
+      // Fiecare intent stale se anulează+settle-ază INDEPENDENT — perechea
+      // cancel→settle rămâne serială per intent (settle DOAR după cancel reușit),
+      // dar intent-urile diferite rulează în paralel ca nota să nu aștepte N×RTT.
+      const results = await Promise.all(
+        staleIntents.map(async (stale) => {
+          try {
+            await stripeS.paymentIntents.cancel(stale, { stripeAccount: bill.stripe_account_id })
+          } catch (e) {
+            if (!(e && e.payment_intent && e.payment_intent.status === 'canceled')) {
+              // Ne-anulabil (posibil mid-confirm/succeeded) — îl lăsăm în pace.
+              return false
+            }
           }
-        }
-        const { error: staleSettleErr } = await supabase.rpc('settle_table_payment', {
-          p_intent_id: stale,
-          p_outcome: 'canceled',
-          p_error_info: 'Selecție abandonată (telefon inactiv) — anulată la încărcarea notei.',
-        })
-        if (staleSettleErr) {
-          console.error('[table-payment] settle pe intent split stale a eșuat:', staleSettleErr.message)
-        } else {
-          freed++
-        }
-      }
+          const { error: staleSettleErr } = await supabase.rpc('settle_table_payment', {
+            p_intent_id: stale,
+            p_outcome: 'canceled',
+            p_error_info: 'Selecție abandonată (telefon inactiv) — anulată la încărcarea notei.',
+          })
+          if (staleSettleErr) {
+            console.error('[table-payment] settle pe intent split stale a eșuat:', staleSettleErr.message)
+            return false
+          }
+          return true
+        }),
+      )
+      const freed = results.filter(Boolean).length
       // Claims eliberate → cantitățile rămase s-au schimbat; re-luăm nota.
       if (freed > 0) {
         const retry = await supabase.rpc('get_table_bill', { p_session_id: sessionId, p_token: token })
