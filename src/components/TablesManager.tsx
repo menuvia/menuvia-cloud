@@ -626,7 +626,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const handleSave = async () => {
     setModal(null)
     try {
-      await load()
+      // OPT-R2: fără load() redundant înainte — ensureTokens re-interoghează
+      // el însuși id-urile proaspete (inclusiv masa tocmai adăugată) și se
+      // termină cu un load() complet. Un singur ciclu de reload, nu două.
       await ensureTokens()
       toast(modal === 'add' ? 'Masă adăugată' : 'Masă actualizată')
     } catch {
@@ -718,9 +720,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       }
       const { error } = await supabase.from('tables').insert(rows)
       if (error) throw error
-      await load()
+      // OPT-R2: 3 load()-uri complete → 1. ensureTokens re-interoghează
+      // id-urile proaspete (insert-ul nu le întoarce) și termină cu load().
       await ensureTokens()
-      await load()
       setBulkCount('')
       toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
     } catch (e) {

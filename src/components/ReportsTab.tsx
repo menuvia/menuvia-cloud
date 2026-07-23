@@ -230,7 +230,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
 
       // ── Single source of truth: orders table (not v_daily_orders) ──
       // Includes ALL non-cancelled orders, not just paid ones.
-      const { data: ordersRaw, error: oErr } = await supabase
+      // OPT-R2: comenzile (pe created_at) și cele plătite (pe paid_at) sunt
+      // interogări INDEPENDENTE — le lansăm în paralel (−1 RTT serial la
+      // fiecare schimbare de perioadă). Gating-ul monetar Plan 3 și
+      // defense-in-depth pe coloane rămân IDENTICE.
+      const ordersP = supabase
         .from('orders')
         // Pe Plan 1/2 (fiscalReports=false) NU aducem coloanele monetare in browser
         // (defense-in-depth: venit = Plan 3). Doar count-ul operational ramane.
@@ -244,30 +248,32 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         .gte('created_at', startISO)
         .lte('created_at', endISO)
         .order('created_at', { ascending: true })
+      // Venitul se calculează pe comenzile PLĂTITE, bucketate după `paid_at`
+      // (momentul încasării), NU după created_at: o comandă creată ieri și plătită
+      // azi trebuie să intre în venitul de azi. Query separat, mărginit pe paid_at.
+      // Coloanele monetare rămân gate-uite pe Plan 3 (fiscalReports).
+      const paidP = fiscalReports
+        ? supabase
+            .from('orders')
+            .select('id, total, paid_amount, payment_method, paid_at')
+            .eq('restaurant_id', restaurantId)
+            .eq('status', 'paid')
+            .gte('paid_at', startISO)
+            .lte('paid_at', endISO)
+            .order('paid_at', { ascending: true })
+        : Promise.resolve({ data: [], error: null })
+      const [{ data: ordersRaw, error: oErr }, { data: paidRaw, error: pErr }] = await Promise.all([
+        ordersP,
+        paidP,
+      ])
       if (oErr) throw oErr
+      if (pErr) throw pErr
 
       // `as unknown as` — select-ul condiționat (ternar) face ca tipul rândului dedus de
       // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
       const allOrders = (ordersRaw ?? []) as unknown as Record<string, unknown>[]
       const totalOrders = allOrders.length
-
-      // Venitul se calculează pe comenzile PLĂTITE, bucketate după `paid_at`
-      // (momentul încasării), NU după created_at: o comandă creată ieri și plătită
-      // azi trebuie să intre în venitul de azi. Query separat, mărginit pe paid_at.
-      // Coloanele monetare rămân gate-uite pe Plan 3 (fiscalReports).
-      let paidOrders: Record<string, unknown>[] = []
-      if (fiscalReports) {
-        const { data: paidRaw, error: pErr } = await supabase
-          .from('orders')
-          .select('id, total, paid_amount, payment_method, paid_at')
-          .eq('restaurant_id', restaurantId)
-          .eq('status', 'paid')
-          .gte('paid_at', startISO)
-          .lte('paid_at', endISO)
-          .order('paid_at', { ascending: true })
-        if (pErr) throw pErr
-        paidOrders = (paidRaw ?? []) as unknown as Record<string, unknown>[]
-      }
+      const paidOrders = (paidRaw ?? []) as unknown as Record<string, unknown>[]
       const revenue = paidOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const cashRev = paidOrders
         .filter((o) => o.payment_method === 'cash')
