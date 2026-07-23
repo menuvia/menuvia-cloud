@@ -64,6 +64,11 @@ exports.handler = async () => {
   let issued = 0, failed = 0
 
   for (const inv of queued) {
+    // Faza contează pentru clasificarea eșecului: DOAR erorile de la POST încolo
+    // (factura POATE fi creată la Oblio) sunt „ambigue"/terminale. Erorile de
+    // dinainte de POST (auth token, fetch order/linii) NU pot lăsa o factură la
+    // Oblio → sunt SIGUR retryabile (nu bloca facturi legitime pe un blip de rețea).
+    let postAttempted = false
     try {
       // Get / refresh access token — cache-uit cu expirare; re-autentificăm
       // proactiv dacă tokenul curent a expirat (sau e pe cale să expire).
@@ -81,11 +86,15 @@ exports.handler = async () => {
       // Compose Oblio payload
       const payload = composeOblioInvoice(inv, lineItems)
 
-      // POST to Oblio
+      // POST to Oblio — de aici încolo o factură POATE exista la Oblio.
+      postAttempted = true
       const oblio = await postOblioInvoice(payload, token, inv.test_mode)
 
-      // Mark issued
-      await supabase.rpc('bridge_oblio_mark_issued', {
+      // Mark issued — supabase-js NU aruncă pe eroare, întoarce {error}. Dacă
+      // înregistrarea eșuează (blip DB) DUPĂ un POST reușit, factura E creată la
+      // Oblio dar rândul rămâne 'generating' → un retry ar produce DUPLICAT.
+      // Ridicăm un throw marcat ca „emisă" ca să cadă pe ramura AMBIGUĂ (terminal).
+      const { error: markErr } = await supabase.rpc('bridge_oblio_mark_issued', {
         p_invoice_id: inv.invoice_id,
         p_series:     oblio.seriesName || inv.default_series,
         p_number:     String(oblio.number || ''),
@@ -93,29 +102,41 @@ exports.handler = async () => {
         p_einvoice:   oblio.einvoice || null,
         p_token:      oblio.token || null,
       })
+      if (markErr) {
+        const e = new Error(
+          `factură EMISĂ la Oblio (${oblio.seriesName}-${oblio.number}) dar înregistrarea a eșuat: ${markErr.message}`,
+        )
+        e.oblioIssued = true
+        throw e
+      }
       issued++
 
       console.log(`[oblio] Issued ${oblio.seriesName}-${oblio.number} for invoice ${inv.invoice_id}`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      // Rezultat AMBIGUU (timeout/rețea în timpul POST-ului): Oblio POATE fi creat
-      // deja factura, iar retry-ul ar produce un DUPLICAT fiscal (HIGH-3). Nu putem
-      // preveni activ duplicatul fără un endpoint de căutare Oblio, dar marcăm clar
-      // riscul în last_error ca founderul să verifice în Oblio ÎNAINTE ca retry-ul
-      // să trimită din nou. O eroare 4xx de la Oblio = factura sigur NU s-a creat
-      // (retry sigur); un abort/network = incert.
+      // Rezultat AMBIGUU: factura POATE fi deja creată la Oblio, iar un retry
+      // automat ar produce un DUPLICAT fiscal. Ambiguu DOAR când:
+      //   (a) factura a fost emisă dar înregistrarea a eșuat (err.oblioIssued), SAU
+      //   (b) POST-ul a fost atins ȘI eroarea e de tip abort/rețea/socket (inclusiv
+      //       undici „terminated"/UND_ERR mid-response, care ratau regex-ul vechi
+      //       → erau tratate ca eșec clar → requeue → DUPLICAT).
+      // O eroare 4xx de la Oblio (factura sigur NU s-a creat) NU prinde regex-ul →
+      // rămâne retry auto sigur. Erorile DINAINTE de POST (postAttempted=false) nu
+      // sunt niciodată ambigue → retry sigur.
       const ambiguous =
-        (err && err.name === 'AbortError') ||
-        /aborted|timeout|network|fetch failed|ECONNRESET|ETIMEDOUT/i.test(errMsg)
+        err?.oblioIssued === true ||
+        (postAttempted &&
+          (err?.name === 'AbortError' ||
+            /aborted|timeout|terminated|socket|other side closed|network|fetch failed|ECONNRESET|ETIMEDOUT|EPIPE|UND_ERR/i.test(
+              errMsg,
+            )))
       const storedErr = ambiguous
         ? `POSIBIL DUPLICAT — verifică în Oblio (order:${inv.order_id}) înainte de retry. Cauză: ${errMsg}`
         : errMsg
       console.error(`[oblio] Failed for invoice ${inv.invoice_id}${ambiguous ? ' (AMBIGUU/posibil duplicat)' : ''}:`, errMsg)
-      // Eșec AMBIGUU (timeout/rețea): Oblio poate fi creat deja factura → un retry
-      // automat ar produce un DUPLICAT fiscal. Marcăm TERMINAL (mig 218:
-      // bridge_oblio_mark_ambiguous → status='failed', fără requeue) ca cron-ul să
-      // NU reia; founderul verifică în Oblio și retrimite MANUAL (admin_retry_invoice).
-      // Erorile clare (4xx: factură sigur necreată) trec prin mark_failed (retry auto sigur).
+      // AMBIGUU → mark_ambiguous (mig 218: status='failed', FĂRĂ requeue) ca cron-ul
+      // să NU reia; founderul verifică în Oblio și retrimite MANUAL. Clar/pre-POST →
+      // mark_failed (retry auto sigur).
       await supabase.rpc(ambiguous ? 'bridge_oblio_mark_ambiguous' : 'bridge_oblio_mark_failed', {
         p_invoice_id: inv.invoice_id,
         p_error:      storedErr.slice(0, 1000),
