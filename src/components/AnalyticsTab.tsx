@@ -189,6 +189,22 @@ function DataTable({
   )
 }
 
+// Cache de sesiune (nivel de modul): tab-urile mari sunt lazy + se demontează
+// la schimbare, deci re-vizitarea reface toate cele 5 query-uri. Analytics-ul pe
+// 30 de zile nu se schimbă de la secundă la secundă → în fereastra TTL servim
+// din cache și SĂRIM rețeaua. Cheia include `days` (alt filtru = alt fetch), iar
+// erorile NU se cache-uiesc (retry-ul reîncarcă). Persistă cât ține sesiunea de
+// browser; la altă restaurantId cheia diferă, deci fără scurgeri cross-tenant.
+type AnalyticsSnapshot = {
+  daily: Record<string, unknown>[]
+  products: Record<string, unknown>[]
+  waiters: Record<string, unknown>[]
+  hourly: Record<string, unknown>[]
+  staffNames: Record<string, { full_name: string | null; email: string }>
+}
+const ANALYTICS_TTL_MS = 60_000
+const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
+
 export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
@@ -210,6 +226,19 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
 
   const loadData = useCallback(async () => {
     if (!restaurantId || !hasAccess) return
+    // Servire din cache-ul de sesiune dacă e proaspăt (fără spinner, fără rețea).
+    const cacheKey = `${restaurantId}:${days}`
+    const cached = analyticsCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < ANALYTICS_TTL_MS) {
+      setDaily(cached.data.daily)
+      setProducts(cached.data.products)
+      setWaiters(cached.data.waiters)
+      setHourly(cached.data.hourly)
+      setStaffNames(cached.data.staffNames)
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -260,6 +289,17 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         if (u) names[row.user_id] = u
       }
       setStaffNames(names)
+      // Populăm cache-ul de sesiune DOAR pe succes (erorile nu se cache-uiesc).
+      analyticsCache.set(cacheKey, {
+        ts: Date.now(),
+        data: {
+          daily: d.data || [],
+          products: p.data || [],
+          waiters: w.data || [],
+          hourly: h.data || [],
+          staffNames: names,
+        },
+      })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea statisticilor')
     }
