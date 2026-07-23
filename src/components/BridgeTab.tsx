@@ -10,7 +10,7 @@
 // Bridge-ul local (Node.js + tray icon Windows) folosește device_secret
 // ca să se autentifice la RPC-urile bridge_* din migration 030.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { confirm as confirmDialog } from './ui/confirm'
@@ -191,7 +191,11 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   // Filter
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'error' | 'done'>('active')
 
+  // Guard de secvență: la schimbarea restaurantului, un răspuns vechi nu trebuie
+  // să afișeze device-urile/bonurile/device_secret ale altui restaurant.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
@@ -219,6 +223,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
           .order('created_at', { ascending: false })
           .limit(50),
       ])
+      if (seq !== loadSeqRef.current) return
       if (dRes.error) throw dRes.error
       if (rRes.error) throw rRes.error
       if (vRes.error) throw vRes.error
@@ -229,9 +234,9 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       setVatRates((vRes.data || []) as VatRateRow[])
       setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 

@@ -115,7 +115,11 @@ export default function CashRegisterTab({ restaurantId }: Props) {
   const [showMovement, setShowMovement] = useState(false)
   const [historySummaryId, setHistorySummaryId] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului răspunsul unui load vechi nu
+  // trebuie să suprascrie tura/istoricul de casă ale restaurantului curent.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
@@ -126,13 +130,14 @@ export default function CashRegisterTab({ restaurantId }: Props) {
         // pe planuri fără plăți online lista e pur și simplu goală.
         listSettleNotes(restaurantId, 30),
       ])
+      if (seq !== loadSeqRef.current) return
       setCurrent(cur)
       setRecent(hist)
       setSettleNotes(notes)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 

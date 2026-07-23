@@ -4,7 +4,7 @@
 // Filter pe interval de date, grupare per cota TVA + zi.
 // Export CSV care poate fi deschis direct în Excel.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { InlineSpinner } from './PageLoader'
@@ -43,7 +43,11 @@ export default function VatReportTab({ restaurantId }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului/perioadei, un răspuns vechi nu
+  // trebuie să afișeze datele FISCALE ale altui restaurant/interval.
+  const loadSeqRef = useRef(0)
   async function load() {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setError(null)
     try {
@@ -56,12 +60,13 @@ export default function VatReportTab({ restaurantId }: Props) {
         .order('report_date', { ascending: false })
         .order('vat_group')
 
+      if (seq !== loadSeqRef.current) return
       if (e) throw e
       setRows((data ?? []) as VatRow[])
     } catch (err) {
-      setError((err as Error).message)
+      if (seq === loadSeqRef.current) setError((err as Error).message)
     }
-    setLoading(false)
+    if (seq === loadSeqRef.current) setLoading(false)
   }
 
   useEffect(() => {

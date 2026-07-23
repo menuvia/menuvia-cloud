@@ -2,7 +2,7 @@
 // Menuvia — src/components/InvoicesTab.tsx
 // Tab admin: configurare Oblio + listă facturi emise + status live.
 // =============================================================
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useToast } from './ui/useToast'
@@ -10,6 +10,7 @@ import { confirm as confirmDialog } from './ui/confirm'
 import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { QueryError } from './PageLoader'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -38,7 +39,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
   const [showIssue, setShowIssue] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului, răspunsul unui load vechi nu
+  // trebuie să suprascrie configul/facturile Oblio ale restaurantului curent.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
@@ -46,12 +51,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         fetchOblioConfig(restaurantId),
         listInvoices(restaurantId, 50, 0),
       ])
+      if (seq !== loadSeqRef.current) return
       setConfig(cfg)
       setInvoices(inv)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 
@@ -75,6 +81,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         <Skeleton variant="table-row" count={4} />
       </div>
     )
+
+  // Eroare de încărcare: NU cădea pe empty-state-ul „configurează Oblio" (minte că
+  // fiscalizarea nu e configurată când de fapt încărcarea a eșuat) — arată eroarea
+  // cu Reîncearcă. Excepție: dacă userul e în formularul de config, nu-l ascundem.
+  if (err && !showConfig) return <QueryError message={err} onRetry={() => void load()} />
 
   // Empty state — no config
   if (!config && !showConfig) {

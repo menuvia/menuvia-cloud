@@ -3,7 +3,7 @@
 // Înlocuiește DailyReportTab. Queries orders + order_items direct.
 // Extended (migration 033): vânzări per ospătar, oră, categorie + CSV.
 // ─────────────────────────────────────────────────────────────
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   BarChart,
   Bar,
@@ -218,7 +218,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   const [hourlySales, setHourlySales] = useState<HourlySalesRow[]>([])
   const [categorySales, setCategorySales] = useState<CategorySalesRow[]>([])
 
+  // Guard de secvență: la schimbarea restaurantului/perioadei, răspunsul unui load
+  // vechi nu trebuie să afișeze venitul/raportul altui restaurant sau interval.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     const range = periodRange(period, custom)
     setLoading(true)
     setError(null)
@@ -291,6 +295,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
       const avgTicket = paidOrders.length > 0 ? revenue / paidOrders.length : 0
 
+      if (seq !== loadSeqRef.current) return
       setMetrics({
         totalOrders,
         revenue,
@@ -393,8 +398,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           })
         }
 
+        if (seq !== loadSeqRef.current) return
         setTopProducts(sorted.slice(0, 10))
       } else {
+        if (seq !== loadSeqRef.current) return
         setTopProducts([])
       }
 
@@ -406,15 +413,18 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           fetchHourlySales(restaurantId, startISO, endISO).catch(() => [] as HourlySalesRow[]),
           fetchCategorySales(restaurantId, startISO, endISO).catch(() => [] as CategorySalesRow[]),
         ])
+        if (seq !== loadSeqRef.current) return
         setWaiterSales(ws)
         setHourlySales(hs)
         setCategorySales(cs)
       } else {
+        if (seq !== loadSeqRef.current) return
         setWaiterSales([])
         setHourlySales([])
         setCategorySales([])
       }
     } catch (e: unknown) {
+      if (seq !== loadSeqRef.current) return
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea raportului')
     }
     setLoading(false)
