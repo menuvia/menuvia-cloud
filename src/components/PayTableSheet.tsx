@@ -79,6 +79,13 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
     let cancelled = false
     async function init(): Promise<void> {
       try {
+        // OPT-R2: pornim încărcarea Stripe.js în PARALEL cu curățarea claims-
+        // urilor stale + createTablePayment — sunt latențe independente
+        // (loadStripeJs nu depinde de intent). `.catch(() => {})` neutralizează
+        // o respingere ne-așteptată dacă init-ul aruncă înainte de await-ul de
+        // mai jos; eroarea reală tot iese prin `await stripePromise`.
+        const stripePromise = loadStripeJs()
+        stripePromise.catch(() => {})
         if (claims && claims.length > 0) {
           // Eliberăm claims-urile unei încercări anterioare crăpate mid-flow
           // (best-effort — dacă plata veche chiar a reușit, cancel-ul e refuzat
@@ -116,7 +123,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         setAmount(intent.amount)
         setPaymentId(intent.payment_id)
         setCurrency(resolveMenuCurrency(intent.currency))
-        const Stripe = await loadStripeJs()
+        const Stripe = await stripePromise
         if (cancelled) return
         const stripe = Stripe(intent.publishable_key, {
           stripeAccount: intent.stripe_account_id,

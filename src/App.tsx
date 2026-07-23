@@ -15,8 +15,13 @@ import { D } from './lib/constants'
 import { writePlanIntent } from './lib/planIntent'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
-// LandingPage rămâne eager: e pagina de intrare (LCP) — nu o lazy-load-ăm.
-import LandingPage from './pages/LandingPage'
+// OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
+// de fiecare scanare QR anonimă (calea /q/ + /m/ nu are nevoie de marketing).
+// Prefetch condiționat pe '/' păstrează LCP-ul pe pagina de intrare reală.
+const LandingPage = lazy(() => import('./pages/LandingPage'))
+if (typeof window !== 'undefined' && window.location.pathname === '/') {
+  void import('./pages/LandingPage')
+}
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
 // AuthPage/OnboardingPage sunt post-navigare (nu LCP pe nicio rută), dar,
@@ -366,6 +371,16 @@ function AppRouter() {
         'landing',
         'landing-en',
         'afiliat',
+        // OPT-R2: rute care NU folosesc `restaurants` — ramurile lor de render
+        // sunt toate înaintea gate-ului de onboarding (643). Legal/Recrutare
+        // sunt statice; FounderPage folosește doar RPC-uri proprii, nu
+        // useRestaurants. Fără excludere, primul paint aștepta rLoading degeaba.
+        'recrutare',
+        'legal-terms',
+        'legal-privacy',
+        'legal-cookies',
+        'legal-dpa',
+        'founder',
       ].includes(state.view))
   )
     return <PageSpinner />
@@ -538,17 +553,19 @@ function AppRouter() {
   // ── Landing (unauthenticated) ──────────────────────────────
   if (state.view === 'landing' && !user)
     return (
-      <LandingPage
-        onStartPlan={(p) => {
-          writePlanIntent(p)
-          // ?lang=ro explicit: anulează un menuvia_ui_lang='en' rămas dintr-o
-          // vizită pe /en — funnel-ul RO nu trebuie să devină tăcut englezesc.
-          navigate('/auth?plan=' + p + '&lang=ro')
-        }}
-        onLogin={() => navigate('/auth?lang=ro')}
-        onPricing={() => navigate('/pricing')}
-        onDemo={() => navigate('/demo')}
-      />
+      <Suspense fallback={<PageSpinner />}>
+        <LandingPage
+          onStartPlan={(p) => {
+            writePlanIntent(p)
+            // ?lang=ro explicit: anulează un menuvia_ui_lang='en' rămas dintr-o
+            // vizită pe /en — funnel-ul RO nu trebuie să devină tăcut englezesc.
+            navigate('/auth?plan=' + p + '&lang=ro')
+          }}
+          onLogin={() => navigate('/auth?lang=ro')}
+          onPricing={() => navigate('/pricing')}
+          onDemo={() => navigate('/demo')}
+        />
+      </Suspense>
     )
 
   // ── Landing EN (unauthenticated, diaspora) ──────────────────

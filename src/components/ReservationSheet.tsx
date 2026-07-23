@@ -211,15 +211,24 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   useEffect(() => {
     let cancelled = false
     async function load() {
+      // OPT-R2: settings + zone-uri sunt interogări INDEPENDENTE — în paralel.
       // Try select public via dedicated read policy (settings public-readable).
       // Fallback la defaults dacă RLS blochează.
-      const { data: s } = await supabase
-        .from('reservation_settings')
-        .select(
-          'open_days, open_time, close_time, slot_interval, reservation_duration, min_advance_hours, max_advance_days, max_party_size',
-        )
-        .eq('restaurant_id', restaurant.id)
-        .maybeSingle()
+      const [{ data: s }, { data: tz }] = await Promise.all([
+        supabase
+          .from('reservation_settings')
+          .select(
+            'open_days, open_time, close_time, slot_interval, reservation_duration, min_advance_hours, max_advance_days, max_party_size',
+          )
+          .eq('restaurant_id', restaurant.id)
+          .maybeSingle(),
+        supabase
+          .from('tables')
+          .select('zone')
+          .eq('restaurant_id', restaurant.id)
+          .eq('is_active', true)
+          .not('zone', 'is', null),
+      ])
       if (cancelled) return
       const resolved: PublicSettings = (s as PublicSettings) ?? {
         open_days: [1, 2, 3, 4, 5, 6, 7],
@@ -236,13 +245,6 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       // 1 loc, valoarea inițială hardcodată (2) ar fi respinsă tardiv de RPC.
       setPartySize((p) => Math.min(Math.max(p, 1), Math.max(resolved.max_party_size, 1)))
 
-      const { data: tz } = await supabase
-        .from('tables')
-        .select('zone')
-        .eq('restaurant_id', restaurant.id)
-        .eq('is_active', true)
-        .not('zone', 'is', null)
-      if (cancelled) return
       const uniq = Array.from(
         new Set(
           ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
