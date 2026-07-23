@@ -93,6 +93,67 @@ const ACTION_LABEL: Record<AiAction['type'], string> = {
 export default function AiChatbot({ restaurantId, restaurantName }: { restaurantId: string; restaurantName: string }) {
   const isMobile = useIsMobile()
   const [open, setOpen] = useState(false)
+  // Panoul (și fetch-ul de meniu din useProducts/useCategories) se montează DOAR
+  // după prima deschidere — altfel tot meniul se descărca la fiecare montare de
+  // dashboard, cu chatbotul închis. Odată montat rămâne montat: conversația
+  // supraviețuiește închiderii/redeschiderii.
+  const [everOpened, setEverOpened] = useState(false)
+  return (
+    <>
+      {!open && (
+        <button
+          onClick={() => {
+            setOpen(true)
+            setEverOpened(true)
+          }}
+          className="pressable hover-lift"
+          aria-label="Deschide asistentul AI"
+          style={{
+            position: 'fixed',
+            bottom: isMobile ? 76 : 24,
+            right: 20,
+            zIndex: 300,
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: D.gold,
+            color: '#000',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 24,
+            boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="sparkle" size={24} color={D.onGold} />
+        </button>
+      )}
+      {everOpened && (
+        <AiChatbotPanel
+          open={open}
+          onClose={() => setOpen(false)}
+          restaurantId={restaurantId}
+          restaurantName={restaurantName}
+        />
+      )}
+    </>
+  )
+}
+
+function AiChatbotPanel({
+  open,
+  onClose,
+  restaurantId,
+  restaurantName,
+}: {
+  open: boolean
+  onClose: () => void
+  restaurantId: string
+  restaurantName: string
+}) {
+  const isMobile = useIsMobile()
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -205,35 +266,9 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
   }
 
   // ── UI ─────────────────────────────────────────────────────
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="pressable hover-lift"
-        aria-label="Deschide asistentul AI"
-        style={{
-          position: 'fixed',
-          bottom: isMobile ? 76 : 24,
-          right: 20,
-          zIndex: 300,
-          width: 56,
-          height: 56,
-          borderRadius: '50%',
-          background: D.gold,
-          color: '#000',
-          border: 'none',
-          cursor: 'pointer',
-          fontSize: 24,
-          boxShadow: '0 6px 24px rgba(0,0,0,0.4)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="sparkle" size={24} color={D.onGold} />
-      </button>
-    )
-  }
+  // Rămâne montat când e închis (păstrează conversația + contextul de meniu deja
+  // încărcat), dar nu randează nimic — FAB-ul de redeschidere e în componenta-părinte.
+  if (!open) return null
 
   return (
     <div
@@ -262,7 +297,7 @@ export default function AiChatbot({ restaurantId, restaurantName }: { restaurant
           <Icon name="sparkle" size={18} color={D.gold} />
           <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1rem', color: D.t1 }}>Asistent AI</span>
         </div>
-        <button onClick={() => setOpen(false)} aria-label="Închide" className="pressable" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        <button onClick={onClose} aria-label="Închide" className="pressable" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
       </div>
 
       {/* Mesaje */}
