@@ -256,7 +256,15 @@ export function useRestaurants() {
   const update = async (id: string, form: Partial<Restaurant>) => {
     const safe = pickAllowed(form, RESTAURANT_UPDATE_FIELDS)
     const result = await supabase.from('restaurants').update(safe).eq('id', id).select().single()
-    if (!result.error) await load()
+    // OPT-R2 (extinde OPT-5 pe categorii): rândul actualizat E în răspuns
+    // (select() = paritate cu query-ul `owned` care e select('*')) — merge
+    // local în loc de refetch integral owned+memberships. Zero rânduri = eroare
+    // vizibilă (nu succes tăcut); load() pe eroare rămâne implicit prin apelant.
+    if (!result.error && result.data) {
+      setRestaurants((prev) =>
+        prev.map((r) => (r.id === id ? (result.data as Restaurant) : r)),
+      )
+    }
     return result
   }
   // useRestaurants.remove() retras: mig 096B REVOKE delete pe `restaurants`

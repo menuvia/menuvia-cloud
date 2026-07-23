@@ -34,6 +34,9 @@ import {
   type CategorySalesRow,
 } from '../lib/reports'
 
+// OPT-R2: formatter de zi (RO, Europe/Bucharest) — constant, o singură construcție (nu per comandă în buclă).
+const DAY_FMT = new Intl.DateTimeFormat('ro-RO', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' })
+
 interface Props {
   restaurantId: string
   // Regula de aur (review monetizare): bani + bon = Plan 3, fără excepții.
@@ -296,12 +299,10 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // ── Build daily chart data (client-side aggregation) ──
       // Comenzile (count) se grupează după created_at; venitul după paid_at
       // (consecvent cu metricile de mai sus). Cheia zilei = în fusul României.
-      const dayKey = (iso: string) =>
-        new Date(iso).toLocaleDateString('ro-RO', {
-          day: '2-digit',
-          month: '2-digit',
-          timeZone: 'Europe/Bucharest',
-        })
+      // OPT-R2: formatter ridicat la nivel de modul (DAY_FMT) — înainte se
+      // (re)construia un Intl.DateTimeFormat per comandă în buclă (scump la mii
+      // de comenzi). Output identic vizual și ca cheie de Map.
+      const dayKey = (iso: string) => DAY_FMT.format(new Date(iso))
       const dayMap = new Map<string, { comenzi: number; revenue: number }>()
       for (const o of allOrders) {
         const key = dayKey(o.created_at as string)

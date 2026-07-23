@@ -140,12 +140,24 @@ export default function CashRegisterTab({ restaurantId }: Props) {
     void load()
   }, [load])
 
-  // Auto-refresh la 20s pentru live cash_collected updates
+  // Auto-refresh la 20s pentru live cash_collected updates.
+  // OPT-R2: sar tick-ul cât tab-ul e ascuns (zero trafic în fundal) și fac un
+  // load() complet la revenirea în vizibilitate — istoricul de ture (închise
+  // de pe alt dispozitiv) și notele de reconciliere (mig 211, server-side) NU
+  // sunt statice, deci trebuie resincronizate când userul revine.
   useEffect(() => {
     const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
       void load()
     }, 20_000)
-    return () => clearInterval(t)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [load])
 
   if (loading && current == null && recent.length === 0) {

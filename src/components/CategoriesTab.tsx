@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { useCategories, useProducts } from '../hooks/useData'
+import { useState, useEffect, useCallback } from 'react'
+import { useCategories } from '../hooks/useData'
 import type { Category } from '../hooks/useData'
 import { D } from '../lib/constants'
+import { supabase } from '../lib/supabase'
 import { QueryError } from './PageLoader'
 import { btn, useToast, Toast, Modal, Inp } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
@@ -98,7 +99,27 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
     reorder,
     refetch: refetchCats,
   } = useCategories(restaurantId)
-  const { products, error: prodError, refetch: refetchProds } = useProducts(restaurantId)
+  // OPT-R2: CategoriesTab folosea useProducts DOAR pentru numărul de produse
+  // per categorie → descărca TOATE produsele cu select('*') (jsonb greu).
+  // Fetch dedicat count-only pe 2 coloane; zero mutații (nu folosea API-ul lor).
+  const [prodCounts, setProdCounts] = useState<{ id: string; category_id: string | null }[]>([])
+  const [prodError, setProdError] = useState<string | null>(null)
+  const refetchProds = useCallback(async () => {
+    if (!restaurantId) {
+      setProdCounts([])
+      return
+    }
+    setProdError(null)
+    const { data, error: pe } = await supabase
+      .from('products')
+      .select('id, category_id')
+      .eq('restaurant_id', restaurantId)
+    if (pe) setProdError(pe.message)
+    else setProdCounts((data ?? []) as { id: string; category_id: string | null }[])
+  }, [restaurantId])
+  useEffect(() => {
+    void refetchProds()
+  }, [refetchProds])
   const { toasts, toast } = useToast()
   const [modal, setModal] = useState<Category | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
@@ -109,7 +130,7 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
         message={error || prodError || 'Eroare necunoscută'}
         onRetry={() => {
           refetchCats()
-          refetchProds()
+          void refetchProds()
         }}
       />
     )
@@ -204,7 +225,7 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
           />
         ) : (
           categories.map((cat) => {
-            const count = products.filter((p) => p.category_id === cat.id).length
+            const count = prodCounts.filter((p) => p.category_id === cat.id).length
             return (
               <div
                 key={cat.id}
