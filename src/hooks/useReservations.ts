@@ -75,6 +75,10 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
   // events de catch-up când socket-ul se conectează (replay events care
   // sunau ca rezervări noi pentru rezervări deja vizibile).
   const knownIdsRef = useRef<Set<string>>(new Set())
+  // Guard de secvență: la schimbarea restaurantului/range-ului pot exista două
+  // fetch-uri în zbor; fără token, răspunsul VECHI ar putea ateriza ultimul și
+  // afișa rezervările altui restaurant/interval.
+  const fetchSeqRef = useRef(0)
 
   const fetchReservations = useCallback(async () => {
     if (!restaurantId) {
@@ -82,6 +86,7 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       knownIdsRef.current = new Set()
       return
     }
+    const seq = ++fetchSeqRef.current
     setLoading(true)
     setError(null)
     const { data, error: e } = await supabase
@@ -91,6 +96,7 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
       .gte('starts_at', range.from)
       .lte('starts_at', range.to)
       .order('starts_at', { ascending: true })
+    if (seq !== fetchSeqRef.current) return
     if (e) {
       setError(e.message)
       setReservations([])

@@ -278,6 +278,11 @@ export function useCategories(restaurantId: string | null) {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Guard de secvență (ca useRestaurants): la schimbarea restaurantului pot fi
+  // două load()-uri în zbor; fără token, răspunsul VECHI ar putea ateriza ultimul
+  // și suprascrie cu categoriile restaurantului precedent (fără realtime/polling
+  // care să auto-corecteze, meniul greșit persistă până la un create/update).
+  const loadSeqRef = useRef(0)
 
   const load = useCallback(async () => {
     if (!restaurantId) {
@@ -285,12 +290,14 @@ export function useCategories(restaurantId: string | null) {
       setLoading(false)
       return
     }
+    const seq = ++loadSeqRef.current
     setError(null)
     const { data, error: err } = await supabase
       .from('categories')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('display_order')
+    if (seq !== loadSeqRef.current) return
     if (err) {
       setError(err.message)
       setLoading(false)
@@ -358,6 +365,9 @@ export function useProducts(restaurantId: string | null) {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Guard de secvență (ca useRestaurants/useCategories): răspunsul unui load()
+  // vechi nu mai suprascrie produsele restaurantului curent la schimbare rapidă.
+  const loadSeqRef = useRef(0)
 
   const load = useCallback(async () => {
     if (!restaurantId) {
@@ -365,12 +375,14 @@ export function useProducts(restaurantId: string | null) {
       setLoading(false)
       return
     }
+    const seq = ++loadSeqRef.current
     setError(null)
     const { data, error: err } = await supabase
       .from('products')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('display_order')
+    if (seq !== loadSeqRef.current) return
     if (err) {
       setError(err.message)
       setLoading(false)
