@@ -21,6 +21,10 @@ interface RestaurantCtxValue {
   activeRole: MemberRole | null
   setActive: (id: string) => void
   loading: boolean
+  // true când încărcarea membership-urilor a eșuat tranzient (blip de rețea /
+  // eroare Supabase) — memberships rămân goale, dar NU înseamnă „fără acces".
+  // Consumatorii (ProtectedRoute) trebuie să arate „reîncearcă", nu „n-ai drept".
+  error: boolean
   // Id-ul restaurantului vizitat în „mod fondator/partener" (nu e membership
   // real al userului) — null în folosirea normală. DashboardPage arată banner.
   founderViewId: string | null
@@ -35,6 +39,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   const [memberships, setMemberships] = useState<RestaurantMembership[]>([])
   const [activeId, setActiveIdState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [founderViewId, setFounderViewId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -61,6 +66,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       // user!=null (dar înainte de a avea date) ar arăta loading=false → flash
       // de UI onboarding/gol cât `loadMemberships()` e încă în zbor.
       setLoading(true)
+      setError(false)
       try {
         const { data, error: memErr } = await supabase
           .from('restaurant_memberships')
@@ -71,8 +77,10 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         if (memErr) {
           // supabase-js nu aruncă — eroarea vine în {error}. O listă goală din
           // cauza unui blip de rețea NU înseamnă „zero membership-uri": nu
-          // atingem founder-view și nu suprascriem state-ul cu [].
+          // atingem founder-view și nu suprascriem state-ul cu []. Marcăm eroarea
+          // ca ProtectedRoute să arate „reîncearcă", nu „n-ai acces".
           console.error('[RestaurantContext] Failed to load memberships:', memErr)
+          setError(true)
           setLoading(false)
           return
         }
@@ -135,7 +143,9 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       } catch (err) {
         if (cancelled) return
         console.error('[RestaurantContext] Failed to load memberships:', err)
-        // Continuăm cu memberships goale — userul vede onboarding
+        // Eroare tranzientă (nu răspuns valid cu zero rânduri) → marcăm error,
+        // NU tratăm ca „fără restaurant / fără acces".
+        setError(true)
       }
       if (cancelled) return
       setLoading(false)
@@ -163,6 +173,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         activeRole: active?.role ?? null,
         setActive,
         loading,
+        error,
         founderViewId,
       }}
     >

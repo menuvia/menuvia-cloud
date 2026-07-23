@@ -1,6 +1,6 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
 import { buildPickupSlots } from '../lib/pickupSlots'
@@ -52,6 +52,25 @@ export default function PickupCheckoutSheet({
   // Cheie de idempotență stabilă pe durata sheet-ului: retry-urile (după
   // ambiguitate de rețea) refolosesc aceeași cheie → fără comenzi duplicate.
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
+
+  // Semantică de dialog modal (paritate cu QrCartSheet/ProductSheet): Escape
+  // închide, focusul intră în panou la deschidere și se restaurează la închidere.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Helper pur (lib/pickupSlots) — suportă și programul peste miezul nopții
   // (ex. food truck 18:00–02:00), cu aceeași doctrină ca rezervările (mig 201).
@@ -137,7 +156,12 @@ export default function PickupCheckoutSheet({
       }}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalii ridicare"
+        tabIndex={-1}
         style={{
           background: PUB.bg,
           borderRadius: '20px 20px 0 0',
@@ -146,6 +170,7 @@ export default function PickupCheckoutSheet({
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
+          outline: 'none',
         }}
       >
         <div

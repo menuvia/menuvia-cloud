@@ -17,7 +17,7 @@
 //
 // Acceptă atât , cât și ; ca delimitator (auto-detect).
 // ─────────────────────────────────────────────────────────────
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -227,6 +227,15 @@ export default function ProductsCsvImport({
   const [error, setError] = useState<string | null>(null)
   const [importedCount, setImportedCount] = useState(0)
 
+  // Resume idempotent pe RETRY după eșec parțial: fără el, un al doilea click pe
+  // „Importă" (după ce un batch a picat la mijloc) re-insera categoriile deja
+  // create + batch-urile deja inserate → produse DUPLICATE în meniu. Reținem
+  // cursorul de produse inserate + categoriile create, cheiate pe textul CSV
+  // (dacă userul editează CSV-ul, resetăm și pornim curat).
+  const insertedCursorRef = useRef(0)
+  const createdCatsRef = useRef<Map<string, string>>(new Map())
+  const importedCsvRef = useRef<string | null>(null)
+
   // Parse CSV
   const parsed = useMemo<ParsedRow[]>(() => {
     if (!csvText.trim()) return []
@@ -310,15 +319,26 @@ export default function ProductsCsvImport({
     if (importRows.length === 0) return
     setStep('importing')
     setError(null)
-    setProgress(0)
+
+    // CSV nou (față de ultima încercare) → resetăm cursorul de resume. Un retry
+    // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
+    if (importedCsvRef.current !== csvText) {
+      insertedCursorRef.current = 0
+      createdCatsRef.current = new Map()
+      importedCsvRef.current = csvText
+    }
+    setProgress(Math.round((100 * insertedCursorRef.current) / importRows.length))
 
     try {
-      // 1. Auto-create missing categories
+      // 1. Auto-create missing categories (sar peste cele deja create într-o
+      // încercare anterioară — createdCatsRef persistă între retry-uri).
       const catMap = new Map<string, string>() // name (lower) → id
       for (const c of existingCategories) {
         catMap.set(c.name.toLowerCase(), c.id)
       }
+      for (const [k, v] of createdCatsRef.current) catMap.set(k, v)
       for (const [index, newCatName] of newCategories.entries()) {
+        if (catMap.has(newCatName)) continue // deja creată la o încercare anterioară
         const original =
           importRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
         const { data, error: catErr } = await supabase
@@ -335,13 +355,17 @@ export default function ProductsCsvImport({
           .select('id')
           .single()
         if (catErr) throw new Error(`Eroare la categoria "${original}": ${catErr.message}`)
-        if (data) catMap.set(newCatName, data.id as string)
+        if (data) {
+          catMap.set(newCatName, data.id as string)
+          createdCatsRef.current.set(newCatName, data.id as string)
+        }
       }
 
-      // 2. Insert products in batches of 20 (avoid huge single insert)
+      // 2. Insert products in batches of 20 (avoid huge single insert). Pornim de
+      // la cursorul de resume: batch-urile deja inserate NU se re-trimit (anti-dublu).
       const batchSize = 20
-      let inserted = 0
-      for (let i = 0; i < importRows.length; i += batchSize) {
+      let inserted = insertedCursorRef.current
+      for (let i = insertedCursorRef.current; i < importRows.length; i += batchSize) {
         const batch = importRows.slice(i, i + batchSize)
         const rows = batch.map((r) => ({
           restaurant_id: restaurantId,
@@ -356,6 +380,9 @@ export default function ProductsCsvImport({
         const { error: insErr } = await supabase.from('products').insert(rows)
         if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
         inserted += batch.length
+        // Avansăm cursorul DUPĂ succesul batch-ului: un retry pornește de aici,
+        // nu de la 0 → batch-urile deja inserate nu se dublează.
+        insertedCursorRef.current = inserted
         setProgress(Math.round((100 * inserted) / importRows.length))
       }
 

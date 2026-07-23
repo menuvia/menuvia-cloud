@@ -221,7 +221,7 @@ function ProtectedRoute({
 }) {
   const { user, loading: authLoading } = useAuth()
   // FIX: Folosim activeRole din RestaurantContext în loc de getUserRoles() (DB call extra)
-  const { activeRole, loading: ctxLoading } = useRestaurantCtx()
+  const { activeRole, loading: ctxLoading, error: ctxError } = useRestaurantCtx()
 
   useEffect(() => {
     if (authLoading || ctxLoading) return
@@ -248,10 +248,20 @@ function ProtectedRoute({
           padding: 24,
         }}
       >
-        <QueryError
-          message="Nu ai acces la această pagină. Contactează managerul restaurantului."
-          onRetry={() => navigate('/dashboard')}
-        />
+        {ctxError ? (
+          // Blip de rețea / eroare Supabase la încărcarea membership-urilor:
+          // rolul e null NU pentru că n-are drept, ci pentru că fetch-ul a picat.
+          // Arătăm „reîncearcă" (reload), nu mesajul alarmant de „fără acces".
+          <QueryError
+            message="Nu am putut încărca permisiunile. Verifică conexiunea și reîncearcă."
+            onRetry={() => window.location.reload()}
+          />
+        ) : (
+          <QueryError
+            message="Nu ai acces la această pagină. Contactează managerul restaurantului."
+            onRetry={() => navigate('/dashboard')}
+          />
+        )}
       </div>
     )
   return <>{children}</>
