@@ -80,7 +80,20 @@ function CategoryModal({
           >
             Anulează
           </button>
-          <button onClick={() => onSave(form)} style={btn({ background: D.gold, color: '#000' })}>
+          <button
+            onClick={() => {
+              // Numele categoriei e obligatoriu — fără guard se crea o categorie
+              // cu nume gol tăcut (invizibilă/inutilă pe meniu).
+              if (!(form.name ?? '').trim()) return
+              onSave(form)
+            }}
+            disabled={!(form.name ?? '').trim()}
+            style={btn({
+              background: D.gold,
+              color: '#000',
+              opacity: !(form.name ?? '').trim() ? 0.5 : 1,
+            })}
+          >
             Salvează
           </button>
         </div>

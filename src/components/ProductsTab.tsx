@@ -1667,6 +1667,17 @@ function ProductModal({
           <button
             onClick={async () => {
               if (saving || uploading) return
+              // Guard client: numele e obligatoriu („Nume *"), prețul ne-negativ.
+              // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
+              // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
+              if (!(form.name ?? '').trim()) {
+                pmToast('Numele produsului e obligatoriu', 'error')
+                return
+              }
+              if (form.price != null && form.price < 0) {
+                pmToast('Prețul nu poate fi negativ', 'error')
+                return
+              }
               setSaving(true)
               try {
                 await onSave(form)
