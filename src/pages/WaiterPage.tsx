@@ -169,6 +169,9 @@ export default function WaiterPage() {
   // ── Offline sync state ────────────────────────────────────────
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
+  // O comandă offline respinsă definitiv de server (produs șters / grup obligatoriu
+  // schimbat) e ștearsă din coadă — ospătarul TREBUIE anunțat ca s-o reintroducă.
+  const [droppedOrderReason, setDroppedOrderReason] = useState<string | null>(null)
 
   useEffect(() => {
     function handleOnline() {
@@ -194,10 +197,16 @@ export default function WaiterPage() {
       console.warn('[WaiterPage] Sesiune expirată, sync offline blocat')
     }
 
+    function handleDropped(e: Event) {
+      const detail = (e as CustomEvent).detail as { reason?: string } | undefined
+      setDroppedOrderReason(detail?.reason ?? 'eroare necunoscută')
+    }
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     window.addEventListener('offline-queue-updated', handleQueueUpdate)
     window.addEventListener('offline-sync-auth-required', handleAuthRequired)
+    window.addEventListener('offline-order-dropped', handleDropped)
 
     // Also listen for sw messages (Background sync triggers)
     const swListener = (e: MessageEvent) => {
@@ -212,6 +221,7 @@ export default function WaiterPage() {
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('offline-queue-updated', handleQueueUpdate)
       window.removeEventListener('offline-sync-auth-required', handleAuthRequired)
+      window.removeEventListener('offline-order-dropped', handleDropped)
       navigator.serviceWorker?.removeEventListener('message', swListener)
     }
   }, [])
@@ -434,6 +444,10 @@ export default function WaiterPage() {
       return
     }
     setAssignedTableIds('loading')
+    // Guard de anulare: la schimbarea restaurantului răspunsul VECHI nu trebuie
+    // să seteze scope-ul de mese al restaurantului precedent (ospătarul ar filtra
+    // comenzile pe mesele altui local).
+    let cancelled = false
     void (async () => {
       try {
         const { data, error } = await supabase
@@ -441,6 +455,7 @@ export default function WaiterPage() {
           .select('table_id')
           .eq('restaurant_id', restaurantId)
           .eq('user_id', user.id)
+        if (cancelled) return
         // Un blip de rețea/RLS lasă `data:null` FĂRĂ throw (supabase-js). A cădea
         // pe `null` = „arată toate mesele" ar extinde tăcut scope-ul ospătarului
         // la toată sala pe un simplu blip. Pe eroare păstrăm starea anterioară.
@@ -453,9 +468,13 @@ export default function WaiterPage() {
           ids.length > 0 ? new Set(ids.map((r: Record<string, string>) => r.table_id)) : null,
         )
       } catch {
+        if (cancelled) return
         setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [restaurantId, user])
 
   const assignmentsReady = assignedTableIds !== 'loading'
@@ -840,6 +859,45 @@ export default function WaiterPage() {
               {pendingSyncCount === 1 ? 'comandă în așteptare' : 'comenzi în așteptare'}
             </span>
           )}
+        </div>
+      )}
+
+      {/* Comandă offline pierdută (respinsă definitiv de server) — trebuie reintrodusă */}
+      {droppedOrderReason != null && (
+        <div
+          style={{
+            background: D.red,
+            color: '#fff',
+            padding: '8px 24px',
+            fontSize: 13,
+            fontFamily: 'DM Sans, sans-serif',
+            fontWeight: 600,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="alert" size={14} />O comandă offline nu a putut fi trimisă și a fost
+            anulată ({droppedOrderReason}). Reintrodu-o manual.
+          </span>
+          <button
+            onClick={() => setDroppedOrderReason(null)}
+            aria-label="Închide avertismentul"
+            style={{
+              background: 'rgba(0,0,0,0.2)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              minWidth: 44,
+              height: 32,
+              cursor: 'pointer',
+              fontSize: 16,
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 

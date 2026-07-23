@@ -229,6 +229,14 @@ export async function syncPendingOrders(): Promise<void> {
         if (isPermanentOrderError(error)) {
           console.error('[offlineSync] Eroare business logic, comandă eliminată:', error)
           await removeFromQueue(item.localId)
+          // O comandă offline ștearsă permanent (ex. produs șters / grup obligatoriu
+          // schimbat mid-flow) NU trebuie să dispară TĂCUT — ospătarul crede că s-a
+          // trimis. Anunțăm UI-ul (WaiterPage) ca să afișeze un banner „reintroду comanda".
+          window.dispatchEvent(
+            new CustomEvent('offline-order-dropped', {
+              detail: { reason: error.message ?? 'eroare necunoscută', localId: item.localId },
+            }),
+          )
           continue
         }
         // Tranzitoriu (rețea, gateway, JWT, necunoscut) → oprim, reluăm la 'online'.
