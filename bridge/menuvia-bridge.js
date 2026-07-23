@@ -288,8 +288,14 @@ async function main() {
       // Ambele cozi într-un ciclu: bonuri fiscale + tichete de bucătărie.
       // Tichetele rulează doar cu kitchen.enabled — bridge-urile existente
       // (fără secțiunea kitchen în config) nu-și schimbă comportamentul.
-      const n = (await processOnce(cfg)) +
-        (cfg.kitchen.enabled ? await processKitchenOnce(cfg) : 0);
+      // OPT-R2: cozile rulează CONCURENT — un FiscalNet lent nu mai ține
+      // tichetele de bucătărie în așteptare (cozi independente: tabele/RPC/
+      // hardware separate, mig 227 e NEfiscal → zero interacțiune anti-duplicat).
+      const [nf, nk] = await Promise.all([
+        processOnce(cfg),
+        cfg.kitchen.enabled ? processKitchenOnce(cfg) : Promise.resolve(0),
+      ]);
+      const n = nf + nk;
       if (n === 0) await sleep(cfg.pollIntervalMs);
     } catch (err) {
       log('error', 'Ciclu eșuat', err.message);

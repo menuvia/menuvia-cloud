@@ -47,31 +47,35 @@ exports.handler = async (event) => {
     return jsonResponse(401, { error: 'Invalid token' })
   }
 
-  // Rate limit per user (fail-closed pe eroare de infra, ca la stripe-checkout).
+  // OPT-R2: rate-limit-ul și lookup-ul de profil depind ambele DOAR de user.id
+  // (nu unul de altul) — le lansăm în PARALEL, păstrând EXACT aceeași ordine
+  // de evaluare fail-closed (rate-limit întâi, apoi profil). −1 RTT serial.
+  let rlOk, rlErr, profile, profileErr
   try {
-    const { data: rlOk, error: rlErr } = await supabase.rpc('check_rate_limit', {
-      p_function_name:  'stripe_portal',
-      p_scope_key:      user.id,
-      p_max_requests:   10,
-      p_window_minutes: 5,
-    })
-    if (rlErr) {
-      console.error('[stripe-portal] rate limit RPC failed (fail-closed):', rlErr.message)
-      return jsonResponse(503, { error: 'Rate limit service unavailable' })
-    }
-    if (rlOk === false) {
-      return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
-    }
+    const [rlRes, profRes] = await Promise.all([
+      supabase.rpc('check_rate_limit', {
+        p_function_name:  'stripe_portal',
+        p_scope_key:      user.id,
+        p_max_requests:   10,
+        p_window_minutes: 5,
+      }),
+      supabase.from('profiles').select('stripe_customer_id').eq('id', user.id).single(),
+    ])
+    rlOk = rlRes.data; rlErr = rlRes.error
+    profile = profRes.data; profileErr = profRes.error
   } catch (e) {
-    console.error('[stripe-portal] rate limit check threw (fail-closed):', e?.message)
+    console.error('[stripe-portal] rate limit / profile fetch threw (fail-closed):', e?.message)
     return jsonResponse(503, { error: 'Rate limit service unavailable' })
   }
 
-  const { data: profile, error: profileErr } = await supabase
-    .from('profiles')
-    .select('stripe_customer_id')
-    .eq('id', user.id)
-    .single()
+  // Rate limit per user (fail-closed pe eroare de infra, ca la stripe-checkout).
+  if (rlErr) {
+    console.error('[stripe-portal] rate limit RPC failed (fail-closed):', rlErr.message)
+    return jsonResponse(503, { error: 'Rate limit service unavailable' })
+  }
+  if (rlOk === false) {
+    return jsonResponse(429, { error: 'Prea multe încercări. Reîncearcă în câteva minute.' })
+  }
 
   // Eroare de DB (rețea/RLS tranzitoriu) ≠ „fără abonament": fără verificare,
   // un blip la exact endpoint-ul care rezolvă problema de plată răspundea fals
@@ -92,7 +96,7 @@ exports.handler = async (event) => {
   }
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   try {
     const session = await stripe.billingPortal.sessions.create({

@@ -138,7 +138,7 @@ exports.handler = async (event) => {
     // cancel NU blochează nota (itemii respectivi rămân „în plată").
     const staleIntents = Array.isArray(bill.stale_split_intents) ? bill.stale_split_intents : []
     if (staleIntents.length > 0 && bill.stripe_account_id) {
-      const stripeS = new Stripe(STRIPE_SECRET_KEY)
+      const stripeS = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
       let freed = 0
       for (const stale of staleIntents) {
         try {
@@ -194,7 +194,7 @@ exports.handler = async (event) => {
     }
     // Are intent atașat: anulăm ÎNTÂI la Stripe (dacă între timp plata a
     // reușit, Stripe refuză și clientul află că a plătit deja), apoi settle.
-    const stripeC = new Stripe(STRIPE_SECRET_KEY)
+    const stripeC = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
     try {
       await stripeC.paymentIntents.cancel(c.stripe_payment_intent_id, {
         stripeAccount: c.stripe_account_id,
@@ -252,7 +252,7 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Sumă invalidă.' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   // 1b) Un singur intent live per sesiune (mig 211): intent-urile deschise de
   // alte telefoane la aceeași masă se anulează la Stripe ÎNAINTE de a crea

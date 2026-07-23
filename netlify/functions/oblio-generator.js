@@ -23,6 +23,12 @@ const OBLIO_TEST_BASE = 'https://test.oblio.eu/api'  // sandbox dacă există
 
 const FETCH_TIMEOUT_MS = 9000
 
+// OPT-R2: tokenCache la nivel de MODUL — pe VPS (proces Node persistent) și
+// între invocări Netlify calde, token-ul Oblio (expiră ~3600s) se refolosește
+// în loc de re-autentificare la fiecare rulare cron (2 min). Evicția pe 401
+// (rotație de api_secret) se auto-corectează la primul apel.
+const tokenCache = new Map()
+
 // Fetch cu timeout explicit via AbortController — un Oblio agățat nu trebuie
 // să blocheze cron-ul (rulează la fiecare 2 min) peste durata funcției Netlify.
 async function fetchWithTimeout(url, options) {
@@ -54,11 +60,6 @@ exports.handler = async () => {
   if (!queued || queued.length === 0) {
     return { statusCode: 200, body: 'No queued invoices' }
   }
-
-  // Token cache per (api_email + test_mode) for batch — o cheie compusă previne
-  // reutilizarea unui token sandbox pe API-ul live (sau invers) când aceeași
-  // adresă de email are atât credențiale test, cât și live în coadă.
-  const tokenCache = new Map()
 
   let issued = 0, failed = 0
 

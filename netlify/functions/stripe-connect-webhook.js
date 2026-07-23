@@ -47,7 +47,7 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Server config error' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
   let stripeEvent
   try {
     stripeEvent = stripe.webhooks.constructEvent(

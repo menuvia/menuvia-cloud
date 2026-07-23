@@ -66,7 +66,7 @@ exports.handler = async (event) => {
     return jsonResponse(403, { error: 'Forbidden' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   // Reutilizează/creează customer-ul Stripe al userului.
   const { data: profile } = await supabase

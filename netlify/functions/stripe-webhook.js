@@ -61,7 +61,7 @@ exports.handler = async (event) => {
     [STRIPE_ENTERPRISE_PRICE_ID]: 'enterprise',
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
   const sig = event.headers['stripe-signature']
   const rawBody = getRawBody(event)
 

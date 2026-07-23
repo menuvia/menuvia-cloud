@@ -76,7 +76,7 @@ exports.handler = async (event) => {
     return jsonResponse(404, { error: 'Restaurant negăsit.' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   if (action === 'status') {
     if (!restaurant.stripe_account_id) {
