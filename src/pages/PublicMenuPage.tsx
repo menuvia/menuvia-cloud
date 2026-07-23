@@ -967,7 +967,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               )}
               {cart.length === 0 && (
                 <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
-                  {listMode ? T(lang, 'list_empty') : 'Coșul e gol — adaugă produse din meniu.'}
+                  {listMode ? T(lang, 'list_empty') : T(lang, 'cart_empty')}
                 </div>
               )}
               {cart.map((item) => (
@@ -1100,7 +1100,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
                   }}
                 >
-                  Continuă la ridicare →
+                  {T(lang, 'continue_to_pickup')} →
                 </button>
               )}
             </div>
@@ -1193,26 +1193,27 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 letterSpacing: '-0.01em',
               }}
             >
-              Comandă plasată!
+              {T(lang, 'order_placed')}
             </div>
             <div style={{ fontSize: 14, color: PUB.text2, marginBottom: 16, lineHeight: 1.6 }}>
-              Comanda <strong>#{confirmation.short_id}</strong> a fost trimisă restaurantului.
+              {T(lang, 'order_sent_pre')} <strong>#{confirmation.short_id}</strong>{' '}
+              {T(lang, 'order_sent_post')}
               {confirmation.pickup_time && (
                 <>
                   {' '}
-                  Vino la{' '}
+                  {T(lang, 'pickup_come_at_pre')}{' '}
                   <strong>
                     {new Date(confirmation.pickup_time).toLocaleTimeString('ro-RO', {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
                   </strong>{' '}
-                  să o ridici.
+                  {T(lang, 'pickup_come_at_post')}
                 </>
               )}
             </div>
             <div style={{ fontSize: 13, color: PUB.text3, marginBottom: 24 }}>
-              Total de plată la ridicare:{' '}
+              {T(lang, 'total_due_pickup')}{' '}
               <strong style={{ color: accent }}>{fmtPrice(confirmation.total, menuCurrency)}</strong>
             </div>
             <button
@@ -1230,7 +1231,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 width: '100%',
               }}
             >
-              Mulțumim!
+              {T(lang, 'thanks')}
             </button>
           </div>
         </div>

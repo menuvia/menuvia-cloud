@@ -839,7 +839,7 @@ export default function QrMenuPage({ token }: Props) {
               }}
             >
               <span style={{ fontWeight: 700, fontSize: 15, color: PUB.text }}>
-                Puncte de fidelitate
+                {T(lang, 'loyalty_points')}
               </span>
               <span style={{ fontSize: 13, color: PUB.text2 }}>
                 {loyalty.points ?? 0} / {loyalty.reward_threshold}
@@ -857,7 +857,7 @@ export default function QrMenuPage({ token }: Props) {
               aria-valuenow={Math.min(loyalty.points ?? 0, loyalty.reward_threshold ?? 0)}
               aria-valuemin={0}
               aria-valuemax={loyalty.reward_threshold ?? 0}
-              aria-label="Progres puncte de fidelitate"
+              aria-label={T(lang, 'loyalty_progress_aria')}
             >
               <div
                 style={{
@@ -881,14 +881,15 @@ export default function QrMenuPage({ token }: Props) {
                   lineHeight: 1.5,
                 }}
               >
-                🎉 Ai o recompensă: <strong>{loyalty.reward_description}</strong>. Arată codul{' '}
+                🎉 {T(lang, 'loyalty_reward_have')}{' '}
+                <strong>{loyalty.reward_description}</strong>. {T(lang, 'loyalty_show_code')}{' '}
                 <strong style={{ letterSpacing: '0.12em' }}>{loyalty.short_code}</strong>{' '}
-                ospătarului.
+                {T(lang, 'loyalty_to_waiter')}
               </div>
             ) : (
               <div style={{ fontSize: 12, color: PUB.text2, lineHeight: 1.5 }}>
-                Primești puncte la fiecare comandă. La {loyalty.reward_threshold} puncte:{' '}
-                {loyalty.reward_description}.
+                {T(lang, 'loyalty_earn_hint_pre')} {loyalty.reward_threshold}{' '}
+                {T(lang, 'loyalty_points_word')} {loyalty.reward_description}.
               </div>
             )}
             {getStoredLoyaltyPhone() === '' ? (
@@ -899,8 +900,8 @@ export default function QrMenuPage({ token }: Props) {
                     inputMode="tel"
                     value={loyaltyPhone}
                     onChange={(e) => setLoyaltyPhone(e.target.value)}
-                    placeholder="Telefon (opțional)"
-                    aria-label="Telefon pentru puncte de fidelitate"
+                    placeholder={T(lang, 'loyalty_phone_opt')}
+                    aria-label={T(lang, 'loyalty_phone_aria')}
                     style={{
                       flex: 1,
                       minHeight: 40,
@@ -930,12 +931,11 @@ export default function QrMenuPage({ token }: Props) {
                       fontFamily: theme.fonts.body,
                     }}
                   >
-                    {loyaltyPhoneSaved ? 'Salvat ✓' : 'Salvează'}
+                    {loyaltyPhoneSaved ? T(lang, 'saved') : T(lang, 'save')}
                   </button>
                 </div>
                 <div style={{ fontSize: 11, color: PUB.text3, marginTop: 6, lineHeight: 1.45 }}>
-                  Cu telefonul nu-ți pierzi punctele dacă schimbi dispozitivul. Îl folosim doar
-                  pentru puncte și îl stocăm criptat (hash), nu ca număr.
+                  {T(lang, 'loyalty_phone_hint')}
                 </div>
               </div>
             ) : null}
@@ -996,10 +996,10 @@ export default function QrMenuPage({ token }: Props) {
             color={waiterCalled ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
           />
           {waiterCalled
-            ? 'Am anunțat ospătarul'
+            ? T(lang, 'waiter_called')
             : callingWaiter
-              ? 'Se cheamă...'
-              : 'Cheamă ospătarul'}
+              ? T(lang, 'waiter_calling')
+              : T(lang, 'call_waiter')}
         </button>
       )}
       {ctx && orderingAllowed && !confirmation && (
@@ -1039,10 +1039,10 @@ export default function QrMenuPage({ token }: Props) {
             color={billRequested ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
           />
           {billRequested
-            ? 'Nota e pe drum'
+            ? T(lang, 'bill_on_way')
             : requestingBill
-              ? 'Se trimite...'
-              : 'Cere nota'}
+              ? T(lang, 'sending')
+              : T(lang, 'request_bill')}
         </button>
       )}
 
@@ -1064,7 +1064,7 @@ export default function QrMenuPage({ token }: Props) {
           <div
             onClick={(e) => e.stopPropagation()}
             role="dialog"
-            aria-label="Cere nota cu bacșiș"
+            aria-label={T(lang, 'tip_sheet_aria')}
             style={{
               background: PUB.bg,
               color: PUB.text,
@@ -1084,10 +1084,10 @@ export default function QrMenuPage({ token }: Props) {
                 marginBottom: 4,
               }}
             >
-              Ceri nota
+              {T(lang, 'tip_title')}
             </div>
             <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 14, lineHeight: 1.5 }}>
-              Vrei să lași bacșiș? Suma ajunge la ospătar odată cu nota — plătești ca de obicei.
+              {T(lang, 'tip_subtitle')}
             </div>
             {(() => {
               const base = previousOrders.reduce((sum, o) => sum + o.total, 0)
@@ -1098,7 +1098,7 @@ export default function QrMenuPage({ token }: Props) {
               const options: { label: string; value: number | null }[] =
                 base > 0
                   ? [
-                      { label: 'Fără', value: 0 },
+                      { label: T(lang, 'tip_none'), value: 0 },
                       ...[5, 10, 15].map((pct) => {
                         const amt = Math.min(TIP_CAP, Math.round(base * pct) / 100)
                         return {
@@ -1108,7 +1108,7 @@ export default function QrMenuPage({ token }: Props) {
                       }),
                     ]
                   : [
-                      { label: 'Fără', value: 0 },
+                      { label: T(lang, 'tip_none'), value: 0 },
                       ...[5, 10, 15].map((v) => ({
                         label: fmtPrice(v, menuCurrency),
                         value: v,
@@ -1158,8 +1158,8 @@ export default function QrMenuPage({ token }: Props) {
                   setCustomTip(e.target.value)
                   if (customTipInvalid) setCustomTipInvalid(false)
                 }}
-                placeholder="Altă sumă"
-                aria-label="Bacșiș — altă sumă"
+                placeholder={T(lang, 'tip_other_amount')}
+                aria-label={T(lang, 'tip_other_aria')}
                 style={{
                   flex: 1,
                   minHeight: 44,
@@ -1203,7 +1203,7 @@ export default function QrMenuPage({ token }: Props) {
                   opacity: requestingBill ? 0.6 : 1,
                 }}
               >
-                {requestingBill ? 'Se trimite...' : 'Trimite'}
+                {requestingBill ? T(lang, 'sending') : T(lang, 'send')}
               </button>
             </div>
           </div>
@@ -1234,7 +1234,7 @@ export default function QrMenuPage({ token }: Props) {
         >
           <button
             onClick={() => setShowCart(true)}
-            aria-label="Comanda mea"
+            aria-label={T(lang, 'my_order')}
             style={{
               background: cart.length > 0 ? accent : PUB.surface,
               color: cart.length > 0 ? '#fff' : PUB.text,
@@ -1269,7 +1269,7 @@ export default function QrMenuPage({ token }: Props) {
               </>
             ) : (
               <span style={{ color: PUB.text2, fontWeight: 600 }}>
-                Comanda mea · atinge un produs ca să începi
+                {T(lang, 'my_order_hint')}
               </span>
             )}
           </button>
