@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -1888,9 +1888,20 @@ export default function ProductsTab({
       />
     )
 
-  const filtered = products
-    .filter((p) => activeCat === 'all' || p.category_id === activeCat)
-    .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
+  // Numele categoriilor le indexăm O(1) — altfel fiecare rând din listă făcea
+  // `categories.find(...)` (O(rânduri × categorii) la fiecare re-randare, ex. tastare).
+  const catNameById = useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories],
+  )
+  // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
+  // căutarea — nu la fiecare re-randare (togglingId, modal, delId etc.).
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return products
+      .filter((p) => activeCat === 'all' || p.category_id === activeCat)
+      .filter((p) => p.name.toLowerCase().includes(q))
+  }, [products, activeCat, search])
 
   const handleSave = async (form: Partial<Product>) => {
     if (modal === 'add') {
@@ -2236,7 +2247,7 @@ export default function ProductsTab({
                       )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: D.t3 }}>
-                      {categories.find((c) => c.id === p.category_id)?.name || '—'}
+                      {catNameById.get(p.category_id) || '—'}
                     </div>
                   </div>
                   <div
@@ -2413,7 +2424,7 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                  {categories.find((c) => c.id === p.category_id)?.name || '—'}
+                  {catNameById.get(p.category_id) || '—'}
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
