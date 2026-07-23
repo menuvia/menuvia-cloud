@@ -1891,7 +1891,7 @@ export default function ProductsTab({
   // Numele categoriilor le indexăm O(1) — altfel fiecare rând din listă făcea
   // `categories.find(...)` (O(rânduri × categorii) la fiecare re-randare, ex. tastare).
   const catNameById = useMemo(
-    () => new Map(categories.map((c) => [c.id, c.name])),
+    () => new Map(categories.map((c): [string, string] => [c.id, c.name])),
     [categories],
   )
   // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
@@ -2247,7 +2247,7 @@ export default function ProductsTab({
                       )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: D.t3 }}>
-                      {catNameById.get(p.category_id) || '—'}
+                      {catNameById.get(p.category_id ?? '') || '—'}
                     </div>
                   </div>
                   <div
@@ -2424,7 +2424,7 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                  {catNameById.get(p.category_id) || '—'}
+                  {catNameById.get(p.category_id ?? '') || '—'}
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
