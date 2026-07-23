@@ -501,7 +501,14 @@ exports.handler = async (event) => {
         // idempotent pe refund_id), altfel comisionul pe venit stornat rămâne.
         const charge = stripeEvent.data.object
         try {
-          const refunds = charge.refunds?.data || []
+          // NU ne bazăm pe `charge.refunds.data` inline din payload: pe versiunile
+          // API Stripe ≥ 2022-11-15 lista de refund-uri NU mai e expandată pe obiectul
+          // Charge din webhook → ar fi `undefined` → bucla nu rula → clawback ratat
+          // TĂCUT (scurgere de comision pe venit stornat). Luăm refund-urile explicit
+          // via API (ca ramura de dispute care re-ia charge-ul). Idempotent pe
+          // refund_id în RPC, deci reprocesarea la refund-uri parțiale succesive e no-op.
+          const refundList = await stripe.refunds.list({ charge: charge.id, limit: 100 })
+          const refunds = refundList?.data || []
           for (const r of refunds) {
             const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
               p_event_id:            stripeEvent.id,
