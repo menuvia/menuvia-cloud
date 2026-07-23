@@ -195,6 +195,10 @@ export function useOrders(
   useEffect(() => {
     if (!restaurantId) return
     setConnectionStatus('connecting')
+    // Resetăm ȘI ref-ul (nu doar state-ul): la schimbarea restaurantului un
+    // 'connected' vechi din ref ar face polling-ul să sară hidratarea corectă
+    // și să ruleze throttled pe noul restaurant până la primul flap real.
+    connectionStatusRef.current = 'connecting'
     // Timeout: dacă realtime nu raportează SUBSCRIBED în 12s, marcăm
     // disconnected (polling-ul preia datele). Evită bulina blocată pe galben.
     if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current)

@@ -352,6 +352,11 @@ export default function KitchenPage() {
   }, [restaurantId])
 
   useEffect(() => {
+    // NU arma baseline-ul pe render-ul GOL dinainte de primul fetch: altfel
+    // orders trece din [] (pre-fetch) în [reale] și toate par „noi" față de
+    // prevOrderIds gol → beep fals la fiecare încărcare a paginii Bucătărie.
+    // Primul snapshot POST-load devine baseline-ul tăcut.
+    if (loading) return
     const currentIds = new Set(orders.map((o) => o.id))
     if (hasSeenInitialSnapshot.current) {
       for (const o of orders) {
@@ -363,7 +368,7 @@ export default function KitchenPage() {
     }
     hasSeenInitialSnapshot.current = true
     prevOrderIds.current = currentIds
-  }, [orders])
+  }, [orders, loading])
 
   // OPT-8: stabil — altfel memo-ul de pe OrderCard e inert (prop nou/render).
   const handleAdvance = useCallback(
