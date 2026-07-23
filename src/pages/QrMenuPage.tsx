@@ -695,7 +695,9 @@ export default function QrMenuPage({ token }: Props) {
               border: `1px solid ${searchFocused ? accent : PUB.border}`,
               borderRadius: 12,
               padding: '11px 14px',
-              fontSize: 15,
+              // 16px minim: sub 16 iOS Safari face auto-zoom pe focus (input-ul
+              // sare în față și strică layout-ul meniului la masă).
+              fontSize: 16,
               color: PUB.text,
               fontFamily: theme.fonts.body,
               outline: 'none',

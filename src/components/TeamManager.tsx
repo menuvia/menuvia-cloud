@@ -4,6 +4,7 @@ import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { QueryError } from './PageLoader'
 import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
@@ -124,6 +125,10 @@ export default function TeamManager({
   const [members, setMembers] = useState<Member[]>([])
   const [invites, setInvites] = useState<Invite[]>([])
   const [loading, setLoading] = useState(true)
+  // Eroare persistentă de încărcare: fără ea, un eșec pe interogarea de membri
+  // colapsa la starea goală „Niciun membru încă" (minte că echipa e goală în loc
+  // să spună că n-a putut încărca) — arătăm QueryError cu Reîncearcă.
+  const [error, setError] = useState<string | null>(null)
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<Exclude<MemberRole, 'owner'>>('waiter')
   const [sending, setSending] = useState(false)
@@ -132,6 +137,7 @@ export default function TeamManager({
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const [mr, ir, namesRes] = await Promise.all([
         // Membership rows — pentru `id` (necesar la schimbare rol / eliminare)
@@ -152,6 +158,10 @@ export default function TeamManager({
         // RLS-ul de pe `profiles` pentru un apelant care e membru.
         supabase.rpc('get_restaurant_members', { p_restaurant_id: restaurant.id }),
       ])
+
+      // Lista de membri e sursa principală: dacă eșuează, NU afișăm „echipă goală"
+      // (ir/namesRes degradează grațios — invitații goale / nume fallback pe UUID).
+      if (mr.error) throw mr.error
 
       // Hartă user_id → nume/email din RPC.
       const nameMap = new Map<string, { email: string; full_name: string | null }>()
@@ -184,7 +194,7 @@ export default function TeamManager({
       setInvites((ir.data || []) as unknown as Invite[])
     } catch (err) {
       console.error('[TeamManager] load error:', err)
-      toast('Nu s-a putut încărca echipa', 'error')
+      setError(err instanceof Error ? err.message : 'Nu s-a putut încărca echipa')
     }
     setLoading(false)
   }, [restaurant.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -272,6 +282,8 @@ export default function TeamManager({
       toast('Eroare la actualizare rol', 'error')
     }
   }
+
+  if (error) return <QueryError message={error} onRetry={() => void load()} />
 
   return (
     <div>
