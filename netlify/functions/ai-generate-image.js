@@ -157,6 +157,21 @@ exports.handler = async (event) => {
     return jsonResponse(502, { error: 'Generarea imaginii a eșuat la provider.' })
   }
 
+  // Provider a REUȘIT → costul e deja incurat pe cheia restaurantului. Înregistrăm
+  // metering-ul ACUM, înainte de upload/DB: altfel un eșec persistent post-generare
+  // (ex. policy Storage stricată) lăsa userul să reîncerce la nesfârșit, fiecare
+  // retry costând bani reali fără să scadă cota (429-ul nu se declanșa niciodată).
+  {
+    const { error: usageErr } = await supabase.rpc('ai_record_usage', {
+      p_restaurant_id: restaurant_id, p_feature: 'image_gen', p_provider: config.provider,
+      p_model: config.model || '', p_input_tokens: 0, p_output_tokens: IMAGE_TOKEN_COST,
+      p_cost: IMAGE_COST_USD, p_success: true, p_error: null,
+    })
+    if (usageErr) {
+      console.error('[ai-generate-image] ai_record_usage FAILED (imagine generată, cotă NEscăzută):', usageErr.message, { restaurant_id })
+    }
+  }
+
   // Încarcă în Storage
   const buffer = Buffer.from(b64, 'base64')
   const path = `ai/${restaurant_id}/${product_id}-${Date.now()}.png`
@@ -190,17 +205,6 @@ exports.handler = async (event) => {
   if (updErr) {
     console.error('[ai-generate-image] product update error:', updErr.message)
     return jsonResponse(500, { error: 'Nu am putut actualiza produsul.' })
-  }
-
-  // Metering (scade cota). Capturăm eroarea: imaginea e deja salvată, dar dacă
-  // metering-ul pică, cota nu s-a scăzut → logăm explicit.
-  const { error: usageErr } = await supabase.rpc('ai_record_usage', {
-    p_restaurant_id: restaurant_id, p_feature: 'image_gen', p_provider: config.provider,
-    p_model: config.model || '', p_input_tokens: 0, p_output_tokens: IMAGE_TOKEN_COST,
-    p_cost: IMAGE_COST_USD, p_success: true, p_error: null,
-  })
-  if (usageErr) {
-    console.error('[ai-generate-image] ai_record_usage FAILED (imagine generată, cotă NEscăzută):', usageErr.message, { restaurant_id })
   }
 
   return jsonResponse(200, { image_url: imageUrl })

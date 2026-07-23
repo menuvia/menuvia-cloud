@@ -82,7 +82,38 @@ exports.handler = async (event) => {
       metadata: { supabase_user_id: user.id },
     })
     customerId = customer.id
-    await supabase.from('profiles').update({ stripe_customer_id: customerId }).eq('id', user.id)
+
+    // Anti race la creare concurentă (2 cereri simultane fără stripe_customer_id
+    // ar crea 2 customeri Stripe pentru același user). UPDATE atomic condiționat
+    // pe .is('stripe_customer_id', null): doar cererea care câștigă cursa scrie.
+    // Oglindă cu stripe-checkout.js.
+    const { data: updatedRows } = await supabase.from('profiles')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', user.id)
+      .is('stripe_customer_id', null)
+      .select('stripe_customer_id')
+
+    if (!updatedRows || updatedRows.length === 0) {
+      // Altcineva a fost mai rapid — recitim customer_id-ul real și îl folosim
+      // pe acela, ca să nu rămânem cu 2 customeri Stripe pentru același user.
+      const { data: freshProfile } = await supabase
+        .from('profiles')
+        .select('stripe_customer_id')
+        .eq('id', user.id)
+        .single()
+
+      if (freshProfile?.stripe_customer_id) {
+        const orphanCustomerId = customerId
+        customerId = freshProfile.stripe_customer_id
+        // Best-effort cleanup al customer-ului orfan creat de noi — nu blocăm
+        // fluxul de checkout dacă ștergerea eșuează.
+        try {
+          await stripe.customers.del(orphanCustomerId)
+        } catch (e) {
+          console.warn('[ai-credits-checkout] cleanup orphan Stripe customer failed:', e?.message)
+        }
+      }
+    }
   }
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
