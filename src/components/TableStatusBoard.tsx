@@ -328,6 +328,19 @@ export default function TableStatusBoard({
   }, [tables, orders, waiterCalls])
   const { computed, noneOrdersCount, occupiedCount, freeCount, attentionCount } = derived
 
+  // ATENȚIE: toate hook-urile ÎNAINTE de orice early-return (Rules of Hooks).
+  // `toggle` era declarat DUPĂ early-return-ul de „nicio masă" → la tranziția
+  // gol→populat React vedea mai multe hook-uri decât la randarea precedentă
+  // („Rendered more hooks than during the previous render") și panoul crăpa.
+  const toggle = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
   if (tables.length === 0 && noneOrdersCount === 0) {
     return (
       <EmptyState
@@ -337,15 +350,6 @@ export default function TableStatusBoard({
       />
     )
   }
-
-  const toggle = useCallback((key: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }, [])
 
   // ── Pregătire pentru modul Hartă ──
   const hasMap = (floorLayout?.floors?.[0]?.tables?.length ?? 0) > 0
