@@ -328,16 +328,26 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       const orderIds = allOrders.map((o) => o.id as string)
 
       if (orderIds.length > 0) {
-        // Step B: get order_items for those orders
-        const { data: items, error: iErr } = await supabase
-          .from('order_items')
-          .select(
-            fiscalReports
-              ? 'product_name_snapshot, quantity, unit_price_snapshot, product_id'
-              : 'product_name_snapshot, quantity, product_id',
-          )
-          .in('order_id', orderIds)
+        // Step B: get order_items for those orders.
+        // OPT-R2: order_id-urile se trimit în LOTURI — un singur `.in()` cu mii de
+        // UUID-uri construia un URL de sute de KB care depășea limita de lungime
+        // (414) pe localurile aglomerate pe perioade lungi. Loturile rulează în
+        // paralel (browserul le serializează oricum ~6/host) și se concatenează;
+        // agregarea de mai jos rămâne identică.
+        const cols = fiscalReports
+          ? 'product_name_snapshot, quantity, unit_price_snapshot, product_id'
+          : 'product_name_snapshot, quantity, product_id'
+        const CHUNK = 150
+        const idChunks: string[][] = []
+        for (let i = 0; i < orderIds.length; i += CHUNK) {
+          idChunks.push(orderIds.slice(i, i + CHUNK))
+        }
+        const itemResults = await Promise.all(
+          idChunks.map((ids) => supabase.from('order_items').select(cols).in('order_id', ids)),
+        )
+        const iErr = itemResults.find((r) => r.error)?.error
         if (iErr) throw iErr
+        const items = itemResults.flatMap((r) => r.data ?? [])
 
         // Step C: aggregate on client
         const map = new Map<
