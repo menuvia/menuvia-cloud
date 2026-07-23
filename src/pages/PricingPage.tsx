@@ -90,6 +90,15 @@ export default function PricingPage({
   const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
+  // Titlu specific rutei (SEO/share) — altfel /pricing moștenea titlul RO de
+  // homepage din index.html. Restaurat la demontare (SPA).
+  React.useEffect(() => {
+    const prev = document.title
+    document.title = 'Prețuri și planuri — Menuvia'
+    return () => {
+      document.title = prev
+    }
+  }, [])
 
   // Single source of truth pentru pricing: src/lib/plans.ts.
   // Adapter local — păstrăm shape-ul renderului existent (features {t,ok})

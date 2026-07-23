@@ -5,7 +5,7 @@
 // Tonul: cald, profesional, direct. Fără jargon "SaaS B2B".
 // Stil: editorial cu tipografie strong, asimetric, dark cu accent gold.
 // =============================================================
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -15,6 +15,15 @@ interface Props {
 }
 
 export default function RecrutarePage({ navigate }: Props) {
+  // Titlu specific rutei (SEO/share) — /recrutare + /pilot moșteneau titlul RO
+  // de homepage. Restaurat la demontare (SPA).
+  useEffect(() => {
+    const prev = document.title
+    document.title = 'Program pilot — Menuvia'
+    return () => {
+      document.title = prev
+    }
+  }, [])
   return (
     <div
       style={{

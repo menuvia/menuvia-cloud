@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { useToast } from '../components/ui/useToast'
 
@@ -132,6 +132,15 @@ export default function DemoPage({ onBack, onStart }: { onBack: () => void; onSt
   const [activeCat, setActiveCat] = useState('1')
   const [cartCount, setCartCount] = useState(0)
   const products = DEMO_PRODUCTS.filter((p) => p.cat === activeCat)
+
+  // Titlu specific rutei (SEO/share) — /demo moștenea titlul RO de homepage.
+  useEffect(() => {
+    const prev = document.title
+    document.title = 'Demo live — Menuvia'
+    return () => {
+      document.title = prev
+    }
+  }, [])
 
   return (
     <div

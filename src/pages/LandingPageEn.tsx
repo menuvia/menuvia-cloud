@@ -115,8 +115,14 @@ export default function LandingPageEn({
   useEffect(() => {
     const prev = document.title
     document.title = 'Menuvia — QR menu & ordering for restaurants'
+    // index.html hardcodează <html lang="ro">; pe /en conținutul e integral
+    // în engleză → setăm lang='en' cât timp pagina e montată (WCAG 3.1.1 +
+    // semnal corect de limbă pentru crawlere), restaurat la demontare.
+    const prevLang = document.documentElement.lang
+    document.documentElement.lang = 'en'
     return () => {
       document.title = prev
+      document.documentElement.lang = prevLang
     }
   }, [])
 
@@ -160,7 +166,12 @@ export default function LandingPageEn({
     fontWeight: 600,
     fontFamily: 'DM Sans,sans-serif',
     cursor: 'pointer',
-    padding: 0,
+    // Touch target ≥44px (WCAG 2.5.5): pe mobil butonul „Log in" e singura
+    // acțiune vizibilă din header — paritate cu minHeight din MarketingHeader RO.
+    minHeight: 44,
+    padding: '8px 10px',
+    display: 'inline-flex',
+    alignItems: 'center',
   }
 
   return (
