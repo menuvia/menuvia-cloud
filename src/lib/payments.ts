@@ -11,6 +11,7 @@
 // deci evităm o dependență nouă (npm e blocat în sandbox; regula PCI a
 // Stripe oricum cere scriptul servit de ei, nu bundle-uit).
 import { supabase } from './supabase'
+import { fnUrl } from './fn'
 
 // ── Tipuri minimale pentru Stripe.js (fără `any`) ─────────────
 export interface StripePaymentElement {
@@ -119,7 +120,7 @@ export interface TableBill {
  * cantitățile deja revendicate de alte plăți. Aruncă Error REAL cu `.hint`.
  */
 export async function fetchTableBill(token: string, sessionId: string): Promise<TableBill> {
-  const res = await fetch('/.netlify/functions/table-payment', {
+  const res = await fetch(fnUrl('table-payment'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'bill', token, session_id: sessionId }),
@@ -150,7 +151,7 @@ export async function createTablePayment(
   sessionId: string,
   claims?: readonly SplitClaimInput[],
 ): Promise<TablePaymentIntent> {
-  const res = await fetch('/.netlify/functions/table-payment', {
+  const res = await fetch(fnUrl('table-payment'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -186,7 +187,7 @@ export async function cancelTablePayment(
   token: string,
   sessionId: string,
 ): Promise<'canceled' | 'succeeded'> {
-  const res = await fetch('/.netlify/functions/table-payment', {
+  const res = await fetch(fnUrl('table-payment'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'cancel', payment_id: paymentId, token, session_id: sessionId }),

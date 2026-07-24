@@ -6,6 +6,7 @@
 // cotă/admin din mig 168. Cheia API NU trece niciodată prin client în clar
 // la citire — se trimite o singură dată la salvare și se întoarce mascată.
 import { supabase } from './supabase'
+import { fnUrl } from './fn'
 import { ALLERGENS, DIETARY_TAGS } from './constants'
 import { MENU_LANGS, type Translations } from './i18nMenu'
 
@@ -77,7 +78,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function postFn<T>(fn: string, payload: unknown): Promise<T> {
   const headers = await authHeaders()
-  const res = await fetch(`/.netlify/functions/${fn}`, {
+  const res = await fetch(fnUrl(fn), {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),

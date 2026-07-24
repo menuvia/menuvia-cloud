@@ -4,6 +4,7 @@
 //   2. contul Stripe Connect (onboarding prin funcția stripe-connect)
 //   3. toggle-ul modulului `online_payments` (opt-in-ul localului)
 import { useCallback, useEffect, useState } from 'react'
+import { fnUrl } from '../lib/fn'
 import { D } from '../lib/constants'
 import { planTier } from '../lib/features'
 import { supabase } from '../lib/supabase'
@@ -31,7 +32,7 @@ async function callConnect(
   const { data: sessionData } = await supabase.auth.getSession()
   const jwt = sessionData.session?.access_token
   if (!jwt) throw new Error('Sesiune expirată — reautentifică-te.')
-  const res = await fetch('/.netlify/functions/stripe-connect', {
+  const res = await fetch(fnUrl('stripe-connect'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
     body: JSON.stringify({ restaurant_id: restaurantId, action }),

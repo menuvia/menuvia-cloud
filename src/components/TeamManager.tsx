@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { fnUrl } from '../lib/fn'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
@@ -212,7 +213,7 @@ export default function TeamManager({
       const {
         data: { session },
       } = await supabase.auth.getSession()
-      const res = await fetch('/.netlify/functions/send-invite', {
+      const res = await fetch(fnUrl('send-invite'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

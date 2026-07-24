@@ -6,6 +6,7 @@
 // Stil: editorial cu tipografie strong, asimetric, dark cu accent gold.
 // =============================================================
 import { useEffect, useState } from 'react'
+import { fnUrl } from '../lib/fn'
 import { D } from '../lib/constants'
 import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -764,7 +765,7 @@ function ContactForm() {
     setBusy(true)
     setErr(null)
     try {
-      const res = await fetch('/.netlify/functions/recrutare-contact', {
+      const res = await fetch(fnUrl('recrutare-contact'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, cafe, city, phone, email, message, consent }),

@@ -6,6 +6,7 @@
 // /dashboard?tab=billing. Portalul Stripe permite actualizarea cardului,
 // schimbarea planului și descărcarea facturilor — fără UI propriu de reconstruit.
 import { supabase } from './supabase'
+import { fnUrl } from './fn'
 
 export interface BillingError extends Error {
   code?: string
@@ -19,7 +20,7 @@ export async function openBillingPortal(): Promise<never> {
     data: { session },
   } = await supabase.auth.getSession()
 
-  const res = await fetch('/.netlify/functions/stripe-portal', {
+  const res = await fetch(fnUrl('stripe-portal'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

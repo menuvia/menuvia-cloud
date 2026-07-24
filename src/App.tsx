@@ -13,6 +13,7 @@ import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
 import { writePlanIntent } from './lib/planIntent'
+import { fnUrl } from './lib/fn'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
@@ -511,7 +512,7 @@ function AppRouter() {
               // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
               const referralCode = getStoredReferral()
               const visitorId = getVisitorId()
-              const res = await fetch('/.netlify/functions/stripe-checkout', {
+              const res = await fetch(fnUrl('stripe-checkout'), {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

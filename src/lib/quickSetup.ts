@@ -1,5 +1,6 @@
 // src/lib/quickSetup.ts — Setup Asistent (migration 034)
 import { supabase } from './supabase'
+import { fnUrl } from './fn'
 
 // ── Business type definitions (UI metadata) ──────────────────
 // Aceleași prețuri folosite în SQL; ținute aici DOAR pentru preview UI
@@ -229,7 +230,7 @@ export async function sendInvite(
     if (!session?.access_token) {
       return { ok: false, error: 'Sesiune expirată — reautentifică-te.' }
     }
-    const res = await fetch('/.netlify/functions/send-invite', {
+    const res = await fetch(fnUrl('send-invite'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
