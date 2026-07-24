@@ -79,4 +79,28 @@ begin
   raise notice 'SD2+SD3 OK: →paid scade (90), paid→closed nu dublează';
 end $$;
 
+-- ── SD4 (mig 252): re-intrare closed→served→closed NU dublează (backstop DB) ──
+do $$
+declare v_before numeric; v_after numeric;
+begin
+  insert into public.orders (id, restaurant_id, source, status)
+  values ('5d000000-0000-4000-8000-0000000000d4','5d000000-0000-4000-8000-000000000001','waiter','new');
+  insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total)
+  values ('5d000000-0000-4000-8000-0000000000d4','5d000000-0000-4000-8000-0000000000b0','Produs SD',1,20,20);
+
+  update public.orders set status = 'closed' where id = '5d000000-0000-4000-8000-0000000000d4';
+  select current_stock into v_before from public.ingredients where id='5d000000-0000-4000-8000-0000000000c0';
+
+  -- Re-intrare prin UPDATE DIRECT (ocolind advance_order), ca un owner care
+  -- „corectează" o comandă închisă: served (non-terminal) apoi iar closed.
+  update public.orders set status = 'served' where id = '5d000000-0000-4000-8000-0000000000d4';
+  update public.orders set status = 'closed' where id = '5d000000-0000-4000-8000-0000000000d4';
+  select current_stock into v_after from public.ingredients where id='5d000000-0000-4000-8000-0000000000c0';
+
+  if v_after <> v_before then
+    raise exception 'SD4 FAIL: re-intrarea closed→served→closed a dedus DIN NOU (before=%, after=% — backstop mig 252 lipsă)', v_before, v_after;
+  end if;
+  raise notice 'SD4 OK: backstop DB (mig 252) — re-intrarea nu dublează deducerea';
+end $$;
+
 rollback;

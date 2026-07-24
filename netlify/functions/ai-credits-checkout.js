@@ -69,11 +69,19 @@ exports.handler = async (event) => {
   const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   // Reutilizează/creează customer-ul Stripe al userului.
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('stripe_customer_id, email')
     .eq('id', user.id)
     .single()
+
+  // Fără guard, un blip tranzient pe acest SELECT lăsa `profile` null → intram în
+  // ramura de creare și făceam un customer Stripe DUPLICAT pentru un user care
+  // avea deja unul. Ieșim 503 înainte de creare (oglindă cu stripe-checkout.js).
+  if (profileErr) {
+    console.error('[ai-credits-checkout] profiles SELECT error:', profileErr.message)
+    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+  }
 
   let customerId = profile?.stripe_customer_id
   if (!customerId) {

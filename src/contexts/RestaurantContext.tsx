@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 import { getFounderView, clearFounderView } from '../lib/founder'
@@ -41,6 +41,12 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [founderViewId, setFounderViewId] = useState<string | null>(null)
+  // Id-ul userului pentru care s-au încărcat membership-urile curente. La o
+  // schimbare DIRECTĂ de identitate (A→B fără null intermediar — magic-link /
+  // OAuth callback), golim state-ul ÎNAINTE de fetch: altfel, dacă fetch-ul lui
+  // B eșuează tranzient, memberships/activeId rămân ale lui A → chrome-ul mesei
+  // greșite (RLS-ul serverului blochează datele reale, dar UI-ul e inconsistent).
+  const loadedForUserRef = useRef<string | null>(null)
 
   useEffect(() => {
     // Flag de anulare: previne ca un răspuns vechi (user A) să suprascrie
@@ -48,6 +54,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     let cancelled = false
 
     if (!user) {
+      loadedForUserRef.current = null
       // Signout / user null: golim state-ul local și cheia din localStorage,
       // ca un user nou să nu moștenească restaurantul activ al celui vechi.
       localStorage.removeItem(STORAGE_KEY)
@@ -60,6 +67,16 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         cancelled = true
       }
     }
+
+    // Schimbare DIRECTĂ de identitate (A→B fără null): golim state-ul lui A
+    // ÎNAINTE de fetch-ul lui B. Nu se declanșează la re-fetch pentru ACELAȘI
+    // user (id neschimbat → fără flash), doar la trecerea reală între conturi.
+    if (loadedForUserRef.current !== null && loadedForUserRef.current !== user.id) {
+      setMemberships([])
+      setActiveIdState(null)
+      setFounderViewId(null)
+    }
+    loadedForUserRef.current = user.id
 
     async function loadMemberships() {
       // Marcăm loading la începutul fetch-ului: fără asta, primul render cu

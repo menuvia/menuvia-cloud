@@ -227,14 +227,16 @@ export default function ProductsCsvImport({
   const [error, setError] = useState<string | null>(null)
   const [importedCount, setImportedCount] = useState(0)
 
-  // Resume idempotent pe RETRY după eșec parțial: fără el, un al doilea click pe
-  // „Importă" (după ce un batch a picat la mijloc) re-insera categoriile deja
-  // create + batch-urile deja inserate → produse DUPLICATE în meniu. Reținem
-  // cursorul de produse inserate + categoriile create, cheiate pe textul CSV
-  // (dacă userul editează CSV-ul, resetăm și pornim curat).
+  // Resume idempotent pe RETRY după eșec parțial. Cursorul + categoriile create
+  // (cheiate pe textul CSV) evită re-inserția batch-urilor DEJA CONFIRMATE. DAR
+  // cursorul nu poate acoperi un batch COMIS-DAR-NECONFIRMAT pe rețea (serverul
+  // l-a scris, ack-ul HTTP s-a pierdut → cursorul rămâne pe loc). De aceea, la
+  // RETRY (a mai fost o încercare pe același CSV), re-verificăm în DB numele deja
+  // existente și le sărim — dedup real, nu doar pe cursor.
   const insertedCursorRef = useRef(0)
   const createdCatsRef = useRef<Map<string, string>>(new Map())
   const importedCsvRef = useRef<string | null>(null)
+  const attemptedImportRef = useRef(false)
 
   // Parse CSV
   const parsed = useMemo<ParsedRow[]>(() => {
@@ -320,6 +322,11 @@ export default function ProductsCsvImport({
     setStep('importing')
     setError(null)
 
+    // RETRY = a mai fost o încercare pe EXACT același CSV. Pe retry activăm
+    // dedup-ul din DB (jos), ca un batch comis-dar-neconfirmat să nu se dubleze.
+    const isRetry = attemptedImportRef.current && importedCsvRef.current === csvText
+    attemptedImportRef.current = true
+
     // CSV nou (față de ultima încercare) → resetăm cursorul de resume. Un retry
     // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
     if (importedCsvRef.current !== csvText) {
@@ -330,6 +337,20 @@ export default function ProductsCsvImport({
     setProgress(Math.round((100 * insertedCursorRef.current) / importRows.length))
 
     try {
+      // Pe RETRY, aflăm ce nume de produse există deja în DB pentru acest
+      // restaurant → sărim rândurile deja inserate (inclusiv batch-ul comis dar
+      // neconfirmat, pe care cursorul nu-l vede). Pe prima încercare NU rulează
+      // (dbNames=null) → zero schimbare de comportament pe calea normală.
+      let dbNames: Set<string> | null = null
+      if (isRetry) {
+        const { data: existing, error: exErr } = await supabase
+          .from('products')
+          .select('name')
+          .eq('restaurant_id', restaurantId)
+        if (exErr) throw new Error(`Nu am putut verifica produsele existente: ${exErr.message}`)
+        dbNames = new Set((existing ?? []).map((p) => (p.name as string).toLowerCase()))
+      }
+
       // 1. Auto-create missing categories (sar peste cele deja create într-o
       // încercare anterioară — createdCatsRef persistă între retry-uri).
       const catMap = new Map<string, string>() // name (lower) → id
@@ -363,11 +384,14 @@ export default function ProductsCsvImport({
 
       // 2. Insert products in batches of 20 (avoid huge single insert). Pornim de
       // la cursorul de resume: batch-urile deja inserate NU se re-trimit (anti-dublu).
+      // `cursor` urmărește poziția în importRows (resume/progress); `added` = câte
+      // s-au inserat efectiv (pe retry, sub dbNames, unele se sar).
       const batchSize = 20
-      let inserted = insertedCursorRef.current
+      let cursor = insertedCursorRef.current
+      let added = 0
       for (let i = insertedCursorRef.current; i < importRows.length; i += batchSize) {
         const batch = importRows.slice(i, i + batchSize)
-        const rows = batch.map((r) => ({
+        let rows = batch.map((r) => ({
           restaurant_id: restaurantId,
           category_id: catMap.get(r.categorie.toLowerCase())!,
           name: r.nume,
@@ -377,18 +401,30 @@ export default function ProductsCsvImport({
           vat_group: r.tva,
           is_active: true,
         }))
-        const { error: insErr } = await supabase.from('products').insert(rows)
-        if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
-        inserted += batch.length
-        // Avansăm cursorul DUPĂ succesul batch-ului: un retry pornește de aici,
-        // nu de la 0 → batch-urile deja inserate nu se dublează.
-        insertedCursorRef.current = inserted
-        setProgress(Math.round((100 * inserted) / importRows.length))
+        if (dbNames) {
+          const names = dbNames
+          rows = rows.filter((r) => !names.has(r.name.toLowerCase()))
+        }
+        if (rows.length > 0) {
+          const { error: insErr } = await supabase.from('products').insert(rows)
+          if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
+          added += rows.length
+          // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
+          if (dbNames) {
+            const names = dbNames
+            rows.forEach((r) => names.add(r.name.toLowerCase()))
+          }
+        }
+        // Avansăm cursorul cu întregul batch (poziție în importRows), DUPĂ succes:
+        // un retry pornește de aici, nu de la 0.
+        cursor += batch.length
+        insertedCursorRef.current = cursor
+        setProgress(Math.round((100 * cursor) / importRows.length))
       }
 
-      setImportedCount(inserted)
+      setImportedCount(added)
       // Brief delay before closing for user to see 100%
-      setTimeout(() => onDone(inserted), 500)
+      setTimeout(() => onDone(added), 500)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eroare necunoscută la import')
       setStep('preview')
