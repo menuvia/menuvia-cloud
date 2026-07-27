@@ -336,7 +336,6 @@ export default function ProductsCsvImport({
     // să insereze rânduri, ele trebuie deduplicate și la o încercare cu CSV
     // MODIFICAT; altfel editarea CSV-ului redeschidea calea spre duplicate.
     const hasAttempted = attemptedImportRef.current
-    attemptedImportRef.current = true
 
     // CSV nou (față de ultima încercare) → resetăm cursorul de resume. Un retry
     // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
@@ -376,7 +375,11 @@ export default function ProductsCsvImport({
 
       // Baseline = numele dinaintea PRIMEI încercări. Fără el nu putem distinge
       // „produs pus de importul ăsta" de „produs care era deja în meniu".
-      if (!hasAttempted) baselineNamesRef.current = await readNames()
+      // (Re)încercăm baseline-ul cât timp lipsește: dacă prima citire a picat
+      // (blip), a NU reîncerca lăsa dedup-ul stins pentru tot restul sesiunii,
+      // tăcut. Abia după ce avem baseline marcăm sesiunea drept „a încercat".
+      if (!baselineNamesRef.current) baselineNamesRef.current = await readNames()
+      attemptedImportRef.current = true
 
       let dbNames: Set<string> | null = null
       if (hasAttempted && baselineNamesRef.current) {
@@ -457,6 +460,7 @@ export default function ProductsCsvImport({
           const { error: insErr } = await supabase.from('products').insert(rows)
           if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
           added += rows.length
+          totalAddedRef.current += rows.length
           // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
           if (dbNames) {
             const names = dbNames
@@ -470,7 +474,6 @@ export default function ProductsCsvImport({
         setProgress(Math.round((100 * cursor) / importRows.length))
       }
 
-      totalAddedRef.current += added
       setImportedCount(totalAddedRef.current)
       // Brief delay before closing for user to see 100%
       setTimeout(() => onDone(totalAddedRef.current), 500)

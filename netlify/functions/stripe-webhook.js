@@ -361,10 +361,20 @@ exports.handler = async (event) => {
         // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
         // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
         // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        // PGRST116 = zero rânduri (profilul chiar nu există) → normal, ACK 200.
+        // ORICE altă eroare = blip de infra: a răspunde 200 pierde evenimentul
+        // DEFINITIV (Stripe nu-l mai retrimite) → fără email de dunning → churn
+        // involuntar, exact ce previne bucla mig 180/216. Setăm processingError
+        // → 500 → Stripe retrimite. Retry-ul e SIGUR: enqueue_email are dedup_key
+        // stabil (on conflict do nothing), iar rândul stripe_events se redeschide.
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
         if (lookupErr) {
-          console.error(
-            `[stripe-webhook] ${stripeEvent.type}: lookup profil eșuat pentru customer ${customerId}:`,
-            lookupErr.message
+          console.warn(
+            `[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`
           )
         }
 
@@ -395,10 +405,20 @@ exports.handler = async (event) => {
         // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
         // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
         // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        // PGRST116 = zero rânduri (profilul chiar nu există) → normal, ACK 200.
+        // ORICE altă eroare = blip de infra: a răspunde 200 pierde evenimentul
+        // DEFINITIV (Stripe nu-l mai retrimite) → fără email de dunning → churn
+        // involuntar, exact ce previne bucla mig 180/216. Setăm processingError
+        // → 500 → Stripe retrimite. Retry-ul e SIGUR: enqueue_email are dedup_key
+        // stabil (on conflict do nothing), iar rândul stripe_events se redeschide.
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
         if (lookupErr) {
-          console.error(
-            `[stripe-webhook] ${stripeEvent.type}: lookup profil eșuat pentru customer ${customerId}:`,
-            lookupErr.message
+          console.warn(
+            `[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`
           )
         }
 

@@ -105,6 +105,10 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
           .from('restaurant_memberships')
           .select('restaurant_id, role, restaurant:restaurants(id, name, slug)')
           .eq('user_id', user!.id)
+          // Ordine STABILĂ: fără ea, `rows[0]` (restaurantul implicit când nu
+          // există unul salvat) era la mila ordinii returnate de Postgres —
+          // adică userul putea nimeri alt restaurant de la un reload la altul.
+          .order('restaurant_id', { ascending: true })
 
         if (cancelled) return
         if (memErr) {
@@ -193,6 +197,12 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   const setActive = useCallback((id: string) => {
     setActiveIdState(id)
     localStorage.setItem(STORAGE_KEY, id)
+    // Alegerea manuală a unui restaurant încheie vizita de fondator/partener.
+    // Fără asta cheia rămânea și, la următorul reload, `fvActive` avea prioritate
+    // în selecție (vezi mai jos) → userul era readus pe restaurantul vizitat,
+    // deși tocmai comutase în altă parte.
+    clearFounderView()
+    setFounderViewId(null)
   }, [])
 
   const active = memberships.find((m) => m.restaurant_id === activeId)
