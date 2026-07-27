@@ -43,7 +43,10 @@ exports.handler = async (event) => {
 
   const { restaurant_id, pack } = body
   if (!restaurant_id) return jsonResponse(400, { error: 'Missing restaurant_id' })
-  const packDef = PACKS[pack]
+  // hasOwnProperty: `PACKS[pack]` cu pack='constructor'/'toString' întorcea o
+  // funcție moștenită din Object.prototype → trecea de `!packDef` și crăpa mai
+  // jos cu 500 în loc de un 400 curat.
+  const packDef = Object.prototype.hasOwnProperty.call(PACKS, pack) ? PACKS[pack] : null
   if (!packDef) return jsonResponse(400, { error: 'Invalid pack' })
 
   // Auth

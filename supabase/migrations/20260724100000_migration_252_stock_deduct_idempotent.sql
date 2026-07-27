@@ -35,6 +35,18 @@ create table if not exists public.order_stock_deductions (
 alter table public.order_stock_deductions enable row level security;
 revoke all on public.order_stock_deductions from anon, authenticated;
 
+-- ── BACKFILL: comenzile deja terminale la momentul aplicării ──────────────────
+-- Fără el, backstop-ul ar proteja DOAR comenzile viitoare: orice comandă deja
+-- 'paid'/'closed' (adică tot istoricul) n-ar avea rând de claim, iar o re-intrare
+-- closed→served→closed pe ea ar scădea stocul A DOUA OARĂ — exact bug-ul pe care
+-- migrația îl închide. Le marcăm ca „deja deduse" (ceea ce și sunt: deducerea a
+-- rulat la tranziția lor originală). Idempotent prin on conflict.
+insert into public.order_stock_deductions (order_id, deducted_at)
+select o.id, coalesce(o.paid_at, o.served_at, o.created_at)
+  from public.orders o
+ where o.status in ('paid', 'closed')
+on conflict (order_id) do nothing;
+
 create or replace function public.deduct_stock_on_order_paid()
 returns trigger
 language plpgsql

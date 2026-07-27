@@ -35,7 +35,7 @@ const RestaurantCtx = createContext<RestaurantCtxValue | null>(null)
 const STORAGE_KEY = 'menuvia_active_restaurant'
 
 export function RestaurantProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [memberships, setMemberships] = useState<RestaurantMembership[]>([])
   const [activeId, setActiveIdState] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -52,6 +52,17 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     // Flag de anulare: previne ca un răspuns vechi (user A) să suprascrie
     // state-ul după ce userul s-a schimbat (user B) la re-login rapid.
     let cancelled = false
+
+    // Auth-ul încă se rezolvă. AuthContext pornește cu `user = null` și cheamă
+    // `getSession()` ASINCRON, iar AuthProvider randează copiii necondiționat →
+    // RestaurantProvider se monta mereu cu user=null la ORICE încărcare de
+    // pagină și intra în ramura de mai jos, ștergând `menuvia_active_restaurant`
+    // + `menuvia_founder_view`. Efecte: „Intră pe cont" (fondator/partener) era
+    // MORT (enterFounderView scrie cheia, apoi face navigare completă → mount la
+    // rece → cheia ștearsă înainte s-o citească cineva), iar un owner cu mai
+    // multe restaurante pierdea restaurantul selectat la fiecare refresh
+    // (fallback pe rows[0]). Așteptăm rezolvarea sesiunii; `loading` rămâne true.
+    if (authLoading) return
 
     if (!user) {
       loadedForUserRef.current = null
@@ -172,7 +183,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [user, authLoading])
 
   const setActive = useCallback((id: string) => {
     setActiveIdState(id)

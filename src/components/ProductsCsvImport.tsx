@@ -237,6 +237,9 @@ export default function ProductsCsvImport({
   const createdCatsRef = useRef<Map<string, string>>(new Map())
   const importedCsvRef = useRef<string | null>(null)
   const attemptedImportRef = useRef(false)
+  // Numele produselor dinaintea PRIMEI încercări — baseline pentru dedup-ul de
+  // pe retry (vezi doImport). null = n-am putut citi ⇒ dedup dezactivat.
+  const baselineNamesRef = useRef<Set<string> | null>(null)
 
   // Parse CSV
   const parsed = useMemo<ParsedRow[]>(() => {
@@ -337,18 +340,31 @@ export default function ProductsCsvImport({
     setProgress(Math.round((100 * insertedCursorRef.current) / importRows.length))
 
     try {
-      // Pe RETRY, aflăm ce nume de produse există deja în DB pentru acest
-      // restaurant → sărim rândurile deja inserate (inclusiv batch-ul comis dar
-      // neconfirmat, pe care cursorul nu-l vede). Pe prima încercare NU rulează
-      // (dbNames=null) → zero schimbare de comportament pe calea normală.
-      let dbNames: Set<string> | null = null
-      if (isRetry) {
-        const { data: existing, error: exErr } = await supabase
+      // Dedup pe RETRY, corect: sărim DOAR numele apărute în DB de la începutul
+      // acestui import (adică inserate chiar de el, inclusiv batch-ul comis dar
+      // neconfirmat pe care cursorul nu-l vede) — NU tot ce există în meniu.
+      // Altfel un rând CSV legitim care coincide cu un produs preexistent
+      // („Cappuccino" era deja în meniu) ar fi sărit TĂCUT — pierdere de date,
+      // mai rea decât duplicatul pe care îl prevenim.
+      const readNames = async (): Promise<Set<string> | null> => {
+        const { data, error: exErr } = await supabase
           .from('products')
           .select('name')
           .eq('restaurant_id', restaurantId)
-        if (exErr) throw new Error(`Nu am putut verifica produsele existente: ${exErr.message}`)
-        dbNames = new Set((existing ?? []).map((p) => (p.name as string).toLowerCase()))
+        if (exErr) return null
+        return new Set((data ?? []).map((p) => (p.name as string).trim().toLowerCase()))
+      }
+
+      // Baseline = numele dinaintea PRIMEI încercări. Fără el nu putem distinge
+      // „produs pus de importul ăsta" de „produs care era deja în meniu".
+      if (!isRetry) baselineNamesRef.current = await readNames()
+
+      let dbNames: Set<string> | null = null
+      if (isRetry && baselineNamesRef.current) {
+        const current = await readNames()
+        const baseline = baselineNamesRef.current
+        // Doar ce a apărut ÎNTRE timp = inserat de acest import.
+        if (current) dbNames = new Set([...current].filter((n) => !baseline.has(n)))
       }
 
       // 1. Auto-create missing categories (sar peste cele deja create într-o
@@ -356,6 +372,19 @@ export default function ProductsCsvImport({
       const catMap = new Map<string, string>() // name (lower) → id
       for (const c of existingCategories) {
         catMap.set(c.name.toLowerCase(), c.id)
+      }
+      // Pe RETRY recitim categoriile din DB: `existingCategories` (prop) e stale
+      // după un eșec (părintele refetch-uiește doar în onDone), iar createdCatsRef
+      // nu reține categoriile create de un request COMIS-dar-neconfirmat → fără
+      // asta, fiecare retry mai adăuga o categorie cu același nume în meniu.
+      if (isRetry) {
+        const { data: freshCats } = await supabase
+          .from('categories')
+          .select('id, name')
+          .eq('restaurant_id', restaurantId)
+        for (const c of freshCats ?? []) {
+          catMap.set((c.name as string).toLowerCase(), c.id as string)
+        }
       }
       for (const [k, v] of createdCatsRef.current) catMap.set(k, v)
       for (const [index, newCatName] of newCategories.entries()) {
@@ -403,7 +432,7 @@ export default function ProductsCsvImport({
         }))
         if (dbNames) {
           const names = dbNames
-          rows = rows.filter((r) => !names.has(r.name.toLowerCase()))
+          rows = rows.filter((r) => !names.has(r.name.trim().toLowerCase()))
         }
         if (rows.length > 0) {
           const { error: insErr } = await supabase.from('products').insert(rows)
@@ -412,7 +441,7 @@ export default function ProductsCsvImport({
           // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
           if (dbNames) {
             const names = dbNames
-            rows.forEach((r) => names.add(r.name.toLowerCase()))
+            rows.forEach((r) => names.add(r.name.trim().toLowerCase()))
           }
         }
         // Avansăm cursorul cu întregul batch (poziție în importRows), DUPĂ succes:
