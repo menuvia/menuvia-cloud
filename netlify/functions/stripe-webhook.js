@@ -353,11 +353,20 @@ exports.handler = async (event) => {
         const invoice = stripeEvent.data.object
         const customerId = invoice.customer
 
-        const { data: profile } = await supabase
+        const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
           .select('id')
           .eq('stripe_customer_id', customerId)
           .single()
+        // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
+        // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
+        // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        if (lookupErr) {
+          console.error(
+            `[stripe-webhook] ${stripeEvent.type}: lookup profil eșuat pentru customer ${customerId}:`,
+            lookupErr.message
+          )
+        }
 
         if (profile) {
           userId = profile.id
@@ -378,11 +387,20 @@ exports.handler = async (event) => {
         // ciclurile recurente (subscription_cycle) și de prorations.
         const billingReason = invoice.billing_reason || null
 
-        const { data: profile } = await supabase
+        const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
           .select('id')
           .eq('stripe_customer_id', customerId)
           .single()
+        // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
+        // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
+        // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        if (lookupErr) {
+          console.error(
+            `[stripe-webhook] ${stripeEvent.type}: lookup profil eșuat pentru customer ${customerId}:`,
+            lookupErr.message
+          )
+        }
 
         if (profile) {
           userId = profile.id

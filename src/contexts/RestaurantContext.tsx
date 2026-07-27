@@ -86,6 +86,11 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       setMemberships([])
       setActiveIdState(null)
       setFounderViewId(null)
+      // ...și CHEIA, nu doar state-ul: altfel userul B moștenea vizita de
+      // fondator a lui A (se auto-repara abia prin RLS, la fetch — dar între
+      // timp UI-ul arăta intenția lui A). Restaurantul activ, la fel.
+      clearFounderView()
+      localStorage.removeItem(STORAGE_KEY)
     }
     loadedForUserRef.current = user.id
 

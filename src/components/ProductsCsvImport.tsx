@@ -240,6 +240,10 @@ export default function ProductsCsvImport({
   // Numele produselor dinaintea PRIMEI încercări — baseline pentru dedup-ul de
   // pe retry (vezi doImport). null = n-am putut citi ⇒ dedup dezactivat.
   const baselineNamesRef = useRef<Set<string> | null>(null)
+  // Total inserat de-a lungul TUTUROR încercărilor din această sesiune de modal
+  // — altfel, după un retry, mesajul de final raporta doar rândurile ultimei
+  // încercări și părea că s-au importat mult mai puține decât în realitate.
+  const totalAddedRef = useRef(0)
 
   // Parse CSV
   const parsed = useMemo<ParsedRow[]>(() => {
@@ -327,7 +331,11 @@ export default function ProductsCsvImport({
 
     // RETRY = a mai fost o încercare pe EXACT același CSV. Pe retry activăm
     // dedup-ul din DB (jos), ca un batch comis-dar-neconfirmat să nu se dubleze.
-    const isRetry = attemptedImportRef.current && importedCsvRef.current === csvText
+    // „Am mai încercat un import în ACEASTĂ sesiune de modal" — independent de
+    // faptul că userul a editat între timp CSV-ul. Dacă prima încercare apucase
+    // să insereze rânduri, ele trebuie deduplicate și la o încercare cu CSV
+    // MODIFICAT; altfel editarea CSV-ului redeschidea calea spre duplicate.
+    const hasAttempted = attemptedImportRef.current
     attemptedImportRef.current = true
 
     // CSV nou (față de ultima încercare) → resetăm cursorul de resume. Un retry
@@ -346,21 +354,32 @@ export default function ProductsCsvImport({
       // Altfel un rând CSV legitim care coincide cu un produs preexistent
       // („Cappuccino" era deja în meniu) ar fi sărit TĂCUT — pierdere de date,
       // mai rea decât duplicatul pe care îl prevenim.
+      // Paginare explicită: PostgREST plafonează răspunsul (max_rows, tipic
+      // 1000), deci pe un meniu mare setul ar fi ieșit INCOMPLET și dedup-ul ar
+      // fi funcționat doar parțial, tăcut. Citim în pagini până se epuizează.
       const readNames = async (): Promise<Set<string> | null> => {
-        const { data, error: exErr } = await supabase
-          .from('products')
-          .select('name')
-          .eq('restaurant_id', restaurantId)
-        if (exErr) return null
-        return new Set((data ?? []).map((p) => (p.name as string).trim().toLowerCase()))
+        const out = new Set<string>()
+        const page = 1000
+        for (let from = 0; ; from += page) {
+          const { data, error: exErr } = await supabase
+            .from('products')
+            .select('name')
+            .eq('restaurant_id', restaurantId)
+            .range(from, from + page - 1)
+          if (exErr) return null
+          const rows = data ?? []
+          rows.forEach((r) => out.add((r.name as string).trim().toLowerCase()))
+          if (rows.length < page) break
+        }
+        return out
       }
 
       // Baseline = numele dinaintea PRIMEI încercări. Fără el nu putem distinge
       // „produs pus de importul ăsta" de „produs care era deja în meniu".
-      if (!isRetry) baselineNamesRef.current = await readNames()
+      if (!hasAttempted) baselineNamesRef.current = await readNames()
 
       let dbNames: Set<string> | null = null
-      if (isRetry && baselineNamesRef.current) {
+      if (hasAttempted && baselineNamesRef.current) {
         const current = await readNames()
         const baseline = baselineNamesRef.current
         // Doar ce a apărut ÎNTRE timp = inserat de acest import.
@@ -377,7 +396,7 @@ export default function ProductsCsvImport({
       // după un eșec (părintele refetch-uiește doar în onDone), iar createdCatsRef
       // nu reține categoriile create de un request COMIS-dar-neconfirmat → fără
       // asta, fiecare retry mai adăuga o categorie cu același nume în meniu.
-      if (isRetry) {
+      if (hasAttempted) {
         const { data: freshCats } = await supabase
           .from('categories')
           .select('id, name')
@@ -451,9 +470,10 @@ export default function ProductsCsvImport({
         setProgress(Math.round((100 * cursor) / importRows.length))
       }
 
-      setImportedCount(added)
+      totalAddedRef.current += added
+      setImportedCount(totalAddedRef.current)
       // Brief delay before closing for user to see 100%
-      setTimeout(() => onDone(added), 500)
+      setTimeout(() => onDone(totalAddedRef.current), 500)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eroare necunoscută la import')
       setStep('preview')
