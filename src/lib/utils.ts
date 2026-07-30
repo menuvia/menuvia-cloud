@@ -20,10 +20,19 @@ export function urgencyColor(createdAt: string): string {
   return D.t3
 }
 
+// OPT-R2: AudioContext partajat — înainte se crea unul NOU la fiecare beep și
+// nu se închidea niciodată. Chrome plafonează ~6 contexte live/pagină, deci
+// după ~6 comenzi sunetul de notificare MUREA tăcut pe un tab de dashboard.
+let audioCtx: AudioContext | null = null
+
 /** Play a short notification beep via Web Audio API */
 export function playSound(hz: number, ms: number): void {
   try {
-    const ctx = new AudioContext()
+    if (!audioCtx) audioCtx = new AudioContext()
+    const ctx = audioCtx
+    // Autoplay policy: un context creat înainte de gestul userului pornește
+    // 'suspended' — îl reluăm la primul beep declanșat de un eveniment real.
+    if (ctx.state === 'suspended') void ctx.resume()
     const osc = ctx.createOscillator()
     const gain = ctx.createGain()
     osc.connect(gain)

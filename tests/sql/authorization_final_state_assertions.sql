@@ -261,7 +261,9 @@ declare
     'checkout_suggestion_settings','theme_settings','pickup_settings',
     'google_place_id','google_review_url',
     -- mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
-    'menu_languages'
+    'menu_languages',
+    -- mig 205 — moneda meniului (expansiune internațională planurile 1-2).
+    'currency'
   ];
 begin
   -- Toate coloanele whitelisted trebuie să fie UPDATE-able de authenticated

@@ -12,7 +12,8 @@ export interface AffiliateProfile {
   id: string
   referral_code: string
   vanity_slug: string | null
-  status: 'active' | 'suspended' | 'closed'
+  // 'pending'/'rejected' = fluxul de cerere cu aprobare (mig 224).
+  status: 'pending' | 'active' | 'suspended' | 'closed' | 'rejected'
   setup_bps: number
   recurring_bps: number
   cascade_bps: number
@@ -68,6 +69,8 @@ export interface RegisterResult {
   reason?: string
   affiliate_id?: string
   referral_code?: string
+  // 'pending' la cerere nouă (mig 224); la `already`, statusul curent.
+  status?: string
 }
 
 export function useAffiliate() {
@@ -104,10 +107,18 @@ export function useAffiliate() {
     void load()
   }, [load])
 
-  // Userul devine afiliat. parentCode opțional (sub-afiliere, 1 nivel).
-  const register = async (parentCode?: string): Promise<RegisterResult> => {
+  // Userul își depune CEREREA de afiliere (mig 224): telefon obligatoriu
+  // (interviul de calificare e telefonic), notă opțională despre cum va
+  // recomanda. parentCode opțional (sub-afiliere, 1 nivel).
+  const register = async (
+    parentCode: string | undefined,
+    phone: string,
+    note?: string,
+  ): Promise<RegisterResult> => {
     const { data, error: err } = await supabase.rpc('register_affiliate', {
       p_parent_referral_code: parentCode ?? null,
+      p_phone: phone,
+      p_note: note ?? null,
     })
     if (err) {
       console.error('[useAffiliate] register error:', err)

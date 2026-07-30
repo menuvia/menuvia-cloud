@@ -18,7 +18,7 @@ import {
 import type { ReactNode, CSSProperties } from 'react'
 import { useInView, revealStyle } from '../lib/motion'
 import {
-  fetchRestaurantBySlug,
+  fetchMenuBySlug,
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
@@ -30,15 +30,20 @@ import type { Restaurant, Category, Product } from '../lib/qr'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
+import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
+import { useMenuSeo } from '../hooks/useMenuSeo'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
   resolveTheme,
+  resolveHideBranding,
   isDarkTheme,
   resolveMenuLayout,
   resolveMenuElements,
   resolveFlipbookPages,
 } from '../lib/themes'
 
-import { DIETARY_TAGS, T } from '../lib/constants'
+import { DIETARY_TAGS } from '../lib/constants'
+import { T } from '../lib/publicMenuStrings'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme, MenuElements } from '../lib/themes'
 import {
@@ -58,6 +63,7 @@ import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A): stări premium + bară categorii unificată
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+import { MenuBrandBadge } from '../components/menu/MenuBrandBadge'
 import { LangSwitcher } from '../components/menu/MenuHeader'
 // Scala tipografică comună a meniului — aceleași token-uri ca în componentele
 // de card/header, ca titlurile să nu mai drifteze cu valori hand-typed.
@@ -107,6 +113,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   } | null>(null)
 
   const theme = useMemo(() => resolveTheme(restaurant?.theme_settings), [restaurant])
+  // Moneda meniului (mig 205) — get_restaurant_by_slug o expune de la mig 148.
+  const menuCurrency = resolveMenuCurrency(restaurant?.currency)
+
+  // SEO dinamic: titlu/meta/Open Graph + JSON-LD schema.org Restaurant/Menu, ca
+  // Google să indexeze „<Restaurant> — Meniu" cu rich results, nu titlul generic.
+  useMenuSeo(restaurant, categories, menuCurrency)
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
   // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
@@ -223,15 +235,38 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const r = await fetchRestaurantBySlug(slug)
-      if (!r) {
+      // OPT-4 (mig 245): restaurant + meniu într-UN singur RTT; fallback-ul
+      // în doi pași e în fetchMenuBySlug (qr.ts).
+      const combined = await fetchMenuBySlug(slug)
+      if (!combined) {
         setError('Restaurant negăsit')
         setLoading(false)
         return
       }
+      const r = combined.restaurant
       setRestaurant(r as unknown as Restaurant)
+      // OPT-2 (LCP): coverul e elementul LCP dar hero-ul se montează abia
+      // DUPĂ al doilea RTT (meniul). URL-ul e deja cunoscut AICI — pornim
+      // descărcarea în paralel cu fetch-ul meniului, sub același gate ca
+      // hero-ul (resolveMenuElements). Preload cu fetchpriority=high, cu
+      // guard de duplicat (StrictMode double-mount / schimbare de slug).
+      const coverUrl = (r as { cover_url?: string | null }).cover_url
+      if (
+        coverUrl &&
+        resolveMenuElements((r as { theme_settings?: Parameters<typeof resolveMenuElements>[0] }).theme_settings).cover &&
+        !document.querySelector(`link[rel="preload"][href="${CSS.escape(coverUrl)}"]`)
+      ) {
+        const l = document.createElement('link')
+        l.rel = 'preload'
+        l.as = 'image'
+        l.setAttribute('fetchpriority', 'high')
+        l.href = coverUrl
+        document.head.appendChild(l)
+      }
       const rid = (r as { id: string }).id
-      const cats = await fetchMenuForRestaurant(rid)
+      // Meniul e deja în răspunsul compus; doar pe fallback (menu null) îl
+      // aducem separat.
+      const cats = combined.menu ?? (await fetchMenuForRestaurant(rid))
       setCategories(cats)
       setLoading(false)
       // Happy Hour — non-blocking
@@ -323,6 +358,16 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const allProducts = useMemo(
     () => localizedCategories.flatMap((c) => c.products),
     [localizedCategories],
+  )
+
+  // OPT-2: items memoizate ca memo-ul de pe CategoryTabs să aibă efect —
+  // inline, array-ul era identitate nouă la fiecare render al paginii.
+  const categoryTabItems = useMemo(
+    () => [
+      { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
+      ...localizedCategories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
+    ],
+    [localizedCategories, allProducts.length, lang],
   )
 
   // Index de căutare precalculat: haystack-ul normalizat pentru fiecare produs
@@ -420,6 +465,13 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     },
     [addToCart],
   )
+
+  // Blochează scroll-ul paginii din spate cât timp sheet-ul de coș sau
+  // confirmarea comenzii sunt deschise — celelalte overlay-uri lazy (Product/
+  // Pickup/Reservation Sheet) o fac deja intern; acestea două sunt inline în
+  // pagină, deci lock-ul trebuie apelat aici, necondiționat (hooks rule).
+  useBodyScrollLock(showCart)
+  useBodyScrollLock(confirmation != null)
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
   // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
@@ -534,10 +586,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </div>
       )}
 
-      {/* Gate D: CTA vizibil doar când modulul Rezervări e activat server-side.
-          Backward compat: dacă amenity 'reservations' bifat, păstrăm legacy
-          behavior până când admin-ul folosește toggle-ul nou. */}
-      {(reservationsModuleEnabled ?? restaurant.amenities?.includes('reservations')) && (
+      {/* Gate D: CTA vizibil DOAR când modulul Rezervări e activat server-side.
+          Fallback-ul legacy pe amenity era un flux MORT: fără rând în
+          restaurant_modules, create_reservation_public + get_tables_availability
+          resping oricum (is_module_enabled → false) — clientul completa formularul
+          degeaba. Amenity-ul rămâne doar badge informativ în hero. */}
+      {reservationsModuleEnabled === true && (
         <div style={{ padding: '14px 20px 0' }}>
           <button
             data-testid="reserve-cta"
@@ -574,10 +628,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           Pe flipbook nu există catalog de produse → fără tab-uri/căutare/filtre. */}
       {!isFlipbook && (
         <CategoryTabs
-          items={[
-            { id: 'all', name: T(lang, 'all_categories'), count: allProducts.length },
-            ...localizedCategories.map((c) => ({ id: c.id, name: c.name, count: c.products.length })),
-          ]}
+          items={categoryTabItems}
           activeId={activeCat}
           onSelect={setActiveCat}
           accent={accent}
@@ -648,7 +699,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 {r.name} ·{' '}
                 {r.discount_type === 'percent'
                   ? `-${r.discount_value}%`
-                  : `-${r.discount_value} lei`}
+                  : `-${fmtPrice(Number(r.discount_value), menuCurrency)}`}
               </span>
             ))}
           </div>
@@ -711,6 +762,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -736,6 +788,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -753,6 +806,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -771,6 +825,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       happyHourPct={happyHourPercentForProduct(product, happyHour)}
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
+                      currency={menuCurrency}
                     />
                   ))}
                 </div>
@@ -781,6 +836,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
         {/* FOOTER brand */}
         <FooterBrand restaurant={restaurant} theme={theme} accent={accent} PUB={PUB} lang={lang} />
+
+        {/* Badge discret „Creat cu Menuvia" (E1) — buclă virală: fiecare meniu
+            public e o vitrină. Opt-out prin theme_settings.hide_branding
+            (beneficiu Plan 2+, gating-ul de scriere în Setări). Pe domeniile
+            de agenție (white-label v1, mig 236) afișează brandingul agenției. */}
+        {!resolveHideBranding(restaurant.theme_settings) && (
+          <MenuBrandBadge
+            utmSource="menu"
+            color={PUB.text3}
+            fontFamily={theme.fonts.body}
+            padding="0 0 28px"
+          />
+        )}
       </div>
 
       {/* Bară sticky — coș (pickup) sau „Lista mea" (meniu digital). Pentru „Lista
@@ -820,7 +888,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 {cartCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}{' '}
                 {listMode ? T(lang, 'in_my_list') : T(lang, 'in_cart')}
               </span>
-              <span style={{ fontFamily: theme.fonts.heading }}>{cartTotal.toFixed(2)} lei →</span>
+              <span style={{ fontFamily: theme.fonts.heading }}>{fmtPrice(cartTotal, menuCurrency)} →</span>
             </>
           ) : (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: PUB.text2 }}>
@@ -838,6 +906,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             accent={accent}
             theme={theme}
             onAdd={addToCart}
+            currency={menuCurrency}
+            happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
@@ -897,7 +967,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               )}
               {cart.length === 0 && (
                 <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
-                  {T(lang, 'list_empty')}
+                  {listMode ? T(lang, 'list_empty') : T(lang, 'cart_empty')}
                 </div>
               )}
               {cart.map((item) => (
@@ -936,7 +1006,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                         color: accent,
                       }}
                     >
-                      {lineTotal(item).toFixed(2)} lei
+                      {fmtPrice(lineTotal(item), menuCurrency)}
                     </span>
                     <button
                       onClick={() => removeFromCart(item._key)}
@@ -983,7 +1053,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     color: PUB.text,
                   }}
                 >
-                  {cartTotal.toFixed(2)} lei
+                  {fmtPrice(cartTotal, menuCurrency)}
                 </span>
               </div>
               {listMode ? (
@@ -1014,6 +1084,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     setShowCart(false)
                     setShowPickup(true)
                   }}
+                  disabled={cart.length === 0}
                   style={{
                     width: '100%',
                     padding: '15px',
@@ -1024,11 +1095,12 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                     fontFamily: theme.fonts.body,
                     fontSize: 15,
                     fontWeight: 700,
-                    cursor: 'pointer',
-                    boxShadow: `0 4px 14px ${accent}55`,
+                    cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                    opacity: cart.length === 0 ? 0.5 : 1,
+                    boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
                   }}
                 >
-                  Continuă la ridicare →
+                  {T(lang, 'continue_to_pickup')} →
                 </button>
               )}
             </div>
@@ -1046,6 +1118,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             theme={theme}
             accent={accent}
             PUB={PUB}
+            currency={menuCurrency}
             onClose={() => setShowPickup(false)}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)
@@ -1120,27 +1193,28 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 letterSpacing: '-0.01em',
               }}
             >
-              Comandă plasată!
+              {T(lang, 'order_placed')}
             </div>
             <div style={{ fontSize: 14, color: PUB.text2, marginBottom: 16, lineHeight: 1.6 }}>
-              Comanda <strong>#{confirmation.short_id}</strong> a fost trimisă restaurantului.
+              {T(lang, 'order_sent_pre')} <strong>#{confirmation.short_id}</strong>{' '}
+              {T(lang, 'order_sent_post')}
               {confirmation.pickup_time && (
                 <>
                   {' '}
-                  Vino la{' '}
+                  {T(lang, 'pickup_come_at_pre')}{' '}
                   <strong>
                     {new Date(confirmation.pickup_time).toLocaleTimeString('ro-RO', {
                       hour: '2-digit',
                       minute: '2-digit',
                     })}
                   </strong>{' '}
-                  să o ridici.
+                  {T(lang, 'pickup_come_at_post')}
                 </>
               )}
             </div>
             <div style={{ fontSize: 13, color: PUB.text3, marginBottom: 24 }}>
-              Total de plată la ridicare:{' '}
-              <strong style={{ color: accent }}>{confirmation.total.toFixed(2)} lei</strong>
+              {T(lang, 'total_due_pickup')}{' '}
+              <strong style={{ color: accent }}>{fmtPrice(confirmation.total, menuCurrency)}</strong>
             </div>
             <button
               onClick={() => setConfirmation(null)}
@@ -1157,7 +1231,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 width: '100%',
               }}
             >
-              Mulțumim!
+              {T(lang, 'thanks')}
             </button>
           </div>
         </div>

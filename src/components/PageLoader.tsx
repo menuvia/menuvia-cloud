@@ -1,5 +1,4 @@
 import { Component, ReactNode, CSSProperties } from 'react'
-import * as Sentry from '@sentry/react'
 import { D } from '../lib/constants'
 
 const center: CSSProperties = {
@@ -153,7 +152,14 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
   }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('[Menuvia] Unhandled error:', error, info)
-    Sentry.captureException(error, { extra: { componentStack: info.componentStack } })
+    // OPT-7: Sentry se încarcă DINAMIC doar la prima eroare — importul static
+    // trăgea chunk-ul (~25-40KB gz) în calea critică de startup, deși main.tsx
+    // documentează explicit că Sentry trebuie să rămână lazy. Best-effort:
+    // dacă chunk-ul nu se poate încărca (offline/ad-blocker), console.error-ul
+    // de mai sus rămâne singura urmă — exact ca înainte de Sentry.
+    void import('@sentry/react')
+      .then((S) => S.captureException(error, { extra: { componentStack: info.componentStack } }))
+      .catch(() => {})
   }
   render() {
     if (this.state.error) {

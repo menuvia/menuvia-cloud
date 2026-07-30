@@ -1236,6 +1236,150 @@ jobs:
           # la 1 pe selection_type='single' misconfigurat.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/order_group_min_assertions.sql
 
+      - name: "Online table payments assertions (mig 202-203)"
+        if: ${{ hashFiles('supabase/migrations/20260706211000_migration_203_online_table_payments.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/table_payment_assertions.sql
+
+      - name: "Menu RPC assertions (mig 212)"
+        if: ${{ hashFiles('supabase/migrations/20260707120000_migration_212_get_menu_rpc.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/menu_rpc_assertions.sql
+
+      - name: "advance_order tip overpayment assertions (mig 214)"
+        if: ${{ hashFiles('supabase/migrations/20260707140000_migration_214_advance_order_tip_overpayment.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/advance_order_tip_assertions.sql
+
+      - name: "Kitchen ticket assertions (mig 227)"
+        if: ${{ hashFiles('supabase/migrations/20260713100000_migration_227_kitchen_tickets.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/kitchen_ticket_assertions.sql
+
+      - name: "Loyalty v1 assertions (mig 226)"
+        if: ${{ hashFiles('supabase/migrations/20260712160000_migration_226_loyalty_v1.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/loyalty_assertions.sql
+
+      - name: "Meal voucher assertions (mig 230/231)"
+        if: ${{ hashFiles('supabase/migrations/20260716110000_migration_231_meal_voucher_flow.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/meal_voucher_assertions.sql
+
+      - name: "SMS notifications assertions (mig 228)"
+        if: ${{ hashFiles('supabase/migrations/20260713120000_migration_228_sms_notifications.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/sms_queue_assertions.sql
+
+      - name: "MFA platform assertions (mig 235)"
+        if: ${{ hashFiles('supabase/migrations/20260717120000_migration_235_platform_admin_mfa.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/mfa_platform_assertions.sql
+
+      - name: "Email reclaim assertions (mig 242)"
+        if: ${{ hashFiles('supabase/migrations/20260718140000_migration_242_email_reclaim_terminal.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/email_reclaim_assertions.sql
+
+      - name: "Low hardening assertions (mig 243)"
+        if: ${{ hashFiles('supabase/migrations/20260720100000_migration_243_low_hardening_sweep.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/low_hardening_assertions.sql
+
+      - name: "Reservation service-day assertions (mig 241)"
+        if: ${{ hashFiles('supabase/migrations/20260718130000_migration_241_reservation_service_day.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_service_day_assertions.sql
+
+      - name: "Security Q4 assertions (mig 240)"
+        if: ${{ hashFiles('supabase/migrations/20260718120000_migration_240_security_hardening_q4.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/security_q4_assertions.sql
+
+      - name: "Fiscal Q4 assertions (mig 238/239)"
+        if: ${{ hashFiles('supabase/migrations/20260718110000_migration_239_oblio_stale_generating.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_q4_assertions.sql
+
+      - name: "Subtotal per-statement assertions (mig 248)"
+        if: ${{ hashFiles('supabase/migrations/20260723100000_migration_248_subtotal_sync_per_statement.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/subtotal_stmt_assertions.sql
+
+      - name: "Stock deduction on closed assertions (mig 250)"
+        if: ${{ hashFiles('supabase/migrations/20260723140000_migration_250_stock_deduct_on_closed.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/stock_deduction_assertions.sql
+
+      - name: "Purchase order cost on negative stock assertions (mig 251)"
+        if: ${{ hashFiles('supabase/migrations/20260723160000_migration_251_receive_po_negative_stock_cost.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/purchase_order_cost_assertions.sql
+
+      - name: "White-label + benchmark assertions (mig 236/237)"
+        if: ${{ hashFiles('supabase/migrations/20260717140000_migration_237_founder_monthly_benchmark.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/white_label_benchmark_assertions.sql
+
+      - name: "Reservation no-show assertions (mig 233/234)"
+        if: ${{ hashFiles('supabase/migrations/20260717110000_migration_234_reservation_no_show.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_noshow_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:

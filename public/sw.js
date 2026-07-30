@@ -9,16 +9,24 @@
 // sau de bundle care fac neaplicabil cache-ul vechi. Activate handler
 // șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
 // primesc instantaneu noul build (nu mai trebuie hard refresh manual).
-const CACHE_VERSION = 'menuvia-v5'
+const CACHE_VERSION = 'menuvia-v6'
 const APP_SHELL = ['/favicon.svg', '/manifest.json']
 
 // ── Install: cache app shell ────────────────────────────────────
+// NU mai facem `skipWaiting()` necondiționat: noul SW intră în starea `waiting`,
+// iar `useSWUpdate` (lib/pwa.ts) detectează `reg.waiting` și afișează banner-ul
+// din PWAPrompt. Userul alege CÂND actualizează (applyUpdate → mesaj SKIP_WAITING
+// → handler-ul de mai jos). Înainte, skipWaiting + navigate forțau reload pe TOATE
+// device-urile la fiecare deploy (staff mid-comandă pierdea ecranul), iar banner-ul
+// de update era mort.
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE_VERSION).then((cache) => cache.addAll(APP_SHELL)))
-  self.skipWaiting()
 })
 
-// ── Activate: clean up old caches ───────────────────────────────
+// ── Activate: clean up old caches + preia controlul ─────────────
+// `clients.claim()` rămâne: după SKIP_WAITING (declanșat de banner) noul SW
+// preia controlul → `controllerchange` în useSWUpdate face UN singur reload.
+// Am scos bucla `client.navigate()` — reload-ul forțat era exact problema.
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
@@ -26,13 +34,7 @@ self.addEventListener('activate', (event) => {
       .then((keys) =>
         Promise.all(keys.filter((k) => k !== CACHE_VERSION).map((k) => caches.delete(k))),
       )
-      .then(() => self.clients.claim())
-      .then(() => clients.matchAll({ type: 'window', includeUncontrolled: true }))
-      .then((windowClients) => {
-        for (const client of windowClients) {
-          client.navigate(client.url)
-        }
-      }),
+      .then(() => self.clients.claim()),
   )
 })
 
@@ -48,17 +50,14 @@ self.addEventListener('fetch', (event) => {
   // Skip Netlify functions
   if (url.pathname.startsWith('/.netlify/')) return
 
+  // Navigațiile (inclusiv /m/<slug> și /q/<token>) merg network-first cu fallback
+  // pe cache: pentru un SPA e mai sigur decât stale-while-revalidate pe HTML (un
+  // index.html vechi din cache ar putea trimite spre bundle-uri hash-uite deja
+  // purjate). Datele de meniu vin oricum cross-origin (Supabase), deci un SWR pe
+  // shell nu ar fi adus meniul offline. (Ramura SWR /m//q/ era cod mort — o
+  // navigație e mereu document request și cădea aici înainte s-o atingă.)
   if (isDocumentRequest(req)) {
     event.respondWith(networkFirstWithFallback(req))
-    return
-  }
-
-  // QR menu pages: stale-while-revalidate (show cached, update in bg)
-  // Rutele REALE sunt /m/<slug> și /q/<token> (vezi App.tsx parsePath).
-  // Înainte verifica /menu/ și /qr/ care nu există → meniul public nu se
-  // cache-uia niciodată offline.
-  if (url.pathname.startsWith('/m/') || url.pathname.startsWith('/q/')) {
-    event.respondWith(staleWhileRevalidate(req))
     return
   }
 
@@ -82,18 +81,6 @@ function isDocumentRequest(req) {
     req.destination === 'document' ||
     req.headers.get('accept')?.includes('text/html')
   )
-}
-
-async function staleWhileRevalidate(req) {
-  const cache = await caches.open(CACHE_VERSION)
-  const cached = await cache.match(req)
-  const networkFetch = fetch(req)
-    .then((res) => {
-      if (res.ok) cache.put(req, res.clone())
-      return res
-    })
-    .catch(() => cached)
-  return cached || networkFetch
 }
 
 async function cacheFirst(req) {

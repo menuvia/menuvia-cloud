@@ -45,6 +45,11 @@
 [functions."send-health-slack-alerts"]
   schedule = "5,20,35,50 * * * *"
 
+# Every 1 min: process queued SMS (mig 228) — „pickup gata" e time-sensitive;
+# funcția iese imediat pe coadă goală, deci tick-ul e ieftin.
+[functions."process-sms-queue"]
+  schedule = "* * * * *"
+
 # Security headers — A+ grade on securityheaders.com
 [[headers]]
   for = "/*"

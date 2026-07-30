@@ -14,6 +14,7 @@ import { D } from '../lib/constants'
 import { InlineSpinner } from './PageLoader'
 import { Icon, type IconName } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { fetchVatRates, getVatLabel, getVatRate, type VatRate } from '../lib/vat'
 import {
   fetchIngredients,
   createIngredient,
@@ -55,7 +56,11 @@ const btn = (style: React.CSSProperties = {}): React.CSSProperties => ({
   border: 'none',
   display: 'inline-flex',
   alignItems: 'center',
+  justifyContent: 'center',
   gap: 6,
+  // Touch target ≥44px pe mobil (ospătari/patroni pe telefon) — vizual
+  // butoanele rămân compacte, doar zona de atins crește.
+  minHeight: 44,
   ...style,
 })
 
@@ -73,6 +78,19 @@ const inp = (style: React.CSSProperties = {}): React.CSSProperties => ({
   ...style,
 })
 
+// Escape închide modalul (același contract ca ui/ConfirmDialog). `active`
+// permite apelul necondiționat al hook-ului din secțiuni cu modal inline.
+function useEscapeClose(active: boolean, onClose: () => void) {
+  useEffect(() => {
+    if (!active) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [active, onClose])
+}
+
 export default function StocksTab({ restaurantId }: Props) {
   const [subTab, setSubTab] = useState<SubTab>('ingredients')
   const [stats, setStats] = useState<{
@@ -83,9 +101,16 @@ export default function StocksTab({ restaurantId }: Props) {
     totalStockValue: number
   } | null>(null)
 
+  // Eroarea de stats nu mai e mută: fără ea, cardurile de sus lipseau tăcut
+  // (stats rămânea null) și nici ghidul de bun venit nu apărea. Bara de
+  // eroare e discretă (stats-urile-s secundare), dar oferă „Reîncearcă".
+  const [statsError, setStatsError] = useState(false)
+  const [statsReload, setStatsReload] = useState(0)
+
   // Load quick stats
   useEffect(() => {
     void (async () => {
+      setStatsError(false)
       try {
         const [ings, sups, pos] = await Promise.all([
           fetchIngredients(restaurantId),
@@ -106,9 +131,10 @@ export default function StocksTab({ restaurantId }: Props) {
         })
       } catch (err) {
         console.error('Stats load error:', err)
+        setStatsError(true)
       }
     })()
-  }, [restaurantId, subTab]) // refresh when changing sub-tabs
+  }, [restaurantId, subTab, statsReload]) // refresh when changing sub-tabs
 
   const isFirstTime = stats != null && stats.ingredientsCount === 0 && stats.suppliersCount === 0
 
@@ -134,6 +160,44 @@ export default function StocksTab({ restaurantId }: Props) {
         </div>
       </div>
 
+      {/* Eroare la sumarul de sus — discretă, cu retry (nu blochează tab-urile). */}
+      {statsError && stats == null && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            flexWrap: 'wrap',
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 10,
+            padding: '10px 14px',
+            fontSize: '0.8rem',
+            color: D.t2,
+          }}
+        >
+          Nu am putut încărca sumarul stocurilor.
+          <button
+            onClick={() => setStatsReload((n) => n + 1)}
+            style={{
+              background: 'transparent',
+              color: D.gold,
+              border: `1px solid ${D.gold}55`,
+              borderRadius: 8,
+              padding: '7px 12px',
+              minHeight: 44,
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'DM Sans,sans-serif',
+            }}
+          >
+            Reîncearcă
+          </button>
+        </div>
+      )}
+
       {/* Quick stats — appear when there's data */}
       {stats != null && !isFirstTime && (
         <div
@@ -152,7 +216,7 @@ export default function StocksTab({ restaurantId }: Props) {
           />
           <StatCard
             label="Valoare stoc"
-            value={`${stats.totalStockValue.toFixed(0)} lei`}
+            value={`${stats.totalStockValue.toLocaleString('ro-RO', { maximumFractionDigits: 0 })} lei`}
             sub="total ingrediente"
             color={D.t1}
             icon="tag"
@@ -281,6 +345,7 @@ export default function StocksTab({ restaurantId }: Props) {
             style={{
               marginTop: 16,
               padding: '10px 18px',
+              minHeight: 44,
               background: D.gold,
               color: '#000',
               border: 'none',
@@ -296,9 +361,16 @@ export default function StocksTab({ restaurantId }: Props) {
         </div>
       )}
 
-      {/* Sub-tabs */}
+      {/* Sub-tabs — scroll orizontal pe mobil (4 taburi nu încap pe 375px) */}
       <div
-        style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${D.border}`, paddingBottom: 0 }}
+        style={{
+          display: 'flex',
+          gap: 4,
+          borderBottom: `1px solid ${D.border}`,
+          paddingBottom: 0,
+          overflowX: 'auto',
+          WebkitOverflowScrolling: 'touch',
+        }}
       >
         {(
           [
@@ -313,6 +385,7 @@ export default function StocksTab({ restaurantId }: Props) {
             onClick={() => setSubTab(t.id)}
             style={{
               padding: '10px 16px',
+              minHeight: 44,
               background: 'none',
               border: 'none',
               borderBottom: `2px solid ${subTab === t.id ? D.gold : 'transparent'}`,
@@ -352,12 +425,33 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState<Ingredient | null>(null)
   const [adjustingId, setAdjustingId] = useState<string | null>(null)
+  // Cotele TVA REALE ale restaurantului (VatRatesEditor / mig cote 21-11) —
+  // hardcodarea 9/19/5/0 afișa cote pre-august 2025, contrazicând Raport TVA.
+  const [vatRates, setVatRates] = useState<VatRate[]>([])
 
+  useEffect(() => {
+    let cancelled = false
+    fetchVatRates(restaurantId)
+      .then((r) => {
+        if (!cancelled) setVatRates(r)
+      })
+      .catch(() => {
+        /* fallback: etichete „Grupa N" din getVatLabel */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const data = await fetchIngredients(restaurantId)
       setItems(data)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -368,6 +462,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se încarcă stocurile..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca ingredientele." onRetry={() => void load()} />
 
   const lowStock = items.filter(
     (i) => i.min_stock_alert != null && i.current_stock < i.min_stock_alert,
@@ -500,7 +595,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
                   <span>
                     {ing.cost_per_unit.toFixed(2)} lei / {ing.unit}
                   </span>
-                  <span>TVA {[9, 19, 5, 0][ing.vat_group - 1]}%</span>
+                  <span>TVA {getVatLabel(vatRates, ing.vat_group)}</span>
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -527,7 +622,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
                       padding: '6px 10px',
                     })}
                   >
-                    Edit
+                    Editează
                   </button>
                 </div>
               </div>
@@ -539,6 +634,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
       {showAdd && (
         <IngredientModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           ingredient={null}
           onClose={() => setShowAdd(false)}
           onSave={() => {
@@ -550,6 +646,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
       {editing && (
         <IngredientModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           ingredient={editing}
           onClose={() => setEditing(null)}
           onSave={() => {
@@ -575,11 +672,13 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
 // ── Modal: Adaugă/Edit Ingredient ─────────────────────────────
 function IngredientModal({
   restaurantId,
+  vatRates,
   ingredient,
   onClose,
   onSave,
 }: {
   restaurantId: string
+  vatRates: VatRate[]
   ingredient: Ingredient | null
   onClose: () => void
   onSave: () => void
@@ -626,10 +725,19 @@ function IngredientModal({
     }
   }
 
+  useEscapeClose(true, onClose)
+
   return (
     <div onClick={onClose} style={modalBg}>
-      <div onClick={(e) => e.stopPropagation()} style={modalCard}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ing-modal-title"
+        style={modalCard}
+      >
         <div
+          id="ing-modal-title"
           style={{
             fontFamily: 'Fraunces,serif',
             fontSize: '1.3rem',
@@ -644,8 +752,11 @@ function IngredientModal({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr', gap: 10 }}>
             <div>
-              <label style={lbl}>Emoji</label>
+              <label style={lbl} htmlFor="ing-emoji">
+                Emoji
+              </label>
               <input
+                id="ing-emoji"
                 style={inp()}
                 value={emoji}
                 onChange={(e) => setEmoji(e.target.value)}
@@ -654,8 +765,11 @@ function IngredientModal({
               />
             </div>
             <div>
-              <label style={lbl}>Nume *</label>
+              <label style={lbl} htmlFor="ing-name">
+                Nume *
+              </label>
               <input
+                id="ing-name"
                 style={inp()}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -665,8 +779,11 @@ function IngredientModal({
           </div>
 
           <div>
-            <label style={lbl}>Categorie (opțional)</label>
+            <label style={lbl} htmlFor="ing-category">
+              Categorie (opțional)
+            </label>
             <input
+              id="ing-category"
               style={inp()}
               value={category}
               onChange={(e) => setCategory(e.target.value)}
@@ -676,8 +793,11 @@ function IngredientModal({
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={lbl}>Unitate de măsură</label>
+              <label style={lbl} htmlFor="ing-unit">
+                Unitate de măsură
+              </label>
               <select
+                id="ing-unit"
                 style={inp({ height: 36 })}
                 value={unit}
                 onChange={(e) => setUnit(e.target.value as IngredientUnit)}
@@ -690,24 +810,43 @@ function IngredientModal({
               </select>
             </div>
             <div>
-              <label style={lbl}>Cota TVA</label>
+              <label style={lbl} htmlFor="ing-vat">
+                Cota TVA
+              </label>
               <select
+                id="ing-vat"
                 style={inp({ height: 36 })}
                 value={vatGroup}
                 onChange={(e) => setVatGroup(parseInt(e.target.value))}
               >
-                <option value={1}>9% (mâncare)</option>
-                <option value={2}>19% (alcool)</option>
-                <option value={3}>5% (special)</option>
-                <option value={4}>0% (scutit)</option>
+                {/* Cotele REALE ale restaurantului (VatRatesEditor) — hardcodarea
+                    9/19/5/0 afișa cotele pre-august 2025. Fallback pe grupele
+                    generice doar dacă fetch-ul a eșuat. */}
+                {vatRates.length > 0 ? (
+                  vatRates.map((r) => (
+                    <option key={r.vat_group} value={r.vat_group}>
+                      {r.rate_percent}% ({r.label})
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value={1}>Grupa 1</option>
+                    <option value={2}>Grupa 2</option>
+                    <option value={3}>Grupa 3</option>
+                    <option value={4}>Grupa 4</option>
+                  </>
+                )}
               </select>
             </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
             <div>
-              <label style={lbl}>Stoc curent ({unit})</label>
+              <label style={lbl} htmlFor="ing-stock">
+                Stoc curent ({unit})
+              </label>
               <input
+                id="ing-stock"
                 style={inp()}
                 type="number"
                 step="0.01"
@@ -716,8 +855,11 @@ function IngredientModal({
               />
             </div>
             <div>
-              <label style={lbl}>Alertă sub ({unit})</label>
+              <label style={lbl} htmlFor="ing-min-alert">
+                Alertă sub ({unit})
+              </label>
               <input
+                id="ing-min-alert"
                 style={inp()}
                 type="number"
                 step="0.01"
@@ -729,8 +871,11 @@ function IngredientModal({
           </div>
 
           <div>
-            <label style={lbl}>Cost per {unit} (lei)</label>
+            <label style={lbl} htmlFor="ing-cost">
+              Cost per {unit} (lei)
+            </label>
             <input
+              id="ing-cost"
               style={inp()}
               type="number"
               step="0.01"
@@ -830,10 +975,19 @@ function AdjustStockModal({
     }
   }
 
+  useEscapeClose(true, onClose)
+
   return (
     <div onClick={onClose} style={modalBg}>
-      <div onClick={(e) => e.stopPropagation()} style={modalCard}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="adjust-modal-title"
+        style={modalCard}
+      >
         <div
+          id="adjust-modal-title"
           style={{
             fontFamily: 'Fraunces,serif',
             fontSize: '1.3rem',
@@ -850,10 +1004,11 @@ function AdjustStockModal({
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={lbl}>
+            <label style={lbl} htmlFor="adjust-amount">
               Stoc curent: {formatStock(ingredient.current_stock, ingredient.unit)}
             </label>
             <input
+              id="adjust-amount"
               style={inp()}
               type="number"
               step="0.01"
@@ -866,8 +1021,11 @@ function AdjustStockModal({
           </div>
 
           <div>
-            <label style={lbl}>Motiv (opțional)</label>
+            <label style={lbl} htmlFor="adjust-notes">
+              Motiv (opțional)
+            </label>
             <input
+              id="adjust-notes"
               style={inp()}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -922,11 +1080,18 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   const [email, setEmail] = useState('')
   const [vatId, setVatId] = useState('')
 
+  // Escape închide modalul inline „Furnizor nou" (a11y dialog).
+  useEscapeClose(showAdd, () => setShowAdd(false))
+
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const data = await fetchSuppliers(restaurantId)
       setItems(data)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -953,6 +1118,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
   }
 
   if (loading) return <InlineSpinner label="Se încarcă furnizorii..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca furnizorii." onRetry={() => void load()} />
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1030,8 +1196,15 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
 
       {showAdd && (
         <div onClick={() => setShowAdd(false)} style={modalBg}>
-          <div onClick={(e) => e.stopPropagation()} style={modalCard}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="supplier-modal-title"
+            style={modalCard}
+          >
             <div
+              id="supplier-modal-title"
               style={{
                 fontFamily: 'Fraunces,serif',
                 fontSize: '1.3rem',
@@ -1044,8 +1217,11 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
-                <label style={lbl}>Nume firmă *</label>
+                <label style={lbl} htmlFor="supplier-name">
+                  Nume firmă *
+                </label>
                 <input
+                  id="supplier-name"
                   style={inp()}
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -1053,8 +1229,11 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                 />
               </div>
               <div>
-                <label style={lbl}>CUI / CIF</label>
+                <label style={lbl} htmlFor="supplier-vat">
+                  CUI / CIF
+                </label>
                 <input
+                  id="supplier-vat"
                   style={inp()}
                   value={vatId}
                   onChange={(e) => setVatId(e.target.value)}
@@ -1062,8 +1241,11 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                 />
               </div>
               <div>
-                <label style={lbl}>Telefon</label>
+                <label style={lbl} htmlFor="supplier-phone">
+                  Telefon
+                </label>
                 <input
+                  id="supplier-phone"
                   style={inp()}
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
@@ -1071,8 +1253,11 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
                 />
               </div>
               <div>
-                <label style={lbl}>Email</label>
+                <label style={lbl} htmlFor="supplier-email">
+                  Email
+                </label>
                 <input
+                  id="supplier-email"
                   style={inp()}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -1110,9 +1295,27 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  // Cotele TVA reale ale restaurantului — opțiunile NIR nu mai sunt hardcodate.
+  const [vatRates, setVatRates] = useState<VatRate[]>([])
 
+  useEffect(() => {
+    let cancelled = false
+    fetchVatRates(restaurantId)
+      .then((r) => {
+        if (!cancelled) setVatRates(r)
+      })
+      .catch(() => {
+        /* fallback: opțiunile legacy din select */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  const [loadError, setLoadError] = useState(false)
   async function load() {
     setLoading(true)
+    setLoadError(false)
     try {
       const [pos, sups, ings] = await Promise.all([
         fetchPurchaseOrders(restaurantId),
@@ -1122,6 +1325,8 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
       setItems(pos)
       setSuppliers(sups)
       setIngredients(ings)
+    } catch {
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -1132,6 +1337,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se încarcă NIR-urile..." />
+  if (loadError) return <LoadErrorBox label="Nu am putut încărca NIR-urile." onRetry={() => void load()} />
 
   const canCreate = ingredients.length > 0
 
@@ -1211,7 +1417,9 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
                     {supplier?.name ?? '—'} ·{' '}
-                    {po.invoice_date ?? new Date(po.created_at).toLocaleDateString('ro-RO')}
+                    {/* invoice_date vine ISO (YYYY-MM-DD) — formatăm ro-RO ca fallback-ul,
+                        altfel lista amestecă două formate de dată. */}
+                    {new Date(po.invoice_date ?? po.created_at).toLocaleDateString('ro-RO')}
                   </div>
                 </div>
                 <div
@@ -1279,6 +1487,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
       {showAdd && (
         <NirCreateModal
           restaurantId={restaurantId}
+          vatRates={vatRates}
           suppliers={suppliers}
           ingredients={ingredients}
           onClose={() => setShowAdd(false)}
@@ -1302,17 +1511,21 @@ interface NirItem {
 
 function NirCreateModal({
   restaurantId,
+  vatRates,
   suppliers,
   ingredients,
   onClose,
   onSave,
 }: {
   restaurantId: string
+  vatRates: VatRate[]
   suppliers: Supplier[]
   ingredients: Ingredient[]
   onClose: () => void
   onSave: () => void
 }) {
+  // Default de rând = cota grupei 1 (mâncare) din config; 19 doar ca ultim fallback.
+  const defaultVat = getVatRate(vatRates, 1) ?? 19
   const [supplierId, setSupplierId] = useState<string>('')
   const [supplierName, setSupplierName] = useState<string>('') // pentru autocomplete
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -1320,14 +1533,14 @@ function NirCreateModal({
   const [notes, setNotes] = useState('')
   const isMobile = useIsMobile()
   const [items, setItems] = useState<NirItem[]>([
-    { ingredient_id: '', quantity: '', unit_price: '', vat_rate: 19 },
+    { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat },
   ])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [receiveImmediately, setReceiveImmediately] = useState(true)
 
   function addRow() {
-    setItems((prev) => [...prev, { ingredient_id: '', quantity: '', unit_price: '', vat_rate: 19 }])
+    setItems((prev) => [...prev, { ingredient_id: '', quantity: '', unit_price: '', vat_rate: defaultVat }])
   }
 
   function removeRow(idx: number) {
@@ -1419,9 +1632,21 @@ function NirCreateModal({
   }
 
   return (
-    <div onClick={onClose} style={modalBg}>
-      <div onClick={(e) => e.stopPropagation()} style={{ ...modalCard, maxWidth: 720 }}>
+    <div
+      // Formular greu (furnizor, factură, rânduri) — un tap pe fundal pierdea
+      // tot; închiderea rămâne pe butoanele explicite (X / Anulează).
+      // Din același motiv NU închide nici Escape (pierdere accidentală de date).
+      style={modalBg}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nir-modal-title"
+        style={{ ...modalCard, maxWidth: 720 }}
+      >
         <div
+          id="nir-modal-title"
           style={{
             fontFamily: 'Fraunces,serif',
             fontSize: '1.3rem',
@@ -1463,8 +1688,11 @@ function NirCreateModal({
               />
             </div>
             <div>
-              <label style={lbl}>Data factură</label>
+              <label style={lbl} htmlFor="nir-invoice-date">
+                Data factură
+              </label>
               <input
+                id="nir-invoice-date"
                 style={inp()}
                 type="date"
                 value={invoiceDate}
@@ -1474,8 +1702,11 @@ function NirCreateModal({
           </div>
 
           <div>
-            <label style={lbl}>Număr factură</label>
+            <label style={lbl} htmlFor="nir-invoice-number">
+              Număr factură
+            </label>
             <input
+              id="nir-invoice-number"
               style={inp()}
               value={invoiceNumber}
               onChange={(e) => setInvoiceNumber(e.target.value)}
@@ -1584,10 +1815,20 @@ function NirCreateModal({
                           value={it.vat_rate}
                           onChange={(e) => updateRow(idx, 'vat_rate', parseFloat(e.target.value))}
                         >
-                          <option value={0}>0%</option>
-                          <option value={5}>5%</option>
-                          <option value={9}>9%</option>
-                          <option value={19}>19%</option>
+                          {/* Cotele reale ale restaurantului; fallback legacy dacă
+                              fetch-ul a eșuat. Valoarea curentă rămâne selectabilă
+                              chiar dacă nu mai e în listă (rând vechi). */}
+                          {(vatRates.length > 0
+                            ? [...new Set(vatRates.map((r) => r.rate_percent).concat(it.vat_rate))]
+                            : [0, 5, 9, 19, it.vat_rate]
+                          )
+                            .filter((v, i, arr) => arr.indexOf(v) === i)
+                            .sort((a, b) => a - b)
+                            .map((v) => (
+                              <option key={v} value={v}>
+                                {v}%
+                              </option>
+                            ))}
                         </select>
                       </div>
                     </div>
@@ -1624,6 +1865,7 @@ function NirCreateModal({
               style={{
                 marginTop: 8,
                 padding: '6px 12px',
+                minHeight: 44,
                 background: 'transparent',
                 border: `1px dashed ${D.border}`,
                 color: D.t2,
@@ -1685,8 +1927,11 @@ function NirCreateModal({
           </div>
 
           <div>
-            <label style={lbl}>Note (opțional)</label>
+            <label style={lbl} htmlFor="nir-notes">
+              Note (opțional)
+            </label>
             <input
+              id="nir-notes"
               style={inp()}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -1767,18 +2012,32 @@ function NirCreateModal({
 function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
   const [items, setItems] = useState<ProductProfitability[]>([])
   const [loading, setLoading] = useState(true)
+  // Eroarea de încărcare NU cade pe lista goală („niciun produs cu rețetă")
+  // — un blip de rețea ar arăta un fals empty state; pattern-ul LoadErrorBox
+  // din celelalte 3 secțiuni.
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
+  function load() {
     setLoading(true)
+    setLoadError(false)
     fetchProductProfitability(restaurantId)
       .then((data) => {
         setItems(data)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
-  }, [restaurantId])
+      .catch(() => {
+        setLoadError(true)
+        setLoading(false)
+      })
+  }
+
+  useEffect(() => {
+    load()
+  }, [restaurantId]) // eslint-disable-line
 
   if (loading) return <InlineSpinner label="Se calculează profitabilitatea..." />
+  if (loadError)
+    return <LoadErrorBox label="Nu am putut calcula profitabilitatea." onRetry={load} />
 
   const withCost = items.filter((i) => i.cost_price > 0)
   const noCost = items.filter((i) => i.cost_price === 0)
@@ -1805,6 +2064,10 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
         Pentru ca un produs să apară aici cu cost calculat, trebuie să-i adaugi rețeta (Editare
         produs → Rețetă).
       </div>
+
+      {items.length === 0 && (
+        <EmptyState icon="tag" title="Niciun produs de analizat încă" />
+      )}
 
       {withCost.length > 0 && (
         <div>
@@ -1839,10 +2102,10 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    Cost: {p.cost_price.toFixed(2)}
+                    Cost: {p.cost_price.toFixed(2)} lei
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    Vând: {p.sell_price.toFixed(2)}
+                    Vând: {p.sell_price.toFixed(2)} lei
                   </div>
                 </div>
                 <div style={{ minWidth: 80, textAlign: 'right' }}>
@@ -1861,7 +2124,7 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
                   >
                     {p.margin_percent.toFixed(0)}%
                   </div>
-                  <div style={{ fontSize: '0.7rem', color: D.t3 }}>marja</div>
+                  <div style={{ fontSize: '0.7rem', color: D.t3 }}>marjă</div>
                 </div>
               </div>
             ))}
@@ -1976,6 +2239,26 @@ const lbl: React.CSSProperties = {
   color: D.t2,
   marginBottom: 5,
   fontFamily: 'DM Sans, sans-serif',
+}
+
+function LoadErrorBox({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return (
+    <div
+      style={{
+        padding: 20,
+        border: `1px solid ${D.border}`,
+        borderRadius: 12,
+        background: D.s2,
+        color: D.t2,
+        textAlign: 'center',
+      }}
+    >
+      <div style={{ marginBottom: 12 }}>{label}</div>
+      <button onClick={onRetry} style={btn({ background: D.gold, color: '#000' })}>
+        Reîncearcă
+      </button>
+    </div>
+  )
 }
 
 const modalBg: React.CSSProperties = {

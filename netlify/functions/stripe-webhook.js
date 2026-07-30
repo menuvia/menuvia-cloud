@@ -61,7 +61,7 @@ exports.handler = async (event) => {
     [STRIPE_ENTERPRISE_PRICE_ID]: 'enterprise',
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
   const sig = event.headers['stripe-signature']
   const rawBody = getRawBody(event)
 
@@ -165,6 +165,16 @@ exports.handler = async (event) => {
           break
         }
 
+        // Gardă POZITIVĂ: doar sesiunile de ABONAMENT ating profiles.plan.
+        // Fără ea, orice sesiune mode='payment' ne-recunoscută ca ai_credits
+        // (metadata.type absent/redenumit) ar cădea în logica de abonament cu
+        // subscription=null → resolvePlan('free') → DOWNGRADE tăcut al unui
+        // plătitor care tocmai a cumpărat credite AI (același client_reference_id).
+        if (session.mode !== 'subscription') {
+          console.warn(`[stripe-webhook] checkout.session.completed mode='${session.mode}' neabonament, ignorat (${session.id})`)
+          break
+        }
+
         const refUserId = session.client_reference_id
         const customerId = session.customer
         const subscriptionId = session.subscription
@@ -182,16 +192,19 @@ exports.handler = async (event) => {
         try {
           finalPlan = await resolvePlan(stripe, subscriptionId)
         } catch (e) {
-          console.error(
-            `[stripe-webhook] ALERTĂ: resolvePlan a eșuat pentru subscription ${subscriptionId} ` +
-            `(user ${refUserId}) — NU aplicăm downgrade, planul curent rămâne neschimbat. Eroare:`,
-            e?.message || e,
-          )
-          // Nu marcăm eroarea ca fatală pentru webhook (nu vrem retry infinit pe
-          // un customer.id valid) — dar nici nu scriem 'free' peste un plan plătit.
-          // Ieșim din acest case fără update de plan; restul câmpurilor (customer_id/
-          // subscription_id) rămân neschimbate până la un eveniment ulterior reușit
-          // (ex. customer.subscription.updated) care va corecta planul.
+          // resolvePlan aruncă DOAR pe eroare Stripe tranzitorie (o subscripție
+          // anulată real nu aruncă — retrieve întoarce status='canceled' →
+          // normalizePlan fail-close 'free'). Deci un throw = tranzitoriu:
+          // marcăm processingError → 500 → Stripe RETRIMITE (backoff ~3 zile,
+          // finit; update-ul de profil e idempotent). Înainte făceam `break`
+          // (200, event 'completed') → clientul care tocmai a plătit rămânea pe
+          // 'free' fără retry garantat (recovery depindea de un
+          // customer.subscription.updated care poate să nu se declanșeze).
+          // NU scriem niciun 'free' aici — planul curent rămâne neatins.
+          processingError =
+            `resolvePlan tranzitoriu eșuat pentru subscription ${subscriptionId} ` +
+            `(user ${refUserId}): ${e?.message || String(e)}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
           break
         }
 
@@ -340,11 +353,30 @@ exports.handler = async (event) => {
         const invoice = stripeEvent.data.object
         const customerId = invoice.customer
 
-        const { data: profile } = await supabase
+        const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
           .select('id')
           .eq('stripe_customer_id', customerId)
           .single()
+        // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
+        // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
+        // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        // PGRST116 = zero rânduri (profilul chiar nu există) → normal, ACK 200.
+        // ORICE altă eroare = blip de infra: a răspunde 200 pierde evenimentul
+        // DEFINITIV (Stripe nu-l mai retrimite) → fără email de dunning → churn
+        // involuntar, exact ce previne bucla mig 180/216. Setăm processingError
+        // → 500 → Stripe retrimite. Retry-ul e SIGUR: enqueue_email are dedup_key
+        // stabil (on conflict do nothing), iar rândul stripe_events se redeschide.
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
+        if (lookupErr) {
+          console.warn(
+            `[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`
+          )
+        }
 
         if (profile) {
           userId = profile.id
@@ -365,11 +397,30 @@ exports.handler = async (event) => {
         // ciclurile recurente (subscription_cycle) și de prorations.
         const billingReason = invoice.billing_reason || null
 
-        const { data: profile } = await supabase
+        const { data: profile, error: lookupErr } = await supabase
           .from('profiles')
           .select('id')
           .eq('stripe_customer_id', customerId)
           .single()
+        // Fără log, un lookup eșuat (blip DB) făcea evenimentul să dispară TĂCUT:
+        // fără email de dunning / fără lifecycle event, dar cu 200 spre Stripe
+        // (deci fără retry). Acum eșecul e vizibil în loguri, ca la surorile lui.
+        // PGRST116 = zero rânduri (profilul chiar nu există) → normal, ACK 200.
+        // ORICE altă eroare = blip de infra: a răspunde 200 pierde evenimentul
+        // DEFINITIV (Stripe nu-l mai retrimite) → fără email de dunning → churn
+        // involuntar, exact ce previne bucla mig 180/216. Setăm processingError
+        // → 500 → Stripe retrimite. Retry-ul e SIGUR: enqueue_email are dedup_key
+        // stabil (on conflict do nothing), iar rândul stripe_events se redeschide.
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
+        if (lookupErr) {
+          console.warn(
+            `[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`
+          )
+        }
 
         if (profile) {
           userId = profile.id
@@ -380,6 +431,19 @@ exports.handler = async (event) => {
             invoice_id:      invoice.id,
             subscription_id: invoice.subscription,
           })
+          // Dunning — recuperare: attempt_count>1 ⇒ factura a eșuat cel puțin o
+          // dată înainte să reușească (clientul a primit deja emailul alarmant
+          // `payment_failed`). Închidem bucla cu emailul de reasigurare
+          // `payment_recovered` (mig 216). Pe reușită din prima (attempt_count≤1)
+          // NU emitem — altfel un email de „succes" la FIECARE ciclu recurent.
+          if (invoice.attempt_count > 1) {
+            await safeInsertLifecycleEvent(supabase, profile.id, 'payment_recovered', {
+              amount:     invoice.amount_paid,
+              currency:   invoice.currency,
+              invoice_id: invoice.id,
+              attempt:    invoice.attempt_count,
+            })
+          }
         } else {
           console.warn(`[stripe-webhook] invoice.paid: no profile for customer ${customerId}`)
         }
@@ -475,7 +539,14 @@ exports.handler = async (event) => {
         // idempotent pe refund_id), altfel comisionul pe venit stornat rămâne.
         const charge = stripeEvent.data.object
         try {
-          const refunds = charge.refunds?.data || []
+          // NU ne bazăm pe `charge.refunds.data` inline din payload: pe versiunile
+          // API Stripe ≥ 2022-11-15 lista de refund-uri NU mai e expandată pe obiectul
+          // Charge din webhook → ar fi `undefined` → bucla nu rula → clawback ratat
+          // TĂCUT (scurgere de comision pe venit stornat). Luăm refund-urile explicit
+          // via API (ca ramura de dispute care re-ia charge-ul). Idempotent pe
+          // refund_id în RPC, deci reprocesarea la refund-uri parțiale succesive e no-op.
+          const refundList = await stripe.refunds.list({ charge: charge.id, limit: 100 })
+          const refunds = refundList?.data || []
           for (const r of refunds) {
             const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
               p_event_id:            stripeEvent.id,

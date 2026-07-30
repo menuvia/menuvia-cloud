@@ -1,0 +1,51 @@
+# Load test k6 pe meniul public (PLAN_10 Faza 2) — rulare MANUALĂ, dintr-un click:
+# Actions → „k6 Load Test" → Run workflow. Criteriu: 100 VU concurenți, p95 < 1s
+# (praguri definite în scripts/k6/menu-load.js; jobul pică dacă nu-s atinse).
+# NB: țintește preview/staging — nu prod în orele de vârf ale localurilor.
+name: k6 Load Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: 'URL-ul frontend-ului țintă (ex. https://deploy-preview-188--menuvia.netlify.app)'
+        required: true
+        default: 'https://menuvia.netlify.app'
+      slug:
+        description: 'Slug-ul meniului public (/m/:slug)'
+        required: true
+        default: 'tinctura'
+      hit_supabase:
+        description: 'Lovește și RPC-ul real get_restaurant_by_slug (cere secretele VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY)'
+        type: boolean
+        default: false
+
+jobs:
+  k6:
+    name: menu-load (100 VU, p95 < 1s)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rulează k6 (docker grafana/k6)
+        env:
+          SUPABASE_URL: ${{ inputs.hit_supabase && secrets.VITE_SUPABASE_URL || '' }}
+          SUPABASE_ANON_KEY: ${{ inputs.hit_supabase && secrets.VITE_SUPABASE_ANON_KEY || '' }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            -e BASE_URL="${{ inputs.base_url }}" \
+            -e MENU_SLUG="${{ inputs.slug }}" \
+            -e SUPABASE_URL="$SUPABASE_URL" \
+            -e SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
+            grafana/k6:latest run --summary-export=k6-summary.json scripts/k6/menu-load.js
+
+      # Raportul brut (p95, rate de eșec, per-kind shell/menu-data) — artefact
+      # descărcabil din pagina run-ului; se publică și la praguri picate.
+      - name: Publică raportul
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-summary
+          path: k6-summary.json

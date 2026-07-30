@@ -189,6 +189,22 @@ function DataTable({
   )
 }
 
+// Cache de sesiune (nivel de modul): tab-urile mari sunt lazy + se demontează
+// la schimbare, deci re-vizitarea reface toate cele 5 query-uri. Analytics-ul pe
+// 30 de zile nu se schimbă de la secundă la secundă → în fereastra TTL servim
+// din cache și SĂRIM rețeaua. Cheia include `days` (alt filtru = alt fetch), iar
+// erorile NU se cache-uiesc (retry-ul reîncarcă). Persistă cât ține sesiunea de
+// browser; la altă restaurantId cheia diferă, deci fără scurgeri cross-tenant.
+type AnalyticsSnapshot = {
+  daily: Record<string, unknown>[]
+  products: Record<string, unknown>[]
+  waiters: Record<string, unknown>[]
+  hourly: Record<string, unknown>[]
+  staffNames: Record<string, { full_name: string | null; email: string }>
+}
+const ANALYTICS_TTL_MS = 60_000
+const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
+
 export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
@@ -210,6 +226,19 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
 
   const loadData = useCallback(async () => {
     if (!restaurantId || !hasAccess) return
+    // Servire din cache-ul de sesiune dacă e proaspăt (fără spinner, fără rețea).
+    const cacheKey = `${restaurantId}:${days}`
+    const cached = analyticsCache.get(cacheKey)
+    if (cached && Date.now() - cached.ts < ANALYTICS_TTL_MS) {
+      setDaily(cached.data.daily)
+      setProducts(cached.data.products)
+      setWaiters(cached.data.waiters)
+      setHourly(cached.data.hourly)
+      setStaffNames(cached.data.staffNames)
+      setError(null)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -235,6 +264,12 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           .select('user_id, user:profiles(full_name,email)')
           .eq('restaurant_id', restaurantId),
       ])
+      // supabase-js NU aruncă pe eroare — fără verificare explicită, un blip
+      // RLS/rețea colapsează tăcut totul la [] și pagina minte cu „Nicio comandă".
+      // Aruncăm prima eroare găsită ca să activeze QueryError + Reîncearcă.
+      for (const r of [d, p, w, h, m]) {
+        if (r.error) throw r.error
+      }
       setDaily(d.data || [])
       setProducts(p.data || [])
       setWaiters(w.data || [])
@@ -254,6 +289,17 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         if (u) names[row.user_id] = u
       }
       setStaffNames(names)
+      // Populăm cache-ul de sesiune DOAR pe succes (erorile nu se cache-uiesc).
+      analyticsCache.set(cacheKey, {
+        ts: Date.now(),
+        data: {
+          daily: d.data || [],
+          products: p.data || [],
+          waiters: w.data || [],
+          hourly: h.data || [],
+          staffNames: names,
+        },
+      })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Eroare la încărcarea statisticilor')
     }
@@ -275,7 +321,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <div
           style={{
@@ -313,7 +359,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               cursor: 'pointer',
             }}
           >
-            Upgrade la Pro
+            Treci la Fiscalizare
           </button>
         </div>
       </div>
@@ -326,6 +372,9 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const qrRate = totalOrders > 0 ? Math.round((qrOrders / totalOrders) * 100) : 0
   const cashRev = daily.reduce((s, d) => s + Number(d.cash_revenue || 0), 0)
   const cardRev = daily.reduce((s, d) => s + Number(d.card_revenue || 0), 0)
+  // voucher_revenue apare abia în mig 232 — tolerant la coloana absentă
+  // (frontend înaintea migrației): lipsă → 0 → felia nu se randează.
+  const voucherRev = daily.reduce((s, d) => s + Number(d.voucher_revenue || 0), 0)
 
   const chartData = daily.map((d) => ({
     zi: new Date(d.day as string).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }),
@@ -335,6 +384,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const payPie = [
     { name: 'Cash', value: cashRev, color: D.green },
     { name: 'Card', value: cardRev, color: '#7EB8F7' },
+    { name: 'Tichete de masă', value: voucherRev, color: D.goldL },
   ].filter((x) => x.value > 0)
   const srcPie = [
     { name: 'QR', value: qrOrders, color: D.gold },
@@ -352,7 +402,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <div
           style={{
@@ -378,7 +428,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
             marginBottom: 20,
           }}
         >
-          Analytics
+          Statistici
         </h2>
         <QueryError message={error} onRetry={loadData} />
       </div>
@@ -405,7 +455,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               letterSpacing: '-0.02em',
             }}
           >
-            Analytics
+            Statistici
           </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
         </div>
@@ -425,24 +475,10 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 color: days === d ? D.goldL : D.t2,
               }}
             >
-              {d}z
+              {d} zile
             </button>
           ))}
         </div>
-      </div>
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        <Stat label="Comenzi" value={totalOrders} />
-        <Stat label="Revenue" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
-        <Stat label="Ticket mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
-        <Stat label="Rata QR" value={`${qrRate}%`} />
       </div>
 
       {daily.length === 0 ? (
@@ -453,6 +489,20 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
         />
       ) : (
         <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))',
+              gap: 10,
+              marginBottom: 20,
+            }}
+          >
+            <Stat label="Comenzi" value={totalOrders} />
+            <Stat label="Venit" value={`${totalRevenue.toFixed(0)} lei`} color={D.gold} />
+            <Stat label="Bon mediu" value={avgTicket !== '—' ? `${avgTicket} lei` : '—'} />
+            <Stat label="Rata QR" value={`${qrRate}%`} />
+          </div>
+
           {/* Revenue chart */}
           <div
             style={{
@@ -463,7 +513,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               marginTop: 4,
             }}
           >
-            Revenue pe zi
+            Venit pe zi
           </div>
           <div
             style={{
@@ -486,7 +536,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <YAxis tick={{ fill: D_RAW.t3, fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip
                   contentStyle={tt}
-                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Revenue']}
+                  formatter={(v: unknown) => [`${Number(v ?? 0).toFixed(2)} lei`, 'Venit']}
                 />
                 <Line
                   type="monotone"
@@ -628,7 +678,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {hourly.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Ore de vârf
+                Ore de vârf{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>· ultimele 30 de zile</span>
               </div>
               <div
                 style={{
@@ -675,7 +726,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {products.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Top produse
+                Top produse <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
               </div>
               <div
                 style={{
@@ -689,7 +740,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
                 <DataTable
                   isMobile={isMobile}
                   gridCols="1fr 70px 70px 80px"
-                  headers={['Produs', 'Cant.', 'Comenzi', 'Revenue']}
+                  headers={['Produs', 'Cant.', 'Comenzi', 'Venit']}
                   rows={products.map((p) => ({
                     name: p.product_name as string,
                     cells: [
@@ -707,7 +758,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
           {waiters.length > 0 && (
             <>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: D.t1, marginBottom: 10 }}>
-                Performanță ospătar
+                Performanță ospătar{' '}
+                <span style={{ fontWeight: 400, color: D.t3 }}>· total istoric</span>
               </div>
               <div
                 style={{
@@ -720,8 +772,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
               >
                 <DataTable
                   isMobile={isMobile}
-                  gridCols="1fr 70px 70px 100px"
-                  headers={['Ospătar', 'Introd.', 'Servite', 'Revenue']}
+                  gridCols="1fr 80px 70px 100px"
+                  headers={['Ospătar', 'Introduse', 'Servite', 'Venit']}
                   rows={waiters.map((w) => {
                     const p = staffNames[w.user_id as string] ?? null
                     return {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import type { MenuTheme } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { MOTION, useReducedMotion } from '../../lib/motion'
@@ -51,7 +51,7 @@ const TAB_GAP = 7 // spațiu nume ↔ badge
 const TAB_PAD_X = 10 // padding orizontal real pe buton → lățime de tap ≥44px
 const FADE_WIDTH = 36 // lățimea gradientului de fade din dreapta
 
-export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: CategoryTabsProps) {
+function CategoryTabsInner({ items, activeId, onSelect, accent, PUB, theme }: CategoryTabsProps) {
   const t = menuType(theme.fonts)
   const reduced = useReducedMotion()
 
@@ -325,4 +325,8 @@ export function CategoryTabs({ items, activeId, onSelect, accent, PUB, theme }: 
   )
 }
 
+// OPT-2: memo pe COMPONENTĂ — părinții (QrMenuPage/PublicMenuPage) au deja
+// items/PUB/theme memoizate și handleri stabili; fără memo aici, fiecare
+// setState din pagină (căutare, add-to-cart) re-randa toate tab-urile.
+export const CategoryTabs = memo(CategoryTabsInner)
 export default CategoryTabs

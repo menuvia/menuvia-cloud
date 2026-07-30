@@ -59,12 +59,16 @@ insert into public.qr_tokens (restaurant_id, table_id, is_active) values
   ('d6666666-6666-6666-6666-666666666666','e6666666-6666-6666-6666-666666666666',true);
 
 -- ── PS1: growth nu poate încasa (gate fiscal) ────────────────────────────────
+-- Suma e PARȚIALĂ (40 din 100) intenționat: la plata integrală, tranziția
+-- →paid ar declanșa trg_orders_paid_fiscal_gate (mig 124) cu un mesaj care
+-- trece același filtru sqlerrm și ar masca dispariția gate-ului din
+-- add_partial_payment. Sub total, doar gate-ul RPC-ului poate respinge.
 do $$
 declare v_blocked boolean := false;
 begin
   perform set_config('request.jwt.claim.sub','11111111-1111-1111-1111-111111111111', true);
   begin
-    perform public.add_partial_payment('f1111111-1111-1111-1111-111111111111', 100, 'cash');
+    perform public.add_partial_payment('f1111111-1111-1111-1111-111111111111', 40, 'cash');
   exception when others then
     if sqlerrm ilike '%disponibil%' or sqlerrm ilike '%feature%' or sqlerrm ilike '%plan%' or sqlerrm ilike '%Plan 3%'
       then v_blocked := true; else raise exception 'PS1: eroare neașteptată: %', sqlerrm; end if;
@@ -72,6 +76,9 @@ begin
   if not v_blocked then raise exception 'PS1 FAIL: growth a putut încasa (gate fiscal absent)'; end if;
   if (select status from public.orders where id='f1111111-1111-1111-1111-111111111111') = 'paid' then
     raise exception 'PS1 FAIL: comanda growth a ajuns paid'; end if;
+  if (select count(*) from public.order_payments
+       where order_id='f1111111-1111-1111-1111-111111111111') <> 0 then
+    raise exception 'PS1 FAIL: order_payments are rânduri pe growth (bani fără Plan 3)'; end if;
   raise notice 'PS1 OK: growth blocat la încasare (regula de aur)';
 end $$;
 

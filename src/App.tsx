@@ -13,10 +13,16 @@ import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
 import { writePlanIntent } from './lib/planIntent'
+import { fnUrl } from './lib/fn'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
-// LandingPage rămâne eager: e pagina de intrare (LCP) — nu o lazy-load-ăm.
-import LandingPage from './pages/LandingPage'
+// OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
+// de fiecare scanare QR anonimă (calea /q/ + /m/ nu are nevoie de marketing).
+// Prefetch condiționat pe '/' păstrează LCP-ul pe pagina de intrare reală.
+const LandingPage = lazy(() => import('./pages/LandingPage'))
+if (typeof window !== 'undefined' && window.location.pathname === '/') {
+  void import('./pages/LandingPage')
+}
 
 // ── Lazy: heavy pages loaded on demand ───────────────────────
 // AuthPage/OnboardingPage sunt post-navigare (nu LCP pe nicio rută), dar,
@@ -41,10 +47,14 @@ const LegalPage = lazy(() => import('./pages/LegalPage'))
 const AfiliatPage = lazy(() => import('./pages/AfiliatPage'))
 const AfiliatIntroPage = lazy(() => import('./pages/AfiliatIntroPage'))
 const FounderPage = lazy(() => import('./pages/FounderPage'))
+const VerticalPage = lazy(() => import('./pages/VerticalPage'))
+const CaseDeMarcatPage = lazy(() => import('./pages/CaseDeMarcatPage'))
+const LandingPageEn = lazy(() => import('./pages/LandingPageEn'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
 type View =
   | 'landing'
+  | 'landing-en'
   | 'auth'
   | 'onboarding'
   | 'dashboard'
@@ -64,6 +74,10 @@ type View =
   | 'legal-dpa'
   | 'afiliat'
   | 'founder'
+  | 'vertical-hoteluri'
+  | 'vertical-terase'
+  | 'vertical-cafenele'
+  | 'case-de-marcat'
   | 'notfound'
 
 interface RouteState {
@@ -87,6 +101,10 @@ function parsePath(): RouteState {
   if (p === '/demo') return { view: 'demo' }
   if (p === '/recrutare' || p === '/pilot') return { view: 'recrutare' }
   if (p === '/comparatie' || p === '/de-ce-menuvia') return { view: 'comparatie' }
+  if (p === '/hoteluri') return { view: 'vertical-hoteluri' }
+  if (p === '/terase') return { view: 'vertical-terase' }
+  if (p === '/cafenele') return { view: 'vertical-cafenele' }
+  if (p === '/case-de-marcat' || p === '/compatibilitate') return { view: 'case-de-marcat' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/founder') return { view: 'founder' }
@@ -96,6 +114,7 @@ function parsePath(): RouteState {
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
   if (p === '/') return { view: 'landing' }
+  if (p === '/en') return { view: 'landing-en' }
   return { view: 'notfound' }
 }
 
@@ -108,6 +127,13 @@ async function getUserRoles(userId: string): Promise<MemberRole[]> {
 }
 
 function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
+  useEffect(() => {
+    const prevTitle = document.title
+    document.title = 'Pagina nu a fost găsită — Menuvia'
+    return () => {
+      document.title = prevTitle
+    }
+  }, [])
   return (
     <div
       style={{
@@ -122,10 +148,16 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
       }}
     >
       <div>
-        <div style={{ fontFamily: 'Fraunces,serif', fontSize: 72, color: D.s3, fontWeight: 700 }}>
+        {/* D.s3 e token de SUPRAFAȚĂ — ca text era practic invizibil pe D.bg. */}
+        <div
+          aria-hidden="true"
+          style={{ fontFamily: 'Fraunces,serif', fontSize: 72, color: D.gold, fontWeight: 700 }}
+        >
           404
         </div>
-        <div style={{ color: D.t2, fontSize: 16, marginBottom: 24 }}>Pagina nu a fost găsită.</div>
+        <h1 style={{ color: D.t2, fontSize: 16, fontWeight: 400, marginBottom: 24 }}>
+          Pagina nu a fost găsită.
+        </h1>
         <button
           onClick={() => navigate('/')}
           style={{
@@ -134,6 +166,7 @@ function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
             border: 'none',
             borderRadius: 10,
             padding: '12px 28px',
+            minHeight: 44,
             fontWeight: 600,
             fontSize: 14,
             cursor: 'pointer',
@@ -166,7 +199,7 @@ function AffiliateRoute({ navigate }: { navigate: (p: string) => void }) {
             } catch {
               /* private mode — fallback: userul ajunge la dashboard */
             }
-            navigate('/auth')
+            navigate('/auth?lang=ro')
           }}
         />
       </Suspense>
@@ -189,7 +222,7 @@ function ProtectedRoute({
 }) {
   const { user, loading: authLoading } = useAuth()
   // FIX: Folosim activeRole din RestaurantContext în loc de getUserRoles() (DB call extra)
-  const { activeRole, loading: ctxLoading } = useRestaurantCtx()
+  const { activeRole, loading: ctxLoading, error: ctxError } = useRestaurantCtx()
 
   useEffect(() => {
     if (authLoading || ctxLoading) return
@@ -216,10 +249,20 @@ function ProtectedRoute({
           padding: 24,
         }}
       >
-        <QueryError
-          message="Nu ai acces la această pagină. Contactează managerul restaurantului."
-          onRetry={() => navigate('/dashboard')}
-        />
+        {ctxError ? (
+          // Blip de rețea / eroare Supabase la încărcarea membership-urilor:
+          // rolul e null NU pentru că n-are drept, ci pentru că fetch-ul a picat.
+          // Arătăm „reîncearcă" (reload), nu mesajul alarmant de „fără acces".
+          <QueryError
+            message="Nu am putut încărca permisiunile. Verifică conexiunea și reîncearcă."
+            onRetry={() => window.location.reload()}
+          />
+        ) : (
+          <QueryError
+            message="Nu ai acces la această pagină. Contactează managerul restaurantului."
+            onRetry={() => navigate('/dashboard')}
+          />
+        )}
       </div>
     )
   return <>{children}</>
@@ -227,7 +270,7 @@ function ProtectedRoute({
 
 function AppRouter() {
   const { user, loading, signOut } = useAuth()
-  const { restaurants, loading: rLoading, refetch } = useRestaurants()
+  const { restaurants, loading: rLoading, refetch, update } = useRestaurants()
   const [state, setState] = useState<RouteState>(parsePath)
 
   // FE-001 FIX: separate navigate (push) from replace (no history entry).
@@ -254,45 +297,62 @@ function AppRouter() {
   useEffect(() => {
     if (loading || !user || state.view !== 'auth') return
     if (autoRedirectedRef.current) return // FE-001: don't re-redirect
-    autoRedirectedRef.current = true
-    // Intenția de afiliere are prioritate (concurează cu onSuccess din
-    // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
-    let afiliatIntent: string | null = null
-    try {
-      afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
-    } catch {
-      /* ignore */
-    }
-    if (afiliatIntent === '1') {
+    let cancelled = false
+    void (async () => {
+      // MFA (mig 235, review E5): după parolă, un cont cu factor TOTP verificat
+      // are sesiune doar aal1 — AuthPage tocmai afișează pasul de cod, iar un
+      // redirect aici l-ar demonta. Nu redirectăm; onSuccess navighează DUPĂ
+      // verify. Conturile fără MFA au nextLevel=currentLevel → redirect normal.
       try {
-        sessionStorage.removeItem('menuvia.afiliat_intent')
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') return
+      } catch {
+        /* verificarea a eșuat — continuăm cu redirectul standard */
+      }
+      if (cancelled || autoRedirectedRef.current) return
+      autoRedirectedRef.current = true
+      // Intenția de afiliere are prioritate (concurează cu onSuccess din
+      // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
+      let afiliatIntent: string | null = null
+      try {
+        afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
       } catch {
         /* ignore */
       }
-      replace('/afiliat')
-      return
-    }
-    getUserRoles(user.id)
-      .then((roles) => {
-        if (roles.length === 0) {
+      if (afiliatIntent === '1') {
+        try {
+          sessionStorage.removeItem('menuvia.afiliat_intent')
+        } catch {
+          /* ignore */
+        }
+        replace('/afiliat')
+        return
+      }
+      getUserRoles(user.id)
+        .then((roles) => {
+          if (roles.length === 0) {
+            replace('/dashboard')
+            return
+          }
+          const isOnlyKitchen = roles.every((r) => r === 'kitchen')
+          const isOnlyWaiter = roles.every((r) => r === 'waiter')
+          if (isOnlyKitchen) {
+            replace('/kitchen')
+            return
+          }
+          if (isOnlyWaiter) {
+            replace('/waiter')
+            return
+          }
           replace('/dashboard')
-          return
-        }
-        const isOnlyKitchen = roles.every((r) => r === 'kitchen')
-        const isOnlyWaiter = roles.every((r) => r === 'waiter')
-        if (isOnlyKitchen) {
-          replace('/kitchen')
-          return
-        }
-        if (isOnlyWaiter) {
-          replace('/waiter')
-          return
-        }
-        replace('/dashboard')
-      })
-      .catch(() => {
-        replace('/dashboard')
-      })
+        })
+        .catch(() => {
+          replace('/dashboard')
+        })
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [user, loading, state.view])
 
   // Reset auto-redirect flag when user signs out
@@ -314,9 +374,24 @@ function AppRouter() {
         'reset-password',
         'demo',
         'comparatie',
+        'vertical-hoteluri',
+        'vertical-terase',
+        'vertical-cafenele',
+        'case-de-marcat',
         'notfound',
         'landing',
+        'landing-en',
         'afiliat',
+        // OPT-R2: rute care NU folosesc `restaurants` — ramurile lor de render
+        // sunt toate înaintea gate-ului de onboarding (643). Legal/Recrutare
+        // sunt statice; FounderPage folosește doar RPC-uri proprii, nu
+        // useRestaurants. Fără excludere, primul paint aștepta rLoading degeaba.
+        'recrutare',
+        'legal-terms',
+        'legal-privacy',
+        'legal-cookies',
+        'legal-dpa',
+        'founder',
       ].includes(state.view))
   )
     return <PageSpinner />
@@ -349,7 +424,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
       </Suspense>
     )
   if (state.view === 'recrutare')
@@ -362,6 +437,28 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <ComparatiePage navigate={navigate} />
+      </Suspense>
+    )
+  if (
+    state.view === 'vertical-hoteluri' ||
+    state.view === 'vertical-terase' ||
+    state.view === 'vertical-cafenele'
+  ) {
+    // 'vertical-hoteluri' → 'hoteluri' (cheia de config din VerticalPage)
+    const vertical = state.view.replace('vertical-', '') as
+      | 'hoteluri'
+      | 'terase'
+      | 'cafenele'
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <VerticalPage vertical={vertical} navigate={navigate} />
+      </Suspense>
+    )
+  }
+  if (state.view === 'case-de-marcat')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <CaseDeMarcatPage navigate={navigate} />
       </Suspense>
     )
   if (state.view === 'legal-terms')
@@ -393,7 +490,7 @@ function AppRouter() {
       <Suspense fallback={<PageSpinner />}>
         <PricingPage
           onBack={() => navigate('/')}
-          onLogin={() => navigate('/auth')}
+          onLogin={() => navigate('/auth?lang=ro')}
           onCheckout={async (plan) => {
             if (!user) {
               // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
@@ -404,7 +501,7 @@ function AppRouter() {
               } catch {
                 /* ignore */
               }
-              navigate('/auth?plan=' + encodeURIComponent(plan))
+              navigate('/auth?plan=' + encodeURIComponent(plan) + '&lang=ro')
               return
             }
             try {
@@ -415,7 +512,7 @@ function AppRouter() {
               // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
               const referralCode = getStoredReferral()
               const visitorId = getVisitorId()
-              const res = await fetch('/.netlify/functions/stripe-checkout', {
+              const res = await fetch(fnUrl('stripe-checkout'), {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -467,19 +564,48 @@ function AppRouter() {
   // ── Landing (unauthenticated) ──────────────────────────────
   if (state.view === 'landing' && !user)
     return (
-      <LandingPage
-        onStartPlan={(p) => {
-          writePlanIntent(p)
-          navigate('/auth?plan=' + p)
-        }}
-        onLogin={() => navigate('/auth')}
-        onPricing={() => navigate('/pricing')}
-        onDemo={() => navigate('/demo')}
-      />
+      <Suspense fallback={<PageSpinner />}>
+        <LandingPage
+          onStartPlan={(p) => {
+            writePlanIntent(p)
+            // ?lang=ro explicit: anulează un menuvia_ui_lang='en' rămas dintr-o
+            // vizită pe /en — funnel-ul RO nu trebuie să devină tăcut englezesc.
+            navigate('/auth?plan=' + p + '&lang=ro')
+          }}
+          onLogin={() => navigate('/auth?lang=ro')}
+          onPricing={() => navigate('/pricing')}
+          onDemo={() => navigate('/demo')}
+        />
+      </Suspense>
+    )
+
+  // ── Landing EN (unauthenticated, diaspora) ──────────────────
+  if (state.view === 'landing-en' && !user)
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <LandingPageEn
+          onStartPlan={(p) => {
+            writePlanIntent(p)
+            navigate('/auth?plan=' + p + '&lang=en')
+          }}
+          onLogin={() => navigate('/auth?lang=en')}
+          onPricing={() => navigate('/pricing')}
+          onDemo={() => navigate('/demo')}
+        />
+      </Suspense>
     )
 
   // ── Auth ───────────────────────────────────────────────────
   if (state.view === 'auth' || !user) {
+    // MFA (review E5): pe un view protejat fără sesiune normalizăm întâi
+    // URL-ul la /auth — altfel, imediat după parolă, flip-ul lui `user` ar
+    // randa view-ul protejat și ar DEMONTA AuthPage înainte de pasul TOTP
+    // (contul cu MFA ar sări peste cod). Post-login, efectul de auto-redirect
+    // duce oricum userul la destinația corectă pe roluri.
+    if (state.view !== 'auth') {
+      replace('/auth')
+      return <PageSpinner />
+    }
     return (
       <Suspense fallback={<PageSpinner />}>
       <AuthPage
@@ -523,8 +649,14 @@ function AppRouter() {
   }
 
   // ── Authenticated: landing redirects to dashboard ──────────
+  // replace(), nu navigate() (FE-001): push ar lăsa /-ul sau /en în istoric și
+  // Back ar re-declanșa redirectul — utilizatorul n-ar mai putea ieși din site.
   if (state.view === 'landing') {
-    navigate('/dashboard')
+    replace('/dashboard')
+    return <PageSpinner />
+  }
+  if (state.view === 'landing-en') {
+    replace('/dashboard')
     return <PageSpinner />
   }
 
@@ -551,6 +683,9 @@ function AppRouter() {
   return (
     <Suspense fallback={<PageSpinner />}>
       <DashboardPage
+        restaurants={restaurants}
+        restaurantsLoading={rLoading}
+        updateRestaurant={update}
         onViewMenu={(slug) => navigate(`/m/${slug}`)}
         onViewWaiter={() => navigate('/waiter')}
         onViewKitchen={() => navigate('/kitchen')}

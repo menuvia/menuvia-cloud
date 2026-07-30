@@ -35,6 +35,10 @@ Client scanează QR (masă) → QrMenuPage → start_table_session (token)
   → create_order RPC (validări: sesiune, plan, stoc, limite)
   → KDS (KitchenPage): new → confirmed → preparing → ready
   → WaiterPage: served → [Plan 2] closed | [Plan 3] paid (PayModal, split, tips)
+  → [Plan 3 + modul online_payments] clientul plătește DIN TELEFON: PayTableSheet
+    → fn table-payment (suma DOAR server-side, begin_table_payment)
+    → Stripe pe contul CONECTAT al localului → webhook Connect → settle_table_payment
+    → orders paid (card_online) → același trigger fiscal → bonul iese pe casă
 Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în DB).
 ```
 
@@ -49,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (201) — grupate pe „de ce", nu pe număr
+## Migrațiile (204) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -74,7 +78,16 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Founder self-heal + feedback | 195–196 | trigger `trg_seed_platform_admin` (platform admins auto pe emailuri fondatoare) + `submit_order_feedback` |
 | **Meniu multilingv** | **197** | `products/categories.translations` (jsonb) + `restaurants.menu_languages`; grant column-level pe coloana nouă (restaurants e column-gated); traducerile manuale + fallback la original |
 | Perf meniu public | 198 | index compozit `categories(restaurant_id, display_order)` — cea mai fierbinte cale QR/public |
+| **Plata online la masă** | **202–204** + `tests/sql/table_payment_assertions.sql` | enum `card_online` (→ cod FiscalNet 7), `table_payments`, RPC-uri service_role-only (begin/attach/settle — suma DOAR server-side, settle idempotent), `set_restaurant_stripe_account`; design în `docs/ONLINE_PAYMENT.md` |
 | **Rezervare cu hartă („ca la cinema")** | **199–201** | `get_public_floor_plan` + `get_tables_availability` (gate modul mig 200) + `create_reservation_public` 10-arg cu `p_table_id` race-safe (199) și wrap-around program peste miezul nopții (201). Lanț 151→199→201, fără twin. |
+| Val optimizare + dunning | 205–223 | meniu QR 1-RTT (212), proiecție publică fără secrete (217/219), dunning complet (216/220), Oblio ambiguu terminal (218), slug TOCTOU (221), tips (222/223) |
+| **Afiliere cu cerere + aprobare** | **224** | `register_affiliate(text,text,text)` → status `pending` + telefon obligatoriu; fondatorul decide prin `admin_review_affiliate`; gate-urile pe `status='active'` fac pending/rejected inerți |
+| Branding server-gate | 225 | `hide_branding` normalizat server-side pe feature `remove_branding` (tier 2+) |
+| **Loyalty v1** | **226** + `tests/sql/loyalty_assertions.sql` | programe/wallets/events (earn la intrarea în `paid`/`closed`, UN singur earn per comandă); telefon doar hash md5 normalizat RO; RPC-uri anon attach + redeem is_member |
+| **Tichete bucătărie** | **227** + `tests/sql/kitchen_ticket_assertions.sql` | coadă NEfiscală `kitchen_tickets` (growth+), enqueue DEFERRED la COMMIT cu catch-all, bridge dual-gate (030→133→227 + mig 149 lărgit), print ESC/POS TCP 9100 / file-drop în `bridge/lib/kitchenPrinter.js` |
+| **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron 1 min) |
+| **Tichete de masă** | **230–231** + `tests/sql/meal_voucher_assertions.sql` | `payment_method += 'meal_voucher'` (enum în fișier separat, ca 202); add_partial_payment lanț 017→111→231 (staff înregistrează tichete, card_online rămâne interzis, gate-urile Plan 3 + rol neatinse); fiscalnet_payment_code lanț →231 (cod P 4 — de reconfirmat cu EconMedia, ca 7). Completează tripleta: bon + tichet bucătărie + tichet masă |
+| **Split pe itemi** | **229** + TP13–TP20 în `tests/sql/table_payment_assertions.sql` | `table_payment_items` (claims cu snapshot, fără FK pe order_items), `begin_split_payment`/`get_table_bill` service_role-only, settle lanț 203→207→211→229 (ramura `kind='split'` → order_payments `card_online`, paid la acoperirea totalului → UN bon fiscal) |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 
@@ -112,7 +125,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
-1. **Frontend-ul de PROD e în urmă (actualizat 2026-07-04)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie + 197–201 pe 4 iulie prin MCP `execute_sql`, cu markeri verificați: `products.translations`, `create_reservation_public` 10-arg + wrap-around, gate modul pe RPC-urile de hartă), dar frontend-ul de prod e ÎNCĂ din 30 iunie: build-urile de producție Netlify NU se declanșează la push pe main. **Nimic din valurile UX/corectitudine/multilingv/rezervări-cu-hartă din 4 iulie (#154–#166) nu e vizibil live până la deploy.** Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
+1. **Frontend-ul de PROD e în urmă (actualizat 2026-07-04)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie + 197–201 pe 4 iulie + 202–204 (plata online) pe 6 iulie prin MCP, cu markeri verificați: `products.translations`, `create_reservation_public` 10-arg + wrap-around, gate modul pe RPC-urile de hartă), dar frontend-ul de prod e ÎNCĂ din 30 iunie: build-urile de producție Netlify NU se declanșează la push pe main. **Nimic din valurile UX/corectitudine/multilingv/rezervări-cu-hartă din 4 iulie (#154–#166) nu e vizibil live până la deploy.** Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
 2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
 3. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
 4. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
@@ -120,5 +133,6 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 ## Cum rulezi / verifici
 
 - Dev: `npm run dev` · Teste: `npm run test` · E2E local: `npm run test:e2e`
+- SQL fără CI: `bash scripts/verify-migrations-local.sh` (replay complet + asserțiile din sql-verify.yml pe Postgres 16 efemer) · Load test: Actions → „k6 Load Test" → Run workflow.
 - Migrații noi: fișier nou în `supabase/migrations/` (NU edita migrații aplicate) → CI le aplică pe Postgres efemer → apoi manual în Supabase SQL Editor, în ordine.
 - Orice feature cu bani: întreabă întâi „e tier 3?" — dacă da, gate în RPC, nu doar în UI.

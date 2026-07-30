@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../hooks/useIsMobile'
+import Icon from './ui/Icon'
 // Tipurile + constantele canvas trăiesc acum în lib/floorPlan.ts (partajate cu
 // vizualizatorul public FloorPlanViewer). Re-exportăm FloorLayout ca importurile
 // existente (`import type { FloorLayout } from '../components/FloorPlanEditor'`)
@@ -166,7 +167,15 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
   const [wallT, setWallT] = useState<WallType>('wall')
   const [decoT, setDecoT] = useState<DecoType>('plant')
   const [seats, setSeats] = useState(4)
-  const [tblNum, setTblNum] = useState(1)
+  // Contorul de etichete pornește din layout-ul EXISTENT (max numeric + 1) —
+  // constanta 1 producea etichete duplicate la redeschidere (strica auto-link-ul
+  // POS pe nume și statusul Live).
+  const [tblNum, setTblNum] = useState(() => {
+    const nums = (initialLayout?.floors ?? []).flatMap((f) =>
+      f.tables.map((t) => parseInt(t.label, 10)).filter((n) => Number.isFinite(n)),
+    )
+    return nums.length > 0 ? Math.max(...nums) + 1 : 1
+  })
   const [sel, setSel] = useState<{ type: string; id: string } | null>(null)
   const [drag, setDrag] = useState<string | null>(null)
   const [wallDraw, setWallDraw] = useState<{
@@ -288,6 +297,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     for (let i = floor.tables.length - 1; i >= 0; i--) {
       const t = floor.tables[i]
       if (p.x >= t.x && p.x <= t.x + t.w && p.y >= t.y && p.y <= t.y + t.h) {
+        // Snapshot ÎNAINTE de mutare — altfel pushHist din onUp captura starea
+        // DE DUPĂ deplasare, iar undo devenea no-op (nu revenea la poziția veche).
+        pushHist()
         setSel({ type: 'table', id: t.id })
         setDrag(t.id)
         off.current = { x: p.x - t.x, y: p.y - t.y }
@@ -296,6 +308,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     }
     for (const d of floor.decos) {
       if (p.x >= d.x && p.x <= d.x + d.size && p.y >= d.y && p.y <= d.y + d.size) {
+        pushHist()
         setSel({ type: 'deco', id: d.id })
         setDrag(d.id)
         off.current = { x: p.x - d.x, y: p.y - d.y }
@@ -310,15 +323,33 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
     if (drag) {
       const nx = snap(p.x - off.current.x)
       const ny = snap(p.y - off.current.y)
+      // Clamp la canvas: fără el, elementul putea fi tras complet în afara
+      // zonei vizibile (overflow hidden) și devenea irecuperabil fără undo.
       if (sel?.type === 'table') {
         upd((f) => ({
           ...f,
-          tables: f.tables.map((t) => (t.id === drag ? { ...t, x: nx, y: ny } : t)),
+          tables: f.tables.map((t) =>
+            t.id === drag
+              ? {
+                  ...t,
+                  x: Math.min(Math.max(nx, 0), CANVAS_W - t.w),
+                  y: Math.min(Math.max(ny, 0), CANVAS_H - t.h),
+                }
+              : t,
+          ),
         }))
       } else if (sel?.type === 'deco') {
         upd((f) => ({
           ...f,
-          decos: f.decos.map((d) => (d.id === drag ? { ...d, x: nx, y: ny } : d)),
+          decos: f.decos.map((d) =>
+            d.id === drag
+              ? {
+                  ...d,
+                  x: Math.min(Math.max(nx, 0), CANVAS_W - d.size),
+                  y: Math.min(Math.max(ny, 0), CANVAS_H - d.size),
+                }
+              : d,
+          ),
         }))
       }
     }
@@ -328,7 +359,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
   const onUp = () => {
     if (drag) {
-      pushHist()
+      // pushHist se face acum la ÎNCEPUTUL drag-ului (onDown), înainte de mutare.
       setDrag(null)
     }
     if (wallDraw) {
@@ -397,6 +428,18 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // Scurtăturile NU se aplică în câmpuri editabile: fără guard, Backspace în
+      // „Etichetă masă"/„Nume zonă" ștergea chiar elementul editat, iar „r" îl rotea.
+      const el = e.target as HTMLElement | null
+      if (
+        el &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.tagName === 'SELECT' ||
+          el.isContentEditable)
+      ) {
+        return
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') delSel()
       if (e.key === 'r' && sel) rotateSel()
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
@@ -583,7 +626,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               whiteSpace: 'nowrap',
             }}
           >
-            Arhitectură Restaurant
+            Harta sălii
           </h2>
           <p style={{ color: D.t3, fontSize: '0.72rem', marginTop: 2 }}>
             {totalTables} mese · {totalSeats} locuri
@@ -622,7 +665,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
             title="Anulează (Ctrl+Z)"
             {...focusRing}
           >
-            <span aria-hidden="true">↩</span>
+            <Icon name="history" size={16} />
           </button>
           <button
             onClick={handleSave}
@@ -702,6 +745,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               <button
                 style={navBtn(tool === 'select', isMobile)}
                 onClick={() => setTool('select')}
+                aria-pressed={tool === 'select'}
                 {...focusRing}
               >
                 ↖ Selectează
@@ -720,6 +764,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     setTool('addTable')
                     setShape(k)
                   }}
+                  aria-pressed={tool === 'addTable' && shape === k}
                   {...focusRing}
                 >
                   <span style={{ fontSize: 13, width: 16, textAlign: 'center' }}>{v.icon}</span>
@@ -763,6 +808,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                       setTool('addWall')
                       setWallT(k)
                     }}
+                    aria-pressed={tool === 'addWall' && wallT === k}
                     {...focusRing}
                   >
                     <span
@@ -781,6 +827,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               <button
                 style={navBtn(tool === 'addZone', isMobile)}
                 onClick={() => setTool('addZone')}
+                aria-pressed={tool === 'addZone'}
                 {...focusRing}
               >
                 ▢ Zonă
@@ -798,6 +845,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                       setTool('addDeco')
                       setDecoT(k)
                     }}
+                    aria-pressed={tool === 'addDeco' && decoT === k}
                     {...focusRing}
                   >
                     <span style={{ fontSize: 13 }}>{v.emoji}</span> {v.label}
@@ -813,6 +861,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   key={f.id}
                   style={navBtn(fi === i, isMobile)}
                   onClick={() => setFi(i)}
+                  aria-pressed={fi === i}
                   {...focusRing}
                 >
                   {f.name}
@@ -856,7 +905,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 onChange={() => setShowGrid(!showGrid)}
                 style={{ accentColor: D.gold, width: 18, height: 18 }}
               />
-              Grid
+              Grilă
             </label>
           </div>
           {isMobile && (
@@ -949,7 +998,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               >
                 <span
                   style={{
-                    fontSize: '0.6rem',
+                    // ≥0.7rem: sub ~11px numele zonei devenea ilizibil pe mobil.
+                    fontSize: '0.7rem',
                     fontWeight: 600,
                     color: D.goldL,
                     textTransform: 'uppercase',
@@ -1142,7 +1192,8 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   </span>
                   <span
                     style={{
-                      fontSize: '0.6rem',
+                      // ≥0.68rem: informația de locuri trebuie să rămână lizibilă scalat.
+                      fontSize: '0.68rem',
                       color: D.t3,
                       fontWeight: 400,
                       transform: `rotate(-${t.rotation || 0}deg)`,
@@ -1154,8 +1205,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     <span
                       style={{
                         position: 'absolute',
-                        bottom: -8,
-                        fontSize: '0.55rem',
+                        bottom: -9,
+                        // ≥0.68rem: badge-ul de status era sub pragul de lizibilitate (~8.8px).
+                        fontSize: '0.68rem',
                         fontWeight: 700,
                         color: '#fff',
                         background: st.bg,
@@ -1188,9 +1240,14 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   pointerEvents: 'none',
                 }}
               >
-                <span style={{ fontSize: 40, opacity: 0.2 }}>🏗️</span>
+                {/* Icon vectorial în loc de emoji (randare consistentă între OS-uri). */}
+                <span style={{ display: 'flex', opacity: 0.3 }} aria-hidden="true">
+                  <Icon name="table" size={44} />
+                </span>
                 <span style={{ fontSize: '0.875rem', fontWeight: 500 }}>
-                  Selectează un instrument și click pe canvas
+                  {isMobile
+                    ? 'Selectează un instrument și atinge planul'
+                    : 'Selectează un instrument și dă click pe plan'}
                 </span>
                 <span style={{ fontSize: '0.78rem', opacity: 0.5 }}>
                   Pereți · Mese · Zone · Decoruri
@@ -1235,7 +1292,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 Masă #{selTable.label}
               </div>
               <div style={{ marginBottom: 10 }}>
-                <div style={propLabel}>Label</div>
+                <div style={propLabel}>Etichetă</div>
                 <input
                   style={inp}
                   aria-label="Etichetă masă"
@@ -1253,7 +1310,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   max={20}
                   aria-label="Număr de locuri"
                   value={selTable.seats}
-                  onChange={(e) => updTbl('seats', +e.target.value)}
+                  onChange={(e) => {
+                    // Câmp golit în timpul tastării: +'' = NaN → „NaN loc."; păstrăm valoarea.
+                    const n = parseInt(e.target.value, 10)
+                    updTbl('seats', Number.isFinite(n) ? Math.max(1, n) : selTable.seats)
+                  }}
                   {...focusRing}
                 />
               </div>
@@ -1286,8 +1347,12 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     type="number"
                     aria-label="Lățime masă (px)"
                     value={selTable.w}
-                    onChange={(e) => updTbl('w', +e.target.value)}
-                    placeholder="W"
+                    onChange={(e) => {
+                      // w=0 (câmp golit) făcea masa invizibilă pe canvas.
+                      const n = parseInt(e.target.value, 10)
+                      updTbl('w', Number.isFinite(n) ? Math.max(20, n) : selTable.w)
+                    }}
+                    placeholder="L"
                     {...focusRing}
                   />
                   <input
@@ -1295,8 +1360,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                     type="number"
                     aria-label="Înălțime masă (px)"
                     value={selTable.h}
-                    onChange={(e) => updTbl('h', +e.target.value)}
-                    placeholder="H"
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10)
+                      updTbl('h', Number.isFinite(n) ? Math.max(20, n) : selTable.h)
+                    }}
+                    placeholder="Î"
                     {...focusRing}
                   />
                 </div>
@@ -1308,9 +1376,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   min={0}
                   max={359}
                   step={15}
+                  aria-label="Rotație masă"
                   value={selTable.rotation || 0}
                   onChange={(e) => updTbl('rotation', +e.target.value)}
                   style={{ width: '100%', accentColor: D.gold }}
+                  {...focusRing}
                 />
               </div>
               {/* Legătură cu masa reală (POS) — folosită pentru status Live
@@ -1357,7 +1427,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}`, flex: 1 })}
                   {...focusRing}
                 >
-                  ↻ Rotește
+                  <Icon name="refresh" size={14} /> Rotește
                 </button>
                 <button
                   onClick={delSel}
@@ -1370,7 +1440,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   })}
                   {...focusRing}
                 >
-                  ✕ Șterge
+                  <Icon name="trash" size={14} /> Șterge
                 </button>
               </div>
             </>
@@ -1397,8 +1467,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                   ...btn({ background: D.redA, color: D.red, border: 'none' }),
                   marginTop: 10,
                 }}
+                {...focusRing}
               >
-                ✕ Șterge
+                <Icon name="trash" size={14} /> Șterge
               </button>
             </>
           )}
@@ -1418,8 +1489,9 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
               <button
                 onClick={delSel}
                 style={btn({ background: D.redA, color: D.red, border: 'none', marginTop: 6 })}
+                {...focusRing}
               >
-                ✕ Șterge
+                <Icon name="trash" size={14} /> Șterge
               </button>
             </>
           )}
@@ -1452,7 +1524,7 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
                 style={btn({ background: D.redA, color: D.red, border: 'none', marginTop: 6 })}
                 {...focusRing}
               >
-                ✕ Șterge
+                <Icon name="trash" size={14} /> Șterge
               </button>
             </>
           )}

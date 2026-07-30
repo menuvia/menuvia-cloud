@@ -14,7 +14,12 @@
 //   identifyUser(userId, { email, plan })
 //   resetAnalytics() // la logout
 // ─────────────────────────────────────────────────────────────────
-import posthog from 'posthog-js'
+// OPT-2: posthog-js (~50-70KB gz) NU mai intră în entry chunk — se încarcă
+// dinamic abia la init cu consent, exact ca @sentry/react în main.tsx.
+// Import doar de TIP (zero cod la runtime); referința de modul stă în `ph`.
+import type { PostHog } from 'posthog-js'
+
+let ph: PostHog | null = null
 
 // Eventuri standardizate pe care le emite app-ul.
 // Avantaj: TypeScript te ghidează la auto-complete în loc să introduci string-uri.
@@ -41,6 +46,7 @@ export type AppEvent =
   | 'account_deletion_requested'
 
 let isInitialized = false
+let initInFlight = false
 
 // ─────────────────────────────────────────────────────────────────
 // Helper — citește consent din localStorage (setat de CookieBanner)
@@ -77,12 +83,26 @@ export function initAnalytics(): void {
     return
   }
 
-  doInit(key, host)
+  void doInit(key, host)
 }
 
-function doInit(key: string, host: string) {
-  if (isInitialized) return
+async function doInit(key: string, host: string): Promise<void> {
+  if (isInitialized || initInFlight) return
+  initInFlight = true
+
+  let posthog: PostHog
+  try {
+    // Chunk separat, descărcat DOAR cu consent — nu pe calea critică a meniului.
+    posthog = (await import('posthog-js')).default
+  } catch (err) {
+    console.warn('[analytics] posthog-js load failed:', err)
+    initInFlight = false
+    return
+  }
+
+  ph = posthog
   isInitialized = true
+  initInFlight = false
 
   posthog.init(key, {
     api_host: host,
@@ -97,12 +117,12 @@ function doInit(key: string, host: string) {
     respect_dnt: true, // respectă Do Not Track header
 
     // Loader async pentru a nu bloca app-ul
-    loaded: (ph) => {
+    loaded: (client) => {
       if (import.meta.env.DEV) {
-        ph.debug()
+        client.debug()
       }
       // Emite imediat un event pentru a confirma loading
-      ph.capture('app_loaded')
+      client.capture('app_loaded')
     },
   })
 }
@@ -118,11 +138,11 @@ function handleConsentUpdate(event: Event) {
     const key = import.meta.env.VITE_POSTHOG_KEY as string
     const host =
       (import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? 'https://eu.i.posthog.com'
-    if (key) doInit(key, host)
-  } else if (!detail?.performance && isInitialized) {
+    if (key) void doInit(key, host)
+  } else if (!detail?.performance && isInitialized && ph) {
     // Utilizatorul a revocat — oprim tracking-ul și ștergem identity
-    posthog.opt_out_capturing()
-    posthog.reset()
+    ph.opt_out_capturing()
+    ph.reset()
     isInitialized = false
   }
 }
@@ -131,9 +151,9 @@ function handleConsentUpdate(event: Event) {
 // track — emite un event (no-op silent dacă tracking-ul nu e activ)
 // ─────────────────────────────────────────────────────────────────
 export function track(event: AppEvent, properties?: Record<string, unknown>): void {
-  if (!isInitialized) return
+  if (!isInitialized || !ph) return
   try {
-    posthog.capture(event, properties)
+    ph.capture(event, properties)
   } catch (err) {
     // Niciodată nu lăsa analytics să facă să pice app-ul
     console.warn('[analytics] track failed:', err)
@@ -154,9 +174,9 @@ export function identifyUser(
     [key: string]: unknown
   },
 ): void {
-  if (!isInitialized) return
+  if (!isInitialized || !ph) return
   try {
-    posthog.identify(userId, properties)
+    ph.identify(userId, properties)
   } catch (err) {
     console.warn('[analytics] identify failed:', err)
   }
@@ -166,9 +186,9 @@ export function identifyUser(
 // resetAnalytics — apelează la logout pentru a separa session-urile
 // ─────────────────────────────────────────────────────────────────
 export function resetAnalytics(): void {
-  if (!isInitialized) return
+  if (!isInitialized || !ph) return
   try {
-    posthog.reset()
+    ph.reset()
   } catch (err) {
     console.warn('[analytics] reset failed:', err)
   }
@@ -178,9 +198,9 @@ export function resetAnalytics(): void {
 // Helper pentru tracking de page views manuale (route changes în SPA)
 // ─────────────────────────────────────────────────────────────────
 export function trackPageView(path: string): void {
-  if (!isInitialized) return
+  if (!isInitialized || !ph) return
   try {
-    posthog.capture('$pageview', { $current_url: window.location.origin + path })
+    ph.capture('$pageview', { $current_url: window.location.origin + path })
   } catch {
     /* silent */
   }
@@ -192,9 +212,9 @@ export function trackPageView(path: string): void {
 //   if (isFeatureEnabled('new-dashboard-layout')) { ... }
 // ─────────────────────────────────────────────────────────────────
 export function isFeatureEnabled(flag: string): boolean {
-  if (!isInitialized) return false
+  if (!isInitialized || !ph) return false
   try {
-    return !!posthog.isFeatureEnabled(flag)
+    return !!ph.isFeatureEnabled(flag)
   } catch {
     return false
   }

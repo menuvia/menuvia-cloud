@@ -1,0 +1,250 @@
+// ─────────────────────────────────────────────────────────────
+// payments.ts — plata online la masă (Etapa 1, docs/ONLINE_PAYMENT.md)
+// ─────────────────────────────────────────────────────────────
+// Client-side pentru fluxul QR „Plătește masa": funcția Netlify
+// /table-payment creează PaymentIntent-ul pe contul CONECTAT al
+// restaurantului (suma se calculează EXCLUSIV server-side), iar aici doar
+// confirmăm cu Stripe Payment Element.
+//
+// Stripe.js se încarcă din js.stripe.com/v3 prin script tag dinamic —
+// pachetul npm @stripe/stripe-js e doar un loader pentru ACELAȘI script,
+// deci evităm o dependență nouă (npm e blocat în sandbox; regula PCI a
+// Stripe oricum cere scriptul servit de ei, nu bundle-uit).
+import { supabase } from './supabase'
+import { fnUrl } from './fn'
+
+// ── Tipuri minimale pentru Stripe.js (fără `any`) ─────────────
+export interface StripePaymentElement {
+  mount(domElement: HTMLElement): void
+  unmount(): void
+}
+
+export interface StripeElements {
+  create(type: 'payment'): StripePaymentElement
+}
+
+export interface StripeConfirmResult {
+  error?: { message?: string; type?: string }
+  paymentIntent?: { id: string; status: string }
+}
+
+export interface StripeClient {
+  elements(options: {
+    clientSecret: string
+    appearance?: { theme?: 'stripe' | 'night' | 'flat'; variables?: Record<string, string> }
+  }): StripeElements
+  confirmPayment(options: {
+    elements: StripeElements
+    confirmParams?: { return_url?: string }
+    redirect?: 'if_required'
+  }): Promise<StripeConfirmResult>
+}
+
+export type StripeConstructor = (
+  publishableKey: string,
+  options?: { stripeAccount?: string },
+) => StripeClient
+
+declare global {
+  interface Window {
+    Stripe?: StripeConstructor
+  }
+}
+
+let stripeJsPromise: Promise<StripeConstructor> | null = null
+
+/** Încarcă js.stripe.com/v3 o singură dată; eșecul resetează cache-ul (retry posibil). */
+export function loadStripeJs(): Promise<StripeConstructor> {
+  if (window.Stripe) return Promise.resolve(window.Stripe)
+  if (stripeJsPromise) return stripeJsPromise
+  stripeJsPromise = new Promise<StripeConstructor>((resolve, reject) => {
+    const script = document.createElement('script')
+    script.src = 'https://js.stripe.com/v3/'
+    script.async = true
+    script.onload = () => {
+      if (window.Stripe) resolve(window.Stripe)
+      else reject(new Error('Stripe.js s-a încărcat dar window.Stripe lipsește'))
+    }
+    script.onerror = () => {
+      stripeJsPromise = null
+      reject(new Error('Nu s-a putut încărca Stripe.js — verifică conexiunea.'))
+    }
+    document.head.appendChild(script)
+  })
+  return stripeJsPromise
+}
+
+// ── API-ul funcției Netlify ───────────────────────────────────
+export interface TablePaymentIntent {
+  payment_id: string
+  client_secret: string
+  publishable_key: string
+  stripe_account_id: string
+  amount: number
+  currency: string
+}
+
+// ── Split pe itemi (mig 229) ──────────────────────────────────
+export interface SplitClaimInput {
+  order_item_id: string
+  quantity: number
+}
+
+export interface TableBillItem {
+  id: string
+  name: string
+  quantity: number
+  item_total: number
+  claimed_qty: number
+  remaining_qty: number
+}
+
+export interface TableBillOrder {
+  id: string
+  short_id: string
+  total: number
+  subtotal: number
+  discount_amount: number
+  /** true = are plăți parțiale de staff (cash) — se încheie la ospătar. */
+  locked: boolean
+  items: TableBillItem[]
+}
+
+export interface TableBill {
+  currency: string
+  orders: TableBillOrder[]
+}
+
+/**
+ * Nota mesei pentru împărțirea pe itemi: comenzile deschise ale sesiunii cu
+ * cantitățile deja revendicate de alte plăți. Aruncă Error REAL cu `.hint`.
+ */
+export async function fetchTableBill(token: string, sessionId: string): Promise<TableBill> {
+  const res = await fetch(fnUrl('table-payment'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'bill', token, session_id: sessionId }),
+  })
+  const body = (await res.json().catch(() => ({}))) as Partial<TableBill> & {
+    error?: string
+    hint?: string
+  }
+  if (!res.ok) {
+    const err = new Error(body.error || 'Nota nu a putut fi încărcată.') as Error & {
+      hint?: string
+    }
+    err.hint = body.hint ?? undefined
+    throw err
+  }
+  return { currency: body.currency || 'RON', orders: body.orders ?? [] }
+}
+
+/**
+ * Cere serverului să inițieze plata mesei. Aruncă Error REAL (nu răspuns
+ * brut) — hint-urile de business (module_disabled / not_connected /
+ * nothing_to_pay...) ajung în `hint` ca UI-ul să poată explica curat.
+ * Cu `claims` → split pe itemi (begin_split_payment, mig 229): clientul
+ * plătește DOAR produsele selectate; suma finală o calculează serverul.
+ */
+export async function createTablePayment(
+  token: string,
+  sessionId: string,
+  claims?: readonly SplitClaimInput[],
+): Promise<TablePaymentIntent> {
+  const res = await fetch(fnUrl('table-payment'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token,
+      session_id: sessionId,
+      ...(claims && claims.length > 0 ? { items: claims } : {}),
+    }),
+  })
+  const body = (await res.json().catch(() => ({}))) as Partial<TablePaymentIntent> & {
+    error?: string
+    hint?: string
+  }
+  if (!res.ok) {
+    const err = new Error(body.error || 'Plata nu a putut fi inițiată.') as Error & {
+      hint?: string
+    }
+    err.hint = body.hint ?? undefined
+    throw err
+  }
+  if (!body.client_secret || !body.publishable_key || !body.stripe_account_id) {
+    throw new Error('Răspuns incomplet de la server.')
+  }
+  return body as TablePaymentIntent
+}
+
+/**
+ * Opt-out-ul clientului („plătesc la ospătar"): anulează intent-ul Stripe ca
+ * să nu rămână confirmabil. Întoarce statusul final; 'succeeded' înseamnă că
+ * plata apucase să treacă — UI-ul arată starea de plătit, nu de anulat.
+ */
+export async function cancelTablePayment(
+  paymentId: string,
+  token: string,
+  sessionId: string,
+): Promise<'canceled' | 'succeeded'> {
+  const res = await fetch(fnUrl('table-payment'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'cancel', payment_id: paymentId, token, session_id: sessionId }),
+  })
+  const body = (await res.json().catch(() => ({}))) as { status?: string; error?: string }
+  if (body.status === 'succeeded') return 'succeeded'
+  if (res.ok) return 'canceled'
+  throw new Error(body.error || 'Anularea nu a reușit.')
+}
+
+// ── Reconciliere plăți online (admin, mig 211) ────────────────
+export interface SettleNoteRow {
+  id: string
+  amount: number
+  currency: string
+  settle_note: string
+  created_at: string
+  /** Embed table_sessions → tables; null dacă RLS-ul pe sesiune nu trece. */
+  session?: { table?: { name: string } | null } | null
+}
+
+/**
+ * Plățile online la masă încheiate cu OBSERVAȚII de reconciliere (mig 211,
+ * `settle_note`): comenzi plătite/anulate între begin și confirmare sau
+ * totaluri editate de staff în timpul plății — situații care pot cere refund
+ * parțial. Citire directă prin politica `table_payments_admin_read` (mig 203,
+ * admin only — waiter/kitchen primesc pur și simplu zero rânduri prin RLS).
+ * Aruncă pe eroare (fără catch mut) — apelantul afișează bannerul.
+ */
+export async function listSettleNotes(
+  restaurantId: string,
+  days: number = 30,
+): Promise<SettleNoteRow[]> {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString()
+  const { data, error } = await supabase
+    .from('table_payments')
+    .select('id, amount, currency, settle_note, created_at, session:table_sessions(table:tables(name))')
+    .eq('restaurant_id', restaurantId)
+    .eq('status', 'succeeded')
+    .not('settle_note', 'is', null)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(50)
+  if (error) throw error
+  return (data ?? []) as unknown as SettleNoteRow[]
+}
+
+/**
+ * Modulul de plăți online e activ pentru restaurant? (anon-callable, mig 086)
+ * Folosit DOAR pentru afișarea condiționată a butonului — gate-urile reale
+ * (plan + modul + cont) stau server-side în begin_table_payment.
+ */
+export async function fetchOnlinePaymentEnabled(restaurantId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_module_enabled', {
+    p_restaurant_id: restaurantId,
+    p_module_key: 'online_payments',
+  })
+  if (error) return false
+  return data === true
+}

@@ -21,8 +21,17 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
     links: [
       { label: 'Funcții', href: '/#functii' },
       { label: 'De ce Menuvia', href: '/comparatie' },
+      { label: 'Case de marcat compatibile', href: '/case-de-marcat' },
       { label: 'Prețuri', href: '/pricing' },
       { label: 'Demo live', href: '/demo' },
+    ],
+  },
+  {
+    title: 'Soluții',
+    links: [
+      { label: 'Pentru hoteluri & pensiuni', href: '/hoteluri' },
+      { label: 'Pentru terase', href: '/terase' },
+      { label: 'Pentru cafenele', href: '/cafenele' },
     ],
   },
   {

@@ -280,3 +280,47 @@ deci două bridge-uri nu ridică același bon.
 - [ ] **Casă reală** — după ce EconMedia confirmă pricing + activăm un trial la un local.
 - [ ] **Împachetare** — `pkg` + installer Windows cu auto-start (post-pilot).
 
+
+## 9. Tichete de bucătărie (mig 227) — canal NEfiscal prin același bridge
+
+Din iulie 2026 bridge-ul deservește DOUĂ cozi complet separate:
+
+| | Bonuri fiscale (`pending_receipts`) | Tichete bucătărie (`kitchen_tickets`) |
+|---|---|---|
+| Natura | document fiscal (bani) | hârtie informativă pentru bucătar |
+| Plan | Plan 3 (`fiscal_receipt`, pro/enterprise) | Plan 2+ (`kitchen_tickets`, growth+) |
+| Declanșator | comanda intră în `paid` | comanda e CREATĂ (INSERT, trigger DEFERRED la COMMIT) |
+| Ținta | FiscalNet (API BonLocal / file-drop) | imprimantă termică ESC/POS (TCP 9100) sau folder de spool |
+| Retry | PERICULOS (bon dublu) — ambiguu = terminal | INOFENSIV (hârtie dublă) — retry liber |
+| Eșec | blochează încasarea, alertă | `raise warning`, comanda NU e afectată |
+
+Componente:
+
+- **DB (mig 227)**: `kitchen_tickets` (RLS: membri read-only; mutații DOAR prin RPC-uri),
+  `build_kitchen_ticket_payload` (text gata de tipărit: MASA/PICKUP/OSPĂTAR, produse cu
+  opțiuni+extras+note, oră Europe/Bucharest), `enqueue_kitchen_ticket` (CONSTRAINT TRIGGER
+  DEFERRABLE INITIALLY DEFERRED pe `orders`, catch-all — nu avortează comanda),
+  `bridge_get_pending_tickets`/`bridge_claim_ticket`/`bridge_confirm_ticket` (auth pe
+  `device_secret` + `prints_kitchen_receipts=true`), `kitchen_ticket_retry`/`_cancel`
+  (is_admin), `kitchen_ticket_reprint` (is_member), `kitchen_tickets_mark_stale`
+  (service_role; `sent`>10min → `BRIDGE_TIMEOUT`; purge terminale >30 zile — chemat orar
+  din `automation-cron.js`).
+- **Gate device dual**: `bridge_register` (lanț 030→133→227) și
+  `enforce_bridge_device_fiscal_gate` (mig 149, lărgit în 227) acceptă acum
+  `fiscal_receipt` **SAU** `kitchen_tickets` — un local growth poate înregistra un device
+  DOAR pentru bucătărie. Orice recreare a lor păstrează dual-gate-ul.
+- **Bridge**: `bridge/lib/kitchenPrinter.js` — `printTicket()` nu aruncă niciodată;
+  mod `tcp` = ESC/POS RAW pe 9100 (init + text transliterat RO→ASCII + feed + cut;
+  9100 e fire-and-forget, „success" = socket scris complet, fără ACK de la imprimantă)
+  sau mod `file` = scriere atomică `.tmp→rename` `<ticket_id>.txt` (CRLF). Config în
+  secțiunea `kitchen` din `config.json` (env: `KITCHEN_*`); `processKitchenOnce` rulează
+  în aceeași buclă de poll ca fiscalul; doctor-ul (`--check`) are pasul 4 pentru
+  imprimantă. Teste: `bridge/test/kitchenPrinter.test.js` (node:test, zero deps).
+- **Dashboard**: tab-ul „Casă & tichete" e vizibil de la tier 2; pe tier 2 secțiunile
+  fiscale (stats, coada de bonuri, mapare TVA) sunt ascunse și înlocuite cu un upsell
+  compact; per device există toggle „Tichete bucătărie" (`prints_kitchen_receipts`).
+
+Întrebare deschisă (EconMedia, informațional — designul NU depinde de răspuns): dacă
+FiscalNet/BonLocal poate tipări și note NEfiscale pe casa fiscală, am putea oferi
+tichetele și fără imprimantă termică separată; până atunci canalul termic dedicat
+rămâne implementarea de referință.

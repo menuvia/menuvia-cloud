@@ -30,7 +30,8 @@ export interface Restaurant {
   primary_color: string
   logo_url: string | null
   cover_url?: string | null
-  currency?: string
+  // Moneda meniului (mig 007; activată în 205, expusă pe QR în 206).
+  currency?: string | null
   language?: string
   ordering_enabled?: boolean
   socials?: Socials | null
@@ -57,6 +58,9 @@ export interface Restaurant {
       social?: boolean
     } | null
     flipbook_pages?: string[] | null
+    // Ascunde badge-ul „Creat cu Menuvia" (E1) — citit de QrMenuPage prin
+    // resolveHideBranding; scrierea e gate-uită în UI pe Plan 2+ (remove_branding).
+    hide_branding?: boolean | null
   } | null
   pickup_settings?: {
     enabled: boolean
@@ -222,7 +226,13 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
   // Folosim acum RPC SECURITY DEFINER care expune doar câmpurile publice.
   const { data, error } = await supabase.rpc('resolve_qr_token', { p_token: rawToken })
   if (error || data == null) return null
+  return mapResolvedQrPayload(data)
+}
 
+// Maparea payload-ului jsonb al resolve_qr_token → ResolvedQrToken. Partajată
+// cu resolveQrMenu (mig 245, RPC-ul compus) — o singură sursă de adevăr.
+function mapResolvedQrPayload(data: unknown): ResolvedQrToken | null {
+  if (data == null || typeof data !== 'object') return null
   const payload = data as {
     token: QrToken
     table: Table
@@ -252,12 +262,50 @@ export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken 
       checkout_suggestion_settings:
         restaurant.checkout_suggestion_settings as Restaurant['checkout_suggestion_settings'],
       theme_settings: restaurant.theme_settings as Restaurant['theme_settings'],
-      // Limbile de meniu — RPC-ul le expune doar dacă proiecția lui le include
-      // (fast-follow); până atunci parseMenuLanguages întoarce [] (switcher ascuns).
+      // Limbile de meniu — expuse de RPC din mig 206; parseMenuLanguages rămâne
+      // fail-safe ([] pe un RPC vechi nedeployat).
       menu_languages: parseMenuLanguages(restaurant.menu_languages),
+      // mig 206 o expune; pe un RPC vechi rămâne undefined → fmtPrice cade pe RON.
+      currency: (restaurant.currency as string | null | undefined) ?? null,
     },
     orderingAllowed: payload.orderingAllowed,
   }
+}
+
+// ── RPC compus (mig 245): scanarea QR pe UN SINGUR RTT ─────────────────
+export interface ResolvedQrMenu {
+  resolved: ResolvedQrToken
+  menu: Category[] | null
+}
+
+let composedQrWarned = false
+
+/**
+ * resolve_qr_menu = resolve_qr_token + get_menu_for_restaurant compuse
+ * server-side (mig 245). Fallback AUTOMAT pe fluxul în doi pași dacă RPC-ul
+ * lipsește (frontend înaintea migrației) sau întoarce o formă neașteptată —
+ * fallback-ul NU se șterge (aceeași disciplină ca fetchMenuForRestaurant).
+ */
+export async function resolveQrMenu(rawToken: string): Promise<ResolvedQrMenu | null> {
+  const { data, error } = await supabase.rpc('resolve_qr_menu', { p_token: rawToken })
+  if (!error && data != null && typeof data === 'object') {
+    const payload = data as { resolved?: unknown; menu?: unknown }
+    const resolved = mapResolvedQrPayload(payload.resolved)
+    if (resolved) {
+      return {
+        resolved,
+        menu: Array.isArray(payload.menu) ? (payload.menu as Category[]) : null,
+      }
+    }
+  }
+  if (error && !composedQrWarned) {
+    composedQrWarned = true
+    console.warn('[qr] resolve_qr_menu indisponibil, folosesc fluxul în doi pași:', error.message)
+  }
+  const resolved = await resolveQrToken(rawToken)
+  if (!resolved) return null
+  const menu = await fetchMenuForRestaurant(resolved.restaurant.id)
+  return { resolved, menu }
 }
 
 /** Fetch restaurant by slug using SECURITY DEFINER RPC (no full-scan) */
@@ -275,6 +323,46 @@ export async function fetchRestaurantBySlug(slug: string): Promise<Record<string
   // Normalizăm menu_languages la string[] (RPC-ul îl expune doar dacă proiecția
   // lui îl include — fast-follow; până atunci rămâne []).
   return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
+}
+
+// ── RPC compus (mig 245): /m/:slug pe UN SINGUR RTT ────────────────────
+export interface MenuBySlug {
+  restaurant: Record<string, unknown>
+  menu: Category[] | null
+}
+
+let composedSlugWarned = false
+
+/**
+ * get_menu_by_slug = get_restaurant_by_slug + get_menu_for_restaurant compuse
+ * server-side (mig 245). `null` fără eroare = slug inexistent (404-ul
+ * existent). Pe eroare (ex. RPC nedeployat) cade pe fluxul în doi pași —
+ * fallback-ul NU se șterge.
+ */
+export async function fetchMenuBySlug(slug: string): Promise<MenuBySlug | null> {
+  const { data, error } = await supabase.rpc('get_menu_by_slug', { p_slug: slug })
+  if (!error) {
+    if (data == null) return null // slug inexistent (contractul RPC)
+    if (typeof data === 'object') {
+      const payload = data as { restaurant?: Record<string, unknown> | null; menu?: unknown }
+      if (payload.restaurant && typeof payload.restaurant === 'object') {
+        return {
+          restaurant: {
+            ...payload.restaurant,
+            menu_languages: parseMenuLanguages(payload.restaurant.menu_languages),
+          },
+          menu: Array.isArray(payload.menu) ? (payload.menu as Category[]) : null,
+        }
+      }
+    }
+  }
+  if (error && !composedSlugWarned) {
+    composedSlugWarned = true
+    console.warn('[qr] get_menu_by_slug indisponibil, folosesc fluxul în doi pași:', error.message)
+  }
+  const r = await fetchRestaurantBySlug(slug)
+  if (!r) return null
+  return { restaurant: r, menu: null } // meniul îl aduce apelantul separat
 }
 
 // ── Harta sălii publică + disponibilitate mese (rezervare cu alegere pe hartă) ──
@@ -419,7 +507,27 @@ interface RawModifierOptionRow {
   display_order: number
 }
 
+let menuRpcWarned = false
+
 export async function fetchMenuForRestaurant(restaurantId: string): Promise<Category[]> {
+  // Fast path: tot arborele într-un singur RTT (mig 212). Pe 4G de restaurant
+  // asta taie 2 round-trip-uri dependente (~200-400ms) la FIECARE scanare.
+  // Fallback pe implementarea pe straturi dacă RPC-ul lipsește (frontend
+  // deployat înaintea migrației) sau întoarce o formă neașteptată.
+  const { data, error } = await supabase.rpc('get_menu_for_restaurant', {
+    p_restaurant_id: restaurantId,
+  })
+  if (!error && Array.isArray(data)) {
+    return data as Category[]
+  }
+  if (error && !menuRpcWarned) {
+    menuRpcWarned = true
+    console.warn('[qr] get_menu_for_restaurant indisponibil, folosesc fallback-ul pe straturi:', error.message)
+  }
+  return fetchMenuLayered(restaurantId)
+}
+
+async function fetchMenuLayered(restaurantId: string): Promise<Category[]> {
   // ── Layer 1: categories + products în PARALEL ──────────────────
   // Ambele depind DOAR de restaurantId (nu una de alta). Serial degeaba →
   // pe 4G de restaurant, un round-trip Supabase e ~100-300ms. Rezultatul e

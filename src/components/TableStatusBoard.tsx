@@ -9,7 +9,7 @@
 // realtime) + apelurile de ospătar. Fără migrație.
 // =============================================================
 
-import { useState, type ReactNode, type CSSProperties } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode, type CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
@@ -70,7 +70,7 @@ interface ComputedTable {
 }
 
 // Un card de masă — folosit de grilă ȘI de detaliul de sub hartă.
-function BoardTableCard({
+const BoardTableCard = memo(function BoardTableCard({
   c,
   now,
   isOpen,
@@ -210,7 +210,7 @@ function BoardTableCard({
       )}
     </div>
   )
-}
+})
 
 export default function TableStatusBoard({
   tables,
@@ -223,8 +223,18 @@ export default function TableStatusBoard({
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [mapMode, setMapMode] = useState<'grid' | 'map'>('grid')
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const now = Date.now()
+  // OPT-9: `now` e stare cu tick de 30s — înainte era Date.now() la fiecare
+  // render, ceea ce invalida orice memoizare a derivărilor de mai jos.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(t)
+  }, [])
 
+  // OPT-9: TOATE derivările (grupări, stări, sortare, countere) se
+  // recalculează doar când se schimbă datele — nu la fiecare render
+  // (expand/collapse, selecție pe hartă, tick de timp).
+  const derived = useMemo(() => {
   // Grupăm comenzile deschise pe table_id (null = „Fără masă").
   const ordersByTable = new Map<string, Order[]>()
   for (const o of orders) {
@@ -314,7 +324,24 @@ export default function TableStatusBoard({
     (c) => c.state === 'bill' || c.state === 'calling' || c.state === 'ready',
   ).length
 
-  if (tables.length === 0 && noneOrders.length === 0) {
+  return { computed, noneOrdersCount: noneOrders.length, occupiedCount, freeCount, attentionCount }
+  }, [tables, orders, waiterCalls])
+  const { computed, noneOrdersCount, occupiedCount, freeCount, attentionCount } = derived
+
+  // ATENȚIE: toate hook-urile ÎNAINTE de orice early-return (Rules of Hooks).
+  // `toggle` era declarat DUPĂ early-return-ul de „nicio masă" → la tranziția
+  // gol→populat React vedea mai multe hook-uri decât la randarea precedentă
+  // („Rendered more hooks than during the previous render") și panoul crăpa.
+  const toggle = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  if (tables.length === 0 && noneOrdersCount === 0) {
     return (
       <EmptyState
         icon="table"
@@ -322,15 +349,6 @@ export default function TableStatusBoard({
         description={'Adaugă mese în „Mese & QR” ca să vezi stadiul lor aici.'}
       />
     )
-  }
-
-  function toggle(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
   }
 
   // ── Pregătire pentru modul Hartă ──

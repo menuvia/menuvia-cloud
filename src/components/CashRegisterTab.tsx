@@ -11,7 +11,7 @@
 //
 // Permisiune: admin/manager only (RPC-urile blochează waiter).
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useId, useRef } from 'react'
 import { D } from '../lib/constants'
 import {
   getCurrentShift,
@@ -26,6 +26,8 @@ import {
   type ShiftSummary,
   type CashMovementType,
 } from '../lib/cashShifts'
+import { listSettleNotes, type SettleNoteRow } from '../lib/payments'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
@@ -104,6 +106,7 @@ function relTime(iso: string): string {
 export default function CashRegisterTab({ restaurantId }: Props) {
   const [current, setCurrent] = useState<CurrentShift | null>(null)
   const [recent, setRecent] = useState<RecentShift[]>([])
+  const [settleNotes, setSettleNotes] = useState<SettleNoteRow[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
@@ -112,20 +115,29 @@ export default function CashRegisterTab({ restaurantId }: Props) {
   const [showMovement, setShowMovement] = useState(false)
   const [historySummaryId, setHistorySummaryId] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului răspunsul unui load vechi nu
+  // trebuie să suprascrie tura/istoricul de casă ale restaurantului curent.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
-      const [cur, hist] = await Promise.all([
+      const [cur, hist, notes] = await Promise.all([
         getCurrentShift(restaurantId),
         listRecentShifts(restaurantId, 30),
+        // Note de reconciliere pe plățile online (mig 211) — RLS admin-only;
+        // pe planuri fără plăți online lista e pur și simplu goală.
+        listSettleNotes(restaurantId, 30),
       ])
+      if (seq !== loadSeqRef.current) return
       setCurrent(cur)
       setRecent(hist)
+      setSettleNotes(notes)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 
@@ -133,12 +145,24 @@ export default function CashRegisterTab({ restaurantId }: Props) {
     void load()
   }, [load])
 
-  // Auto-refresh la 20s pentru live cash_collected updates
+  // Auto-refresh la 20s pentru live cash_collected updates.
+  // OPT-R2: sar tick-ul cât tab-ul e ascuns (zero trafic în fundal) și fac un
+  // load() complet la revenirea în vizibilitate — istoricul de ture (închise
+  // de pe alt dispozitiv) și notele de reconciliere (mig 211, server-side) NU
+  // sunt statice, deci trebuie resincronizate când userul revine.
   useEffect(() => {
     const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
       void load()
     }, 20_000)
-    return () => clearInterval(t)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [load])
 
   if (loading && current == null && recent.length === 0) {
@@ -203,6 +227,69 @@ export default function CashRegisterTab({ restaurantId }: Props) {
           onClose={() => setShowClose(true)}
           onRefresh={() => void load()}
         />
+      )}
+
+      {/* Reconciliere plăți online (mig 211 settle_note) — vizibil DOAR când
+          există observații: comenzi sărite/modificate în timpul unei plăți
+          online la masă, care pot cere refund parțial. Banii au fost încasați
+          corect — cardul e o listă de verificat manual, nu o eroare. */}
+      {settleNotes.length > 0 && (
+        <div style={{ ...card, borderColor: D.amber, background: D.s1 }}>
+          <h2 style={{ ...h2, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="alert" size={18} color={D.amber} />
+            Reconciliere plăți online
+          </h2>
+          <div style={{ fontSize: '0.82rem', color: D.t2, margin: '-6px 0 14px' }}>
+            Plăți online la masă încheiate cu observații (comenzi plătite sau modificate în
+            timpul plății). Suma a fost încasată — verifică dacă e nevoie de refund parțial
+            din Stripe. Ultimele 30 de zile.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {settleNotes.map((n) => (
+              <div
+                key={n.id}
+                style={{
+                  background: D.amberA,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'baseline',
+                    gap: '4px 12px',
+                    marginBottom: 6,
+                  }}
+                >
+                  <span style={{ fontWeight: 600, color: D.t1, fontSize: '0.92rem' }}>
+                    {n.session?.table?.name ?? 'Masă necunoscută'}
+                  </span>
+                  <span style={{ fontWeight: 600, color: D.amber, fontSize: '0.92rem' }}>
+                    {ron(n.amount)}
+                    {n.currency !== 'RON' ? ` (${n.currency})` : ''}
+                  </span>
+                  <span style={{ fontSize: '0.78rem', color: D.t2 }}>
+                    {new Date(n.created_at).toLocaleDateString('ro-RO', {
+                      day: 'numeric',
+                      month: 'short',
+                    })}
+                    {' · '}
+                    {new Date(n.created_at).toLocaleTimeString('ro-RO', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: D.t1, lineHeight: 1.5 }}>
+                  {n.settle_note}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* History */}
@@ -295,7 +382,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
                       textTransform: 'uppercase',
                     }}
                   >
-                    Δ
+                    Dif.
                   </th>
                   <th></th>
                 </tr>
@@ -497,7 +584,11 @@ function CurrentShiftCard({
           >
             ● TURĂ ACTIVĂ
           </div>
-          <h2 style={{ ...h2, margin: 0 }}>Deschisă acum {relTime(shift.opened_at)}</h2>
+          <h2 style={{ ...h2, margin: 0 }}>
+            {relTime(shift.opened_at) === 'acum'
+              ? 'Deschisă chiar acum'
+              : `Deschisă acum ${relTime(shift.opened_at)}`}
+          </h2>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
             {new Date(shift.opened_at).toLocaleString('ro-RO')}
           </div>
@@ -1149,7 +1240,17 @@ function SummaryDetailModal({ shiftId, onClose }: { shiftId: string; onClose: ()
               Object.entries(data.payments_by_method).map(([m, v]) => (
                 <Row
                   key={m}
-                  label={m === 'cash' ? '💵 Cash:' : m === 'card_pos' ? '💳 Card:' : '📋 Alte:'}
+                  label={
+                    m === 'cash'
+                      ? '💵 Cash:'
+                      : m === 'card_pos'
+                        ? '💳 Card:'
+                        : m === 'meal_voucher'
+                          ? '🎫 Tichete de masă:'
+                          : m === 'card_online'
+                            ? '📱 Card online:'
+                            : '📋 Alte:'
+                  }
                   value={ron(v as number)}
                 />
               ))
@@ -1258,6 +1359,26 @@ function Modal({
   children: React.ReactNode
   wide?: boolean
 }) {
+  useBodyScrollLock(true)
+  const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
+
+  useEffect(() => {
+    // Mută focusul în modal la deschidere, doar dacă niciun câmp din interior
+    // nu l-a preluat deja (ex: input-urile cu autoFocus).
+    if (document.activeElement === document.body) {
+      dialogRef.current?.focus()
+    }
+  }, [])
+
   return (
     <div
       onClick={onClose}
@@ -1273,6 +1394,11 @@ function Modal({
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: D.s1,
@@ -1294,6 +1420,7 @@ function Modal({
           }}
         >
           <h2
+            id={titleId}
             style={{
               fontSize: '1rem',
               fontWeight: 600,

@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, lazy, Suspense } from 'react'
 import {
-  resolveQrToken,
+  resolveQrMenu,
   fetchMenuForRestaurant,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
@@ -14,56 +14,70 @@ import {
   hasMandatoryModifierGroups,
   type HappyHourRule,
 } from '../lib/qr'
-import { createOrder, lineTotal } from '../lib/orders'
-import { T } from '../lib/constants'
+import {
+  createOrder,
+  lineTotal,
+  getQrIdempotencyKey,
+  rotateQrIdempotencyKey,
+} from '../lib/orders'
+import { fetchOnlinePaymentEnabled } from '../lib/payments'
+import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
+import { T } from '../lib/publicMenuStrings'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import { callWaiter } from '../lib/orders'
+import {
+  fetchLoyaltyState,
+  attachOrderToLoyalty,
+  getStoredLoyaltyPhone,
+  storeLoyaltyPhone,
+  type LoyaltyState,
+} from '../lib/loyalty'
 
-import ProductSheet from '../components/ProductSheet'
 import {
   resolveTheme,
+  resolveHideBranding,
   resolveMenuLayout,
   resolveFlipbookPages,
   readableTextOn,
 } from '../lib/themes'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
+import { MenuBrandBadge } from '../components/menu/MenuBrandBadge'
 import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import ProductPhotoCard from '../components/menu/ProductPhotoCard'
-import FlipbookViewer from '../components/menu/FlipbookViewer'
 import MenuHeader from '../components/menu/MenuHeader'
 import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/MenuStates'
 
+// Lazy: ies din bundle-ul inițial al meniului QR (calea fierbinte = time-to-menu
+// pe telefoane slabe). ProductSheet (~1000 linii) se cere doar la tap pe produs;
+// FlipbookViewer doar pe layout-ul rar „flipbook". Precedent: PublicMenuPage.
+const ProductSheet = lazy(() => import('../components/ProductSheet'))
+const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
 const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
+const PayTableSheet = lazy(() => import('../components/PayTableSheet'))
+const SplitBillSheet = lazy(() => import('../components/SplitBillSheet'))
 
-function getIdempotencyKey(token: string): string {
-  const storageKey = 'menuvia_idem:' + token
-  let key = sessionStorage.getItem(storageKey)
-  if (!key) {
-    key = crypto.randomUUID()
-    sessionStorage.setItem(storageKey, key)
-  }
-  return key
-}
-// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
-// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
-// getIdempotencyKey). Dacă am scrie doar în state React, un refresh de pagină
-// exact în timpul unei comenzi noi ar regenera cheia din citirea inițială
-// (care ar recrea una veche/inexistentă), riscând submit duplicat.
-function rotateIdempotencyKey(token: string): string {
-  const key = crypto.randomUUID()
-  sessionStorage.setItem('menuvia_idem:' + token, key)
-  return key
-}
+// Cheile de idempotență (sessionStorage per token) trăiesc în lib/orders —
+// getQrIdempotencyKey / rotateQrIdempotencyKey — ca să fie unit-testate.
 
 interface Props {
   token: string
+}
+
+// Scroll-lock pentru popup-ul de pairing: hook-urile nu pot fi apelate
+// condiționat direct în QrMenuPage, deci montăm acest copil DOAR cât timp
+// popup-ul e deschis — aceeași disciplină ca ProductSheet/QrCartSheet
+// (altfel un swipe pe backdrop derulează meniul din spate).
+function PairingPopupScrollLock(): null {
+  useBodyScrollLock(true)
+  return null
 }
 
 // ── QrMenuPage ────────────────────────────────────────────────
@@ -100,25 +114,40 @@ export default function QrMenuPage({ token }: Props) {
 
   // Stable idempotency key — survives retries of the SAME order; rotated on reset.
   // Prevents duplicate orders when network flakes between request and response.
-  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => getIdempotencyKey(token))
+  const [idempotencyKey, setIdempotencyKey] = useState<string>(() => getQrIdempotencyKey(token))
 
   // Gate B: session_id deschisă la scanare QR (open_table_session RPC).
   // Opțional — null dacă restaurantul nu e pe Gate B sau RPC eșuează (graceful).
   const [sessionId, setSessionId] = useState<string | null>(null)
+
+  // Plata online la masă (Etapa 1): doar AFIȘAREA e condiționată de modul —
+  // gate-urile reale (plan + modul + cont Stripe) stau server-side în
+  // begin_table_payment. Eroare la citire → butonul rămâne „cere nota".
+  const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
+  const [showPaySheet, setShowPaySheet] = useState(false)
+  const [tablePaid, setTablePaid] = useState(false)
+  const [showSplitSheet, setShowSplitSheet] = useState(false)
+  // Comenzile deja plătite online (client-side, aproximare a settle-ului):
+  // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
+  // după plată re-activează butonul (serverul recalculează oricum exact).
+  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(new Set<string>())
 
   function loadQr() {
     setResolving(true)
     setInvalid(false)
     setNetworkError(false)
     let cancelled = false
-    resolveQrToken(token)
-      .then((result) => {
+    // OPT-4 (mig 245): resolve + meniu într-UN singur RTT — RPC-ul compus
+    // resolve_qr_menu; fallback-ul în doi pași e în resolveQrMenu (qr.ts).
+    resolveQrMenu(token)
+      .then((combined) => {
         if (cancelled) return
-        if (result == null) {
+        if (combined == null) {
           setInvalid(true)
           setResolving(false)
           return
         }
+        const result = combined.resolved
         setCtx(result)
         // Gate B: deschide sesiunea la scanare (non-blocking, graceful fallback).
         // Dacă RPC-ul lipsește sau eșuează → session_id rămâne null, create_order
@@ -131,13 +160,25 @@ export default function QrMenuPage({ token }: Props) {
             // Loghează — submit-ul mai are un retry înainte de createOrder.
             console.warn('[QrMenuPage] openTableSession failed:', err)
           })
+        // Plăți online — non-blocking; doar pentru eticheta butonului de plată.
+        void fetchOnlinePaymentEnabled(result.restaurant.id)
+          .then((enabled) => {
+            if (!cancelled) setOnlinePayEnabled(enabled)
+          })
+          .catch(() => {})
         // Happy Hour activ — non-blocking; meniul se afișează chiar dacă pică.
         void fetchActiveHappyHour(result.restaurant.id)
           .then((rules) => {
             if (!cancelled) setHappyHour(rules)
           })
           .catch(() => {})
-        return fetchMenuForRestaurant(result.restaurant.id).then((cats) => {
+        // Meniul e deja în răspunsul compus; doar pe forma neașteptată
+        // (menu null de la un RPC vechi) cădem pe fetch-ul separat.
+        const menuPromise =
+          combined.menu != null
+            ? Promise.resolve(combined.menu)
+            : fetchMenuForRestaurant(result.restaurant.id)
+        return menuPromise.then((cats) => {
           if (cancelled) return
           setCategories(cats)
           setActiveCatId(cats[0]?.id ?? null)
@@ -186,8 +227,12 @@ export default function QrMenuPage({ token }: Props) {
   }
 
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
+  // Numărul REAL de produse din coș (sumă pe cantități, ca `cartCount` din
+  // PublicMenuPage) — un singur rând cu qty 3 trebuie să arate „3 produse",
+  // altfel badge-ul contrazice totalul (lineTotal înmulțește cu quantity).
+  const cartItemCount = cart.reduce((s, i) => s + i.quantity, 0)
 
-  async function handleSubmit(): Promise<void> {
+  async function handleSubmit(notesValue: string): Promise<void> {
     if (ctx == null) return
     setSubmitting(true)
     setSubmitError(null)
@@ -210,7 +255,7 @@ export default function QrMenuPage({ token }: Props) {
           source: 'qr',
           table_id: ctx.table.id,
           qr_token_id: ctx.token.id,
-          notes: notes.length > 0 ? notes : null,
+          notes: notesValue.length > 0 ? notesValue : null,
           cart,
           idempotency_key: idempotencyKey,
           session_id: activeSessionId,
@@ -220,8 +265,16 @@ export default function QrMenuPage({ token }: Props) {
         // supraviețuiește iar un coș NOU cu aceeași cheie ar fi deduplicat
         // tăcut de server → confirmare veche, comandă pierdută. Retry-urile
         // acestei comenzi au folosit deja cheia veche în interiorul buclei.
-        setIdempotencyKey(rotateIdempotencyKey(token))
+        setIdempotencyKey(rotateQrIdempotencyKey(token))
         setConfirmation(result)
+        // Loyalty (mig 226): legăm comanda de cardul de puncte — best-effort,
+        // eșecul nu are voie să atingă confirmarea. Punctele se acordă
+        // server-side abia la închiderea/plata comenzii.
+        void attachOrderToLoyalty(result.id, ctx.token.id).then((r) => {
+          if (r.ok && ctx.token.id) {
+            void fetchLoyaltyState(ctx.token.id).then(setLoyalty)
+          }
+        })
         return
       } catch (e: unknown) {
         lastError = e
@@ -262,12 +315,51 @@ export default function QrMenuPage({ token }: Props) {
 
   // „Cere nota" — același anti-spam ca la chemarea ospătarului (60s UI +
   // rate limit server-side per masă per tip, mig 091).
-  async function handleRequestBill(): Promise<void> {
+  // Sheet-ul de bacșiș la „Cere nota" (EXPANSION E1, mig 223): clientul își
+  // exprimă INTENȚIA de bacșiș — ospătarul o vede pe apel și o introduce la
+  // încasare (tips_amount, mig 043). Nu e plată; banii se dau ca până acum.
+  const [showTipSheet, setShowTipSheet] = useState(false)
+  const [customTip, setCustomTip] = useState('')
+  // Sumă custom neparsabilă (ex. „abc") — semnalată vizual, nu trimisă tăcut ca 0.
+  const [customTipInvalid, setCustomTipInvalid] = useState(false)
+
+  // ── Loyalty v1 (mig 226): cardul de puncte al clientului ──────────────
+  // null = necunoscut/RPC nedeployat (secțiunea nu se afișează);
+  // {enabled:false} = program inactiv/plan sub growth.
+  const [loyalty, setLoyalty] = useState<LoyaltyState | null>(null)
+  const [loyaltyPhone, setLoyaltyPhone] = useState(() => getStoredLoyaltyPhone())
+  const [loyaltyPhoneSaved, setLoyaltyPhoneSaved] = useState(false)
+
+  useEffect(() => {
+    if (!ctx?.token.id) return
+    let cancelled = false
+    void fetchLoyaltyState(ctx.token.id).then((s) => {
+      if (!cancelled) setLoyalty(s)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ctx?.token.id])
+
+  function saveLoyaltyPhone(): void {
+    const p = loyaltyPhone.trim()
+    if (p.replace(/\D/g, '').length < 8) return
+    storeLoyaltyPhone(p)
+    setLoyaltyPhoneSaved(true)
+    // Re-citim starea cu telefonul — dacă există deja un wallet pe număr
+    // (alt device), punctele lui apar imediat.
+    if (ctx?.token.id) void fetchLoyaltyState(ctx.token.id).then(setLoyalty)
+    setTimeout(() => setLoyaltyPhoneSaved(false), 2500)
+  }
+
+  async function handleRequestBill(tipAmount?: number | null): Promise<void> {
     if (!ctx || requestingBill || billRequested) return
     setRequestingBill(true)
     try {
-      await callWaiter(ctx.token.id, 'bill')
+      await callWaiter(ctx.token.id, 'bill', tipAmount ?? null)
       setBillRequested(true)
+      setShowTipSheet(false)
+      setCustomTip('')
       setTimeout(() => setBillRequested(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] requestBill failed:', err)
@@ -280,11 +372,18 @@ export default function QrMenuPage({ token }: Props) {
     // If full reset: clear everything including session history
     if (addMore && confirmation) {
       setPreviousOrders((prev) => [...prev, confirmation])
+      // Rundă nouă pe aceeași masă: nota veche poate fi plătită online, dar
+      // runda nouă e neplătită — butonul „Plătește masa" redevine activ.
+      setTablePaid(false)
     } else {
       setPreviousOrders([])
       // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
       setSessionId(null)
+      // Grup nou = notă nouă — starea de „plătit online" nu se moștenește.
+      setTablePaid(false)
+      setPaidOrderIds(new Set<string>())
     }
+    setShowPaySheet(false)
     setCart([])
     setNotes('')
     setConfirmation(null)
@@ -292,12 +391,14 @@ export default function QrMenuPage({ token }: Props) {
     setSubmitError(null)
     setSubmitting(false)
     // Rotește cheia ȘI în sessionStorage (nu doar în state) — vezi comentariul
-    // de la rotateIdempotencyKey.
-    setIdempotencyKey(rotateIdempotencyKey(token))
+    // de la rotateQrIdempotencyKey (lib/orders).
+    setIdempotencyKey(rotateQrIdempotencyKey(token))
   }
 
   // ── Resolve theme from restaurant settings ──────────────────
   const theme = useMemo(() => resolveTheme(ctx?.restaurant.theme_settings), [ctx])
+  // Moneda meniului (mig 205/206) — fail-safe RON pe RPC vechi/absență.
+  const menuCurrency = resolveMenuCurrency(ctx?.restaurant.currency)
   // Memoizat: obiect nou la fiecare render înainte → prop instabil pentru
   // carduri/stări. Recalculat doar când se schimbă tema.
   const PUB = useMemo(
@@ -379,6 +480,17 @@ export default function QrMenuPage({ token }: Props) {
     if (q.length > 0) return searchIndex.filter((e) => e.hay.includes(q)).map((e) => e.product)
     return localizedCategories.find((c) => c.id === activeCatId)?.products ?? []
   }, [searchIndex, localizedCategories, activeCatId, deferredSearch])
+  // Prop-ul pentru CategoryTabs: memoizat ca să nu se recreeze la fiecare
+  // tastă în căutare (altfel tab-urile se re-randează pe orice keystroke).
+  const categoryTabItems = useMemo(
+    () =>
+      localizedCategories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        count: cat.products?.length ?? 0,
+      })),
+    [localizedCategories],
+  )
   // Total produse publicate (toate categoriile) — distinge „catalog gol"
   // (restaurantul n-a publicat nimic) de „categoria/căutarea nu are rezultate".
   const totalProducts = useMemo(
@@ -463,6 +575,7 @@ export default function QrMenuPage({ token }: Props) {
         onReset={handleReset}
         previousOrders={previousOrders}
         sessionId={sessionId}
+        currency={menuCurrency}
       />
     )
   }
@@ -502,6 +615,7 @@ export default function QrMenuPage({ token }: Props) {
             orders={previousOrders}
             accent={accent}
             sessionId={sessionId}
+            currency={menuCurrency}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -542,7 +656,7 @@ export default function QrMenuPage({ token }: Props) {
               }}
             >
               {r.name} ·{' '}
-              {r.discount_type === 'percent' ? `-${r.discount_value}%` : `-${r.discount_value} lei`}
+              {r.discount_type === 'percent' ? `-${r.discount_value}%` : `-${fmtPrice(Number(r.discount_value), menuCurrency)}`}
             </span>
           ))}
         </div>
@@ -553,11 +667,7 @@ export default function QrMenuPage({ token }: Props) {
           Pe flipbook nu există catalog de produse → fără tab-uri și căutare. */}
       {!isFlipbook && (
         <CategoryTabs
-          items={localizedCategories.map((cat) => ({
-            id: cat.id,
-            name: cat.name,
-            count: cat.products?.length ?? 0,
-          }))}
+          items={categoryTabItems}
           activeId={activeCatId}
           onSelect={setActiveCatId}
           accent={accent}
@@ -575,8 +685,8 @@ export default function QrMenuPage({ token }: Props) {
             onChange={(e) => setSearch(e.target.value)}
             onFocus={() => setSearchFocused(true)}
             onBlur={() => setSearchFocused(false)}
-            placeholder="Caută în meniu..."
-            aria-label="Caută în meniu"
+            placeholder={T(lang, 'search_placeholder')}
+            aria-label={T(lang, 'search_placeholder')}
             enterKeyHint="search"
             style={{
               width: '100%',
@@ -585,7 +695,9 @@ export default function QrMenuPage({ token }: Props) {
               border: `1px solid ${searchFocused ? accent : PUB.border}`,
               borderRadius: 12,
               padding: '11px 14px',
-              fontSize: 15,
+              // 16px minim: sub 16 iOS Safari face auto-zoom pe focus (input-ul
+              // sare în față și strică layout-ul meniului la masă).
+              fontSize: 16,
               color: PUB.text,
               fontFamily: theme.fonts.body,
               outline: 'none',
@@ -600,7 +712,11 @@ export default function QrMenuPage({ token }: Props) {
           Pe flipbook, DOAR catalogul e înlocuit de viewer — header-ul și
           butoanele de sesiune („Cheamă ospătarul"/„Cere nota") rămân. */}
       <div style={{ flex: 1, padding: '14px 16px 120px' }}>
-        {isFlipbook && <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />}
+        {isFlipbook && (
+          <Suspense fallback={null}>
+            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />
+          </Suspense>
+        )}
         {/* Empty states: catalog gol (nimic publicat) vs. căutare/categorie fără rezultate */}
         {!isFlipbook &&
           activeProducts.length === 0 &&
@@ -615,7 +731,7 @@ export default function QrMenuPage({ token }: Props) {
               </div>
               <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
                 {searchQuery
-                  ? `Niciun produs găsit pentru „${search.trim()}"`
+                  ? `${T(lang, 'no_results')} · „${search.trim()}”`
                   : 'Momentan meniul nu este disponibil.'}
               </div>
               <div style={{ fontSize: 13 }}>
@@ -639,6 +755,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -657,6 +774,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -674,6 +792,7 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
@@ -691,9 +810,148 @@ export default function QrMenuPage({ token }: Props) {
                 happyHourPct={happyHourPercentForProduct(product, happyHour)}
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
+                currency={menuCurrency}
               />
             ))}
           </div>
+        )}
+
+        {/* Loyalty v1 (mig 226): cardul de puncte — progres spre recompensă,
+            cod de arătat staff-ului, telefon opțional (anti-pierdere puncte). */}
+        {loyalty?.enabled && (
+          <div
+            style={{
+              margin: '16px 0 4px',
+              padding: '16px 16px 14px',
+              borderRadius: 16,
+              border: `1.5px solid ${loyalty.reward_available ? accent : PUB.border}`,
+              background: PUB.surface,
+              fontFamily: theme.fonts.body,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 10,
+                marginBottom: 8,
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: 15, color: PUB.text }}>
+                {T(lang, 'loyalty_points')}
+              </span>
+              <span style={{ fontSize: 13, color: PUB.text2 }}>
+                {loyalty.points ?? 0} / {loyalty.reward_threshold}
+              </span>
+            </div>
+            <div
+              style={{
+                height: 8,
+                borderRadius: 4,
+                background: PUB.border,
+                overflow: 'hidden',
+                marginBottom: 10,
+              }}
+              role="progressbar"
+              aria-valuenow={Math.min(loyalty.points ?? 0, loyalty.reward_threshold ?? 0)}
+              aria-valuemin={0}
+              aria-valuemax={loyalty.reward_threshold ?? 0}
+              aria-label={T(lang, 'loyalty_progress_aria')}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, Math.round(((loyalty.points ?? 0) / Math.max(1, loyalty.reward_threshold ?? 1)) * 100))}%`,
+                  background: accent,
+                  borderRadius: 4,
+                  transition: 'width 300ms ease',
+                }}
+              />
+            </div>
+            {loyalty.reward_available && loyalty.short_code ? (
+              <div
+                style={{
+                  background: PUB.bg,
+                  border: `1px dashed ${accent}`,
+                  borderRadius: 12,
+                  padding: '10px 12px',
+                  fontSize: 13,
+                  color: PUB.text,
+                  lineHeight: 1.5,
+                }}
+              >
+                🎉 {T(lang, 'loyalty_reward_have')}{' '}
+                <strong>{loyalty.reward_description}</strong>. {T(lang, 'loyalty_show_code')}{' '}
+                <strong style={{ letterSpacing: '0.12em' }}>{loyalty.short_code}</strong>{' '}
+                {T(lang, 'loyalty_to_waiter')}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: PUB.text2, lineHeight: 1.5 }}>
+                {T(lang, 'loyalty_earn_hint_pre')} {loyalty.reward_threshold}{' '}
+                {T(lang, 'loyalty_points_word')} {loyalty.reward_description}.
+              </div>
+            )}
+            {getStoredLoyaltyPhone() === '' ? (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={loyaltyPhone}
+                    onChange={(e) => setLoyaltyPhone(e.target.value)}
+                    placeholder={T(lang, 'loyalty_phone_opt')}
+                    aria-label={T(lang, 'loyalty_phone_aria')}
+                    style={{
+                      flex: 1,
+                      minHeight: 40,
+                      padding: '8px 12px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${PUB.border}`,
+                      background: PUB.bg,
+                      color: PUB.text,
+                      fontSize: 13,
+                      fontFamily: theme.fonts.body,
+                      boxSizing: 'border-box',
+                    }}
+                  />
+                  <button
+                    onClick={saveLoyaltyPhone}
+                    className="pressable"
+                    style={{
+                      minHeight: 40,
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: `1.5px solid ${PUB.border}`,
+                      background: PUB.surface,
+                      color: PUB.text,
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      fontFamily: theme.fonts.body,
+                    }}
+                  >
+                    {loyaltyPhoneSaved ? T(lang, 'saved') : T(lang, 'save')}
+                  </button>
+                </div>
+                <div style={{ fontSize: 11, color: PUB.text3, marginTop: 6, lineHeight: 1.45 }}>
+                  {T(lang, 'loyalty_phone_hint')}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+
+        {/* Badge discret „Creat cu Menuvia" (E1) — aceeași buclă virală ca pe
+            /m/:slug; opt-out prin theme_settings.hide_branding (Plan 2+). Pe
+            domeniile de agenție (white-label v1, mig 236) — brandingul lor. */}
+        {!resolveHideBranding(ctx?.restaurant.theme_settings) && (
+          <MenuBrandBadge
+            utmSource="qr"
+            color={PUB.text3}
+            fontFamily={theme.fonts.body}
+            padding="4px 0 96px"
+          />
         )}
       </div>
 
@@ -706,7 +964,10 @@ export default function QrMenuPage({ token }: Props) {
           disabled={callingWaiter || waiterCalled}
           style={{
             position: 'fixed',
-            bottom: cart.length > 0 ? 90 : 20,
+            // Bara „Comanda mea" e PERSISTENTĂ când comanda e permisă (chiar cu coș gol)
+            // — offset-ul urmează condiția EI de randare, nu coșul (altfel butoanele
+            // rămâneau acoperite de bară la coș gol).
+            bottom: orderingAllowed && !isFlipbook ? 90 : 20,
             left: 16,
             // Fundal derivat din temă (PUB.text = suprafață neutră de contrast),
             // nu maro hardcodat; verdele rămâne DOAR ca semnal de succes.
@@ -715,6 +976,8 @@ export default function QrMenuPage({ token }: Props) {
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
+            // Țintă de atingere ≥44px (a11y) — restul paginii e deja la standard.
+            minHeight: 44,
             fontSize: 13,
             fontWeight: 600,
             cursor: callingWaiter || waiterCalled ? 'default' : 'pointer',
@@ -733,21 +996,22 @@ export default function QrMenuPage({ token }: Props) {
             color={waiterCalled ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
           />
           {waiterCalled
-            ? 'Am anunțat ospătarul'
+            ? T(lang, 'waiter_called')
             : callingWaiter
-              ? 'Se cheamă...'
-              : 'Cheamă ospătarul'}
+              ? T(lang, 'waiter_calling')
+              : T(lang, 'call_waiter')}
         </button>
       )}
       {ctx && orderingAllowed && !confirmation && (
         <button
-          onClick={() => {
-            void handleRequestBill()
-          }}
+          onClick={() => setShowTipSheet(true)}
           disabled={requestingBill || billRequested}
           style={{
             position: 'fixed',
-            bottom: cart.length > 0 ? 90 : 20,
+            // Bara „Comanda mea" e PERSISTENTĂ când comanda e permisă (chiar cu coș gol)
+            // — offset-ul urmează condiția EI de randare, nu coșul (altfel butoanele
+            // rămâneau acoperite de bară la coș gol).
+            bottom: orderingAllowed && !isFlipbook ? 90 : 20,
             right: 16,
             // Fundal derivat din temă (vezi butonul „Cheamă ospătarul").
             background: billRequested ? '#4CAF6E' : PUB.text,
@@ -755,6 +1019,8 @@ export default function QrMenuPage({ token }: Props) {
             border: 'none',
             borderRadius: 30,
             padding: '10px 18px',
+            // Țintă de atingere ≥44px (a11y) — restul paginii e deja la standard.
+            minHeight: 44,
             fontSize: 13,
             fontWeight: 600,
             cursor: requestingBill || billRequested ? 'default' : 'pointer',
@@ -773,11 +1039,175 @@ export default function QrMenuPage({ token }: Props) {
             color={billRequested ? '#fff' : readableTextOn(PUB.text, PUB.bg)}
           />
           {billRequested
-            ? 'Nota e pe drum'
+            ? T(lang, 'bill_on_way')
             : requestingBill
-              ? 'Se trimite...'
-              : 'Cere nota'}
+              ? T(lang, 'sending')
+              : T(lang, 'request_bill')}
         </button>
+      )}
+
+      {/* Sheet bacșiș la „Cere nota" (E1, mig 223): intenția clientului — nu plată.
+          Procente pe totalul comenzilor din sesiune; fără total cunoscut → sume fixe. */}
+      {showTipSheet && ctx && (
+        <div
+          onClick={() => setShowTipSheet(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.55)',
+            zIndex: 60,
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label={T(lang, 'tip_sheet_aria')}
+            style={{
+              background: PUB.bg,
+              color: PUB.text,
+              borderRadius: '18px 18px 0 0',
+              padding: '20px 18px calc(20px + env(safe-area-inset-bottom))',
+              width: '100%',
+              maxWidth: 480,
+              fontFamily: theme.fonts.body,
+              boxShadow: '0 -6px 30px rgba(0,0,0,0.35)',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: theme.fonts.heading,
+                fontSize: 19,
+                fontWeight: 700,
+                marginBottom: 4,
+              }}
+            >
+              {T(lang, 'tip_title')}
+            </div>
+            <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 14, lineHeight: 1.5 }}>
+              {T(lang, 'tip_subtitle')}
+            </div>
+            {(() => {
+              const base = previousOrders.reduce((sum, o) => sum + o.total, 0)
+              // Plafonul serverului (mig 223) e 2000 — peste el, RPC-ul aruncă
+              // TĂCUT bacșișul (v_tip=null) și confirmă ok. Clamp-uim aici ca
+              // pe note mari (sau monede slabe) preset-ul de 15% să rămână valid.
+              const TIP_CAP = 2000
+              const options: { label: string; value: number | null }[] =
+                base > 0
+                  ? [
+                      { label: T(lang, 'tip_none'), value: 0 },
+                      ...[5, 10, 15].map((pct) => {
+                        const amt = Math.min(TIP_CAP, Math.round(base * pct) / 100)
+                        return {
+                          label: `${pct}% · ${fmtPrice(amt, menuCurrency)}`,
+                          value: amt,
+                        }
+                      }),
+                    ]
+                  : [
+                      { label: T(lang, 'tip_none'), value: 0 },
+                      ...[5, 10, 15].map((v) => ({
+                        label: fmtPrice(v, menuCurrency),
+                        value: v,
+                      })),
+                    ]
+              return (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {options.map((opt) => (
+                    <button
+                      key={opt.label}
+                      onClick={() => {
+                        void handleRequestBill(opt.value)
+                      }}
+                      disabled={requestingBill}
+                      className="pressable"
+                      style={{
+                        flex: '1 1 auto',
+                        minHeight: 44,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        border: `1.5px solid ${PUB.border}`,
+                        background: PUB.surface,
+                        color: PUB.text,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontFamily: theme.fonts.body,
+                        opacity: requestingBill ? 0.6 : 1,
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )
+            })()}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
+              {/* type="text": un „12,5" într-un input number e sanitizat de
+                  browser la gol → parseFloat dădea NaN și trimiteam TĂCUT
+                  „fără bacșiș" cu confirmare de succes. Cu text, virgula
+                  ajunge la noi și o convertim explicit. */}
+              <input
+                type="text"
+                inputMode="decimal"
+                value={customTip}
+                onChange={(e) => {
+                  setCustomTip(e.target.value)
+                  if (customTipInvalid) setCustomTipInvalid(false)
+                }}
+                placeholder={T(lang, 'tip_other_amount')}
+                aria-label={T(lang, 'tip_other_aria')}
+                style={{
+                  flex: 1,
+                  minHeight: 44,
+                  padding: '10px 12px',
+                  borderRadius: 12,
+                  border: `1.5px solid ${customTipInvalid ? '#E05555' : PUB.border}`,
+                  background: PUB.surface,
+                  color: PUB.text,
+                  fontSize: 14,
+                  fontFamily: theme.fonts.body,
+                  boxSizing: 'border-box',
+                }}
+              />
+              <button
+                onClick={() => {
+                  const raw = customTip.trim()
+                  const v = parseFloat(raw.replace(',', '.'))
+                  // Sumă neparsabilă/negativă NU se trimite ca „fără bacșiș"
+                  // cu confirmare falsă — semnalăm și lăsăm userul să corecteze.
+                  if (raw !== '' && (!Number.isFinite(v) || v < 0)) {
+                    setCustomTipInvalid(true)
+                    return
+                  }
+                  void handleRequestBill(
+                    raw === '' || v <= 0 ? 0 : Math.min(2000, Math.round(v * 100) / 100),
+                  )
+                }}
+                disabled={requestingBill}
+                className="pressable"
+                style={{
+                  minHeight: 44,
+                  padding: '10px 18px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: accent,
+                  color: readableTextOn(accent, PUB.bg),
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  fontFamily: theme.fonts.body,
+                  opacity: requestingBill ? 0.6 : 1,
+                }}
+              >
+                {requestingBill ? T(lang, 'sending') : T(lang, 'send')}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Bară „Comanda mea" — PERSISTENTĂ când comanda e permisă (chiar cu coș gol),
@@ -804,7 +1234,7 @@ export default function QrMenuPage({ token }: Props) {
         >
           <button
             onClick={() => setShowCart(true)}
-            aria-label="Comanda mea"
+            aria-label={T(lang, 'my_order')}
             style={{
               background: cart.length > 0 ? accent : PUB.surface,
               color: cart.length > 0 ? '#fff' : PUB.text,
@@ -832,14 +1262,14 @@ export default function QrMenuPage({ token }: Props) {
                     fontSize: 13,
                   }}
                 >
-                  {cart.length} {cart.length === 1 ? 'produs' : 'produse'}
+                  {cartItemCount} {cartItemCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}
                 </span>
-                <span>Vezi comanda</span>
-                <span>{cartTotal.toFixed(2)} lei</span>
+                <span>{T(lang, 'view_cart')}</span>
+                <span>{fmtPrice(cartTotal, menuCurrency)}</span>
               </>
             ) : (
               <span style={{ color: PUB.text2, fontWeight: 600 }}>
-                Comanda mea · atinge un produs ca să începi
+                {T(lang, 'my_order_hint')}
               </span>
             )}
           </button>
@@ -848,13 +1278,17 @@ export default function QrMenuPage({ token }: Props) {
 
       {/* Product sheet */}
       {activeProduct != null && orderingAllowed && (
-        <ProductSheet
-          product={activeProduct}
-          accent={accent}
-          theme={theme}
-          onAdd={addToCart}
-          onClose={() => setActiveProduct(null)}
-        />
+        <Suspense fallback={null}>
+          <ProductSheet
+            product={activeProduct}
+            accent={accent}
+            theme={theme}
+            onAdd={addToCart}
+            currency={menuCurrency}
+            happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
+            onClose={() => setActiveProduct(null)}
+          />
+        </Suspense>
       )}
 
       {/* Pairing popup — appears after addToCart if product has pairings */}
@@ -872,6 +1306,7 @@ export default function QrMenuPage({ token }: Props) {
             zIndex: 250,
           }}
         >
+          <PairingPopupScrollLock />
           <div
             onClick={(e) => e.stopPropagation()}
             className="animate-sheet"
@@ -1024,8 +1459,7 @@ export default function QrMenuPage({ token }: Props) {
                         color: accent,
                       }}
                     >
-                      {p.price.toFixed(2)}{' '}
-                      <span style={{ fontSize: 10, fontFamily: theme.fonts.body }}>lei</span>
+                      {fmtPrice(p.price, menuCurrency)}
                     </span>
                     <button
                       onClick={() => {
@@ -1118,21 +1552,98 @@ export default function QrMenuPage({ token }: Props) {
             onUpdateQty={updateQty}
             onRemove={removeFromCart}
             onLineTotal={lineTotal}
-            onSubmit={() => void handleSubmit()}
+            currency={menuCurrency}
+            onSubmit={(v) => {
+              // Sursa de adevăr rămâne părintele (nota supraviețuiește
+              // re-deschiderii sheet-ului); submit-ul primește valoarea ca
+              // argument — NU din state (stale closure).
+              setNotes(v)
+              void handleSubmit(v)
+            }}
             onOpenProduct={(product) => {
               setActiveProduct(product)
             }}
             onAddToCart={(item) => setCart((prev) => [...prev, item])}
             sentOrders={previousOrders}
-            // „Plătește masa" = cere nota DOAR pentru ce e deja trimis la bucătărie
-            // (request-bill nu trimite coșul). Afișăm strict totalul comandat, ca
-            // suma de pe buton să corespundă cu ce se facturează (regula de aur).
-            tableTotal={previousOrders.reduce((s, o) => s + o.total, 0)}
+            // „Plătește masa": cu modulul de plăți online activ + sesiune → plata
+            // din telefon (PayTableSheet, suma se recalculează pe server); altfel
+            // fallback-ul istoric = cere nota (request-bill nu trimite coșul).
+            // Afișăm strict totalul comandat, ca suma de pe buton să corespundă
+            // cu ce se facturează (regula de aur).
+            tableTotal={previousOrders
+              .filter((o) => !paidOrderIds.has(o.id))
+              .reduce((s, o) => s + o.total, 0)}
             onPayTable={
-              previousOrders.length > 0 ? () => void handleRequestBill() : undefined
+              previousOrders.length > 0
+                ? onlinePayEnabled && sessionId != null
+                  ? () => setShowPaySheet(true)
+                  : () => void handleRequestBill()
+                : undefined
             }
-            payDisabled={requestingBill || billRequested}
-            payLabel={billRequested ? 'Nota a fost cerută ✓' : 'Plătește masa'}
+            payDisabled={tablePaid || requestingBill || billRequested}
+            // Split pe itemi (mig 229): doar cu plata online activă + sesiune.
+            onPaySplit={
+              onlinePayEnabled && sessionId != null && previousOrders.length > 0 && !tablePaid
+                ? () => setShowSplitSheet(true)
+                : undefined
+            }
+            payLabel={
+              tablePaid
+                ? 'Plătit online ✓'
+                : onlinePayEnabled && sessionId != null
+                  ? 'Plătește online'
+                  : billRequested
+                    ? 'Nota a fost cerută ✓'
+                    : 'Plătește masa'
+            }
+          />
+        </Suspense>
+      )}
+
+      {/* Plata online a mesei — lazy, doar la cerere */}
+      {showPaySheet && sessionId != null && (
+        <Suspense fallback={null}>
+          <PayTableSheet
+            token={token}
+            sessionId={sessionId}
+            PUB={PUB}
+            accent={accent}
+            onClose={() => setShowPaySheet(false)}
+            onPaid={() => {
+              setTablePaid(true)
+              // Serverul a plătit TOATE comenzile neplătite ale sesiunii —
+              // marcăm ce cunoaștem local ca totalul butonului să nu le
+              // renumere la runda următoare. (`confirmation` e mereu null
+              // aici — early-return-ul de mai sus randează OrderTracker.)
+              setPaidOrderIds((prev) => {
+                const next = new Set(prev)
+                previousOrders.forEach((o) => next.add(o.id))
+                return next
+              })
+            }}
+            onPayOtherwise={() => {
+              setShowPaySheet(false)
+              // Ospătarul află imediat că masa vrea să plătească altfel.
+              void handleRequestBill()
+            }}
+          />
+        </Suspense>
+      )}
+
+      {/* Split pe itemi (mig 229) — plătește doar partea ta */}
+      {showSplitSheet && sessionId != null && (
+        <Suspense fallback={null}>
+          <SplitBillSheet
+            token={token}
+            sessionId={sessionId}
+            PUB={PUB}
+            accent={accent}
+            onClose={() => setShowSplitSheet(false)}
+            onPaid={() => {
+              // Plată PARȚIALĂ a mesei: NU setăm tablePaid/paidOrderIds —
+              // serverul marchează 'paid' doar comenzile acoperite integral;
+              // restul mesei se plătește în continuare (split sau ospătar).
+            }}
           />
         </Suspense>
       )}

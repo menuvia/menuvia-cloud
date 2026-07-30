@@ -136,6 +136,9 @@ exports.handler = async (event) => {
     if (process.env.RESEND_API_KEY) {
       const resp = await fetch('https://api.resend.com/emails', {
         method: 'POST',
+        // OPT-3: un TCP agățat spre Resend consuma întreaga invocare (10s) —
+        // timeout explicit; AbortError cade pe ramura de retry existentă.
+        signal: AbortSignal.timeout(8000),
         headers: {
           'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
           'Content-Type':  'application/json',

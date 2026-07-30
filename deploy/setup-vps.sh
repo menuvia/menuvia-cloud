@@ -61,6 +61,9 @@ SUPABASE_URL=https://swjcptdylfmpvopdepqf.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=
 STRIPE_SECRET_KEY=
 WEBHOOK_SECRET=
+# Plata online la masă (docs/ONLINE_PAYMENT.md) — opționale până activezi Connect:
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_CONNECT_WEBHOOK_SECRET=
 RESEND_API_KEY=
 EMAIL_FROM=
 EMAIL_REPLY_TO=

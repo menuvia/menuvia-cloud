@@ -17,7 +17,7 @@
 //
 // Acceptă atât , cât și ; ca delimitator (auto-detect).
 // ─────────────────────────────────────────────────────────────
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -27,6 +27,11 @@ interface Props {
   existingCategories: { id: string; name: string; emoji: string | null }[]
   onClose: () => void
   onDone: (createdCount: number) => void
+  // Câte produse mai încap în planul curent (max_products − produse existente).
+  // Serverul respinge oricum peste limită (trg_enforce_product_limit, mig 013/038),
+  // dar fără plafon client-side userul afla abia din eroarea brută, la mijlocul
+  // importului, cu rânduri deja inserate. undefined = necunoscut → fără plafon aici.
+  remainingSlots?: number
 }
 
 interface ParsedRow {
@@ -211,6 +216,7 @@ export default function ProductsCsvImport({
   existingCategories,
   onClose,
   onDone,
+  remainingSlots,
 }: Props) {
   // Blochează scroll-ul paginii cât modalul e deschis (altfel pagina din spate
   // rămâne scrollabilă și modalul pare deplasat / cere scroll manual — fix #74).
@@ -220,6 +226,24 @@ export default function ProductsCsvImport({
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [importedCount, setImportedCount] = useState(0)
+
+  // Resume idempotent pe RETRY după eșec parțial. Cursorul + categoriile create
+  // (cheiate pe textul CSV) evită re-inserția batch-urilor DEJA CONFIRMATE. DAR
+  // cursorul nu poate acoperi un batch COMIS-DAR-NECONFIRMAT pe rețea (serverul
+  // l-a scris, ack-ul HTTP s-a pierdut → cursorul rămâne pe loc). De aceea, la
+  // RETRY (a mai fost o încercare pe același CSV), re-verificăm în DB numele deja
+  // existente și le sărim — dedup real, nu doar pe cursor.
+  const insertedCursorRef = useRef(0)
+  const createdCatsRef = useRef<Map<string, string>>(new Map())
+  const importedCsvRef = useRef<string | null>(null)
+  const attemptedImportRef = useRef(false)
+  // Numele produselor dinaintea PRIMEI încercări — baseline pentru dedup-ul de
+  // pe retry (vezi doImport). null = n-am putut citi ⇒ dedup dezactivat.
+  const baselineNamesRef = useRef<Set<string> | null>(null)
+  // Total inserat de-a lungul TUTUROR încercărilor din această sesiune de modal
+  // — altfel, după un retry, mesajul de final raporta doar rândurile ultimei
+  // încercări și părea că s-au importat mult mai puține decât în realitate.
+  const totalAddedRef = useRef(0)
 
   // Parse CSV
   const parsed = useMemo<ParsedRow[]>(() => {
@@ -267,12 +291,21 @@ export default function ProductsCsvImport({
   const validRows = parsed.filter((r) => r.errors.length === 0)
   const invalidRows = parsed.filter((r) => r.errors.length > 0)
 
-  // Categories needed (unique, not yet existing)
+  // Plafonul planului, aplicat ÎNAINTE de import: importăm doar primele
+  // `remainingSlots` rânduri valide și spunem explicit câte au rămas pe
+  // dinafară — altfel trigger-ul server oprea importul la mijloc, cu eroare
+  // brută și rânduri deja inserate.
+  const importRows =
+    remainingSlots != null ? validRows.slice(0, Math.max(0, remainingSlots)) : validRows
+  const truncatedCount = validRows.length - importRows.length
+
+  // Categories needed (unique, not yet existing) — doar pentru rândurile care
+  // chiar se importă (nu creăm categorii pentru rânduri tăiate de plafon).
   const newCategories = useMemo(() => {
     const existing = new Set(existingCategories.map((c) => c.name.toLowerCase()))
-    const wanted = new Set(validRows.map((r) => r.categorie.toLowerCase()))
+    const wanted = new Set(importRows.map((r) => r.categorie.toLowerCase()))
     return Array.from(wanted).filter((c) => !existing.has(c))
-  }, [validRows, existingCategories])
+  }, [importRows, existingCategories])
 
   function downloadTemplate() {
     const blob = new Blob(['\uFEFF' + TEMPLATE], { type: 'text/csv;charset=utf-8;' })
@@ -292,20 +325,94 @@ export default function ProductsCsvImport({
   }
 
   async function doImport() {
-    if (validRows.length === 0) return
+    if (importRows.length === 0) return
     setStep('importing')
     setError(null)
-    setProgress(0)
+
+    // RETRY = a mai fost o încercare pe EXACT același CSV. Pe retry activăm
+    // dedup-ul din DB (jos), ca un batch comis-dar-neconfirmat să nu se dubleze.
+    // „Am mai încercat un import în ACEASTĂ sesiune de modal" — independent de
+    // faptul că userul a editat între timp CSV-ul. Dacă prima încercare apucase
+    // să insereze rânduri, ele trebuie deduplicate și la o încercare cu CSV
+    // MODIFICAT; altfel editarea CSV-ului redeschidea calea spre duplicate.
+    const hasAttempted = attemptedImportRef.current
+
+    // CSV nou (față de ultima încercare) → resetăm cursorul de resume. Un retry
+    // pe ACELAȘI CSV păstrează cursorul și sare peste ce s-a inserat deja.
+    if (importedCsvRef.current !== csvText) {
+      insertedCursorRef.current = 0
+      createdCatsRef.current = new Map()
+      importedCsvRef.current = csvText
+    }
+    setProgress(Math.round((100 * insertedCursorRef.current) / importRows.length))
 
     try {
-      // 1. Auto-create missing categories
+      // Dedup pe RETRY, corect: sărim DOAR numele apărute în DB de la începutul
+      // acestui import (adică inserate chiar de el, inclusiv batch-ul comis dar
+      // neconfirmat pe care cursorul nu-l vede) — NU tot ce există în meniu.
+      // Altfel un rând CSV legitim care coincide cu un produs preexistent
+      // („Cappuccino" era deja în meniu) ar fi sărit TĂCUT — pierdere de date,
+      // mai rea decât duplicatul pe care îl prevenim.
+      // Paginare explicită: PostgREST plafonează răspunsul (max_rows, tipic
+      // 1000), deci pe un meniu mare setul ar fi ieșit INCOMPLET și dedup-ul ar
+      // fi funcționat doar parțial, tăcut. Citim în pagini până se epuizează.
+      const readNames = async (): Promise<Set<string> | null> => {
+        const out = new Set<string>()
+        const page = 1000
+        for (let from = 0; ; from += page) {
+          const { data, error: exErr } = await supabase
+            .from('products')
+            .select('name')
+            .eq('restaurant_id', restaurantId)
+            .range(from, from + page - 1)
+          if (exErr) return null
+          const rows = data ?? []
+          rows.forEach((r) => out.add((r.name as string).trim().toLowerCase()))
+          if (rows.length < page) break
+        }
+        return out
+      }
+
+      // Baseline = numele dinaintea PRIMEI încercări. Fără el nu putem distinge
+      // „produs pus de importul ăsta" de „produs care era deja în meniu".
+      // (Re)încercăm baseline-ul cât timp lipsește: dacă prima citire a picat
+      // (blip), a NU reîncerca lăsa dedup-ul stins pentru tot restul sesiunii,
+      // tăcut. Abia după ce avem baseline marcăm sesiunea drept „a încercat".
+      if (!baselineNamesRef.current) baselineNamesRef.current = await readNames()
+      attemptedImportRef.current = true
+
+      let dbNames: Set<string> | null = null
+      if (hasAttempted && baselineNamesRef.current) {
+        const current = await readNames()
+        const baseline = baselineNamesRef.current
+        // Doar ce a apărut ÎNTRE timp = inserat de acest import.
+        if (current) dbNames = new Set([...current].filter((n) => !baseline.has(n)))
+      }
+
+      // 1. Auto-create missing categories (sar peste cele deja create într-o
+      // încercare anterioară — createdCatsRef persistă între retry-uri).
       const catMap = new Map<string, string>() // name (lower) → id
       for (const c of existingCategories) {
         catMap.set(c.name.toLowerCase(), c.id)
       }
+      // Pe RETRY recitim categoriile din DB: `existingCategories` (prop) e stale
+      // după un eșec (părintele refetch-uiește doar în onDone), iar createdCatsRef
+      // nu reține categoriile create de un request COMIS-dar-neconfirmat → fără
+      // asta, fiecare retry mai adăuga o categorie cu același nume în meniu.
+      if (hasAttempted) {
+        const { data: freshCats } = await supabase
+          .from('categories')
+          .select('id, name')
+          .eq('restaurant_id', restaurantId)
+        for (const c of freshCats ?? []) {
+          catMap.set((c.name as string).toLowerCase(), c.id as string)
+        }
+      }
+      for (const [k, v] of createdCatsRef.current) catMap.set(k, v)
       for (const [index, newCatName] of newCategories.entries()) {
+        if (catMap.has(newCatName)) continue // deja creată la o încercare anterioară
         const original =
-          validRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
+          importRows.find((r) => r.categorie.toLowerCase() === newCatName)?.categorie || newCatName
         const { data, error: catErr } = await supabase
           .from('categories')
           .insert({
@@ -320,15 +427,22 @@ export default function ProductsCsvImport({
           .select('id')
           .single()
         if (catErr) throw new Error(`Eroare la categoria "${original}": ${catErr.message}`)
-        if (data) catMap.set(newCatName, data.id as string)
+        if (data) {
+          catMap.set(newCatName, data.id as string)
+          createdCatsRef.current.set(newCatName, data.id as string)
+        }
       }
 
-      // 2. Insert products in batches of 20 (avoid huge single insert)
+      // 2. Insert products in batches of 20 (avoid huge single insert). Pornim de
+      // la cursorul de resume: batch-urile deja inserate NU se re-trimit (anti-dublu).
+      // `cursor` urmărește poziția în importRows (resume/progress); `added` = câte
+      // s-au inserat efectiv (pe retry, sub dbNames, unele se sar).
       const batchSize = 20
-      let inserted = 0
-      for (let i = 0; i < validRows.length; i += batchSize) {
-        const batch = validRows.slice(i, i + batchSize)
-        const rows = batch.map((r) => ({
+      let cursor = insertedCursorRef.current
+      let added = 0
+      for (let i = insertedCursorRef.current; i < importRows.length; i += batchSize) {
+        const batch = importRows.slice(i, i + batchSize)
+        let rows = batch.map((r) => ({
           restaurant_id: restaurantId,
           category_id: catMap.get(r.categorie.toLowerCase())!,
           name: r.nume,
@@ -338,15 +452,31 @@ export default function ProductsCsvImport({
           vat_group: r.tva,
           is_active: true,
         }))
-        const { error: insErr } = await supabase.from('products').insert(rows)
-        if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
-        inserted += batch.length
-        setProgress(Math.round((100 * inserted) / validRows.length))
+        if (dbNames) {
+          const names = dbNames
+          rows = rows.filter((r) => !names.has(r.name.trim().toLowerCase()))
+        }
+        if (rows.length > 0) {
+          const { error: insErr } = await supabase.from('products').insert(rows)
+          if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
+          added += rows.length
+          totalAddedRef.current += rows.length
+          // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
+          if (dbNames) {
+            const names = dbNames
+            rows.forEach((r) => names.add(r.name.trim().toLowerCase()))
+          }
+        }
+        // Avansăm cursorul cu întregul batch (poziție în importRows), DUPĂ succes:
+        // un retry pornește de aici, nu de la 0.
+        cursor += batch.length
+        insertedCursorRef.current = cursor
+        setProgress(Math.round((100 * cursor) / importRows.length))
       }
 
-      setImportedCount(inserted)
+      setImportedCount(totalAddedRef.current)
       // Brief delay before closing for user to see 100%
-      setTimeout(() => onDone(inserted), 500)
+      setTimeout(() => onDone(totalAddedRef.current), 500)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eroare necunoscută la import')
       setStep('preview')
@@ -685,6 +815,36 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
               </div>
             )}
 
+            {/* Plafonul planului — anunțat ÎNAINTE de import, nu ca eroare brută
+                la mijloc. Zero locuri → mesaj clar; parțial → câte intră/rămân. */}
+            {truncatedCount > 0 && (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  background: D.goldA,
+                  color: D.t1,
+                  borderRadius: 8,
+                  fontSize: '0.82rem',
+                  lineHeight: 1.5,
+                }}
+              >
+                {importRows.length === 0 ? (
+                  <>
+                    Ai atins limita de produse a planului tău — importul nu poate adăuga
+                    produse noi. Șterge produse sau treci la un plan mai mare.
+                  </>
+                ) : (
+                  <>
+                    Planul tău mai are loc pentru <strong>{importRows.length}</strong>{' '}
+                    {importRows.length === 1 ? 'produs' : 'produse'} — se importă primele{' '}
+                    {importRows.length}, iar {truncatedCount}{' '}
+                    {truncatedCount === 1 ? 'rând rămâne' : 'rânduri rămân'} pe dinafară.
+                  </>
+                )}
+              </div>
+            )}
+
             <div
               style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginTop: 12 }}
             >
@@ -696,10 +856,10 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
               </button>
               <button
                 onClick={() => void doImport()}
-                disabled={validRows.length === 0}
+                disabled={importRows.length === 0}
                 style={btn({ background: D.gold, color: '#000' })}
               >
-                Importă {validRows.length} produse →
+                Importă {importRows.length} produse →
               </button>
             </div>
           </div>

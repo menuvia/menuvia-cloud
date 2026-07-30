@@ -19,6 +19,8 @@ import {
 } from '../../lib/health'
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
+import { SubscriptionCard } from './SubscriptionCard'
+import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
 
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
@@ -49,6 +51,8 @@ interface Props {
   tier: PlanTier
   isAdmin: boolean
   productCount: number
+  // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
+  pickupOnly: boolean
   onNavigate: (tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa') => void
   onViewMenu: () => void
   onPricing: () => void
@@ -207,6 +211,7 @@ function ExpandableCard({
     <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         style={{
           display: 'block',
           width: '100%',
@@ -237,6 +242,7 @@ export default function HomeTab({
   tier,
   isAdmin,
   productCount,
+  pickupOnly,
   onNavigate,
   onViewMenu,
   onPricing,
@@ -248,6 +254,7 @@ export default function HomeTab({
   const [tablesCount, setTablesCount] = useState<number | null>(null)
   const [categoriesCount, setCategoriesCount] = useState<number | null>(null)
   const [teamCount, setTeamCount] = useState<number | null>(null)
+  const [everOrdered, setEverOrdered] = useState<boolean | null>(null)
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
 
@@ -262,22 +269,23 @@ export default function HomeTab({
         .select('id', head)
         .eq('restaurant_id', restaurantId)
         .eq('is_active', true)
-        .then(({ count }) => {
-          if (alive) setTablesCount(count ?? 0)
+        .then(({ count, error }) => {
+          if (alive && !error) setTablesCount(count ?? 0)
         }),
       supabase
         .from('categories')
         .select('id', head)
         .eq('restaurant_id', restaurantId)
-        .then(({ count }) => {
-          if (alive) setCategoriesCount(count ?? 0)
+        .then(({ count, error }) => {
+          if (alive && !error) setCategoriesCount(count ?? 0)
         }),
     ]
 
     if (tier >= 2) {
-      // Aceeași logică de „azi" ca ReportsTab (boundary explicit România),
-      // ca cifra din Acasă să bată cu raportul zilei.
-      const todayStart = new Date().toISOString().slice(0, 10) + 'T00:00:00+03:00'
+      // Aceeași logică de „azi" ca ReportsTab (boundary DST-aware România, lib/dates):
+      // data UTC + offset hardcodat +03:00 dădea cifra greșită lângă miezul nopții
+      // (ziua UTC ≠ ziua RO) și cu o oră deplasată iarna (EET e +02:00).
+      const todayStart = romaniaDayBoundaryISO(toRomaniaYMD(new Date()), false)
       counts.push(
         supabase
           .from('orders')
@@ -285,8 +293,22 @@ export default function HomeTab({
           .eq('restaurant_id', restaurantId)
           .neq('status', 'cancelled')
           .gte('created_at', todayStart)
-          .then(({ count }) => {
-            if (alive) setOrdersToday(count ?? 0)
+          .then(({ count, error }) => {
+            if (alive && !error) setOrdersToday(count ?? 0)
+          }),
+      )
+      // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
+      // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
+      // comenzile restaurantului la fiecare mount, pentru un boolean care
+      // devine permanent true după prima comandă (OPT-1).
+      counts.push(
+        supabase
+          .from('orders')
+          .select('id')
+          .eq('restaurant_id', restaurantId)
+          .limit(1)
+          .then(({ data, error }) => {
+            if (alive && !error) setEverOrdered((data?.length ?? 0) > 0)
           }),
       )
       if (isAdmin) {
@@ -295,8 +317,8 @@ export default function HomeTab({
             .from('restaurant_memberships')
             .select('user_id', head)
             .eq('restaurant_id', restaurantId)
-            .then(({ count }) => {
-              if (alive) setTeamCount(count ?? 0)
+            .then(({ count, error }) => {
+              if (alive && !error) setTeamCount(count ?? 0)
             }),
         )
       }
@@ -311,9 +333,13 @@ export default function HomeTab({
   useEffect(() => {
     if (!isAdmin || tier < 2) return
     let alive = true
-    void fetchHealthScore(restaurantId).then((h) => {
-      if (alive) setHealth(h)
-    })
+    void fetchHealthScore(restaurantId)
+      .then((h) => {
+        if (alive) setHealth(h)
+      })
+      .catch(() => {
+        /* scorul e informativ — pe eroare rămâne fallback-ul, fără crash */
+      })
     return () => {
       alive = false
     }
@@ -330,15 +356,34 @@ export default function HomeTab({
   }
 
   // ── Checklist de setup: doar pași MĂSURABILI (fără bife false) ──
+  // În modul „doar ridicare" pasul de mese dispare (nu e nimic de făcut —
+  // fără bifă falsă), iar comanda de test se dă din meniul public.
   const setupItems: SetupItem[] = [
     { label: 'Adaugă produse', done: productCount > 0, target: 'products' },
     { label: 'Creează categorii', done: (categoriesCount ?? 0) > 0, target: 'categories' },
-    { label: 'Generează QR-uri pentru mese', done: (tablesCount ?? 0) > 0, target: 'mese' },
+    ...(pickupOnly
+      ? []
+      : [
+          {
+            label: 'Generează QR-uri pentru mese',
+            done: (tablesCount ?? 0) > 0,
+            target: 'mese' as const,
+          },
+        ]),
     { label: 'Verifică meniul public', done: menuChecked },
     ...(tier >= 2 && isAdmin
       ? [
           { label: 'Invită echipa', done: (teamCount ?? 0) > 1, target: 'echipa' as const },
-          { label: 'Comenzile de la masă: active', done: true },
+          // Pasul de ACTIVARE (PLAN_10 F4): fluxul e validat abia când o comandă
+          // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
+          // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
+          {
+            label: pickupOnly
+              ? 'Prima comandă de test — deschide meniul public și comandă'
+              : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
+            done: everOrdered === true,
+            target: 'mese' as const,
+          },
         ]
       : []),
   ]
@@ -351,16 +396,24 @@ export default function HomeTab({
   // Metricele secundare — aceeași importanță între ele, sub hero.
   const secondaryMetrics = [
     { label: 'Produse active', value: String(productCount), hint: undefined as string | undefined },
-    {
-      label: 'QR-uri active',
-      value: tablesCount == null ? '…' : String(tablesCount),
-      hint: 'mese scanabile',
-    },
-    {
-      label: 'Setup',
-      value: `${setupDone}/${setupTotal}`,
-      hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
-    },
+    pickupOnly
+      ? { label: 'QR-uri active', value: '1', hint: 'QR general (doar ridicare)' }
+      : {
+          label: 'QR-uri active',
+          value: tablesCount == null ? '…' : String(tablesCount),
+          hint: 'mese scanabile',
+        },
+    // Metrica „Setup" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
+    // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
+    ...(isAdmin
+      ? [
+          {
+            label: 'Setup',
+            value: `${setupDone}/${setupTotal}`,
+            hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
+          },
+        ]
+      : []),
   ]
 
   return (
@@ -455,6 +508,11 @@ export default function HomeTab({
             </div>
           </div>
           <div
+            role="progressbar"
+            aria-valuenow={setupDone}
+            aria-valuemin={0}
+            aria-valuemax={setupTotal}
+            aria-label="Progres setup"
             style={{
               height: 6,
               background: D.s3,
@@ -483,6 +541,8 @@ export default function HomeTab({
                   else handleViewMenu()
                 }}
                 className={it.done ? undefined : 'pressable'}
+                aria-disabled={it.done || undefined}
+                aria-label={it.done ? it.label + ' (completat)' : undefined}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -490,7 +550,8 @@ export default function HomeTab({
                   background: 'transparent',
                   border: 'none',
                   borderRadius: 8,
-                  padding: '7px 8px',
+                  padding: '12px 8px',
+                  minHeight: 44,
                   margin: '0 -8px',
                   cursor: it.done ? 'default' : 'pointer',
                   fontFamily: 'DM Sans,sans-serif',
@@ -657,6 +718,21 @@ export default function HomeTab({
         </div>
       </div>
       </RevealItem>
+
+      {/* Abonament & facturare — ORICE plan plătit (tier ≥ 1 = starter+).
+          Deschide Portalul Stripe: destinația reală a CTA-urilor din emailurile
+          de facturare/dunning. Starter e plan plătit (99 lei/lună) — gate-ul pe
+          tier ≥ 2 îl lăsa fără nicio cale în app de a-și schimba cardul, deci
+          CTA-ul „Actualizează metoda de plată" era dead-end (audit săpt. 10). */}
+      {isAdmin && tier >= 1 && (
+        <RevealItem delay={300}>
+          {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
+              scroll aici, vezi efectul din DashboardPage). */}
+          <div id="billing-card">
+            <SubscriptionCard />
+          </div>
+        </RevealItem>
+      )}
 
       {/* Upgrade — doar tier 1, mereu ultimul */}
       {isAdmin && tier < 2 && (

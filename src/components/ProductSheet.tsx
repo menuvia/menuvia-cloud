@@ -7,13 +7,15 @@
 //   • Detalii (alergeni, dietetic) colapsabile — secundar
 //   • Sticky bottom CTA cu prețul actualizat live
 // ─────────────────────────────────────────────────────────────
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
+import Icon, { type IconName } from './ui/Icon'
 
 type Selections = Record<string, string | Set<string> | null>
 
@@ -27,9 +29,22 @@ interface ProductSheetProps {
   theme: MenuTheme
   onAdd: (item: CartItem) => void
   onClose: () => void
+  /** Moneda meniului (mig 205/206) — default 'RON'. */
+  currency?: MenuCurrency
+  /** Reducere Happy Hour activă pe produs (%) — DOAR afișare, ca pe ProductCard.
+      Reducerea reală se aplică server-side la trimitere (trigger mig 077). */
+  happyHourPct?: number
 }
 
-function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetProps) {
+function ProductSheet({
+  product,
+  accent,
+  theme,
+  onAdd,
+  onClose,
+  currency = 'RON',
+  happyHourPct = 0,
+}: ProductSheetProps) {
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -46,6 +61,20 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
   const [notes, setNotes] = useState('')
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
   const [moreInfoOpen, setMoreInfoOpen] = useState(false)
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+
+  // Semantică de dialog modal: focus pe butonul de închidere la deschidere +
+  // Escape → onClose (screen reader-ul anunță dialogul, tastatura nu rămâne
+  // blocată pe lista de produse din spate).
+  useEffect(() => {
+    closeBtnRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const groups = product.modifier_groups
 
@@ -155,23 +184,23 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
   const totalPrice = unitTotal * qty
 
   // Top compact badges (priority: special > diet > prep time > portion > allergens)
-  const topBadges: { emoji: string; label: string; color: string }[] = []
-  if (product.is_daily_special)
-    topBadges.push({ emoji: '⭐', label: 'Specialitate', color: accent })
+  // icon: null → nu există un icon vectorial potrivit (ex. porție), rămâne text simplu.
+  const topBadges: { icon: IconName | null; label: string; color: string }[] = []
+  if (product.is_daily_special) topBadges.push({ icon: 'star', label: 'Specialitate', color: accent })
   if (product.dietary_tags?.includes('vegan'))
-    topBadges.push({ emoji: '🌱', label: 'Vegan', color: '#388E3C' })
+    topBadges.push({ icon: 'leaf', label: 'Vegan', color: '#388E3C' })
   else if (product.dietary_tags?.includes('vegetarian'))
-    topBadges.push({ emoji: '🥗', label: 'Vegetarian', color: '#4CAF6E' })
+    topBadges.push({ icon: 'leaf', label: 'Vegetarian', color: '#4CAF6E' })
   // Prep time: doar dacă e setat
   if (product.prep_time_minutes && product.prep_time_minutes > 0) {
-    topBadges.push({ emoji: '⏱️', label: `~${product.prep_time_minutes} min`, color: '#5A8DBA' })
+    topBadges.push({ icon: 'clock', label: `~${product.prep_time_minutes} min`, color: '#5A8DBA' })
   }
   // Porție: text liber dacă e setat
   if (product.portion_size && product.portion_size.length > 0) {
-    topBadges.push({ emoji: '📏', label: product.portion_size, color: '#7A6A52' })
+    topBadges.push({ icon: null, label: product.portion_size, color: '#7A6A52' })
   }
   if (product.allergens && product.allergens.length > 0) {
-    topBadges.push({ emoji: '⚠️', label: 'Alergeni', color: '#8B6914' })
+    topBadges.push({ icon: 'alert', label: 'Alergeni', color: '#8B6914' })
   }
 
   return (
@@ -189,6 +218,9 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={product.name}
         style={{
           background: PUB.bg,
           borderRadius: '20px 20px 0 0',
@@ -217,6 +249,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             Backdrop-ul + drag handle rămân; ăsta e afordanța vizibilă. */}
         <button
           type="button"
+          ref={closeBtnRef}
           onClick={onClose}
           aria-label="Închide"
           className="pressable"
@@ -300,11 +333,10 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 80,
                 background: accentGradient,
               }}
             >
-              🍽️
+              <Icon name="utensils" size={56} color="rgba(255,255,255,0.6)" strokeWidth={1.3} />
             </div>
           )}
 
@@ -327,20 +359,70 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                 {product.name}
               </h2>
 
-              <div
-                style={{
-                  fontFamily: 'Fraunces, Georgia, serif',
-                  fontSize: 22,
-                  fontWeight: 700,
-                  color: accent,
-                  letterSpacing: '-0.01em',
-                }}
-              >
-                {product.price.toFixed(2)}{' '}
-                <span style={{ fontSize: 15, fontFamily: 'DM Sans, sans-serif', fontWeight: 600 }}>
-                  lei
-                </span>
-              </div>
+              {/* Happy Hour: paritate de afișare cu ProductCard (preț tăiat +
+                  redus + „-N%"). Reducerea REALĂ se aplică server-side la
+                  trimiterea comenzii — aici doar informăm consistent. */}
+              {happyHourPct > 0 ? (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontSize: 16,
+                      color: PUB.textMuted,
+                      textDecoration: 'line-through',
+                    }}
+                  >
+                    {fmtPrice(product.price, currency)}
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontSize: 22,
+                      fontWeight: 700,
+                      color: '#4CAF6E',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {fmtPrice(product.price * (1 - happyHourPct / 100), currency)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: '#4CAF6E',
+                      background: 'rgba(76,175,110,0.12)',
+                      borderRadius: 6,
+                      padding: '2px 7px',
+                      fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    -{Math.round(happyHourPct)}% Happy Hour
+                  </span>
+                </div>
+              ) : (
+                <div
+                  style={{
+                    fontFamily: 'Fraunces, Georgia, serif',
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: accent,
+                    letterSpacing: '-0.01em',
+                  }}
+                >
+                  {fmtPrice(product.price, currency)}
+                </div>
+              )}
+              {happyHourPct > 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: PUB.textMuted,
+                    fontFamily: 'DM Sans, sans-serif',
+                  }}
+                >
+                  Reducerea Happy Hour se aplică automat la trimiterea comenzii.
+                </div>
+              )}
             </div>
 
             {/* Description */}
@@ -430,7 +512,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                       gap: 4,
                     }}
                   >
-                    <span>{b.emoji}</span>
+                    {b.icon && <Icon name={b.icon} size={13} color={b.color} />}
                     <span>{b.label}</span>
                   </span>
                 ))}
@@ -480,9 +562,13 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                         fontFamily: 'DM Sans, sans-serif',
                         textTransform: 'uppercase',
                         letterSpacing: '0.05em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
                       }}
                     >
-                      {groupMin > 0 ? (groupMet ? '✓ ales' : 'Obligatoriu') : 'Opțional'}
+                      {groupMin > 0 && groupMet && <Icon name="check" size={11} color="#4CAF6E" />}
+                      {groupMin > 0 ? (groupMet ? 'ales' : 'Obligatoriu') : 'Opțional'}
                     </div>
                   </div>
 
@@ -514,6 +600,9 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                         <button
                           key={opt.id}
                           disabled={isDisabled}
+                          role={g.selection_type === 'single' ? 'radio' : undefined}
+                          aria-checked={g.selection_type === 'single' ? isSel : undefined}
+                          aria-pressed={g.selection_type === 'single' ? undefined : isSel}
                           onClick={() =>
                             g.selection_type === 'single'
                               ? toggleSingle(g.id, opt.id)
@@ -574,16 +663,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                                     }}
                                   />
                                 ) : (
-                                  <span
-                                    style={{
-                                      color: '#fff',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      lineHeight: 1,
-                                    }}
-                                  >
-                                    ✓
-                                  </span>
+                                  <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
                                 ))}
                             </span>
                             <span
@@ -607,7 +687,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                                 flexShrink: 0,
                               }}
                             >
-                              +{opt.price_delta.toFixed(2)} lei
+                              +{fmtPrice(opt.price_delta, currency)}
                             </span>
                           )}
                         </button>
@@ -660,6 +740,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                     return (
                       <button
                         key={extra.id}
+                        aria-pressed={isSel}
                         onClick={() => toggleExtra(extra.id)}
                         style={{
                           background: isSel ? `${accent}14` : PUB.surface,
@@ -703,18 +784,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                               transition: 'all 0.15s',
                             }}
                           >
-                            {isSel && (
-                              <span
-                                style={{
-                                  color: '#fff',
-                                  fontSize: 11,
-                                  fontWeight: 700,
-                                  lineHeight: 1,
-                                }}
-                              >
-                                ✓
-                              </span>
-                            )}
+                            {isSel && <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />}
                           </span>
                           <span
                             style={{
@@ -737,7 +807,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                             flexShrink: 0,
                           }}
                         >
-                          +{Number(extra.price).toFixed(2)} lei
+                          +{fmtPrice(Number(extra.price), currency)}
                         </span>
                       </button>
                     )
@@ -774,10 +844,10 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                   disabled={qty === 1}
                   aria-label="Scade cantitatea"
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 44,
+                    height: 44,
                     borderRadius: '50%',
-                    background: qty === 1 ? PUB.border : '#fff',
+                    background: qty === 1 ? PUB.border : PUB.surface,
                     border: `1.5px solid ${qty === 1 ? PUB.border : PUB.borderStrong}`,
                     color: qty === 1 ? PUB.textMuted : PUB.text,
                     fontSize: 18,
@@ -805,10 +875,10 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                   onClick={() => setQty((q) => q + 1)}
                   aria-label="Crește cantitatea"
                   style={{
-                    width: 36,
-                    height: 36,
+                    width: 44,
+                    height: 44,
                     borderRadius: '50%',
-                    background: '#fff',
+                    background: PUB.surface,
                     border: `1.5px solid ${PUB.borderStrong}`,
                     color: PUB.text,
                     fontSize: 20,
@@ -857,6 +927,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
               >
                 <button
                   onClick={() => setMoreInfoOpen((v) => !v)}
+                  aria-expanded={moreInfoOpen}
                   style={{
                     width: '100%',
                     background: 'transparent',
@@ -875,13 +946,13 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                   <span>Mai multe info</span>
                   <span
                     style={{
-                      fontSize: 16,
+                      display: 'inline-flex',
                       color: PUB.textMuted,
                       transform: moreInfoOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                       transition: 'transform 0.2s',
                     }}
                   >
-                    ▾
+                    <Icon name="chevronDown" size={16} />
                   </span>
                 </button>
 
@@ -946,9 +1017,12 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
                             textTransform: 'uppercase',
                             letterSpacing: '0.07em',
                             marginBottom: 8,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
                           }}
                         >
-                          ⚠️ Alergeni
+                          <Icon name="alert" size={12} color="#8B6914" /> Alergeni
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.allergens.map((id) => {
@@ -1012,7 +1086,7 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
             }}
             style={{
               background: canAdd ? accent : PUB.borderStrong,
-              color: canAdd ? '#fff' : '#8C7A60',
+              color: canAdd ? '#fff' : PUB.textMuted,
               border: 'none',
               borderRadius: 14,
               padding: '15px 20px',
@@ -1028,14 +1102,14 @@ function ProductSheet({ product, accent, theme, onAdd, onClose }: ProductSheetPr
               justifyContent: 'center',
               gap: 10,
               transition: 'background 0.15s',
-              boxShadow: canAdd ? '0 4px 14px rgba(200,150,60,0.35)' : 'none',
+              boxShadow: canAdd ? `0 4px 14px ${accent}59` : 'none',
             }}
           >
             <span>{canAdd ? 'Adaugă în coș' : 'Selectează opțiunile obligatorii'}</span>
             {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
             {canAdd && (
               <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>
-                {totalPrice.toFixed(2)} lei
+                {fmtPrice(totalPrice, currency)}
               </span>
             )}
           </button>

@@ -4,6 +4,8 @@ import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { confirm as confirmDialog } from './ui/confirm'
+import { Modal } from './_dashboard/sharedUI'
 
 interface ModifierOption {
   id: string
@@ -63,26 +65,41 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   // Serverul (create_order, mig 145) respinge depășirea; aici owner-ul îl poate seta.
   const [gMaxSelect, setGMaxSelect] = useState('')
   const [saving, setSaving] = useState(false)
-  const [optName, setOptName] = useState('')
-  const [optPrice, setOptPrice] = useState('0')
+  // Draft-ul de „adaugă opțiune" e PER GRUP (map pe groupId): un singur state
+  // partajat făcea ca textul tastat într-un grup să apară în toate cardurile.
+  const [optDraft, setOptDraft] = useState<Record<string, { name: string; price: string }>>({})
+  const draftFor = (groupId: string) => optDraft[groupId] ?? { name: '', price: '0' }
+  const setDraftFor = (groupId: string, patch: Partial<{ name: string; price: string }>) =>
+    setOptDraft((d) => ({ ...d, [groupId]: { ...draftFor(groupId), ...patch } }))
   const [error, setError] = useState<string | null>(null)
+  // Eroare de ÎNCĂRCARE ≠ „niciun grup": fără ea, un refuz RLS/blip de rețea
+  // (supabase-js nu aruncă) randa fals empty state-ul peste date existente.
+  const [loadError, setLoadError] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data: gData } = await supabase
+    setLoadError(false)
+    const { data: gData, error: gErr } = await supabase
       .from('modifier_groups')
       .select('*')
       .eq('restaurant_id', restaurantId)
       .order('display_order')
     const gIds = (gData ?? []).map((g: Record<string, unknown>) => g.id as string)
     let opts: Record<string, unknown>[] = []
+    let oErr: unknown = null
     if (gIds.length > 0) {
-      const { data: oData } = await supabase
+      const { data: oData, error: e2 } = await supabase
         .from('modifier_options')
         .select('*')
         .in('modifier_group_id', gIds)
         .order('display_order')
       opts = oData ?? []
+      oErr = e2
+    }
+    if (gErr || oErr) {
+      setLoadError(true)
+      setLoading(false)
+      return
     }
     const result: ModifierGroup[] = (gData ?? []).map((g: Record<string, unknown>) => ({
       id: g.id as string,
@@ -127,7 +144,11 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function saveGroup() {
-    if (!gName.trim()) return
+    // Fără return tăcut: click pe „Salvează" cu numele gol arăta un buton „stricat".
+    if (!gName.trim()) {
+      setError('Numele e obligatoriu')
+      return
+    }
     setSaving(true)
     setError(null)
     // max_select se aplică DOAR la „multiple"; gol/0/negativ = nelimitat (null).
@@ -176,6 +197,20 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function deleteGroup(id: string) {
+    const g = groups.find((x) => x.id === id)
+    const nOpts = g?.modifier_options.length ?? 0
+    // Ștergere ireversibilă (FK on delete cascade pe opțiuni) — fără confirmare,
+    // o atingere greșită pierdea tot grupul; inconsistent cu CategoriesTab.
+    const ok = await confirmDialog({
+      title: `Ștergi grupul „${g?.name ?? ''}"?`,
+      description:
+        nOpts > 0
+          ? `Se șterg definitiv și cele ${nOpts} opțiuni ale lui.`
+          : 'Acțiunea nu poate fi anulată.',
+      confirmLabel: 'Șterge',
+      destructive: true,
+    })
+    if (!ok) return
     setError(null)
     const { error: e } = await supabase.from('modifier_groups').delete().eq('id', id)
     // Nu mai înghițim tăcut un refuz RLS / eroare de rețea: dacă pică, anunțăm
@@ -188,21 +223,21 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
   }
 
   async function addOption(groupId: string) {
-    if (!optName.trim()) return
+    const draft = draftFor(groupId)
+    if (!draft.name.trim()) return
     setError(null)
     const maxOrder = groups.find((g) => g.id === groupId)?.modifier_options.length ?? 0
     const { error: e } = await supabase.from('modifier_options').insert({
       modifier_group_id: groupId,
-      name: optName.trim(),
-      price_delta: parseFloat(optPrice) || 0,
+      name: draft.name.trim(),
+      price_delta: parseFloat(draft.price) || 0,
       display_order: maxOrder,
     })
     if (e) {
       setError(e.message)
       return
     }
-    setOptName('')
-    setOptPrice('0')
+    setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
     await load()
   }
 
@@ -285,6 +320,22 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
 
       {loading ? (
         <Skeleton variant="card" count={2} />
+      ) : loadError ? (
+        <div
+          style={{
+            padding: 20,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            background: D.s2,
+            color: D.t2,
+            textAlign: 'center',
+          }}
+        >
+          <div style={{ marginBottom: 12 }}>Nu am putut încărca grupurile de opțiuni.</div>
+          <button onClick={() => void load()} style={btn({ background: D.gold, color: '#000' })}>
+            Reîncearcă
+          </button>
+        </div>
       ) : groups.length === 0 ? (
         <EmptyState
           icon="tag"
@@ -326,6 +377,10 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                   {g.selection_type === 'single'
                     ? 'Selecție unică'
                     : 'Selecție multiplă'}
+                  {/* Plafonul de selecții e vizibil pe card — altfel patronul trebuia
+                      să redeschidă editorul ca să verifice ce aplică serverul la comenzi. */}
+                  {g.max_select != null &&
+                    ` · max ${g.max_select} ${g.max_select === 1 ? 'opțiune' : 'opțiuni'}`}
                   {g.is_required && (
                     <span style={{ color: D.gold, marginLeft: 6 }}>Obligatoriu</span>
                   )}
@@ -376,8 +431,19 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                 }}
               >
                 <span style={{ flex: 1, fontSize: '0.85rem', color: D.t1 }}>{o.name}</span>
-                <span style={{ fontSize: '0.82rem', color: o.price_delta > 0 ? D.gold : D.t3 }}>
-                  {o.price_delta > 0 ? '+' + o.price_delta + ' lei' : 'Inclus'}
+                {/* Negativul e o REDUCERE și trebuie văzut ca atare — afișat ca „Inclus"
+                    ascundea o greșeală de introducere. Virgulă zecimală (ro-RO), nu punct. */}
+                <span
+                  style={{
+                    fontSize: '0.82rem',
+                    color: o.price_delta > 0 ? D.gold : o.price_delta < 0 ? D.green : D.t3,
+                  }}
+                >
+                  {o.price_delta > 0
+                    ? '+' + o.price_delta.toLocaleString('ro-RO') + ' lei'
+                    : o.price_delta < 0
+                      ? '−' + Math.abs(o.price_delta).toLocaleString('ro-RO') + ' lei'
+                      : 'Inclus'}
                 </span>
                 <button
                   onClick={() => void toggleOption(o.id, o.is_available)}
@@ -389,6 +455,8 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     cursor: 'pointer',
                     fontSize: 14,
                     color: o.is_available ? D.green : D.t3,
+                    minWidth: 44,
+                    minHeight: 44,
                   }}
                 >
                   {/* Caracterele ●/○ direct — entitatea HTML NU se decodează într-o
@@ -404,7 +472,10 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
                     cursor: 'pointer',
                     display: 'inline-flex',
                     alignItems: 'center',
+                    justifyContent: 'center',
                     color: D.red,
+                    minWidth: 44,
+                    minHeight: 44,
                   }}
                 >
                   <Icon name="trash" size={14} />
@@ -413,16 +484,18 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
             ))}
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <input
-                value={optName}
-                onChange={(e) => setOptName(e.target.value)}
+                value={draftFor(g.id).name}
+                onChange={(e) => setDraftFor(g.id, { name: e.target.value })}
                 placeholder="Nume opțiune"
+                aria-label={'Nume opțiune nouă pentru grupul ' + g.name}
                 style={{ ...inp, flex: '1 1 120px', height: 36, fontSize: '0.82rem' }}
               />
               <input
                 type="number"
-                value={optPrice}
-                onChange={(e) => setOptPrice(e.target.value)}
+                value={draftFor(g.id).price}
+                onChange={(e) => setDraftFor(g.id, { price: e.target.value })}
                 placeholder="+lei"
+                aria-label={'Preț suplimentar pentru opțiunea nouă din grupul ' + g.name}
                 style={{ ...inp, width: 70, height: 36, fontSize: '0.82rem' }}
               />
               <button
@@ -445,40 +518,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       )}
 
       {editGroup != null && (
-        <div
-          onClick={() => setEditGroup(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.75)',
-            zIndex: 1000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
+        /* Modal partajat (sharedUI): portal la <body> + scroll-lock + maxHeight 90vh —
+           overlay-ul construit manual lăsa pagina să deruleze sub modal pe mobil. */
+        <Modal
+          title={editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
+          onClose={() => setEditGroup(null)}
+          width={400}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: D.s2,
-              border: `1px solid ${D.border}`,
-              borderRadius: 16,
-              width: '100%',
-              maxWidth: 400,
-              padding: 24,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: 'Fraunces,serif',
-                fontSize: '1.05rem',
-                color: D.t1,
-                marginBottom: 20,
-              }}
-            >
-              {editGroup === 'add' ? 'Grup nou' : 'Editează grup'}
-            </div>
+          <div>
             <div style={{ marginBottom: 14 }}>
               <label
                 style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}
@@ -596,7 +643,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
               </button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )

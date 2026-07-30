@@ -23,6 +23,12 @@ const OBLIO_TEST_BASE = 'https://test.oblio.eu/api'  // sandbox dacă există
 
 const FETCH_TIMEOUT_MS = 9000
 
+// OPT-R2: tokenCache la nivel de MODUL — pe VPS (proces Node persistent) și
+// între invocări Netlify calde, token-ul Oblio (expiră ~3600s) se refolosește
+// în loc de re-autentificare la fiecare rulare cron (2 min). Evicția pe 401
+// (rotație de api_secret) se auto-corectează la primul apel.
+const tokenCache = new Map()
+
 // Fetch cu timeout explicit via AbortController — un Oblio agățat nu trebuie
 // să blocheze cron-ul (rulează la fiecare 2 min) peste durata funcției Netlify.
 async function fetchWithTimeout(url, options) {
@@ -55,14 +61,14 @@ exports.handler = async () => {
     return { statusCode: 200, body: 'No queued invoices' }
   }
 
-  // Token cache per (api_email + test_mode) for batch — o cheie compusă previne
-  // reutilizarea unui token sandbox pe API-ul live (sau invers) când aceeași
-  // adresă de email are atât credențiale test, cât și live în coadă.
-  const tokenCache = new Map()
-
   let issued = 0, failed = 0
 
   for (const inv of queued) {
+    // Faza contează pentru clasificarea eșecului: DOAR erorile de la POST încolo
+    // (factura POATE fi creată la Oblio) sunt „ambigue"/terminale. Erorile de
+    // dinainte de POST (auth token, fetch order/linii) NU pot lăsa o factură la
+    // Oblio → sunt SIGUR retryabile (nu bloca facturi legitime pe un blip de rețea).
+    let postAttempted = false
     try {
       // Get / refresh access token — cache-uit cu expirare; re-autentificăm
       // proactiv dacă tokenul curent a expirat (sau e pe cale să expire).
@@ -80,11 +86,15 @@ exports.handler = async () => {
       // Compose Oblio payload
       const payload = composeOblioInvoice(inv, lineItems)
 
-      // POST to Oblio
+      // POST to Oblio — de aici încolo o factură POATE exista la Oblio.
+      postAttempted = true
       const oblio = await postOblioInvoice(payload, token, inv.test_mode)
 
-      // Mark issued
-      await supabase.rpc('bridge_oblio_mark_issued', {
+      // Mark issued — supabase-js NU aruncă pe eroare, întoarce {error}. Dacă
+      // înregistrarea eșuează (blip DB) DUPĂ un POST reușit, factura E creată la
+      // Oblio dar rândul rămâne 'generating' → un retry ar produce DUPLICAT.
+      // Ridicăm un throw marcat ca „emisă" ca să cadă pe ramura AMBIGUĂ (terminal).
+      const { error: markErr } = await supabase.rpc('bridge_oblio_mark_issued', {
         p_invoice_id: inv.invoice_id,
         p_series:     oblio.seriesName || inv.default_series,
         p_number:     String(oblio.number || ''),
@@ -92,15 +102,44 @@ exports.handler = async () => {
         p_einvoice:   oblio.einvoice || null,
         p_token:      oblio.token || null,
       })
+      if (markErr) {
+        const e = new Error(
+          `factură EMISĂ la Oblio (${oblio.seriesName}-${oblio.number}) dar înregistrarea a eșuat: ${markErr.message}`,
+        )
+        e.oblioIssued = true
+        throw e
+      }
       issued++
 
       console.log(`[oblio] Issued ${oblio.seriesName}-${oblio.number} for invoice ${inv.invoice_id}`)
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err)
-      console.error(`[oblio] Failed for invoice ${inv.invoice_id}:`, errMsg)
-      await supabase.rpc('bridge_oblio_mark_failed', {
+      // Rezultat AMBIGUU: factura POATE fi deja creată la Oblio, iar un retry
+      // automat ar produce un DUPLICAT fiscal. Ambiguu DOAR când:
+      //   (a) factura a fost emisă dar înregistrarea a eșuat (err.oblioIssued), SAU
+      //   (b) POST-ul a fost atins ȘI eroarea e de tip abort/rețea/socket (inclusiv
+      //       undici „terminated"/UND_ERR mid-response, care ratau regex-ul vechi
+      //       → erau tratate ca eșec clar → requeue → DUPLICAT).
+      // O eroare 4xx de la Oblio (factura sigur NU s-a creat) NU prinde regex-ul →
+      // rămâne retry auto sigur. Erorile DINAINTE de POST (postAttempted=false) nu
+      // sunt niciodată ambigue → retry sigur.
+      const ambiguous =
+        err?.oblioIssued === true ||
+        (postAttempted &&
+          (err?.name === 'AbortError' ||
+            /aborted|timeout|terminated|socket|other side closed|network|fetch failed|ECONNRESET|ETIMEDOUT|EPIPE|UND_ERR/i.test(
+              errMsg,
+            )))
+      const storedErr = ambiguous
+        ? `POSIBIL DUPLICAT — verifică în Oblio (order:${inv.order_id}) înainte de retry. Cauză: ${errMsg}`
+        : errMsg
+      console.error(`[oblio] Failed for invoice ${inv.invoice_id}${ambiguous ? ' (AMBIGUU/posibil duplicat)' : ''}:`, errMsg)
+      // AMBIGUU → mark_ambiguous (mig 218: status='failed', FĂRĂ requeue) ca cron-ul
+      // să NU reia; founderul verifică în Oblio și retrimite MANUAL. Clar/pre-POST →
+      // mark_failed (retry auto sigur).
+      await supabase.rpc(ambiguous ? 'bridge_oblio_mark_ambiguous' : 'bridge_oblio_mark_failed', {
         p_invoice_id: inv.invoice_id,
-        p_error:      errMsg.slice(0, 1000),
+        p_error:      storedErr.slice(0, 1000),
       })
       failed++
 
@@ -181,9 +220,9 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     throw new Error(`Order ${orderId} has no items`)
   }
 
-  // Get VAT rates for the restaurant
+  // Get VAT rates for the restaurant + totalul REAL (post-discount) al comenzii.
   const { data: order } = await supabase
-    .from('orders').select('restaurant_id').eq('id', orderId).single()
+    .from('orders').select('restaurant_id, total, discount_amount').eq('id', orderId).single()
 
   const { data: vatRates } = await supabase
     .from('vat_rates')
@@ -195,7 +234,8 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     vatMap[v.vat_group] = parseFloat(v.rate_percent)
   }
 
-  return items.map((it) => {
+  // Normalizăm întâi liniile la GROSS/unitate (TVA inclus, ca order.total).
+  const rows = items.map((it) => {
     const name = it.products?.name || 'Produs'
     const vatGroup = it.products?.vat_group ?? 1
     // Aliniat cu src/lib/vat.ts getVatRate: o grupă TVA lipsă din configurație e un
@@ -206,8 +246,6 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       throw new Error(`Grupă TVA ${vatGroup} lipsă din configurație pentru produsul ${name}`)
     }
     const vatPercent = vatMap[vatGroup]
-    // #6: pretul de linie = item_total/quantity (include modifier + extras deltas), nu doar
-    // pretul de baza al produsului — altfel totalul facturii diverge de order.total.
     // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
     // a trimite la Oblio (altfel price s-ar calcula cu un fallback iar payload-ul ar trimite
     // cantitatea originală invalidă → total divergent).
@@ -215,24 +253,41 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
     if (!Number.isFinite(qty) || qty <= 0) {
       throw new Error(`Cantitate invalidă pe linia de comandă (produs: ${name})`)
     }
-    // item_total / unit_price_snapshot sunt GROSS (prețul plătit de client, TVA INCLUS;
-    // order.total = Σ item_total). Oblio interpretează `price` în funcție de `vatIncluded`:
-    //   - vatIncluded=true  → price e gross, Oblio nu mai adaugă TVA;
-    //   - vatIncluded=false → price e NET, Oblio adaugă TVA pe deasupra.
-    // Trimiteam mereu gross-ul, dar cu vatIncluded din config → când config-ul cere
-    // prețuri fără TVA, Oblio adăuga TVA peste gross și totalul facturii ieșea
-    // order.total*(1+TVA), divergent de suma încasată. Fix: derivă NET-ul când
-    // vatIncluded=false, ca totalul facturii să rămână = gross-ul plătit în ambele cazuri.
+    // #6: prețul de linie = item_total/quantity (include modifier + extras deltas), nu doar
+    // prețul de bază al produsului. item_total/unit_price_snapshot sunt GROSS (TVA inclus).
     const grossUnit =
       it.item_total != null
         ? parseFloat(it.item_total) / qty
         : parseFloat(it.unit_price_snapshot)
-    const price = vatIncluded ? grossUnit : grossUnit / (1 + vatPercent / 100)
+    return { name, qty, vatPercent, grossUnit }
+  })
+
+  // ── Discount la nivel de comandă (HIGH-1) ──────────────────────────────────
+  // Liniile (item_total) sunt PRE-discount, dar order.total e POST-discount
+  // (mig 031: total = subtotal − discount_amount) — și exact order.total e ce a
+  // plătit clientul și ce s-a fiscalizat pe casă. Fără corecție, factura Oblio
+  // supra-factura cu discount_amount (TVA supradeclarat + factură ≠ bon ≠ încasat).
+  // Distribuim discount-ul PROPORȚIONAL scalând fiecare linie cu order.total/subtotal;
+  // TVA per linie rămâne corect (proporțional redus), iar Σ linii = order.total.
+  const subtotalGross = rows.reduce((s, r) => s + r.grossUnit * r.qty, 0)
+  const orderTotal = order && order.total != null ? parseFloat(order.total) : NaN
+  const discountAmount = order && order.discount_amount != null ? parseFloat(order.discount_amount) : 0
+  const factor =
+    discountAmount > 0 && subtotalGross > 0 && Number.isFinite(orderTotal)
+      ? orderTotal / subtotalGross
+      : 1
+
+  return rows.map((r) => {
+    const grossUnit = r.grossUnit * factor
+    // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
+    // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
+    // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
+    const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
     return {
-      name,
-      quantity: it.quantity,
+      name: r.name,
+      quantity: r.qty,
       price,
-      vatPercentage: vatPercent,
+      vatPercentage: r.vatPercent,
       vatIncluded,
     }
   })

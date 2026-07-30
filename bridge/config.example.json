@@ -13,5 +13,14 @@
     "encoding": "utf8",
     "timeoutMs": 30000,
     "pollResponseMs": 500
+  },
+  "kitchen": {
+    "enabled": false,
+    "mode": "tcp",
+    "host": "192.168.1.100",
+    "port": 9100,
+    "dir": "C:\\Menuvia\\Tichete",
+    "timeoutMs": 10000,
+    "transliterate": true
   }
 }

@@ -1,10 +1,229 @@
-import { useEffect, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
-import { fetchRestaurantFeatures, getLimit } from '../lib/features'
+import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
+
+// ─── Limbă UI ────────────────────────────────────────────────
+// Citită o singură dată, la încărcarea modulului — nu e state, nu se
+// schimbă mid-flow. Convenția: cheia localStorage 'menuvia_ui_lang'
+// ('ro' | 'en'), setată de /auth prin ?lang=en. Default absolut: 'ro'.
+const lang: 'ro' | 'en' = localStorage.getItem('menuvia_ui_lang') === 'en' ? 'en' : 'ro'
+
+const S = {
+  ro: {
+    common: {
+      progressLabel: (step: number, total: number) => `Pas ${step} din ${total}`,
+    },
+    step1: {
+      title: 'Configurează restaurantul',
+      subtitle: 'Informații de bază — le poți schimba oricând din Setări.',
+      nameLabel: 'Numele restaurantului *',
+      namePlaceholder: 'La Bella Trattoria',
+      cityLabel: 'Oraș',
+      cityPlaceholder: 'Focșani',
+      slugLabel: 'URL meniu public',
+      slugPrefix: 'menuvia.ro/m/',
+      slugPlaceholder: 'la-bella-trattoria',
+      nameRequiredError: 'Numele restaurantului este obligatoriu.',
+      unknownError: 'Eroare necunoscută',
+      slugTakenError: 'Acest URL e deja folosit. Alege altul.',
+      savingBtn: 'Se creează...',
+      continueBtn: 'Continuă →',
+    },
+    step2: {
+      title: 'Adaugă primul produs',
+      subtitle: 'Un produs e de ajuns acum. Adaugi restul din dashboard.',
+      categoryLabel: 'Categorie',
+      quickCats: [
+        { name: 'Aperitive', emoji: '🥗' },
+        { name: 'Feluri principale', emoji: '🍽️' },
+        { name: 'Pizza', emoji: '🍕' },
+        { name: 'Paste', emoji: '🍝' },
+        { name: 'Deserturi', emoji: '🍰' },
+        { name: 'Băuturi', emoji: '🥤' },
+      ],
+      defaultCatName: 'Feluri principale',
+      defaultCatEmoji: '🍽️',
+      catEmojiAriaLabel: 'Emoji categorie',
+      catNamePlaceholder: 'Feluri principale',
+      productLabel: 'Produs *',
+      prodEmojiAriaLabel: 'Emoji produs',
+      prodNamePlaceholder: 'Spaghete Carbonara',
+      priceLabel: 'Preț (lei) *',
+      pricePlaceholder: '32',
+      categoryNameRequiredError: 'Numele categoriei este obligatoriu.',
+      productNameRequiredError: 'Numele produsului este obligatoriu.',
+      priceError: 'Prețul trebuie să fie un număr pozitiv.',
+      savingBtn: 'Se salvează...',
+      saveContinueBtn: 'Salvează și continuă →',
+      skipBtn: 'Sari peste acest pas →',
+    },
+    step3: {
+      title: 'Câte mese are restaurantul?',
+      subtitle:
+        'Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le redenumești din dashboard.',
+      // Numele/slug-ul meselor create urmează limba fluxului — subtitlul de
+      // mai sus promite exact schema asta de numire.
+      tableName: (n: number) => `Masa ${n}`,
+      tableSlug: (n: number) => `masa-${n}`,
+      decreaseAria: 'Scade numărul de mese',
+      increaseAria: 'Crește numărul de mese',
+      tablesUnit: 'mese',
+      planHintPrefix: 'Planul tău include până la ',
+      planHintTables: (n: number) => `${n} mese`,
+      planHintSuffix: '. Poți adăuga mai multe oricând cu un upgrade.',
+      createsTablesPrefix: 'Se creează ',
+      createsTablesBold: (n: number) => `${n} mese`,
+      createsTablesSuffix: ' cu QR-uri unice',
+      pdfPrefix: 'PDF gata de printat din tab-ul ',
+      pdfTabName: 'Mese & QR',
+      renameAnytime: 'Le redenumești sau ștergi oricând',
+      tableCountRangeError: (cap: number) => `Numărul de mese trebuie să fie între 1 și ${cap}.`,
+      planLimitKnownError: (maxTables: number) =>
+        `Planul tău permite maximum ${maxTables} mese. Alege mai puține sau fă upgrade pentru mai multe.`,
+      planLimitUnknownError:
+        'Planul tău nu permite atâtea mese. Alege mai puține sau fă upgrade pentru mai multe.',
+      createTablesGenericError: 'Nu am putut crea mesele. Reîncearcă.',
+      pickupActivateError: 'Nu am putut activa modul de ridicare. Reîncearcă.',
+      creatingTablesBtn: (count: number) => `Se creează ${count} mese...`,
+      createTablesBtn: (count: number) => `Creează ${count} mese →`,
+      skipBtn: 'Sari peste acest pas →',
+      pickupOnlyBtn: 'Nu am mese — doar ridicare (food truck) →',
+      pickupHint:
+        'Comenzile pentru ridicare necesită planul 🛎 Meniu + Comenzi — meniul QR general funcționează și pe planul curent.',
+    },
+    step4: {
+      title: 'Ești gata!',
+      subtitle: 'Restaurantul tău e configurat și live.',
+      achievements: [
+        { icon: 'home' as IconName, title: 'Restaurant creat' },
+        { icon: 'menu' as IconName, title: 'Meniu configurat' },
+        { icon: 'table' as IconName, title: 'Mese și QR-uri' },
+        { icon: 'qr' as IconName, title: 'Gata de comenzi' },
+      ],
+      achievementDoneLabel: 'finalizat',
+      menuLinkLabel: 'Link meniu public',
+      copyBtnAriaLabel: 'Copiază link-ul meniului',
+      copiedLabel: 'Copiat!',
+      copyLabel: 'Copiază',
+      nextStepsTitle: 'Următorii pași în dashboard:',
+      nextStepAddProducts: 'Adaugă restul produselor din meniu',
+      nextStepPrintQr: 'Printează QR-urile din tab-ul Mese & QR',
+      nextStepInviteTeam: 'Invită echipa din Setări → Echipă (de la planul Meniu + Comenzi)',
+      nextStepTrackOrders: 'Urmărește comenzile live din Bucătărie',
+      finishingBtn: 'Se deschide...',
+      doneBtn: 'Deschide dashboard-ul →',
+    },
+  },
+  en: {
+    common: {
+      progressLabel: (step: number, total: number) => `Step ${step} of ${total}`,
+    },
+    step1: {
+      title: 'Set up your restaurant',
+      subtitle: "Basic info — you can change it anytime from Settings.",
+      nameLabel: 'Restaurant name *',
+      namePlaceholder: 'The Golden Fork',
+      cityLabel: 'City',
+      cityPlaceholder: 'Manchester',
+      slugLabel: 'Public menu URL',
+      slugPrefix: 'menuvia.ro/m/',
+      slugPlaceholder: 'the-golden-fork',
+      nameRequiredError: 'Restaurant name is required.',
+      unknownError: 'Unknown error',
+      slugTakenError: 'This URL is already taken. Choose another one.',
+      savingBtn: 'Creating...',
+      continueBtn: 'Continue →',
+    },
+    step2: {
+      title: 'Add your first product',
+      subtitle: 'One product is enough for now. Add the rest from the dashboard.',
+      categoryLabel: 'Category',
+      quickCats: [
+        { name: 'Starters', emoji: '🥗' },
+        { name: 'Main Courses', emoji: '🍽️' },
+        { name: 'Pizza', emoji: '🍕' },
+        { name: 'Pasta', emoji: '🍝' },
+        { name: 'Desserts', emoji: '🍰' },
+        { name: 'Drinks', emoji: '🥤' },
+      ],
+      defaultCatName: 'Main Courses',
+      defaultCatEmoji: '🍽️',
+      catEmojiAriaLabel: 'Category emoji',
+      catNamePlaceholder: 'Main Courses',
+      productLabel: 'Product *',
+      prodEmojiAriaLabel: 'Product emoji',
+      prodNamePlaceholder: 'Grilled Chicken Sandwich',
+      priceLabel: 'Price (RON) *',
+      pricePlaceholder: '32',
+      categoryNameRequiredError: 'Category name is required.',
+      productNameRequiredError: 'Product name is required.',
+      priceError: 'Price must be a positive number.',
+      savingBtn: 'Saving...',
+      saveContinueBtn: 'Save and continue →',
+      skipBtn: 'Skip this step →',
+    },
+    step3: {
+      title: 'How many tables does your restaurant have?',
+      subtitle:
+        "We'll create automatically numbered tables (Table 1, Table 2...) with QR codes ready to print. You can rename them from the dashboard.",
+      tableName: (n: number) => `Table ${n}`,
+      tableSlug: (n: number) => `table-${n}`,
+      decreaseAria: 'Decrease table count',
+      increaseAria: 'Increase table count',
+      tablesUnit: 'tables',
+      planHintPrefix: 'Your plan includes up to ',
+      planHintTables: (n: number) => `${n} tables`,
+      planHintSuffix: '. You can add more anytime with an upgrade.',
+      createsTablesPrefix: 'This creates ',
+      createsTablesBold: (n: number) => `${n} tables`,
+      createsTablesSuffix: ' with unique QR codes',
+      pdfPrefix: 'PDF ready to print from the ',
+      pdfTabName: 'Tables & QR',
+      renameAnytime: 'Rename or delete them anytime',
+      tableCountRangeError: (cap: number) => `The number of tables must be between 1 and ${cap}.`,
+      planLimitKnownError: (maxTables: number) =>
+        `Your plan allows a maximum of ${maxTables} tables. Choose fewer or upgrade for more.`,
+      planLimitUnknownError:
+        "Your plan doesn't allow that many tables. Choose fewer or upgrade for more.",
+      createTablesGenericError: "We couldn't create the tables. Try again.",
+      pickupActivateError: "We couldn't enable pickup mode. Try again.",
+      creatingTablesBtn: (count: number) => `Creating ${count} tables...`,
+      createTablesBtn: (count: number) => `Create ${count} tables →`,
+      skipBtn: 'Skip this step →',
+      pickupOnlyBtn: 'No tables — pickup only (food truck) →',
+      pickupHint:
+        'Pickup orders require the 🛎 Menu + Orders plan — the general QR menu still works on your current plan.',
+    },
+    step4: {
+      title: "You're all set!",
+      subtitle: 'Your restaurant is set up and live.',
+      achievements: [
+        { icon: 'home' as IconName, title: 'Restaurant created' },
+        { icon: 'menu' as IconName, title: 'Menu set up' },
+        { icon: 'table' as IconName, title: 'Tables and QR codes' },
+        { icon: 'qr' as IconName, title: 'Ready for orders' },
+      ],
+      achievementDoneLabel: 'done',
+      menuLinkLabel: 'Public menu link',
+      copyBtnAriaLabel: 'Copy the menu link',
+      copiedLabel: 'Copied!',
+      copyLabel: 'Copy',
+      nextStepsTitle: 'Next steps in the dashboard:',
+      nextStepAddProducts: 'Add the rest of your menu items',
+      nextStepPrintQr: 'Print the QR codes from the Tables & QR tab',
+      nextStepInviteTeam: 'Invite your team from Settings → Team (from the Menu + Orders plan)',
+      nextStepTrackOrders: 'Track live orders from the Kitchen',
+      finishingBtn: 'Opening...',
+      doneBtn: 'Open the dashboard →',
+    },
+  },
+} as const
+
+const t = S[lang]
 
 // ─── Helpers ─────────────────────────────────────────────────
 const inp: React.CSSProperties = {
@@ -39,6 +258,8 @@ const btnSecondary: React.CSSProperties = {
   fontSize: '0.85rem',
   cursor: 'pointer',
   padding: '8px 0',
+  // Touch target ≥44px (onboarding-ul se face tipic de pe telefon)
+  minHeight: 44,
   textDecoration: 'underline',
 }
 const btnDisabled: React.CSSProperties = {
@@ -88,13 +309,20 @@ function Progress({ step, total = 4 }: { step: number; total?: number }) {
             textTransform: 'uppercase',
           }}
         >
-          Pas {step} din {total}
+          {t.common.progressLabel(step, total)}
         </span>
         <span style={{ fontSize: '0.75rem', color: D.t3 }}>
           {Math.round((step / total) * 100)}%
         </span>
       </div>
-      <div style={{ height: 4, background: D.s3, borderRadius: 2, overflow: 'hidden' }}>
+      <div
+        role="progressbar"
+        aria-valuemin={1}
+        aria-valuemax={total}
+        aria-valuenow={step}
+        aria-label={t.common.progressLabel(step, total)}
+        style={{ height: 4, background: D.s3, borderRadius: 2, overflow: 'hidden' }}
+      >
         <div
           style={{
             height: '100%',
@@ -105,8 +333,11 @@ function Progress({ step, total = 4 }: { step: number; total?: number }) {
           }}
         />
       </div>
-      {/* Step dots */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
+      {/* Step dots — pur decorative; informația e deja în „Pas X din Y" */}
+      <div
+        aria-hidden="true"
+        style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}
+      >
         {Array.from({ length: total }, (_, i) => (
           <div
             key={i}
@@ -208,7 +439,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      setError('Numele restaurantului este obligatoriu.')
+      setError(t.step1.nameRequiredError)
       return
     }
     setSaving(true)
@@ -223,8 +454,8 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
       })
       onNext(created.restaurant_id, created.restaurant_slug)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
-      setError(msg.includes('slug') ? 'Acest URL e deja folosit. Alege altul.' : msg)
+      const msg = err instanceof Error ? err.message : t.step1.unknownError
+      setError(msg.includes('slug') ? t.step1.slugTakenError : msg)
       setSaving(false)
     }
   }
@@ -241,21 +472,24 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           letterSpacing: '-0.02em',
         }}
       >
-        Configurează restaurantul
+        {t.step1.title}
       </h1>
       <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
-        Informații de bază — le poți schimba oricând din Setări.
+        {t.step1.subtitle}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div>
-          <label style={label}>Numele restaurantului *</label>
+          <label htmlFor="ob-name" style={label}>
+            {t.step1.nameLabel}
+          </label>
           <input
+            id="ob-name"
             value={name}
             onChange={(e) => {
               setName(e.target.value)
               setSlug(slugify(e.target.value))
             }}
-            placeholder="La Bella Trattoria"
+            placeholder={t.step1.namePlaceholder}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
@@ -263,18 +497,23 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           />
         </div>
         <div>
-          <label style={label}>Oraș</label>
+          <label htmlFor="ob-city" style={label}>
+            {t.step1.cityLabel}
+          </label>
           <input
+            id="ob-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            placeholder="Focșani"
+            placeholder={t.step1.cityPlaceholder}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
         </div>
         <div>
-          <label style={label}>URL meniu public</label>
+          <label htmlFor="ob-slug" style={label}>
+            {t.step1.slugLabel}
+          </label>
           <div
             style={{
               display: 'flex',
@@ -298,12 +537,13 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
                 whiteSpace: 'nowrap',
               }}
             >
-              menuvia.ro/m/
+              {t.step1.slugPrefix}
             </span>
             <input
+              id="ob-slug"
               value={slug}
               onChange={(e) => setSlug(slugify(e.target.value))}
-              placeholder="la-bella-trattoria"
+              placeholder={t.step1.slugPlaceholder}
               style={{ ...inp, borderRadius: 0, border: 'none' }}
             />
           </div>
@@ -314,7 +554,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           disabled={saving || !name.trim()}
           style={saving || !name.trim() ? btnDisabled : btnPrimary}
         >
-          {saving ? 'Se creează...' : 'Continuă →'}
+          {saving ? t.step1.savingBtn : t.step1.continueBtn}
         </button>
       </div>
     </Shell>
@@ -333,61 +573,64 @@ function Step2Menu({
   onNext: () => void
   onSkip: () => void
 }) {
-  const [catName, setCatName] = useState('Feluri principale')
-  const [catEmoji, setCatEmoji] = useState('🍽️')
+  // <string> explicit: fără el, tipurile React inferează LITERALUL din
+  // `as const` („Feluri principale" | „Main Courses") → setCatName(e.target.value)
+  // pică pe Netlify cu TS2345 (invizibil pe tsc-ul standalone — capcana din
+  // CLAUDE.md cu erorile dependente de tipurile React).
+  const [catName, setCatName] = useState<string>(t.step2.defaultCatName)
+  const [catEmoji, setCatEmoji] = useState<string>(t.step2.defaultCatEmoji)
   const [prodName, setProdName] = useState('')
   const [prodPrice, setProdPrice] = useState('')
   const [prodEmoji, setProdEmoji] = useState('🍕')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Categoria creată se reține între încercări: pe retry după eșecul produsului,
+  // NU mai inserăm o categorie nouă (duplicat), refolosim id-ul deja creat.
+  const createdCatId = useRef<string | null>(null)
 
-  const QUICK_CATS = [
-    { name: 'Aperitive', emoji: '🥗' },
-    { name: 'Feluri principale', emoji: '🍽️' },
-    { name: 'Pizza', emoji: '🍕' },
-    { name: 'Paste', emoji: '🍝' },
-    { name: 'Deserturi', emoji: '🍰' },
-    { name: 'Băuturi', emoji: '🥤' },
-  ]
+  const QUICK_CATS = t.step2.quickCats
 
   const handleSave = async () => {
     if (!catName.trim()) {
-      setError('Numele categoriei este obligatoriu.')
+      setError(t.step2.categoryNameRequiredError)
       return
     }
     if (!prodName.trim()) {
-      setError('Numele produsului este obligatoriu.')
+      setError(t.step2.productNameRequiredError)
       return
     }
     const price = parseFloat(prodPrice)
     if (!prodPrice || isNaN(price) || price <= 0) {
-      setError('Prețul trebuie să fie un număr pozitiv.')
+      setError(t.step2.priceError)
       return
     }
     setSaving(true)
     setError(null)
 
-    // Create category
-    const { data: cat, error: catErr } = await supabase
-      .from('categories')
-      .insert({
-        restaurant_id: restaurantId,
-        name: catName.trim(),
-        emoji: catEmoji,
-        display_order: 0,
-      })
-      .select('id')
-      .single()
-    if (catErr) {
-      setError(catErr.message)
-      setSaving(false)
-      return
+    // Create category — o singură dată; pe retry refolosim id-ul reținut.
+    if (!createdCatId.current) {
+      const { data: cat, error: catErr } = await supabase
+        .from('categories')
+        .insert({
+          restaurant_id: restaurantId,
+          name: catName.trim(),
+          emoji: catEmoji,
+          display_order: 0,
+        })
+        .select('id')
+        .single()
+      if (catErr) {
+        setError(catErr.message)
+        setSaving(false)
+        return
+      }
+      createdCatId.current = cat.id as string
     }
 
     // Create product
     const { error: prodErr } = await supabase.from('products').insert({
       restaurant_id: restaurantId,
-      category_id: cat.id,
+      category_id: createdCatId.current,
       name: prodName.trim(),
       price,
       emoji: prodEmoji,
@@ -417,15 +660,17 @@ function Step2Menu({
           letterSpacing: '-0.02em',
         }}
       >
-        Adaugă primul produs
+        {t.step2.title}
       </h1>
       <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
-        Un produs e de ajuns acum. Adaugi restul din dashboard.
+        {t.step2.subtitle}
       </p>
 
       {/* Quick cat select */}
       <div style={{ marginBottom: 14 }}>
-        <label style={label}>Categorie</label>
+        <label htmlFor="ob-cat-name" style={label}>
+          {t.step2.categoryLabel}
+        </label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
           {QUICK_CATS.map((c) => (
             <button
@@ -434,8 +679,10 @@ function Step2Menu({
                 setCatName(c.name)
                 setCatEmoji(c.emoji)
               }}
+              aria-pressed={catName === c.name}
               style={{
                 padding: '5px 11px',
+                minHeight: 44,
                 fontSize: '0.78rem',
                 borderRadius: 7,
                 fontFamily: 'DM Sans,sans-serif',
@@ -454,6 +701,7 @@ function Step2Menu({
           <input
             value={catEmoji}
             onChange={(e) => setCatEmoji(e.target.value)}
+            aria-label={t.step2.catEmojiAriaLabel}
             style={{
               ...inp,
               width: 60,
@@ -465,9 +713,10 @@ function Step2Menu({
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
           <input
+            id="ob-cat-name"
             value={catName}
             onChange={(e) => setCatName(e.target.value)}
-            placeholder="Feluri principale"
+            placeholder={t.step2.catNamePlaceholder}
             style={{ ...inp, flex: 1 }}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
             onBlur={(e) => (e.target.style.borderColor = D.border)}
@@ -479,11 +728,14 @@ function Step2Menu({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
         <div>
-          <label style={label}>Produs *</label>
+          <label htmlFor="ob-prod-name" style={label}>
+            {t.step2.productLabel}
+          </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
               value={prodEmoji}
               onChange={(e) => setProdEmoji(e.target.value)}
+              aria-label={t.step2.prodEmojiAriaLabel}
               style={{
                 ...inp,
                 width: 60,
@@ -495,9 +747,10 @@ function Step2Menu({
               onBlur={(e) => (e.target.style.borderColor = D.border)}
             />
             <input
+              id="ob-prod-name"
               value={prodName}
               onChange={(e) => setProdName(e.target.value)}
-              placeholder="Spaghete Carbonara"
+              placeholder={t.step2.prodNamePlaceholder}
               style={{ ...inp, flex: 1 }}
               autoFocus
               onFocus={(e) => (e.target.style.borderColor = D.gold)}
@@ -506,11 +759,14 @@ function Step2Menu({
           </div>
         </div>
         <div>
-          <label style={label}>Preț (lei) *</label>
+          <label htmlFor="ob-prod-price" style={label}>
+            {t.step2.priceLabel}
+          </label>
           <input
+            id="ob-prod-price"
             value={prodPrice}
             onChange={(e) => setProdPrice(e.target.value)}
-            placeholder="32"
+            placeholder={t.step2.pricePlaceholder}
             type="number"
             min="0"
             step="0.5"
@@ -525,10 +781,10 @@ function Step2Menu({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: error ? 12 : 0 }}>
         <button onClick={handleSave} disabled={saving} style={saving ? btnDisabled : btnPrimary}>
-          {saving ? 'Se salvează...' : 'Salvează și continuă →'}
+          {saving ? t.step2.savingBtn : t.step2.saveContinueBtn}
         </button>
         <button onClick={onSkip} style={btnSecondary}>
-          Sari peste acest pas →
+          {t.step2.skipBtn}
         </button>
       </div>
     </Shell>
@@ -554,6 +810,9 @@ function Step3Table({
   const [count, setCount] = useState(5)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Comenzile pentru ridicare sunt growth+ (Gate A) — pe tier 1 arătăm hintul
+  // de plan sub butonul „Nu am mese" (acțiunea rămâne permisă, flag-ul e inert).
+  const [hasPickup, setHasPickup] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -562,6 +821,7 @@ function Step3Table({
         if (cancelled) return
         const lim = getLimit(f, 'max_tables') // null = nelimitat
         setMaxTables(lim)
+        setHasPickup(hasFeature(f, 'pickup_orders'))
         // Clamp valoarea inițială (5) la limită ca să nu pornim peste plafon.
         if (lim !== null) setCount((c) => Math.min(c, Math.max(1, lim)))
       })
@@ -580,17 +840,17 @@ function Step3Table({
 
   const handleCreate = async () => {
     if (count < 1 || count > cap) {
-      setError(`Numărul de mese trebuie să fie între 1 și ${cap}.`)
+      setError(t.step3.tableCountRangeError(cap))
       return
     }
     setSaving(true)
     setError(null)
 
-    // Create N tables named "Masa 1", "Masa 2"...
+    // Create N tables named "Masa 1"/"Table 1"... (limba fluxului de onboarding)
     const tables = Array.from({ length: count }, (_, i) => ({
       restaurant_id: restaurantId,
-      name: `Masa ${i + 1}`,
-      slug: `masa-${i + 1}`,
+      name: t.step3.tableName(i + 1),
+      slug: t.step3.tableSlug(i + 1),
       seats: 4,
       is_active: true,
     }))
@@ -600,11 +860,15 @@ function Step3Table({
       .select('id')
     if (tErr || !createdTables) {
       // Nu expunem textul brut Postgres; mapăm cazurile cunoscute.
+      // Când limita planului nu e cunoscută (fetch features eșuat → maxTables null),
+      // NU interpolăm plafonul implicit de UI (50) — ar afișa un maxim fals.
       const m = tErr?.message || ''
       setError(
         /limit|maxim|plan/i.test(m)
-          ? `Planul tău permite maximum ${cap} mese. Alege mai puține sau fă upgrade pentru mai multe.`
-          : 'Nu am putut crea mesele. Reîncearcă.',
+          ? maxTables !== null
+            ? t.step3.planLimitKnownError(maxTables)
+            : t.step3.planLimitUnknownError
+          : t.step3.createTablesGenericError,
       )
       setSaving(false)
       return
@@ -612,10 +876,38 @@ function Step3Table({
 
     // Create qr_tokens for each table. Verificăm eroarea: dacă eșuează, NU marcăm
     // qr_generated ca să nu raportăm o stare inconsistentă (mese fără QR).
-    const tokens = createdTables.map((t) => ({ restaurant_id: restaurantId, table_id: t.id }))
+    const tokens = createdTables.map((tbl) => ({ restaurant_id: restaurantId, table_id: tbl.id }))
     const { error: qrErr } = await supabase.from('qr_tokens').insert(tokens)
 
     await markOnboarding(restaurantId, { table_created: true, qr_generated: !qrErr })
+    onNext()
+  }
+
+  // Ramura „fără mese": activăm pickup + pickup_only (UPDATE direct e permis —
+  // pickup_settings are grant column-level 096B + e în RESTAURANT_UPDATE_FIELDS)
+  // și marcăm pașii de mese/QR ca rezolvați semantic (QR-ul general = slug-ul).
+  const handlePickupOnly = async () => {
+    setSaving(true)
+    setError(null)
+    const { error: pErr } = await supabase
+      .from('restaurants')
+      .update({
+        pickup_settings: {
+          enabled: true,
+          min_lead_time_minutes: 20,
+          slot_interval_minutes: 15,
+          open_hours: { start: '09:00', end: '21:00' },
+          instructions: null,
+          pickup_only: true,
+        },
+      })
+      .eq('id', restaurantId)
+    if (pErr) {
+      setError(t.step3.pickupActivateError)
+      setSaving(false)
+      return
+    }
+    await markOnboarding(restaurantId, { table_created: true, qr_generated: true })
     onNext()
   }
 
@@ -631,11 +923,10 @@ function Step3Table({
           letterSpacing: '-0.02em',
         }}
       >
-        Câte mese are restaurantul?
+        {t.step3.title}
       </h1>
       <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 28, lineHeight: 1.6 }}>
-        Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le
-        redenumești din dashboard.
+        {t.step3.subtitle}
       </p>
 
       {/* Counter */}
@@ -650,7 +941,7 @@ function Step3Table({
       >
         <button
           onClick={() => setCount((c) => Math.max(1, c - 1))}
-          aria-label="Scade numărul de mese"
+          aria-label={t.step3.decreaseAria}
           style={{
             width: 44,
             height: 44,
@@ -678,11 +969,11 @@ function Step3Table({
           >
             {count}
           </div>
-          <div style={{ fontSize: '0.78rem', color: D.t3, marginTop: 4 }}>mese</div>
+          <div style={{ fontSize: '0.78rem', color: D.t3, marginTop: 4 }}>{t.step3.tablesUnit}</div>
         </div>
         <button
           onClick={() => setCount((c) => Math.min(cap, c + 1))}
-          aria-label="Crește numărul de mese"
+          aria-label={t.step3.increaseAria}
           style={{
             width: 44,
             height: 44,
@@ -711,8 +1002,9 @@ function Step3Table({
             lineHeight: 1.5,
           }}
         >
-          Planul tău include până la <strong style={{ color: D.t2 }}>{maxTables} mese</strong>. Poți
-          adăuga mai multe oricând cu un upgrade.
+          {t.step3.planHintPrefix}
+          <strong style={{ color: D.t2 }}>{t.step3.planHintTables(maxTables)}</strong>
+          {t.step3.planHintSuffix}
         </div>
       )}
 
@@ -729,8 +1021,11 @@ function Step3Table({
           <button
             key={n}
             onClick={() => setCount(n)}
+            aria-pressed={count === n}
             style={{
               padding: '5px 13px',
+              minHeight: 44,
+              minWidth: 44,
               fontSize: '0.82rem',
               borderRadius: 7,
               fontFamily: 'DM Sans,sans-serif',
@@ -761,18 +1056,21 @@ function Step3Table({
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="check" size={14} color={D.green} />
             <span>
-              Se creează <strong style={{ color: D.t1 }}>{count} mese</strong> cu QR-uri unice
+              {t.step3.createsTablesPrefix}
+              <strong style={{ color: D.t1 }}>{t.step3.createsTablesBold(count)}</strong>
+              {t.step3.createsTablesSuffix}
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="check" size={14} color={D.green} />
             <span>
-              PDF gata de printat din tab-ul <strong style={{ color: D.t1 }}>Mese</strong>
+              {t.step3.pdfPrefix}
+              <strong style={{ color: D.t1 }}>{t.step3.pdfTabName}</strong>
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Icon name="check" size={14} color={D.green} />
-            <span>Le redenumești sau ștergi oricând</span>
+            <span>{t.step3.renameAnytime}</span>
           </div>
         </div>
       </div>
@@ -781,11 +1079,28 @@ function Step3Table({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <button onClick={handleCreate} disabled={saving} style={saving ? btnDisabled : btnPrimary}>
-          {saving ? `Se creează ${count} mese...` : `Creează ${count} mese →`}
+          {saving ? t.step3.creatingTablesBtn(count) : t.step3.createTablesBtn(count)}
         </button>
         <button onClick={onSkip} style={btnSecondary}>
-          Sari peste acest pas →
+          {t.step3.skipBtn}
         </button>
+        {/* Food truck / tejghea (E3): activează pickup + modul „doar ridicare"
+            — fără mese; QR-ul general /m/:slug devine QR-ul principal. */}
+        <button onClick={handlePickupOnly} disabled={saving} style={btnSecondary}>
+          {t.step3.pickupOnlyBtn}
+        </button>
+        {!hasPickup && (
+          <div
+            style={{
+              fontSize: '0.74rem',
+              color: D.t3,
+              textAlign: 'center',
+              lineHeight: 1.5,
+            }}
+          >
+            {t.step3.pickupHint}
+          </div>
+        )}
       </div>
     </Shell>
   )
@@ -804,8 +1119,26 @@ function Step4Done({
   onComplete: () => void
 }) {
   const menuUrl = `${window.location.origin}/m/${slug}`
+  // Feedback la copiere — fără el, click-ul părea că nu face nimic (iar în
+  // browsere fără clipboard API eșua complet tăcut).
+  const [copied, setCopied] = useState(false)
+  const copyMenuUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(menuUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard indisponibil (permisiuni/HTTP) — selectăm măcar linkul nu
+      // putem; lăsăm userul să-l copieze manual din <a> de alături.
+    }
+  }
 
+  // Feedback de salvare pe CTA-ul final — fără el, pe conexiune lentă butonul
+  // părea mort și invita la double-click.
+  const [finishing, setFinishing] = useState(false)
   const handleDone = async () => {
+    if (finishing) return
+    setFinishing(true)
     await supabase
       .from('onboarding_state')
       .update({ completed_at: new Date().toISOString() })
@@ -813,12 +1146,9 @@ function Step4Done({
     onComplete()
   }
 
-  const achievements: { icon: IconName; title: string; done: boolean }[] = [
-    { icon: 'home', title: 'Restaurant creat', done: true },
-    { icon: 'menu', title: 'Meniu configurat', done: true },
-    { icon: 'table', title: 'Mese și QR-uri', done: true },
-    { icon: 'qr', title: 'Gata de comenzi', done: true },
-  ]
+  const achievements: { icon: IconName; title: string; done: boolean }[] = t.step4.achievements.map(
+    (a) => ({ ...a, done: true }),
+  )
 
   return (
     <Shell>
@@ -848,11 +1178,9 @@ function Step4Done({
             marginBottom: 8,
           }}
         >
-          Ești gata!
+          {t.step4.title}
         </h1>
-        <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6 }}>
-          Restaurantul tău e configurat și live.
-        </p>
+        <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6 }}>{t.step4.subtitle}</p>
       </div>
 
       {/* Achievements */}
@@ -872,7 +1200,7 @@ function Step4Done({
           >
             <Icon name={a.icon} size={18} color={D.gold} />
             <span style={{ fontSize: '0.875rem', color: D.t1, flex: 1 }}>{a.title}</span>
-            <Icon name="check" size={16} color={D.green} label="finalizat" />
+            <Icon name="check" size={16} color={D.green} label={t.step4.achievementDoneLabel} />
           </div>
         ))}
       </div>
@@ -896,7 +1224,7 @@ function Step4Done({
             marginBottom: 6,
           }}
         >
-          Link meniu public
+          {t.step4.menuLinkLabel}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <a
@@ -914,8 +1242,8 @@ function Step4Done({
             {menuUrl}
           </a>
           <button
-            onClick={() => navigator.clipboard?.writeText(menuUrl)}
-            aria-label="Copiază link-ul meniului"
+            onClick={() => void copyMenuUrl()}
+            aria-label={t.step4.copyBtnAriaLabel}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -923,17 +1251,17 @@ function Step4Done({
               padding: '6px 11px',
               minHeight: 32,
               fontSize: '0.72rem',
-              background: D.goldA,
-              color: D.goldL,
-              border: `1px solid ${D.gold}44`,
+              background: copied ? 'rgba(74,222,128,0.14)' : D.goldA,
+              color: copied ? D.green : D.goldL,
+              border: `1px solid ${copied ? `${D.green}55` : `${D.gold}44`}`,
               borderRadius: 6,
               cursor: 'pointer',
               fontFamily: 'DM Sans,sans-serif',
               flexShrink: 0,
             }}
           >
-            <Icon name="copy" size={13} />
-            Copiază
+            <Icon name={copied ? 'check' : 'copy'} size={13} />
+            {copied ? t.step4.copiedLabel : t.step4.copyLabel}
           </button>
         </div>
       </div>
@@ -950,31 +1278,35 @@ function Step4Done({
       >
         <div style={{ fontSize: '0.78rem', color: D.t2 }}>
           <strong style={{ color: D.t1, display: 'block', marginBottom: 8 }}>
-            Următori pași în dashboard:
+            {t.step4.nextStepsTitle}
           </strong>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="orders" size={15} color={D.t3} />
-              <span>Adaugă restul produselor din meniu</span>
+              <span>{t.step4.nextStepAddProducts}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="printer" size={15} color={D.t3} />
-              <span>Printează QR-urile din tab-ul Mese</span>
+              <span>{t.step4.nextStepPrintQr}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="users" size={15} color={D.t3} />
-              <span>Invită ospătarul și bucătarul din tab-ul Echipă</span>
+              <span>{t.step4.nextStepInviteTeam}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="chart" size={15} color={D.t3} />
-              <span>Urmărește comenzile live din Kitchen</span>
+              <span>{t.step4.nextStepTrackOrders}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <button onClick={handleDone} style={btnPrimary}>
-        Deschide dashboard-ul →
+      <button
+        onClick={() => void handleDone()}
+        disabled={finishing}
+        style={finishing ? btnDisabled : btnPrimary}
+      >
+        {finishing ? t.step4.finishingBtn : t.step4.doneBtn}
       </button>
     </Shell>
   )

@@ -26,13 +26,14 @@ interface Props {
 
 // Valoare de celulă: boolean → bifă verde / liniuță gri; string → text scurt
 // (ex. „Pilot", „Variabil") acolo unde un boolean ar supra-promite.
+// „—" (nu se aplică) primește același icon minus ca boolean false — o singură
+// redare vizuală + un nume accesibil real pentru screen readere.
 function Cell({ value }: { value: string | boolean }) {
-  if (typeof value === 'boolean') {
-    return value ? (
-      <Icon name="check" size={18} color={MKT.success} label="Da" />
-    ) : (
-      <Icon name="minus" size={18} color={MKT.text3} label="Nu" />
-    )
+  if (value === false || value === '—') {
+    return <Icon name="minus" size={18} color={MKT.text3} label="Nu" />
+  }
+  if (value === true) {
+    return <Icon name="check" size={18} color={MKT.success} label="Da" />
   }
   return <span style={{ fontSize: 13, color: MKT.text2, fontWeight: 600 }}>{value}</span>
 }
@@ -67,7 +68,7 @@ export default function ComparatiePage({ navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -123,7 +124,7 @@ export default function ComparatiePage({ navigate }: Props) {
             }}
           >
             <button
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/auth?lang=ro')}
               style={{
                 background: MKT.accent,
                 color: MKT.onAccent,
@@ -172,18 +173,22 @@ export default function ComparatiePage({ navigate }: Props) {
               }}
             >
               <table
+                aria-label="Comparație Menuvia cu alte categorii de soluții"
                 style={{
                   width: '100%',
-                  borderCollapse: 'collapse',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
                   minWidth: 560,
                 }}
               >
                 <thead>
                   <tr>
                     <th
+                      scope="col"
                       style={{
                         position: 'sticky',
                         left: 0,
+                        zIndex: 2,
                         background: MKT.surface,
                         textAlign: 'left',
                         padding: '16px 14px',
@@ -191,7 +196,8 @@ export default function ComparatiePage({ navigate }: Props) {
                         fontWeight: 700,
                         color: MKT.text3,
                         borderBottom: `1px solid ${MKT.border}`,
-                        minWidth: 210,
+                        minWidth: 176,
+                        boxShadow: '2px 0 4px rgba(26,18,8,0.05)',
                       }}
                     >
                       Caracteristică
@@ -199,6 +205,7 @@ export default function ComparatiePage({ navigate }: Props) {
                     {COLUMNS.map((col, i) => (
                       <th
                         key={col}
+                        scope="col"
                         style={{
                           padding: '16px 14px',
                           fontSize: 14,
@@ -220,20 +227,24 @@ export default function ComparatiePage({ navigate }: Props) {
                     const isLast = ri === ROWS.length - 1
                     return (
                       <tr key={row.feature}>
-                        <td
+                        <th
+                          scope="row"
                           style={{
                             position: 'sticky',
                             left: 0,
+                            zIndex: 1,
                             background: MKT.surface,
+                            textAlign: 'left',
                             padding: '14px',
                             fontSize: 14,
                             color: MKT.text,
                             fontWeight: 500,
                             borderBottom: isLast ? 'none' : `1px solid ${MKT.border}`,
+                            boxShadow: '2px 0 4px rgba(26,18,8,0.05)',
                           }}
                         >
                           {row.feature}
-                        </td>
+                        </th>
                         {row.values.map((v, ci) => (
                           <td
                             key={ci}
@@ -287,7 +298,7 @@ export default function ComparatiePage({ navigate }: Props) {
             Multe soluții „inteligente" vin cu un terminal nou, un POS nou sau o casă de
             marcat nouă. Menuvia stă peste ce ai deja: comanda pleacă din telefonul
             clientului direct în bucătărie, iar bonul iese pe casa ta prin puntea FiscalNet
-            (în pilot). Zero echipament în plus, zero recalificat personalul.
+            (în pilot). Zero echipament în plus, zero recalificare pentru personal.
           </p>
           <div
             style={{
@@ -356,10 +367,10 @@ export default function ComparatiePage({ navigate }: Props) {
             Vezi singur, fără risc
           </h2>
           <p style={{ fontSize: 16, color: MKT.text2, margin: '0 0 24px', lineHeight: 1.55 }}>
-            30 de zile gratuit, anulezi oricând. Fără card la înscriere.
+            30 de zile gratuit, anulezi oricând.
           </p>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             style={{
               background: MKT.accent,
               color: MKT.onAccent,

@@ -11,7 +11,10 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/affiliate_register_dashboard_assertions.sql
 --
 --   RD1  register_affiliate fără auth → insufficient_privilege
---   RD2  register valid → ok + referral_code; al doilea register → already (idempotent)
+--   RD2  (mig 224) register fără telefon → phone_required; cu telefon → ok +
+--        status 'pending' + referral_code; al doilea register → already (idempotent)
+--   RD2b (mig 224) admin_review_affiliate: non-admin respins; founderul aprobă
+--        → status 'active'
 --   RD3  register cu parent inexistent → parent_not_found; parent=self → parent_is_self
 --   RD4  dashboard părinte: downline agregat (attributions_count) FĂRĂ PII brut
 --        (NU expune stripe_customer_id / referred_profile_id ale sub-afiliatului)
@@ -53,13 +56,19 @@ begin
   if not v_raised then raise exception 'RD1 FAIL: nu s-a ridicat insufficient_privilege'; end if;
 end $$;
 
--- ── RD2: register valid → ok + referral_code; re-register → already ──────────
+-- ── RD2: register = CERERE (mig 224): telefon obligatoriu, intră pending ─────
 do $$
 declare v jsonb; v_code text; v2 jsonb;
 begin
   perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000e1', true);
+  -- Fără telefon → phone_required (interviul de calificare e telefonic).
   v := public.register_affiliate(null);
+  if v->>'reason' is distinct from 'phone_required' then
+    raise exception 'RD2 FAIL: register fără telefon acceptat (%)', v; end if;
+  v := public.register_affiliate(null, '0712 345 678', 'Cunosc 10 restaurante în Cluj');
   if (v->>'ok')::boolean is not true then raise exception 'RD2 FAIL: register valid (%)', v; end if;
+  if v->>'status' is distinct from 'pending' then
+    raise exception 'RD2 FAIL: cererea ar trebui să intre pending (%)', v; end if;
   v_code := v->>'referral_code';
   if v_code is null or v_code !~ '^[a-z0-9]{6,32}$' then
     raise exception 'RD2 FAIL: referral_code invalid/lipsă (%)', v; end if;
@@ -72,7 +81,45 @@ begin
   -- exact un rând în affiliates pentru e1
   if (select count(*) from public.affiliates where profile_id='00000000-0000-0000-0000-0000000000e1') <> 1 then
     raise exception 'RD2 FAIL: register a duplicat afiliatul'; end if;
-  raise notice 'RD2 OK: register valid + idempotent (already)';
+  -- Datele cererii au fost persistate (pentru interviul telefonic).
+  if (select phone from public.affiliates
+       where profile_id='00000000-0000-0000-0000-0000000000e1') is distinct from '0712 345 678' then
+    raise exception 'RD2 FAIL: telefonul cererii nu a fost salvat'; end if;
+  raise notice 'RD2 OK: cerere pending cu telefon + idempotent (already)';
+end $$;
+
+-- ── RD2b: admin_review_affiliate — gate founder + aprobarea → active ─────────
+do $$
+declare v_aff uuid; v jsonb; v_raised boolean := false;
+begin
+  select id into v_aff from public.affiliates
+   where profile_id='00000000-0000-0000-0000-0000000000e1';
+
+  -- Non-admin (e2) NU poate decide.
+  perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000e2', true);
+  begin
+    perform public.admin_review_affiliate(v_aff, true);
+    raise exception 'RD2b FAIL: non-admin a putut aproba cererea';
+  exception when others then
+    if sqlerrm not like '%Acces interzis%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then raise exception 'RD2b FAIL: gate-ul founder lipsește'; end if;
+
+  -- Founderul (e4, is_platform_admin) aprobă → active + reviewed_*.
+  update public.profiles set is_platform_admin = true
+   where id = '00000000-0000-0000-0000-0000000000e4';
+  perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000e4', true);
+  v := public.admin_review_affiliate(v_aff, true);
+  if (v->>'ok')::boolean is not true or v->>'status' is distinct from 'active' then
+    raise exception 'RD2b FAIL: aprobarea nu a activat afiliatul (%)', v; end if;
+  if (select reviewed_at from public.affiliates where id = v_aff) is null then
+    raise exception 'RD2b FAIL: reviewed_at nu a fost setat'; end if;
+  -- Un afiliat deja activ NU mai e „reviewable" (suspend/close = alt mecanism).
+  v := public.admin_review_affiliate(v_aff, false);
+  if v->>'reason' is distinct from 'not_reviewable' then
+    raise exception 'RD2b FAIL: re-review pe activ ar trebui not_reviewable (%)', v; end if;
+  raise notice 'RD2b OK: gate founder + aprobare → active (reviewed_at setat)';
 end $$;
 
 -- ── RD3: parent inexistent → parent_not_found; parent=self → parent_is_self ──
@@ -81,7 +128,7 @@ declare v jsonb; v_self_code text; v_self jsonb;
 begin
   -- e2 încearcă register cu un parent referral_code care nu există
   perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000e2', true);
-  v := public.register_affiliate('nuexista');
+  v := public.register_affiliate('nuexista', '0723 456 789');
   if v->>'reason' is distinct from 'parent_not_found' then
     raise exception 'RD3 FAIL: parent inexistent neגate-uit (%)', v; end if;
   raise notice 'RD3 OK: parent inexistent → parent_not_found';
@@ -102,8 +149,9 @@ begin
   -- referral_code-ul parent trebuie să existe în affiliates. Confirmăm că un
   -- user proaspăt cu parent valid = afiliatul e1 e ACCEPTAT (sub-afiliere ok),
   -- iar branch-ul parent_is_self e cel care păzește cazul self în cod.
+  -- e1 e ACTIV (aprobat în RD2b) → poate fi părinte pentru sub-afiliere.
   perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000e3', true);
-  v_self := public.register_affiliate(v_self_code);
+  v_self := public.register_affiliate(v_self_code, '0734 567 890');
   if (v_self->>'ok')::boolean is not true then
     raise exception 'RD3 FAIL: sub-afiliere validă (parent=e1) respinsă (%)', v_self; end if;
   if v_self->>'parent_affiliate_id' is null then

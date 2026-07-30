@@ -23,6 +23,20 @@ export default function CookieBanner() {
       // Mic delay pentru UX (nu apare instant)
       setTimeout(() => setVisible(true), 800)
     }
+    // Redeschidere la cerere („Setări cookies" din LegalFooter): /cookies promite
+    // retragerea consimțământului „prin banner", deci bannerul trebuie să poată fi
+    // rechemat după alegere — altfel promisiunea era falsă (GDPR).
+    const reopen = () => {
+      const c = getConsent()
+      if (c) {
+        setPerf(c.performance)
+        setFunc(c.functional)
+      }
+      setShowDetails(true)
+      setVisible(true)
+    }
+    window.addEventListener('menuvia:open-cookie-settings', reopen)
+    return () => window.removeEventListener('menuvia:open-cookie-settings', reopen)
   }, [])
 
   function acceptAll() {

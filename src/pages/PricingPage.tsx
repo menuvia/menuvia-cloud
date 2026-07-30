@@ -90,6 +90,15 @@ export default function PricingPage({
   const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
+  // Titlu specific rutei (SEO/share) — altfel /pricing moștenea titlul RO de
+  // homepage din index.html. Restaurat la demontare (SPA).
+  React.useEffect(() => {
+    const prev = document.title
+    document.title = 'Prețuri și planuri — Menuvia'
+    return () => {
+      document.title = prev
+    }
+  }, [])
 
   // Single source of truth pentru pricing: src/lib/plans.ts.
   // Adapter local — păstrăm shape-ul renderului existent (features {t,ok})
@@ -170,7 +179,9 @@ export default function PricingPage({
       icon: '💳',
       title: 'Plăți online prin QR (în curând)',
       price: 'În curând',
-      plans: 'Meniu + Comenzi, Fiscalizare',
+      // Aliniat cu PLAN_COMPARISON și cu gate-ul real (online_payments =
+      // pro/enterprise): plățile online sunt exclusiv pe Fiscalizare.
+      plans: 'Doar Fiscalizare',
       desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
     },
     {
@@ -194,7 +205,7 @@ export default function PricingPage({
   const FAQ = [
     {
       q: 'Ce se întâmplă după cele 30 de zile gratuite?',
-      a: 'Dacă nu ești mulțumit, anulezi cu un click. Fără penalizări. Datele tale sunt disponibile pentru export 30 de zile după anulare.',
+      a: 'După trial, abonamentul continuă la prețul planului ales — abia atunci se face prima plată. Dacă nu ești mulțumit, anulezi cu un click înainte de facturare, fără penalizări. Datele tale sunt disponibile pentru export 30 de zile după anulare.',
     },
     {
       q: 'Care plan e potrivit pentru mine?',
@@ -449,8 +460,8 @@ export default function PricingPage({
               Program Pilot — 60 de zile gratis
             </div>
             <div style={{ fontSize: '0.85rem', color: MKT.text2, lineHeight: 1.5 }}>
-              Primii 10 patroni primesc setup personal cu Radu și 60 zile gratis pe Meniu + Comenzi. Locuri
-              rămase: limitate.
+              Primii 10 patroni primesc setup personal cu Radu și 60 zile gratis pe Meniu + Comenzi.
+              Locurile sunt limitate.
             </div>
           </div>
           {(() => {
@@ -680,7 +691,10 @@ export default function PricingPage({
 
                 <button
                   className="pressable"
-                  disabled={loadingPlan === p.id}
+                  // Toate CTA-urile se dezactivează cât timp UN checkout e în
+                  // curs — altfel un al doilea click pe alt plan pornește două
+                  // sesiuni Stripe concurente (două redirecturi în cursă).
+                  disabled={loadingPlan !== null}
                   onClick={async () => {
                     setLoadingPlan(p.id)
                     await p.ctaFn()
@@ -693,7 +707,7 @@ export default function PricingPage({
                     fontFamily: 'DM Sans,sans-serif',
                     fontWeight: 700,
                     fontSize: '0.95rem',
-                    cursor: 'pointer',
+                    cursor: loadingPlan !== null ? 'default' : 'pointer',
                     border: isHighlight
                       ? 'none'
                       : isTierOne
@@ -702,7 +716,8 @@ export default function PricingPage({
                     background: isHighlight ? MKT.accent : isTierOne ? MKT.accentSoft : MKT.surface,
                     // Text închis pe auriu (onAccent ~8:1), nu alb (2.66:1 = sub AA).
                     // Identic cu butonul auriu de pe Landing (ctaBtn) — consistență de brand.
-                    color: isHighlight ? MKT.onAccent : isTierOne ? MKT.accent : MKT.text,
+                    // Tier 1: accentInk (nu accent) — #C8963C pe accentSoft e sub AA.
+                    color: isHighlight ? MKT.onAccent : isTierOne ? MKT.accentInk : MKT.text,
                     opacity: loadingPlan === p.id ? 0.6 : 1,
                     boxShadow: isHighlight
                       ? 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))'
@@ -920,7 +935,7 @@ export default function PricingPage({
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: MKT.accent, textDecoration: 'underline', fontWeight: 500 }}
+                style={{ color: MKT.accentInk, textDecoration: 'underline', fontWeight: 500 }}
               >
                 Scrie-ne pentru ofertă personalizată →
               </a>
@@ -1011,7 +1026,8 @@ export default function PricingPage({
                       style={{
                         fontSize: '0.92rem',
                         fontWeight: 700,
-                        color: MKT.accent,
+                        // accentInk, nu accent: text auriu pe alb sub AA (2.66:1).
+                        color: MKT.accentInk,
                         whiteSpace: 'nowrap',
                         fontFamily: 'Fraunces,serif',
                       }}
@@ -1080,7 +1096,8 @@ export default function PricingPage({
                       style={{
                         fontSize: '0.85rem',
                         fontWeight: 700,
-                        color: MKT.accent,
+                        // accentInk, nu accent: text auriu pe alb sub AA (2.66:1).
+                        color: MKT.accentInk,
                         whiteSpace: 'nowrap',
                         fontFamily: 'Fraunces,serif',
                       }}
@@ -1194,6 +1211,7 @@ export default function PricingPage({
                   <button
                     onClick={() => setOpenFaq(isOpen ? null : i)}
                     aria-expanded={isOpen}
+                    aria-controls={`faq-panel-${i}`}
                     style={{
                       width: '100%',
                       padding: '17px 20px',
@@ -1225,6 +1243,10 @@ export default function PricingPage({
                     </span>
                   </button>
                   <div
+                    id={`faq-panel-${i}`}
+                    // Colapsat doar vizual (0fr + opacity 0) — fără aria-hidden,
+                    // screen-reader-ele ar citi TOATE răspunsurile ca text permanent.
+                    aria-hidden={!isOpen}
                     style={{
                       display: 'grid',
                       gridTemplateRows: isOpen ? '1fr' : '0fr',

@@ -48,6 +48,8 @@ exports.handler = async (event) => {
 
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
+    // OPT-3: timeout explicit — un TCP agățat nu mai blochează funcția.
+    signal: AbortSignal.timeout(8000),
     headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from:    'Menuvia <hello@menuvia.ro>',

@@ -506,9 +506,31 @@ function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
+// Alertă Slack best-effort (nu aruncă, no-op fără webhook). Folosită DOAR pentru
+// eșecuri de CONFIGURARE (cheie Resend invalidă/rotită → 401/403): fără ea,
+// întreaga coadă (facturi, notificări de plată) devine 'failed' TĂCUT, iar
+// funcția întoarce mereu 200. Health-check-ul verifică doar prezența cheii, nu
+// validitatea — deci ăsta e singurul semnal că emailurile nu mai pleacă.
+async function postEmailAlert(message) {
+  const slackWebhook = process.env.SLACK_WEBHOOK_URL
+  if (!slackWebhook) return
+  try {
+    const resp = await fetch(slackWebhook, {
+      method: 'POST',
+      signal: AbortSignal.timeout(8000),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: `🔴 process-email-queue: ${message}` }),
+    })
+    if (!resp.ok) console.error(`[process-email-queue] alertă Slack non-ok (${resp.status})`)
+  } catch (e) {
+    console.error('[process-email-queue] alertă Slack a eșuat:', e && e.message)
+  }
+}
+
 // ── Main handler ──────────────────────────────────────────────
 exports.handler = async () => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY } = process.env
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const { SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY } = process.env
 
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return { statusCode: 500, body: 'Missing env' }
@@ -535,6 +557,9 @@ exports.handler = async () => {
   }
 
   let sent = 0, failed = 0
+  // Eșecuri de autentificare Resend (401/403) = problemă de CONFIG (cheie
+  // invalidă/rotită), nu email individual → alertăm o singură dată la final.
+  let authFailures = 0
 
   for (const email of pending) {
     // Deja claim-uit ('sending') de claim_email_batch — fără re-marcare aici.
@@ -543,15 +568,16 @@ exports.handler = async () => {
     if (!template) {
       // Template necunoscut aici ≠ eroare permanentă: enumul email_template_kind poate fi
       // extins într-o migrație fără ca deploy-ul acestui fișier să fi prins încă handler-ul.
-      // Tratăm identic cu eșecul tranzitoriu Resend (retry cu backoff), ca să nu pierdem
-      // emailul definitiv înainte de următorul deploy.
-      const attempts = email.failed_attempts + 1
+      // Cap pe TIMP (24h de la creare), NU pe failed_attempts: (a) deploy-ul JS poate
+      // întârzia ore față de migrație — 3 încercări/30min pierdeau emailul înainte de
+      // deploy; (b) NU incrementăm failed_attempts, ca să nu epuizăm bugetul de retry
+      // Resend când template-ul devine cunoscut. Peste 24h → 'failed' (enum orfan real).
+      const ageMs = Date.now() - new Date(email.created_at).getTime()
+      const tooOld = Number.isFinite(ageMs) && ageMs > 24 * 60 * 60_000
       await supabase.from('email_queue').update({
-        status: attempts >= 3 ? 'failed' : 'queued',
-        failed_attempts: attempts,
+        status: tooOld ? 'failed' : 'queued',
         last_error: `Unknown template: ${email.template_kind}`,
-        // Backoff: wait 10min × attempts before retry
-        scheduled_for: new Date(Date.now() + attempts * 10 * 60_000).toISOString(),
+        scheduled_for: new Date(Date.now() + 15 * 60_000).toISOString(),
       }).eq('id', email.id)
       failed++
       continue
@@ -575,6 +601,9 @@ exports.handler = async () => {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
+        // OPT-3: un TCP agățat spre Resend consuma întreaga invocare (10s) —
+        // timeout explicit; AbortError cade pe ramura de retry existentă.
+        signal: AbortSignal.timeout(8000),
         headers: {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
           'Content-Type':  'application/json',
@@ -597,6 +626,7 @@ exports.handler = async () => {
       if (!res.ok) {
         const errText = await res.text()
         const resendErr = new Error(`Resend ${res.status}: ${errText.slice(0, 200)}`)
+        resendErr.status = res.status
         // 4xx = eroare permanentă (adresă invalidă, payload respins de Resend) — retry-ul
         // nu schimbă rezultatul. EXCEPȚIE: 429 (rate-limit Resend, 5 req/s per echipă) e
         // TRANZITORIU — trebuie reîncercat, nu abandonat definitiv. 5xx/network/429 → backoff.
@@ -634,6 +664,7 @@ exports.handler = async () => {
       sent++
     } catch (err) {
       const attempts = email.failed_attempts + 1
+      if (err.status === 401 || err.status === 403) authFailures++
       if (err.permanent) {
         // Eroare 4xx de la Resend: fără backoff, marcăm direct 'failed'.
         await supabase.from('email_queue').update({
@@ -656,8 +687,19 @@ exports.handler = async () => {
     }
   }
 
+  // Semnal de CONFIG rupt: dacă am prins 401/403 de la Resend, cheia e
+  // invalidă/rotită → toată coada (facturi, notificări) se pierde tăcut.
+  // Alertăm o singură dată pe rulare (best-effort).
+  if (authFailures > 0) {
+    await postEmailAlert(
+      `${authFailures}/${pending.length} emailuri respinse cu 401/403 de Resend — ` +
+      `cheia RESEND_API_KEY pare invalidă/rotită. Coada de email (facturi, notificări) ` +
+      `nu mai pleacă până la remedierea cheii.`,
+    )
+  }
+
   return {
     statusCode: 200,
-    body: JSON.stringify({ processed: pending.length, sent, failed }),
+    body: JSON.stringify({ processed: pending.length, sent, failed, authFailures }),
   }
 }

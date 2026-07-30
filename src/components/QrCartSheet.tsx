@@ -4,11 +4,13 @@
 // thumbnail-uri, RECOMANDATE ALĂTURI pe orizontală, CTA cu prețul în buton.
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
-import { useMemo, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
+import { thumbUrlFor } from '../lib/images'
 
 interface PUBColors {
   bg: string
@@ -43,9 +45,11 @@ export interface QrCartSheetProps {
   onUpdateQty: (key: string, delta: number) => void
   onRemove: (key: string) => void
   onLineTotal: (item: CartItem) => number
-  onSubmit: () => void
+  onSubmit: (notes: string) => void
   onOpenProduct: (product: Product) => void
   onAddToCart: (item: CartItem) => void
+  /** Moneda meniului (mig 205/206) — default 'RON'. */
+  currency?: MenuCurrency
   // Opțional — modul „Masa ta" complet: comenzi deja trimise (La bucătărie) +
   // plata mesei. Dacă lipsesc, sheet-ul rămâne coș simplu (backward-compatible).
   sentOrders?: OrderConfirmationPayload[]
@@ -53,6 +57,8 @@ export interface QrCartSheetProps {
   onPayTable?: () => void
   payDisabled?: boolean
   payLabel?: string
+  /** Split pe itemi (mig 229): deschide selecția „plătește partea ta". */
+  onPaySplit?: () => void
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -86,11 +92,13 @@ export default function QrCartSheet({
   onSubmit,
   onOpenProduct,
   onAddToCart,
+  currency = 'RON',
   sentOrders,
   tableTotal,
   onPayTable,
   payDisabled = false,
   payLabel = 'Plătește masa',
+  onPaySplit,
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -159,12 +167,43 @@ export default function QrCartSheet({
   const suggestionMsg =
     checkoutSuggestionSettings?.message ?? 'Ai vrea ceva în plus înainte să trimiți?'
 
+  // OPT-2: nota pentru bucătărie e stare LOCALĂ cât timp sheet-ul e deschis —
+  // fiecare tastă re-randa altfel întreaga pagină de meniu din spatele
+  // sheet-ului (părintele ținea state-ul). Părintele rămâne sursa de adevăr
+  // între deschideri: primește valoarea la close/submit prin onNotesChange.
+  const [localNotes, setLocalNotes] = useState(notes)
+
+  function handleClose(): void {
+    onNotesChange(localNotes)
+    onClose()
+  }
+
+  // Semantică de dialog modal (paritate cu ProductSheet): focus pe butonul de
+  // închidere la deschidere, restaurare la închidere + Escape → handleClose
+  // (persistă nota, ca și backdrop-ul). Ref pentru a evita închiderea stale.
+  const closeBtnRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(handleClose)
+  onCloseRef.current = handleClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    closeBtnRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function handleAddSuggestion(s: Product): void {
     // Minim efectiv > 0 (is_required SAU min_select > 0) → quick-add interzis;
     // serverul respinge sub minim (mig 191), deci deschidem ProductSheet.
     const hasRequired = hasMandatoryModifierGroups(s.modifier_groups)
     if (hasRequired) {
-      onClose()
+      handleClose()
       onOpenProduct(s)
       return
     }
@@ -184,7 +223,7 @@ export default function QrCartSheet({
 
   return (
     <div
-      onClick={onClose}
+      onClick={handleClose}
       className="animate-backdrop"
       style={{
         position: 'fixed',
@@ -199,6 +238,9 @@ export default function QrCartSheet({
       <div
         onClick={(e) => e.stopPropagation()}
         className="animate-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Masa ta"
         style={{
           background: PUB.bg,
           borderRadius: '22px 22px 0 0',
@@ -230,7 +272,8 @@ export default function QrCartSheet({
         {/* X close — afordanță explicită (cerere UX) */}
         <button
           type="button"
-          onClick={onClose}
+          ref={closeBtnRef}
+          onClick={handleClose}
           aria-label="Închide"
           className="pressable"
           style={{
@@ -337,7 +380,7 @@ export default function QrCartSheet({
                     flexShrink: 0,
                   }}
                 >
-                  {o.total.toFixed(2)} lei
+                  {fmtPrice(o.total, currency)}
                 </span>
               </div>
             ))}
@@ -378,7 +421,13 @@ export default function QrCartSheet({
               >
                 {prod?.image_url ? (
                   <img
-                    src={prod.image_url}
+                    src={thumbUrlFor(prod.image_url) ?? prod.image_url}
+                    onError={(e) => {
+                      // Imagine veche fără thumb → o singură trecere pe original.
+                      if (prod.image_url && e.currentTarget.src !== prod.image_url) {
+                        e.currentTarget.src = prod.image_url
+                      }
+                    }}
                     alt={item.product_name_snapshot}
                     loading="lazy"
                     decoding="async"
@@ -441,7 +490,7 @@ export default function QrCartSheet({
                     </div>
                   )}
                   <div style={{ color: PUB.text2, fontSize: 13, fontStyle: 'italic' }}>
-                    {onLineTotal(item).toFixed(2)} lei
+                    {fmtPrice(onLineTotal(item), currency)}
                   </div>
                 </div>
 
@@ -549,8 +598,9 @@ export default function QrCartSheet({
           <div style={sectionLabelStyle(PUB.text2)}>Notă pentru bucătărie</div>
           <textarea
             placeholder="Fără ceapă, vă rog..."
-            value={notes}
-            onChange={(e) => onNotesChange(e.target.value)}
+            value={localNotes}
+            onChange={(e) => setLocalNotes(e.target.value)}
+            onBlur={() => onNotesChange(localNotes)}
             rows={2}
             style={{
               background: PUB.surface,
@@ -612,7 +662,12 @@ export default function QrCartSheet({
                 >
                   {s.image_url ? (
                     <img
-                      src={s.image_url}
+                      src={thumbUrlFor(s.image_url) ?? s.image_url}
+                      onError={(e) => {
+                        if (s.image_url && e.currentTarget.src !== s.image_url) {
+                          e.currentTarget.src = s.image_url
+                        }
+                      }}
                       alt={s.name}
                       loading="lazy"
                       decoding="async"
@@ -671,7 +726,7 @@ export default function QrCartSheet({
                           color: accent,
                         }}
                       >
-                        {s.price.toFixed(2)} lei
+                        {fmtPrice(s.price, currency)}
                       </span>
                       <button
                         type="button"
@@ -734,7 +789,7 @@ export default function QrCartSheet({
               color: PUB.text,
             }}
           >
-            {cartTotal.toFixed(2)} <span style={{ fontSize: 14, color: PUB.text2 }}>lei</span>
+            {fmtPrice(cartTotal, currency)}
           </span>
         </div>
         <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'right', marginTop: -8 }}>
@@ -756,7 +811,7 @@ export default function QrCartSheet({
             </div>
             <button
               type="button"
-              onClick={onSubmit}
+              onClick={() => onSubmit(localNotes)}
               className="pressable"
               style={{
                 background: 'rgba(192,57,43,0.15)',
@@ -779,7 +834,7 @@ export default function QrCartSheet({
         <button
           type="button"
           disabled={!canSubmit}
-          onClick={onSubmit}
+          onClick={() => onSubmit(localNotes)}
           className={canSubmit ? 'pressable' : ''}
           style={{
             // Coș gol / trimitere în curs → stare dezactivată clară (surface +
@@ -799,7 +854,7 @@ export default function QrCartSheet({
         >
           {submitting
             ? 'Se trimite...'
-            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${cartTotal.toFixed(2)} lei`}
+            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${fmtPrice(cartTotal, currency)}`}
         </button>
 
         {/* CTA secundar — Plătește masa (cere nota; doar când există comenzi trimise) */}
@@ -823,7 +878,31 @@ export default function QrCartSheet({
             }}
           >
             {payLabel}
-            {typeof tableTotal === 'number' ? ` · ${tableTotal.toFixed(2)} lei` : ''}
+            {typeof tableTotal === 'number' ? ` · ${fmtPrice(tableTotal, currency)}` : ''}
+          </button>
+        )}
+
+        {/* Split pe itemi — plătește doar partea ta (mig 229) */}
+        {onPaySplit && !payDisabled && (
+          <button
+            type="button"
+            onClick={onPaySplit}
+            className="pressable"
+            style={{
+              background: 'transparent',
+              color: PUB.text2,
+              border: 'none',
+              padding: '10px 0',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+              textDecoration: 'underline',
+              textUnderlineOffset: 3,
+              minHeight: 44,
+            }}
+          >
+            Împarte nota — plătește partea ta
           </button>
         )}
       </div>

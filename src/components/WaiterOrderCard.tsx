@@ -1,11 +1,12 @@
 // ─────────────────────────────────────────────────────────────
 // PayModal + OrderCard — extracted from WaiterPage
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect } from 'react'
+import { memo, useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
+import { Icon } from './ui/Icon'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -22,11 +23,11 @@ function useElapsed(createdAt: string): string {
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
   new: { label: 'Nou', color: D.t2, bg: D.s3 },
   confirmed: { label: 'Confirmat', color: D.amber, bg: 'rgba(232,160,32,0.12)' },
-  preparing: { label: 'In preparare', color: D.goldL, bg: D.goldA },
+  preparing: { label: 'În preparare', color: D.goldL, bg: D.goldA },
   ready: { label: 'Gata de servit', color: D.green, bg: 'rgba(76,175,110,0.12)' },
   served: { label: 'Servit', color: '#7EB8F7', bg: 'rgba(126,184,247,0.12)' },
-  closed: { label: 'Inchis', color: D.t3, bg: D.s2 },
-  paid: { label: 'Platit', color: D.t3, bg: D.s2 },
+  closed: { label: 'Închis', color: D.t3, bg: D.s2 },
+  paid: { label: 'Plătit', color: D.t3, bg: D.s2 },
   cancelled: { label: 'Anulat', color: D.red, bg: 'rgba(224,85,85,0.10)' },
 }
 
@@ -90,6 +91,9 @@ function PayModal({
   const methods: { key: PaymentMethod; label: string }[] = [
     { key: 'cash', label: 'Cash' },
     { key: 'card_pos', label: 'Card POS' },
+    // Tichete de masă (mig 230/231) — legal acoperă doar produse alimentare
+    // (fără alcool/tutun); verificarea rămâne la staff, ca la POS-urile clasice.
+    { key: 'meal_voucher', label: 'Tichete de masă' },
     { key: 'other', label: 'Altă metodă' },
   ]
 
@@ -104,6 +108,7 @@ function PayModal({
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 200,
+        padding: 16,
       }}
     >
       <div
@@ -114,6 +119,11 @@ function PayModal({
           borderRadius: 16,
           padding: 28,
           width: 360,
+          // Pe ecrane mici / conținut lung (multe metode de plată + bacșiș),
+          // modalul depășea viewport-ul fără scroll → butoanele inaccesibile.
+          maxWidth: 'calc(100vw - 32px)',
+          maxHeight: '90vh',
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
           gap: 20,
@@ -224,6 +234,11 @@ function PayModal({
               onClick={onDiscountClick}
               style={{
                 marginTop: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                minHeight: 44,
                 background: hasDiscount ? D.goldA : 'transparent',
                 border: `1px solid ${hasDiscount ? D.gold : D.border}`,
                 borderRadius: 8,
@@ -236,7 +251,8 @@ function PayModal({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {hasDiscount ? '🎁 Modifică / scoate reducerea' : '🎁 Aplică reducere'}
+              <Icon name="tag" size={14} />
+              {hasDiscount ? 'Modifică / scoate reducerea' : 'Aplică reducere'}
             </button>
           )}
         </div>
@@ -252,7 +268,7 @@ function PayModal({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 20 }}>🎉</span>
+              <Icon name="sparkle" size={20} color={D.gold} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: D.gold }}>
                   Promoție activă!
@@ -459,7 +475,7 @@ interface OrderCardProps {
   onCloseOrder?: (order: Order) => void
 }
 
-function OrderCard({
+function OrderCardInner({
   order,
   onPayOpen,
   onSplitOpen,
@@ -500,6 +516,9 @@ function OrderCard({
             {/* Source badge */}
             <span
               style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
                 fontSize: '0.65rem',
                 padding: '2px 7px',
                 borderRadius: 100,
@@ -515,11 +534,8 @@ function OrderCard({
                 border: `1px solid ${order.source === 'qr' ? D.gold + '44' : 'rgba(76,175,110,.3)'}`,
               }}
             >
-              {order.source === 'qr'
-                ? '📱 QR'
-                : order.source === 'pickup'
-                  ? '📦 Pickup'
-                  : '🧑‍💼 Manual'}
+              <Icon name={order.source === 'qr' ? 'qr' : order.source === 'pickup' ? 'box' : 'users'} size={11} />
+              {order.source === 'qr' ? 'QR' : order.source === 'pickup' ? 'Pickup' : 'Manual'}
             </span>
           </div>
           <div style={{ fontSize: 12, color: D.t2, marginTop: 2 }}>
@@ -586,6 +602,11 @@ function OrderCard({
               onClick={() => onEdit(order)}
               style={{
                 flex: 1,
+                minHeight: 44,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
                 background: 'transparent',
                 color: D.gold,
                 border: `1px solid ${D.gold}77`,
@@ -597,7 +618,8 @@ function OrderCard({
                 cursor: 'pointer',
               }}
             >
-              ✎ Editează
+              <Icon name="edit" size={14} />
+              Editează
             </button>
           )}
           {onCancel && (
@@ -605,6 +627,10 @@ function OrderCard({
               onClick={() => onCancel(order)}
               style={{
                 flex: 1,
+                minHeight: 44,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 background: 'transparent',
                 color: D.red,
                 border: `1px solid ${D.red}77`,
@@ -627,6 +653,9 @@ function OrderCard({
         <button
           onClick={() => onAudit(order)}
           style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 5,
             background: 'transparent',
             color: D.t3,
             border: 'none',
@@ -641,7 +670,8 @@ function OrderCard({
             textUnderlineOffset: 3,
           }}
         >
-          🕘 Vezi istoric
+          <Icon name="history" size={13} />
+          Vezi istoric
         </button>
       )}
 
@@ -654,6 +684,10 @@ function OrderCard({
             onClick={() => onPayOpen(order)}
             style={{
               flex: 1,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: D.green,
               color: '#fff',
               border: 'none',
@@ -671,6 +705,10 @@ function OrderCard({
             onClick={() => onSplitOpen(order)}
             style={{
               flex: 1,
+              minHeight: 44,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               background: D.s3,
               color: D.t1,
               border: '1px solid ' + D.border,
@@ -691,6 +729,10 @@ function OrderCard({
           <button
             onClick={() => onCloseOrder(order)}
             style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
               background: D.green,
               color: '#fff',
               border: 'none',
@@ -703,7 +745,8 @@ function OrderCard({
               width: '100%',
             }}
           >
-            ✓ Închide comanda
+            <Icon name="check" size={15} color="#fff" />
+            Închide comanda
           </button>
           <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
             Plata și bonul se fac pe casa de marcat existentă
@@ -713,5 +756,10 @@ function OrderCard({
     </div>
   )
 }
+
+// OPT-8: memo — cardul (~280 linii JSX) e randat per comandă în WaiterPage și
+// TableStatusBoard; fără memo, fiecare eveniment realtime re-randa toate
+// cardurile. Handlerii din părinți sunt stabilizați cu useCallback.
+const OrderCard = memo(OrderCardInner)
 
 export { PayModal, OrderCard, STATUS_META }

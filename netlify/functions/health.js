@@ -57,8 +57,12 @@ exports.handler = async (event) => {
   const ts = new Date().toISOString()
   const config = envConfig()
 
-  // Doar GET (HEAD tratat de Netlify) — monitoarele de uptime folosesc GET/HEAD.
-  if (event && event.httpMethod && event.httpMethod !== 'GET') {
+  // GET și HEAD. UptimeRobot & co. probează DEFAULT cu HEAD; pe VPS (shim-ul
+  // deploy/server.js rutează după path, nu tratează HEAD ca Netlify), un 405 pe
+  // HEAD ar întoarce ACELAȘI răspuns și cu DB up, și cu DB down → dead-man's-
+  // switch-ul devine mut. Rulăm ping-ul DB și pe HEAD (corpul e ignorat de client).
+  const method = event && event.httpMethod
+  if (method && method !== 'GET' && method !== 'HEAD') {
     return jsonResponse(405, { status: 'degraded', error: 'method_not_allowed', ts })
   }
 

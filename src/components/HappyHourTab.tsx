@@ -144,17 +144,16 @@ export default function HappyHourTab({ restaurantId }: Props) {
   async function handleSave(
     rule: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>,
   ) {
-    try {
-      if (editing === 'new') {
-        await createHappyHourRule(restaurantId, rule)
-      } else if (editing) {
-        await updateHappyHourRule(editing.id, rule)
-      }
-      setEditing(null)
-      void load()
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
+    // Eroarea se propagă în RuleEditor (setErr LOCAL, vizibil în modal) — înainte
+    // era scrisă pe bannerul părintelui, ACOPERIT de overlay-ul modalului rămas
+    // deschis → CTA-ul principal eșua fără niciun feedback vizibil.
+    if (editing === 'new') {
+      await createHappyHourRule(restaurantId, rule)
+    } else if (editing) {
+      await updateHappyHourRule(editing.id, rule)
     }
+    setEditing(null)
+    void load()
   }
 
   async function handleDelete() {
@@ -194,7 +193,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
         }}
       >
         <div>
-          <h1
+          <h2
             style={{
               fontSize: '1.5rem',
               fontWeight: 600,
@@ -208,10 +207,10 @@ export default function HappyHourTab({ restaurantId }: Props) {
           >
             <Icon name="percent" size={22} />
             Promoții
-          </h1>
+          </h2>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
-            Reguli automate de reducere pe interval orar și zile săptămână. Ospătarul va vedea un
-            buton "Aplică Happy Hour" la plată dacă există regulă activă.
+            Reguli automate de reducere pe interval orar și zilele săptămânii. Ospătarul va vedea
+            un buton „Aplică Happy Hour” la plată dacă există regulă activă.
           </div>
         </div>
         <button
@@ -277,7 +276,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
             }}
           >
             <Icon name="sparkle" size={15} />
-            ACTIVE ACUM ({active.length})
+            {active.length === 1 ? 'ACTIVĂ ACUM' : `ACTIVE ACUM (${active.length})`}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {active.map((r) => (
@@ -471,7 +470,7 @@ function RuleCard({
             <span style={{ color: D.gold, fontWeight: 600 }}>
               −{rule.discount_value}
               {rule.discount_type === 'percent' ? '%' : ' lei'}
-              {rule.max_discount && ` (max ${rule.max_discount} lei)`}
+              {rule.max_discount != null && rule.max_discount > 0 && ` (max ${rule.max_discount} lei)`}
             </span>
           </div>
         </div>
@@ -535,7 +534,7 @@ function RuleEditor({
   categories: Category[]
   products: Product[]
   onClose: () => void
-  onSave: (r: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => void
+  onSave: (r: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>) => Promise<void>
 }) {
   const [name, setName] = useState(rule?.name ?? '')
   const [startsAt, setStartsAt] = useState(rule?.starts_at?.slice(0, 5) ?? '17:00')
@@ -582,7 +581,7 @@ function RuleEditor({
       return
     }
     setErr(null)
-    onSave({
+    void onSave({
       name: name.trim(),
       is_active: isActive,
       starts_at: startsAt + ':00',
@@ -594,6 +593,8 @@ function RuleEditor({
       discount_type: discountType,
       discount_value: dv,
       max_discount: maxDiscount.trim().length > 0 ? Number(maxDiscount.replace(',', '.')) : null,
+    }).catch((e: unknown) => {
+      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
     })
   }
 
@@ -671,7 +672,7 @@ function RuleEditor({
           </div>
 
           <div>
-            <div style={lbl}>Zile săptămână (gol = toate)</div>
+            <div style={lbl}>Zilele săptămânii (gol = toate)</div>
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {DAY_LABELS.map((lab, i) => {
                 const d = i + 1
@@ -782,7 +783,10 @@ function RuleEditor({
               </button>
               <button
                 type="button"
-                onClick={() => setDiscountType('amount')}
+                onClick={() => {
+                  setDiscountType('amount')
+                  setMaxDiscount('')
+                }}
                 style={btn({
                   background: discountType === 'amount' ? D.goldA : D.s3,
                   color: discountType === 'amount' ? D.goldL : D.t2,
@@ -794,8 +798,16 @@ function RuleEditor({
                 Sumă fixă (lei)
               </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns:
+                  isMobile || discountType === 'amount' ? '1fr' : '1fr 1fr',
+                gap: 10,
+              }}
+            >
               <div>
+                <div style={lbl}>Valoare</div>
                 <input
                   type="number"
                   step="0.5"
@@ -804,19 +816,24 @@ function RuleEditor({
                   onChange={(e) => setDiscountValue(e.target.value)}
                   style={inp}
                   placeholder={discountType === 'percent' ? '20' : '50'}
+                  aria-label="Valoarea reducerii"
                 />
               </div>
-              <div>
-                <input
-                  type="number"
-                  step="0.5"
-                  min={0}
-                  value={maxDiscount}
-                  onChange={(e) => setMaxDiscount(e.target.value)}
-                  style={inp}
-                  placeholder="Max lei (opțional)"
-                />
-              </div>
+              {discountType === 'percent' && (
+                <div>
+                  <div style={lbl}>Plafon maxim (lei, opțional)</div>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    value={maxDiscount}
+                    onChange={(e) => setMaxDiscount(e.target.value)}
+                    style={inp}
+                    placeholder="Max lei (opțional)"
+                    aria-label="Plafon maxim în lei, opțional"
+                  />
+                </div>
+              )}
             </div>
           </div>
 

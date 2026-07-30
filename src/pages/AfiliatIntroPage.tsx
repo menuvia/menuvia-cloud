@@ -39,8 +39,8 @@ const DARK = {
 
 const STEPS: { title: string; text: string }[] = [
   {
-    title: 'Îți faci cont și primești linkul tău',
-    text: 'Înscrierea durează un minut. Primești un link unic de recomandare pe care îl dai mai departe.',
+    title: 'Aplici și facem cunoștință',
+    text: 'Cererea durează un minut. Te sunăm pentru o discuție scurtă, apoi primești linkul tău unic de recomandare și ghidul de start.',
   },
   {
     title: 'Recomanzi Menuvia restaurantelor',
@@ -67,6 +67,10 @@ const FAQ: { q: string; a: string }[] = [
   {
     q: 'Cine se poate înscrie?',
     a: 'Oricine — nu ai nevoie de experiență în vânzări. Singura condiție: la plată emiți factură către Menuvia, de pe PFA sau SRL.',
+  },
+  {
+    q: 'De ce e nevoie de o discuție telefonică?',
+    a: 'Vrem parteneri, nu doar linkuri distribuite la întâmplare. O discuție de 10 minute ne ajută să te cunoaștem, să-ți explicăm programul și să-ți răspundem la întrebări — apoi primești acces.',
   },
   {
     q: 'Când primesc banii?',
@@ -145,10 +149,16 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
   return (
     <div style={{ minHeight: '100vh', background: MKT.bg, fontFamily: 'DM Sans,sans-serif' }}>
       {/* Thumb-ul mare al sliderului nu se poate stiliza inline (pseudo-elemente)
-          — singurul <style> local, scoped pe clasa .afiliat-range. */}
+          — singurul <style> local, scoped pe clasa .afiliat-range. Input-ul are
+          44px înălțime (țintă de atingere accesibilă); track-ul VIZUAL rămâne
+          subțire (8px) pe pseudo-elemente, cu umplerea aurie din --afiliat-fill
+          (setată inline pe input). Thumb-ul WebKit primește margin-top negativ
+          ca să rămână centrat pe track. */}
       <style>{`
-        .afiliat-range { -webkit-appearance: none; appearance: none; height: 8px; border-radius: 999px; outline: none; cursor: pointer; width: 100%; }
-        .afiliat-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%; background: ${MKT.accent}; border: 3px solid #FFFFFF; box-shadow: 0 2px 10px rgba(36,26,10,0.35); cursor: pointer; }
+        .afiliat-range { -webkit-appearance: none; appearance: none; height: 44px; background: none; outline: none; cursor: pointer; width: 100%; margin: 0; }
+        .afiliat-range::-webkit-slider-runnable-track { height: 8px; border-radius: 999px; background: linear-gradient(90deg, ${MKT.accent} var(--afiliat-fill, 0%), ${MKT.border} var(--afiliat-fill, 0%)); }
+        .afiliat-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; border-radius: 50%; background: ${MKT.accent}; border: 3px solid #FFFFFF; box-shadow: 0 2px 10px rgba(36,26,10,0.35); cursor: pointer; margin-top: -10px; }
+        .afiliat-range::-moz-range-track { height: 8px; border-radius: 999px; background: linear-gradient(90deg, ${MKT.accent} var(--afiliat-fill, 0%), ${MKT.border} var(--afiliat-fill, 0%)); }
         .afiliat-range::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: ${MKT.accent}; border: 3px solid #FFFFFF; box-shadow: 0 2px 10px rgba(36,26,10,0.35); cursor: pointer; }
       `}</style>
 
@@ -238,7 +248,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                   letterSpacing: '-0.03em',
                 }}
               >
-                până la {pct(defaults.setup_bps)}
+                {pct(defaults.setup_bps)}
               </div>
               <div style={{ color: DARK.text2, fontSize: 14, marginTop: 12, lineHeight: 1.55 }}>
                 din prima factură a fiecărui restaurant adus
@@ -322,11 +332,11 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 value={count}
                 onChange={(e) => setCount(Number(e.target.value))}
                 className="afiliat-range"
-                aria-label="Numărul de restaurante recomandate"
-                style={{
-                  // Track auriu până la valoarea curentă, restul bej deschis.
-                  background: `linear-gradient(90deg, ${MKT.accent} ${fillPct}%, ${MKT.border} ${fillPct}%)`,
-                }}
+                style={
+                  // Track auriu până la valoarea curentă, restul bej deschis —
+                  // variabila e citită de pseudo-elementele de track din <style>.
+                  { '--afiliat-fill': `${fillPct}%` } as React.CSSProperties
+                }
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', color: MKT.text3, fontSize: 12, marginTop: 6 }}>
                 <span>1</span>
@@ -352,7 +362,11 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 <div style={calcValue}>{lei(monthly)} lei/lună</div>
               </div>
             </div>
+            {/* aria-live pe containerul STABIL (nu pe copilul remontat prin
+                key) — SR-ul anunță totalul recalculat la fiecare pas de slider. */}
             <div
+              aria-live="polite"
+              aria-atomic="true"
               style={{
                 background: MKT.accentSoft,
                 border: `1.5px solid ${MKT.accent}`,
@@ -531,6 +545,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 <button
                   onClick={() => setOpenFaq(isOpen ? null : i)}
                   aria-expanded={isOpen}
+                  aria-controls={`afiliat-faq-${i}`}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -567,6 +582,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 {/* aria-hidden pe colapsat: ascunderea e doar vizuală (0fr +
                     opacity), altfel SR-ul citește răspunsuri „închise". */}
                 <div
+                  id={`afiliat-faq-${i}`}
                   aria-hidden={!isOpen}
                   style={{
                     display: 'grid',
@@ -604,7 +620,7 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
             Prima recomandare poate fi săptămâna asta.
           </h3>
           <p style={{ color: DARK.text2, fontSize: 15, margin: '0 auto 28px', maxWidth: 480, lineHeight: 1.6 }}>
-            Cont în un minut, link unic pe loc. Restul — restaurantele pe care deja le cunoști.
+            Cont într-un minut, link unic pe loc. Restul — restaurantele pe care deja le cunoști.
           </p>
           <button onClick={onLogin} className="pressable hover-lift" style={goldCta}>
             Înscrie-te în program →

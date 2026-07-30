@@ -1,8 +1,9 @@
 // Reservations admin tab — list, filter, status flow + settings card.
 // Owner/manager only (RLS).
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { D } from '../lib/constants'
+import { supabase } from '../lib/supabase'
 import {
   useReservations,
   useReservationSettings,
@@ -17,11 +18,20 @@ import { Skeleton } from './ui/Skeleton'
 import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
+import { confirm as confirmDialog } from './ui/confirm'
+
+// Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
+// get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
+// ultimele 9 cifre. NU hash-ul loyalty (capcana din CLAUDE.md).
+function phoneKey(phone: string): string | null {
+  const digits = (phone || '').replace(/\D/g, '')
+  return digits.length >= 9 ? digits.slice(-9) : null
+}
 
 const STATUS_LABEL: Record<ReservationStatus, string> = {
   pending: 'În așteptare',
   confirmed: 'Confirmată',
-  seated: 'Așezat',
+  seated: 'La masă',
   completed: 'Finalizată',
   cancelled: 'Anulată',
   no_show: 'No-show',
@@ -31,7 +41,8 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
   pending: { bg: 'rgba(232,160,32,0.14)', fg: D.amber },
   confirmed: { bg: 'rgba(200,150,60,0.12)', fg: D.gold },
   seated: { bg: 'rgba(76,175,110,0.14)', fg: D.green },
-  completed: { bg: D.s2, fg: D.t3 },
+  // s3 (nu s2) — cardul are fundal s2, pastila trebuie să rămână vizibilă pe el.
+  completed: { bg: D.s3, fg: D.t3 },
   cancelled: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
   no_show: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
 }
@@ -51,10 +62,27 @@ function formatTime(iso: string): string {
   })
 }
 
+// Cheia de zi pe data LOCALĂ, nu felia UTC din ISO — o rezervare la 00:30 ora
+// României are data UTC din ziua precedentă și ar ateriza sub headerul greșit
+// (headerul formatează local prin formatDay; cheia trebuie să fie consistentă).
+function localDayKey(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
+}
+
+// Plural românesc: „1 rezervare", „2 rezervări", dar „21 de rezervări" —
+// numerele cu restul %100 în afara intervalului 2–19 (și diferite de 0) cer „de".
+function plural(n: number, one: string, many: string): string {
+  if (n === 1) return `1 ${one}`
+  const rem = n % 100
+  const needsDe = n !== 0 && !(rem >= 2 && rem <= 19)
+  return `${n} ${needsDe ? 'de ' : ''}${many}`
+}
+
 function groupByDay(reservations: Reservation[]): Map<string, Reservation[]> {
   const map = new Map<string, Reservation[]>()
   for (const r of reservations) {
-    const key = r.starts_at.slice(0, 10)
+    const key = localDayKey(r.starts_at)
     const list = map.get(key)
     if (list) list.push(r)
     else map.set(key, [r])
@@ -77,6 +105,30 @@ export default function ReservationsTab({ restaurantId }: Props) {
   )
   const toast = useToast()
 
+  // Istoric no-show per telefon (mig 234) — badge de risc pe rezervările
+  // viitoare. Eșecul RPC-ului (ex. migrația neaplicată încă, PGRST202) lasă
+  // tăcut badge-urile goale — informația e un plus, nu blochează tabul.
+  const [noShowCounts, setNoShowCounts] = useState<Record<string, number>>({})
+  useEffect(() => {
+    let alive = true
+    supabase
+      .rpc('get_reservation_no_show_counts', { p_restaurant_id: restaurantId })
+      .then(({ data, error: rpcErr }) => {
+        if (!alive) return
+        if (rpcErr || !Array.isArray(data)) return
+        const map: Record<string, number> = {}
+        for (const row of data as { phone_key: string; no_show_count: number }[]) {
+          if (row.phone_key) map[row.phone_key] = Number(row.no_show_count) || 0
+        }
+        setNoShowCounts(map)
+      })
+    return () => {
+      alive = false
+    }
+    // `reservations` e dependență intenționat: un no-show nou (manual sau din
+    // cron, sosit pe realtime) reîmprospătează istoricul afișat.
+  }, [restaurantId, reservations])
+
   // Care preset de interval e activ acum — ca să evidențiem chip-ul corect
   // (patronul trebuie să vadă ce filtru e aplicat, nu doar să apese orbește).
   const activeRangeKey = useMemo<'today' | 'tomorrow' | 'week' | 'custom'>(() => {
@@ -91,6 +143,15 @@ export default function ReservationsTab({ restaurantId }: Props) {
     return 'custom'
   }, [range])
 
+  // Valoarea inputului de dată e legată de range: pe preseturi (Azi/Mâine/Săptămâna)
+  // se golește, ca să nu sugereze vizual că două filtre de dată sunt active simultan.
+  const customDateValue = useMemo(() => {
+    if (activeRangeKey !== 'custom') return ''
+    const d = new Date(range.from)
+    const pad = (x: number) => String(x).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }, [activeRangeKey, range.from])
+
   const filtered = useMemo(() => {
     if (!pendingOnly) return reservations
     return reservations.filter((r) => r.status === 'pending')
@@ -100,6 +161,17 @@ export default function ReservationsTab({ restaurantId }: Props) {
 
   const handleStatus = useCallback(
     async (id: string, status: ReservationStatus, label: string) => {
+      // cancelled/no_show sunt terminale (cardul nu mai oferă niciun buton după) —
+      // un singur tap le executa fără confirmare și fără cale de revenire.
+      if (status === 'cancelled' || status === 'no_show') {
+        const ok = await confirmDialog({
+          title: status === 'cancelled' ? 'Anulezi rezervarea?' : 'Marchezi ca no-show?',
+          description: 'Acțiunea nu poate fi anulată din aplicație.',
+          confirmLabel: status === 'cancelled' ? 'Anulează rezervarea' : 'Marchează no-show',
+          destructive: true,
+        })
+        if (!ok) return
+      }
       try {
         await updateStatus(id, status)
         toast.success(label)
@@ -134,7 +206,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
           Rezervări
         </h2>
         <div style={{ fontSize: 13, color: D.t2 }}>
-          {filtered.length} {filtered.length === 1 ? 'rezervare' : 'rezervări'} în interval
+          {plural(filtered.length, 'rezervare', 'rezervări')} în interval
         </div>
       </div>
 
@@ -150,6 +222,8 @@ export default function ReservationsTab({ restaurantId }: Props) {
         </FilterChip>
         <input
           type="date"
+          aria-label="Alege o zi anume"
+          value={customDateValue}
           onChange={(e) => {
             if (e.target.value) {
               const [y, mo, d] = e.target.value.split('-').map(Number)
@@ -189,7 +263,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
             onChange={(e) => setPendingOnly(e.target.checked)}
             style={{ margin: 0 }}
           />
-          Doar pending
+          Doar în așteptare
         </label>
         <button
           onClick={() => void refetch()}
@@ -212,7 +286,9 @@ export default function ReservationsTab({ restaurantId }: Props) {
         </button>
       </div>
 
-      {error && (
+      {/* Pe eroare NU randăm și empty state-ul „Nicio rezervare" — mesajele ar fi
+          contradictorii (hook-ul golește lista la eșec). Doar mesaj RO + retry. */}
+      {error ? (
         <div
           style={{
             padding: 14,
@@ -221,23 +297,55 @@ export default function ReservationsTab({ restaurantId }: Props) {
             border: '1px solid rgba(224,85,85,0.20)',
             color: D.red,
             marginBottom: 12,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
           }}
         >
-          {error}
+          <span>Nu am putut încărca rezervările.</span>
+          <button
+            onClick={() => void refetch()}
+            className="pressable"
+            style={{
+              background: D.gold,
+              color: '#000',
+              border: 'none',
+              borderRadius: 9,
+              padding: '10px 18px',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: 'pointer',
+              minHeight: 44,
+            }}
+          >
+            Reîncearcă
+          </button>
         </div>
-      )}
-
-      {loading ? (
+      ) : loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Skeleton variant="card" />
           <Skeleton variant="card" />
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState
-          icon="calendar"
-          title="Nicio rezervare în intervalul ales"
-          description="Schimbă filtrul de dată sau verifică setările"
-        />
+        pendingOnly && reservations.length > 0 ? (
+          // Rezervări EXISTĂ în interval — doar filtrul de status le ascunde;
+          // mesajul generic ar trimite utilizatorul spre data greșită.
+          <EmptyState
+            icon="calendar"
+            title="Nicio rezervare în așteptare"
+            description={
+              'Debifează „Doar în așteptare" ca să vezi toate rezervările din interval'
+            }
+          />
+        ) : (
+          <EmptyState
+            icon="calendar"
+            title="Nicio rezervare în intervalul ales"
+            description="Schimbă filtrul de dată sau verifică setările"
+          />
+        )
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
           {[...grouped.entries()].map(([dayKey, list]) => (
@@ -259,10 +367,14 @@ export default function ReservationsTab({ restaurantId }: Props) {
                   <ReservationCard
                     key={r.id}
                     r={r}
+                    noShowCount={(() => {
+                      const k = phoneKey(r.customer_phone)
+                      return k ? (noShowCounts[k] ?? 0) : 0
+                    })()}
                     onConfirm={() => handleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
-                    onSeated={() => handleStatus(r.id, 'seated', 'Marcat ca așezat')}
+                    onSeated={() => handleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')}
                     onCancel={() => handleStatus(r.id, 'cancelled', 'Rezervare anulată')}
-                    onNoShow={() => handleStatus(r.id, 'no_show', 'Marcat ca no-show')}
+                    onNoShow={() => handleStatus(r.id, 'no_show', 'Rezervare marcată ca no-show')}
                     onComplete={() => handleStatus(r.id, 'completed', 'Rezervare finalizată')}
                   />
                 ))}
@@ -312,6 +424,7 @@ function FilterChip({
 
 interface CardProps {
   r: Reservation
+  noShowCount: number
   onConfirm: () => void
   onSeated: () => void
   onCancel: () => void
@@ -319,7 +432,15 @@ interface CardProps {
   onComplete: () => void
 }
 
-function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplete }: CardProps) {
+function ReservationCard({
+  r,
+  noShowCount,
+  onConfirm,
+  onSeated,
+  onCancel,
+  onNoShow,
+  onComplete,
+}: CardProps) {
   const status = STATUS_COLOR[r.status]
   return (
     <div
@@ -351,14 +472,37 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
           {formatTime(r.starts_at)}
         </div>
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
+        {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul
+            poate suna să reconfirme. Doar pe rezervările încă ne-terminale. */}
+        {noShowCount > 0 && (r.status === 'pending' || r.status === 'confirmed') && (
+          <span
+            title={`Acest număr de telefon are ${noShowCount} no-show în istoric`}
+            style={{
+              padding: '3px 8px',
+              borderRadius: 100,
+              background: 'rgba(224,85,85,0.10)',
+              color: D.red,
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            ⚠ {noShowCount} no-show
+          </span>
+        )}
         <div style={{ fontSize: 13, color: D.t2 }}>
-          · {r.party_size} {r.party_size === 1 ? 'persoană' : 'persoane'}
+          · {plural(r.party_size, 'persoană', 'persoane')}
         </div>
         {r.table && (
           <div style={{ fontSize: 12, color: D.t2 }}>
             · {r.table.name}
             {r.table.zone ? ' (' + r.table.zone + ')' : ''}
           </div>
+        )}
+        {/* Preferința clientului din widgetul public — vizibilă cât timp nu e
+            deja acoperită de zona mesei alocate, ca să nu fie așezat greșit. */}
+        {r.requested_zone && r.table?.zone !== r.requested_zone && (
+          <div style={{ fontSize: 12, color: D.t2 }}>· zonă cerută: {r.requested_zone}</div>
         )}
         <div
           style={{
@@ -440,7 +584,7 @@ function ReservationCard({ r, onConfirm, onSeated, onCancel, onNoShow, onComplet
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {r.status === 'pending' && <ActionButton onClick={onConfirm}>Confirmă</ActionButton>}
         {(r.status === 'pending' || r.status === 'confirmed') && (
-          <ActionButton onClick={onSeated}>Așezat</ActionButton>
+          <ActionButton onClick={onSeated}>Așază la masă</ActionButton>
         )}
         {r.status === 'seated' && <ActionButton onClick={onComplete}>Finalizează</ActionButton>}
         {r.status === 'confirmed' && (
@@ -491,7 +635,7 @@ function ActionButton({
 
 // ── Settings section (collapsible) ───────────────────────────
 function SettingsSection({ restaurantId }: { restaurantId: string }) {
-  const { settings, loading, save } = useReservationSettings(restaurantId)
+  const { settings, loading, error, save, refetch } = useReservationSettings(restaurantId)
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<Partial<ReservationSettings>>({})
   const [saving, setSaving] = useState(false)
@@ -516,10 +660,46 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     }
   }, [save, draft, merged, toast])
 
-  if (loading || !merged) {
+  if (loading) {
     return (
       <div style={{ marginTop: 32 }}>
         <Skeleton variant="card" />
+      </div>
+    )
+  }
+  // Fără această ramură, o eroare de fetch (RLS block / blip de rețea / rând lipsă
+  // pe `.single()`) lăsa `merged=null` → skeleton la infinit, tăcut. Acum: mesaj + retry.
+  if (error || !merged) {
+    return (
+      <div
+        style={{
+          marginTop: 32,
+          padding: 20,
+          border: `1px solid ${D.border}`,
+          borderRadius: 12,
+          background: D.s2,
+          color: D.t2,
+          textAlign: 'center',
+        }}
+      >
+        <div style={{ marginBottom: 12 }}>Nu am putut încărca setările de rezervări.</div>
+        <button
+          onClick={() => void refetch()}
+          className="pressable"
+          style={{
+            background: D.gold,
+            color: '#000',
+            border: 'none',
+            borderRadius: 9,
+            padding: '10px 18px',
+            fontSize: '0.82rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            minHeight: 44,
+          }}
+        >
+          Reîncearcă
+        </button>
       </div>
     )
   }
@@ -535,6 +715,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
     >
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         style={{
           width: '100%',
           padding: '14px 16px',
@@ -678,6 +859,8 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
               disabled={saving || Object.keys(draft).length === 0}
               style={{
                 padding: '10px 18px',
+                // Țintă tactilă ≥44px, ca restul butoanelor din tab.
+                minHeight: 44,
                 background: D.gold,
                 color: '#000',
                 border: 'none',
@@ -699,6 +882,8 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
 
 const settingsInputStyle: CSSProperties = {
   width: '100%',
+  // Țintă tactilă ≥44px și pe inputurile/select-urile din setări.
+  minHeight: 44,
   padding: '8px 10px',
   border: `1px solid ${D.border}`,
   borderRadius: 8,

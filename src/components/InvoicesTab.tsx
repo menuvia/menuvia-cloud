@@ -2,7 +2,7 @@
 // Menuvia — src/components/InvoicesTab.tsx
 // Tab admin: configurare Oblio + listă facturi emise + status live.
 // =============================================================
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useToast } from './ui/useToast'
@@ -10,6 +10,7 @@ import { confirm as confirmDialog } from './ui/confirm'
 import { Skeleton } from './ui/Skeleton'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { QueryError } from './PageLoader'
 import {
   fetchOblioConfig,
   saveOblioConfig,
@@ -38,7 +39,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
   const [showIssue, setShowIssue] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului, răspunsul unui load vechi nu
+  // trebuie să suprascrie configul/facturile Oblio ale restaurantului curent.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
@@ -46,12 +51,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         fetchOblioConfig(restaurantId),
         listInvoices(restaurantId, 50, 0),
       ])
+      if (seq !== loadSeqRef.current) return
       setConfig(cfg)
       setInvoices(inv)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 
@@ -75,6 +81,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         <Skeleton variant="table-row" count={4} />
       </div>
     )
+
+  // Eroare de încărcare: NU cădea pe empty-state-ul „configurează Oblio" (minte că
+  // fiscalizarea nu e configurată când de fapt încărcarea a eșuat) — arată eroarea
+  // cu Reîncearcă. Excepție: dacă userul e în formularul de config, nu-l ascundem.
+  if (err && !showConfig) return <QueryError message={err} onRetry={() => void load()} />
 
   // Empty state — no config
   if (!config && !showConfig) {
@@ -111,7 +122,8 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               margin: '0 auto 24px',
             }}
           >
-            Conectează contul tău Oblio (~50 RON/lună pe oblio.eu) și emite facturi conform
+            Contul Oblio e gratuit de creat; abonamentul pentru emiterea facturilor pornește de
+            la ~50 RON/lună (vezi oblio.eu). Conectează-l aici și emite facturi conform
             legislației române direct din Menuvia. Suportă și e-Factura SPV ANAF pentru B2B.
           </p>
           <button
@@ -202,9 +214,13 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               border: 'none',
               borderRadius: 8,
               padding: '8px 14px',
+              minHeight: 40,
               fontSize: 13,
               fontWeight: 600,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             + Factură nouă
@@ -217,10 +233,12 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
               border: `1px solid ${D.border}`,
               borderRadius: 8,
               padding: '8px 14px',
+              minHeight: 40,
               fontSize: 13,
               cursor: 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: 6,
             }}
           >
@@ -251,7 +269,30 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
           icon="receipt"
           title="Nicio factură emisă încă"
           description={
-            'Pentru a emite o factură, mergi la o comandă plătită și apasă "Emite factură" în detalii.'
+            'Apasă „+ Factură nouă" mai sus, sau mergi la o comandă plătită și apasă „Emite factură" în detalii.'
+          }
+          action={
+            <button
+              onClick={() => setShowIssue(true)}
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 16px',
+                minHeight: 40,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+              }}
+            >
+              <Icon name="plus" size={15} />
+              Factură nouă
+            </button>
           }
         />
       ) : (
@@ -415,8 +456,12 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
               textDecoration: 'none',
               borderRadius: 6,
               padding: '6px 12px',
+              minHeight: 40,
               fontSize: 12,
               fontWeight: 600,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             PDF →
@@ -432,8 +477,12 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
               border: `1px solid ${D.border}`,
               borderRadius: 6,
               padding: '6px 10px',
+              minHeight: 40,
               fontSize: 12,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             Anulează

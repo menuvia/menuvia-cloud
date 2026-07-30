@@ -351,6 +351,11 @@ export interface ThemeSettings {
   // Paginile meniului ca imagini (layout 'flipbook'), în ordinea de răsfoire.
   // Doar URL-uri https, maxim FLIPBOOK_MAX_PAGES — vezi resolveFlipbookPages.
   flipbook_pages?: string[] | null
+  // Ascunde badge-ul „Creat cu Menuvia" de pe meniul public (E1, buclă virală).
+  // Default FALSE (badge vizibil); dezactivarea e beneficiu de la Plan 2 în sus
+  // (plan_features.remove_branding, growth+ din mig 028 — gating-ul de scriere
+  // se face în UI-ul de Setări, citirea e liberă).
+  hide_branding?: boolean | null
 }
 
 // Layout-ul de meniu ales, cu fallback sigur la 'list' pentru valori
@@ -375,6 +380,11 @@ export function resolveFlipbookPages(settings: ThemeSettings | null | undefined)
     .filter((p): p is string => typeof p === 'string' && /^https:\/\//i.test(p.trim()))
     .map((p) => p.trim())
     .slice(0, FLIPBOOK_MAX_PAGES)
+}
+
+// Badge-ul de branding e vizibil implicit; doar `true` explicit îl ascunde.
+export function resolveHideBranding(settings: ThemeSettings | null | undefined): boolean {
+  return settings?.hide_branding === true
 }
 
 // Elementele opționale ale meniului, cu default `true` per câmp (comportament

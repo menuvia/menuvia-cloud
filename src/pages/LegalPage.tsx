@@ -10,8 +10,10 @@
 //       menuvia-pack/04-DRAFT-COOKIES.md
 //       menuvia-pack/05-DRAFT-DPA.md
 // ─────────────────────────────────────────────────────────────────
+import { useEffect } from 'react'
 import { D } from '../lib/constants'
 import LegalFooter from '../components/LegalFooter'
+import Icon from '../components/ui/Icon'
 
 export type LegalDoc = 'terms' | 'privacy' | 'cookies' | 'dpa'
 
@@ -23,6 +25,14 @@ const TITLES: Record<LegalDoc, string> = {
 }
 
 export default function LegalPage({ doc }: { doc: LegalDoc }) {
+  useEffect(() => {
+    const prevTitle = document.title
+    document.title = `${TITLES[doc]} — Menuvia`
+    return () => {
+      document.title = prevTitle
+    }
+  }, [doc])
+
   return (
     <div style={{ minHeight: '100vh', background: D.bg, fontFamily: 'DM Sans, sans-serif' }}>
       <div style={{ maxWidth: 760, margin: '0 auto', padding: '60px 24px' }}>
@@ -64,9 +74,19 @@ export default function LegalPage({ doc }: { doc: LegalDoc }) {
             lineHeight: 1.6,
           }}
         >
-          <strong style={{ color: D.gold }}>⚠ Versiune în pregătire.</strong> Documentul în formă
-          finală va fi disponibil aici după revizuirea de către consultant juridic specializat. Până
-          atunci, pentru orice întrebare scrie la{' '}
+          <strong
+            style={{
+              color: D.gold,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            <Icon name="alert" size={15} color={D.gold} />
+            Versiune în pregătire.
+          </strong>{' '}
+          Documentul în formă finală va fi disponibil aici după revizuirea de către consultant
+          juridic specializat. Până atunci, pentru orice întrebare scrieți-ne la{' '}
           <a href="mailto:contact@menuvia.ro" style={{ color: D.gold }}>
             contact@menuvia.ro
           </a>

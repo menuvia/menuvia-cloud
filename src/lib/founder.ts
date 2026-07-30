@@ -172,6 +172,15 @@ export interface AdminAffiliateRow {
   recurring_bps?: number
   cascade_bps?: number
   recurring_cap_months?: number
+  // Datele cererii (mig 224) — pentru interviul telefonic. Tot opționale
+  // (FE poate ajunge înaintea migrației).
+  phone?: string | null
+  application_note?: string | null
+  reviewed_at?: string | null
+  // White-label v1 (mig 236) — tot opționale (FE înaintea migrației).
+  brand_domain?: string | null
+  brand_name?: string | null
+  brand_logo_url?: string | null
 }
 
 export interface AdminAuditRow {
@@ -188,6 +197,10 @@ export interface AdminAuditRow {
 export interface AdminActionResult {
   ok: boolean
   error?: string
+  // admin_review_affiliate (mig 224) refuză cu `reason` (not_found /
+  // not_reviewable), nu cu `error` — consumatorii trebuie să mapeze ambele.
+  reason?: string
+  status?: string
   old_plan?: string
   new_plan?: string
 }
@@ -240,6 +253,16 @@ export function markPayoutPaid(id: string, wiseTransferId?: string): Promise<Adm
 
 export function listAffiliates(): Promise<AdminAffiliateRow[]> {
   return rpcJson<AdminAffiliateRow[]>('admin_list_affiliates')
+}
+
+// Decizia pe o cerere de afiliere (mig 224): aprobă (→active) sau respinge
+// (→rejected). Doar cererile pending/rejected sunt „reviewable" — suspendarea
+// și închiderea sunt mecanisme separate.
+export function reviewAffiliate(affiliateId: string, approve: boolean): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_review_affiliate', {
+    p_affiliate_id: affiliateId,
+    p_approve: approve,
+  })
 }
 
 export function setRestaurantPlan(restaurantId: string, plan: string): Promise<AdminActionResult> {
@@ -311,6 +334,59 @@ export function applyDefaultsToAllAffiliates(): Promise<
 > {
   return rpcJson<AdminActionResult & { updated_count?: number }>(
     'admin_apply_defaults_to_all_affiliates',
+  )
+}
+
+// ── White-label v1 (mig 236) ──────────────────────────────────────────
+export function setAffiliateBranding(
+  affiliateId: string,
+  domain: string | null,
+  name: string | null,
+  logoUrl: string | null,
+): Promise<AdminActionResult & { brand_domain?: string | null }> {
+  return rpcJson<AdminActionResult & { brand_domain?: string | null }>(
+    'admin_set_affiliate_branding',
+    {
+      p_affiliate_id: affiliateId,
+      p_domain: domain,
+      p_name: name,
+      p_logo_url: logoUrl,
+    },
+  )
+}
+
+// ── Benchmark lunar (mig 237) ─────────────────────────────────────────
+export interface BenchmarkRow {
+  restaurant_id: string
+  name: string
+  slug: string
+  plan: string
+  orders: number
+  qr_share_pct: number | null
+  // Banii sunt null pe planurile fără fiscal_receipt (regula de aur).
+  revenue: number | null
+  avg_ticket: number | null
+}
+
+export interface MonthlyBenchmark {
+  month: string
+  platform: {
+    restaurants: number
+    restaurants_with_orders: number
+    avg_orders: number
+    median_orders: number
+    avg_qr_share_pct: number
+    avg_revenue_fiscal: number
+    median_revenue_fiscal: number
+  }
+  rows: BenchmarkRow[]
+}
+
+export function getMonthlyBenchmark(month?: string): Promise<MonthlyBenchmark> {
+  // month = 'YYYY-MM' → prima zi a lunii; absent = luna curentă.
+  return rpcJson<MonthlyBenchmark>(
+    'admin_monthly_benchmark',
+    month ? { p_month: `${month}-01` } : { p_month: null },
   )
 }
 

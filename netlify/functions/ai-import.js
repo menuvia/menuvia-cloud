@@ -110,28 +110,50 @@ exports.handler = async (event) => {
     if (slotId) await supabase.from('ai_import_log').delete().eq('id', slotId)
   }
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key':         process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type':      'application/json',
-    },
-    body: JSON.stringify({
-      model:      'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      messages,
-    }),
-  })
-
-  if (!res.ok) {
-    const err = await res.text()
-    console.error('Anthropic error:', err)
+  // Eșecul de REȚEA (DNS/timeout) face fetch să ARUNCE — fără try/catch,
+  // excepția ieșea din handler ÎNAINTE de refundSlot(), consumând tăcut un
+  // slot de import lunar pe un blip tranzitoriu (audit săpt. 10). Îl prindem
+  // și eliberăm slotul, exact ca pe ramura !res.ok.
+  let res
+  try {
+    res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      // OPT-7: un TCP agățat nu ARUNCĂ — funcția era omorâtă la limită fără
+      // să ruleze refundSlot(), consumând tăcut un slot lunar de import.
+      signal: AbortSignal.timeout(25_000),
+      headers: {
+        'x-api-key':         process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type':      'application/json',
+      },
+      body: JSON.stringify({
+        model:      'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages,
+      }),
+    })
+  } catch (e) {
+    console.error('Anthropic fetch failed:', e.message)
     await refundSlot()
-    return jsonResponse(500, { error: 'AI request failed' })
+    return jsonResponse(502, { error: 'AI request failed' })
   }
 
-  const data = await res.json()
+  // Citirea body-ului poate ARUNCA TimeoutError sub semnal — o ținem pe
+  // aceeași cale de refund ca fetch-ul (zero sloturi pierdute).
+  let data
+  try {
+    if (!res.ok) {
+      const err = await res.text()
+      console.error('Anthropic error:', err)
+      await refundSlot()
+      return jsonResponse(500, { error: 'AI request failed' })
+    }
+    data = await res.json()
+  } catch (e) {
+    console.error('Anthropic body read failed:', e.message)
+    await refundSlot()
+    return jsonResponse(502, { error: 'AI request failed' })
+  }
   const text = data.content?.[0]?.text || '[]'
 
   try {

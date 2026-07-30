@@ -107,13 +107,29 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     setError(null)
     let ok = 0
     const failed: string[] = []
-    for (const d of drafts) {
-      if (!d.include || !d.name.trim()) continue
-      const r = await products.create({ name: d.name.trim(), description: d.description.trim() || null, price: d.price, emoji: d.emoji, category_id: d.category_id || null })
-      if (!r.error) ok++
-      else {
-        console.error('confirmImport product create failed', r.error)
-        failed.push(`${d.name.trim() || 'produs fără nume'}: nu a putut fi salvat`)
+    const selected = drafts.filter((d) => d.include && d.name.trim())
+    const toRow = (d: (typeof selected)[number]) => ({
+      name: d.name.trim(),
+      description: d.description.trim() || null,
+      price: d.price,
+      emoji: d.emoji,
+      category_id: d.category_id || null,
+    })
+    // OPT-5: UN singur INSERT în lot + UN singur refetch (createMany) — la 50
+    // de produse: ~100 RTT-uri seriale → 2. Fallback pe bucla per-rând DOAR
+    // dacă batch-ul eșuează (păstrează raportarea per-produs a eșecurilor).
+    const batch = selected.length > 0 ? await products.createMany(selected.map(toRow)) : null
+    if (batch && !batch.error) {
+      ok = batch.data?.length ?? selected.length
+    } else if (selected.length > 0) {
+      if (batch?.error) console.error('confirmImport batch insert failed, per-row fallback', batch.error)
+      for (const d of selected) {
+        const r = await products.create(toRow(d))
+        if (!r.error) ok++
+        else {
+          console.error('confirmImport product create failed', r.error)
+          failed.push(`${d.name.trim() || 'produs fără nume'}: nu a putut fi salvat`)
+        }
       }
     }
     setImported(ok)

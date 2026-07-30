@@ -1,9 +1,11 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
+import { buildPickupSlots } from '../lib/pickupSlots'
 import type { CartItem } from '../lib/orders'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
 import type { MenuTheme } from '../lib/themes'
 
@@ -26,6 +28,8 @@ export interface PickupCheckoutProps {
   PUB: PUBColors
   onClose: () => void
   onSuccess: (short_id: string, pickup_time: string | null, total: number) => void
+  // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
+  currency?: MenuCurrency
 }
 
 export default function PickupCheckoutSheet({
@@ -37,6 +41,7 @@ export default function PickupCheckoutSheet({
   PUB,
   onClose,
   onSuccess,
+  currency = 'RON',
 }: PickupCheckoutProps) {
   useBodyScrollLock(true)
   const [name, setName] = useState('')
@@ -48,41 +53,31 @@ export default function PickupCheckoutSheet({
   // ambiguitate de rețea) refolosesc aceeași cheie → fără comenzi duplicate.
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
 
-  const slots = useMemo(() => {
-    const settings = restaurant.pickup_settings
-    if (!settings) return []
-    const now = new Date()
-    const lead = settings.min_lead_time_minutes
-    const interval = settings.slot_interval_minutes
-    const earliest = new Date(now.getTime() + lead * 60_000)
-
-    // Lower bound = ora de deschidere (nu putem oferi sloturi înainte de open).
-    const [openH, openM] = settings.open_hours.start.split(':').map(Number)
-    const open = new Date(now)
-    open.setHours(openH, openM, 0, 0)
-    if (earliest.getTime() < open.getTime()) {
-      earliest.setTime(open.getTime())
+  // Semantică de dialog modal (paritate cu QrCartSheet/ProductSheet): Escape
+  // închide, focusul intră în panou la deschidere și se restaurează la închidere.
+  const panelRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
     }
-
-    const min = earliest.getMinutes()
-    const remainder = min % interval
-    if (remainder > 0) earliest.setMinutes(min + (interval - remainder))
-    earliest.setSeconds(0)
-    earliest.setMilliseconds(0)
-
-    const [closeH, closeM] = settings.open_hours.end.split(':').map(Number)
-    const close = new Date(now)
-    close.setHours(closeH, closeM, 0, 0)
-    if (close.getTime() < earliest.getTime()) return []
-
-    const result: string[] = []
-    let cursor = new Date(earliest)
-    while (cursor.getTime() <= close.getTime() && result.length < 16) {
-      result.push(cursor.toISOString())
-      cursor = new Date(cursor.getTime() + interval * 60_000)
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
     }
-    return result
-  }, [restaurant.pickup_settings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Helper pur (lib/pickupSlots) — suportă și programul peste miezul nopții
+  // (ex. food truck 18:00–02:00), cu aceeași doctrină ca rezervările (mig 201).
+  const slots = useMemo(
+    () => buildPickupSlots(restaurant.pickup_settings),
+    [restaurant.pickup_settings],
+  )
 
   async function submitOrder() {
     if (slots.length === 0) {
@@ -161,7 +156,12 @@ export default function PickupCheckoutSheet({
       }}
     >
       <div
+        ref={panelRef}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Detalii ridicare"
+        tabIndex={-1}
         style={{
           background: PUB.bg,
           borderRadius: '20px 20px 0 0',
@@ -170,6 +170,7 @@ export default function PickupCheckoutSheet({
           maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
+          outline: 'none',
         }}
       >
         <div
@@ -389,7 +390,7 @@ export default function PickupCheckoutSheet({
               boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
             }}
           >
-            {submitting ? 'Se trimite...' : `Trimite comanda · ${cartTotal.toFixed(2)} lei`}
+            {submitting ? 'Se trimite...' : `Trimite comanda · ${fmtPrice(cartTotal, currency)}`}
           </button>
         </div>
       </div>

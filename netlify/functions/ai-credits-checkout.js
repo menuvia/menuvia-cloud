@@ -43,7 +43,10 @@ exports.handler = async (event) => {
 
   const { restaurant_id, pack } = body
   if (!restaurant_id) return jsonResponse(400, { error: 'Missing restaurant_id' })
-  const packDef = PACKS[pack]
+  // hasOwnProperty: `PACKS[pack]` cu pack='constructor'/'toString' întorcea o
+  // funcție moștenită din Object.prototype → trecea de `!packDef` și crăpa mai
+  // jos cu 500 în loc de un 400 curat.
+  const packDef = Object.prototype.hasOwnProperty.call(PACKS, pack) ? PACKS[pack] : null
   if (!packDef) return jsonResponse(400, { error: 'Invalid pack' })
 
   // Auth
@@ -66,14 +69,22 @@ exports.handler = async (event) => {
     return jsonResponse(403, { error: 'Forbidden' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
   // Reutilizează/creează customer-ul Stripe al userului.
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('stripe_customer_id, email')
     .eq('id', user.id)
     .single()
+
+  // Fără guard, un blip tranzient pe acest SELECT lăsa `profile` null → intram în
+  // ramura de creare și făceam un customer Stripe DUPLICAT pentru un user care
+  // avea deja unul. Ieșim 503 înainte de creare (oglindă cu stripe-checkout.js).
+  if (profileErr) {
+    console.error('[ai-credits-checkout] profiles SELECT error:', profileErr.message)
+    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+  }
 
   let customerId = profile?.stripe_customer_id
   if (!customerId) {
@@ -82,7 +93,38 @@ exports.handler = async (event) => {
       metadata: { supabase_user_id: user.id },
     })
     customerId = customer.id
-    await supabase.from('profiles').update({ stripe_customer_id: customerId }).eq('id', user.id)
+
+    // Anti race la creare concurentă (2 cereri simultane fără stripe_customer_id
+    // ar crea 2 customeri Stripe pentru același user). UPDATE atomic condiționat
+    // pe .is('stripe_customer_id', null): doar cererea care câștigă cursa scrie.
+    // Oglindă cu stripe-checkout.js.
+    const { data: updatedRows } = await supabase.from('profiles')
+      .update({ stripe_customer_id: customerId })
+      .eq('id', user.id)
+      .is('stripe_customer_id', null)
+      .select('stripe_customer_id')
+
+    if (!updatedRows || updatedRows.length === 0) {
+      // Altcineva a fost mai rapid — recitim customer_id-ul real și îl folosim
+      // pe acela, ca să nu rămânem cu 2 customeri Stripe pentru același user.
+      const { data: freshProfile } = await supabase
+        .from('profiles')
+        .select('stripe_customer_id')
+        .eq('id', user.id)
+        .single()
+
+      if (freshProfile?.stripe_customer_id) {
+        const orphanCustomerId = customerId
+        customerId = freshProfile.stripe_customer_id
+        // Best-effort cleanup al customer-ului orfan creat de noi — nu blocăm
+        // fluxul de checkout dacă ștergerea eșuează.
+        try {
+          await stripe.customers.del(orphanCustomerId)
+        } catch (e) {
+          console.warn('[ai-credits-checkout] cleanup orphan Stripe customer failed:', e?.message)
+        }
+      }
+    }
   }
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'

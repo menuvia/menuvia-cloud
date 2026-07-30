@@ -14,6 +14,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import type { OrderConfirmationPayload } from '../lib/orders'
+import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { t, useLanguage } from '../lib/i18n'
 import LanguageSwitcher from './LanguageSwitcher'
 
@@ -45,6 +46,8 @@ interface PaymentConfirmedScreenProps {
   // comenzile de la masă fără sesiune validă — fără ea, tot funnel-ul e mort
   // pe cazul principal (QR la masă), cu eroarea înghițită silențios.
   sessionId?: string | null
+  // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
+  currency?: MenuCurrency
 }
 
 export default function PaymentConfirmedScreen({
@@ -57,6 +60,7 @@ export default function PaymentConfirmedScreen({
   onRequestFiscalReceipt,
   fiscalReceiptRequested = false,
   sessionId = null,
+  currency = 'RON',
 }: PaymentConfirmedScreenProps) {
   const { lang } = useLanguage()
   const total = Number(confirmation.total) || 0
@@ -124,21 +128,14 @@ export default function PaymentConfirmedScreen({
             marginTop: 24,
           }}
         >
-          <SummaryRow
-            label={t('paid.subtotal', lang)}
-            value={`${subtotal.toFixed(2)} ${t('common.lei', lang)}`}
-          />
+          <SummaryRow label={t('paid.subtotal', lang)} value={fmtPrice(subtotal, currency)} />
           {tipsAmount > 0 && (
-            <SummaryRow
-              label={t('paid.tips', lang)}
-              value={`${tipsAmount.toFixed(2)} ${t('common.lei', lang)}`}
-              muted
-            />
+            <SummaryRow label={t('paid.tips', lang)} value={fmtPrice(tipsAmount, currency)} muted />
           )}
           {fastPayFee > 0 && (
             <SummaryRow
               label={t('paid.fastPayFee', lang)}
-              value={`${fastPayFee.toFixed(2)} ${t('common.lei', lang)}`}
+              value={fmtPrice(fastPayFee, currency)}
               muted
             />
           )}
@@ -151,11 +148,7 @@ export default function PaymentConfirmedScreen({
               opacity: 0.6,
             }}
           />
-          <SummaryRow
-            label={t('paid.total', lang)}
-            value={`${total.toFixed(2)} ${t('common.lei', lang)}`}
-            bold
-          />
+          <SummaryRow label={t('paid.total', lang)} value={fmtPrice(total, currency)} bold />
 
           {/* Buton bon fiscal */}
           {onRequestFiscalReceipt && (

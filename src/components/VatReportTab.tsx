@@ -4,12 +4,13 @@
 // Filter pe interval de date, grupare per cota TVA + zi.
 // Export CSV care poate fi deschis direct în Excel.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { toRomaniaYMD } from '../lib/dates'
 
 interface VatRow {
   restaurant_id: string
@@ -27,17 +28,26 @@ interface Props {
   restaurantId: string
 }
 
+// Formatare RO: virgulă zecimală (ex. „1234,56"), consistent cu restul dashboard-ului.
+function fmt(n: number): string {
+  return n.toFixed(2).replace('.', ',')
+}
+
 export default function VatReportTab({ restaurantId }: Props) {
   const today = new Date()
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [from, setFrom] = useState<string>(firstOfMonth.toISOString().slice(0, 10))
-  const [to, setTo] = useState<string>(today.toISOString().slice(0, 10))
+  const [from, setFrom] = useState<string>(toRomaniaYMD(firstOfMonth))
+  const [to, setTo] = useState<string>(toRomaniaYMD(today))
   const [rows, setRows] = useState<VatRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Guard de secvență: la schimbarea restaurantului/perioadei, un răspuns vechi nu
+  // trebuie să afișeze datele FISCALE ale altui restaurant/interval.
+  const loadSeqRef = useRef(0)
   async function load() {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setError(null)
     try {
@@ -50,12 +60,13 @@ export default function VatReportTab({ restaurantId }: Props) {
         .order('report_date', { ascending: false })
         .order('vat_group')
 
+      if (seq !== loadSeqRef.current) return
       if (e) throw e
       setRows((data ?? []) as VatRow[])
     } catch (err) {
-      setError((err as Error).message)
+      if (seq === loadSeqRef.current) setError((err as Error).message)
     }
-    setLoading(false)
+    if (seq === loadSeqRef.current) setLoading(false)
   }
 
   useEffect(() => {
@@ -147,7 +158,7 @@ export default function VatReportTab({ restaurantId }: Props) {
     lines.push('')
     lines.push(
       row([
-        'GRAND TOTAL',
+        'TOTAL GENERAL',
         '',
         '',
         '',
@@ -262,8 +273,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             onClick={() => {
               const t = new Date()
               const f = new Date(t.getFullYear(), t.getMonth(), 1)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(t.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(t))
             }}
             style={presetBtn}
           >
@@ -274,8 +285,8 @@ export default function VatReportTab({ restaurantId }: Props) {
               const t = new Date()
               const f = new Date(t.getFullYear(), t.getMonth() - 1, 1)
               const l = new Date(t.getFullYear(), t.getMonth(), 0)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(l.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(l))
             }}
             style={presetBtn}
           >
@@ -285,8 +296,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             onClick={() => {
               const t = new Date()
               const f = new Date(t.getFullYear(), 0, 1)
-              setFrom(f.toISOString().slice(0, 10))
-              setTo(t.toISOString().slice(0, 10))
+              setFrom(toRomaniaYMD(f))
+              setTo(toRomaniaYMD(t))
             }}
             style={presetBtn}
           >
@@ -323,9 +334,9 @@ export default function VatReportTab({ restaurantId }: Props) {
         <div
           style={{
             padding: 16,
-            background: 'rgba(192,57,43,0.1)',
+            background: D.redA,
             borderRadius: 10,
-            color: '#c0392b',
+            color: D.red,
             fontSize: '0.85rem',
           }}
         >
@@ -347,11 +358,11 @@ export default function VatReportTab({ restaurantId }: Props) {
               gap: 10,
             }}
           >
-            {[...byVatGroup.values()]
-              .sort((a, b) => a.rate - b.rate)
-              .map((agg) => (
+            {[...byVatGroup.entries()]
+              .sort(([, a], [, b]) => a.rate - b.rate)
+              .map(([group, agg]) => (
                 <div
-                  key={agg.label}
+                  key={group}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.border}`,
@@ -381,12 +392,12 @@ export default function VatReportTab({ restaurantId }: Props) {
                       marginBottom: 4,
                     }}
                   >
-                    {agg.gross.toFixed(2)} lei
+                    {fmt(agg.gross)} lei
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                    TVA: <strong style={{ color: D.gold }}>{agg.vat.toFixed(2)}</strong>
+                    TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
                     <br />
-                    Net: {agg.net.toFixed(2)}
+                    Net: {fmt(agg.net)}
                   </div>
                 </div>
               ))}
@@ -420,12 +431,12 @@ export default function VatReportTab({ restaurantId }: Props) {
                   marginBottom: 4,
                 }}
               >
-                {totalGross.toFixed(2)} lei
+                {fmt(totalGross)} lei
               </div>
               <div style={{ fontSize: '0.72rem', color: D.t2, lineHeight: 1.5 }}>
-                TVA: <strong style={{ color: D.gold }}>{totalVat.toFixed(2)}</strong>
+                TVA: <strong style={{ color: D.gold }}>{fmt(totalVat)}</strong>
                 <br />
-                Net: {totalNet.toFixed(2)}
+                Net: {fmt(totalNet)}
               </div>
             </div>
           </div>
@@ -496,13 +507,13 @@ export default function VatReportTab({ restaurantId }: Props) {
                       </td>
                       <td style={{ padding: '10px 14px', color: D.t2 }}>{r.orders_count}</td>
                       <td style={{ padding: '10px 14px', color: D.t1, fontWeight: 600 }}>
-                        {Number(r.gross_total).toFixed(2)}
+                        {fmt(Number(r.gross_total))}
                       </td>
                       <td style={{ padding: '10px 14px', color: D.gold, fontWeight: 600 }}>
-                        {Number(r.vat_amount).toFixed(2)}
+                        {fmt(Number(r.vat_amount))}
                       </td>
                       <td style={{ padding: '10px 14px', color: D.t2 }}>
-                        {Number(r.net_total).toFixed(2)}
+                        {fmt(Number(r.net_total))}
                       </td>
                     </tr>
                   ))}

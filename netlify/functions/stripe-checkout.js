@@ -102,15 +102,27 @@ exports.handler = async (event) => {
   }
 
   // Get or create Stripe customer
-  const stripe = new Stripe(STRIPE_SECRET_KEY)
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileErr } = await supabase
     .from('profiles')
     .select('stripe_customer_id, email')
     .eq('id', user.id)
     .single()
 
+  // Eroare de DB tranzitorie ≠ „profil inexistent" — fără verificare, un blip
+  // ar crea un customer Stripe DUPLICAT (customerId rămâne undefined → ramura
+  // de creare) pentru un user care are deja unul (audit săpt. 10).
+  if (profileErr) {
+    console.error('[stripe-checkout] profile lookup failed:', profileErr.message)
+    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+  }
+
   let customerId = profile?.stripe_customer_id
+
+  // OPT-R2: true DOAR când această cerere a creat customer-ul ȘI a câștigat
+  // UPDATE-ul atomic → istoricul de subscripții e garantat gol, sărim lookup-ul.
+  let isFreshCustomer = false
 
   if (!customerId) {
     const customer = await stripe.customers.create({
@@ -128,6 +140,10 @@ exports.handler = async (event) => {
       .is('stripe_customer_id', null)
       .select('stripe_customer_id')
 
+    if (updatedRows && updatedRows.length > 0) {
+      // Am câștigat cursa cu un customer creat acum → fără subscripții posibile.
+      isFreshCustomer = true
+    }
     if (!updatedRows || updatedRows.length === 0) {
       // Altcineva a fost mai rapid — recitim customer_id-ul real și îl folosim
       // pe acela, ca să nu rămânem cu 2 customeri Stripe pentru același user.
@@ -193,8 +209,13 @@ exports.handler = async (event) => {
   //     din Portalul de facturare, nu printr-un nou checkout — altfel dublă plată);
   //   • dacă a existat VREODATĂ un trial → nu mai acordăm altul (anti trial-farming).
   let allowTrial = trialDays > 0
-  let subsAll
-  try {
+  let subsAll = []
+  // OPT-R2: pe un customer creat de NOI cu milisecunde în urmă (isFreshCustomer)
+  // lista de subscripții e garantat goală — sărim RTT-ul Stripe. Pe orice altă
+  // cale (customer existent sau adoptat după cursă) verificarea rămâne integrală.
+  if (isFreshCustomer) {
+    subsAll = []
+  } else try {
     // Paginăm TOATE subscripțiile clientului (nu doar prima pagină de 100), altfel o
     // subscripție live/trial mai veche ar putea fi ratată → dublu abonament / trial repetat.
     subsAll = await stripe.subscriptions

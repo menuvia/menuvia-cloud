@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react'
 import { D, PLAN_LABELS } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { isPlatformAdmin } from '../lib/ai'
+import { supabase } from '../lib/supabase'
 import { confirm } from '../components/ui/confirm'
 import { useToast } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
@@ -23,6 +24,7 @@ import {
   listPayouts,
   markPayoutPaid,
   listAffiliates,
+  reviewAffiliate,
   setRestaurantPlan,
   toggleRestaurantActive,
   listAuditLog,
@@ -31,6 +33,9 @@ import {
   setAffiliateDefaults,
   setAffiliateCommission,
   applyDefaultsToAllAffiliates,
+  setAffiliateBranding,
+  getMonthlyBenchmark,
+  type MonthlyBenchmark,
   type AffiliateCommissionDefaults,
   type CommissionInput,
   type PlatformOverview,
@@ -44,11 +49,12 @@ import {
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 
-type Section = 'overview' | 'restaurante' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
+type Section = 'overview' | 'restaurante' | 'benchmark' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Vedere generală' },
   { id: 'restaurante', label: 'Restaurante' },
+  { id: 'benchmark', label: 'Benchmark' },
   { id: 'operatiuni', label: 'Operațiuni' },
   { id: 'afiliati', label: 'Afiliați' },
   { id: 'ai', label: 'Consum AI' },
@@ -70,13 +76,51 @@ function formatMoney(cents: number, currency: string): string {
   return currency === 'RON' ? v + ' lei' : v + ' ' + currency
 }
 
+// Facturile Oblio vin cu totalul în UNITĂȚI (numeric 12,2, mig 041), nu în
+// cenți — nu putem delega direct la formatMoney (care primește cenți).
+function formatMoneyUnits(value: number, currency: string): string {
+  const v = value.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return currency === 'RON' ? v + ' lei' : v + ' ' + currency
+}
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString('ro-RO', {
+  const d = new Date(iso)
+  return d.toLocaleString('ro-RO', {
     day: 'numeric',
     month: 'short',
+    // Anul apare doar când nu e cel curent — auditul (100 de acțiuni) și
+    // payout-urile plătite pot acoperi peste 12 luni, altfel devin ambigue.
+    year: d.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined,
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// Etichete RO pentru enum-urile interne afișate în UI — fallback pe valoarea
+// brută, ca un status nou să nu dispară din ecran.
+const AFFILIATE_STATUS_LABELS: Record<string, string> = {
+  pending: 'în așteptare',
+  active: 'activ',
+  suspended: 'suspendat',
+  closed: 'închis',
+  rejected: 'respins',
+}
+
+const PAYOUT_STATUS_LABELS: Record<string, string> = {
+  draft: 'ciornă',
+  awaiting_invoice: 'așteaptă factura',
+  invoice_matched: 'factură confirmată',
+  processing: 'în procesare',
+  paid: 'plătit',
+  failed: 'eșuat',
+  on_hold: 'în verificare',
+  canceled: 'anulat',
+}
+
+const ACTOR_KIND_LABELS: Record<string, string> = {
+  founder: 'fondator',
+  affiliate: 'afiliat',
+  owner: 'proprietar',
 }
 
 // Semnal ne-cromatic pentru scorul de health: pe lângă culoare, o etichetă
@@ -100,20 +144,68 @@ export default function FounderPage({ onBack }: Props) {
   const isMobile = useIsMobile()
   // Guard: null = se verifică; false = interzis (redirect); true = ok.
   const [allowed, setAllowed] = useState<boolean | null>(null)
+  // Eroare de VERIFICARE (rețea/infra) ≠ acces refuzat. Un blip nu mai scoate
+  // fondatorul din /founder (audit founder, MEDIUM) — arătăm „Reîncearcă".
+  const [checkErr, setCheckErr] = useState(false)
+  // MFA (mig 235): contul cere aal2 dar sesiunea curentă e doar aal1 —
+  // explicăm în loc să redirectăm tăcut (userul E fondatorul, dar sesiunea
+  // n-a trecut pasul de cod, ex. sesiune veche de dinainte de enrollment).
+  const [mfaPending, setMfaPending] = useState(false)
+  const [retryTick, setRetryTick] = useState(0)
   const [section, setSection] = useState<Section>('overview')
 
   useEffect(() => {
     let cancelled = false
-    void isPlatformAdmin().then((ok) => {
+    setCheckErr(false)
+    setMfaPending(false)
+    setAllowed(null)
+    void isPlatformAdmin().then(async (ok) => {
       if (cancelled) return
+      if (ok === null) {
+        // Nu am putut verifica — NU face onBack (ar fi echivalat blip = interzis).
+        setCheckErr(true)
+        return
+      }
+      if (!ok) {
+        try {
+          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            // Ecranul explicativ DOAR pentru conturi care chiar sunt platform
+            // admin (flag-ul brut din profiles, own-row RLS) — un user obișnuit
+            // cu MFA înrolat care nimerește pe /founder primește redirectul
+            // standard, nu un mesaj care sugerează că ar avea acces.
+            const { data: userData } = await supabase.auth.getUser()
+            const uid = userData?.user?.id
+            if (uid) {
+              const { data: prof } = await supabase
+                .from('profiles')
+                .select('is_platform_admin')
+                .eq('id', uid)
+                .maybeSingle()
+              if (
+                !cancelled &&
+                (prof as { is_platform_admin?: boolean } | null)?.is_platform_admin === true
+              ) {
+                setMfaPending(true)
+                return
+              }
+            }
+          }
+        } catch {
+          /* cădere pe redirectul standard */
+        }
+        if (cancelled) return
+        setAllowed(false)
+        onBack()
+        return
+      }
       setAllowed(ok)
-      if (!ok) onBack()
     })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [retryTick])
 
   if (allowed !== true) {
     return (
@@ -122,12 +214,64 @@ export default function FounderPage({ onBack }: Props) {
           minHeight: '100vh',
           background: D.bg,
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: 14,
           color: D.t2,
+          padding: 24,
+          textAlign: 'center',
         }}
       >
-        Se verifică accesul...
+        {mfaPending ? (
+          <>
+            <div style={{ maxWidth: 420, lineHeight: 1.5 }}>
+              Contul tău cere autentificare în doi pași, iar sesiunea curentă nu a
+              trecut pasul de cod. Deconectează-te și autentifică-te din nou — vei fi
+              întrebat de codul din aplicația de autentificare.
+            </div>
+            <button
+              onClick={onBack}
+              className="pressable"
+              style={{
+                background: D.s2,
+                color: D.t2,
+                border: `1px solid ${D.border}`,
+                borderRadius: 9,
+                padding: '11px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                minHeight: 44,
+              }}
+            >
+              Înapoi la dashboard
+            </button>
+          </>
+        ) : checkErr ? (
+          <>
+            <div>Nu am putut verifica accesul (problemă de rețea).</div>
+            <button
+              onClick={() => setRetryTick((t) => t + 1)}
+              className="pressable"
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 9,
+                padding: '11px 20px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                minHeight: 44,
+              }}
+            >
+              Reîncearcă
+            </button>
+          </>
+        ) : (
+          'Se verifică accesul...'
+        )}
       </div>
     )
   }
@@ -179,7 +323,7 @@ export default function FounderPage({ onBack }: Props) {
                 style={{
                   flexShrink: 0,
                   padding: '9px 16px',
-                  minHeight: 40,
+                  minHeight: 44,
                   fontSize: '0.82rem',
                   fontFamily: 'DM Sans,sans-serif',
                   fontWeight: active ? 600 : 400,
@@ -199,6 +343,7 @@ export default function FounderPage({ onBack }: Props) {
 
         {section === 'overview' && <OverviewSection onGoTo={setSection} />}
         {section === 'restaurante' && <RestaurantsSection />}
+        {section === 'benchmark' && <BenchmarkSection />}
         {section === 'operatiuni' && <OperationsSection />}
         {section === 'afiliati' && <AffiliatesSection />}
         {section === 'ai' && (
@@ -215,7 +360,7 @@ export default function FounderPage({ onBack }: Props) {
 // ── Stiluri comune ───────────────────────────────────────────
 const ghostBtn: CSSProperties = {
   padding: '9px 16px',
-  minHeight: 40,
+  minHeight: 44,
   borderRadius: 10,
   border: `1px solid ${D.border}`,
   background: 'transparent',
@@ -227,7 +372,7 @@ const ghostBtn: CSSProperties = {
 
 const primaryBtn: CSSProperties = {
   padding: '8px 14px',
-  minHeight: 38,
+  minHeight: 44,
   borderRadius: 9,
   border: 'none',
   background: D.gold,
@@ -243,6 +388,38 @@ const cardStyle: CSSProperties = {
   border: `1px solid ${D.border}`,
   borderRadius: 14,
   padding: 18,
+}
+
+// „Intră pe cont" cu feedback: enterFounderView așteaptă audit-ul vizitei
+// (până la ~2s, mig 187) înainte să navigheze — fără stare de busy, butonul
+// părea mort și invita la click-uri repetate. Starea nu se resetează:
+// pagina se descarcă la navigare.
+function EnterAccountButton({
+  restaurantId,
+  style,
+  title,
+  label = 'Intră pe cont',
+}: {
+  restaurantId: string
+  style: CSSProperties
+  title?: string
+  label?: string
+}) {
+  const [busy, setBusy] = useState(false)
+  return (
+    <button
+      onClick={() => {
+        setBusy(true)
+        void enterFounderView(restaurantId)
+      }}
+      disabled={busy}
+      className="pressable"
+      style={{ ...style, opacity: busy ? 0.6 : 1 }}
+      title={title}
+    >
+      {busy ? 'Se deschide…' : label}
+    </button>
+  )
 }
 
 const thStyle: CSSProperties = {
@@ -466,7 +643,7 @@ function RestaurantsSection() {
     if (plan === r.plan) return
     const ok = await confirm({
       title: `Schimbi planul pentru ${r.name}?`,
-      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
+      description: `${PLAN_LABELS[r.plan] || r.plan} → ${PLAN_LABELS[plan] || plan}. Planul e pe cont (nu pe restaurant): dacă proprietarul are mai multe restaurante, li se schimbă planul tuturor. Webhook-ul Stripe poate suprascrie la următorul eveniment de abonament.`,
       confirmLabel: 'Schimbă planul',
     })
     if (!ok) return
@@ -517,6 +694,7 @@ function RestaurantsSection() {
         aria-label={`Planul pentru ${r.name}`}
         style={{
           padding: '6px 8px',
+          minHeight: 44,
           border: `1px solid ${D.border}`,
           borderRadius: 8,
           background: D.s3,
@@ -645,14 +823,11 @@ function RestaurantsSection() {
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  onClick={() => void enterFounderView(r.restaurant_id)}
-                  className="pressable"
+                <EnterAccountButton
+                  restaurantId={r.restaurant_id}
                   style={{ ...primaryBtn, flex: 1, minHeight: 44 }}
                   title="Deschide dashboardul acestui restaurant în mod fondator"
-                >
-                  Intră pe cont
-                </button>
+                />
                 <button
                   onClick={() => void toggleActive(r)}
                   disabled={busyId === r.restaurant_id}
@@ -701,20 +876,17 @@ function RestaurantsSection() {
                   </td>
                   <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button
-                        onClick={() => void enterFounderView(r.restaurant_id)}
-                        className="pressable"
+                      <EnterAccountButton
+                        restaurantId={r.restaurant_id}
                         style={primaryBtn}
                         title="Deschide dashboardul acestui restaurant în mod fondator"
-                      >
-                        Intră pe cont
-                      </button>
+                      />
                       <button
                         onClick={() => void toggleActive(r)}
                         disabled={busyId === r.restaurant_id}
                         className="pressable"
                         style={withBusy(
-                          { ...ghostBtn, minHeight: 38, color: r.is_active ? D.red : D.green },
+                          { ...ghostBtn, color: r.is_active ? D.red : D.green },
                           busyId === r.restaurant_id,
                         )}
                       >
@@ -860,7 +1032,7 @@ function OperationsSection() {
                   <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>
                     {i.restaurant_name}{' '}
                     <span style={{ color: D.t3, fontWeight: 400 }}>
-                      · {i.customer_name} · {i.total_with_vat} {i.currency}
+                      · {i.customer_name} · {formatMoneyUnits(i.total_with_vat, i.currency)}
                     </span>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.red, overflowWrap: 'anywhere' }}>
@@ -907,6 +1079,40 @@ function AffiliatesSection() {
       // mig 098) → soldul din cardul „Afiliați" trebuie și el reîncărcat,
       // altfel arată o valoare bănească veche imediat după acțiune.
       await Promise.all([payouts.reload(), affiliates.reload()])
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Decizia pe o cerere (mig 224). Respingerea cere confirmare — e ce vede
+  // candidatul; aprobarea e acțiunea „fericită", fără fricțiune suplimentară.
+  async function doReview(a: AdminAffiliateRow, approve: boolean) {
+    if (!approve) {
+      const ok = await confirm({
+        title: 'Respingi cererea?',
+        description: `${a.full_name || a.email} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
+        confirmLabel: 'Respinge',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setBusyId(a.affiliate_id)
+    try {
+      const res = await reviewAffiliate(a.affiliate_id, approve)
+      if (!res.ok) {
+        // RPC-ul refuză cu `reason`, nu cu `error` — mapăm la mesaje clare.
+        const msg =
+          res.reason === 'not_reviewable'
+            ? `Cererea nu mai e în așteptare (status: ${res.status ?? 'necunoscut'}) — reîncarcă lista.`
+            : res.reason === 'not_found'
+              ? 'Cererea nu mai există.'
+              : (res.error ?? 'Decizia nu a putut fi salvată')
+        throw new Error(msg)
+      }
+      toast.success(approve ? 'Partener aprobat — are acces la panou.' : 'Cerere respinsă.')
+      await affiliates.reload()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Eroare')
     } finally {
@@ -968,24 +1174,112 @@ function AffiliatesSection() {
                       {depth > 0 && <span style={{ color: D.t3 }}>↳ </span>}
                       {a.full_name || a.email}
                       <span style={{ color: D.t3, fontWeight: 400 }}> · cod {a.referral_code}</span>
+                      {a.status === 'pending' && (
+                        <span
+                          style={{
+                            marginLeft: 8,
+                            background: D.goldA,
+                            color: D.gold,
+                            fontSize: '0.66rem',
+                            fontWeight: 700,
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          Cerere nouă
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
-                      {a.email} · status {a.status}
+                      {a.email} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
                     </div>
                   </div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: a.balance_ron_cents > 0 ? D.green : D.t2 }}>
                     Sold: {formatRon(a.balance_ron_cents)}
                   </div>
                 </div>
+                {/* Cererea de afiliere (mig 224): telefonul + nota candidatului
+                    pentru interviul telefonic + decizia Aprobă/Respinge. Pe
+                    'rejected' rămâne doar „Aprobă totuși" (repescuire). */}
+                {(a.status === 'pending' || a.status === 'rejected') && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      padding: '10px 12px',
+                      background: D.s2,
+                      border: `1px solid ${a.status === 'pending' ? `${D.gold}44` : D.border}`,
+                      borderRadius: 10,
+                    }}
+                  >
+                    <div style={{ fontSize: '0.78rem', color: D.t1, marginBottom: 4 }}>
+                      <strong>Telefon:</strong>{' '}
+                      {a.phone ? (
+                        <a href={`tel:${a.phone.replace(/\s+/g, '')}`} style={{ color: D.gold, textDecoration: 'none' }}>
+                          {a.phone}
+                        </a>
+                      ) : (
+                        '—'
+                      )}
+                    </div>
+                    {a.application_note ? (
+                      <div style={{ fontSize: '0.76rem', color: D.t2, lineHeight: 1.5, marginBottom: 8 }}>
+                        <strong style={{ color: D.t1 }}>Cum va recomanda:</strong> {a.application_note}
+                      </div>
+                    ) : null}
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => void doReview(a, true)}
+                        disabled={busyId === a.affiliate_id}
+                        className="pressable"
+                        style={{
+                          background: D.gold,
+                          color: '#000',
+                          border: 'none',
+                          borderRadius: 8,
+                          padding: '9px 16px',
+                          minHeight: 44,
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {a.status === 'rejected' ? 'Aprobă totuși' : 'Aprobă'}
+                      </button>
+                      {a.status === 'pending' && (
+                        <button
+                          onClick={() => void doReview(a, false)}
+                          disabled={busyId === a.affiliate_id}
+                          className="pressable"
+                          style={{
+                            background: 'transparent',
+                            color: D.red,
+                            border: `1px solid ${D.red}55`,
+                            borderRadius: 8,
+                            padding: '9px 16px',
+                            minHeight: 44,
+                            fontSize: '0.78rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Respinge
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
                 <AffiliateCommissionRow affiliate={a} onSaved={() => void affiliates.reload()} />
+                <AffiliateBrandingRow affiliate={a} onSaved={() => void affiliates.reload()} />
                 {a.restaurants.length > 0 && (
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                     {a.restaurants.map((r) => (
-                      <button
+                      <EnterAccountButton
                         key={r.restaurant_id}
-                        onClick={() => void enterFounderView(r.restaurant_id)}
-                        className="pressable"
+                        restaurantId={r.restaurant_id}
                         title="Deschide dashboardul restaurantului în mod fondator"
+                        label={`${r.name} · ${PLAN_LABELS[r.plan] || r.plan}`}
                         style={{
                           padding: '8px 14px',
                           minHeight: 44,
@@ -996,9 +1290,7 @@ function AffiliatesSection() {
                           fontSize: '0.74rem',
                           cursor: 'pointer',
                         }}
-                      >
-                        {r.name} · {PLAN_LABELS[r.plan] || r.plan}
-                      </button>
+                      />
                     ))}
                   </div>
                 )}
@@ -1040,7 +1332,7 @@ function AffiliatesSection() {
                     {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
                   </div>
                   <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    {p.status}
+                    {PAYOUT_STATUS_LABELS[p.status] ?? p.status}
                     {p.invoice_number ? ` · factura ${p.invoice_number}` : ''}
                     {p.paid_at ? ` · plătit ${formatDate(p.paid_at)}` : ''}
                     {p.failure_reason ? ` · ${p.failure_reason}` : ''}
@@ -1150,7 +1442,7 @@ function CommissionFields({
         />
       </label>
       <label style={labelStyle}>
-        Cascade (%)
+        Cascadă (%)
         <input
           type="number"
           min={0}
@@ -1272,7 +1564,7 @@ function CommissionDefaultsCard({ onApplied }: { onApplied: () => void }) {
               disabled={busy}
               className="pressable"
               style={withBusy(
-                { ...ghostBtn, minHeight: 38, color: D.red, borderColor: 'rgba(224,85,85,0.3)' },
+                { ...ghostBtn, color: D.red, borderColor: 'rgba(224,85,85,0.3)' },
                 busy,
               )}
             >
@@ -1343,7 +1635,7 @@ function AffiliateCommissionRow({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.74rem', color: D.t2 }}>
             {hasBps
-              ? `Activare ${(affiliate.setup_bps! / 100).toLocaleString('ro-RO')}% · Lunar ${(affiliate.recurring_bps! / 100).toLocaleString('ro-RO')}% (${affiliate.recurring_cap_months} luni) · Cascade ${(affiliate.cascade_bps! / 100).toLocaleString('ro-RO')}%`
+              ? `Activare ${(affiliate.setup_bps! / 100).toLocaleString('ro-RO')}% · Lunar ${(affiliate.recurring_bps! / 100).toLocaleString('ro-RO')}% (${affiliate.recurring_cap_months} luni) · Cascadă ${(affiliate.cascade_bps! / 100).toLocaleString('ro-RO')}%`
               : 'Comision: — (rulează migrația 188)'}
           </span>
           {hasBps && (
@@ -1381,11 +1673,384 @@ function AffiliateCommissionRow({
               onClick={() => setEditing(false)}
               disabled={busy}
               className="pressable"
-              style={withBusy({ ...ghostBtn, minHeight: 38 }, busy)}
+              style={withBusy(ghostBtn, busy)}
             >
               Anulează
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── White-label (mig 236) — editorul de branding per agenție ──
+// Domeniul e CNAME-uit de agenție spre Netlify (pașii în docs/WHITE_LABEL.md);
+// meniul public de pe acel domeniu afișează numele + logo-ul de aici.
+function AffiliateBrandingRow({
+  affiliate,
+  onSaved,
+}: {
+  affiliate: AdminAffiliateRow
+  onSaved: () => void
+}) {
+  const toast = useToast()
+  const [editing, setEditing] = useState(false)
+  const [domain, setDomain] = useState('')
+  const [name, setName] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  // undefined = migrația 236 neaplicată încă → afișăm „—" fără editor.
+  const migrated = affiliate.brand_domain !== undefined
+
+  function startEdit() {
+    setDomain(affiliate.brand_domain ?? '')
+    setName(affiliate.brand_name ?? '')
+    setLogoUrl(affiliate.brand_logo_url ?? '')
+    setEditing(true)
+  }
+
+  async function save() {
+    setBusy(true)
+    try {
+      const res = await setAffiliateBranding(
+        affiliate.affiliate_id,
+        domain.trim() || null,
+        name.trim() || null,
+        logoUrl.trim() || null,
+      )
+      if (!res.ok) {
+        const msg =
+          res.error === 'invalid_domain'
+            ? 'Domeniu invalid — introdu doar hostname-ul (ex. menu.agentia.ro).'
+            : res.error === 'reserved_domain'
+              ? 'Domeniile Menuvia nu pot fi folosite pentru white-label.'
+              : res.error === 'domain_taken'
+                ? 'Domeniul e deja folosit de altă agenție.'
+                : (res.error ?? 'Eroare')
+        throw new Error(msg)
+      }
+      toast.success('Branding salvat — activ pe domeniul agenției')
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputStyle: CSSProperties = {
+    background: D.s3,
+    border: `1px solid ${D.border}`,
+    borderRadius: 8,
+    color: D.t1,
+    padding: '9px 11px',
+    fontSize: '0.78rem',
+    minWidth: 170,
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      {!editing ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.74rem', color: D.t2 }}>
+            {!migrated
+              ? 'White-label: — (rulează migrația 236)'
+              : affiliate.brand_domain
+                ? `White-label: ${affiliate.brand_domain}${affiliate.brand_name ? ' · ' + affiliate.brand_name : ''}`
+                : 'White-label: neconfigurat'}
+          </span>
+          {migrated && (
+            <button
+              onClick={startEdit}
+              className="pressable"
+              style={{
+                padding: '8px 14px',
+                minHeight: 44,
+                borderRadius: 100,
+                border: `1px solid ${D.border}`,
+                background: 'transparent',
+                color: D.t2,
+                fontSize: '0.7rem',
+                cursor: 'pointer',
+              }}
+            >
+              Configurează
+            </button>
+          )}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Domeniu (CNAME)</span>
+            <input
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+              placeholder="menu.agentia.ro"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Nume afișat</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Agenția Digital"
+              style={inputStyle}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={mobilePairLabel}>Logo (URL)</span>
+            <input
+              value={logoUrl}
+              onChange={(e) => setLogoUrl(e.target.value)}
+              placeholder="https://.../logo.png"
+              style={inputStyle}
+            />
+          </label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => void save()}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(primaryBtn, busy)}
+            >
+              {busy ? 'Se salvează...' : 'Salvează'}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={busy}
+              className="pressable"
+              style={withBusy(ghostBtn, busy)}
+            >
+              Anulează
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Benchmark lunar (mig 237) — „localul tău vs. media" ──────
+function currentMonthKey(): string {
+  // 'YYYY-MM' în fusul României (sv-SE dă formatul ISO).
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Bucharest' })
+    .format(new Date())
+    .slice(0, 7)
+}
+
+function shiftMonthKey(key: string, delta: number): string {
+  const parts = key.split('-').map(Number)
+  const y = parts[0] || new Date().getFullYear()
+  const m = parts[1] || 1
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function BenchmarkSection() {
+  const isMobile = useIsMobile()
+  const [month, setMonth] = useState<string>(currentMonthKey)
+  const [data, setData] = useState<MonthlyBenchmark | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [retryTick, setRetryTick] = useState(0)
+
+  // Fetch-ul trăiește în effect cu flag de anulare: la navigarea rapidă între
+  // luni, un răspuns întârziat pentru luna veche nu mai suprascrie luna nouă.
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    getMonthlyBenchmark(month)
+      .then((d) => {
+        if (!cancelled) setData(d)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Eroare la încărcare.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [month, retryTick])
+
+  const fmtLei = (v: number | null) =>
+    v == null ? '—' : v.toLocaleString('ro-RO', { maximumFractionDigits: 2 }) + ' lei'
+  const vsAvg = (orders: number): { text: string; color: string } | null => {
+    const avg = data?.platform.avg_orders ?? 0
+    if (avg <= 0) return null
+    const pct = Math.round((orders / avg - 1) * 100)
+    if (pct === 0) return { text: 'la medie', color: D.t3 }
+    return pct > 0
+      ? { text: `+${pct}% vs. media`, color: D.green }
+      : { text: `${pct}% vs. media`, color: D.red }
+  }
+
+  const monthNav = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+      <button
+        onClick={() => setMonth((m) => shiftMonthKey(m, -1))}
+        className="pressable"
+        aria-label="Luna anterioară"
+        style={ghostBtn}
+      >
+        ‹
+      </button>
+      <span style={{ fontSize: '0.9rem', fontWeight: 600, color: D.t1, minWidth: 84, textAlign: 'center' }}>
+        {month}
+      </span>
+      <button
+        onClick={() => setMonth((m) => shiftMonthKey(m, 1))}
+        disabled={month >= currentMonthKey()}
+        className="pressable"
+        aria-label="Luna următoare"
+        style={{ ...ghostBtn, opacity: month >= currentMonthKey() ? 0.4 : 1 }}
+      >
+        ›
+      </button>
+    </div>
+  )
+
+  if (loading)
+    return (
+      <div>
+        {monthNav}
+        <InlineSpinner label="Se calculează benchmark-ul..." />
+      </div>
+    )
+  if (error || !data)
+    return (
+      <div>
+        {monthNav}
+        <SectionError message={error ?? 'Eroare'} onRetry={() => setRetryTick((t) => t + 1)} />
+      </div>
+    )
+
+  const p = data.platform
+  const stats: { label: string; value: string }[] = [
+    { label: 'Restaurante cu comenzi', value: `${p.restaurants_with_orders}/${p.restaurants}` },
+    { label: 'Medie comenzi', value: String(p.avg_orders) },
+    { label: 'Mediană comenzi', value: String(Math.round(Number(p.median_orders))) },
+    { label: 'Medie %QR', value: `${p.avg_qr_share_pct}%` },
+    { label: 'Medie venit (fiscal)', value: fmtLei(p.avg_revenue_fiscal) },
+  ]
+
+  return (
+    <div>
+      {monthNav}
+      <p style={{ color: D.t3, fontSize: '0.74rem', margin: '0 0 14px' }}>
+        Comenzile se compară pe toate planurile; venitul DOAR între restaurantele cu
+        fiscalizare (Plan 3) — pe restul, câmpurile de bani nu există.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))',
+          gap: 10,
+          marginBottom: 18,
+        }}
+      >
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            style={{
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              borderRadius: 10,
+              padding: '12px 14px',
+            }}
+          >
+            <div style={{ ...mobilePairLabel, marginBottom: 4 }}>{s.label}</div>
+            <div style={{ fontSize: '1.05rem', fontWeight: 700, color: D.t1 }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {data.rows.length === 0 ? (
+        <EmptyState icon="chart" title="Nicio dată" description="Niciun restaurant activ în luna aleasă." compact />
+      ) : isMobile ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {data.rows.map((r) => {
+            const v = vsAvg(r.orders)
+            return (
+              <div
+                key={r.restaurant_id}
+                style={{
+                  background: D.s2,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 10,
+                  padding: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontWeight: 600, color: D.t1, fontSize: '0.85rem' }}>{r.name}</span>
+                  <span style={{ fontSize: '0.7rem', color: D.t3 }}>{PLAN_LABELS[r.plan] || r.plan}</span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <div style={mobilePairLabel}>Comenzi</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>
+                      {r.orders}
+                      {v && <span style={{ color: v.color, marginLeft: 6, fontSize: '0.7rem' }}>{v.text}</span>}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>%QR</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>
+                      {r.qr_share_pct == null ? '—' : `${r.qr_share_pct}%`}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>Venit</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>{fmtLei(r.revenue)}</div>
+                  </div>
+                  <div>
+                    <div style={mobilePairLabel}>Bon mediu</div>
+                    <div style={{ color: D.t1, fontSize: '0.82rem' }}>{fmtLei(r.avg_ticket)}</div>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>Restaurant</th>
+                <th style={thStyle}>Plan</th>
+                <th style={thStyle}>Comenzi</th>
+                <th style={thStyle}>vs. media</th>
+                <th style={thStyle}>%QR</th>
+                <th style={thStyle}>Venit</th>
+                <th style={thStyle}>Bon mediu</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map((r) => {
+                const v = vsAvg(r.orders)
+                return (
+                  <tr key={r.restaurant_id}>
+                    <td style={tdStyle}>{r.name}</td>
+                    <td style={{ ...tdStyle, color: D.t2 }}>{PLAN_LABELS[r.plan] || r.plan}</td>
+                    <td style={tdStyle}>{r.orders}</td>
+                    <td style={{ ...tdStyle, color: v?.color ?? D.t3, fontSize: '0.74rem' }}>
+                      {v?.text ?? '—'}
+                    </td>
+                    <td style={tdStyle}>{r.qr_share_pct == null ? '—' : `${r.qr_share_pct}%`}</td>
+                    <td style={tdStyle}>{fmtLei(r.revenue)}</td>
+                    <td style={tdStyle}>{fmtLei(r.avg_ticket)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
@@ -1455,7 +2120,7 @@ function AuditSection() {
               <span style={{ fontSize: '0.72rem', color: D.t3 }}>{formatDate(row.created_at)}</span>
               <span style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
                 {row.actor_email}
-                <span style={{ color: D.t3 }}> ({row.actor_kind})</span>
+                <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </span>
             </div>
             <div style={{ fontWeight: 600, fontSize: '0.9rem', overflowWrap: 'anywhere' }}>{row.action}</div>
@@ -1493,7 +2158,7 @@ function AuditSection() {
               <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(row.created_at)}</td>
               <td style={tdStyle}>
                 {row.actor_email}
-                <span style={{ color: D.t3 }}> ({row.actor_kind})</span>
+                <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </td>
               <td style={tdStyle}>{row.action}</td>
               <td style={tdStyle}>{row.restaurant_name ?? '—'}</td>

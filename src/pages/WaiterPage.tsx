@@ -3,7 +3,7 @@
 // Waiter Dashboard (/waiter). Dark theme. No `any`.
 // =============================================================
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
@@ -16,10 +16,13 @@ import { playSound } from '../lib/utils'
 import { useInView, revealStyle } from '../lib/motion'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import ManualOrderSheet from '../components/ManualOrderSheet'
-import EditOrderSheet from '../components/EditOrderSheet'
-import CancelOrderDialog from '../components/CancelOrderDialog'
-import OrderAuditSheet from '../components/OrderAuditSheet'
+// OPT-10: sheet-urile/modalele condiționale sunt lazy (pattern QrMenuPage) —
+// ~2.000+ LOC amânate din chunk-ul inițial al paginii de ospătar. WaiterEntry
+// rămâne static (partajează ModifierSheet, folosit imediat la comanda nouă).
+const ManualOrderSheet = lazy(() => import('../components/ManualOrderSheet'))
+const EditOrderSheet = lazy(() => import('../components/EditOrderSheet'))
+const CancelOrderDialog = lazy(() => import('../components/CancelOrderDialog'))
+const OrderAuditSheet = lazy(() => import('../components/OrderAuditSheet'))
 import {
   fetchWaiterCalls,
   resolveWaiterCall,
@@ -29,15 +32,17 @@ import {
   applyOrderDiscount,
 } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
+import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard } from '../components/WaiterOrderCard'
-import DiscountModal from '../components/DiscountModal'
-import TableStatusBoard from '../components/TableStatusBoard'
+const DiscountModal = lazy(() => import('../components/DiscountModal'))
+const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -164,6 +169,9 @@ export default function WaiterPage() {
   // ── Offline sync state ────────────────────────────────────────
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
   const [pendingSyncCount, setPendingSyncCount] = useState(0)
+  // O comandă offline respinsă definitiv de server (produs șters / grup obligatoriu
+  // schimbat) e ștearsă din coadă — ospătarul TREBUIE anunțat ca s-o reintroducă.
+  const [droppedOrderReason, setDroppedOrderReason] = useState<string | null>(null)
 
   useEffect(() => {
     function handleOnline() {
@@ -189,10 +197,16 @@ export default function WaiterPage() {
       console.warn('[WaiterPage] Sesiune expirată, sync offline blocat')
     }
 
+    function handleDropped(e: Event) {
+      const detail = (e as CustomEvent).detail as { reason?: string } | undefined
+      setDroppedOrderReason(detail?.reason ?? 'eroare necunoscută')
+    }
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
     window.addEventListener('offline-queue-updated', handleQueueUpdate)
     window.addEventListener('offline-sync-auth-required', handleAuthRequired)
+    window.addEventListener('offline-order-dropped', handleDropped)
 
     // Also listen for sw messages (Background sync triggers)
     const swListener = (e: MessageEvent) => {
@@ -207,6 +221,7 @@ export default function WaiterPage() {
       window.removeEventListener('offline', handleOffline)
       window.removeEventListener('offline-queue-updated', handleQueueUpdate)
       window.removeEventListener('offline-sync-auth-required', handleAuthRequired)
+      window.removeEventListener('offline-order-dropped', handleDropped)
       navigator.serviceWorker?.removeEventListener('message', swListener)
     }
   }, [])
@@ -234,16 +249,20 @@ export default function WaiterPage() {
 
   useEffect(() => {
     if (!restaurantId) return
-    fetchWaiterCalls(restaurantId)
-      .then(setWaiterCalls)
-      .catch(() => {})
-    const ch = subscribeToWaiterCalls(restaurantId, () => {
+    const refresh = () => {
       fetchWaiterCalls(restaurantId)
         .then(setWaiterCalls)
         .catch(() => {})
-    })
+    }
+    refresh()
+    const ch = subscribeToWaiterCalls(restaurantId, refresh)
+    // Plasă de siguranță: realtime-ul poate cădea tăcut (același motiv pentru
+    // care useOrders poll-uiește la 30s). Fără ea, un „Cheamă ospătar" pe canal
+    // căzut nu apărea NICIODATĂ până la reload — clientul rămâne neservit.
+    const poll = setInterval(refresh, 30000)
     return () => {
       ch.unsubscribe()
+      clearInterval(poll)
     }
   }, [restaurantId])
 
@@ -274,8 +293,13 @@ export default function WaiterPage() {
     Array<{ id: string; amount: number; method: string; created_at: string }>
   >([])
   const [splitLoading, setSplitLoading] = useState(false)
+  // Scroll-lock pe fundal cât e deschis modalul Split Bill — consistent cu
+  // PayModal/DiscountModal (altfel pe iOS pagina derulează sub overlay).
+  useBodyScrollLock(splitOrder != null && paymentsEnabled)
 
-  function openSplitBill(order: Order): void {
+  // OPT-8: handleri stabili (useCallback) — altfel memo-ul de pe OrderCard
+  // e inert: fiecare render al paginii le dădea identitate nouă.
+  const openSplitBill = useCallback((order: Order): void => {
     setSplitOrder(order)
     setSplitAmount('')
     setSplitMethod('cash')
@@ -286,7 +310,7 @@ export default function WaiterPage() {
         setSplitLoading(false)
       })
       .catch(() => setSplitLoading(false))
-  }
+  }, [])
 
   async function handlePartialPay(): Promise<void> {
     if (!splitOrder) return
@@ -420,21 +444,37 @@ export default function WaiterPage() {
       return
     }
     setAssignedTableIds('loading')
+    // Guard de anulare: la schimbarea restaurantului răspunsul VECHI nu trebuie
+    // să seteze scope-ul de mese al restaurantului precedent (ospătarul ar filtra
+    // comenzile pe mesele altui local).
+    let cancelled = false
     void (async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('waiter_table_assignments')
           .select('table_id')
           .eq('restaurant_id', restaurantId)
           .eq('user_id', user.id)
+        if (cancelled) return
+        // Un blip de rețea/RLS lasă `data:null` FĂRĂ throw (supabase-js). A cădea
+        // pe `null` = „arată toate mesele" ar extinde tăcut scope-ul ospătarului
+        // la toată sala pe un simplu blip. Pe eroare păstrăm starea anterioară.
+        if (error) {
+          setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
+          return
+        }
         const ids = data ?? []
         setAssignedTableIds(
           ids.length > 0 ? new Set(ids.map((r: Record<string, string>) => r.table_id)) : null,
         )
       } catch {
-        setAssignedTableIds(null)
+        if (cancelled) return
+        setAssignedTableIds((prev) => (prev === 'loading' ? null : prev))
       }
     })()
+    return () => {
+      cancelled = true
+    }
   }, [restaurantId, user])
 
   const assignmentsReady = assignedTableIds !== 'loading'
@@ -474,10 +514,13 @@ export default function WaiterPage() {
     prevReadyIds.current = new Set(readyOrders.map((o) => o.id))
   }, [orders])
 
-  function handleServit(order: Order): void {
-    if (user == null) return
-    void advance(order.id, 'ready', { status: 'served', served_by: user.id })
-  }
+  const handleServit = useCallback(
+    (order: Order): void => {
+      if (user == null) return
+      void advance(order.id, 'ready', { status: 'served', served_by: user.id })
+    },
+    [user, advance],
+  )
 
   async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<void> {
     if (payOrder == null || user == null) return
@@ -500,13 +543,21 @@ export default function WaiterPage() {
 
   // Plan 1/2: închidere NON-fiscală (served → closed). Fără sumă, fără metodă
   // de plată — clientul plătește la casa de marcat existentă a localului.
-  function handleCloseOrder(order: Order): void {
-    if (user == null) return
-    void advance(order.id, 'served', { status: 'closed' })
-  }
+  const handleCloseOrder = useCallback(
+    (order: Order): void => {
+      if (user == null) return
+      void advance(order.id, 'served', { status: 'closed' })
+    },
+    [user, advance],
+  )
 
-  const readyOrders = byStatus(['ready'])
-  const openOrders = byStatus(['new', 'confirmed', 'preparing', 'ready', 'served'])
+  // OPT-8: memoizate — byStatus e stabil (useCallback pe [orders]) și listele
+  // își schimbă identitatea doar când chiar se schimbă comenzile.
+  const readyOrders = useMemo(() => byStatus(['ready']), [byStatus])
+  const openOrders = useMemo(
+    () => byStatus(['new', 'confirmed', 'preparing', 'ready', 'served']),
+    [byStatus],
+  )
 
   // Mesele afișate în panoul „Stadiu mese": dacă ospătarul are mese alocate,
   // doar ale lui; altfel toate (consistent cu filtrarea comenzilor de mai sus).
@@ -523,6 +574,15 @@ export default function WaiterPage() {
     setEntryTableId(tableId)
     setShowEntry(true)
   }, [])
+
+  // Textul stării de conexiune — expus și non-vizual (aria-label + role=status),
+  // nu doar prin culoare + title (title nu apare la touch, mobilul e cazul principal).
+  const connectionLabel =
+    connectionStatus === 'connected'
+      ? 'Live conectat'
+      : connectionStatus === 'connecting'
+        ? 'Se conectează…'
+        : 'Deconectat — se face refresh automat la 30s'
 
   if (loading) {
     return (
@@ -619,13 +679,9 @@ export default function WaiterPage() {
                 {isAdminRole ? 'Comenzi live' : 'Ospătar'}
               </span>
               <span
-                title={
-                  connectionStatus === 'connected'
-                    ? 'Live conectat'
-                    : connectionStatus === 'connecting'
-                      ? 'Se conectează…'
-                      : 'Deconectat — se face refresh automat la 30s'
-                }
+                role="status"
+                aria-label={connectionLabel}
+                title={connectionLabel}
                 style={{
                   width: 8,
                   height: 8,
@@ -806,6 +862,45 @@ export default function WaiterPage() {
         </div>
       )}
 
+      {/* Comandă offline pierdută (respinsă definitiv de server) — trebuie reintrodusă */}
+      {droppedOrderReason != null && (
+        <div
+          style={{
+            background: D.red,
+            color: '#fff',
+            padding: '8px 24px',
+            fontSize: 13,
+            fontFamily: 'DM Sans, sans-serif',
+            fontWeight: 600,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="alert" size={14} />O comandă offline nu a putut fi trimisă și a fost
+            anulată ({droppedOrderReason}). Reintrodu-o manual.
+          </span>
+          <button
+            onClick={() => setDroppedOrderReason(null)}
+            aria-label="Închide avertismentul"
+            style={{
+              background: 'rgba(0,0,0,0.2)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              minWidth: 44,
+              height: 32,
+              cursor: 'pointer',
+              fontSize: 16,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {error != null && (
         <div style={{ background: `${D.red}22`, color: D.red, padding: '8px 24px', fontSize: 13 }}>
           {error}
@@ -877,6 +972,11 @@ export default function WaiterPage() {
           </div>
         )}
 
+        {/* Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului.
+            RPC-ul e gate-uit server-side (modul + plan + program activ) —
+            butonul e mereu vizibil, răspunsul spune clar dacă nu e cazul. */}
+        {restaurantId != null && <LoyaltyRedeem restaurantId={restaurantId} />}
+
         {/* Section 0 — Rezervări azi */}
         {activeReservations.length > 0 && (
           <div style={{ marginBottom: 18 }}>
@@ -947,7 +1047,7 @@ export default function WaiterPage() {
                           ? 'AȘEZAT'
                           : r.status === 'confirmed'
                             ? 'CONFIRMAT'
-                            : 'PENDING'}
+                            : 'ÎN AȘTEPTARE'}
                       </span>
                     </div>
                     <div style={{ fontSize: 13, color: D.t2, marginBottom: 10 }}>
@@ -1222,7 +1322,7 @@ export default function WaiterPage() {
                         color={D.amber}
                         label={call.call_type === 'bill' ? 'Cere nota' : 'Apel ospătar'}
                       />
-                      {call.table?.name ?? 'Masa necunoscuta'}
+                      {call.table?.name ?? 'Masă necunoscută'}
                       {call.call_type === 'bill' && (
                         <span
                           style={{
@@ -1237,6 +1337,12 @@ export default function WaiterPage() {
                           }}
                         >
                           CERE NOTA
+                          {call.tip_amount != null && Number(call.tip_amount) > 0 && (
+                            <>
+                              {' '}
+                              · bacșiș propus {Number(call.tip_amount).toFixed(2)} lei
+                            </>
+                          )}
                         </span>
                       )}
                     </div>
@@ -1342,6 +1448,7 @@ export default function WaiterPage() {
         </div>
           </>
         ) : (
+          <Suspense fallback={null}>
           <TableStatusBoard
             tables={boardTables}
             orders={openOrders}
@@ -1361,6 +1468,7 @@ export default function WaiterPage() {
               />
             )}
           />
+          </Suspense>
         )}
       </div>
 
@@ -1414,14 +1522,16 @@ export default function WaiterPage() {
             return null
           }
           return (
-            <DiscountModal
-              order={target}
-              onClose={() => setDiscountOrderId(null)}
-              onApplied={() => {
-                // Realtime din useOrders va aduce update-ul; nu mai trebuie să facem nimic.
-                // Lăsăm DiscountModal să se închidă singur prin onClose.
-              }}
-            />
+            <Suspense fallback={null}>
+              <DiscountModal
+                order={target}
+                onClose={() => setDiscountOrderId(null)}
+                onApplied={() => {
+                  // Realtime din useOrders va aduce update-ul; nu mai trebuie să facem nimic.
+                  // Lăsăm DiscountModal să se închidă singur prin onClose.
+                }}
+              />
+            </Suspense>
           )
         })()}
 
@@ -1465,7 +1575,7 @@ export default function WaiterPage() {
                 color: D.t1,
               }}
             >
-              Plata partiala
+              Plată parțială
             </div>
             <div>
               <div style={{ color: D.t2, fontSize: 13 }}>Masa: {splitOrder.table?.name ?? '-'}</div>
@@ -1481,53 +1591,57 @@ export default function WaiterPage() {
               </div>
             </div>
 
-            {splitPayments.length > 0 && (
-              <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
-                <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
-                  Plati inregistrate:
-                </div>
-                {splitPayments.map((p) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: 13,
-                      color: D.t2,
-                      padding: '2px 0',
-                    }}
-                  >
-                    <span>
-                      {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : 'Altul'}
-                    </span>
-                    <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
+            {/* „Rămas" e mereu vizibil (egal cu totalul când nu există plăți) —
+                e exact informația de care are nevoie ospătarul ca să împartă nota. */}
+            <div style={{ background: D.s3, borderRadius: 8, padding: 12 }}>
+              {splitPayments.length > 0 && (
+                <>
+                  <div style={{ fontSize: 12, color: D.t2, marginBottom: 8 }}>
+                    Plăți înregistrate:
                   </div>
-                ))}
-                <div
-                  style={{
-                    borderTop: '1px solid ' + D.border,
-                    marginTop: 8,
-                    paddingTop: 8,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    fontSize: 14,
-                    fontWeight: 600,
-                  }}
-                >
-                  <span style={{ color: D.t2 }}>Ramas:</span>
-                  <span style={{ color: D.t1 }}>
-                    {Math.max(
-                      0,
-                      splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
-                    ).toFixed(2)}{' '}
-                    lei
-                  </span>
-                </div>
+                  {splitPayments.map((p) => (
+                    <div
+                      key={p.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        fontSize: 13,
+                        color: D.t2,
+                        padding: '2px 0',
+                      }}
+                    >
+                      <span>
+                        {p.method === 'cash' ? 'Cash' : p.method === 'card_pos' ? 'Card' : p.method === 'meal_voucher' ? 'Tichete de masă' : 'Altul'}
+                      </span>
+                      <span style={{ color: D.green }}>{p.amount.toFixed(2)} lei</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              <div
+                style={{
+                  borderTop: splitPayments.length > 0 ? '1px solid ' + D.border : 'none',
+                  marginTop: splitPayments.length > 0 ? 8 : 0,
+                  paddingTop: splitPayments.length > 0 ? 8 : 0,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  fontSize: 14,
+                  fontWeight: 600,
+                }}
+              >
+                <span style={{ color: D.t2 }}>Rămas:</span>
+                <span style={{ color: D.t1 }}>
+                  {Math.max(
+                    0,
+                    splitOrder.total - splitPayments.reduce((s, p) => s + p.amount, 0),
+                  ).toFixed(2)}{' '}
+                  lei
+                </span>
               </div>
-            )}
+            </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
-              {(['cash', 'card_pos', 'other'] as PaymentMethod[]).map((m) => (
+              {(['cash', 'card_pos', 'meal_voucher', 'other'] as PaymentMethod[]).map((m) => (
                 <button
                   key={m}
                   className="pressable"
@@ -1545,7 +1659,7 @@ export default function WaiterPage() {
                     cursor: 'pointer',
                   }}
                 >
-                  {m === 'cash' ? 'Cash' : m === 'card_pos' ? 'Card' : 'Altul'}
+                  {m === 'cash' ? 'Cash' : m === 'card_pos' ? 'Card' : m === 'meal_voucher' ? 'Tichete' : 'Altul'}
                 </button>
               ))}
             </div>
@@ -1591,7 +1705,7 @@ export default function WaiterPage() {
                 minHeight: 48,
               }}
             >
-              {splitLoading ? 'Se proceseaza...' : 'Adauga plata'}
+              {splitLoading ? 'Se procesează...' : 'Adaugă plata'}
             </button>
             <button
               className="pressable"
@@ -1608,12 +1722,13 @@ export default function WaiterPage() {
                 cursor: 'pointer',
               }}
             >
-              Inchide
+              Închide
             </button>
           </div>
         </div>
       )}
 
+      <Suspense fallback={null}>
       {editOrder != null && (
         <EditOrderSheet
           order={editOrder}
@@ -1655,6 +1770,7 @@ export default function WaiterPage() {
           }}
         />
       )}
+      </Suspense>
 
       {lastManualOrder && (
         <div
@@ -1711,6 +1827,148 @@ export default function WaiterPage() {
             setEntryTableId(null)
           }}
         />
+      )}
+    </div>
+  )
+}
+
+// ── Loyalty v1 (mig 226): răscumpărare recompensă pe codul cardului ─────────
+// Clientul își arată codul de 6 caractere de pe cardul de puncte; ospătarul
+// îl introduce aici. RPC-ul redeem_loyalty_reward e gate-uit server-side
+// (is_member + modul + plan + program activ) și scade pragul atomic.
+function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function doRedeem(): Promise<void> {
+    if (busy || code.trim().length < 4) return
+    setBusy(true)
+    setResult(null)
+    try {
+      const r = await redeemLoyaltyReward(restaurantId, code)
+      if (r.ok) {
+        setResult({
+          ok: true,
+          text: `Recompensă: ${r.reward_description}. Puncte rămase: ${r.points_left ?? 0}.`,
+        })
+        setCode('')
+      } else if (r.reason === 'not_enough_points') {
+        setResult({
+          ok: false,
+          text: `Puncte insuficiente: ${r.points ?? 0} din ${r.threshold ?? '—'} necesare.`,
+        })
+      } else if (r.reason === 'not_found') {
+        setResult({ ok: false, text: 'Cod negăsit — verifică-l cu clientul.' })
+      } else if (r.reason === 'program_inactive') {
+        setResult({ ok: false, text: 'Programul de fidelizare nu e activ.' })
+      } else {
+        setResult({ ok: false, text: 'Nu am putut verifica codul. Încearcă din nou.' })
+      }
+    } catch (e) {
+      setResult({ ok: false, text: e instanceof Error ? e.message : 'Eroare' })
+    }
+    setBusy(false)
+  }
+
+  return (
+    <div style={{ alignSelf: 'flex-start' }}>
+      <button
+        onClick={() => {
+          setOpen((v) => !v)
+          setResult(null)
+        }}
+        className="pressable"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          minHeight: 40,
+          padding: '0 14px',
+          borderRadius: 10,
+          border: `1px solid ${D.border}`,
+          background: D.s2,
+          color: D.t2,
+          fontFamily: 'DM Sans, sans-serif',
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: 'pointer',
+        }}
+      >
+        <Icon name="star" size={15} color={D.gold} />
+        Fidelizare — cod client
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: '12px 14px',
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            maxWidth: 380,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="Ex: A1B2C3"
+              maxLength={6}
+              aria-label="Codul de fidelizare al clientului"
+              style={{
+                flex: 1,
+                minHeight: 40,
+                padding: '8px 12px',
+                borderRadius: 8,
+                border: `1px solid ${D.border}`,
+                background: D.s3,
+                color: D.t1,
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 14,
+                letterSpacing: '0.15em',
+                textTransform: 'uppercase',
+                boxSizing: 'border-box',
+              }}
+            />
+            <button
+              onClick={() => void doRedeem()}
+              disabled={busy || code.trim().length < 4}
+              className="pressable"
+              style={{
+                minHeight: 40,
+                padding: '0 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: D.gold,
+                color: '#000',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                opacity: busy || code.trim().length < 4 ? 0.6 : 1,
+              }}
+            >
+              {busy ? 'Se verifică…' : 'Răscumpără'}
+            </button>
+          </div>
+          {result && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                borderRadius: 8,
+                background: result.ok ? 'rgba(74,222,128,0.12)' : D.redA,
+                color: result.ok ? D.green : D.red,
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              {result.text}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

@@ -31,6 +31,7 @@ async function postCronAlert(jobName, message) {
     const text = `🔴 Cron job ${jobName} a eșuat: ${message}`
     const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
@@ -52,18 +53,28 @@ async function postCronNotice(jobName, message) {
   if (!slackWebhook) return
   try {
     const text = `🟡 Cron ${jobName}: ${message}`
-    await fetch(slackWebhook, {
+    const resp = await fetch(slackWebhook, {
       method: 'POST',
+      signal: AbortSignal.timeout(8000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     })
+    // Notice-ul de payout-draft e SINGURUL semnal că afiliații au bani de
+    // procesat manual (Wise) — un POST Slack picat tăcut = payout-uri uitate.
+    if (!resp.ok) {
+      console.error(`[automation-cron] postCronNotice Slack non-ok (${resp.status}) pentru ${jobName}`)
+    }
   } catch (e) {
     console.error('[automation-cron] postCronNotice failed:', e.message)
   }
 }
 
 exports.handler = async () => {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env
+  // Fallback VITE_ pentru paritate cu health.js/send-health-slack-alerts —
+  // altfel cel mai critic cron (lifecycle + rapoarte + payout + GDPR) moare cu
+  // 500 ÎNAINTE de a putea alerta, dacă mediul are doar VITE_SUPABASE_URL.
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const { SUPABASE_SERVICE_ROLE_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
     return { statusCode: 500, body: 'Missing env' }
   }
@@ -84,44 +95,118 @@ exports.handler = async () => {
 
   const results = {}
 
+  // OPT-5: sub-joburile RPC independente (1, 1b–1e, 2, 8) porneau serial —
+  // durata tick-ului era SUMA lor. Acum pornesc CONCURENT la definire (fiecare
+  // își prinde singur erorile → promisiunile nu resping niciodată) și se
+  // așteaptă TOATE înainte de return (altfel Netlify ar încheia funcția cu
+  // joburi neterminate). Gate-urile temporale rămân neschimbate, în afara
+  // fiecărui push. Joburile 3–7 (zilnice/rare) rămân seriale — se suprapun
+  // oricum cu grupul concurent.
+  const quickJobs = []
+
   // ── Job 1: process lifecycle events (every tick) ──
-  try {
-    const { data, error } = await supabase.rpc('process_lifecycle_events', { p_batch_size: 50 })
-    if (error) throw error
-    results.lifecycle_processed = data
-  } catch (e) {
-    console.error('[automation-cron] lifecycle events FAILED:', e.message)
-    await postCronAlert('lifecycle-events', e.message)
-    results.lifecycle_error = e.message
-  }
+  quickJobs.push((async () => {
+    try {
+      const { data, error } = await supabase.rpc('process_lifecycle_events', { p_batch_size: 50 })
+      if (error) throw error
+      results.lifecycle_processed = data
+    } catch (e) {
+      console.error('[automation-cron] lifecycle events FAILED:', e.message)
+      await postCronAlert('lifecycle-events', e.message)
+      results.lifecycle_error = e.message
+    }
+  })())
 
   // ── Job 1b: expiră sesiunile de masă inactive (orar) ──
   // Sesiunile QR rămase deschise (clientul a plecat fără a închide) blochează masa pentru
   // următorii clienți. Le expirăm orar (inactiv > 3h). Idempotent — un tick ratat se reia.
   if (minute < 15) {
-    try {
-      const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
-      if (error) throw error
-      results.sessions_expired = data
-    } catch (e) {
-      console.error('[automation-cron] expire sessions FAILED:', e.message)
-      await postCronAlert('expire-sessions', e.message)
-      results.sessions_expire_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
+        if (error) throw error
+        results.sessions_expired = data
+      } catch (e) {
+        console.error('[automation-cron] expire sessions FAILED:', e.message)
+        await postCronAlert('expire-sessions', e.message)
+        results.sessions_expire_error = e.message
+      }
+    })())
+  }
+
+  // ── Job 1c: tichete bucătărie blocate pe 'sent' (orar) ──
+  // Un bridge care a revendicat tichetul dar a murit înainte de confirm lasă
+  // tichetul agățat în 'sent' — îl marcăm error (BRIDGE_TIMEOUT) ca să apară
+  // butonul „Reîncearcă" în dashboard; purge pe terminale >30 zile (mig 227).
+  if (minute < 15) {
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('kitchen_tickets_mark_stale')
+        // PGRST202 = mig 227 neaplicată încă (deploy frontend înaintea DB-ului)
+        // — nu alertăm orar pentru o funcție care nu există încă.
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.kitchen_tickets_stale = data
+      } catch (e) {
+        console.error('[automation-cron] kitchen tickets stale FAILED:', e.message)
+        await postCronAlert('kitchen-tickets-stale', e.message)
+        results.kitchen_tickets_stale_error = e.message
+      }
+    })())
+  }
+
+  // ── Job 1e: facturi Oblio blocate în 'generating' (orar, mig 239) ──
+  // Un kill de proces între claim și emitere lasă factura agățată în
+  // 'generating' pentru totdeauna — o marcăm 'failed' cu eroare ambiguă
+  // (NU o re-punem în coadă: risc de duplicat fiscal), ca să apară în lista
+  // de eșecuri a founderului pentru retry manual după verificare în Oblio.
+  if (minute < 15) {
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('oblio_reclaim_stale_generating')
+        // PGRST202 = mig 239 neaplicată încă (deploy frontend înaintea DB-ului).
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.oblio_stale_generating = data
+      } catch (e) {
+        console.error('[automation-cron] oblio stale generating FAILED:', e.message)
+        await postCronAlert('oblio-stale-generating', e.message)
+        results.oblio_stale_generating_error = e.message
+      }
+    })())
+  }
+
+  // ── Job 1d: auto no-show pe rezervări (orar, mig 234) ──
+  // Rezervările 'confirmed' cu starts_at depășit de >120 min fără să fi fost
+  // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de
+  // recidivist din ReservationsTab fără să depindă de disciplina staff-ului.
+  if (minute < 15) {
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('auto_mark_reservation_no_show')
+        // PGRST202 = mig 234 neaplicată încă (deploy frontend înaintea DB-ului).
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.reservations_auto_no_show = data
+      } catch (e) {
+        console.error('[automation-cron] auto no-show FAILED:', e.message)
+        await postCronAlert('reservations-auto-no-show', e.message)
+        results.reservations_auto_no_show_error = e.message
+      }
+    })())
   }
 
   // ── Job 2: compute health scores (every 30 min) ──
   if (minute < 15 || (minute >= 30 && minute < 45)) {
-    try {
-      const { data, error } = await supabase.rpc('compute_health_scores')
-      if (error) throw error
-      results.health_scores_computed = (data || []).length
-      results.health_alerts = (data || []).filter(r => r.alert_needed).length
-    } catch (e) {
-      console.error('[automation-cron] health scores FAILED:', e.message)
-      await postCronAlert('health-scores', e.message)
-      results.health_error = e.message
-    }
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('compute_health_scores')
+        if (error) throw error
+        results.health_scores_computed = (data || []).length
+        results.health_alerts = (data || []).filter(r => r.alert_needed).length
+      } catch (e) {
+        console.error('[automation-cron] health scores FAILED:', e.message)
+        await postCronAlert('health-scores', e.message)
+        results.health_error = e.message
+      }
+    })())
   }
 
   // ── Job 3: cleanup rate limits (once daily at 03:15) ──
@@ -273,6 +358,7 @@ exports.handler = async () => {
   // nu la fiecare tick de 15 min. Nota: coloana de timp e `received_at`
   // (mig 038), nu `created_at`.
   if (minute < 15) {
+    quickJobs.push((async () => {
     try {
       const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
       const { data, count, error } = await supabase
@@ -302,7 +388,11 @@ exports.handler = async () => {
       await postCronAlert('stripe-failed-events', e.message)
       results.stripe_failed_scan_error = e.message
     }
+    })())
   }
+
+  // Barieră: toate sub-joburile concurente s-au încheiat înainte de return.
+  await Promise.allSettled(quickJobs)
 
   return {
     statusCode: 200,
@@ -321,8 +411,60 @@ exports.handler = async () => {
 // mai bine oprim devreme și alertăm decât să irosim tot batch-ul degeaba.
 const MAX_CONSECUTIVE_REPORT_FAILURES = 10
 
+// OPT-5: dispecer partajat de rapoarte — chunk-uri PARALELE (per restaurant
+// secvența compute→enqueue rămâne serială în interiorul thunk-ului). La 50 de
+// restaurante: ~100 RTT-uri seriale (~10-20s, peste limita de 10s Netlify →
+// batch omorât la mijloc) devin ~13 valuri (~2-3s). Circuit-breaker-ul
+// păstrează semantica „eșecuri consecutive": ORICE succes/skip din chunk
+// resetează contorul; doar chunk-urile integral eșuate îl cresc — un contor
+// global ne-resetabil ar avorta batch-uri mari pe eșecuri izolate răspândite.
+// perRestaurant întoarce 'sent' | 'skip' sau ARUNCĂ pe eșec (logat de apelant).
+const REPORT_CHUNK_SIZE = 8
+
+async function dispatchReportsChunked(restaurants, alertKey, perRestaurant) {
+  let dispatched = 0
+  let consecutiveFailures = 0
+  for (let i = 0; i < restaurants.length; i += REPORT_CHUNK_SIZE) {
+    const chunk = restaurants.slice(i, i + REPORT_CHUNK_SIZE)
+    const settled = await Promise.allSettled(chunk.map((r) => perRestaurant(r)))
+    let anyOk = false
+    let failures = 0
+    for (const st of settled) {
+      if (st.status === 'fulfilled') {
+        anyOk = true
+        if (st.value === 'sent') dispatched++
+      } else {
+        failures++
+      }
+    }
+    if (anyOk) consecutiveFailures = 0
+    consecutiveFailures += failures
+    if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
+      await postCronAlert(
+        alertKey,
+        `${consecutiveFailures} eșecuri consecutive, posibil bug sistemic — dispatch oprit după ${dispatched} rapoarte trimise`,
+      )
+      break
+    }
+  }
+  return dispatched
+}
+
 // ── Dispatch weekly reports for all active restaurants ──────────
 async function dispatchWeeklyReports(supabase) {
+  // Short-circuit (perf): fereastra de dispatch e largă (2h, catch-up pe tick ratat),
+  // dar odată ce raportul a fost trimis nu are rost să recomputăm compute_weekly_report
+  // pentru FIECARE restaurant la fiecare tick. Dacă există deja un email weekly cu
+  // weekTag-ul de azi, sărim tot batch-ul. Fail-open pe eroare de query (worst case:
+  // recompute, oricum deduplicat pe dedup_key).
+  const weekTag = new Date().toISOString().slice(0, 10)
+  const { data: alreadySent, error: chkErr } = await supabase
+    .from('email_queue')
+    .select('id')
+    .like('dedup_key', `weekly:%:${weekTag}`)
+    .limit(1)
+  if (!chkErr && alreadySent && alreadySent.length > 0) return 0
+
   const { data: restaurants, error } = await supabase
     .from('restaurants')
     .select('id, owner_id, name, profiles!inner(email, full_name)')
@@ -331,82 +473,53 @@ async function dispatchWeeklyReports(supabase) {
   if (error) throw error
   if (!restaurants || restaurants.length === 0) return 0
 
-  let dispatched = 0
-  let consecutiveFailures = 0
-  for (const r of restaurants) {
-    try {
-      // Compute report data
-      const { data: report, error: repErr } = await supabase.rpc('compute_weekly_report', {
-        p_restaurant_id: r.id,
-        p_week_start: null,
-      })
-
-      if (repErr) {
-        console.warn(`[automation-cron] Report failed for ${r.id}:`, repErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'weekly-reports',
-            `${consecutiveFailures} eșecuri consecutive la compute_weekly_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      // Skip if zero activity (no point spamming)
-      if (!report || report.orders === 0) continue
-
-      // Enqueue email
-      const weekTag = new Date().toISOString().slice(0, 10)
-      const { error: enqErr } = await supabase.rpc('enqueue_email', {
-        p_recipient_email: r.profiles.email,
-        p_template_kind: 'weekly_report',
-        p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
-        p_user_id: r.owner_id,
-        p_recipient_name: r.profiles.full_name,
-        p_scheduled_for: null,
-        p_dedup_key: `weekly:${r.id}:${weekTag}`,
-      })
-
-      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
-      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
-      if (enqErr) {
-        console.warn(`[automation-cron] Weekly enqueue failed for ${r.id}:`, enqErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'weekly-reports',
-            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      dispatched++
-    } catch (e) {
-      console.warn(`[automation-cron] Weekly report exception for ${r.id}:`, e.message)
-      consecutiveFailures++
-      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-        await postCronAlert(
-          'weekly-reports',
-          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-        )
-        break
-      }
+  return dispatchReportsChunked(restaurants, 'weekly-reports', async (r) => {
+    const { data: report, error: repErr } = await supabase.rpc('compute_weekly_report', {
+      p_restaurant_id: r.id,
+      p_week_start: null,
+    })
+    if (repErr) {
+      console.warn(`[automation-cron] Report failed for ${r.id}:`, repErr.message)
+      throw new Error(repErr.message)
     }
-  }
-
-  return dispatched
+    // Skip if zero activity (no point spamming) — compute reușit = non-eșec.
+    if (!report || report.orders === 0) return 'skip'
+    const { error: enqErr } = await supabase.rpc('enqueue_email', {
+      p_recipient_email: r.profiles.email,
+      p_template_kind: 'weekly_report',
+      p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
+      p_user_id: r.owner_id,
+      p_recipient_name: r.profiles.full_name,
+      p_scheduled_for: null,
+      p_dedup_key: `weekly:${r.id}:${weekTag}`,
+    })
+    // Un enqueue eșuat NU e succes — contribuie la pragul de bug sistemic.
+    if (enqErr) {
+      console.warn(`[automation-cron] Weekly enqueue failed for ${r.id}:`, enqErr.message)
+      throw new Error(enqErr.message)
+    }
+    return 'sent'
+  })
 }
 
 // ── Dispatch daily reports for all active restaurants ──────────
 // Raport pe ziua precedentă. Skip restaurante fără comenzi în acea zi
 // (n-are sens să trimiți „0 lei, 0 comenzi" zilnic).
 async function dispatchDailyReports(supabase) {
+  // Dedup tag = ziua acoperită de raport (ieri în Bucharest).
+  const yesterdayBuc = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
+
+  // Short-circuit (perf): dacă raportul zilnic a fost deja trimis pentru ziua asta,
+  // nu recomputa compute_daily_report per restaurant la fiecare tick din fereastră.
+  const { data: alreadySent, error: chkErr } = await supabase
+    .from('email_queue')
+    .select('id')
+    .like('dedup_key', `daily:%:${yesterdayBuc}`)
+    .limit(1)
+  if (!chkErr && alreadySent && alreadySent.length > 0) return 0
+
   const { data: restaurants, error } = await supabase
     .from('restaurants')
     .select('id, owner_id, name, profiles!inner(email, full_name)')
@@ -415,75 +528,30 @@ async function dispatchDailyReports(supabase) {
   if (error) throw error
   if (!restaurants || restaurants.length === 0) return 0
 
-  // Dedup tag = ziua acoperită de raport (ieri în Bucharest).
-  const yesterdayBuc = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Europe/Bucharest', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date(Date.now() - 24 * 60 * 60 * 1000))
-
-  let dispatched = 0
-  let consecutiveFailures = 0
-  for (const r of restaurants) {
-    try {
-      const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
-        p_restaurant_id: r.id,
-        p_day: null,
-      })
-
-      if (repErr) {
-        console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'daily-reports',
-            `${consecutiveFailures} eșecuri consecutive la compute_daily_report, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      if (!report || report.orders === 0) continue
-
-      const { error: enqErr } = await supabase.rpc('enqueue_email', {
-        p_recipient_email: r.profiles.email,
-        p_template_kind: 'daily_report',
-        p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
-        p_user_id: r.owner_id,
-        p_recipient_name: r.profiles.full_name,
-        p_scheduled_for: null,
-        p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
-      })
-
-      // Un enqueue eșuat NU e succes: nu incrementăm dispatched și tratăm eroarea
-      // ca eșec consecutiv, ca pragul de alertă (bug sistemic) să nu fie ocolit.
-      if (enqErr) {
-        console.warn(`[automation-cron] Daily enqueue failed for ${r.id}:`, enqErr.message)
-        consecutiveFailures++
-        if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-          await postCronAlert(
-            'daily-reports',
-            `${consecutiveFailures} eșecuri consecutive la enqueue_email, posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-          )
-          break
-        }
-        continue
-      }
-      consecutiveFailures = 0
-
-      dispatched++
-    } catch (e) {
-      console.warn(`[automation-cron] Daily report exception for ${r.id}:`, e.message)
-      consecutiveFailures++
-      if (consecutiveFailures >= MAX_CONSECUTIVE_REPORT_FAILURES) {
-        await postCronAlert(
-          'daily-reports',
-          `${consecutiveFailures} eșecuri consecutive (excepții), posibil bug sistemic — bucla s-a oprit după ${dispatched} rapoarte trimise`,
-        )
-        break
-      }
+  return dispatchReportsChunked(restaurants, 'daily-reports', async (r) => {
+    const { data: report, error: repErr } = await supabase.rpc('compute_daily_report', {
+      p_restaurant_id: r.id,
+      p_day: null,
+    })
+    if (repErr) {
+      console.warn(`[automation-cron] Daily report failed for ${r.id}:`, repErr.message)
+      throw new Error(repErr.message)
     }
-  }
-
-  return dispatched
+    if (!report || report.orders === 0) return 'skip'
+    const { error: enqErr } = await supabase.rpc('enqueue_email', {
+      p_recipient_email: r.profiles.email,
+      p_template_kind: 'daily_report',
+      p_template_data: { ...report, owner_name: r.profiles.full_name, restaurant_name: r.name },
+      p_user_id: r.owner_id,
+      p_recipient_name: r.profiles.full_name,
+      p_scheduled_for: null,
+      p_dedup_key: `daily:${r.id}:${yesterdayBuc}`,
+    })
+    // Un enqueue eșuat NU e succes — contribuie la pragul de bug sistemic.
+    if (enqErr) {
+      console.warn(`[automation-cron] Daily enqueue failed for ${r.id}:`, enqErr.message)
+      throw new Error(enqErr.message)
+    }
+    return 'sent'
+  })
 }

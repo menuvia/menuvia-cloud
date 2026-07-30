@@ -432,6 +432,8 @@ interface SubTab {
   adminOnly?: boolean
   minTier?: PlanTier
   platformAdminOnly?: boolean
+  // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
+  hiddenPickupOnly?: boolean
 }
 interface NavGroup {
   id: string
@@ -471,10 +473,10 @@ const NAV_GROUPS: NavGroup[] = [
       // Rezervările stau aici (nu sub „Comenzi"): modulul e permis pe TOATE
       // planurile (mig 086), iar grupul „Comenzi" are minTier 2 — l-ar ascunde
       // greșit pe Plan 1. adminOnly: ospătarii au deja rezervările în WaiterPage.
-      { id: 'reservations', label: 'Rezervări', adminOnly: true },
+      { id: 'reservations', label: 'Rezervări', adminOnly: true, hiddenPickupOnly: true },
       // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
       // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
-      { id: 'arhitectura', label: 'Hartă sală', minTier: 3 },
+      { id: 'arhitectura', label: 'Hartă sală', minTier: 3, hiddenPickupOnly: true },
     ],
   },
   {
@@ -488,7 +490,8 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'analytics', label: 'Statistici', minTier: 3 },
       { id: 'tva', label: 'TVA', minTier: 3 },
       { id: 'casa-tura', label: 'Încasări', minTier: 3 },
-      { id: 'casa-marcat', label: 'Fiscalizare', minTier: 3 },
+      // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
+      { id: 'casa-marcat', label: 'Casă & tichete', minTier: 2 },
       { id: 'invoices', label: 'Facturi', minTier: 3 },
       // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
       { id: 'gestiune', label: 'Stocuri', minTier: 2 },
@@ -510,10 +513,18 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
-function isSubTabVisible(st: SubTab, isAdmin: boolean, tier: PlanTier, isPlatAdmin: boolean): boolean {
+function isSubTabVisible(
+  st: SubTab,
+  isAdmin: boolean,
+  tier: PlanTier,
+  isPlatAdmin: boolean,
+  pickupOnly: boolean,
+): boolean {
   if (st.platformAdminOnly && !isPlatAdmin) return false
   if (st.adminOnly && !isAdmin) return false
   if (st.minTier && tier < st.minTier) return false
+  // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
+  if (st.hiddenPickupOnly && pickupOnly) return false
   return true
 }
 
@@ -535,16 +546,30 @@ function OrdersHub({
   onViewWaiter,
   onViewKitchen,
   onHistory,
+  isAdmin,
+  tier,
 }: {
   onViewWaiter: () => void
   onViewKitchen: () => void
   onHistory: () => void
+  isAdmin: boolean
+  tier: PlanTier
 }) {
-  const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
-    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter },
-    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
-    { icon: 'users', title: 'Ospătar', desc: 'Preluare manuală + plăți la masă', fn: onViewWaiter },
-    { icon: 'history', title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory },
+  const cards: { icon: IconName; title: string; desc: string; fn: () => void; external?: boolean }[] = [
+    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter, external: true },
+    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen, external: true },
+    {
+      icon: 'users',
+      title: 'Ospătar',
+      desc: tier >= 3 ? 'Preluare manuală + plăți la masă' : 'Preluare manuală a comenzilor',
+      fn: onViewWaiter,
+      external: true,
+    },
+    // Vizibil doar pentru admin (owner/manager): tab-ul „Rapoarte" e adminOnly,
+    // altfel cardul ar arunca staff-ul (ospătar/bucătărie) tăcut înapoi pe Acasă.
+    ...(isAdmin
+      ? [{ icon: 'history' as IconName, title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory }]
+      : []),
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -573,6 +598,7 @@ function OrdersHub({
             onClick={c.fn}
             className="hover-lift pressable"
             style={{
+              position: 'relative',
               background: D.s2,
               border: `1px solid ${D.border}`,
               borderRadius: 14,
@@ -582,11 +608,21 @@ function OrdersHub({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
+            {c.external && (
+              <div style={{ position: 'absolute', top: 18, right: 16, color: D.t3 }}>
+                <Icon name="chevronRight" size={16} />
+              </div>
+            )}
             <div style={{ marginBottom: 10, color: D.gold }}><Icon name={c.icon} size={26} /></div>
             <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>
               {c.title}
             </div>
-            <div style={{ color: D.t3, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
+            <div style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
+            {c.external && (
+              <div style={{ color: D.t3, fontSize: '0.68rem', lineHeight: 1.4, marginTop: 6 }}>
+                Se deschide un ecran nou
+              </div>
+            )}
           </button>
         ))}
       </div>
@@ -600,16 +636,28 @@ export default function DashboardPage({
   onViewKitchen,
   onPricing,
   onSignOut,
+  restaurants,
+  restaurantsLoading,
+  updateRestaurant,
 }: {
   onViewMenu: (slug: string) => void
   onViewWaiter: () => void
   onViewKitchen: () => void
   onPricing: () => void
   onSignOut: () => Promise<void>
+  restaurants: ReturnType<typeof useRestaurants>['restaurants']
+  restaurantsLoading: ReturnType<typeof useRestaurants>['loading']
+  updateRestaurant: ReturnType<typeof useRestaurants>['update']
 }) {
   const { user } = useAuth()
   const { activeId, activeRole, setActive, founderViewId } = useRestaurantCtx()
-  const { restaurants, loading: rLoading, update } = useRestaurants()
+  // OPT-R2: lista de restaurante + `update` vin ca props din AppRouter (o
+  // SINGURĂ instanță useRestaurants). Înainte DashboardPage rula o A DOUA
+  // instanță → 4 query-uri identice la boot ȘI două copii de state care puteau
+  // diverge după un update de setări. Sursă unică acum; tipurile derivate din
+  // hook garantează paritate exactă cu ce trimite AppRouter.
+  const rLoading = restaurantsLoading
+  const update = updateRestaurant
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
   // Originea vizitei e persistată la enterFounderView — sincronă, spre
@@ -631,11 +679,34 @@ export default function DashboardPage({
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
 
+  // CTA-urile din emailurile de facturare (payment_failed/recovered, trial,
+  // factură) trimit la /dashboard?tab=billing — fără efectul ăsta parametrul
+  // era IGNORAT, iar userul (adesea unul cu plata picată) ateriza pe Acasă fără
+  // nicio direcție. Scroll + centrare pe cardul „Abonament & facturare"
+  // (HomeTab e lazy → poll scurt până apare elementul).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') !== 'billing') return
+    let tries = 0
+    const timer = setInterval(() => {
+      const el = document.getElementById('billing-card')
+      tries++
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        clearInterval(timer)
+      } else if (tries > 20) {
+        clearInterval(timer)
+      }
+    }, 250)
+    return () => clearInterval(timer)
+  }, [])
+
   // Platform admin (fondatorul) — deblochează tab-ul de consum AI global.
   useEffect(() => {
     let cancelled = false
     void isPlatformAdmin().then((v) => {
-      if (!cancelled) setIsPlatAdmin(v)
+      // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde tab-ul
+      // AI global, fără consecințe de acces (spre deosebire de FounderPage).
+      if (!cancelled) setIsPlatAdmin(v === true)
     })
     return () => {
       cancelled = true
@@ -659,11 +730,19 @@ export default function DashboardPage({
   // Tier comercial derivat din planul restaurantului.
   const tier: PlanTier = planTier(plan)
 
+  // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
+  // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.
+  const pickupOnly =
+    (restaurant?.pickup_settings?.enabled ?? false) &&
+    (restaurant?.pickup_settings?.pickup_only ?? false)
+
   // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
   // sub-tab vizibil dispare complet din sidebar.
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter((st) => isSubTabVisible(st, isAdminRole, tier, isPlatAdmin)),
+    subTabs: g.subTabs.filter((st) =>
+      isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly),
+    ),
   })).filter(
     (g) =>
       (!g.adminOnly || isAdminRole) &&
@@ -686,6 +765,10 @@ export default function DashboardPage({
       setProductCount(0)
       return
     }
+    // OPT-2: count-ul alimentează DOAR UpgradeBanner (vizibil doar pe free)
+    // și HomeTab (tab 'home') — pe un plan plătit, navigarea între celelalte
+    // tab-uri emitea un query per click fără niciun efect vizibil.
+    if (plan !== 'free' && tab !== 'home') return
     let cancelled = false
     void supabase
       .from('products')
@@ -697,7 +780,7 @@ export default function DashboardPage({
     return () => {
       cancelled = true
     }
-  }, [restaurant?.id, tab]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurant?.id, tab, plan]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Badge „Rezervări": câte rezervări PENDING viitoare așteaptă confirmare.
   // Count ieftin (head:true), reîmprospătat la schimbarea de tab/restaurant —
@@ -740,7 +823,11 @@ export default function DashboardPage({
       </div>
     )
 
-  const Sidebar = () => (
+  // Funcție de RANDARE (nu componentă inline): definirea unei componente în corpul
+  // altei componente îi schimbă identitatea la fiecare render → React demontează și
+  // remontează tot sub-arborele (pierde focus/scroll, flicker). Ca funcție apelată
+  // `{renderSidebar()}`, elementele se reconciliază normal (audit dashboard, MEDIUM).
+  const renderSidebar = () => (
     <>
       <div
         style={{
@@ -1095,7 +1182,7 @@ export default function DashboardPage({
           flexShrink: 0,
         }}
       >
-        <Sidebar />
+        {renderSidebar()}
       </div>
 
       {/* Mobile overlay */}
@@ -1120,7 +1207,7 @@ export default function DashboardPage({
               overflow: 'auto',
             }}
           >
-            <Sidebar />
+            {renderSidebar()}
           </div>
         </>
       )}
@@ -1341,6 +1428,7 @@ export default function DashboardPage({
                     tier={tier}
                     isAdmin={isAdminRole}
                     productCount={productCount}
+                    pickupOnly={pickupOnly}
                     onNavigate={setTab}
                     onViewMenu={() => onViewMenu(restaurant.slug)}
                     onPricing={onPricing}
@@ -1355,6 +1443,8 @@ export default function DashboardPage({
                   // listă reală de istoric (ID, masă, oră, produse, status,
                   // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
+                  isAdmin={isAdminRole}
+                  tier={tier}
                 />
               )}
               {tab === 'products' && (
@@ -1514,17 +1604,19 @@ export default function DashboardPage({
                   />
                 ))}
               {tab === 'casa-marcat' &&
-                (tier >= 3 ? (
+                // Tier 2 = tichete de bucătărie (mig 227); tier 3 adaugă
+                // secțiunile fiscale. Sub tier 2 rămâne upgrade prompt.
+                (tier >= 2 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <BridgeTab restaurantId={restaurant.id} />
+                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={tier >= 3} />
                   </Suspense>
                 ) : (
                   <UpgradePrompt
                     currentPlan={plan}
-                    featureName="Casă de marcat"
+                    featureName="Casă & tichete"
                     emoji="🖨️"
-                    description="Conectează casa de marcat fiscală. Disponibil pe planul Fiscalizare."
-                    requiredTier={3}
+                    description="Tipărește comenzile în bucătărie (din planul Meniu + Comenzi) și conectează casa de marcat fiscală (planul Fiscalizare)."
+                    requiredTier={2}
                     onUpgrade={onPricing}
                   />
                 ))}

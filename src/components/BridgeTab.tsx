@@ -10,13 +10,14 @@
 // Bridge-ul local (Node.js + tray icon Windows) folosește device_secret
 // ca să se autentifice la RPC-urile bridge_* din migration 030.
 // ─────────────────────────────────────────────────────────────
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { confirm as confirmDialog } from './ui/confirm'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { toRomaniaYMD } from '../lib/dates'
 
 interface BridgeDevice {
   id: string
@@ -61,6 +62,22 @@ interface VatRateRow {
 
 interface Props {
   restaurantId: string
+  // false pe tier 2 (mig 227): secțiunile FISCALE (bonuri, mapare TVA, stats)
+  // se ascund; rămân device-urile + tichetele de bucătărie.
+  fiscalEnabled: boolean
+}
+
+// Tichet de bucătărie (mig 227) — oglinda lui PendingReceipt, fără câmpurile
+// fiscale (bon_number/total_snapshot), plus is_reprint.
+interface KitchenTicket {
+  id: string
+  order_id: string
+  payload: string
+  status: 'pending' | 'sent' | 'success' | 'error' | 'cancelled'
+  error_code: string | null
+  retry_count: number
+  is_reprint: boolean
+  created_at: string
 }
 
 // ── Style tokens ──────────────────────────────────────────────
@@ -148,9 +165,10 @@ function ronFmt(n: number): string {
 }
 
 // ── Main component ────────────────────────────────────────────
-export default function BridgeTab({ restaurantId }: Props) {
+export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   const [devices, setDevices] = useState<BridgeDevice[]>([])
   const [receipts, setReceipts] = useState<PendingReceipt[]>([])
+  const [tickets, setTickets] = useState<KitchenTicket[]>([])
   const [vatRates, setVatRates] = useState<VatRateRow[]>([])
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
@@ -162,6 +180,8 @@ export default function BridgeTab({ restaurantId }: Props) {
   const [regModel, setRegModel] = useState('')
   const [regBusy, setRegBusy] = useState(false)
   const [newSecret, setNewSecret] = useState<{ deviceId: string; secret: string } | null>(null)
+  const [copiedKey, setCopiedKey] = useState(false)
+  const [copyFailed, setCopyFailed] = useState(false)
 
   // VAT mapping editor
   const [showVatMap, setShowVatMap] = useState(false)
@@ -171,11 +191,15 @@ export default function BridgeTab({ restaurantId }: Props) {
   // Filter
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'error' | 'done'>('active')
 
+  // Guard de secvență: la schimbarea restaurantului, un răspuns vechi nu trebuie
+  // să afișeze device-urile/bonurile/device_secret ale altui restaurant.
+  const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
     setErr(null)
     try {
-      const [dRes, rRes, vRes] = await Promise.all([
+      const [dRes, rRes, vRes, tRes] = await Promise.all([
         supabase
           .from('bridge_devices')
           .select('*')
@@ -192,17 +216,27 @@ export default function BridgeTab({ restaurantId }: Props) {
           .select('vat_group,rate_percent,label,fiscalnet_group')
           .eq('restaurant_id', restaurantId)
           .order('vat_group'),
+        supabase
+          .from('kitchen_tickets')
+          .select('id,order_id,payload,status,error_code,retry_count,is_reprint,created_at')
+          .eq('restaurant_id', restaurantId)
+          .order('created_at', { ascending: false })
+          .limit(50),
       ])
+      if (seq !== loadSeqRef.current) return
       if (dRes.error) throw dRes.error
       if (rRes.error) throw rRes.error
       if (vRes.error) throw vRes.error
+      // Tichetele sunt tolerante la absența migrației 227 (tabel inexistent
+      // pe un DB vechi) — nu blocăm tab-ul fiscal pentru asta.
       setDevices((dRes.data || []) as BridgeDevice[])
       setReceipts((rRes.data || []) as PendingReceipt[])
       setVatRates((vRes.data || []) as VatRateRow[])
+      setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
     } finally {
-      setLoading(false)
+      if (seq === loadSeqRef.current) setLoading(false)
     }
   }, [restaurantId])
 
@@ -225,13 +259,23 @@ export default function BridgeTab({ restaurantId }: Props) {
       const { data, error } = await supabase.rpc('bridge_register', {
         p_restaurant_id: restaurantId,
         p_name: regName.trim(),
-        p_fiscalnet_brand: regBrand || null,
-        p_fiscalnet_model: regModel.trim() || null,
+        // Pe tier 2 (fără fiscal) device-ul e doar pentru imprimanta de
+        // bucătărie — câmpurile FiscalNet rămân goale.
+        p_fiscalnet_brand: fiscalEnabled ? regBrand || null : null,
+        p_fiscalnet_model: fiscalEnabled ? regModel.trim() || null : null,
       })
       if (error) throw error
       const row = Array.isArray(data) && data.length ? data[0] : null
       if (row) {
         setNewSecret({ deviceId: row.device_id, secret: row.device_secret })
+        if (!fiscalEnabled) {
+          // Pe tier 2 device-ul există DOAR pentru tichete de bucătărie —
+          // activăm implicit tipărirea (best-effort, toggle-ul rămâne la vedere).
+          await supabase
+            .from('bridge_devices')
+            .update({ prints_kitchen_receipts: true })
+            .eq('id', row.device_id)
+        }
       }
       await load()
     } catch (e) {
@@ -285,6 +329,47 @@ export default function BridgeTab({ restaurantId }: Props) {
     }
   }
 
+  // ── Tichete bucătărie (mig 227) ─────────────────────────────
+  async function toggleKitchenPrint(d: BridgeDevice) {
+    try {
+      const { error } = await supabase
+        .from('bridge_devices')
+        .update({ prints_kitchen_receipts: !d.prints_kitchen_receipts })
+        .eq('id', d.id)
+      if (error) throw error
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
+    }
+  }
+
+  async function handleTicketRetry(id: string) {
+    try {
+      const { error } = await supabase.rpc('kitchen_ticket_retry', { p_ticket_id: id })
+      if (error) throw error
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Eroare la retrimitere tichet')
+    }
+  }
+
+  async function handleTicketCancel(id: string) {
+    const ok = await confirmDialog({
+      title: 'Anulezi acest tichet?',
+      description: 'Nu va mai fi tipărit în bucătărie.',
+      confirmLabel: 'Anulează tichet',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      const { error } = await supabase.rpc('kitchen_ticket_cancel', { p_ticket_id: id })
+      if (error) throw error
+      await load()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Eroare la anulare tichet')
+    }
+  }
+
   function openVatMap() {
     const map: Record<number, number> = {}
     vatRates.forEach((v) => {
@@ -324,7 +409,8 @@ export default function BridgeTab({ restaurantId }: Props) {
   })
 
   // Stats today
-  const today = new Date().toISOString().slice(0, 10)
+  // Ora României, nu UTC — altfel statisticile „azi" săreau ziua noaptea.
+  const today = toRomaniaYMD(new Date())
   const todayReceipts = receipts.filter((r) => r.created_at.startsWith(today))
   const stats = {
     pending: todayReceipts.filter((r) => r.status === 'pending' || r.status === 'sent').length,
@@ -363,27 +449,30 @@ export default function BridgeTab({ restaurantId }: Props) {
             }}
           >
             <Icon name="receipt" size={24} color={D.gold} />
-            Casă de marcat
+            {fiscalEnabled ? 'Casă de marcat & tichete' : 'Tichete bucătărie'}
           </h1>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
-            Integrare FiscalNet (Datecs / Activa / Tremol). Bonurile fiscale se tipăresc automat la
-            plată.
+            {fiscalEnabled
+              ? 'Integrare FiscalNet (Datecs / Activa / Tremol). Bonurile fiscale se tipăresc automat la plată.'
+              : 'Comenzile noi se tipăresc automat în bucătărie, pe o imprimantă termică, prin Bridge-ul Menuvia.'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            onClick={openVatMap}
-            style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
-          >
-            <Icon name="percent" size={15} />
-            Mapare TVA
-          </button>
+          {fiscalEnabled && (
+            <button
+              onClick={openVatMap}
+              style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
+            >
+              <Icon name="percent" size={15} />
+              Mapare TVA
+            </button>
+          )}
           <button
             onClick={() => setShowRegister(true)}
             style={btn({ background: D.gold, color: '#0a0a0a' })}
           >
             <Icon name="plus" size={15} />
-            Înregistrează casă
+            {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează device'}
           </button>
         </div>
       </div>
@@ -407,8 +496,8 @@ export default function BridgeTab({ restaurantId }: Props) {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              minWidth: 28,
-              minHeight: 28,
+              minWidth: 44,
+              minHeight: 44,
               background: 'transparent',
               border: 'none',
               color: D.red,
@@ -420,35 +509,49 @@ export default function BridgeTab({ restaurantId }: Props) {
         </div>
       )}
 
-      {/* Stats today */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <StatCard label="În așteptare azi" value={stats.pending} color={D.amber} />
-        <StatCard label="Tipărite azi" value={stats.success} color={D.green} />
-        <StatCard label="Eșuate azi" value={stats.errors} color={stats.errors > 0 ? D.red : D.t2} />
-      </div>
+      {/* Stats today (fiscal — doar Plan 3) */}
+      {fiscalEnabled && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))',
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          <StatCard label="În așteptare azi" value={stats.pending} color={D.amber} />
+          <StatCard label="Tipărite azi" value={stats.success} color={D.green} />
+          <StatCard
+            label="Eșuate azi"
+            value={stats.errors}
+            color={stats.errors > 0 ? D.red : D.t2}
+          />
+        </div>
+      )}
 
       {/* Devices */}
       <div style={card}>
-        <h2 style={h2}>Case de marcat înregistrate</h2>
+        <h2 style={h2}>{fiscalEnabled ? 'Case de marcat înregistrate' : 'Device-uri Bridge'}</h2>
         {devices.length === 0 ? (
           <EmptyState
             icon="receipt"
-            title="Nu ai înregistrat nicio casă de marcat."
-            description="Înregistrează prima casă ca să primești cheia de instalare pentru Bridge-ul Menuvia."
+            title={
+              fiscalEnabled
+                ? 'Nu ai înregistrat nicio casă de marcat.'
+                : 'Nu ai înregistrat niciun device.'
+            }
+            description={
+              fiscalEnabled
+                ? 'Înregistrează prima casă ca să primești cheia de instalare pentru Bridge-ul Menuvia.'
+                : 'Înregistrează un device ca să primești cheia de instalare pentru Bridge-ul Menuvia (PC-ul conectat la imprimanta din bucătărie).'
+            }
             action={
               <button
                 onClick={() => setShowRegister(true)}
                 style={btn({ background: D.gold, color: '#0a0a0a' })}
               >
                 <Icon name="plus" size={15} />
-                Înregistrează casă
+                {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează device'}
               </button>
             }
           />
@@ -494,13 +597,32 @@ export default function BridgeTab({ restaurantId }: Props) {
                   >
                     {st.label}
                   </div>
+                  <label
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      fontSize: '0.78rem',
+                      color: d.prints_kitchen_receipts ? D.goldL : D.t2,
+                      cursor: 'pointer',
+                      minHeight: 32,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={d.prints_kitchen_receipts}
+                      onChange={() => void toggleKitchenPrint(d)}
+                      style={{ accentColor: D.gold, width: 16, height: 16, cursor: 'pointer' }}
+                    />
+                    Tichete bucătărie
+                  </label>
                   <button
                     onClick={() => handleDeleteDevice(d.id)}
                     style={btn({
                       background: 'transparent',
                       color: D.red,
                       border: `1px solid ${D.border}`,
-                      height: 32,
+                      height: 44,
                       fontSize: '0.78rem',
                     })}
                   >
@@ -513,7 +635,23 @@ export default function BridgeTab({ restaurantId }: Props) {
         )}
       </div>
 
-      {/* Pending receipts */}
+      {/* Pending receipts — doar Plan 3 (bani + bon fiscal). Pe tier 2
+          afișăm un upsell compact în loc de coada fiscală. */}
+      {!fiscalEnabled && (
+        <div style={{ ...card, borderColor: `${D.gold}55` }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ flexShrink: 0, marginTop: 2 }}>
+              <Icon name="receipt" size={20} color={D.gold} />
+            </span>
+            <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: D.t2, lineHeight: 1.55 }}>
+              <strong style={{ color: D.t1 }}>Bonuri fiscale automate</strong> — disponibile din
+              planul <strong style={{ color: D.gold }}>Fiscalizare</strong>: bonul se tipărește
+              singur la plată, pe casa ta de marcat, prin același Bridge.
+            </div>
+          </div>
+        </div>
+      )}
+      {fiscalEnabled && (
       <div style={card}>
         <div
           style={{
@@ -526,7 +664,7 @@ export default function BridgeTab({ restaurantId }: Props) {
           }}
         >
           <h2 style={{ ...h2, margin: 0 }}>Bonuri fiscale</h2>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {(['active', 'error', 'done', 'all'] as const).map((s) => (
               <button
                 key={s}
@@ -535,7 +673,7 @@ export default function BridgeTab({ restaurantId }: Props) {
                   background: statusFilter === s ? D.goldA : D.s2,
                   color: statusFilter === s ? D.goldL : D.t2,
                   border: `1px solid ${statusFilter === s ? D.gold : D.border}`,
-                  height: 32,
+                  height: 44,
                   fontSize: '0.78rem',
                 })}
               >
@@ -694,12 +832,12 @@ export default function BridgeTab({ restaurantId }: Props) {
                               background: 'transparent',
                               color: D.goldL,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
                           >
-                            Retrimit
+                            Retrimite
                           </button>
                         )}
                         {r.status === 'pending' && (
@@ -709,7 +847,146 @@ export default function BridgeTab({ restaurantId }: Props) {
                               background: 'transparent',
                               color: D.red,
                               border: `1px solid ${D.border}`,
-                              height: 28,
+                              height: 44,
+                              fontSize: '0.74rem',
+                              padding: '0 10px',
+                            })}
+                          >
+                            Anulează
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Tichete bucătărie (mig 227) — NEfiscale, coadă separată de bonuri. */}
+      <div style={card}>
+        <h2 style={h2}>Tichete bucătărie</h2>
+        <div style={{ fontSize: '0.8rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
+          Comenzile noi se tipăresc automat pe imprimanta termică din bucătărie, prin device-urile
+          cu „Tichete bucătărie" activat. Tichetele NU sunt bonuri fiscale.
+        </div>
+        {tickets.length === 0 ? (
+          <div
+            style={{ padding: '20px 16px', textAlign: 'center', color: D.t2, fontSize: '0.88rem' }}
+          >
+            Niciun tichet încă. Activează „Tichete bucătărie" pe un device de mai sus — comenzile
+            noi vor apărea aici.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+              <thead>
+                <tr style={{ borderBottom: `1px solid ${D.border}`, color: D.t2 }}>
+                  {['Creat', 'Comandă', 'Status', 'Detalii', 'Acțiuni'].map((h, i) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: i === 4 ? 'right' : 'left',
+                        padding: '10px 8px',
+                        fontWeight: 500,
+                        fontSize: '0.76rem',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {tickets.map((t) => {
+                  const st = RECEIPT_STATUS[t.status]
+                  return (
+                    <tr key={t.id} style={{ borderBottom: `1px solid ${D.border}` }}>
+                      <td style={{ padding: '10px 8px', color: D.t2, whiteSpace: 'nowrap' }}>
+                        {relativeTime(t.created_at)}
+                      </td>
+                      <td
+                        style={{
+                          padding: '10px 8px',
+                          color: D.t2,
+                          fontFamily: 'monospace',
+                          fontSize: '0.78rem',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        #{t.order_id.slice(0, 8)}
+                        {t.is_reprint && (
+                          <span
+                            style={{
+                              marginLeft: 6,
+                              padding: '2px 6px',
+                              borderRadius: 5,
+                              fontSize: '0.7rem',
+                              color: D.goldL,
+                              background: D.goldA,
+                              fontFamily: 'DM Sans,sans-serif',
+                            }}
+                          >
+                            Reprint
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 8px' }}>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            padding: '3px 8px',
+                            borderRadius: 5,
+                            fontSize: '0.76rem',
+                            color: st.color,
+                            background: st.bg,
+                          }}
+                        >
+                          {t.status === 'sent' ? 'Trimis la imprimantă' : st.label}
+                        </span>
+                      </td>
+                      <td
+                        style={{
+                          padding: '10px 8px',
+                          color: D.t2,
+                          fontSize: '0.76rem',
+                          maxWidth: 220,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {t.error_code || (t.retry_count > 0 ? `${t.retry_count} încercări` : '')}
+                      </td>
+                      <td style={{ padding: '10px 8px', textAlign: 'right' }}>
+                        {(t.status === 'error' || t.status === 'cancelled') && (
+                          <button
+                            onClick={() => handleTicketRetry(t.id)}
+                            style={btn({
+                              background: 'transparent',
+                              color: D.goldL,
+                              border: `1px solid ${D.border}`,
+                              height: 44,
+                              fontSize: '0.74rem',
+                              padding: '0 10px',
+                            })}
+                          >
+                            Reîncearcă
+                          </button>
+                        )}
+                        {t.status === 'pending' && (
+                          <button
+                            onClick={() => handleTicketCancel(t.id)}
+                            style={btn({
+                              background: 'transparent',
+                              color: D.red,
+                              border: `1px solid ${D.border}`,
+                              height: 44,
                               fontSize: '0.74rem',
                               padding: '0 10px',
                             })}
@@ -729,7 +1006,10 @@ export default function BridgeTab({ restaurantId }: Props) {
 
       {/* ── Register Modal ─── */}
       {showRegister && !newSecret && (
-        <Modal onClose={() => setShowRegister(false)} title="Înregistrează casă de marcat">
+        <Modal
+          onClose={() => setShowRegister(false)}
+          title={fiscalEnabled ? 'Înregistrează casă de marcat' : 'Înregistrează device Bridge'}
+        >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
               <div style={lbl}>Nume *</div>
@@ -737,28 +1017,38 @@ export default function BridgeTab({ restaurantId }: Props) {
                 value={regName}
                 onChange={(e) => setRegName(e.target.value)}
                 style={inp}
-                placeholder="ex: Casa de marcat principală"
+                placeholder={
+                  fiscalEnabled ? 'ex: Casa de marcat principală' : 'ex: PC bucătărie'
+                }
               />
             </div>
-            <div>
-              <div style={lbl}>Brand</div>
-              <select value={regBrand} onChange={(e) => setRegBrand(e.target.value)} style={inp}>
-                <option value="datecs">Datecs</option>
-                <option value="activa">Activa</option>
-                <option value="tremol">Tremol</option>
-                <option value="custom">Custom Q3X</option>
-                <option value="other">Alt brand</option>
-              </select>
-            </div>
-            <div>
-              <div style={lbl}>Model (opțional)</div>
-              <input
-                value={regModel}
-                onChange={(e) => setRegModel(e.target.value)}
-                style={inp}
-                placeholder="ex: DP-25, MP-55"
-              />
-            </div>
+            {fiscalEnabled && (
+              <>
+                <div>
+                  <div style={lbl}>Brand</div>
+                  <select
+                    value={regBrand}
+                    onChange={(e) => setRegBrand(e.target.value)}
+                    style={inp}
+                  >
+                    <option value="datecs">Datecs</option>
+                    <option value="activa">Activa</option>
+                    <option value="tremol">Tremol</option>
+                    <option value="custom">Custom Q3X</option>
+                    <option value="other">Alt brand</option>
+                  </select>
+                </div>
+                <div>
+                  <div style={lbl}>Model (opțional)</div>
+                  <input
+                    value={regModel}
+                    onChange={(e) => setRegModel(e.target.value)}
+                    style={inp}
+                    placeholder="ex: DP-25, MP-55"
+                  />
+                </div>
+              </>
+            )}
             <div
               style={{
                 fontSize: '0.78rem',
@@ -769,9 +1059,9 @@ export default function BridgeTab({ restaurantId }: Props) {
                 borderRadius: 8,
               }}
             >
-              După înregistrare vei primi o cheie unică (device_secret). O folosești o singură dată
-              la instalarea Bridge-ului pe PC-ul cu FiscalNet. Cheia poate fi recuperată mai târziu
-              doar prin re-înregistrare.
+              {fiscalEnabled
+                ? 'După înregistrare vei primi o cheie unică de instalare. O folosești o singură dată la instalarea Bridge-ului pe PC-ul cu FiscalNet. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'
+                : 'După înregistrare vei primi o cheie unică de instalare. O folosești o singură dată la instalarea Bridge-ului pe PC-ul conectat la imprimanta din bucătărie. Cheia poate fi recuperată mai târziu doar prin re-înregistrare.'}
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
               <button
@@ -795,11 +1085,16 @@ export default function BridgeTab({ restaurantId }: Props) {
       {/* ── New Secret Display ─── */}
       {newSecret && (
         <Modal
+          // Cheia de instalare se afișează O SINGURĂ DATĂ („nu mai poate fi
+          // recuperată") — un tap accidental pe fundal o pierdea definitiv.
+          dismissable={false}
           onClose={() => {
             setNewSecret(null)
             setShowRegister(false)
             setRegName('Casa de marcat principală')
             setRegModel('')
+            setCopiedKey(false)
+            setCopyFailed(false)
           }}
           title="Casă înregistrată"
         >
@@ -822,14 +1117,35 @@ export default function BridgeTab({ restaurantId }: Props) {
               {newSecret.secret}
             </div>
             <button
-              onClick={() =>
-                navigator.clipboard?.writeText(newSecret.secret).catch(() => undefined)
-              }
+              onClick={() => {
+                // Feedback la copiere — înainte eșecul era înghițit tăcut și
+                // nu exista niciun semn că s-a copiat (cheie critică).
+                if (!navigator.clipboard) {
+                  setCopiedKey(false)
+                  setCopyFailed(true)
+                  return
+                }
+                navigator.clipboard
+                  .writeText(newSecret.secret)
+                  .then(() => {
+                    setCopiedKey(true)
+                    setCopyFailed(false)
+                  })
+                  .catch(() => {
+                    setCopiedKey(false)
+                    setCopyFailed(true)
+                  })
+              }}
               style={btn({ background: D.s2, color: D.t1, border: `1px solid ${D.border}` })}
             >
               <Icon name="copy" size={15} />
-              Copiază cheia
+              {copiedKey ? 'Copiat ✓' : 'Copiază cheia'}
             </button>
+            {copyFailed && (
+              <div style={{ fontSize: '0.78rem', color: D.red, lineHeight: 1.5 }}>
+                Nu s-a putut copia automat — selectează cheia de mai sus și copiaz-o manual.
+              </div>
+            )}
             <div
               style={{
                 display: 'flex',
@@ -857,6 +1173,8 @@ export default function BridgeTab({ restaurantId }: Props) {
                 setShowRegister(false)
                 setRegName('Casa de marcat principală')
                 setRegModel('')
+                setCopiedKey(false)
+                setCopyFailed(false)
               }}
               style={btn({ background: D.gold, color: '#0a0a0a', alignSelf: 'flex-end' })}
             >
@@ -875,6 +1193,23 @@ export default function BridgeTab({ restaurantId }: Props) {
               de mai jos corespunde cu setarea reală a casei tale — altfel bonurile vor ieși cu TVA
               greșit.
             </div>
+            {vatRates.length === 0 && (
+              <div
+                style={{
+                  padding: '18px 14px',
+                  textAlign: 'center',
+                  color: D.t2,
+                  fontSize: '0.84rem',
+                  lineHeight: 1.55,
+                  background: D.s2,
+                  borderRadius: 8,
+                  border: `1px solid ${D.border}`,
+                }}
+              >
+                Nu ai cote TVA configurate încă. Adaugă întâi cotele de TVA în setările
+                restaurantului, apoi revino aici ca să le mapezi pe grupele casei de marcat.
+              </div>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {vatRates.map((v) => (
                 <div
@@ -921,8 +1256,12 @@ export default function BridgeTab({ restaurantId }: Props) {
               </button>
               <button
                 onClick={handleSaveVatMap}
-                disabled={vatBusy}
-                style={btn({ background: D.gold, color: '#0a0a0a', opacity: vatBusy ? 0.6 : 1 })}
+                disabled={vatBusy || vatRates.length === 0}
+                style={btn({
+                  background: D.gold,
+                  color: '#0a0a0a',
+                  opacity: vatBusy || vatRates.length === 0 ? 0.6 : 1,
+                })}
               >
                 {vatBusy ? 'Se salvează...' : 'Salvează maparea'}
               </button>
@@ -969,14 +1308,17 @@ function Modal({
   title,
   onClose,
   children,
+  dismissable = true,
 }: {
   title: string
   onClose: () => void
   children: React.ReactNode
+  /** false = nici backdrop-ul, nici X-ul NU închid (conținut critic, ex. cheia de instalare). */
+  dismissable?: boolean
 }) {
   return (
     <div
-      onClick={onClose}
+      onClick={dismissable ? onClose : undefined}
       style={{
         position: 'fixed',
         inset: 0,
@@ -1020,25 +1362,28 @@ function Modal({
           >
             {title}
           </h2>
-          <button
-            onClick={onClose}
-            aria-label="Închide"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              minWidth: 32,
-              minHeight: 32,
-              background: 'transparent',
-              border: 'none',
-              color: D.t2,
-              cursor: 'pointer',
-              lineHeight: 1,
-              padding: 4,
-            }}
-          >
-            <Icon name="close" size={18} />
-          </button>
+          {dismissable && (
+            <button
+              onClick={onClose}
+              aria-label="Închide"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: 44,
+                minHeight: 44,
+                background: 'transparent',
+                border: 'none',
+                color: D.t2,
+                cursor: 'pointer',
+                lineHeight: 1,
+                padding: 4,
+                margin: -8,
+              }}
+            >
+              <Icon name="close" size={18} />
+            </button>
+          )}
         </div>
         {children}
       </div>

@@ -4,7 +4,7 @@
 // Reutilizat de WaiterEntry + EditOrderSheet.
 // =============================================================
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
@@ -60,6 +60,24 @@ export default function ModifierSheet({
   })
   const [qty, setQty] = useState(initialQty)
   const [notes, setNotes] = useState(initialNotes)
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
+  // deschidere, restaurare la închidere + Escape → onClose (screen reader-ul
+  // anunță dialogul; tastatura nu rămâne blocată pe fundal).
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Numărul de opțiuni selectate ȘI încă disponibile dintr-un grup multiplu.
   // O opțiune devenită indisponibilă NU trebuie să conteze la min/max.
@@ -179,6 +197,11 @@ export default function ModifierSheet({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={product.name}
+        tabIndex={-1}
         style={{
           background: D.s2,
           borderRadius: '20px 20px 0 0',
@@ -186,6 +209,7 @@ export default function ModifierSheet({
           maxWidth: 480,
           maxHeight: '85vh',
           overflowY: 'auto',
+          outline: 'none',
         }}
       >
         <div
@@ -247,6 +271,9 @@ export default function ModifierSheet({
                       <button
                         key={opt.id}
                         disabled={isDisabled}
+                        role={g.selection_type === 'single' ? 'radio' : undefined}
+                        aria-checked={g.selection_type === 'single' ? isSelected : undefined}
+                        aria-pressed={g.selection_type === 'single' ? undefined : isSelected}
                         onClick={() =>
                           g.selection_type === 'single'
                             ? toggleSingle(g.id, opt.id)

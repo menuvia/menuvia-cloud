@@ -1,11 +1,11 @@
 // ReservationSheet — bottom sheet pentru rezervări publice (anon).
 // Submit prin RPC create_reservation_public (SECURITY DEFINER, advisory lock).
 // Layout inspirat de design ialoc.ro: chip-pills orizontale + trust strip.
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
-import { T } from '../lib/constants'
+import { T } from '../lib/publicMenuStrings'
 import type { Restaurant } from '../lib/qr'
 import {
   fetchPublicFloorPlan,
@@ -211,15 +211,24 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   useEffect(() => {
     let cancelled = false
     async function load() {
+      // OPT-R2: settings + zone-uri sunt interogări INDEPENDENTE — în paralel.
       // Try select public via dedicated read policy (settings public-readable).
       // Fallback la defaults dacă RLS blochează.
-      const { data: s } = await supabase
-        .from('reservation_settings')
-        .select(
-          'open_days, open_time, close_time, slot_interval, reservation_duration, min_advance_hours, max_advance_days, max_party_size',
-        )
-        .eq('restaurant_id', restaurant.id)
-        .maybeSingle()
+      const [{ data: s }, { data: tz }] = await Promise.all([
+        supabase
+          .from('reservation_settings')
+          .select(
+            'open_days, open_time, close_time, slot_interval, reservation_duration, min_advance_hours, max_advance_days, max_party_size',
+          )
+          .eq('restaurant_id', restaurant.id)
+          .maybeSingle(),
+        supabase
+          .from('tables')
+          .select('zone')
+          .eq('restaurant_id', restaurant.id)
+          .eq('is_active', true)
+          .not('zone', 'is', null),
+      ])
       if (cancelled) return
       const resolved: PublicSettings = (s as PublicSettings) ?? {
         open_days: [1, 2, 3, 4, 5, 6, 7],
@@ -236,13 +245,6 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       // 1 loc, valoarea inițială hardcodată (2) ar fi respinsă tardiv de RPC.
       setPartySize((p) => Math.min(Math.max(p, 1), Math.max(resolved.max_party_size, 1)))
 
-      const { data: tz } = await supabase
-        .from('tables')
-        .select('zone')
-        .eq('restaurant_id', restaurant.id)
-        .eq('is_active', true)
-        .not('zone', 'is', null)
-      if (cancelled) return
       const uniq = Array.from(
         new Set(
           ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
@@ -453,6 +455,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           lang === 'ro'
             ? 'Rezervările nu sunt active pentru acest restaurant.'
             : 'Reservations are not enabled for this restaurant.'
+      } else if (/nu acceptă rezervări|această zi|closed|închis|open_days/i.test(m)) {
+        // Ziua aleasă e închisă (RPC mig 201) — mesaj clar, nu fallback-ul generic.
+        friendly =
+          lang === 'ro'
+            ? 'Restaurantul e închis în ziua aleasă. Alege altă zi.'
+            : 'The restaurant is closed on the selected day. Pick another day.'
       } else {
         friendly =
           lang === 'ro'
@@ -1040,6 +1048,24 @@ interface ShellProps {
 }
 
 function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps) {
+  // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
+  // deschidere, restaurare la închidere + Escape → onClose. Ref-ul pe onClose
+  // ține varianta curentă fără să re-monteze efectul la fiecare re-randare.
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    function onKeyDown(e: KeyboardEvent): void {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      prev?.focus()
+    }
+  }, [])
   return (
     <div
       onClick={onClose}
@@ -1054,6 +1080,11 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
       }}
     >
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
           background: PUB.bg,
@@ -1063,6 +1094,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
           maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
+          outline: 'none',
         }}
       >
         {/* Accent header bar */}

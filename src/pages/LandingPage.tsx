@@ -294,6 +294,15 @@ export default function LandingPage({
         cta={{ label: 'Începe gratuit', onClick: () => onStartPlan('growth') }}
       />
 
+      {/* Link discret spre landing-ul EN (diaspora / parteneri non-RO) —
+          nu intră în MarketingHeader (nu se modifică), stă ca bandă mică
+          deasupra hero-ului. */}
+      <div style={{ maxWidth: 1120, margin: '0 auto', padding: '10px 24px 0', textAlign: 'right' }}>
+        <a href="/en" style={{ color: MKT.text3, fontSize: 12.5, textDecoration: 'none' }}>
+          EN
+        </a>
+      </div>
+
       {/* Hero split: mesaj + CTA-uri în stânga, produsul REAL în dreapta */}
       <div
         style={{
@@ -458,7 +467,7 @@ export default function LandingPage({
       {/* How it works */}
       <div
         id="cum-functioneaza"
-        style={{ maxWidth: 880, margin: '0 auto', padding: '0 24px 80px' }}
+        style={{ scrollMarginTop: 80, maxWidth: 880, margin: '0 auto', padding: '0 24px 80px' }}
       >
         <RevealItem>
           <h2 style={{ ...sectionTitle, marginBottom: 44 }}>Pornești în 3 pași</h2>

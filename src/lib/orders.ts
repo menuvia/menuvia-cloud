@@ -11,7 +11,7 @@ export type OrderStatus =
   | 'paid'
   | 'cancelled'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
-export type PaymentMethod = 'cash' | 'card_pos' | 'other'
+export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher'
 
 export interface SelectedExtra {
   id: string
@@ -46,6 +46,33 @@ export function lineTotal(item: CartItem): number {
   const md = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
   const ex = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
   return (item.unit_price_snapshot + md + ex) * item.quantity
+}
+
+// ── Idempotență comanda QR (per token de masă) ──────────────────
+// Cheia trăiește în sessionStorage ca să supraviețuiască refresh-urilor de
+// pagină din TIMPUL unei comenzi (retry cu aceeași cheie = dedup pe server,
+// index UNIQUE pe (restaurant_id, idempotency_key) — mig 088/145).
+export function getQrIdempotencyKey(token: string): string {
+  const storageKey = 'menuvia_idem:' + token
+  let key = sessionStorage.getItem(storageKey)
+  if (!key) {
+    key = crypto.randomUUID()
+    sessionStorage.setItem(storageKey, key)
+  }
+  return key
+}
+
+// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
+// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
+// getQrIdempotencyKey). Dacă am scrie doar în state React, un refresh de
+// pagină exact în timpul unei comenzi noi ar regenera cheia din citirea
+// inițială (care ar recrea una veche/inexistentă), riscând submit duplicat.
+// SE APELEAZĂ PE SUCCES (nu doar la reset) — altfel un coș NOU după refresh
+// ar refolosi cheia comenzii deja trimise → dedup server → comandă pierdută.
+export function rotateQrIdempotencyKey(token: string): string {
+  const key = crypto.randomUUID()
+  sessionStorage.setItem('menuvia_idem:' + token, key)
+  return key
 }
 
 export interface RestaurantTable {
@@ -201,7 +228,11 @@ const STATUS_TO_ACTION: Record<string, string> = {
 export async function advanceOrderStatus(
   orderId: string,
   payload: AdvanceOrderPayload,
-): Promise<Order> {
+  // OPT-5: hydrate=false sare refetch-ul complet (join dublu) de după RPC —
+  // folosit când canalul realtime e conectat și aduce oricum rândul
+  // autoritativ prin evenimentul UPDATE. Default true = contractul existent.
+  opts?: { hydrate?: boolean },
+): Promise<Order | null> {
   const current = payload._currentStatus
   const target = payload.status
   let action: string
@@ -234,6 +265,7 @@ export async function advanceOrderStatus(
     p_cancel_reason: payload.cancel_reason ?? null,
   })
   if (rpcError) throw rpcError
+  if (opts?.hydrate === false) return null
   return fetchOrderById(orderId)
 }
 
@@ -480,6 +512,8 @@ export interface WaiterCall {
   table_id: string | null
   // 'bill' = clientul cere nota; 'waiter' = chemare simplă (mig 091)
   call_type?: 'waiter' | 'bill'
+  // Bacșiș PROPUS de client la „cere nota" (mig 223) — intenție, nu plată.
+  tip_amount?: number | null
   status: 'pending' | 'resolved'
   created_at: string
   resolved_at: string | null
@@ -500,12 +534,33 @@ export async function fetchWaiterCalls(restaurantId: string): Promise<WaiterCall
 export async function callWaiter(
   qrTokenId: string,
   callType: 'waiter' | 'bill' = 'waiter',
+  // Bacșiș PROPUS de client la „cere nota" (mig 223) — intenție, nu plată;
+  // ospătarul îl vede pe apel și îl introduce la încasare.
+  tipAmount?: number | null,
 ): Promise<{ ok: boolean; message?: string }> {
+  // 0 EXPLICIT se trimite (nu se aruncă la null): „Fără" după un bacșiș
+  // anterior trebuie să RETRAGĂ suma de pe apelul pending (mig 223 face
+  // UPDATE doar când v_tip nu e null) — altfel ospătarul vede bacșișul vechi.
   const { data, error } = await supabase.rpc('call_waiter', {
     p_qr_token_id: qrTokenId,
     p_call_type: callType,
+    p_tip_amount: callType === 'bill' && tipAmount != null && tipAmount >= 0 ? tipAmount : null,
   })
-  if (error) throw error
+  if (error) {
+    // Fallback pe DB fără mig 223 (frontend înaintea migrației): semnătura
+    // veche call_waiter(uuid,text) nu cunoaște p_tip_amount → PGRST202.
+    // Fără fallback, „Cheamă ospătarul"/„Cere nota" ar muri complet —
+    // retrimitem fără bacșiș (doar intenția se pierde, apelul ajunge).
+    if ((error as { code?: string }).code === 'PGRST202') {
+      const retry = await supabase.rpc('call_waiter', {
+        p_qr_token_id: qrTokenId,
+        p_call_type: callType,
+      })
+      if (retry.error) throw retry.error
+      return retry.data as { ok: boolean; message?: string }
+    }
+    throw error
+  }
   return data as { ok: boolean; message?: string }
 }
 

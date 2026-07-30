@@ -18,6 +18,7 @@
 const { loadConfig } = require('./lib/config');
 const { rpc, firstRow } = require('./lib/supabase');
 const { sendReceipt } = require('./lib/fiscalnet');
+const { printTicket } = require('./lib/kitchenPrinter');
 const { sleep, log } = require('./lib/util');
 
 async function validateDevice(cfg) {
@@ -76,6 +77,49 @@ async function processOnce(cfg) {
   return pending.length;
 }
 
+// Ciclul de TICHETE de bucătărie (mig 227) — coadă complet separată de cea
+// fiscală; imprimanta termică, nu FiscalNet. Aceeași coregrafie:
+// get_pending → claim atomic → print → confirm.
+async function processKitchenOnce(cfg) {
+  const rows = await rpc(cfg, 'bridge_get_pending_tickets', {
+    p_device_secret: cfg.deviceSecret,
+    p_limit: cfg.batchLimit,
+  });
+  const pending = Array.isArray(rows) ? rows : [];
+
+  for (const ticket of pending) {
+    const claimed = await rpc(cfg, 'bridge_claim_ticket', {
+      p_device_secret: cfg.deviceSecret,
+      p_ticket_id: ticket.id,
+    });
+    if (!claimed || claimed.claimed !== true) {
+      log('info', `Tichet ${ticket.id} deja revendicat — skip`);
+      continue;
+    }
+
+    const result = await printTicket(cfg, ticket);
+
+    try {
+      await rpc(cfg, 'bridge_confirm_ticket', {
+        p_device_secret: cfg.deviceSecret,
+        p_ticket_id: ticket.id,
+        p_success: result.success,
+        p_error_code: result.errorCode,
+        p_error_info: result.errorInfo,
+      });
+    } catch (err) {
+      log('error', `confirm eșuat pentru tichet ${ticket.id}`, err.message);
+    }
+
+    if (result.success) {
+      log('info', `Tichet ${ticket.id} tipărit ✓`);
+    } else {
+      log('warn', `Tichet ${ticket.id} EROARE ${result.errorCode}`, result.errorInfo || '');
+    }
+  }
+  return pending.length;
+}
+
 // `--setup`: wizard interactiv la prima rulare — scrie config.json fără ca
 // utilizatorul (non-tehnic) să editeze JSON manual.
 async function setup() {
@@ -119,6 +163,19 @@ async function setup() {
     cfg.fiscalnet.raspunsDir = await ask('Folder Raspuns', 'C:\\FiscalNet\\Raspuns');
   } else {
     cfg.fiscalnet.apiUrl = await ask('URL API FiscalNet', 'http://localhost:65400/api/receipt');
+  }
+  // Imprimanta de bucătărie (tichete, mig 227) — opțională.
+  const wantKitchen = (await ask('Imprimantă de bucătărie pentru tichete? (da/nu)', 'nu')).toLowerCase();
+  if (wantKitchen === 'da' || wantKitchen === 'yes' || wantKitchen === 'y') {
+    cfg.kitchen = { enabled: true };
+    const kMode = (await ask('Transport tichete (tcp/file)', 'tcp')).toLowerCase();
+    cfg.kitchen.mode = kMode === 'file' ? 'file' : 'tcp';
+    if (cfg.kitchen.mode === 'tcp') {
+      cfg.kitchen.host = await ask('IP imprimantă termică (port 9100)', '192.168.1.100');
+      cfg.kitchen.port = Number(await ask('Port', '9100')) || 9100;
+    } else {
+      cfg.kitchen.dir = await ask('Folder tichete', 'C:\\Menuvia\\Tichete');
+    }
   }
   if (rl) rl.close();
 
@@ -166,6 +223,42 @@ async function doctor() {
       }
     }
   }
+  // Pas 4 (opțional): imprimanta de bucătărie, doar cu kitchen.enabled.
+  if (cfg.kitchen.enabled) {
+    if (cfg.kitchen.mode === 'tcp') {
+      const netMod = require('node:net');
+      await new Promise((resolve) => {
+        const s = netMod.createConnection(
+          { host: cfg.kitchen.host, port: cfg.kitchen.port },
+          () => {
+            log('info', `4/4 Imprimantă bucătărie reachable · ${cfg.kitchen.host}:${cfg.kitchen.port}`);
+            s.destroy();
+            resolve();
+          },
+        );
+        s.setTimeout(cfg.kitchen.timeoutMs, () => {
+          log('error', `4/4 Imprimantă bucătărie TIMEOUT · ${cfg.kitchen.host}:${cfg.kitchen.port}`);
+          process.exitCode = 1;
+          s.destroy();
+          resolve();
+        });
+        s.on('error', (err) => {
+          log('error', `4/4 Imprimantă bucătărie UNREACHABLE · ${cfg.kitchen.host}:${cfg.kitchen.port}`, err.message);
+          process.exitCode = 1;
+          resolve();
+        });
+      });
+    } else {
+      const fsp = require('node:fs/promises');
+      try {
+        await fsp.access(cfg.kitchen.dir);
+        log('info', `4/4 Folder tichete accesibil · ${cfg.kitchen.dir}`);
+      } catch {
+        log('error', `4/4 Folder tichete INEXISTENT/inaccesibil · ${cfg.kitchen.dir}`);
+        process.exitCode = 1;
+      }
+    }
+  }
   if (!process.exitCode) log('info', 'Toate verificările au trecut ✓');
 }
 
@@ -192,7 +285,17 @@ async function main() {
 
   while (running) {
     try {
-      const n = await processOnce(cfg);
+      // Ambele cozi într-un ciclu: bonuri fiscale + tichete de bucătărie.
+      // Tichetele rulează doar cu kitchen.enabled — bridge-urile existente
+      // (fără secțiunea kitchen în config) nu-și schimbă comportamentul.
+      // OPT-R2: cozile rulează CONCURENT — un FiscalNet lent nu mai ține
+      // tichetele de bucătărie în așteptare (cozi independente: tabele/RPC/
+      // hardware separate, mig 227 e NEfiscal → zero interacțiune anti-duplicat).
+      const [nf, nk] = await Promise.all([
+        processOnce(cfg),
+        cfg.kitchen.enabled ? processKitchenOnce(cfg) : Promise.resolve(0),
+      ]);
+      const n = nf + nk;
       if (n === 0) await sleep(cfg.pollIntervalMs);
     } catch (err) {
       log('error', 'Ciclu eșuat', err.message);
@@ -213,4 +316,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { processOnce, validateDevice, doctor, setup };
+module.exports = { processOnce, processKitchenOnce, validateDevice, doctor, setup };

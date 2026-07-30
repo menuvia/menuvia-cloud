@@ -1,12 +1,17 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
+import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
 import VatRatesEditor from './VatRatesEditor'
+import OnlinePaymentsCard from './OnlinePaymentsCard'
+import LoyaltySettingsCard from './LoyaltySettingsCard'
+import MfaCard from './MfaCard'
+import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -45,6 +50,7 @@ const PICKUP_DEFAULTS: NonNullable<Restaurant['pickup_settings']> = {
   slot_interval_minutes: 15,
   open_hours: { start: '09:00', end: '21:00' },
   instructions: null,
+  pickup_only: false,
 }
 
 // ── Secțiuni de setări — navigabile (ca la FounderPage), nu un scroll unic.
@@ -294,11 +300,11 @@ export default function SettingsTab({
     for (const d of WEEK_DAY_KEYS) next[d] = { ...mon }
     upd('hours_structured', next)
   }
-  const slugify = (s: string) =>
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
+  // La TASTARE: normalizare lejeră FĂRĂ strip de cratime la capete — slugify-ul
+  // complet aplicat pe fiecare keystroke ștergea separatorul imediat ce era tastat
+  // („pizza-" → „pizza"), deci un slug cu cratimă era imposibil de scris manual.
+  // Curățarea capetelor o face RPC-ul change_restaurant_slug la salvare.
+  const slugifyWhileTyping = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
   const COLORS = ['#C8963C', '#E05555', '#4CAF6E', '#5B8DEF', '#9B72CF', '#E07B45', '#3ABFBF']
   // Nume RO pentru fiecare accent — folosite ca aria-label (screen reader) și
   // ca indicator ne-cromatic pentru utilizatorii care nu disting culorile.
@@ -349,7 +355,11 @@ export default function SettingsTab({
   // Formular „murdar": s-a schimbat ceva față de restaurantul salvat. Ordinea
   // cheilor e stabilă (form pornește ca {...restaurant}), deci comparația JSON
   // e suficientă pentru a decide dacă arătăm bara de salvare de jos.
-  const dirty = JSON.stringify(form) !== JSON.stringify(restaurant)
+  // OPT-R2: latura STABILĂ (restaurant) se serializează o singură dată; doar
+  // `form` (se schimbă la fiecare tastă) rămâne serializat inline. Înainte se
+  // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
+  const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
+  const dirty = JSON.stringify(form) !== restaurantJson
 
   return (
     <div>
@@ -479,6 +489,9 @@ export default function SettingsTab({
                     color: D.t2,
                     fontSize: '0.7rem',
                     padding: '4px 10px',
+                    minHeight: 44,
+                    display: 'inline-flex',
+                    alignItems: 'center',
                     cursor: 'pointer',
                   }}
                 >
@@ -589,44 +602,20 @@ export default function SettingsTab({
               title="Logo"
               desc="Logo pătrat. Opțional, folosit ca avatar / favicon viitor."
             >
-              <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
                 {form.logo_url ? (
-                  <div style={{ position: 'relative' }}>
-                    <img
-                      src={form.logo_url}
-                      alt="Logo"
-                      style={{
-                        width: 80,
-                        height: 80,
-                        objectFit: 'cover',
-                        borderRadius: 12,
-                        border: `1px solid ${D.border}`,
-                        background: D.s3,
-                      }}
-                    />
-                    <button
-                      onClick={() => upd('logo_url', null)}
-                      aria-label="Șterge logo"
-                      style={{
-                        position: 'absolute',
-                        top: -6,
-                        right: -6,
-                        width: 22,
-                        height: 22,
-                        background: D.s2,
-                        color: D.t2,
-                        border: `1px solid ${D.border}`,
-                        borderRadius: '50%',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        padding: 0,
-                      }}
-                    >
-                      <Icon name="close" size={12} color={D.t2} />
-                    </button>
-                  </div>
+                  <img
+                    src={form.logo_url}
+                    alt="Logo"
+                    style={{
+                      width: 80,
+                      height: 80,
+                      objectFit: 'cover',
+                      borderRadius: 12,
+                      border: `1px solid ${D.border}`,
+                      background: D.s3,
+                    }}
+                  />
                 ) : (
                   <div
                     style={{
@@ -666,6 +655,15 @@ export default function SettingsTab({
                     }}
                   />
                 </label>
+                {form.logo_url && (
+                  <button
+                    type="button"
+                    onClick={() => upd('logo_url', null)}
+                    style={btn({ background: 'transparent', color: D.t2, border: `1px solid ${D.border}` })}
+                  >
+                    Șterge logo
+                  </button>
+                )}
               </div>
             </SettingsCard>
 
@@ -703,7 +701,10 @@ export default function SettingsTab({
                       color: '#fff',
                       border: 'none',
                       borderRadius: 100,
-                      padding: '4px 10px',
+                      padding: '4px 14px',
+                      minHeight: 44,
+                      display: 'inline-flex',
+                      alignItems: 'center',
                       fontSize: '0.7rem',
                       cursor: 'pointer',
                     }}
@@ -767,11 +768,15 @@ export default function SettingsTab({
                       key={a.id}
                       type="button"
                       onClick={() => toggleAmenity(a.id)}
+                      aria-pressed={active}
                       style={{
                         background: active ? D.goldA : D.s3,
                         border: `1px solid ${active ? D.gold : D.border}`,
                         color: active ? D.goldL : D.t2,
                         padding: '6px 12px',
+                        minHeight: 44,
+                        display: 'inline-flex',
+                        alignItems: 'center',
                         borderRadius: 100,
                         fontSize: '0.78rem',
                         fontWeight: active ? 600 : 500,
@@ -910,7 +915,13 @@ export default function SettingsTab({
               desc="Așa arată meniul clienților — se actualizează pe măsură ce schimbi."
             >
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <MenuPreview themeSettings={form.theme_settings} restaurantName={form.name} />
+                <MenuPreview
+                  themeSettings={form.theme_settings}
+                  restaurantName={form.name}
+                  // Moneda din STAREA formularului — preview-ul reflectă LIVE
+                  // alegerea din selectorul „Moneda meniului", nu valoarea salvată.
+                  currency={resolveMenuCurrency(form.currency)}
+                />
               </div>
             </SettingsCard>
 
@@ -942,7 +953,7 @@ export default function SettingsTab({
                 </span>
                 <Inp
                   value={form.slug || ''}
-                  onChange={(v) => upd('slug', slugify(v))}
+                  onChange={(v) => upd('slug', slugifyWhileTyping(v))}
                   placeholder="slug-url"
                 />
               </div>
@@ -1007,6 +1018,7 @@ export default function SettingsTab({
                           accent_override: form.theme_settings?.accent_override ?? null,
                         })
                       }
+                      aria-pressed={isSelected}
                       style={{
                         padding: '12px 10px',
                         border: `2px solid ${isSelected ? D.gold : D.border}`,
@@ -1084,8 +1096,11 @@ export default function SettingsTab({
                   lineHeight: 1.5,
                 }}
               >
-                💡 După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
-                meniului.
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="info" size={13} color={D.t3} />
+                  După salvare, clienții vor vedea noua temă instant la următoarea încărcare a
+                  meniului.
+                </span>
               </div>
             </SettingsCard>
 
@@ -1106,31 +1121,31 @@ export default function SettingsTab({
                   [
                     {
                       id: 'list',
-                      emoji: '☰',
+                      icon: 'menu',
                       name: 'Listă',
                       desc: 'Poză mică + text. Clasic și compact.',
                     },
                     {
                       id: 'grid',
-                      emoji: '▦',
+                      icon: 'image',
                       name: 'Galerie foto',
                       desc: 'Poze mari, 2 coloane. Cel mai vizual.',
                     },
                     {
                       id: 'minimal',
-                      emoji: '≡',
+                      icon: 'minus',
                       name: 'Minimal elegant',
                       desc: 'Text, fără poze. Aer editorial, clasic și rapid.',
                     },
                     {
                       id: 'photo',
-                      emoji: '🖼',
+                      icon: 'camera',
                       name: 'Foto-first',
                       desc: 'Poze mari cu numele și prețul pe poză. Atinge poza pentru detalii și opțiuni.',
                     },
                     {
                       id: 'flipbook',
-                      emoji: '📖',
+                      icon: 'copy',
                       name: 'Flipbook (PDF/pagini)',
                       desc: 'Paginile meniului ca imagini, răsfoibile ca o carte.',
                     },
@@ -1145,6 +1160,7 @@ export default function SettingsTab({
                         // Păstrăm tema/accentul; schimbăm doar layout-ul.
                         updTheme({ menu_layout: l.id })
                       }
+                      aria-pressed={isSelected}
                       style={{
                         padding: '14px 12px',
                         border: `2px solid ${isSelected ? D.gold : D.border}`,
@@ -1159,7 +1175,7 @@ export default function SettingsTab({
                       }}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: '1.1rem' }}>{l.emoji}</span>
+                        <Icon name={l.icon} size={16} color={isSelected ? D.gold : D.t2} />
                         <span
                           style={{
                             fontSize: '0.82rem',
@@ -1233,8 +1249,8 @@ export default function SettingsTab({
                               border: `1px solid ${D.border}`,
                               borderRadius: 6,
                               color: idx === 0 ? D.t3 : D.t1,
-                              width: 30,
-                              height: 30,
+                              width: 44,
+                              height: 44,
                               cursor: idx === 0 ? 'default' : 'pointer',
                               opacity: idx === 0 ? 0.4 : 1,
                             }}
@@ -1251,8 +1267,8 @@ export default function SettingsTab({
                               border: `1px solid ${D.border}`,
                               borderRadius: 6,
                               color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
-                              width: 30,
-                              height: 30,
+                              width: 44,
+                              height: 44,
                               cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
                               opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
                             }}
@@ -1270,7 +1286,8 @@ export default function SettingsTab({
                               color: D.t2,
                               fontSize: '0.7rem',
                               padding: '0 10px',
-                              height: 30,
+                              minWidth: 44,
+                              height: 44,
                               cursor: 'pointer',
                             }}
                           >
@@ -1334,8 +1351,11 @@ export default function SettingsTab({
                         lineHeight: 1.5,
                       }}
                     >
-                      💡 Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
-                      disponibilă pe acest stil; chemarea ospătarului rămâne.
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="info" size={13} color={D.t3} />
+                        Cu flipbook, clienții văd meniul ca pe o carte — comanda din meniu nu e
+                        disponibilă pe acest stil; chemarea ospătarului rămâne.
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1407,6 +1427,59 @@ export default function SettingsTab({
                     </div>
                   )
                 })}
+
+                {/* Badge „Creat cu Menuvia" — opt-out de la Plan 2 în sus, aliniat
+                    cu plan_features.remove_branding (growth+, mig 028) și cu
+                    promisiunea publică de pe cardul „Meniu + Comenzi" din pricing.
+                    Citirea în meniuri e liberă (resolveHideBranding); aici gate-uim
+                    scrierea: sub tier 2 arătăm un chip de plan. */}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderTop: `1px solid ${D.s3}`,
+                    paddingTop: 12,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                      {'Badge „Creat cu Menuvia"'}
+                    </div>
+                    <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                      Linkul discret din josul meniului public.
+                      {planTier(plan) >= 2
+                        ? ' Pe planul tău îl poți ascunde.'
+                        : ' Se poate ascunde de la Meniu + Comenzi în sus.'}
+                    </div>
+                  </div>
+                  {planTier(plan) >= 2 ? (
+                    <Toggle
+                      value={!(form.theme_settings?.hide_branding ?? false)}
+                      onChange={(v) => updTheme({ hide_branding: !v })}
+                    />
+                  ) : (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        background: D.s3,
+                        color: D.t2,
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        padding: '5px 10px',
+                        borderRadius: 999,
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name="lock" size={12} color={D.t2} />
+                      Plan Meniu + Comenzi
+                    </span>
+                  )}
+                </div>
               </div>
             </SettingsCard>
 
@@ -1424,6 +1497,7 @@ export default function SettingsTab({
                       key={l.code}
                       type="button"
                       onClick={() => toggleMenuLang(l.code)}
+                      aria-pressed={active}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1432,6 +1506,7 @@ export default function SettingsTab({
                         border: `1px solid ${active ? D.gold : D.border}`,
                         color: active ? D.goldL : D.t2,
                         padding: '6px 12px',
+                        minHeight: 44,
                         borderRadius: 100,
                         fontSize: '0.78rem',
                         fontWeight: active ? 600 : 500,
@@ -1445,6 +1520,37 @@ export default function SettingsTab({
                 })}
               </div>
             </SettingsCard>
+
+            {/* Moneda meniului (mig 205) — pista internațională, planurile 1-2. */}
+            <SettingsCard
+              icon="info"
+              title="Moneda meniului"
+              desc="Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate."
+              right={
+                <select
+                  aria-label="Moneda meniului"
+                  value={(form.currency as string) ?? 'RON'}
+                  onChange={(e) => upd('currency', e.target.value)}
+                  style={{
+                    background: D.s3,
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 8,
+                    color: D.t1,
+                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 14,
+                    padding: '10px 12px',
+                    minHeight: 44,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {MENU_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c === 'RON' ? 'RON (lei)' : c}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
           </>
         )}
 
@@ -1503,6 +1609,36 @@ export default function SettingsTab({
               </SettingsCard>
             )}
 
+            {/* Plăți online la masă — Etapa 1 (docs/ONLINE_PAYMENT.md) */}
+            {modulesState && (
+              <OnlinePaymentsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
+            )}
+
+            {/* Fidelizare — Loyalty v1 (mig 226): puncte + prag + recompensă */}
+            {modulesState && (
+              <LoyaltySettingsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
+            )}
+
+            {/* SMS tranzacționale (mig 228): confirmare rezervare + pickup gata */}
+            {modulesState && (
+              <SmsNotificationsCard
+                restaurantId={restaurant.id}
+                plan={plan}
+                modulesState={modulesState}
+                toast={toast}
+              />
+            )}
+
             {/* Pickup ordering settings */}
             <SettingsCard
               icon="box"
@@ -1510,7 +1646,7 @@ export default function SettingsTab({
               desc={
                 <>
                   Activează pagina ta publică{' '}
-                  <span style={{ color: D.gold }}>menuvia.ro/r/{form.slug || 'slug'}</span>. Clienții
+                  <span style={{ color: D.gold }}>menuvia.ro/m/{form.slug || 'slug'}</span>. Clienții
                   pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
                   ridicare.
                 </>
@@ -1524,6 +1660,31 @@ export default function SettingsTab({
             >
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                  {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
+                      ascunde Hartă sală/Rezervări din nav; QR-ul general /m/:slug
+                      devine QR-ul principal (card în Mese & QR-uri). */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                        Mod „doar ridicare" (fără mese)
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                        Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din
+                        dashboard. QR-ul general din tab-ul Mese devine QR-ul tău principal.
+                      </div>
+                    </div>
+                    <Toggle
+                      value={form.pickup_settings?.pickup_only ?? false}
+                      onChange={(v) => updPickup({ pickup_only: v })}
+                    />
+                  </div>
                   <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
                     <div>
                       <label
@@ -1640,7 +1801,8 @@ export default function SettingsTab({
                       lineHeight: 1.5,
                     }}
                   >
-                    💡 Comenzile pickup apar în KitchenPage cu badge{' '}
+                    <Icon name="info" size={13} color={D.t3} />{' '}
+                    Comenzile pickup apar în KitchenPage cu badge{' '}
                     <strong style={{ color: D.gold }}>📦 Pickup</strong>. Numele clientului și ora
                     ridicării sunt vizibile.
                   </div>
@@ -1714,6 +1876,8 @@ export default function SettingsTab({
 
         {section === 'account' && (
           <>
+            <MfaCard />
+
             <SettingsCard icon="star" title="Plan curent">
               <span
                 style={{

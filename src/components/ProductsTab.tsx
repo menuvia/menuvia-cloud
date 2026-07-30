@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -40,7 +40,7 @@ function ProductModal({
 }: {
   product: Product | null
   categories: Category[]
-  onSave: (f: Partial<Product>) => void
+  onSave: (f: Partial<Product>) => void | Promise<void>
   onClose: () => void
   restaurantId: string
   userId: string
@@ -49,6 +49,8 @@ function ProductModal({
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
   const [uploading, setUploading] = useState(false)
+  // Anti dublu-submit: al doilea click pe conexiune lentă crea produs duplicat.
+  const [saving, setSaving] = useState(false)
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
   // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
@@ -58,11 +60,11 @@ function ProductModal({
     if (!file || uploading) return
     // Validare client tip + dimensiune înainte de decode/resize pe canvas (eroare prietenoasă).
     if (!file.type.startsWith('image/')) {
-      window.alert('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).')
+      pmToast('Te rugăm încarcă un fișier imagine (JPG, PNG, WEBP).', 'error')
       return
     }
     if (file.size > 10 * 1024 * 1024) {
-      window.alert('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.')
+      pmToast('Imaginea e prea mare (max 10MB). Comprim-o și reîncearcă.', 'error')
       return
     }
     setUploading(true)
@@ -86,11 +88,34 @@ function ProductModal({
       const blob = await new Promise<Blob>((res) =>
         canvas.toBlob((b) => res(b!), 'image/webp', 0.85),
       )
-      const path = userId + '/' + restaurantId + '/' + crypto.randomUUID() + '.webp'
+      // OPT-6: al DOILEA blob de ~320px pentru thumbnail-uri — cardurile de
+      // listă (88px) și coșul (52px) descărcau originalul de 1200px
+      // (~150-400KB) pentru fiecare poză; thumb-ul e ~20KB. Convenție de nume
+      // {uuid}_t.webp lângă original (thumbUrlFor din lib/images derivă URL-ul;
+      // fallback onError la original acoperă toate imaginile vechi — fără
+      // migrație DB, fără coloană nouă).
+      const thumbW = 320
+      const tScale = canvas.width > thumbW ? thumbW / canvas.width : 1
+      const tCanvas = document.createElement('canvas')
+      tCanvas.width = Math.round(canvas.width * tScale)
+      tCanvas.height = Math.round(canvas.height * tScale)
+      tCanvas.getContext('2d')!.drawImage(canvas, 0, 0, tCanvas.width, tCanvas.height)
+      const thumbBlob = await new Promise<Blob>((res) =>
+        tCanvas.toBlob((b) => res(b!), 'image/webp', 0.8),
+      )
+      const baseName = crypto.randomUUID()
+      const path = userId + '/' + restaurantId + '/' + baseName + '.webp'
+      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.webp'
       const { error } = await supabase.storage
         .from('product-images')
         .upload(path, blob, { contentType: 'image/webp' })
       if (error) throw error
+      // Thumb-ul e best-effort: dacă upload-ul lui pică, cardurile cad oricum
+      // pe original prin fallback-ul onError — nu blocăm salvarea produsului.
+      const { error: thumbErr } = await supabase.storage
+        .from('product-images')
+        .upload(thumbPath, thumbBlob, { contentType: 'image/webp' })
+      if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
       const {
         data: { publicUrl },
       } = supabase.storage.from('product-images').getPublicUrl(path)
@@ -318,7 +343,12 @@ function ProductModal({
   const [recipeLoading, setRecipeLoading] = useState(false)
 
   useEffect(() => {
-    if (!product?.id) {
+    // Secțiunea Rețetă e colapsată implicit (showRecipe=false) și datele ei
+    // (recipeRows/allIngredients) se folosesc DOAR în blocul expandat — nu și în
+    // antet (fără contor). Nu descărcăm rețeta + TOATE ingredientele decât când
+    // userul deschide secțiunea (fetchIngredients aducea tot inventarul degeaba
+    // la fiecare deschidere de modal).
+    if (!product?.id || !showRecipe) {
       return
     }
     setRecipeLoading(true)
@@ -335,7 +365,7 @@ function ProductModal({
       }
       setRecipeLoading(false)
     })()
-  }, [product?.id, restaurantId])
+  }, [product?.id, restaurantId, showRecipe])
 
   async function setRecipeQty(ingredientId: string, quantity: number) {
     if (!product?.id) return
@@ -448,8 +478,8 @@ function ProductModal({
               Preț (lei) *
             </label>
             <Inp
-              value={String(form.price || 0)}
-              onChange={(v) => upd('price', parseFloat(v) || 0)}
+              value={form.price != null ? String(form.price) : ''}
+              onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
               placeholder="32.00"
             />
@@ -562,9 +592,9 @@ function ProductModal({
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
             {(
               [
-                ['is_active', 'Activ', 'Apare in meniu'],
-                ['is_daily_special', 'Specialitate', '⭐ apare evidentiat'],
-                ['is_sold_out', 'Epuizat', 'Afisat dezactivat'],
+                ['is_active', 'Activ', 'Apare în meniu'],
+                ['is_daily_special', 'Specialitate', '⭐ apare evidențiat'],
+                ['is_sold_out', 'Epuizat', 'Afișat dezactivat'],
               ] as [keyof Product, string, string][]
             ).map(([k, l, desc]) => (
               <div
@@ -638,6 +668,15 @@ function ProductModal({
             </div>
           ) : (
             <label
+              role="button"
+              tabIndex={0}
+              aria-label="Încarcă imagine produs"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  e.currentTarget.querySelector('input')?.click()
+                }
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -712,7 +751,9 @@ function ProductModal({
                   key={tag.id}
                   type="button"
                   onClick={() => toggleDiet(tag.id)}
+                  aria-pressed={active}
                   style={{
+                    minHeight: isMobile ? 44 : undefined,
                     padding: '4px 10px',
                     borderRadius: 100,
                     fontSize: '0.75rem',
@@ -756,7 +797,9 @@ function ProductModal({
                   type="button"
                   onClick={() => toggleAllergen(a.id)}
                   title={a.desc}
+                  aria-pressed={active}
                   style={{
+                    minHeight: isMobile ? 44 : undefined,
                     padding: '5px 8px',
                     borderRadius: 7,
                     fontSize: '0.75rem',
@@ -985,9 +1028,13 @@ function ProductModal({
                 [
                   form.prep_time_minutes != null,
                   form.portion_size != null && form.portion_size.length > 0,
+                  form.calories != null,
+                  form.protein_g != null,
+                  form.carbs_g != null,
+                  form.fat_g != null,
                 ].filter(Boolean).length
               }{' '}
-              completate
+              din 6 completate
             </span>
           </button>
 
@@ -1146,7 +1193,8 @@ function ProductModal({
               <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>(opțional)</span>
             </span>
             <span style={{ fontSize: '0.7rem', color: D.t3, fontWeight: 400 }}>
-              {extras.length} extras · {pairings.length} pereche
+              {extras.length} {extras.length === 1 ? 'extra' : 'extra-uri'} · {pairings.length}{' '}
+              {pairings.length === 1 ? 'pereche' : 'perechi'}
             </span>
           </button>
 
@@ -1194,7 +1242,7 @@ function ProductModal({
                       style={{ fontSize: '0.7rem', color: D.t3, marginBottom: 10, lineHeight: 1.5 }}
                     >
                       Adaos LA produs cu cost extra. Ex: „+5 lei brânză extra", „+3 lei bacon".
-                      Clientul le bifează ÎN ProductSheet, înainte de Add.
+                      Clientul le bifează în fereastra produsului, înainte să adauge în coș.
                     </div>
 
                     {extras.length > 0 && (
@@ -1257,7 +1305,7 @@ function ProductModal({
                     {extras.length < 6 && <ExtraForm onAdd={addExtra} />}
                   </div>
 
-                  {/* ── Pereche (sugestii după Add) ──────────────────── */}
+                  {/* ── Pereche (sugestii după adăugarea în coș) ─────── */}
                   <div>
                     <div
                       style={{
@@ -1268,7 +1316,7 @@ function ProductModal({
                       }}
                     >
                       <label style={{ fontSize: '0.82rem', fontWeight: 600, color: D.t1 }}>
-                        💡 Pereche (sugerări după Add)
+                        💡 Pereche (sugestii după adăugarea în coș)
                       </label>
                       <span style={{ fontSize: '0.7rem', color: D.t3 }}>{pairings.length} / 3</span>
                     </div>
@@ -1593,7 +1641,7 @@ function ProductModal({
                             <span
                               style={{
                                 marginLeft: 8,
-                                color: margin > 60 ? D.green : margin > 30 ? D.gold : '#c0392b',
+                                color: margin > 60 ? D.green : margin > 30 ? D.gold : D.red,
                                 fontWeight: 700,
                               }}
                             >
@@ -1617,11 +1665,30 @@ function ProductModal({
             Anulează
           </button>
           <button
-            onClick={() => onSave(form)}
-            disabled={uploading}
-            style={btn({ background: D.gold, color: '#000', opacity: uploading ? 0.7 : 1 })}
+            onClick={async () => {
+              if (saving || uploading) return
+              // Guard client: numele e obligatoriu („Nume *"), prețul ne-negativ.
+              // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
+              // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
+              if (!(form.name ?? '').trim()) {
+                pmToast('Numele produsului e obligatoriu', 'error')
+                return
+              }
+              if (form.price != null && form.price < 0) {
+                pmToast('Prețul nu poate fi negativ', 'error')
+                return
+              }
+              setSaving(true)
+              try {
+                await onSave(form)
+              } finally {
+                setSaving(false)
+              }
+            }}
+            disabled={uploading || saving}
+            style={btn({ background: D.gold, color: '#000', opacity: uploading || saving ? 0.7 : 1 })}
           >
-            Salvează
+            {saving ? 'Se salvează…' : 'Salvează'}
           </button>
         </div>
       </div>
@@ -1717,7 +1784,7 @@ function RecipeAddForm({
           opacity: selectedId.length === 0 || quantity.length === 0 ? 0.5 : 1,
         })}
       >
-        + Add
+        + Adaugă
       </button>
     </div>
   )
@@ -1797,7 +1864,7 @@ export default function ProductsTab({
     const r = vatRates.find((r) => r.vat_group === (g || 1))
     return r ? `${r.rate_percent}%` : `${g || 1}`
   }
-  const { canAddProduct } = usePlanLimits(plan)
+  const { canAddProduct, limits } = usePlanLimits(plan)
   const {
     products,
     loading,
@@ -1837,9 +1904,20 @@ export default function ProductsTab({
       />
     )
 
-  const filtered = products
-    .filter((p) => activeCat === 'all' || p.category_id === activeCat)
-    .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
+  // Numele categoriilor le indexăm O(1) — altfel fiecare rând din listă făcea
+  // `categories.find(...)` (O(rânduri × categorii) la fiecare re-randare, ex. tastare).
+  const catNameById = useMemo(
+    () => new Map(categories.map((c): [string, string] => [c.id, c.name])),
+    [categories],
+  )
+  // Lista filtrată se recalculează DOAR când se schimbă produsele / categoria /
+  // căutarea — nu la fiecare re-randare (togglingId, modal, delId etc.).
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    return products
+      .filter((p) => activeCat === 'all' || p.category_id === activeCat)
+      .filter((p) => p.name.toLowerCase().includes(q))
+  }, [products, activeCat, search])
 
   const handleSave = async (form: Partial<Product>) => {
     if (modal === 'add') {
@@ -1916,12 +1994,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.gold,
               border: `1px solid ${D.gold}55`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '✨' : '✨ Generează AI'}
+            <Icon name="sparkle" size={16} />
+            {mob ? 'AI' : 'Generează AI'}
           </button>
           <button
             onClick={() => setAiImportOpen(true)}
@@ -1931,12 +2011,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.t1,
               border: `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '📸' : '📸 Import din poză'}
+            <Icon name="camera" size={16} />
+            {mob ? 'Poză' : 'Import din poză'}
           </button>
           <button
             onClick={() => setCsvImportOpen(true)}
@@ -1946,12 +2028,14 @@ export default function ProductsTab({
               background: D.s2,
               color: D.t1,
               border: `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.78rem' : '0.85rem',
               padding: mob ? '0 10px' : '0 14px',
+              gap: 6,
             })}
           >
-            {mob ? '📥' : '📥 Import CSV'}
+            <Icon name="download" size={16} />
+            {mob ? 'CSV' : 'Import CSV'}
           </button>
           <button
             onClick={() => {
@@ -1965,11 +2049,19 @@ export default function ProductsTab({
               background: canAdd ? D.gold : D.s3,
               color: canAdd ? '#000' : D.t2,
               border: canAdd ? 'none' : `1px solid ${D.border}`,
-              height: mob ? 38 : 44,
+              height: 44,
               fontSize: mob ? '0.82rem' : '0.9rem',
+              gap: 6,
             })}
           >
-            {canAdd ? '+ Adaugă produs' : '🔒 Limită atinsă — Upgrade'}
+            {canAdd ? (
+              '+ Adaugă produs'
+            ) : (
+              <>
+                <Icon name="lock" size={16} />
+                Limită atinsă — Upgrade
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -2171,7 +2263,7 @@ export default function ProductsTab({
                       )}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: D.t3 }}>
-                      {categories.find((c) => c.id === p.category_id)?.name || '—'}
+                      {catNameById.get(p.category_id ?? '') || '—'}
                     </div>
                   </div>
                   <div
@@ -2184,7 +2276,7 @@ export default function ProductsTab({
                     }}
                   >
                     <div style={{ fontSize: '0.9rem', color: D.gold, fontWeight: 600 }}>
-                      {p.price} lei
+                      {p.price.toFixed(2)} lei
                     </div>
                     <div style={{ fontSize: '0.62rem', color: D.t3, fontWeight: 500 }}>
                       TVA {vatLabel(p.vat_group ?? 1)}
@@ -2243,7 +2335,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    ✏
+                    <Icon name="edit" size={18} />
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
@@ -2262,7 +2354,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={18} />
                   </button>
                 </div>
               </div>
@@ -2348,11 +2440,11 @@ export default function ProductsTab({
                   </div>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: D.t2 }}>
-                  {categories.find((c) => c.id === p.category_id)?.name || '—'}
+                  {catNameById.get(p.category_id ?? '') || '—'}
                 </div>
                 <div>
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
-                    {p.price} lei
+                    {p.price.toFixed(2)} lei
                   </div>
                   <div style={{ fontSize: '0.65rem', color: D.t3, fontWeight: 500, marginTop: 2 }}>
                     TVA {vatLabel(p.vat_group ?? 1)}
@@ -2390,8 +2482,9 @@ export default function ProductsTab({
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     onClick={async () => {
-                      await toggleSoldOut(p.id, p.is_sold_out)
-                      toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
+                      const r = await toggleSoldOut(p.id, p.is_sold_out)
+                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      else toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
                     }}
                     aria-label={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
                     title={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
@@ -2406,15 +2499,15 @@ export default function ProductsTab({
                       alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
-                      fontSize: '0.72rem',
                     }}
                   >
-                    🔴
+                    <Icon name="alert" size={15} />
                   </button>
                   <button
                     onClick={async () => {
-                      await toggleDailySpecial(p.id, p.is_daily_special)
-                      toast(p.is_daily_special ? 'Normal' : 'Special!')
+                      const r = await toggleDailySpecial(p.id, p.is_daily_special)
+                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      else toast(p.is_daily_special ? 'Normal' : 'Special!')
                     }}
                     aria-label={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
                     title={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
@@ -2429,10 +2522,9 @@ export default function ProductsTab({
                       alignItems: 'center',
                       justifyContent: 'center',
                       cursor: 'pointer',
-                      fontSize: '0.72rem',
                     }}
                   >
-                    ⭐
+                    <Icon name="star" size={15} />
                   </button>
                   <button
                     onClick={() => setModal(p)}
@@ -2451,7 +2543,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    ✏
+                    <Icon name="edit" size={15} />
                   </button>
                   <button
                     onClick={() => setDelId(p.id)}
@@ -2470,7 +2562,7 @@ export default function ProductsTab({
                       cursor: 'pointer',
                     }}
                   >
-                    🗑
+                    <Icon name="trash" size={15} />
                   </button>
                 </div>
               </div>
@@ -2493,6 +2585,7 @@ export default function ProductsTab({
         <Suspense fallback={null}>
           <ProductsCsvImport
             restaurantId={restaurantId}
+            remainingSlots={Math.max(0, limits.max_products - products.length)}
             existingCategories={categories.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
             onClose={() => setCsvImportOpen(false)}
             onDone={(n) => {

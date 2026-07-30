@@ -5,8 +5,10 @@
 // Tonul: cald, profesional, direct. Fără jargon "SaaS B2B".
 // Stil: editorial cu tipografie strong, asimetric, dark cu accent gold.
 // =============================================================
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { fnUrl } from '../lib/fn'
 import { D } from '../lib/constants'
+import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 
 interface Props {
@@ -14,6 +16,15 @@ interface Props {
 }
 
 export default function RecrutarePage({ navigate }: Props) {
+  // Titlu specific rutei (SEO/share) — /recrutare + /pilot moșteneau titlul RO
+  // de homepage. Restaurat la demontare (SPA).
+  useEffect(() => {
+    const prev = document.title
+    document.title = 'Program pilot — Menuvia'
+    return () => {
+      document.title = prev
+    }
+  }, [])
   return (
     <div
       style={{
@@ -87,7 +98,8 @@ function NavBar({ navigate }: { navigate: (p: string) => void }) {
               background: 'transparent',
               border: '1px solid rgba(255,255,255,0.1)',
               color: D.t2,
-              padding: '8px 16px',
+              padding: '12px 16px',
+              minHeight: 44,
               borderRadius: 8,
               fontSize: 13,
               cursor: 'pointer',
@@ -97,12 +109,13 @@ function NavBar({ navigate }: { navigate: (p: string) => void }) {
             Prețuri normale
           </button>
           <button
-            onClick={() => navigate('/auth')}
+            onClick={() => navigate('/auth?lang=ro')}
             style={{
               background: D.gold,
               color: '#0A0908',
               border: 'none',
-              padding: '8px 18px',
+              padding: '12px 18px',
+              minHeight: 44,
               borderRadius: 8,
               fontSize: 13,
               cursor: 'pointer',
@@ -177,7 +190,7 @@ function Hero() {
             fontFamily: 'Fraunces, serif',
           }}
         >
-          cafenelele tale.
+          cafeneaua ta.
         </span>
       </h1>
 
@@ -192,7 +205,8 @@ function Hero() {
         }}
       >
         Comenzi prin QR, gestiune stocuri, raport Z fiscal, închidere zi cu un click. Toate într-un
-        singur loc, fără SmartBill peste. <strong style={{ color: D.t1 }}>3 luni gratuit</strong>{' '}
+        singur loc, fără un abonament SmartBill în plus.{' '}
+        <strong style={{ color: D.t1 }}>3 luni gratuit</strong>{' '}
         pentru primele 10 cafenele care intră în program.
       </p>
 
@@ -317,7 +331,7 @@ function Problem() {
             { i: '✕', t: 'Gestiune în Excel', d: 'Tracking stocuri manual, cu erori și uitări.' },
             {
               i: '✕',
-              t: 'Zero report-uri',
+              t: 'Zero rapoarte',
               d: 'Nu știi ce vinde mai bine, când e peak, cine vinde cât.',
             },
           ].map((x, i) => (
@@ -352,47 +366,53 @@ function Problem() {
 
 // ── Features ─────────────────────────────────────────────────
 function Features() {
-  const items = [
+  // Iconuri vectoriale monocrome (componenta Icon) în loc de emoji — randare
+  // consistentă între OS-uri și paritate cu restul iconografiei aplicației.
+  const items: { n: string; icon: IconName; t: string; d: string }[] = [
     {
       n: '01',
-      emoji: '☕',
+      icon: 'qr',
       t: 'Meniu cu QR',
       d: 'Clientul scanează codul de pe masă și comandă direct. Comenzile apar pe ecranul tău și al bucătăriei în timp real. Reduce timpul de așteptare cu 40%.',
     },
     {
       n: '02',
-      emoji: '🧾',
+      icon: 'receipt',
       t: 'Bridge FiscalNet',
       d: 'Conectare directă la casa de marcat (Datecs, Activa, Tremol). Tipărește bon fiscal automat la plată. Raport Z cu un click la închidere.',
     },
     {
       n: '03',
-      emoji: '📦',
+      icon: 'box',
       t: 'Gestiune stocuri',
       d: 'Adaugi rețete (50ml lapte + 7g espresso = cappuccino). Stocurile se decontează automat la vânzare. Alerte când rămâi fără.',
     },
     {
       n: '04',
-      emoji: '📊',
+      icon: 'chart',
       t: 'Rapoarte cu sens',
       d: 'Vânzări pe oră, pe ospătar, pe categorie. Top 10 produse. Export PDF/CSV pentru contabil. Tot ce înseamnă "cifre" într-un singur loc.',
     },
     {
       n: '05',
-      emoji: '💰',
+      icon: 'clock',
       t: 'Casă & închidere zi',
       d: 'Fond inițial, mișcări (cheltuieli, depuneri), numărare seara cu diferență automată. Z fiscal generat și trimis prin Bridge.',
     },
     {
       n: '06',
-      emoji: '🎉',
+      icon: 'percent',
       t: 'Happy Hour automat',
       d: 'Setezi reguli ("17-19 reducere 20% pe tot"). Sistemul îți sugerează aplicarea la plată. Zero greșeli manuale.',
     },
   ]
 
   return (
-    <section id="features" style={{ maxWidth: 1180, margin: '0 auto', padding: '90px 24px' }}>
+    <section
+      id="features"
+      // scrollMarginTop: ancora #features nu mai aterizează sub navbar-ul sticky
+      style={{ maxWidth: 1180, margin: '0 auto', padding: '90px 24px', scrollMarginTop: 72 }}
+    >
       <div
         style={{
           fontSize: 12,
@@ -453,7 +473,7 @@ function Features() {
                 marginBottom: 18,
               }}
             >
-              <span style={{ fontSize: 32 }}>{x.emoji}</span>
+              <Icon name={x.icon} size={28} color={D.gold} />
               <span
                 style={{
                   fontFamily: 'Fraunces, serif',
@@ -530,12 +550,12 @@ function Differentiators() {
           {[
             {
               k: 'Preț',
-              us: '49–99 RON/lună',
-              them: 'SmartBill 39 RON + POS 200 RON + Octopus 80 RON = 319 RON/lună',
+              us: 'de la 99 lei/lună, totul inclus',
+              them: 'SmartBill 39 lei + POS 200 lei + Octopus 80 lei = 319 lei/lună',
             },
             {
               k: 'TVA flexibil',
-              us: '9% / 19% / 5% pe fiecare produs, raport automat',
+              us: 'Cote configurabile (21% / 11% / 0%) pe fiecare produs, raport automat',
               them: 'Manual, prin Excel sau contabil extern',
             },
             {
@@ -558,8 +578,10 @@ function Differentiators() {
               key={i}
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'auto 1fr 1fr',
-                gap: 24,
+                // auto-fit: pe 375px cele 3 coloane fixe nu încăpeau (text de ~85px);
+                // acum eticheta e rând-antet, iar Menuvia/concurența curg pe coloane.
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '10px 24px',
                 padding: '18px 0',
                 borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                 alignItems: 'baseline',
@@ -571,7 +593,7 @@ function Differentiators() {
                   fontSize: 16,
                   fontWeight: 600,
                   color: D.gold,
-                  minWidth: 100,
+                  gridColumn: '1 / -1',
                 }}
               >
                 {x.k}
@@ -719,6 +741,9 @@ function ContactForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
+  // Consimțământ GDPR — recrutareSchema (schemas/index.ts) îl cere, dar formularul
+  // nu-l colecta deloc; fără el, prelucrarea datelor de contact n-are bază legală.
+  const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -733,15 +758,26 @@ function ContactForm() {
       setErr('Email invalid')
       return
     }
+    if (!consent) {
+      setErr('Trebuie să accepți prelucrarea datelor pentru contact')
+      return
+    }
     setBusy(true)
     setErr(null)
     try {
-      const res = await fetch('/.netlify/functions/recrutare-contact', {
+      const res = await fetch(fnUrl('recrutare-contact'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, cafe, city, phone, email, message }),
+        body: JSON.stringify({ name, cafe, city, phone, email, message, consent }),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        // Backend-ul întoarce mesaje românești utile în corp (rate-limit etc.) —
+        // „HTTP 429" brut nu spune nimic unui patron de restaurant.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        throw new Error(
+          body?.error || 'Nu am putut trimite cererea. Încearcă din nou în câteva minute.',
+        )
+      }
       setDone(true)
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare la trimitere')
@@ -759,7 +795,7 @@ function ContactForm() {
     fontSize: 15,
     color: D.t1,
     fontFamily: 'DM Sans, sans-serif',
-    outline: 'none',
+    // fără outline:'none' — pe fundal închis, focusul de tastatură trebuie să se vadă
     boxSizing: 'border-box',
   }
   const labelStyle: React.CSSProperties = {
@@ -779,6 +815,8 @@ function ContactForm() {
         borderTop: '1px solid rgba(255,255,255,0.05)',
         padding: '90px 0',
         background: 'rgba(255,255,255,0.015)',
+        // ancora #contact nu mai aterizează sub navbar-ul sticky
+        scrollMarginTop: 72,
       }}
     >
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 24px' }}>
@@ -835,7 +873,7 @@ function ContactForm() {
             >
               Cererea ta a ajuns la mine.
             </div>
-            <div style={{ fontSize: 15, color: D.t2 }}>Te sun în maximum 24 ore. Răbdare!</div>
+            <div style={{ fontSize: 15, color: D.t2 }}>Te sun în maximum 24 de ore. Mulțumesc!</div>
           </div>
         ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -847,8 +885,10 @@ function ContactForm() {
               }}
             >
               <div>
-                <label style={labelStyle}>Numele tău *</label>
+                <label htmlFor="rec-name" style={labelStyle}>Numele tău *</label>
                 <input
+                  id="rec-name"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   style={fieldStyle}
@@ -856,8 +896,10 @@ function ContactForm() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Cafenea / local *</label>
+                <label htmlFor="rec-cafe" style={labelStyle}>Cafenea / local *</label>
                 <input
+                  id="rec-cafe"
+                  autoComplete="organization"
                   value={cafe}
                   onChange={(e) => setCafe(e.target.value)}
                   style={fieldStyle}
@@ -874,8 +916,9 @@ function ContactForm() {
               }}
             >
               <div>
-                <label style={labelStyle}>Oraș</label>
+                <label htmlFor="rec-city" style={labelStyle}>Oraș</label>
                 <input
+                  id="rec-city"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   style={fieldStyle}
@@ -883,8 +926,12 @@ function ContactForm() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Telefon *</label>
+                <label htmlFor="rec-phone" style={labelStyle}>Telefon *</label>
                 <input
+                  id="rec-phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   style={fieldStyle}
@@ -894,9 +941,11 @@ function ContactForm() {
             </div>
 
             <div>
-              <label style={labelStyle}>Email *</label>
+              <label htmlFor="rec-email" style={labelStyle}>Email *</label>
               <input
+                id="rec-email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 style={fieldStyle}
@@ -905,8 +954,9 @@ function ContactForm() {
             </div>
 
             <div>
-              <label style={labelStyle}>Spune-mi pe scurt despre local (opțional)</label>
+              <label htmlFor="rec-message" style={labelStyle}>Spune-mi pe scurt despre local (opțional)</label>
               <textarea
+                id="rec-message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 rows={3}
@@ -916,12 +966,40 @@ function ContactForm() {
                   minHeight: 80,
                   fontFamily: 'DM Sans, sans-serif',
                 }}
-                placeholder="Câte mese, ce vinzi cel mai mult, ce ești frustrat de softul actual..."
+                placeholder="Câte mese, ce vinzi cel mai mult, ce te frustrează la softul actual..."
               />
             </div>
 
+            {/* Consimțământ GDPR — cerut de recrutareSchema; fără el prelucrarea
+                datelor de contact n-are bază legală. */}
+            <label
+              htmlFor="rec-consent"
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                fontSize: 13,
+                color: D.t2,
+                lineHeight: 1.5,
+                cursor: 'pointer',
+              }}
+            >
+              <input
+                id="rec-consent"
+                type="checkbox"
+                checked={consent}
+                onChange={(e) => setConsent(e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 1, accentColor: D.gold, flexShrink: 0 }}
+              />
+              <span>
+                Sunt de acord ca datele mele de contact să fie folosite pentru a fi contactat despre
+                programul pilot Menuvia. *
+              </span>
+            </label>
+
             {err && (
               <div
+                role="alert"
                 style={{
                   padding: 12,
                   background: 'rgba(224,85,85,0.1)',
