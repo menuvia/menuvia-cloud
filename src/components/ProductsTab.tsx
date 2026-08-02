@@ -1893,19 +1893,10 @@ export default function ProductsTab({
   const canAdd = canAddProduct(products.length)
   const mob = useIsMobile()
 
-  if (error || catError)
-    return (
-      <QueryError
-        message={error || catError || 'Eroare necunoscută'}
-        onRetry={() => {
-          refetchProducts()
-          refetchCats()
-        }}
-      />
-    )
-
   // Numele categoriilor le indexăm O(1) — altfel fiecare rând din listă făcea
   // `categories.find(...)` (O(rânduri × categorii) la fiecare re-randare, ex. tastare).
+  // Hooks ÎNAINTE de early-return-ul de eroare (rules-of-hooks): un render cu
+  // eroare urmat de unul fără ar schimba ordinea hook-urilor și ar crăpa React.
   const catNameById = useMemo(
     () => new Map(categories.map((c): [string, string] => [c.id, c.name])),
     [categories],
@@ -1918,6 +1909,17 @@ export default function ProductsTab({
       .filter((p) => activeCat === 'all' || p.category_id === activeCat)
       .filter((p) => p.name.toLowerCase().includes(q))
   }, [products, activeCat, search])
+
+  if (error || catError)
+    return (
+      <QueryError
+        message={error || catError || 'Eroare necunoscută'}
+        onRetry={() => {
+          refetchProducts()
+          refetchCats()
+        }}
+      />
+    )
 
   const handleSave = async (form: Partial<Product>) => {
     if (modal === 'add') {

@@ -195,7 +195,6 @@ export default function QrCartSheet({
       window.removeEventListener('keydown', onKeyDown)
       prev?.focus()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function handleAddSuggestion(s: Product): void {

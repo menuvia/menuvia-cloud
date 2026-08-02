@@ -254,7 +254,6 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
       window.removeEventListener('keydown', onKeyDown)
       prev?.focus()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (

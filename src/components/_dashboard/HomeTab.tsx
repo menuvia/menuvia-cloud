@@ -249,6 +249,7 @@ export default function HomeTab({
   onNavigate,
   onViewMenu,
   onPricing,
+  onOrderQrStands,
 }: Props) {
   const growthPlan = getPlanByInternalId('growth')
 

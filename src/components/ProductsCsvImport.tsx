@@ -439,7 +439,6 @@ export default function ProductsCsvImport({
       // s-au inserat efectiv (pe retry, sub dbNames, unele se sar).
       const batchSize = 20
       let cursor = insertedCursorRef.current
-      let added = 0
       for (let i = insertedCursorRef.current; i < importRows.length; i += batchSize) {
         const batch = importRows.slice(i, i + batchSize)
         let rows = batch.map((r) => ({
@@ -459,7 +458,6 @@ export default function ProductsCsvImport({
         if (rows.length > 0) {
           const { error: insErr } = await supabase.from('products').insert(rows)
           if (insErr) throw new Error(`Eroare la batch ${i}: ${insErr.message}`)
-          added += rows.length
           totalAddedRef.current += rows.length
           // Numele tocmai inserate intră în set → batch-urile următoare nu le redublează.
           if (dbNames) {
