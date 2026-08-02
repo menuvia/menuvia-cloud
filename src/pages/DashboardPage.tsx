@@ -1432,6 +1432,13 @@ export default function DashboardPage({
                     onNavigate={setTab}
                     onViewMenu={() => onViewMenu(restaurant.slug)}
                     onPricing={onPricing}
+                    onOrderQrStands={() =>
+                      window.open(
+                        `/codvia?slug=${encodeURIComponent(restaurant.slug)}`,
+                        '_blank',
+                        'noopener',
+                      )
+                    }
                   />
                 </Suspense>
               )}
