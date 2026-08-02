@@ -79,6 +79,12 @@ function buildJsonLd(restaurant: Restaurant, categories: Category[], currency: M
     ...(restaurant.slug
       ? { url: `${window.location.origin}/m/${restaurant.slug}` }
       : {}),
+    // Semnalul de rezervare pentru Google: pagina publică /r/:slug (wedge-ul
+    // „Menuvia Rezervări"). Dacă modulul reservations e OFF, pagina răspunde
+    // curat (RPC-ul respinge cu mesaj prietenos) — semnalul rămâne inofensiv.
+    ...(restaurant.slug
+      ? { acceptsReservations: `${window.location.origin}/r/${restaurant.slug}` }
+      : {}),
     ...(sections.length > 0
       ? { hasMenu: { '@type': 'Menu', hasMenuSection: sections } }
       : {}),

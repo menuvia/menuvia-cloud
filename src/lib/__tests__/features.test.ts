@@ -124,7 +124,7 @@ describe('getPlanByInternalId — mapping intern → comercial', () => {
   it('free → planul comercial starter (Meniu Digital, demo)', () => {
     const plan = getPlanByInternalId('free')
     expect(plan.id).toBe('starter')
-    expect(plan.name).toBe('Meniu Digital')
+    expect(plan.name).toBe('Meniu Digital + Rezervări')
   })
 
   it('starter → starter', () => {

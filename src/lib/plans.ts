@@ -45,7 +45,7 @@ export interface Plan {
 export const PLANS: Plan[] = [
   {
     id: 'starter',
-    name: 'Meniu Digital',
+    name: 'Meniu Digital + Rezervări',
     emoji: '📖',
     priceMonthly: 99,
     priceYearly: 83,
@@ -60,7 +60,8 @@ export const PLANS: Plan[] = [
       'Meniu în 7 limbi (RO, EN, DE, FR, IT, HU, ES)',
       'Teme premium + stil flipbook',
       'Import meniu din poze, cu AI',
-      'Rezervări (agendă simplă)',
+      'Rezervări online + link pentru butonul Google',
+      'Confirmări și remindere pe SMS (100/lună)',
     ],
     notIncluded: ['Comenzi prin QR', 'Dashboard bucătărie'],
     limits: { maxProducts: 300, maxTables: 120, maxTeamMembers: 1 },

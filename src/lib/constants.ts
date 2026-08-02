@@ -118,7 +118,7 @@ export const WAITER_TRANSITIONS: OrderStatus[] = ['served', 'paid']
 // Consumatorii folosesc oricum fallback-ul `PLAN_LABELS[p] || p`.
 export const PLAN_LABELS: Record<string, string> = {
   free: 'Demo gratuit',
-  starter: 'Meniu Digital',
+  starter: 'Meniu Digital + Rezervări',
   growth: 'Meniu + Comenzi',
   pro: 'Fiscalizare',
   enterprise: 'Custom / Lanțuri',

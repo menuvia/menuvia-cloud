@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
+import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
@@ -452,6 +453,29 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
         slug: finalSlug,
         primaryColor: '#C8963C',
       })
+      // Preset „Menuvia Rezervări" (setat pe /rezervari, supraviețuiește
+      // redirectului de auth): activăm modulul + auto-confirmarea din prima,
+      // ca linkul de Google să fie funcțional imediat. BEST-EFFORT: un eșec
+      // aici nu avortează onboarding-ul (userul poate porni manual din tab).
+      // Rândul reservation_settings EXISTĂ deja (trigger la INSERT-ul
+      // restaurantului, mig 057) → UPDATE simplu, nu upsert.
+      if (consumeOnboardingPreset() === 'rezervari') {
+        try {
+          const { error: modErr } = await supabase.rpc('set_restaurant_module', {
+            p_restaurant_id: created.restaurant_id,
+            p_module_key: 'reservations',
+            p_enabled: true,
+          })
+          if (modErr) throw modErr
+          const { error: setErr } = await supabase
+            .from('reservation_settings')
+            .update({ auto_confirm: true })
+            .eq('restaurant_id', created.restaurant_id)
+          if (setErr) throw setErr
+        } catch (presetErr) {
+          console.warn('[onboarding] preset rezervari eșuat (continuăm):', presetErr)
+        }
+      }
       onNext(created.restaurant_id, created.restaurant_slug)
     } catch (err) {
       const msg = err instanceof Error ? err.message : t.step1.unknownError
