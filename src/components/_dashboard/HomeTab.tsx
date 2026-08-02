@@ -56,6 +56,9 @@ interface Props {
   onNavigate: (tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa') => void
   onViewMenu: () => void
   onPricing: () => void
+  // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
+  // pre-completat — suporturile vin cu QR-ul REAL al meniului deja tipărit.
+  onOrderQrStands: () => void
 }
 
 const card: React.CSSProperties = {
@@ -246,6 +249,7 @@ export default function HomeTab({
   onNavigate,
   onViewMenu,
   onPricing,
+  onOrderQrStands,
 }: Props) {
   const growthPlan = getPlanByInternalId('growth')
 
@@ -708,6 +712,7 @@ export default function HomeTab({
         >
           <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
           <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
+          <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
           <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
           {tier >= 2 && (
             <QuickAction icon="bell" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />

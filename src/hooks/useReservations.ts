@@ -201,6 +201,10 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     return () => {
       void supabase.removeChannel(ch)
     }
+    // `range.from/to` sunt citite în handler dar NU sunt dependențe: canalul
+    // s-ar re-abona la fiecare schimbare de interval (churn + evenimente
+    // pierdute); filtrarea pe interval se re-face oricum la fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId, fetchReservations])
 
   const updateStatus = useCallback(

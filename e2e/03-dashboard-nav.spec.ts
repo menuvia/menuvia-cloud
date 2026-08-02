@@ -13,7 +13,13 @@ test.describe('Dashboard admin navigation', () => {
   })
 
   test('can navigate to Produse tab', async ({ page }) => {
-    await page.getByRole('button', { name: /produse/i }).first().click()
+    // „Produse" e sub-tab în grupul „Meniu" — grupul se deschide întâi (același
+    // pattern ca „Rapoarte" → „Statistici" mai jos). Selectorul lax /produse/i
+    // nimerea pasul de checklist „Adaugă produse (completat)" de pe Acasă
+    // (dezactivat → click blocat), deci numele se potrivește EXACT.
+    await page.getByRole('button', { name: /^meniu$/i }).first().click()
+    await page.waitForTimeout(300)
+    await page.getByRole('button', { name: 'Produse', exact: true }).first().click()
     await page.waitForTimeout(500)
     // Should be on products tab
     await expect(page.locator('text=/(produs|categorii)/i').first()).toBeVisible()

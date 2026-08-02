@@ -198,7 +198,7 @@ export default function TeamManager({
       setError(err instanceof Error ? err.message : 'Nu s-a putut încărca echipa')
     }
     setLoading(false)
-  }, [restaurant.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurant.id])
 
   useEffect(() => {
     load()

@@ -69,7 +69,6 @@ export default function PickupCheckoutSheet({
       window.removeEventListener('keydown', onKeyDown)
       prev?.focus()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Helper pur (lib/pickupSlots) — suportă și programul peste miezul nopții

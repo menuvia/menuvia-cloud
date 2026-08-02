@@ -270,6 +270,10 @@ export function useOrders(
       channelRef.current?.unsubscribe()
       channelRef.current = null
     }
+    // `view` e citit în handler dar NU e dependență: re-abonarea canalului
+    // realtime la fiecare comutare de view ar pierde evenimente în fereastra
+    // de reconectare, degeaba.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId, upsertOrder, removeOrder])
 
   // Plasă de siguranță: refetch periodic chiar dacă realtime e OK.
