@@ -52,7 +52,8 @@ describe('ModifierSheet — matematica banilor + gating server-parity', () => {
 
     render(<ModifierSheet product={product} onAdd={onAdd} onClose={vi.fn()} />)
 
-    await user.click(screen.getByRole('button', { name: /ovăz/i }))
+    // Opțiunile single-select randează role="radio" (accesibilitate), nu button.
+    await user.click(screen.getByRole('radio', { name: /ovăz/i }))
     expect(addButton()).toHaveTextContent('13.00 lei')
 
     // qty 1 → 2: (10 + 3) × 2 = 26, NU 10×2 + 3
@@ -95,7 +96,7 @@ describe('ModifierSheet — matematica banilor + gating server-parity', () => {
 
     // Paritate cu mig 191: sub minim → serverul respinge; UI-ul blochează CTA.
     expect(addButton()).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: /mare/i }))
+    await user.click(screen.getByRole('radio', { name: /mare/i }))
     expect(addButton()).toBeEnabled()
     expect(addButton()).toHaveTextContent('16.00 lei')
   })
