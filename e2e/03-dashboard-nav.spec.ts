@@ -13,7 +13,10 @@ test.describe('Dashboard admin navigation', () => {
   })
 
   test('can navigate to Produse tab', async ({ page }) => {
-    await page.getByRole('button', { name: /produse/i }).first().click()
+    // exact: /produse/i nimerea PRIMUL buton din DOM — pasul de checklist
+    // „Adaugă produse (completat)" de pe Acasă (dezactivat → click blocat).
+    // Tab-ul de nav se numește exact „Produse" (desktop și mobil).
+    await page.getByRole('button', { name: 'Produse', exact: true }).first().click()
     await page.waitForTimeout(500)
     // Should be on products tab
     await expect(page.locator('text=/(produs|categorii)/i').first()).toBeVisible()
