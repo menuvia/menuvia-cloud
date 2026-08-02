@@ -142,7 +142,7 @@ export function planTier(plan: string | null | undefined): PlanTier {
 // User-friendly plan names — numele COMERCIALE (cele 3 concepte publice)
 export const PLAN_NAMES: Record<string, string> = {
   free: 'Demo gratuit',
-  starter: '📖 Meniu Digital',
+  starter: '📖 Meniu Digital + Rezervări',
   growth: '🛎 Meniu + Comenzi',
   pro: '🧾 Fiscalizare',
   enterprise: '🏢 Custom / Lanțuri',

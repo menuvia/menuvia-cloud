@@ -18,6 +18,7 @@ import { Skeleton } from './ui/Skeleton'
 import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
+import { useFeatures } from '../hooks/useFeatures'
 import { confirm as confirmDialog } from './ui/confirm'
 
 // Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
@@ -209,6 +210,8 @@ export default function ReservationsTab({ restaurantId }: Props) {
           {plural(filtered.length, 'rezervare', 'rezervări')} în interval
         </div>
       </div>
+
+      <GoogleLinkCard restaurantId={restaurantId} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <FilterChip onClick={setToday} active={activeRangeKey === 'today'}>
@@ -419,6 +422,144 @@ function FilterChip({
     >
       {children}
     </button>
+  )
+}
+
+// ── „Butonul tău Google" — linkul public /r/:slug pentru Google Business ──
+// Piesa wedge-ului „Menuvia Rezervări": patronul copiază linkul și îl pune în
+// Google Business Profile (Profil → Editează → Rezervări) → cine îl caută pe
+// Google rezervă direct. Slug-ul se citește o dată (SELECT pe restaurants,
+// RLS de membru); pe eroare cardul tace (nu blochează tab-ul).
+// Dedesubt, upsell-ul onest pentru planurile fără SMS (free): reminderele merg
+// doar pe email — bannerul apare DOAR după ce features s-au încărcat cu succes.
+function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
+  const [slug, setSlug] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [showSteps, setShowSteps] = useState(false)
+  const { has, loading: featuresLoading, loadError } = useFeatures(restaurantId)
+
+  useEffect(() => {
+    let cancelled = false
+    // async/await, nu .then pe builder (capcana E5b din CLAUDE.md — builderul
+    // supabase-js e doar PromiseLike; lanțurile .then pică typecheck pe CI).
+    async function loadSlug() {
+      const { data } = await supabase
+        .from('restaurants')
+        .select('slug')
+        .eq('id', restaurantId)
+        .maybeSingle()
+      if (!cancelled && data?.slug) setSlug(data.slug)
+    }
+    void loadSlug()
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  if (!slug) return null
+  const url = `${window.location.origin}/r/${slug}`
+  const showSmsUpsell = !featuresLoading && !loadError && !has('sms_notifications')
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${D.border}`,
+        borderRadius: 12,
+        background: D.s2,
+        padding: '14px 16px',
+        marginBottom: 16,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <Icon name="link" size={16} color={D.gold} />
+        <div style={{ fontSize: 14, fontWeight: 600, color: D.t1 }}>Butonul tău Google</div>
+        <code
+          style={{
+            fontSize: 12,
+            color: D.t2,
+            background: D.s3,
+            borderRadius: 6,
+            padding: '4px 8px',
+            overflowWrap: 'anywhere',
+          }}
+        >
+          {url}
+        </code>
+        <button
+          onClick={() => {
+            void navigator.clipboard.writeText(url).then(() => {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 2000)
+            })
+          }}
+          style={{
+            minHeight: 36,
+            padding: '6px 12px',
+            border: `1px solid ${D.border}`,
+            borderRadius: 8,
+            background: D.s3,
+            color: copied ? D.green : D.t1,
+            cursor: 'pointer',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {copied ? 'Copiat ✓' : 'Copiază'}
+        </button>
+        <button
+          onClick={() => setShowSteps((s) => !s)}
+          style={{
+            minHeight: 36,
+            padding: '6px 12px',
+            border: 'none',
+            borderRadius: 8,
+            background: 'transparent',
+            color: D.t2,
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+        >
+          {showSteps ? 'Ascunde pașii' : 'Cum îl pun pe Google?'}
+        </button>
+      </div>
+      {showSteps && (
+        <ol style={{ margin: '10px 0 0', paddingLeft: 20, fontSize: 13, color: D.t2, lineHeight: 1.8 }}>
+          <li>
+            Intră pe <b>business.google.com</b> cu contul care administrează profilul localului
+            (dacă nu l-ai revendicat încă, apasă „Deții această companie?" pe fișa din Google).
+          </li>
+          <li>
+            Alege profilul → <b>Editează profilul</b> → secțiunea <b>Rezervări</b> → adaugă
+            linkul de mai sus.
+          </li>
+          <li>
+            Salvează — în câteva zile, butonul de rezervare apare pe Google Search și Maps.
+            Detalii: <code>docs/GOOGLE_REZERVARI.md</code>.
+          </li>
+        </ol>
+      )}
+      {showSmsUpsell && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: 'rgba(200,150,60,0.08)',
+            border: `1px solid rgba(200,150,60,0.3)`,
+            fontSize: 13,
+            color: D.t2,
+            lineHeight: 1.6,
+          }}
+        >
+          Pe planul gratuit, confirmările și reminderele pleacă doar pe <b>email</b>. Clienții
+          răspund mult mai des la <b>SMS</b> — treci pe <b>Rezervări Automate</b> (99 lei/lună,
+          100 SMS incluse):{' '}
+          <a href="/pricing" style={{ color: D.gold, fontWeight: 600 }}>
+            vezi planurile →
+          </a>
+        </div>
+      )}
+    </div>
   )
 }
 

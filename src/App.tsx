@@ -50,6 +50,8 @@ const FounderPage = lazy(() => import('./pages/FounderPage'))
 const VerticalPage = lazy(() => import('./pages/VerticalPage'))
 const CaseDeMarcatPage = lazy(() => import('./pages/CaseDeMarcatPage'))
 const CodviaPage = lazy(() => import('./pages/CodviaPage'))
+const ReservePage = lazy(() => import('./pages/ReservePage'))
+const RezervariPage = lazy(() => import('./pages/RezervariPage'))
 const LandingPageEn = lazy(() => import('./pages/LandingPageEn'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
 
@@ -80,6 +82,8 @@ type View =
   | 'vertical-cafenele'
   | 'case-de-marcat'
   | 'codvia'
+  | 'reserve'
+  | 'rezervari-landing'
   | 'notfound'
 
 interface RouteState {
@@ -92,9 +96,12 @@ function parsePath(): RouteState {
   const p = window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
+  // /r/:slug — pagina publică de rezervare (linkul din Google Business Profile).
+  const reserveMatch = p.match(/^\/r\/(.+)$/)
   const inviteMatch = p.match(/^\/invite\/(.+)$/)
   if (qrMatch) return { view: 'qr', token: qrMatch[1] }
   if (menuMatch) return { view: 'menu', slug: menuMatch[1] }
+  if (reserveMatch) return { view: 'reserve', slug: reserveMatch[1] }
   if (inviteMatch) return { view: 'invite', token: inviteMatch[1] }
   if (p === '/kitchen') return { view: 'kitchen' }
   if (p === '/waiter') return { view: 'waiter' }
@@ -108,6 +115,7 @@ function parsePath(): RouteState {
   if (p === '/cafenele') return { view: 'vertical-cafenele' }
   if (p === '/case-de-marcat' || p === '/compatibilitate') return { view: 'case-de-marcat' }
   if (p === '/codvia') return { view: 'codvia' }
+  if (p === '/rezervari') return { view: 'rezervari-landing' }
   if (p === '/dashboard') return { view: 'dashboard' }
   if (p === '/afiliat') return { view: 'afiliat' }
   if (p === '/founder') return { view: 'founder' }
@@ -382,6 +390,8 @@ function AppRouter() {
         'vertical-cafenele',
         'case-de-marcat',
         'codvia',
+        'reserve',
+        'rezervari-landing',
         'notfound',
         'landing',
         'landing-en',
@@ -469,6 +479,18 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <CodviaPage navigate={navigate} />
+      </Suspense>
+    )
+  if (state.view === 'reserve' && state.slug)
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <ReservePage slug={state.slug} navigate={navigate} />
+      </Suspense>
+    )
+  if (state.view === 'rezervari-landing')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <RezervariPage navigate={navigate} />
       </Suspense>
     )
   if (state.view === 'legal-terms')
