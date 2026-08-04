@@ -7,7 +7,7 @@
 
 ## Ce există în cod (acest PR)
 
-- **`/r/:slug`** (`src/pages/ReservePage.tsx`) — pagina publică de rezervare
+- **`/rezervare/:slug`** (`src/pages/ReservePage.tsx`) — pagina publică de rezervare
   de sine stătătoare: tema restaurantului, ReservationSheet deschis din prima
   (hartă + sloturi + create_reservation_public), link spre meniu, „Powered by
   Menuvia". Modulul OFF → submit-ul respinge cu mesajul prietenos existent.
@@ -20,10 +20,10 @@
   OnboardingPage activează `set_restaurant_module('reservations', true)` +
   `reservation_settings.auto_confirm = true` (best-effort; rândul de settings
   există din trigger-ul mig 057).
-- **Card „Butonul tău Google"** în tab-ul Rezervări: linkul `/r/:slug` +
+- **Card „Butonul tău Google"** în tab-ul Rezervări: linkul `/rezervare/:slug` +
   copiere + pașii GBP inline + upsell SMS pe planul free (bannerul apare doar
   după ce features s-au încărcat cu succes — fără flash pe blip de rețea).
-- **JSON-LD**: `acceptsReservations: /r/:slug` în schema.org Restaurant de pe
+- **JSON-LD**: `acceptsReservations: /rezervare/:slug` în schema.org Restaurant de pe
   /m/:slug (useMenuSeo).
 - **Etichete**: starter = „Meniu Digital + Rezervări" în PLAN_LABELS +
   PLAN_NAMES + plans.ts (cele 3 locuri sincronizate).
@@ -34,7 +34,7 @@
    localului. Dacă profilul nu e revendicat: caută localul pe Google →
    „Deții această companie?" → urmează verificarea.
 2. Alege profilul → **Editează profilul** → secțiunea **Rezervări** → adaugă
-   linkul din dashboard (`https://<domeniu>/r/<slug>`).
+   linkul din dashboard (`https://<domeniu>/rezervare/<slug>`).
 3. Salvează. Butonul apare pe Google Search și Maps de obicei în câteva zile.
 
 Observație: pe fișele unde Google afișează agregatoare (TheFork etc.), linkul
@@ -43,7 +43,7 @@ poziționarea exactă o decide Google.
 
 ## Treptele următoare (contextul strategic)
 
-- **Treapta 2 — SEO**: sitemap cu /m/:slug + /r/:slug după domeniul propriu,
+- **Treapta 2 — SEO**: sitemap cu /m/:slug + /rezervare/:slug după domeniul propriu,
   Search Console, directoare pe oraș (EXPANSION.md, axa 4).
 - **Treapta 3 — Reserve with Google (end-to-end)**: parteneriat oficial prin
   Actions Center (feed-uri merchants/services/availability + booking server).
