@@ -168,6 +168,44 @@ const TEMPLATES = {
     `,
   }),
 
+  // Notificarea RESTAURANTULUI la rezervare nouă (mig 254/255) — închide
+  // paradoxul auto-confirmării: clientul primea „confirmat", localul nu afla
+  // nimic fără dashboard-ul deschis. Destinatar: owner-ul (profiles.email).
+  reservation_created: (d) => ({
+    subject: `🍽 Rezervare nouă — ${esc(d.restaurant_name || '')}: ${esc(d.customer_name || '')}, ${esc(String(d.party_size || ''))} pers.`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
+          Rezervare nouă la ${esc(d.restaurant_name || '')}
+        </h1>
+        <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Client</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(d.customer_name || '')}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Telefon</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600"><a href="tel:${esc(d.customer_phone || '')}" style="color:#C8963C;text-decoration:none">${esc(d.customer_phone || '')}</a></div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Data și ora</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))}</div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Persoane</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(String(d.party_size || ''))}</div>
+          ${
+            d.special_requests
+              ? `<div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Mențiuni</div>
+                 <div style="color:#0A0908;font-size:15px;white-space:pre-wrap">${esc(d.special_requests)}</div>`
+              : ''
+          }
+        </div>
+        <p style="color:#333;font-size:15px;line-height:1.55">
+          ${
+            d.status === 'confirmed'
+              ? 'Rezervarea e <b>confirmată automat</b> — clientul a primit deja confirmarea.'
+              : 'Rezervarea e <b>în așteptare</b> — confirm-o din dashboard ca clientul să primească răspunsul.'
+          }
+        </p>
+        <a href="${APP_URL}/dashboard" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Vezi în dashboard →</a>
+      </div>
+    `,
+  }),
+
   win_back_7d: (d) => ({
     subject: `${esc(d.restaurant_name || '')} — văd că ai pauză. Pot ajuta cu ceva?`,
     html: `
