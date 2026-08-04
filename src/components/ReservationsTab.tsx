@@ -457,7 +457,7 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
   }, [restaurantId])
 
   if (!slug) return null
-  const url = `${window.location.origin}/r/${slug}`
+  const url = `${window.location.origin}/rezervare/${slug}`
   const showSmsUpsell = !featuresLoading && !loadError && !has('sms_notifications')
 
   return (

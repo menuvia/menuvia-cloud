@@ -1,5 +1,5 @@
 // =============================================================
-// ReservePage — pagina publică de rezervare de sine stătătoare (/r/:slug).
+// ReservePage — pagina publică de rezervare de sine stătătoare (/rezervare/:slug).
 //
 // PIESA DECISIVĂ a wedge-ului „Menuvia Rezervări": linkul care intră în
 // Google Business Profile (Profil → Rezervări). Un restaurant rezervări-first

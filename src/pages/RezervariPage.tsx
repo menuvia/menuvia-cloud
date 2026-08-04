@@ -31,7 +31,7 @@ const BENEFITS: { icon: IconName; t: string; d: string }[] = [
   {
     icon: 'qr',
     t: 'Buton de rezervare pe profilul tău Google',
-    d: 'Primești un link stabil (menuvia.ro/r/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.',
+    d: 'Primești un link stabil (menuvia.ro/rezervare/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.',
   },
   {
     icon: 'bell',

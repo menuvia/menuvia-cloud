@@ -96,8 +96,11 @@ function parsePath(): RouteState {
   const p = window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
-  // /r/:slug — pagina publică de rezervare (linkul din Google Business Profile).
-  const reserveMatch = p.match(/^\/r\/(.+)$/)
+  // /rezervare/:slug — pagina publică de rezervare (linkul din Google Business
+  // Profile). NU /r/:slug: prefixul /r/ e REZERVAT capturii de afiliere
+  // (captureReferralFromUrl în main.tsx rulează înaintea routerului și rescrie
+  // orice /r/* la '/' — coliziunea a fost prinsă de audit, ruta nu se randa).
+  const reserveMatch = p.match(/^\/rezervare\/(.+)$/)
   const inviteMatch = p.match(/^\/invite\/(.+)$/)
   if (qrMatch) return { view: 'qr', token: qrMatch[1] }
   if (menuMatch) return { view: 'menu', slug: menuMatch[1] }

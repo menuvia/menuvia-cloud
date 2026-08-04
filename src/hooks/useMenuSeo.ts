@@ -83,7 +83,7 @@ function buildJsonLd(restaurant: Restaurant, categories: Category[], currency: M
     // „Menuvia Rezervări"). Dacă modulul reservations e OFF, pagina răspunde
     // curat (RPC-ul respinge cu mesaj prietenos) — semnalul rămâne inofensiv.
     ...(restaurant.slug
-      ? { acceptsReservations: `${window.location.origin}/r/${restaurant.slug}` }
+      ? { acceptsReservations: `${window.location.origin}/rezervare/${restaurant.slug}` }
       : {}),
     ...(sections.length > 0
       ? { hasMenu: { '@type': 'Menu', hasMenuSection: sections } }
