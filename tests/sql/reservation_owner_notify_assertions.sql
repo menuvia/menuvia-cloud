@@ -5,8 +5,11 @@
 --        'reservation_created', către emailul owner-ului, dedup 'resv_created:<id>'.
 --   RN2  UPDATE de status pe aceeași rezervare NU mai produce alt email
 --        (trigger doar pe INSERT; dedup-ul pe id e plasa a doua).
---   RN3  Owner fără email în profil → rezervarea se creează normal, fără
---        rând în coadă și fără eroare (skip tăcut, nu raise).
+--   RN3  Ramurile defensive rămân în funcție (aserțiune de CATALOG): guard-ul
+--        de email null + exception-wrapper-ul. Starea „owner fără email" e
+--        IMPOSIBILĂ prin schemă (profiles.email NOT NULL; delete pe profil
+--        cascadează restaurantul) — verificat empiric la scrierea testului,
+--        deci nu se poate testa ca stare, doar ca prezență a guard-urilor.
 --
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -39,10 +42,11 @@ on conflict (restaurant_id, user_id) do nothing;
 
 -- ── RN1: INSERT → un email 'reservation_created' către owner ────────────────
 insert into public.reservations
-  (id, restaurant_id, customer_name, customer_phone, party_size, starts_at, status)
+  (id, restaurant_id, customer_name, customer_phone, party_size, starts_at, ends_at, status)
 values
   ('c1d10000-0000-4000-8000-00000000e0f1','b1c10000-0000-4000-8000-00000000e0f1',
-   'Client RN','0722000111',4, now() + interval '2 days', 'confirmed');
+   'Client RN','0722000111',4, now() + interval '2 days',
+   now() + interval '2 days 2 hours', 'confirmed');
 
 do $$
 declare
@@ -82,28 +86,16 @@ begin
   end if;
 end $$;
 
--- ── RN3: owner fără email → rezervare OK, coadă goală, fără eroare ──────────
-update public.profiles set email = null
- where id = 'a1b20000-0000-4000-8000-00000000e0f2';
-
-insert into public.reservations
-  (id, restaurant_id, customer_name, customer_phone, party_size, starts_at, status)
-values
-  ('c1d20000-0000-4000-8000-00000000e0f2','b1c20000-0000-4000-8000-00000000e0f2',
-   'Client Fara Mail','0722000222',2, now() + interval '3 days', 'pending');
-
+-- ── RN3: guard-urile defensive există în definiția funcției ─────────────────
 do $$
-declare v_count int;
+declare v_def text;
 begin
-  if not exists (select 1 from public.reservations
-                  where id = 'c1d20000-0000-4000-8000-00000000e0f2') then
-    raise exception 'RN3: rezervarea nu s-a creat (trigger-ul a avortat INSERT-ul?)';
+  v_def := pg_get_functiondef('public.trg_email_on_reservation_created()'::regprocedure);
+  if v_def !~* 'v_owner_email\s+is\s+null' then
+    raise exception 'RN3: guard-ul de email null a dispărut din trigger';
   end if;
-  select count(*) into v_count
-    from public.email_queue
-   where dedup_key = 'resv_created:c1d20000-0000-4000-8000-00000000e0f2';
-  if v_count <> 0 then
-    raise exception 'RN3: s-a pus email în coadă deși owner-ul nu are email (%)', v_count;
+  if v_def !~* 'when\s+others' then
+    raise exception 'RN3: exception-wrapper-ul a dispărut din trigger';
   end if;
 end $$;
 
