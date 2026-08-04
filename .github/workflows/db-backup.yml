@@ -1,0 +1,73 @@
+name: DB Backup
+
+# Backup zilnic al bazei de prod (audit aug 2026: retenție fiscală de 10 ani
+# pe Supabase FREE = zero backup funcțional; stratul ăsta acoperă golul până
+# la Supabase Pro/PITR sau VPS-ul cu deploy/backup-db.sh).
+#
+# INERT fără secrets (ca deploy-vps.yml): cere
+#   SUPABASE_DB_URL     — connection string-ul Postgres (Supabase → Settings →
+#                         Database → Connection string, URI, cu parola)
+#   BACKUP_PASSPHRASE   — parolă lungă aleatoare pentru criptare
+#
+# SECURITATE: repo-ul e PUBLIC, iar artefactele GitHub pot fi descărcate de
+# oricine e logat → dump-ul se criptează AES-256 (openssl, PBKDF2) ÎNAINTE de
+# upload. Restaurare:
+#   openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
+#     -in menuvia-YYYY-MM-DD.dump.enc -out menuvia.dump
+#   pg_restore -d <target> --clean --if-exists menuvia.dump
+
+on:
+  schedule:
+    - cron: '30 2 * * *' # zilnic 02:30 UTC (04:30/05:30 România)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verifică secrets (skip curat dacă lipsesc)
+        id: gate
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
+            echo "Secrets lipsă (SUPABASE_DB_URL / BACKUP_PASSPHRASE) — backup sărit."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Instalează clientul Postgres
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+
+      - name: pg_dump + criptare
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y-%m-%d)"
+          # Format custom (-Fc): comprimat + restaurabil selectiv cu pg_restore.
+          pg_dump "$DB_URL" -Fc --no-owner --no-privileges -f "menuvia-$STAMP.dump"
+          openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
+            -in "menuvia-$STAMP.dump" -out "menuvia-$STAMP.dump.enc"
+          rm "menuvia-$STAMP.dump"
+          ls -lh "menuvia-$STAMP.dump.enc"
+
+      - name: Urcă backup-ul criptat (retenție 30 zile)
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: '*.dump.enc'
+          retention-days: 30
+          if-no-files-found: error
