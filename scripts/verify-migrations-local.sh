@@ -78,7 +78,9 @@ echo "── asserțiile SQL (ordinea din workflow; testele de eră sărite ca �
 cd "$REPO_ROOT"
 SKIP="authorization_phase_1a_assertions.sql authorization_final_state_assertions.sql"
 PASS=0; FAIL=0
-for t in $(grep -oP "tests/sql/[a-z0-9_/]+\.sql" "$WORKFLOW" | awk '!seen[$0]++'); do
+# Prinde și `supabase/tests/...` (testul de payload FiscalNet, legat în CI la
+# auditul din aug 2026) — nu doar `tests/sql/...`.
+for t in $(grep -oP "(?:supabase/)?tests/[a-z0-9_/]+\.sql" "$WORKFLOW" | awk '!seen[$0]++'); do
   base="$(basename "$t")"
   if [[ " $SKIP " == *" $base "* ]]; then
     echo "  – SKIP (test de eră, sărit și în CI): $base"

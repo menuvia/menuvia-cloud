@@ -1380,6 +1380,25 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/reservation_noshow_assertions.sql
 
+      - name: "Reservation owner-notify assertions (mig 254/255)"
+        if: ${{ hashFiles('supabase/migrations/20260804110000_migration_255_reservation_owner_notify.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_owner_notify_assertions.sql
+
+      # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
+      # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
+      # erau referite de niciun workflow (finding-ul auditului din aug 2026).
+      - name: "FiscalNet payload generator assertions (51 cases, mig 030→053)"
+        if: ${{ hashFiles('supabase/tests/build_fiscalnet_payload_test.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f supabase/tests/build_fiscalnet_payload_test.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:

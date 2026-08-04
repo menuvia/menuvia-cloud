@@ -45,10 +45,13 @@
 [functions."send-health-slack-alerts"]
   schedule = "5,20,35,50 * * * *"
 
-# Every 1 min: process queued SMS (mig 228) — „pickup gata" e time-sensitive;
-# funcția iese imediat pe coadă goală, deci tick-ul e ieftin.
+# La 5 min: process queued SMS (mig 228). Era la 1 min, dar auditul de infra
+# (aug 2026) a arătat că tick-ul „ieftin" costă COTĂ: 43.200 invocări/lună —
+# peste o treime din free tier-ul Netlify — pentru o coadă goală (zero clienți
+# SMS). La primul client cu SMS activ, „pickup gata" redevine time-sensitive:
+# coboară înapoi la "* * * * *" (o linie).
 [functions."process-sms-queue"]
-  schedule = "* * * * *"
+  schedule = "*/5 * * * *"
 
 # Security headers — A+ grade on securityheaders.com
 [[headers]]
