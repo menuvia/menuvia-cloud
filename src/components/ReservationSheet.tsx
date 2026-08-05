@@ -607,10 +607,23 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             </div>
           )}
           {restaurant.phone && (
-            <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 22 }}>
+            <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 10 }}>
               {T(lang, 'reserve_call_if_change')}:{' '}
               <a href={'tel:' + restaurant.phone} style={{ color: accent, textDecoration: 'none' }}>
                 {restaurant.phone}
+              </a>
+            </div>
+          )}
+          {/* Anulare online pe cod (mig 256/257) — linkul poartă codul, ca
+              clientul să anuleze în 2 tap-uri (anti no-show din audit). */}
+          {restaurant.slug && (
+            <div style={{ fontSize: 12, color: PUB.text3, marginBottom: 22 }}>
+              {lang === 'ro' ? 'Nu mai poți ajunge? ' : 'Cannot make it? '}
+              <a
+                href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
+                style={{ color: accent, textDecoration: 'underline' }}
+              >
+                {lang === 'ro' ? 'Anulează online cu acest cod' : 'Cancel online with this code'}
               </a>
             </div>
           )}
