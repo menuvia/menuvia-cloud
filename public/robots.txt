@@ -1,0 +1,16 @@
+# Menuvia — robots
+# Suprafețele publice sunt indexabile (meniuri /m/:slug, rezervări
+# /rezervare/:slug, marketing); suprafețele de operare nu au valoare în index.
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /founder
+Disallow: /waiter
+Disallow: /kitchen
+Disallow: /auth
+Disallow: /reset-password
+
+# La schimbarea domeniului primar în Netlify, linia de mai jos rămâne corectă
+# doar dacă e actualizată — sitemap-ul propriu-zis își ia baza automat din
+# env-ul URL al Netlify.
+Sitemap: https://menuvia.netlify.app/sitemap.xml

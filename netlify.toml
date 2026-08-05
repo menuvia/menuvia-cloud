@@ -14,6 +14,12 @@
   to     = "/.netlify/functions/health"
   status = 200
 
+# Sitemap dinamic (treapta 2 Google) — ÎNAINTEA catch-all-ului /*.
+[[redirects]]
+  from   = "/sitemap.xml"
+  to     = "/.netlify/functions/sitemap"
+  status = 200
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
