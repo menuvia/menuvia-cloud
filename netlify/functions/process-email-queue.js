@@ -206,6 +206,26 @@ const TEMPLATES = {
     `,
   }),
 
+  // Anulare PUBLICĂ pe cod de confirmare (mig 256/257) — perechea lui
+  // reservation_created: owner-ul află că masa s-a eliberat.
+  reservation_cancelled: (d) => ({
+    subject: `❌ Rezervare anulată — ${esc(d.restaurant_name || '')}: ${esc(d.customer_name || '')}, ${esc(formatDateTimeRo(d.starts_at))}`,
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px;margin:0 0 16px">
+          Rezervare anulată de client
+        </h1>
+        <div style="background:#fff;border:1px solid #E8DCC9;border-radius:12px;padding:20px;margin:16px 0">
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">Client</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(d.customer_name || '')} · <a href="tel:${esc(d.customer_phone || '')}" style="color:#C8963C;text-decoration:none">${esc(d.customer_phone || '')}</a></div>
+          <div style="color:#666;font-size:13px;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 6px">Era pentru</div>
+          <div style="color:#0A0908;font-size:18px;font-weight:600">${esc(formatDateTimeRo(d.starts_at))} · ${esc(String(d.party_size || ''))} pers.</div>
+        </div>
+        <p style="color:#333;font-size:15px;line-height:1.55">Masa s-a eliberat — o poți oferi mai departe.</p>
+      </div>
+    `,
+  }),
+
   win_back_7d: (d) => ({
     subject: `${esc(d.restaurant_name || '')} — văd că ai pauză. Pot ajuta cu ceva?`,
     html: `

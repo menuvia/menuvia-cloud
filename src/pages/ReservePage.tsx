@@ -14,6 +14,7 @@
 // curată, nu crapă.
 // =============================================================
 import { useEffect, useMemo, useState, Suspense, lazy } from 'react'
+import { supabase } from '../lib/supabase'
 import { fetchRestaurantBySlug } from '../lib/qr'
 import type { Restaurant } from '../lib/qr'
 import { resolveTheme } from '../lib/themes'
@@ -31,9 +32,65 @@ export default function ReservePage({
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  // Anulare pe cod (mig 256/257): ?cancel=COD deschide cardul cu codul
+  // pre-completat (linkul din emailuri/ecranul de succes); linkul discret de
+  // sub butoane îl deschide manual. Sheet-ul de REZERVARE nu se deschide
+  // peste fluxul de anulare.
+  const initialCancel =
+    typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('cancel') ?? '')
+      : ''
+  const [cancelOpen, setCancelOpen] = useState<boolean>(initialCancel !== '')
+  const [cancelCode, setCancelCode] = useState<string>(initialCancel)
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const [cancelDone, setCancelDone] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
   // Sheet-ul e DESCHIS din prima — ăsta e scopul paginii. onClose nu închide
   // într-un ecran mort: rămâne hero-ul cu buton de redeschidere + link meniu.
-  const [sheetOpen, setSheetOpen] = useState(true)
+  const [sheetOpen, setSheetOpen] = useState(initialCancel === '')
+
+  async function submitCancel() {
+    const code = cancelCode.trim()
+    if (!code) {
+      setCancelError(lang === 'ro' ? 'Introdu codul de confirmare' : 'Enter the confirmation code')
+      return
+    }
+    setCancelBusy(true)
+    setCancelError(null)
+    const { data, error: rpcErr } = await supabase.rpc('cancel_reservation_by_code', {
+      p_slug: slug,
+      p_code: code,
+    })
+    setCancelBusy(false)
+    const res = (data ?? null) as { ok?: boolean; hint?: string } | null
+    if (rpcErr || !res) {
+      setCancelError(
+        lang === 'ro'
+          ? 'Nu am putut procesa anularea. Încearcă din nou sau sună restaurantul.'
+          : 'Could not process the cancellation. Try again or call the restaurant.',
+      )
+      return
+    }
+    if (res.ok) {
+      setCancelDone(true)
+      return
+    }
+    if (res.hint === 'not_cancellable') {
+      setCancelError(
+        lang === 'ro'
+          ? 'Rezervarea nu mai poate fi anulată online (a trecut ora sau e deja anulată). Sună restaurantul.'
+          : 'This reservation can no longer be cancelled online. Please call the restaurant.',
+      )
+    } else if (res.hint === 'rate_limited') {
+      setCancelError(
+        lang === 'ro' ? 'Prea multe încercări. Reîncearcă în câteva minute.' : 'Too many attempts. Try again in a few minutes.',
+      )
+    } else {
+      setCancelError(
+        lang === 'ro' ? 'Cod de confirmare invalid.' : 'Invalid confirmation code.',
+      )
+    }
+  }
 
   // Limba: doar pentru textele ReservationSheet (ro/en) — fără chrome de meniu.
   const lang =
@@ -167,6 +224,82 @@ export default function ReservePage({
         {lang === 'ro' ? 'Rezervare online — confirmare pe loc' : 'Online reservation'}
       </div>
 
+      {cancelOpen && (
+        <div
+          style={{
+            width: '100%',
+            maxWidth: 420,
+            background: PUB.surface,
+            border: `1px solid ${PUB.borderStrong}`,
+            borderRadius: 14,
+            padding: '20px 18px',
+            marginBottom: 24,
+            textAlign: 'left',
+          }}
+        >
+          {cancelDone ? (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>
+                {lang === 'ro' ? 'Rezervarea a fost anulată ✓' : 'Reservation cancelled ✓'}
+              </div>
+              <div style={{ color: PUB.text2, fontSize: 14, lineHeight: 1.5 }}>
+                {lang === 'ro'
+                  ? 'Restaurantul a fost anunțat. Te așteptăm altă dată!'
+                  : 'The restaurant has been notified.'}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 10 }}>
+                {lang === 'ro' ? 'Anulează o rezervare' : 'Cancel a reservation'}
+              </div>
+              <input
+                value={cancelCode}
+                onChange={(e) => setCancelCode(e.target.value.toUpperCase())}
+                placeholder={lang === 'ro' ? 'Codul de confirmare (ex. A1B2C3D4)' : 'Confirmation code'}
+                style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  background: PUB.bg,
+                  border: `1px solid ${PUB.borderStrong}`,
+                  borderRadius: 10,
+                  padding: '12px 14px',
+                  fontSize: 16,
+                  letterSpacing: '0.12em',
+                  color: PUB.text,
+                  fontFamily: 'inherit',
+                  marginBottom: 10,
+                }}
+              />
+              {cancelError && (
+                <div style={{ color: '#E05555', fontSize: 13, marginBottom: 10 }}>{cancelError}</div>
+              )}
+              <button
+                onClick={() => void submitCancel()}
+                disabled={cancelBusy}
+                style={{
+                  width: '100%',
+                  background: '#E05555',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 10,
+                  padding: '12px 0',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  cursor: cancelBusy ? 'wait' : 'pointer',
+                  fontFamily: 'inherit',
+                  opacity: cancelBusy ? 0.7 : 1,
+                }}
+              >
+                {cancelBusy
+                  ? lang === 'ro' ? 'Se anulează…' : 'Cancelling…'
+                  : lang === 'ro' ? 'Anulează rezervarea' : 'Cancel reservation'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
         <button
           onClick={() => setSheetOpen(true)}
@@ -200,6 +333,24 @@ export default function ReservePage({
           {lang === 'ro' ? 'Vezi meniul →' : 'View menu →'}
         </button>
       </div>
+
+      {!cancelOpen && (
+        <button
+          onClick={() => setCancelOpen(true)}
+          style={{
+            marginTop: 18,
+            background: 'none',
+            border: 'none',
+            color: PUB.text3,
+            fontSize: 13,
+            textDecoration: 'underline',
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+        >
+          {lang === 'ro' ? 'Ai deja o rezervare? Anuleaz-o aici' : 'Need to cancel a reservation?'}
+        </button>
+      )}
 
       <div style={{ marginTop: 40, fontSize: 12, color: PUB.text3 }}>
         Powered by{' '}
