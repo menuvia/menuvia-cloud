@@ -136,6 +136,15 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
       for (const f of files) {
         images.push(await prepareImage(f))
       }
+      // Formate pe care API-ul de vision nu le acceptă (ex. HEIC de pe iPhone,
+      // când canvas-ul nu l-a putut decoda și am căzut pe fișierul original):
+      // mesaj clar AICI, nu eroare criptică de API după ce s-a consumat timpul.
+      const SUPPORTED = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+      if (images.some((im) => !SUPPORTED.includes(im.media_type))) {
+        setError('Un fișier are un format nesuportat (ex. HEIC). Exportă-l ca JPEG/PNG sau fă un screenshot al meniului.')
+        setBusy(false)
+        return
+      }
       const total = images.reduce((s, im) => s + im.data.length, 0)
       if (total > MAX_TOTAL_BASE64) {
         setError('Pozele sunt prea mari chiar și comprimate. Încearcă mai puține pagini odată.')
@@ -179,8 +188,13 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     const selected = drafts.filter((d) => d.include && d.name.trim())
 
     // 1. Creează categoriile noi ('new:<nume>') o singură dată per nume.
+    //    RE-POTRIVIRE întâi contra listei PROASPETE de categorii: seedCategoryIds
+    //    a rulat la procesarea pozelor, când `categories` putea fi încă în curs
+    //    de încărcare — fără re-check aici, „Băuturi" existent ar fi fost
+    //    re-creat ca duplicat (tabela NU are unique pe nume, verificat).
     //    Eșecul unei creări nu blochează importul: produsele ei cad pe „fără
     //    categorie" (recuperabil din tab-ul Produse), raportat vizibil.
+    const freshByName = new Map(categories.categories.map((c) => [c.name.trim().toLowerCase(), c.id]))
     const newNames = [...new Set(
       selected
         .filter((d) => d.category_id.startsWith('new:'))
@@ -188,6 +202,11 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     )]
     const createdByName = new Map<string, string>()
     for (const name of newNames) {
+      const existing = freshByName.get(name.trim().toLowerCase())
+      if (existing) {
+        createdByName.set(name, existing)
+        continue
+      }
       const r = await categories.create({ name })
       if (!r.error && r.data) {
         createdByName.set(name, (r.data as { id: string }).id)
