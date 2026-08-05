@@ -29,12 +29,15 @@ insert into public.restaurant_memberships (restaurant_id, user_id, role) values
 on conflict (restaurant_id, user_id) do nothing;
 
 insert into public.reservations
-  (id, restaurant_id, customer_name, customer_phone, party_size, starts_at, status, confirmation_code)
+  (id, restaurant_id, customer_name, customer_phone, party_size,
+   starts_at, ends_at, status, confirmation_code)
 values
   ('c1d10000-0000-4000-8000-00000000c0f1','b1c10000-0000-4000-8000-00000000c0f1',
-   'Client Viitor','0722000311',4, now() + interval '2 days', 'confirmed', 'AABBCC11'),
+   'Client Viitor','0722000311',4,
+   now() + interval '2 days', now() + interval '2 days 2 hours', 'confirmed', 'AABBCC11'),
   ('c1d20000-0000-4000-8000-00000000c0f2','b1c10000-0000-4000-8000-00000000c0f1',
-   'Client Trecut','0722000322',2, now() - interval '2 hours', 'confirmed', 'AABBCC22');
+   'Client Trecut','0722000322',2,
+   now() - interval '2 hours', now() - interval '30 minutes', 'confirmed', 'AABBCC22');
 
 -- ── RC1: anulare reușită + email owner ──────────────────────────────────────
 do $$
