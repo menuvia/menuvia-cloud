@@ -1,7 +1,17 @@
-// AiMenuImport — import meniu din poză (Faza D)
-// Userul încarcă o poză cu meniul → AI (vision, prin ai-proxy cu cheia BYO)
-// extrage produsele → ecran de REVIZUIRE editabil („e totul corect?") →
-// inserare în bulk prin hook-ul useProducts (respectă RLS).
+// AiMenuImport — import meniu din poze (Faza D; upgrade audit aug 2026)
+// Userul încarcă până la 4 poze cu meniul (paginile) → AI (vision, prin
+// ai-proxy) extrage produsele CU categoriile lor → ecran de REVIZUIRE editabil
+// → creare categorii lipsă + inserare în bulk prin useProducts (respectă RLS).
+//
+// Cele 3 reparații din audit (fluxul-vedetă de onboarding era sabotat exact
+// la primul contact):
+//  1. MULTI-POZĂ: meniurile reale au 4–8 pagini; toate pozele intră într-UN
+//     singur apel AI (o singură lovitură de cotă), nu N rulări manuale.
+//  2. COMPRESIE client-side (canvas, max 1800px, JPEG): pozele de telefon de
+//     4–8MB picau pe limita de 5MB; acum intră lejer și N pagini în payload.
+//  3. CATEGORII: AI-ul întoarce și secțiunea din meniu; potrivim automat cu
+//     categoriile existente (case-insensitive) și oferim „➕ (nouă)" pentru
+//     rest — zero dropdown-uri manuale pe 100 de produse.
 import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
@@ -14,9 +24,16 @@ interface DraftProduct {
   description: string
   price: number
   emoji: string
+  // '' = fără categorie · uuid = categorie existentă · 'new:<nume>' = de creat
   category_id: string
+  category_name: string
   include: boolean
 }
+
+const MAX_PHOTOS = 4
+// Baza64 combinată ≤ ~4,2MB: sub limita de body a funcției Netlify (~6MB)
+// cu marjă pentru restul payload-ului.
+const MAX_TOTAL_BASE64 = 4_200_000
 
 function fileToBase64(file: File): Promise<{ media_type: string; data: string }> {
   return new Promise((resolve, reject) => {
@@ -29,6 +46,32 @@ function fileToBase64(file: File): Promise<{ media_type: string; data: string }>
     reader.onerror = () => reject(new Error('Nu am putut citi fișierul.'))
     reader.readAsDataURL(file)
   })
+}
+
+// Redimensionează + recomprimă poza pe canvas (max 1800px latura mare, JPEG).
+// Pozele direct din cameră au 4–8MB — fără compresie picau pe limita de 5MB
+// și făceau multi-poza imposibilă. Dacă browserul nu poate decoda formatul
+// (ex. HEIC pe unele desktop-uri), cădem pe fișierul original nemodificat.
+async function prepareImage(file: File): Promise<{ media_type: string; data: string }> {
+  try {
+    const bitmap = await createImageBitmap(file)
+    const maxSide = 1800
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('canvas indisponibil')
+    ctx.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.82)
+    const comma = dataUrl.indexOf(',')
+    return { media_type: 'image/jpeg', data: dataUrl.slice(comma + 1) }
+  } catch {
+    return fileToBase64(file)
+  }
 }
 
 // Validează output-ul AI (array de produse) → drafturi tipate.
@@ -53,6 +96,7 @@ function parseDrafts(text: string): DraftProduct[] {
       price: Number.isFinite(Number(p.price)) && Number(p.price) >= 0 ? Number(p.price) : 0,
       emoji: typeof p.emoji === 'string' ? p.emoji.slice(0, 8) : '',
       category_id: '',
+      category_name: typeof p.category === 'string' ? p.category.trim().slice(0, 80) : '',
       include: true,
     }))
 }
@@ -69,34 +113,59 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
   const [imported, setImported] = useState(0)
   const [importErrors, setImportErrors] = useState<string[]>([])
 
-  async function handleFile(file: File) {
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Imaginea e prea mare (max 5MB).')
-      return
-    }
+  // Potrivește numele de categorie extras de AI cu categoriile existente
+  // (trim + case-insensitive). Nepotrivit → marker 'new:<nume>' (creat la
+  // salvare). Fără nume → fără categorie.
+  function seedCategoryIds(parsed: DraftProduct[]): DraftProduct[] {
+    const byName = new Map(categories.categories.map((c) => [c.name.trim().toLowerCase(), c.id]))
+    return parsed.map((d) => {
+      if (!d.category_name) return d
+      const existing = byName.get(d.category_name.toLowerCase())
+      return { ...d, category_id: existing ?? `new:${d.category_name}` }
+    })
+  }
+
+  async function handleFiles(fileList: FileList) {
+    const files = Array.from(fileList).slice(0, MAX_PHOTOS)
+    if (files.length === 0) return
     setError(null)
     setImportErrors([])
     setBusy(true)
     try {
-      const img = await fileToBase64(file)
+      const images: { media_type: string; data: string }[] = []
+      for (const f of files) {
+        images.push(await prepareImage(f))
+      }
+      const total = images.reduce((s, im) => s + im.data.length, 0)
+      if (total > MAX_TOTAL_BASE64) {
+        setError('Pozele sunt prea mari chiar și comprimate. Încearcă mai puține pagini odată.')
+        setBusy(false)
+        return
+      }
       const content: AiPart[] = [
-        { type: 'image', media_type: img.media_type, data: img.data },
+        ...images.map((im): AiPart => ({ type: 'image', media_type: im.media_type, data: im.data })),
         {
           type: 'text',
-          text: 'Extrage toate produsele din acest meniu. Returnează DOAR un JSON array, fără markdown, cu obiecte de forma {"name": string, "description": string|null, "price": number, "emoji": string}. Prețurile în lei (număr fără simbol). Pune un emoji relevant pentru fiecare produs.',
+          text:
+            'Extrage toate produsele din aceste poze de meniu (pot fi mai multe pagini ale ACELUIAȘI meniu). ' +
+            'Returnează DOAR un JSON array, fără markdown, cu obiecte de forma ' +
+            '{"name": string, "description": string|null, "price": number, "emoji": string, "category": string|null}. ' +
+            'Prețurile în lei (număr fără simbol). Emoji relevant pentru fiecare produs. ' +
+            '"category" = numele secțiunii din meniu în care apare produsul (ex. "Feluri principale", "Băuturi") — ' +
+            'folosește EXACT același nume pentru toate produsele din aceeași secțiune; null dacă nu e clar.',
         },
       ]
       const res = await aiMenuImport({ restaurant_id: restaurantId, messages: [{ role: 'user', content }], max_tokens: 4000 })
-      const parsed = parseDrafts(res.text)
+      const parsed = seedCategoryIds(parseDrafts(res.text))
       if (parsed.length === 0) {
-        setError('Nu am găsit produse în imagine. Încearcă o poză mai clară.')
+        setError('Nu am găsit produse în poze. Încearcă poze mai clare.')
         setBusy(false)
         return
       }
       setDrafts(parsed)
       setStep('review')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Eroare la procesarea imaginii.')
+      setError(e instanceof Error ? e.message : 'Eroare la procesarea pozelor.')
     } finally {
       setBusy(false)
     }
@@ -108,12 +177,37 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     let ok = 0
     const failed: string[] = []
     const selected = drafts.filter((d) => d.include && d.name.trim())
+
+    // 1. Creează categoriile noi ('new:<nume>') o singură dată per nume.
+    //    Eșecul unei creări nu blochează importul: produsele ei cad pe „fără
+    //    categorie" (recuperabil din tab-ul Produse), raportat vizibil.
+    const newNames = [...new Set(
+      selected
+        .filter((d) => d.category_id.startsWith('new:'))
+        .map((d) => d.category_id.slice(4)),
+    )]
+    const createdByName = new Map<string, string>()
+    for (const name of newNames) {
+      const r = await categories.create({ name })
+      if (!r.error && r.data) {
+        createdByName.set(name, (r.data as { id: string }).id)
+      } else {
+        console.error('confirmImport category create failed', name, r.error)
+        failed.push(`categoria „${name}": nu a putut fi creată (produsele ei intră fără categorie)`)
+      }
+    }
+
+    const resolveCategory = (d: (typeof selected)[number]): string | null => {
+      if (!d.category_id) return null
+      if (d.category_id.startsWith('new:')) return createdByName.get(d.category_id.slice(4)) ?? null
+      return d.category_id
+    }
     const toRow = (d: (typeof selected)[number]) => ({
       name: d.name.trim(),
       description: d.description.trim() || null,
       price: d.price,
       emoji: d.emoji,
-      category_id: d.category_id || null,
+      category_id: resolveCategory(d),
     })
     // OPT-5: UN singur INSERT în lot + UN singur refetch (createMany) — la 50
     // de produse: ~100 RTT-uri seriale → 2. Fallback pe bucla per-rând DOAR
@@ -142,13 +236,20 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     setDrafts((prev) => prev.map((d, idx) => (idx === i ? { ...d, ...p } : d)))
   }
 
+  // Numele de categorii NOI distincte din drafturi — opțiunile '➕ (nouă)'
+  // din select (aceeași listă pentru toate rândurile, ca să poți muta un
+  // produs într-o secțiune nouă găsită la alt produs).
+  const newCategoryNames = [...new Set(
+    drafts.filter((d) => d.category_id.startsWith('new:')).map((d) => d.category_id.slice(4)),
+  )]
+
   const field = { background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', boxSizing: 'border-box' as const }
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: D.s1, border: `1px solid ${D.border}`, borderRadius: isMobile ? '18px 18px 0 0' : 18, width: '100%', maxWidth: 640, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>📸 Import meniu din poză</span>
+          <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>📸 Import meniu din poze</span>
           <button onClick={onClose} aria-label="Închide" style={{ background: 'transparent', border: 'none', color: D.t2, cursor: 'pointer', fontSize: 18 }}>✕</button>
         </div>
 
@@ -158,11 +259,12 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
           {step === 'upload' && (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
               <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 20 }}>
-                Fotografiază sau încarcă o poză clară cu meniul. AI-ul extrage produsele, apoi le poți verifica și corecta înainte de salvare.
+                Fotografiază sau încarcă până la {MAX_PHOTOS} poze clare cu meniul (paginile lui).
+                AI-ul extrage produsele și secțiunile, apoi verifici și corectezi înainte de salvare.
               </p>
               <label style={{ display: 'inline-block', background: D.gold, color: '#000', borderRadius: 10, padding: '13px 28px', fontSize: '0.9rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
-                {busy ? 'Se procesează…' : 'Alege o poză'}
-                <input type="file" accept="image/*" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f) }} style={{ display: 'none' }} />
+                {busy ? 'Se procesează…' : 'Alege pozele'}
+                <input type="file" accept="image/*" multiple disabled={busy} onChange={(e) => { if (e.target.files && e.target.files.length > 0) void handleFiles(e.target.files) }} style={{ display: 'none' }} />
               </label>
             </div>
           )}
@@ -170,7 +272,10 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
           {step === 'review' && (
             <>
               <p style={{ color: D.t1, fontSize: '0.92rem', marginBottom: 4, fontWeight: 600 }}>Am găsit {drafts.length} produse. E totul corect?</p>
-              <p style={{ color: D.t2, fontSize: '0.8rem', marginBottom: 16 }}>Corectează ce e greșit, debifează ce nu vrei, apoi salvează.</p>
+              <p style={{ color: D.t2, fontSize: '0.8rem', marginBottom: 16 }}>
+                Corectează ce e greșit, debifează ce nu vrei, apoi salvează.
+                {newCategoryNames.length > 0 && ` Secțiunile marcate cu ➕ se creează automat la salvare.`}
+              </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {drafts.map((d, i) => (
                   <div key={i} style={{ background: d.include ? D.s2 : D.s1, border: `1px solid ${D.border}`, borderRadius: 10, padding: 12, opacity: d.include ? 1 : 0.55 }}>
@@ -182,10 +287,13 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input style={{ ...field, flex: 1 }} value={d.description} onChange={(e) => patch(i, { description: e.target.value })} placeholder="Descriere (opțional)" />
-                      <select style={{ ...field, width: 150 }} value={d.category_id} onChange={(e) => patch(i, { category_id: e.target.value })}>
+                      <select style={{ ...field, width: 170 }} value={d.category_id} onChange={(e) => patch(i, { category_id: e.target.value })}>
                         <option value="">Fără categorie</option>
                         {categories.categories.map((c) => (
                           <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+                        ))}
+                        {newCategoryNames.map((name) => (
+                          <option key={`new:${name}`} value={`new:${name}`}>➕ {name} (nouă)</option>
                         ))}
                       </select>
                     </div>
@@ -200,7 +308,7 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
               <div style={{ fontSize: 40, marginBottom: 12 }}>{importErrors.length > 0 ? '⚠️' : '✅'}</div>
               <p style={{ color: D.t1, fontSize: '1rem', fontWeight: 600, marginBottom: 6 }}>
                 {importErrors.length > 0
-                  ? `${imported}/${imported + importErrors.length} produse salvate, ${importErrors.length} respinse`
+                  ? `${imported} produse salvate, ${importErrors.length} probleme`
                   : `${imported} produse adăugate!`}
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>Le găsești în tab-ul Produse.</p>
