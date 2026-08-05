@@ -1,8 +1,52 @@
 # GHID FONDATOR — singurele lucruri pe care trebuie să le faci TU
 
-> Tot restul e automatizat sau îl fac eu. Urmează pașii de sus în jos.
-> Timp total estimat: **~20 de minute** (fără telefonul la EconMedia).
-> Când termini un bloc, scrie-mi „gata pasul N" și verific eu totul.
+> Tot restul e automatizat sau îl fac eu. Când termini un bloc, scrie-mi
+> „gata pasul N" și verific eu totul.
+
+## ⚡ ORDINEA ACTUALĂ (august 2026) — fă-le EXACT în ordinea asta
+
+> Auditul pe capitole a re-ordonat lista: domeniile înaintea oricărui server,
+> iar SRL-ul (absent din orice versiune anterioară a ghidului) pornit DEVREME
+> — are cel mai lung lead-time de pe drumul spre primul leu încasat.
+> Onestitate: blocurile A–C = ore; D–E = săptămâni de așteptare, minute de muncă.
+
+**A. AZI (~2 ore, ~200 lei) — un singur activ, șase riscuri închise**
+1. Cumpără **menuvia.ro + codvia.ro** de la un registrar românesc (~50 lei/an
+   fiecare). Adaugă-le ca domenii în Netlify (Domain management).
+2. **Resend → Domains → menuvia.ro** → pune înregistrările DKIM/SPF în DNS →
+   verifică. Fără asta, TOATE emailurile de producție (rezervări noi, dunning,
+   comenzi Codvia, remindere) se pun în coadă dar NU pleacă.
+3. Interimar 5 min (până se propagă DNS-ul): în Netlify env,
+   `RECRUTARE_NOTIFY_EMAIL=georgeradu119@gmail.com`.
+
+**B. TOT AZI (~20 min) — cheile din dashboard-uri**
+4. Netlify env: `PLATFORM_OPENAI_KEY` (fără ea, importul AI din poze —
+   argumentul #1 de onboarding — e mort) + `SLACK_WEBHOOK_URL` (alerte).
+5. GitHub → Settings → Secrets: `SUPABASE_DB_URL` + `BACKUP_PASSPHRASE`
+   (armează backup-ul zilnic criptat din db-backup.yml).
+6. Supabase: Authentication → Password → **Leaked password protection ON**;
+   contul tău → înrolează **TOTP** (MfaCard din Setări → Cont).
+7. UptimeRobot gratuit pe `https://menuvia.netlify.app/health` la 5 min.
+
+**C. SĂPTĂMÂNA ASTA (~3 ore de muncă)**
+8. **Testul uman pe telefon** (singurul lucru pe care nu-l pot face eu):
+   scan QR → comandă cu opțiuni → cere nota cu tips; `/rezervare/<slug>` →
+   rezervare reală → emailul de notificare sosește; import AI din 2 poze;
+   `/founder` → „Intră pe cont" + refresh.
+9. **Telefon EconMedia (0772 179 309)** — un apel închide 4 necunoscute ale
+   pilotului fiscal (pricing, idempotență BonLocal, ST^, casă demo).
+10. **Supabase Pro** (~$25/lună) ÎNAINTE de pilotul fiscal — PITR e
+    asigurarea datelor cu retenție legală de 10 ani.
+
+**D. PORNITE ACUM, GATA ÎN SĂPTĂMÂNI (lead-time, nu efort)**
+11. **SRL** (ONRC, ~5 zile lucrătoare, <1.000 lei) → cont bancar → Stripe pe
+    firmă → SPV/e-Factura → cont Oblio. Fără firmă nu se poate încasa legal
+    niciun abonament. Draft-urile legale te așteaptă în `menuvia-pack/02..06`
+    — dă-le unui avocat împreună cu datele firmei.
+
+**E. DUPĂ TOATE DE MAI SUS** — pașii VPS de mai jos (serverul devine necesar
+abia când factura de funcții Netlify crește — vezi GO_LIVE Faza 4; NU e
+primul pas, oricât de detaliat e descris în continuare).
 
 ---
 

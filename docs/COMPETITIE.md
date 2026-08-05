@@ -133,3 +133,36 @@ Internațional: [me&u](https://www.meandu.com/us) · [me&u smart suggestions](ht
 [Qerko](https://www.qerko.com/eng/home) · [Qerko pricing](https://www.qerko.com/eng/pricing) ·
 [Bopple pricing](https://www.bopple.com/pricing) · [Orda](https://www.getorda.com/) ·
 [Curate instant apps](https://www.restaurantbusinessonline.com/technology/restaurant-app-you-dont-have-download-investors-say-sign-me)
+
+---
+
+## Actualizare — august 2026 (corectează secțiunile de mai sus)
+
+> Documentul de mai sus e din iulie și a rămas în urmă față de cod. Auditul
+> din august a cerut explicit re-alinierea — fără ea, prioritizările viitoare
+> ar realoca efort pe lucruri DEJA livrate.
+
+**Livrate între timp (iulie–august), marcate mai sus ca lipsă:**
+- **Split pe itemi + tichete de masă** (mig 229–231) — „tripleta" pe care
+  n-o are nimeni din tabel.
+- **Tips-intent la cererea notei** (mig 223) + plata online la masă completă.
+- **Loyalty v1** (mig 226) — taie argumentul TapTasty/Qerko.
+- **Traduceri în 7 limbi** cu AI + chrome pe limba aleasă (mig 197+).
+- **Rezervări complete**: hartă „ca la cinema", auto-confirmare race-safe,
+  no-show automat, remindere email/SMS, **notificare owner la rezervare
+  nouă** (mig 254/255) și pagina publică `/rezervare/:slug` pentru butonul
+  Google Business — direct competitiv cu rezervările MeniuDigital.
+- **Import AI multi-poză cu categorii** — 4 pagini de meniu într-un apel.
+- **Produse noi**: „Menuvia Rezervări" (wedge 0% comision, Start gratuit
+  nelimitat / Automate 99 lei) și **Codvia** (suporturi QR fizice, /codvia) —
+  niciun concurent din tabel nu vinde standul cu QR-ul meniului pre-tipărit.
+
+**Rămase reale (nu le nega în pitch):** fără delivery/agregatoare
+(Glovo/Tazz/Bolt — Horeka și Choice QR au), fără app nativă branded și kiosk
+(TapTasty), pilotul fiscal încă nepornit (badge-ul „Pilot" pe planul de 499
+e o promisiune până la primul bon tipărit pe casă reală).
+
+**Unghiul de vânzare actualizat**: MeniuDigital vinde meniu cu rezervări la
+~83 lei; noi vindem la 99 lei meniul + rezervările CU buton pe Google, SMS-uri
+incluse și drum spre comenzi/fiscalizare — iar la 0 lei dăm rezervări
+nelimitate fără comision, ceea ce nici TheFork, nici MeniuDigital nu oferă.
