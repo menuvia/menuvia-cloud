@@ -47,6 +47,8 @@ import {
   type AdminAuditRow,
 } from '../lib/founder'
 
+import FounderActivationCard from '../components/FounderActivationCard'
+
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 
 type Section = 'overview' | 'restaurante' | 'benchmark' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
@@ -611,6 +613,9 @@ function OverviewSection({ onGoTo }: { onGoTo: (s: Section) => void }) {
           ))}
         </div>
       </div>
+
+      {/* Funelul de activare (audit aug 2026) — semnup → meniu → prima comandă. */}
+      <FounderActivationCard />
     </div>
   )
 }
