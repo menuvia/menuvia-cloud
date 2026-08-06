@@ -48,15 +48,18 @@ exports.handler = async () => {
 
     const ids = (restaurants || []).map((r) => r.id)
     // Modulul reservations per restaurant — /rezervare/:slug intră în sitemap
-    // DOAR unde e pornit.
+    // DOAR unde e pornit. .in() se face în FELII de 200 (audit aug 2026: cu
+    // mii de UUID-uri, un singur .in() depășește limita de lungime a URL-ului
+    // PostgREST și pica tăcut pe fail-open, golind paginile de rezervare).
     const withReservations = new Set()
-    if (ids.length > 0) {
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200)
       const { data: mods } = await supabase
         .from('restaurant_modules')
         .select('restaurant_id')
         .eq('module_key', 'reservations')
         .eq('enabled', true)
-        .in('restaurant_id', ids)
+        .in('restaurant_id', chunk)
       for (const m of mods || []) withReservations.add(m.restaurant_id)
     }
 

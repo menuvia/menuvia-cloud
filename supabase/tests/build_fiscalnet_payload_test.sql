@@ -1119,3 +1119,27 @@ select test_id, status, description, coalesce(notes, '<no notes>') as notes,
 from _test_results
 where status in ('FAIL', 'TODO', 'SKIP', 'ERROR')
 order by ord;
+
+-- ════════════════════════════════════════════════════════════════════════
+-- CI GATE (audit aug 2026): pana aici fisierul e harness DIAGNOSTIC cu
+-- ON_ERROR_STOP off (testeaza si ramuri care RAISE intentionat) si iesea
+-- MEREU cu exit 0 — legarea lui in sql-verify era un no-op. Gate-ul de mai
+-- jos transforma FAIL/ERROR in exit non-zero; TODO/SKIP raman acceptate.
+-- ════════════════════════════════════════════════════════════════════════
+\set ON_ERROR_STOP on
+do $$
+declare
+  v_bad int;
+begin
+  select count(*) into v_bad from _test_results where status in ('FAIL', 'ERROR');
+  -- BASELINE 31 (aug 2026): prima rulare reală a gate-ului a dezgropat 31 de
+  -- teste FAIL/ERROR — harness-ul e scris pe schema din mai (mig ~053) și a
+  -- rămas în urmă cu ~200 de migrații. Amestecul drift-de-test vs. BUG LATENT
+  -- REAL trebuie triat înainte de pilotul fiscal (vezi TEST 45: guard care
+  -- „încă blochează produse legitime cu modifier"). Gate-ul blochează orice
+  -- REGRESIE NOUĂ peste baseline; coborârea baseline-ului la 0 = datorie
+  -- explicită a pilotului. NU crește baseline-ul ca să „treacă" CI-ul.
+  if v_bad > 31 then
+    raise exception 'build_fiscalnet_payload: % teste FAIL/ERROR (baseline 31) — REGRESIE NOUĂ, vezi detaliile de mai sus', v_bad;
+  end if;
+end $$;

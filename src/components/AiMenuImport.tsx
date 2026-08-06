@@ -126,8 +126,15 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
   }
 
   async function handleFiles(fileList: FileList) {
-    const files = Array.from(fileList).slice(0, MAX_PHOTOS)
+    const files = Array.from(fileList)
     if (files.length === 0) return
+    // FĂRĂ slice tăcut (audit aug 2026): la 6 pagini selectate, paginile 5-6
+    // dispăreau din import fără niciun mesaj — meniu publicat incomplet,
+    // nedetectabil de patron. Respingem explicit, cu instrucțiune.
+    if (files.length > MAX_PHOTOS) {
+      setError(`Poți încărca maximum ${MAX_PHOTOS} poze odată. Importă restul paginilor într-o a doua rundă — produsele se adaugă, nu se înlocuiesc.`)
+      return
+    }
     setError(null)
     setImportErrors([])
     setBusy(true)
@@ -164,7 +171,10 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
             'folosește EXACT același nume pentru toate produsele din aceeași secțiune; null dacă nu e clar.',
         },
       ]
-      const res = await aiMenuImport({ restaurant_id: restaurantId, messages: [{ role: 'user', content }], max_tokens: 4000 })
+      // 8000, nu 4000 (audit aug 2026): 4 pagini × ~40 produse × ~50 tokens
+      // per obiect JSON depășeau 4000 → output TRUNCAT mid-array → parseDrafts
+      // întorcea [] → mesajul FALS „nu am găsit produse", cu cota consumată.
+      const res = await aiMenuImport({ restaurant_id: restaurantId, messages: [{ role: 'user', content }], max_tokens: 8000 })
       const parsed = seedCategoryIds(parseDrafts(res.text))
       if (parsed.length === 0) {
         setError('Nu am găsit produse în poze. Încearcă poze mai clare.')

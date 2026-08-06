@@ -310,7 +310,11 @@ exports.handler = async (event) => {
   if ((event.body || '').length > 8 * 1024 * 1024) {
     return jsonResponse(400, { error: 'Payload too large (max 8MB)' })
   }
-  const maxTokens = Math.min(Math.max(parseInt(max_tokens, 10) || 1024, 1), 4096)
+  // Plafon 8192, nu 4096 (audit aug 2026): importul multi-poză (4 pagini de
+  // meniu) are output JSON de ~6-8k tokens — clamp-ul vechi îl TRUNCA
+  // mid-array și clientul vedea fals „nu am găsit produse". Estimatorul de
+  // cotă include deja maxTokens, deci costul e contabilizat corect.
+  const maxTokens = Math.min(Math.max(parseInt(max_tokens, 10) || 1024, 1), 8192)
 
   // ── Autorizare: owner/manager al restaurantului ────────────
   const { data: membership } = await supabase
