@@ -402,6 +402,10 @@ function formatDateTimeRo(iso) {
       weekday: 'long',
       day: 'numeric',
       month: 'long',
+      // Aceeași zonă ca ora (audit aug 2026): fără ea, pe Netlify (TZ=UTC) o
+      // rezervare de duminică 00:30 România apărea „sâmbătă … 00:30" — zi
+      // greșită cu oră corectă, exact combinația care păcălește owner-ul.
+      timeZone: 'Europe/Bucharest',
     })
     const time = d.toLocaleTimeString('ro-RO', {
       hour: '2-digit',

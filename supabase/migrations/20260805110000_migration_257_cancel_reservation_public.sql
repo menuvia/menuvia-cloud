@@ -43,11 +43,6 @@ begin
     return jsonb_build_object('ok', false, 'hint', 'invalid_code');
   end if;
 
-  -- Rate-limit per restaurant (slug), înaintea oricărei citiri utile.
-  if not public.check_rate_limit('cancel_reservation_public', v_slug, 15, 15) then
-    return jsonb_build_object('ok', false, 'hint', 'rate_limited');
-  end if;
-
   select r.id, r.name, r.owner_id
     into v_restaurant_id, v_rest_name, v_owner_id
     from public.restaurants r
@@ -55,6 +50,8 @@ begin
 
   if v_restaurant_id is null then
     -- Același răspuns ca la cod greșit — fără oracle de existență a slugului.
+    -- Consumă bucket-ul de încercări EȘUATE (vezi mai jos de ce doar eșuate).
+    perform public.check_rate_limit('cancel_reservation_public', v_slug, 30, 15);
     return jsonb_build_object('ok', false, 'hint', 'invalid_code');
   end if;
 
@@ -64,6 +61,14 @@ begin
      and upper(confirmation_code) = v_code;
 
   if v_res.id is null then
+    -- Rate-limit DOAR pe încercările cu cod INVALID (audit aug 2026): un
+    -- bucket unic pe slug, consumat și de anulările reușite, permitea un DoS
+    -- trivial — 15 POST-uri cu coduri aleatorii blocau TOȚI clienții
+    -- legitimi ai localului. Codul VALID e bearer token (16^8) — purtătorul
+    -- lui nu are nevoie de limită; brute-force-ul, da.
+    if not public.check_rate_limit('cancel_reservation_public', v_slug, 30, 15) then
+      return jsonb_build_object('ok', false, 'hint', 'rate_limited');
+    end if;
     return jsonb_build_object('ok', false, 'hint', 'invalid_code');
   end if;
 
@@ -71,9 +76,16 @@ begin
     return jsonb_build_object('ok', false, 'hint', 'not_cancellable');
   end if;
 
+  -- Predicat de status ÎN UPDATE (anti-TOCTOU, audit aug 2026): între SELECT
+  -- și UPDATE staff-ul poate marca 'seated' — fără predicat, clientul așezat
+  -- la masă era rescris în 'cancelled' și masa apărea fals liberă.
   update public.reservations
      set status = 'cancelled'
-   where id = v_res.id;
+   where id = v_res.id
+     and status in ('pending', 'confirmed');
+  if not found then
+    return jsonb_build_object('ok', false, 'hint', 'not_cancellable');
+  end if;
 
   -- Owner-ul află de anulare (perechea notificării din mig 255) — best-effort.
   begin

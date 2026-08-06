@@ -5,8 +5,11 @@ name: DB Backup
 # la Supabase Pro/PITR sau VPS-ul cu deploy/backup-db.sh).
 #
 # INERT fără secrets (ca deploy-vps.yml): cere
-#   SUPABASE_DB_URL     — connection string-ul Postgres (Supabase → Settings →
-#                         Database → Connection string, URI, cu parola)
+#   SUPABASE_DB_URL     — folosește URI-ul de la „Session pooler" (Supabase →
+#                         Connect → Session pooler), NU hostul direct
+#                         db.*.supabase.co: pe free tier hostul direct e
+#                         IPv6-only, iar runnerii GitHub nu au IPv6 → timeout
+#                         (audit aug 2026).
 #   BACKUP_PASSPHRASE   — parolă lungă aleatoare pentru criptare
 #
 # SECURITATE: repo-ul e PUBLIC, iar artefactele GitHub pot fi descărcate de
@@ -42,11 +45,20 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Instalează clientul Postgres
+      - name: Instalează clientul Postgres 17 (PGDG)
         if: steps.gate.outputs.enabled == 'true'
+        # apt-ul din ubuntu-latest dă clientul 16, iar Supabase rulează PG 17 →
+        # pg_dump avortează cu „server version mismatch" (audit aug 2026).
+        # Repo-ul PGDG dă clientul potrivit cu serverul.
         run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | \
+            sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
-          sudo apt-get install -y -qq postgresql-client
+          sudo apt-get install -y -qq postgresql-client-17
 
       - name: pg_dump + criptare
         if: steps.gate.outputs.enabled == 'true'
