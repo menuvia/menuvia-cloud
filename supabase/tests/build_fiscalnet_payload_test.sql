@@ -61,6 +61,11 @@ declare
 begin
   -- Owner placeholder
   insert into auth.users(id, email) values (gen_random_uuid(), v_slug || '@test') returning id into v_owner_id;
+  -- DRIFT FIX (triaj aug 2026): harness-ul e din mai; gate-ul de plan pe
+  -- comenzi (adăugat ulterior) respingea INSERT-urile pe planul implicit
+  -- free — majoritatea celor 31 de FAIL/ERROR din baseline veneau de aici,
+  -- nu din lanțul fiscal. Enterprise = aceeași soluție ca seed-ul E2E.
+  update public.profiles set plan = 'enterprise' where id = v_owner_id;
   insert into public.restaurants(id, owner_id, name, slug) values (v_restaurant_id, v_owner_id, 'Test', v_slug);
   -- Trigger create_vat_rates_trigger a creat deja vat_rates. Forțăm mapare 1:1
   -- vat_group → fiscalnet_group ca să fie predictibil în tests.
@@ -1132,14 +1137,13 @@ declare
   v_bad int;
 begin
   select count(*) into v_bad from _test_results where status in ('FAIL', 'ERROR');
-  -- BASELINE 31 (aug 2026): prima rulare reală a gate-ului a dezgropat 31 de
-  -- teste FAIL/ERROR — harness-ul e scris pe schema din mai (mig ~053) și a
-  -- rămas în urmă cu ~200 de migrații. Amestecul drift-de-test vs. BUG LATENT
-  -- REAL trebuie triat înainte de pilotul fiscal (vezi TEST 45: guard care
-  -- „încă blochează produse legitime cu modifier"). Gate-ul blochează orice
-  -- REGRESIE NOUĂ peste baseline; coborârea baseline-ului la 0 = datorie
-  -- explicită a pilotului. NU crește baseline-ul ca să „treacă" CI-ul.
-  if v_bad > 31 then
-    raise exception 'build_fiscalnet_payload: % teste FAIL/ERROR (baseline 31) — REGRESIE NOUĂ, vezi detaliile de mai sus', v_bad;
+  -- BASELINE 0 (triaj aug 2026): cele 31 de FAIL/ERROR inițiale erau TOATE
+  -- același drift — gate-ul de plan pe comenzi (post-mai) respingea fixture-ul
+  -- pe planul free; fixat în mk_restaurant (plan enterprise, ca seed-ul E2E).
+  -- Niciun bug latent în lanțul fiscal printre ele. Gate-ul e acum STRICT:
+  -- orice FAIL/ERROR blochează CI-ul. SKIP/TODO rămân tolerate (marcaje
+  -- deliberate ale harness-ului, nu eșecuri).
+  if v_bad > 0 then
+    raise exception 'build_fiscalnet_payload: % teste FAIL/ERROR — vezi detaliile de mai sus', v_bad;
   end if;
 end $$;
