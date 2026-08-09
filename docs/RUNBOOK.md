@@ -315,3 +315,47 @@ Rulează **înainte** de a pleca (>1 săptămână). Durează ~15 min.
 - Email queue claim: `…_migration_162_email_queue_atomic_claim.sql`, `…_migration_167_email_queue_reclaim_stale.sql`
 - GDPR: `…_migration_042_gdpr_rpcs.sql`, `…_migration_055_fix_user_delete_cascade.sql`
 - Oblio: `…_migration_041_oblio_invoices.sql`
+
+---
+
+## ⚠️ Incident 2–9 august 2026: cron mort 7 zile, nesesizat
+
+**Ce s-a întâmplat.** `automation-cron` a încetat să ruleze pe **2 august, 19:30 UTC**
+(ultima scriere în `customer_health_scores`, job care rulează la 30 de minute).
+Descoperit abia pe 9 august, prin interogarea directă a bazei de producție.
+
+**Ce a fost mort 7 zile** — toate joburile programate: procesarea cozii de
+emailuri, coada SMS, generarea facturilor Oblio, reminderele de rezervare,
+marcarea no-show, evenimentele de lifecycle (dunning), alertele Slack.
+
+**De ce nimeni n-a aflat — cauza structurală.** Singurul watchdog
+(`send-health-slack-alerts`) e EL ÎNSUȘI o funcție programată: o cădere de cron
+îl omoară exact pe el. **Monitorul trăia în interiorul lucrului monitorizat.**
+Secundar: `SLACK_WEBHOOK_URL` probabil nesetat, deci canalul de alertă era oricum mut.
+
+**Impact real:** zero (0 clienți, 0 comenzi în 30 de zile). **Impact dacă
+exista un client:** facturile lui fiscale nu s-ar fi generat, tăcut.
+
+**Diagnostic (verificat):** RPC-ul `compute_health_scores()` chemat direct pe
+prod funcționează perfect (5 rânduri) → **nu e problemă de DB, ci de execuție a
+cron-ului Netlify** (cont Free). Cauza exactă pe partea Netlify NU a fost
+determinată din afară — de verificat în dashboard.
+
+**Fix aplicat în cod.** `/health` verifică acum ȘI prospețimea cron-ului
+(`cron: ok | stale | unknown`, prag 2h) și întoarce **503** când e `stale`.
+Un monitor extern (UptimeRobot) care lovește `/health` prinde de acum automat
+o cădere de cron — monitorizare din AFARĂ, nu dinăuntru.
+
+### Ce trebuie făcut manual (fondator)
+
+1. **Netlify → Functions → Logs** pe `automation-cron`: vezi de ce s-a oprit
+   (limită de plan Free? eroare la boot? funcție dezactivată?).
+2. Dacă e limită de invocări: cron-urile consumă ~50k invocări/lună la trafic
+   zero (vezi GO_LIVE Faza 4) → fie plan plătit, fie mutarea cron-urilor pe
+   VPS-ul din `deploy/` (shim-ul e gata), fie rărirea lor.
+3. **UptimeRobot** (gratuit, 5 min) pe `https://<domeniu>/health` — de acum
+   alertează și la cron mort, nu doar la DB căzut.
+4. `SLACK_WEBHOOK_URL` în env — al doilea canal de alertă.
+5. Verifică `lifecycle_events`: 3 evenimente din **iunie** sunt încă
+   neprocesate (`processed_at is null`) — breșă separată, mai veche decât
+   incidentul de cron.
