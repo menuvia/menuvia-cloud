@@ -12,8 +12,20 @@
 // lent/blocat să nu țină cererea agățată — monitorul primește 503 rapid.
 //
 // Răspuns:
-//   200 { status: 'ok',       checks: { db: 'ok'   }, config, ts }  → DB răspunde
-//   503 { status: 'degraded', checks: { db: 'down' }, config, ts }  → DB cade / lipsă env
+//   200 { status: 'ok',       checks: { db: 'ok',   cron: 'ok'    }, ... }
+//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' }, ... }
+//
+// ── De ce verificăm ȘI cron-ul aici (incident 2–9 august 2026) ──────────────
+// automation-cron a încetat să ruleze pe 2 august 19:30 și NIMENI n-a aflat
+// timp de 7 zile: emailuri, SMS-uri, facturi Oblio, remindere de rezervare,
+// no-show — toată automatizarea a fost moartă în tăcere. Cauza structurală a
+// invizibilității: singurul watchdog (send-health-slack-alerts) e EL ÎNSUȘI o
+// funcție programată, deci o cădere de cron îl omoară exact pe el. Monitorul
+// nu are voie să trăiască în interiorul lucrului monitorizat.
+// Fix: /health (endpoint HTTP, lovit din AFARĂ de UptimeRobot) raportează
+// prospețimea ultimei rulări de cron. `customer_health_scores.computed_at` e
+// proxy-ul: compute_health_scores rulează la fiecare 30 de minute din
+// automation-cron, deci o vechime > 2h înseamnă cron căzut → 503 → alertă.
 //
 // Blocul `config` = booleeni de PREZENȚĂ a env-urilor critice (NICIODATĂ valori) —
 // founderul vede rapid dacă un secret a fost revocat/lipsă (finding audit:
@@ -28,6 +40,11 @@ const { createClient } = require('@supabase/supabase-js')
 // Timeout defensiv pe ping-ul DB (ms). Un DB blocat nu ține cererea agățată —
 // monitorul extern trebuie să primească un 503 rapid, nu un timeout de gateway.
 const DB_PING_TIMEOUT_MS = 4000
+
+// Cât de veche poate fi ultima rulare de cron înainte s-o considerăm căzută.
+// compute_health_scores rulează la 30 de minute (automation-cron, Job 2) →
+// 2h e de 4× marja normală: fără fals-pozitive la un deploy sau un tick ratat.
+const CRON_STALE_HOURS = 2
 
 function jsonResponse(statusCode, body) {
   return {
@@ -110,9 +127,43 @@ exports.handler = async (event) => {
     clearTimeout(timer)
   }
 
-  return jsonResponse(dbOk ? 200 : 503, {
-    status: dbOk ? 'ok' : 'degraded',
-    checks: { db: dbOk ? 'ok' : 'down' },
+  // ── Prospețimea cron-ului ────────────────────────────────────────────────
+  // Doar dacă DB-ul răspunde (altfel n-avem de unde citi). 'unknown' pe DB
+  // căzut sau pe instalare nouă fără niciun scor calculat încă — NU declanșăm
+  // alarmă falsă pe un proiect gol; doar o vechime REALĂ peste prag e 'stale'.
+  let cron = 'unknown'
+  let cronLastRun = null
+  if (dbOk) {
+    const cronController = new AbortController()
+    const cronTimer = setTimeout(() => cronController.abort(), DB_PING_TIMEOUT_MS)
+    try {
+      const { data, error } = await supabase
+        .from('customer_health_scores')
+        .select('computed_at')
+        .order('computed_at', { ascending: false })
+        .limit(1)
+        .abortSignal(cronController.signal)
+      if (error) throw new Error(error.message)
+      const last = data && data[0] && data[0].computed_at
+      if (last) {
+        cronLastRun = last
+        const ageHours = (Date.now() - new Date(last).getTime()) / 3_600_000
+        cron = ageHours > CRON_STALE_HOURS ? 'stale' : 'ok'
+      }
+    } catch (e) {
+      // Eșecul verificării NU trebuie să dea fals-pozitiv „cron mort":
+      // rămâne 'unknown' și nu influențează codul de status.
+      console.error('[health] cron freshness check failed:', e.message)
+    } finally {
+      clearTimeout(cronTimer)
+    }
+  }
+
+  const healthy = dbOk && cron !== 'stale'
+  return jsonResponse(healthy ? 200 : 503, {
+    status: healthy ? 'ok' : 'degraded',
+    checks: { db: dbOk ? 'ok' : 'down', cron },
+    cron_last_run: cronLastRun,
     config,
     ts,
   })
