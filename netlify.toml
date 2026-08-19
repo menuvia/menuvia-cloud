@@ -29,7 +29,17 @@
   node_bundler = "esbuild"
 
 # ── Scheduled functions (cron) ─────────────────────────────────
-# Every 5 min: process queued emails
+# BUGET DE INVOCĂRI (incident aug 2026: cron-urile au fost suspendate de
+# Netlify pe planul Free — vezi postmortem în docs/RUNBOOK.md). Cu zero
+# clienți, fiecare tick pe o coadă goală costă cotă degeaba. Programările de
+# mai jos sunt REGIMUL DE AVARIE (~20k invocări/lună, era ~49k); fiecare
+# funcție are notat în comentariu pragul la care se accelerează înapoi.
+# ATENȚIE: automation-cron NU se rărește sub */15 — gate-urile interne
+# (ferestre `minute < 15`, cleanup zilnic la 03:15-03:30) presupun tick la
+# 15 min; la */30 jobul de cleanup nu s-ar mai declanșa NICIODATĂ.
+
+# La 5 min: process queued emails. Rămâne la 5 min — e coada operațională
+# (notificarea de rezervare nouă către owner trebuie să ajungă repede).
 [functions."process-email-queue"]
   schedule = "*/5 * * * *"
 
@@ -37,27 +47,35 @@
 [functions."automation-cron"]
   schedule = "*/15 * * * *"
 
-# Every 2 min: process Oblio invoice queue
+# La 15 min: process Oblio invoice queue. Era la 2 min (21.600 invocări/lună —
+# 44% din tot bugetul) pentru o coadă care n-a avut NICIODATĂ un rând real
+# (zero clienți plătitori, Stripe n-a procesat nimic). Factura Oblio emisă la
+# 15 min după invoice.paid rămâne „în aceeași zi" fiscal. La primul client
+# plătitor: coboară la "*/5 * * * *".
 [functions."oblio-generator"]
-  schedule = "*/2 * * * *"
+  schedule = "*/15 * * * *"
 
-# Every 10 min: claim reservation reminders + enqueue în email_queue
+# La 30 min: claim reservation reminders + enqueue în email_queue. Reminderele
+# au lead time de ORE înaintea rezervării — granularitatea de 30 min mută
+# trimiterea cu max. 30 min, imperceptibil. La volum real de rezervări:
+# înapoi la "*/10 * * * *".
 [functions."send-reservation-reminders"]
-  schedule = "*/10 * * * *"
+  schedule = "*/30 * * * *"
 
-# La 5 min după compute_health_scores (rulează prin automation-cron la
-# :00/:15/:30/:45): atomic-claim scoruri critice → POST Slack webhook.
-# Skip silent dacă SLACK_WEBHOOK_URL nu e setat.
+# La 5 min după compute_health_scores (rulează prin automation-cron DOAR la
+# :00/:30 — gate-ul intern e pe 30 min, nu pe 15): atomic-claim scoruri
+# critice → POST Slack webhook. Tick-urile de la :20/:50 erau no-op garantat
+# (niciun scor nou de la :05/:35) — tăiate. Skip silent dacă
+# SLACK_WEBHOOK_URL nu e setat.
 [functions."send-health-slack-alerts"]
-  schedule = "5,20,35,50 * * * *"
+  schedule = "5,35 * * * *"
 
-# La 5 min: process queued SMS (mig 228). Era la 1 min, dar auditul de infra
-# (aug 2026) a arătat că tick-ul „ieftin" costă COTĂ: 43.200 invocări/lună —
-# peste o treime din free tier-ul Netlify — pentru o coadă goală (zero clienți
-# SMS). La primul client cu SMS activ, „pickup gata" redevine time-sensitive:
-# coboară înapoi la "* * * * *" (o linie).
+# La 15 min: process queued SMS (mig 228). Era la 1 min, apoi 5 min — auditul
+# de infra (aug 2026) a arătat că tick-ul „ieftin" costă COTĂ pentru o coadă
+# goală (zero clienți SMS). La primul client cu SMS activ, „pickup gata"
+# redevine time-sensitive: coboară înapoi la "* * * * *" (o linie).
 [functions."process-sms-queue"]
-  schedule = "*/5 * * * *"
+  schedule = "*/15 * * * *"
 
 # Security headers — A+ grade on securityheaders.com
 [[headers]]
