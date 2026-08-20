@@ -31,7 +31,7 @@ function belongsInView(order: Order, view: 'kitchen' | 'waiter'): boolean {
 // embed-ul table), păstrăm obiectul VECHI ca referința să nu se schimbe.
 // Dacă totul e identic și ordinea/lungimea coincid, întoarcem chiar array-ul
 // vechi → setState devine no-op și nimic nu se re-randează.
-function reconcileOrders(prev: Order[], next: Order[]): Order[] {
+export function reconcileOrders(prev: Order[], next: Order[]): Order[] {
   const byId = new Map(prev.map((o) => [o.id, o]))
   let allSame = prev.length === next.length
   const merged = next.map((n, i) => {
@@ -70,7 +70,7 @@ function rtNum(v: unknown): number | null {
 // fast-path-ul de merge din realtime: o editare de PRODUSE cu total identic (swap
 // la același preț) nu schimbă niciun câmp de status → nu e „tranziție" → refetch,
 // ca să nu rămână produse STALE pe Bucătărie/Ospătar (audit comenzi, MEDIUM).
-function isStatusTransition(existing: Order, row: Record<string, unknown>): boolean {
+export function isStatusTransition(existing: Order, row: Record<string, unknown>): boolean {
   const diff = (a: string | null, b: string | null) => (a ?? '') !== (b ?? '')
   return (
     diff(rtStr(row.status), existing.status) ||
@@ -85,7 +85,7 @@ function isStatusTransition(existing: Order, row: Record<string, unknown>): bool
   )
 }
 
-function mergeRealtimeOrder(existing: Order, row: Record<string, unknown>): Order {
+export function mergeRealtimeOrder(existing: Order, row: Record<string, unknown>): Order {
   return {
     ...existing,
     status: (rtStr(row.status) as OrderStatus | null) ?? existing.status,
