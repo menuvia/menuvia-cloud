@@ -222,6 +222,25 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   // vechi nu trebuie să afișeze venitul/raportul altui restaurant sau interval.
   const loadSeqRef = useRef(0)
   const load = useCallback(async () => {
+    // Cap-ul implicit PostgREST (max-rows) e 1000: un SELECT fără .range() se
+    // trunchia TĂCUT la 1000 de rânduri — un local cu >1000 comenzi/perioadă
+    // (~33/zi pe view-ul lunar) vedea venit și count-uri FALSE, fără nicio
+    // eroare (audit aug 2026). Paginăm explicit: pagini de 1000 până la prima
+    // pagină incompletă. Factory (nu builder reținut) — builderul supabase e
+    // one-shot; fiecare pagină cere un lanț nou cu .range() propriu.
+    const PG_PAGE = 1000
+    async function fetchAllPages<T>(
+      page: (lo: number, hi: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+    ): Promise<T[]> {
+      const all: T[] = []
+      for (let lo = 0; ; lo += PG_PAGE) {
+        const { data, error } = await page(lo, lo + PG_PAGE - 1)
+        if (error) throw error
+        const rows = data ?? []
+        all.push(...rows)
+        if (rows.length < PG_PAGE) return all
+      }
+    }
     const seq = ++loadSeqRef.current
     const range = periodRange(period, custom)
     setLoading(true)
@@ -238,40 +257,46 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // interogări INDEPENDENTE — le lansăm în paralel (−1 RTT serial la
       // fiecare schimbare de perioadă). Gating-ul monetar Plan 3 și
       // defense-in-depth pe coloane rămân IDENTICE.
-      const ordersP = supabase
-        .from('orders')
-        // Pe Plan 1/2 (fiscalReports=false) NU aducem coloanele monetare in browser
-        // (defense-in-depth: venit = Plan 3). Doar count-ul operational ramane.
-        .select(
-          fiscalReports
-            ? 'id, source, status, total, paid_amount, payment_method, created_at'
-            : 'id, source, status, created_at',
-        )
-        .eq('restaurant_id', restaurantId)
-        .neq('status', 'cancelled')
-        .gte('created_at', startISO)
-        .lte('created_at', endISO)
-        .order('created_at', { ascending: true })
+      // Paginat cu fetchAllPages (anti-trunchiere la 1000); `id` ca tiebreaker
+      // de ordine — paginarea PostgREST fără ordine total-deterministă poate
+      // sări/dubla rânduri la egalitate de created_at.
+      const ordersP = fetchAllPages((lo, hi) =>
+        supabase
+          .from('orders')
+          // Pe Plan 1/2 (fiscalReports=false) NU aducem coloanele monetare in browser
+          // (defense-in-depth: venit = Plan 3). Doar count-ul operational ramane.
+          .select(
+            fiscalReports
+              ? 'id, source, status, total, paid_amount, payment_method, created_at'
+              : 'id, source, status, created_at',
+          )
+          .eq('restaurant_id', restaurantId)
+          .neq('status', 'cancelled')
+          .gte('created_at', startISO)
+          .lte('created_at', endISO)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(lo, hi),
+      )
       // Venitul se calculează pe comenzile PLĂTITE, bucketate după `paid_at`
       // (momentul încasării), NU după created_at: o comandă creată ieri și plătită
       // azi trebuie să intre în venitul de azi. Query separat, mărginit pe paid_at.
       // Coloanele monetare rămân gate-uite pe Plan 3 (fiscalReports).
       const paidP = fiscalReports
-        ? supabase
-            .from('orders')
-            .select('id, total, paid_amount, payment_method, paid_at')
-            .eq('restaurant_id', restaurantId)
-            .eq('status', 'paid')
-            .gte('paid_at', startISO)
-            .lte('paid_at', endISO)
-            .order('paid_at', { ascending: true })
-        : Promise.resolve({ data: [], error: null })
-      const [{ data: ordersRaw, error: oErr }, { data: paidRaw, error: pErr }] = await Promise.all([
-        ordersP,
-        paidP,
-      ])
-      if (oErr) throw oErr
-      if (pErr) throw pErr
+        ? fetchAllPages((lo, hi) =>
+            supabase
+              .from('orders')
+              .select('id, total, paid_amount, payment_method, paid_at')
+              .eq('restaurant_id', restaurantId)
+              .eq('status', 'paid')
+              .gte('paid_at', startISO)
+              .lte('paid_at', endISO)
+              .order('paid_at', { ascending: true })
+              .order('id', { ascending: true })
+              .range(lo, hi),
+          )
+        : Promise.resolve([])
+      const [ordersRaw, paidRaw] = await Promise.all([ordersP, paidP])
 
       // `as unknown as` — select-ul condiționat (ternar) face ca tipul rândului dedus de
       // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
@@ -347,12 +372,22 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         for (let i = 0; i < orderIds.length; i += CHUNK) {
           idChunks.push(orderIds.slice(i, i + CHUNK))
         }
+        // Fiecare lot de 150 de comenzi poate avea >1000 de itemi (7+/comandă)
+        // → și loturile se paginează (fetchAllPages), altfel top-produse ar
+        // sub-număra tăcut pe perioade lungi. Ordine pe id = paginare stabilă.
         const itemResults = await Promise.all(
-          idChunks.map((ids) => supabase.from('order_items').select(cols).in('order_id', ids)),
+          idChunks.map((ids) =>
+            fetchAllPages((lo, hi) =>
+              supabase
+                .from('order_items')
+                .select(cols)
+                .in('order_id', ids)
+                .order('id', { ascending: true })
+                .range(lo, hi),
+            ),
+          ),
         )
-        const iErr = itemResults.find((r) => r.error)?.error
-        if (iErr) throw iErr
-        const items = itemResults.flatMap((r) => r.data ?? [])
+        const items = itemResults.flat()
 
         // Step C: aggregate on client
         const map = new Map<

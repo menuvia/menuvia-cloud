@@ -548,10 +548,11 @@ async function fetchMenuLayered(restaurantId: string): Promise<Category[]> {
       .eq('is_active', true)
       .order('display_order', { ascending: true }),
   ])
-  if (catRes.error) throw catRes.error
+  // PostgrestError brut nu trece de `instanceof Error` în UI (pattern orders.ts).
+  if (catRes.error) throw new Error(catRes.error.message)
   const categories = (catRes.data ?? []) as RawCategoryRow[]
   if (categories.length === 0) return []
-  if (prodRes.error) throw prodRes.error
+  if (prodRes.error) throw new Error(prodRes.error.message)
   const products = (prodRes.data ?? []) as RawProductRow[]
   if (products.length === 0) return categories.map((c) => ({ ...c, products: [] }))
 
@@ -579,7 +580,7 @@ async function fetchMenuLayered(restaurantId: string): Promise<Category[]> {
       .in('product_id', productIds)
       .order('display_order', { ascending: true }),
   ])
-  if (pmgRes.error) throw pmgRes.error
+  if (pmgRes.error) throw new Error(pmgRes.error.message)
   const pmgList = (pmgRes.data ?? []) as RawPmgRow[]
   const modifierGroupIds = [...new Set(pmgList.map((r) => r.modifier_group_id))]
   const extrasRows = extrasRes.data
@@ -605,9 +606,9 @@ async function fetchMenuLayered(restaurantId: string): Promise<Category[]> {
         .eq('is_available', true)
         .order('display_order', { ascending: true }),
     ])
-    if (mgRes.error) throw mgRes.error
+    if (mgRes.error) throw new Error(mgRes.error.message)
     modifierGroups = (mgRes.data ?? []) as RawModifierGroupRow[]
-    if (moRes.error) throw moRes.error
+    if (moRes.error) throw new Error(moRes.error.message)
     modifierOptions = (moRes.data ?? []) as RawModifierOptionRow[]
   }
 
@@ -818,6 +819,7 @@ export interface TableSessionResult {
 /** Deschide sau returnează sesiunea curentă a mesei. Apelat la scanarea QR. */
 export async function openTableSession(token: string): Promise<TableSessionResult> {
   const { data, error } = await supabase.rpc('open_table_session', { p_token: token })
-  if (error) throw error
+  // Error real, nu PostgrestError brut — callerii testează `instanceof Error`.
+  if (error) throw new Error(error.message)
   return data as TableSessionResult
 }

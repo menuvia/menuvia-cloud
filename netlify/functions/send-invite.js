@@ -20,7 +20,15 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
-  const { email, role, restaurant_id, restaurant_name, invited_by_name } = JSON.parse(event.body || '{}')
+  // Parse protejat (audit aug 2026): era SINGURA funcție cu JSON.parse
+  // neîmpachetat — un body malformat arunca SyntaxError neprins → 500 brut.
+  let payload
+  try {
+    payload = JSON.parse(event.body || '{}')
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }
+  }
+  const { email, role, restaurant_id, restaurant_name, invited_by_name } = payload
 
   if (!email || !role || !restaurant_id) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) }

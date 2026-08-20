@@ -16,6 +16,7 @@ import { playSound } from '../lib/utils'
 import { useInView, revealStyle } from '../lib/motion'
 import type { ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../components/ui/useToast'
 // OPT-10: sheet-urile/modalele condiționale sunt lazy (pattern QrMenuPage) —
 // ~2.000+ LOC amânate din chunk-ul inițial al paginii de ospătar. WaiterEntry
 // rămâne static (partajează ModifierSheet, folosit imediat la comanda nouă).
@@ -102,6 +103,10 @@ function SectionHeading({
 
 export default function WaiterPage() {
   const { user } = useAuth()
+  // Toast în loc de window.alert (audit aug 2026): alert() blochează întreg
+  // UI-ul pe cel mai operațional ecran — un ospătar cu tava în mână nu are ce
+  // face cu un dialog modal de sistem.
+  const toast = useToast()
   // FIX: use RestaurantContext — no more local membership query, supports multi-restaurant
   const {
     activeId: restaurantId,
@@ -330,9 +335,7 @@ export default function WaiterPage() {
       // Nu mai inghitim tacut o eroare pe o cale de bani (poate masca un refuz de gate / rol).
       console.error('[WaiterPage] plata partiala a esuat', err)
       const msg = err instanceof Error ? err.message : 'Eroare necunoscută'
-      window.alert(
-        `Plata nu a fost înregistrată: ${msg}. Verifică și reîncearcă.`,
-      )
+      toast.error(`Plata nu a fost înregistrată: ${msg}. Verifică și reîncearcă.`)
     }
     setSplitLoading(false)
   }
@@ -537,7 +540,7 @@ export default function WaiterPage() {
     if (ok) {
       setPayOrder(null)
     } else {
-      window.alert('Plata nu a fost înregistrată. Verifică și reîncearcă.')
+      toast.error('Plata nu a fost înregistrată. Verifică și reîncearcă.')
     }
   }
 
@@ -1127,7 +1130,7 @@ export default function WaiterPage() {
                               onClick={() => {
                                 if (!canSeat) return
                                 void seatReservation(r.id, pick).catch((e) =>
-                                  alert(e instanceof Error ? e.message : 'Eroare'),
+                                  toast.error(e instanceof Error ? e.message : 'Eroare'),
                                 )
                               }}
                               disabled={!canSeat}
@@ -1151,7 +1154,7 @@ export default function WaiterPage() {
                               onClick={() => {
                                 if (!confirm('Marchezi ca no-show?')) return
                                 void updateReservationStatus(r.id, 'no_show').catch((e) =>
-                                  alert(e instanceof Error ? e.message : 'Eroare'),
+                                  toast.error(e instanceof Error ? e.message : 'Eroare'),
                                 )
                               }}
                               style={{
