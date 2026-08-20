@@ -32,18 +32,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Verifică secrets (skip curat dacă lipsesc)
+      - name: Verifică secrets (EȘEC vizibil dacă lipsesc)
         id: gate
         env:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        # AUDIT AUG 2026: skip-ul „curat" era o asigurare FALSĂ — jobul zilnic
+        # raporta verde făcând nimic, pe o obligație de retenție fiscală de 10
+        # ani. Un secret lipsă/expirat = ZERO backup, invizibil. Acum jobul pică
+        # ROȘU cu instrucțiuni — roșul e semnalul, nu zgomotul: dispare exact
+        # când backup-ul chiar rulează.
         run: |
           if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
-            echo "Secrets lipsă (SUPABASE_DB_URL / BACKUP_PASSPHRASE) — backup sărit."
-            echo "enabled=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Backup IMPOSIBIL: secrets lipsă (SUPABASE_DB_URL și/sau BACKUP_PASSPHRASE)."
+            echo "::error::Setează-le în Settings → Secrets → Actions (vezi docs/RUNBOOK.md §Backup), altfel NU EXISTĂ NICIUN BACKUP al bazei de producție."
+            exit 1
           fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Instalează clientul Postgres 17 (PGDG)
         if: steps.gate.outputs.enabled == 'true'

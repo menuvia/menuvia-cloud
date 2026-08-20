@@ -53,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (204) — grupate pe „de ce", nu pe număr
+## Migrațiile (258) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -88,6 +88,17 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron 1 min) |
 | **Tichete de masă** | **230–231** + `tests/sql/meal_voucher_assertions.sql` | `payment_method += 'meal_voucher'` (enum în fișier separat, ca 202); add_partial_payment lanț 017→111→231 (staff înregistrează tichete, card_online rămâne interzis, gate-urile Plan 3 + rol neatinse); fiscalnet_payment_code lanț →231 (cod P 4 — de reconfirmat cu EconMedia, ca 7). Completează tripleta: bon + tichet bucătărie + tichet masă |
 | **Split pe itemi** | **229** + TP13–TP20 în `tests/sql/table_payment_assertions.sql` | `table_payment_items` (claims cu snapshot, fără FK pe order_items), `begin_split_payment`/`get_table_bill` service_role-only, settle lanț 203→207→211→229 (ramura `kind='split'` → order_payments `card_online`, paid la acoperirea totalului → UN bon fiscal) |
+| **No-show + remindere rezervări** | **233–234** + `tests/sql/reservation_noshow_assertions.sql` | `claim_reservation_reminders` lanț 057→215→234 (reclaim + AMBELE canale email/SMS); `auto_mark_reservation_no_show` (doar `confirmed`, grație ≥30 min, fereastră 48h anti-backfill); recidivist pe ultimele 9 cifre |
+| **MFA platform** | **235** + `tests/sql/mfa_platform_assertions.sql` | `is_platform_admin` lanț 168→235: cere `aal2` doar cu `mfa_enforced` (fail-open pe ne-înrolați); clichet anti-downgrade pe `set_my_mfa_enforced(false)` |
+| **White-label + benchmark founder** | **236–237** + `tests/sql/white_label_benchmark_assertions.sql` | branding pe `affiliates` (scris doar prin `admin_set_affiliate_branding`); `resolve_agency_branding` anon cu whitelist 2 câmpuri; `admin_monthly_benchmark` direct pe orders (bani NULL fără fiscal) |
+| Fiscal Q4 | 238–239 + `tests/sql/fiscal_q4_assertions.sql` | `vat_report_daily` cu factorul de discount al comenzii (238); `oblio_reclaim_stale_generating` — facturi agățate în `generating` → failed AMBIGUU, fără requeue (239) |
+| Securitate Q4 | 240 + `tests/sql/security_q4_assertions.sql` | `trg_enforce_order_table_tenant` și pe UPDATE; `bridge_devices` fără politica `members read` (device_secret ascuns de non-admini) |
+| Ziua de serviciu rezervări | 241 + `tests/sql/reservation_service_day_assertions.sql` | pe program wrap-around, slotul post-miezul-nopții se validează pe open_days-ul zilei PRECEDENTE |
+| **Sweep hardening + perf Q4** | **243–248** + LH1–LH7, SS1–SS5 | 243: re-asserții pe TOATE invariantele advance_order/register_affiliate + revoke anon; 244/247: indexuri cu analiză per-query + heartbeat bridge condiționat; 245/246: RPC-urile compuse de meniu (1 RTT pe scanare) + availability sargabil; 248: subtotal per-STATEMENT (3 triggere cu transition tables) |
+| PII + stoc corect | 249–252 + SD1–SD4, PC1–PC3 | `affiliates` SELECT own-row (249); stoc dedus la `paid`/`closed` cu claim idempotent DB + backfill (250/252); WAC robust pe stoc negativ în `receive_purchase_order` (251) |
+| Analytics semi-join + meniu liniar | 253 + `tests/sql/menu_rpc_assertions.sql` | gate-ul fiscal ca SEMI-JOIN în cele 4 view-uri (43–197× măsurat); toate agregările meniului liniare, ieșire byte-identică |
+| **Notificări + anulare publică rezervări** | **254–257** + RN1–RN3, RC1–RC4 | email către owner la rezervare nouă (trigger exception-wrapped, fără gate de plan); `cancel_reservation_by_code` anon, anti-oracle, rate-limited; UI `/rezervare/:slug?cancel=COD` |
+| **Hardening audit aug 2026** | **258** + SH1–SH5 în `tests/sql/security_hardening_258_assertions.sql` | plafon supra-încasare în `add_partial_payment` (lanț →258, paritate advance_order); rate-limit anti-enumerare pe `get_loyalty_state` (40/5min per token, STABLE→VOLATILE); RLS deny-all pe `security_ownership_remediations`; invariantul is_platform_admin înghețat |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 
@@ -125,7 +136,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
-1. **Frontend-ul de PROD e în urmă (actualizat 2026-07-04)** — DB-ul de producție e LA ZI (migrațiile 172–195 aplicate pe 3 iulie + 197–201 pe 4 iulie + 202–204 (plata online) pe 6 iulie prin MCP, cu markeri verificați: `products.translations`, `create_reservation_public` 10-arg + wrap-around, gate modul pe RPC-urile de hartă), dar frontend-ul de prod e ÎNCĂ din 30 iunie: build-urile de producție Netlify NU se declanșează la push pe main. **Nimic din valurile UX/corectitudine/multilingv/rezervări-cu-hartă din 4 iulie (#154–#166) nu e vizibil live până la deploy.** Fix: Trigger deploy pe main + deblocarea auto-build-urilor. De setat și: `PLATFORM_OPENAI_KEY` în Netlify env (AI implicit) + Supabase Auth → leaked password protection (advisor).
+1. **Automatizarea serverless e SUSPENDATĂ la nivel de cont Netlify (actualizat 2026-08-20)** — cron-urile sunt moarte din 2 aug (de două ori câte 7+ zile nedetectat; postmortem în `docs/RUNBOOK.md`), un deploy proaspăt NU le reînvie, `/health` există dar nu e monitorizat de nimeni (UptimeRobot neinstalat; stopgap: `.github/workflows/health-watch.yml`). Fix-urile care NU se pot face din cod: cauza în Netlify → Billing/Usage, plan plătit sau mutarea pe VPS (`deploy/` e gata), UptimeRobot pe `/health`, `PLATFORM_OPENAI_KEY` în env (importul AI n-a funcționat NICIODATĂ live), leaked password protection ON, MFA înrolat pe cele 2 conturi founder. Detaliile și ordinea: `docs/PLAN_0_TO_HERO.md` Blocurile 0–2.
 2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
 3. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
 4. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).

@@ -54,9 +54,14 @@ Un tick ratat de Netlify nu produce dubluri și, în general, se recuperează la
 | `automation-cron` → NPS | zilnic `10:00` Buc | ✅ (`dedup_key` lifetime) | ⚠️ o zi | NPS ratat ziua aia (dar dedup lifetime → nu se pierde userul) |
 | `automation-cron` → daily report | zilnic `08:00` Buc | ✅ (`dedup_key` = ziua) | ⚠️ o zi | Raport zilnic ratat |
 | `automation-cron` → weekly report | Vineri `18:00` | ✅ (`dedup_key` = data) | ⚠️ o săptămână | Raport săptămânal ratat |
-| `oblio-generator` | `*/2 * * * *` | ✅ (`bridge_oblio_get_queued` claim + retry ≤3) | ✅ | Facturi întârziate max 2 min |
-| `send-reservation-reminders` | `*/10 * * * *` | ✅ (claim + enqueue în `email_queue`) | ✅ | Reminder întârziat max 10 min |
-| `send-health-slack-alerts` | `5,20,35,50 * * * *` | ✅ (`claim_pending_slack_alerts`, re-alert după 24h) | ✅ (reset pe POST eșuat) | Alertă Slack întârziată 15 min |
+| `oblio-generator` | `*/15 * * * *` (regim de avarie aug 2026; era `*/2`) | ✅ (`bridge_oblio_get_queued` claim + retry ≤3) | ✅ | Facturi întârziate max 15 min |
+| `send-reservation-reminders` | `*/30 * * * *` (regim de avarie; era `*/10`) | ✅ (claim + enqueue în `email_queue`) | ✅ | Reminder întârziat max 30 min |
+| `send-health-slack-alerts` | `5,35 * * * *` (scorurile se calculează doar la :00/:30) | ✅ (`claim_pending_slack_alerts`, re-alert după 24h) | ✅ (reset pe POST eșuat) | Alertă Slack întârziată 30 min |
+| `process-sms-queue` | `*/15 * * * *` (regim de avarie; la primul client SMS → `* * * * *`) | ✅ (claim atomic; SMSO fără Idempotency-Key → dublu-send rezidual) | ✅ | SMS întârziat max 15 min |
+
+> **Sursa unică a schedule-urilor e `netlify.toml`** (o citește și shim-ul VPS).
+> Tabelul de mai sus se actualizează în ACELAȘI commit cu orice schimbare acolo —
+> un runbook care minte pe cron-uri se citește exact în timpul incidentului.
 
 > **Notă catch-up payout:** fereastra largă (zilele 1–2 ale lunii, înainte de 06:00) +
 > `existence-check` pe `period_month` garantează că batch-ul rulează o **singură** dată

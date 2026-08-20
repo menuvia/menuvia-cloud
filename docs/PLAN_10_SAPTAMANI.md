@@ -1,5 +1,10 @@
 # MENUVIA — PLANUL PE 10 SĂPTĂMÂNI (15 iulie → 22 septembrie 2026)
 
+> ⚠️ **SUPERSEDED (20 aug 2026):** planul de execuție UNIC și curent e
+> [`PLAN_0_TO_HERO.md`](PLAN_0_TO_HERO.md) — ancorat în datele reale de
+> producție. Documentul de mai jos rămâne DOAR context istoric; nu executa
+> pași de aici fără să verifici întâi acolo.
+
 > Scris pe starea reală din 15 iulie: codul e la mig 229 (PR #188, totul verde,
 > review-uit adversarial), prod DB la mig 214, frontend-ul de prod din 30 iunie,
 > GitHub Actions mort pe cotă. Diagnosticul din PLAN_10 rămâne valabil:

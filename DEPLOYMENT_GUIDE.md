@@ -11,7 +11,7 @@ Supabase (Postgres + Auth + Realtime + Storage)
     ↓ Email
 Resend (invite + welcome emails)
     ↓ AI
-Anthropic API (import meniu din foto)
+OpenAI API — PLATFORM_OPENAI_KEY (import meniu din foto; ghidul vechi zicea greșit „Anthropic")
 ```
 
 ---
