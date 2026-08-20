@@ -101,7 +101,26 @@ function parseDrafts(text: string): DraftProduct[] {
     }))
 }
 
-export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: string; onClose: () => void }) {
+export default function AiMenuImport({
+  restaurantId,
+  onClose,
+  onImported,
+  onFallbackCsv,
+  onFallbackManual,
+}: {
+  restaurantId: string
+  onClose: () => void
+  // Notificare la import reușit (nr. produse salvate) — onboarding-ul o
+  // folosește ca să marcheze pasul de meniu drept finalizat și să avanseze,
+  // ProductsTab doar pentru telemetrie. Opțional: fluxurile vechi merg neatinse.
+  onImported?: (count: number) => void
+  // Alternative concrete sub bannerul de eroare (audit aug 2026): fără ele,
+  // „Asistentul AI nu e configurat" era fundătură — userul cu meniul în mână
+  // nu avea nicio ieșire spre CSV sau adăugarea manuală. Butoanele apar DOAR
+  // când callerul le oferă (onboarding-ul n-are CSV, de exemplu).
+  onFallbackCsv?: () => void
+  onFallbackManual?: () => void
+}) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
   const products = useProducts(restaurantId)
@@ -259,6 +278,9 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
     setImportErrors(failed)
     setBusy(false)
     setStep('done')
+    // Callerul află de succes AICI (nu la onClose): onboarding-ul marchează
+    // pasul de meniu, ProductsTab emite telemetria — fără să ghicească din refetch.
+    if (ok > 0) onImported?.(ok)
   }
 
   function patch(i: number, p: Partial<DraftProduct>) {
@@ -283,7 +305,28 @@ export default function AiMenuImport({ restaurantId, onClose }: { restaurantId: 
         </div>
 
         <div style={{ padding: 20, overflowY: 'auto' }}>
-          {error && <div style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '10px 13px', fontSize: '0.84rem', marginBottom: 14 }}>{error}</div>}
+          {error && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '10px 13px', fontSize: '0.84rem' }}>{error}</div>
+              {/* Eroarea nu mai e fundătură: căi de ieșire concrete spre CSV /
+                  adăugare manuală, când callerul le pune la dispoziție. */}
+              {(onFallbackCsv || onFallbackManual) && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <span style={{ fontSize: '0.78rem', color: D.t2 }}>Poți continua și fără AI:</span>
+                  {onFallbackCsv && (
+                    <button onClick={onFallbackCsv} style={{ background: D.s3, color: D.t1, border: `1px solid ${D.border}`, borderRadius: 7, padding: '8px 12px', minHeight: 40, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                      Importă din CSV
+                    </button>
+                  )}
+                  {onFallbackManual && (
+                    <button onClick={onFallbackManual} style={{ background: D.s3, color: D.t1, border: `1px solid ${D.border}`, borderRadius: 7, padding: '8px 12px', minHeight: 40, fontSize: '0.78rem', cursor: 'pointer', fontFamily: 'DM Sans,sans-serif' }}>
+                      Adaugă produsele manual
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {step === 'upload' && (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>

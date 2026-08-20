@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -18,6 +18,7 @@ import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 import { generateNutrition, generateProductImage } from '../lib/ai'
+import { track } from '../lib/analytics'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { Button } from './ui/Button'
@@ -33,6 +34,7 @@ function ProductModal({
   product,
   categories,
   onSave,
+  onCreateCategory,
   onClose,
   restaurantId,
   userId,
@@ -40,7 +42,12 @@ function ProductModal({
 }: {
   product: Product | null
   categories: Category[]
-  onSave: (f: Partial<Product>) => void | Promise<void>
+  // Întoarce succesul salvării; cu keepOpen (doar la create) modalul rămâne
+  // deschis pentru „Salvează și adaugă următorul" — parentul NU face setModal(null).
+  onSave: (f: Partial<Product>, opts?: { keepOpen?: boolean }) => boolean | Promise<boolean>
+  // Creare categorie inline din select (întoarce id-ul nou sau null pe eșec) —
+  // implementată de parent prin useCategories.create, fără apel supabase nou aici.
+  onCreateCategory: (name: string) => Promise<string | null>
   onClose: () => void
   restaurantId: string
   userId: string
@@ -55,6 +62,15 @@ function ProductModal({
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
   // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
   const { toasts: pmToasts, toast: pmToast } = useToast()
+  // Focus pe Nume după „Salvează și adaugă următorul" — Inp nu forwardează ref,
+  // deci țintim input-ul prin containerul câmpului (audit aug 2026: 30 de
+  // produse = 30 de cicluri complete de modal; burst-ul de adăugare repară asta).
+  const nameWrapRef = useRef<HTMLDivElement>(null)
+  // „➕ Categorie nouă…" inline în select (audit aug 2026): fără ea, owner-ul
+  // fără categorii ieșea din modal ca să creeze una și adesea nu se mai întorcea.
+  const [newCatOpen, setNewCatOpen] = useState(false)
+  const [newCatName, setNewCatName] = useState('')
+  const [newCatBusy, setNewCatBusy] = useState(false)
 
   async function handleImageUpload(file: File) {
     if (!file || uploading) return
@@ -418,6 +434,75 @@ function ProductModal({
   }
   const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
 
+  // Creează categoria pe loc și o selectează pe produs. Lista din select se
+  // împrospătează prin parent (useCategories.create → load()), nu local.
+  async function handleCreateCategoryInline() {
+    const name = newCatName.trim()
+    if (name.length === 0 || newCatBusy) return
+    setNewCatBusy(true)
+    try {
+      const id = await onCreateCategory(name)
+      if (id) {
+        upd('category_id', id)
+        setNewCatOpen(false)
+        setNewCatName('')
+      }
+    } finally {
+      setNewCatBusy(false)
+    }
+  }
+
+  // Salvare comună pentru „Salvează" și „Salvează și adaugă următorul".
+  async function doSave(keepOpen: boolean) {
+    if (saving || uploading) return
+    // Guard client: numele e obligatoriu („Nume *"), prețul ne-negativ.
+    // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
+    // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
+    if (!(form.name ?? '').trim()) {
+      pmToast('Numele produsului e obligatoriu', 'error')
+      return
+    }
+    if (form.price != null && form.price < 0) {
+      pmToast('Prețul nu poate fi negativ', 'error')
+      return
+    }
+    setSaving(true)
+    try {
+      const okSaved = await onSave(form, { keepOpen })
+      if (okSaved && keepOpen) {
+        // Reset la valorile implicite din mount, DAR păstrăm categoria și cota
+        // TVA alese — produsul „următor" e aproape mereu din aceeași secțiune.
+        // Obiect nou complet (nu merge peste prev): description/translations
+        // dispar odată cu cheile lor.
+        setForm((prev) => ({
+          name: '',
+          price: 0,
+          emoji: '🍽️',
+          is_active: true,
+          is_draft: false,
+          is_daily_special: false,
+          is_sold_out: false,
+          allergens: [],
+          dietary_tags: [],
+          prep_time_minutes: null,
+          portion_size: null,
+          vat_group: prev.vat_group ?? 1,
+          category_id: prev.category_id,
+          calories: null,
+          protein_g: null,
+          carbs_g: null,
+          fat_g: null,
+          ai_generated_fields: [],
+        }))
+        setImgPreview(null)
+        setAiAllergenSuggestions([])
+        nameWrapRef.current?.querySelector('input')?.focus()
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // ── Traduceri manuale (opționale) ────────────────────────────
   // Scriu în form.translations[code].{name,description}. Câmpurile goale sunt
   // eliminate ca să nu bloateze jsonb-ul; clientul face fallback la 'ro'.
@@ -462,7 +547,7 @@ function ProductModal({
   return (
     <Modal title={product ? 'Editează produs' : 'Adaugă produs'} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 13 }}>
-        <div>
+        <div ref={nameWrapRef}>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
             Nume *
           </label>
@@ -488,14 +573,60 @@ function ProductModal({
             <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
               Categorie
             </label>
-            <Sel value={form.category_id || ''} onChange={(v) => upd('category_id', v)}>
+            <Sel
+              value={form.category_id || ''}
+              onChange={(v) => {
+                // Opțiunea specială NU e o categorie: deschide input-ul inline;
+                // select-ul controlat rămâne pe valoarea curentă.
+                if (v === '__new__') setNewCatOpen(true)
+                else upd('category_id', v)
+              }}
+            >
               <option value="">Fără categorie</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.emoji} {c.name}
                 </option>
               ))}
+              <option value="__new__">➕ Categorie nouă…</option>
             </Sel>
+            {newCatOpen && (
+              <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+                <div style={{ flex: 1 }}>
+                  <Inp value={newCatName} onChange={setNewCatName} placeholder="Nume categorie nouă" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleCreateCategoryInline()}
+                  disabled={newCatBusy || newCatName.trim().length === 0}
+                  style={btn({
+                    background: D.gold,
+                    color: '#000',
+                    height: 36,
+                    fontSize: '0.74rem',
+                    opacity: newCatBusy || newCatName.trim().length === 0 ? 0.5 : 1,
+                  })}
+                >
+                  {newCatBusy ? 'Se creează…' : 'Creează'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCatOpen(false)
+                    setNewCatName('')
+                  }}
+                  style={btn({
+                    background: D.s3,
+                    color: D.t2,
+                    border: `1px solid ${D.border}`,
+                    height: 36,
+                    fontSize: '0.74rem',
+                  })}
+                >
+                  Anulează
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1657,34 +1788,35 @@ function ProductModal({
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+        <div
+          style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
+        >
           <button
             onClick={onClose}
             style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
           >
             Anulează
           </button>
+          {/* „Salvează și adaugă următorul" — doar la create (audit aug 2026:
+              30 de produse = 30 de cicluri de modal). După succes modalul rămâne
+              deschis, formularul se resetează (păstrând categoria + cota TVA —
+              burst-ul e aproape mereu în aceeași secțiune) și focusul revine pe Nume. */}
+          {!product && (
+            <button
+              onClick={() => void doSave(true)}
+              disabled={uploading || saving}
+              style={btn({
+                background: D.s3,
+                color: D.gold,
+                border: `1px solid ${D.gold}55`,
+                opacity: uploading || saving ? 0.7 : 1,
+              })}
+            >
+              {saving ? 'Se salvează…' : 'Salvează și adaugă următorul'}
+            </button>
+          )}
           <button
-            onClick={async () => {
-              if (saving || uploading) return
-              // Guard client: numele e obligatoriu („Nume *"), prețul ne-negativ.
-              // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
-              // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
-              if (!(form.name ?? '').trim()) {
-                pmToast('Numele produsului e obligatoriu', 'error')
-                return
-              }
-              if (form.price != null && form.price < 0) {
-                pmToast('Prețul nu poate fi negativ', 'error')
-                return
-              }
-              setSaving(true)
-              try {
-                await onSave(form)
-              } finally {
-                setSaving(false)
-              }
-            }}
+            onClick={() => void doSave(false)}
             disabled={uploading || saving}
             style={btn({ background: D.gold, color: '#000', opacity: uploading || saving ? 0.7 : 1 })}
           >
@@ -1877,7 +2009,12 @@ export default function ProductsTab({
     toggleDailySpecial,
     refetch: refetchProducts,
   } = useProducts(restaurantId)
-  const { categories, error: catError, refetch: refetchCats } = useCategories(restaurantId)
+  const {
+    categories,
+    error: catError,
+    refetch: refetchCats,
+    create: createCategory,
+  } = useCategories(restaurantId)
   const { toasts, toast } = useToast()
   const [modal, setModal] = useState<Product | 'add' | null>(null)
   const [delId, setDelId] = useState<string | null>(null)
@@ -1921,22 +2058,45 @@ export default function ProductsTab({
       />
     )
 
-  const handleSave = async (form: Partial<Product>) => {
+  // Întoarce succesul ca modalul să decidă (opts.keepOpen = „Salvează și adaugă
+  // următorul": modalul rămâne deschis și își resetează singur formularul).
+  const handleSave = async (
+    form: Partial<Product>,
+    opts?: { keepOpen?: boolean },
+  ): Promise<boolean> => {
     if (modal === 'add') {
       const { error: e } = await create(form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Produs adăugat')
-        setModal(null)
+      if (e) {
+        toast(e.message, 'error')
+        return false
       }
+      // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
+      // măsurat deloc. track e no-op fără consimțământ analytics; zero PII.
+      track('product_created', { source: 'products_tab' })
+      toast('Produs adăugat')
+      if (!opts?.keepOpen) setModal(null)
+      return true
     } else if (modal) {
       const { error: e } = await update((modal as Product).id, form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Actualizat')
-        setModal(null)
+      if (e) {
+        toast(e.message, 'error')
+        return false
       }
+      toast('Actualizat')
+      setModal(null)
+      return true
     }
+    return false
+  }
+  // Creare categorie inline din modalul de produs — refolosește helper-ul
+  // existent useCategories.create (care reîncarcă și lista), fără apel supabase nou.
+  const handleCreateCategoryInline = async (name: string): Promise<string | null> => {
+    const r = await createCategory({ name })
+    if (r.error || !r.data) {
+      toast('Nu am putut crea categoria: ' + (r.error?.message ?? 'eroare necunoscută'), 'error')
+      return null
+    }
+    return (r.data as { id: string }).id
   }
   const handleDelete = async () => {
     if (!delId) return
@@ -2183,20 +2343,33 @@ export default function ProductsTab({
             }
             action={
               !search ? (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  icon={<Icon name="plus" size={16} />}
-                  onClick={() => {
-                    if (!canAdd) {
-                      onUpgrade()
-                      return
-                    }
-                    setModal('add')
-                  }}
-                >
-                  Adaugă produs
-                </Button>
+                // Importul din poză = acțiunea PRIMARĂ pe meniu gol (audit aug
+                // 2026): cine are meniul în mână îl fotografiază, nu tastează
+                // 30 de produse; adăugarea manuală rămâne alături, secundară.
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<Icon name="camera" size={16} />}
+                    onClick={() => setAiImportOpen(true)}
+                  >
+                    Importă din poză
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<Icon name="plus" size={16} />}
+                    onClick={() => {
+                      if (!canAdd) {
+                        onUpgrade()
+                        return
+                      }
+                      setModal('add')
+                    }}
+                  >
+                    Adaugă manual
+                  </Button>
+                </div>
               ) : undefined
             }
           />
@@ -2577,6 +2750,7 @@ export default function ProductsTab({
           product={modal === 'add' ? null : (modal as Product)}
           categories={categories}
           onSave={handleSave}
+          onCreateCategory={handleCreateCategoryInline}
           onClose={() => setModal(null)}
           restaurantId={restaurantId}
           userId={userId}
@@ -2603,9 +2777,26 @@ export default function ProductsTab({
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
+            onImported={(count) => track('product_imported_ai', { count, source: 'products_tab' })}
+            // Eroarea AI nu mai e fundătură: ieșiri directe spre CSV / manual.
+            onFallbackCsv={() => {
+              setAiImportOpen(false)
+              setCsvImportOpen(true)
+            }}
+            onFallbackManual={() => {
+              setAiImportOpen(false)
+              if (!canAdd) {
+                onUpgrade()
+                return
+              }
+              setModal('add')
+            }}
             onClose={() => {
               setAiImportOpen(false)
               refetchProducts()
+              // Importul poate crea și categorii — împrospătăm și lista lor,
+              // altfel select-ul din modalul de produs rămâne stale.
+              refetchCats()
             }}
           />
         </Suspense>

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
@@ -6,6 +6,12 @@ import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
+import { applyBusinessTypePreset } from '../lib/quickSetup'
+import { track } from '../lib/analytics'
+
+// Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
+// onboarding decât dacă userul chiar apasă butonul de import din poză.
+const AiMenuImport = lazy(() => import('../components/AiMenuImport'))
 
 // ─── Limbă UI ────────────────────────────────────────────────
 // Citită o singură dată, la încărcarea modulului — nu e state, nu se
@@ -61,6 +67,13 @@ const S = {
       savingBtn: 'Se salvează...',
       saveContinueBtn: 'Salvează și continuă →',
       skipBtn: 'Sari peste acest pas →',
+      photoImportBtn: '📸 Ai meniul tipărit? Fotografiază-l și îl importăm noi',
+      orManualDivider: 'sau adaugă manual primul produs',
+      presetLead: 'Nu ai meniul la tine? Pornește cu un meniu demo:',
+      presetPizzeriaBtn: '🍕 Meniu demo de pizzerie',
+      presetCafeBtn: '☕ Meniu demo de cafenea',
+      presetApplyingBtn: 'Se adaugă meniul demo...',
+      presetError: 'Nu am putut adăuga meniul demo. Reîncearcă sau sari peste pas.',
     },
     step3: {
       title: 'Câte mese are restaurantul?',
@@ -166,6 +179,13 @@ const S = {
       savingBtn: 'Saving...',
       saveContinueBtn: 'Save and continue →',
       skipBtn: 'Skip this step →',
+      photoImportBtn: '📸 Have a printed menu? Snap a photo and we import it',
+      orManualDivider: 'or add your first product manually',
+      presetLead: "Don't have the menu with you? Start with a demo menu:",
+      presetPizzeriaBtn: '🍕 Demo pizzeria menu',
+      presetCafeBtn: '☕ Demo café menu',
+      presetApplyingBtn: 'Adding the demo menu...',
+      presetError: "We couldn't add the demo menu. Try again or skip this step.",
     },
     step3: {
       title: 'How many tables does your restaurant have?',
@@ -268,6 +288,20 @@ const btnDisabled: React.CSSProperties = {
   background: D.s4,
   color: D.t3,
   cursor: 'not-allowed',
+}
+// Butoanele de meniu demo (Skip-ul din Pasul 2): chip-uri late, discrete —
+// nu concurează vizual cu importul din poză și cu salvarea manuală.
+const btnPreset: React.CSSProperties = {
+  width: '100%',
+  background: D.s3,
+  color: D.t2,
+  border: `1px solid ${D.border}`,
+  borderRadius: 9,
+  padding: '10px 12px',
+  minHeight: 44,
+  fontFamily: 'DM Sans,sans-serif',
+  fontSize: '0.82rem',
+  cursor: 'pointer',
 }
 const label: React.CSSProperties = {
   display: 'block',
@@ -611,6 +645,40 @@ function Step2Menu({
   // Categoria creată se reține între încercări: pe retry după eșecul produsului,
   // NU mai inserăm o categorie nouă (duplicat), refolosim id-ul deja creat.
   const createdCatId = useRef<string | null>(null)
+  // Import din poză (audit aug 2026): 4/4 utilizatori reali au murit la
+  // „introdu meniul" — cine are meniul în mână îl fotografiază, nu îl tastează.
+  const [aiImportOpen, setAiImportOpen] = useState(false)
+  // Nr. produse importate — setat de AiMenuImport la succes; la închiderea
+  // modalului decide dacă pasul e gata (avansăm) sau doar închidem.
+  const importedCountRef = useRef(0)
+  const [presetBusy, setPresetBusy] = useState(false)
+
+  const handleImportClosed = async () => {
+    setAiImportOpen(false)
+    if (importedCountRef.current > 0) {
+      track('product_imported_ai', { count: importedCountRef.current, source: 'onboarding' })
+      await markOnboarding(restaurantId, { menu_created: true })
+      onNext()
+    }
+  }
+
+  // Preset „Tip local" pe ramura de Skip: meniul demo (RPC
+  // apply_business_type_preset, mig 034 — aplicat DOAR pe meniu gol) dă ceva
+  // de văzut pe QR din prima, în loc de restaurant gol.
+  const handlePreset = async (type: 'pizzerie' | 'cafenea') => {
+    if (presetBusy || saving) return
+    setPresetBusy(true)
+    setError(null)
+    try {
+      await applyBusinessTypePreset(restaurantId, type)
+      await markOnboarding(restaurantId, { menu_created: true })
+      onNext()
+    } catch (presetErr) {
+      console.error('[onboarding] preset meniu demo eșuat:', presetErr)
+      setError(t.step2.presetError)
+      setPresetBusy(false)
+    }
+  }
 
   const QUICK_CATS = t.step2.quickCats
 
@@ -666,6 +734,8 @@ function Step2Menu({
       setSaving(false)
       return
     }
+    // Telemetria funelului (audit aug 2026) — no-op fără consimțământ, zero PII.
+    track('product_created', { source: 'onboarding' })
 
     // Mark onboarding
     await markOnboarding(restaurantId, { menu_created: true })
@@ -689,6 +759,18 @@ function Step2Menu({
       <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: 24, lineHeight: 1.6 }}>
         {t.step2.subtitle}
       </p>
+
+      {/* Importul din poză = acțiunea PRIMARĂ (audit aug 2026): 4/4 utilizatori
+          reali au abandonat la introducerea manuală a meniului. Formularul
+          manual rămâne dedesubt, sub separator. */}
+      <button onClick={() => setAiImportOpen(true)} style={{ ...btnPrimary, marginBottom: 4 }}>
+        {t.step2.photoImportBtn}
+      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0 16px' }}>
+        <div style={{ flex: 1, height: 1, background: D.border }} />
+        <span style={{ fontSize: '0.75rem', color: D.t3 }}>{t.step2.orManualDivider}</span>
+        <div style={{ flex: 1, height: 1, background: D.border }} />
+      </div>
 
       {/* Quick cat select */}
       <div style={{ marginBottom: 14 }}>
@@ -810,7 +892,41 @@ function Step2Menu({
         <button onClick={onSkip} style={btnSecondary}>
           {t.step2.skipBtn}
         </button>
+        {/* Alternativa la Skip: meniu demo „Tip local" — mai bine un meniu
+            prefăcut de văzut pe QR decât un restaurant complet gol. */}
+        <div style={{ fontSize: '0.78rem', color: D.t3, textAlign: 'center', marginTop: 4 }}>
+          {t.step2.presetLead}
+        </div>
+        <button
+          onClick={() => void handlePreset('pizzerie')}
+          disabled={presetBusy || saving}
+          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
+        >
+          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetPizzeriaBtn}
+        </button>
+        <button
+          onClick={() => void handlePreset('cafenea')}
+          disabled={presetBusy || saving}
+          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
+        >
+          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetCafeBtn}
+        </button>
       </div>
+
+      {aiImportOpen && (
+        <Suspense fallback={null}>
+          <AiMenuImport
+            restaurantId={restaurantId}
+            onImported={(count) => {
+              importedCountRef.current = count
+            }}
+            // „Adaugă produsele manual" din bannerul de eroare AI: formularul
+            // manual e chiar sub modal — doar închidem.
+            onFallbackManual={() => setAiImportOpen(false)}
+            onClose={() => void handleImportClosed()}
+          />
+        </Suspense>
+      )}
     </Shell>
   )
 }
@@ -1354,15 +1470,39 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
 
   const goTo = (step: 1 | 2 | 3 | 4) => setState((s) => ({ ...s, step }))
 
+  // Telemetria funelului de activare (audit aug 2026): 4/4 utilizatori reali
+  // au murit la „introdu meniul" și nu am aflat din date. track e no-op fără
+  // consimțământul de analytics (GDPR) și nu primește niciun PII.
+  useEffect(() => {
+    track('onboarding_started')
+  }, [])
+  const completeStep = (step: 1 | 2 | 3, skipped = false) =>
+    track('onboarding_step_completed', { step, skipped })
+
   if (state.step === 1) {
     return (
-      <Step1Restaurant onNext={(restaurantId, slug) => setState({ step: 2, restaurantId, slug })} />
+      <Step1Restaurant
+        onNext={(restaurantId, slug) => {
+          completeStep(1)
+          setState({ step: 2, restaurantId, slug })
+        }}
+      />
     )
   }
 
   if (state.step === 2) {
     return (
-      <Step2Menu restaurantId={state.restaurantId!} onNext={() => goTo(3)} onSkip={() => goTo(3)} />
+      <Step2Menu
+        restaurantId={state.restaurantId!}
+        onNext={() => {
+          completeStep(2)
+          goTo(3)
+        }}
+        onSkip={() => {
+          completeStep(2, true)
+          goTo(3)
+        }}
+      />
     )
   }
 
@@ -1370,11 +1510,26 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
     return (
       <Step3Table
         restaurantId={state.restaurantId!}
-        onNext={() => goTo(4)}
-        onSkip={() => goTo(4)}
+        onNext={() => {
+          completeStep(3)
+          goTo(4)
+        }}
+        onSkip={() => {
+          completeStep(3, true)
+          goTo(4)
+        }}
       />
     )
   }
 
-  return <Step4Done restaurantId={state.restaurantId!} slug={state.slug!} onComplete={onComplete} />
+  return (
+    <Step4Done
+      restaurantId={state.restaurantId!}
+      slug={state.slug!}
+      onComplete={() => {
+        track('onboarding_completed')
+        onComplete()
+      }}
+    />
+  )
 }
