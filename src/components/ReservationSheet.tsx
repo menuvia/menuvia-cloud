@@ -1026,6 +1026,23 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           background: PUB.bg,
         }}
       >
+        {/* Informare Art. 13 GDPR la punctul de colectare (audit aug 2026):
+            nume+telefon(+email) se cer obligatoriu, dar clientul final nu avea
+            NICIO informare. Bilingv inline (pattern-ul existent al fișierului),
+            nu cheie nouă în PUBLIC_MENU_STRINGS (ar cere toate cele 7 limbi). */}
+        <p style={{ fontSize: 11, color: PUB.text2, margin: '0 0 10px', lineHeight: 1.5 }}>
+          {lang === 'ro'
+            ? 'Datele tale (nume, telefon, email) sunt folosite doar pentru gestionarea acestei rezervări. '
+            : 'Your details (name, phone, email) are used only to manage this reservation. '}
+          <a
+            href="/confidentialitate"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: accent, textDecoration: 'underline' }}
+          >
+            {lang === 'ro' ? 'Politica de confidențialitate' : 'Privacy policy'}
+          </a>
+        </p>
         <button
           onClick={submit}
           disabled={submitting}
