@@ -1,5 +1,10 @@
 # PLAN 10/10 — scorecard critic + drumul strict până la 10
 
+> ⚠️ **SUPERSEDED (20 aug 2026):** planul de execuție UNIC și curent e
+> [`PLAN_0_TO_HERO.md`](PLAN_0_TO_HERO.md) — ancorat în datele reale de
+> producție. Documentul de mai jos rămâne DOAR context istoric; nu executa
+> pași de aici fără să verifici întâi acolo.
+
 > RE-AUDIT 6 iulie seara (al 2-lea): dovezi la minut — prod Supabase la mig 204
 > (202–204 aplicate prin MCP pe 6 iulie seara, 0 erori advisor; markerii verificați), frontend prod TOT din 30 iunie
 > (deploy publicat 6a4429…, seria veche), GitHub Actions MORT din 12:28 UTC

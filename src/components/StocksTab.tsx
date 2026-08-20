@@ -459,7 +459,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
 
   useEffect(() => {
     void load()
-  }, [restaurantId]) // eslint-disable-line
+  }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <InlineSpinner label="Se încarcă stocurile..." />
   if (loadError) return <LoadErrorBox label="Nu am putut încărca ingredientele." onRetry={() => void load()} />
@@ -1099,7 +1099,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
 
   useEffect(() => {
     void load()
-  }, [restaurantId]) // eslint-disable-line
+  }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function add() {
     if (name.trim().length === 0) return
@@ -1334,7 +1334,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
 
   useEffect(() => {
     void load()
-  }, [restaurantId]) // eslint-disable-line
+  }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <InlineSpinner label="Se încarcă NIR-urile..." />
   if (loadError) return <LoadErrorBox label="Nu am putut încărca NIR-urile." onRetry={() => void load()} />
@@ -2033,7 +2033,7 @@ function ProfitabilitySection({ restaurantId }: { restaurantId: string }) {
 
   useEffect(() => {
     load()
-  }, [restaurantId]) // eslint-disable-line
+  }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <InlineSpinner label="Se calculează profitabilitatea..." />
   if (loadError)

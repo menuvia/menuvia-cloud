@@ -1,5 +1,10 @@
 # MENUVIA — MASTER PLAN (planul complet de viitor)
 
+> ⚠️ **SUPERSEDED (20 aug 2026):** planul de execuție UNIC și curent e
+> [`PLAN_0_TO_HERO.md`](PLAN_0_TO_HERO.md) — ancorat în datele reale de
+> producție. Documentul de mai jos rămâne DOAR context istoric; nu executa
+> pași de aici fără să verifici întâi acolo.
+
 > Documentul-mamă: produs + tehnic + fiscal + infra + business + bani + riscuri + KPI.
 > Se citește împreună cu: `PLAN_10.md` (calitate, faze cu criterii), `COMPETITIE.md`
 > (piața), `EXPANSION.md` (creștere: axe + valuri E1–E6), `ARCHITECTURE.md` (sistemul),

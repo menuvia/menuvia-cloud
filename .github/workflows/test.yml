@@ -54,6 +54,21 @@ jobs:
           VITE_SUPABASE_ANON_KEY: 'placeholder'
           VITE_APP_URL: 'https://placeholder.netlify.app'
 
+  # Testele bridge-ului (fiscal + tichete bucătărie) existau din mai dar NU
+  # rulau în niciun workflow (finding-ul auditului aug 2026): componenta cu cea
+  # mai mare expunere legală (bonul fiscal) depindea de disciplina manuală.
+  # Zero dependențe (node --test pe built-ins), rulează pe mock — cost ~1s.
+  bridge:
+    name: Bridge tests (fiscal + kitchen)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Bridge unit tests
+        run: cd bridge && npm test
+
   coverage:
     name: Coverage report
     runs-on: ubuntu-latest

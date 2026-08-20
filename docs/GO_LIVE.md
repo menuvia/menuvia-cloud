@@ -1,5 +1,10 @@
 # GO_LIVE — planul complet de lansare (starea verificată: 28 iulie 2026)
 
+> ⚠️ **SUPERSEDED (20 aug 2026):** planul de execuție UNIC și curent e
+> [`PLAN_0_TO_HERO.md`](PLAN_0_TO_HERO.md) — ancorat în datele reale de
+> producție. Documentul de mai jos rămâne DOAR context istoric; nu executa
+> pași de aici fără să verifici întâi acolo.
+
 > Documentul de EXECUȚIE: de la starea de azi până la producție live + pragurile
 > de scalare, cu numere măsurate. Direcția de produs rămâne în `MASTER_PLAN.md`;
 > calendarul lung în `PLAN_10_SAPTAMANI.md` (scris la mig 229/prod 214 — depășit

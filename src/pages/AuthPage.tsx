@@ -16,6 +16,12 @@ import { supabase } from '../lib/supabase'
 import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
+import { track } from '../lib/analytics'
+
+// Versiunea de Termeni consemnată la signup prin RPC-ul record_terms_acceptance
+// (mig 042, semnătura: p_version text default '1.0'). Incrementeaz-o când se
+// publică o versiune nouă a documentelor legale.
+const TERMS_VERSION = '1.0'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -129,7 +135,9 @@ const S = {
     backToLoginArrow: '← Înapoi la autentificare',
     confirmEmailTitle: 'Verifică emailul',
     confirmSentPrefix: 'Am trimis un link de confirmare la',
-    confirmInstructions: 'Confirmă contul, apoi revino să te autentifici.',
+    // emailRedirectTo (mai jos) readuce userul direct în aplicație — textul
+    // vechi „revino să te autentifici" rupea funelul exact aici.
+    confirmInstructions: 'Apasă linkul din email — te aduce direct înapoi în contul tău.',
     brandTagline: 'Configurezi restaurantul în câteva minute.',
     heroSubtitle: 'Adaugi meniul, generezi QR-urile și poți primi comenzi direct de la masă.',
     heroBullets: [
@@ -153,6 +161,12 @@ const S = {
     hasAccount: 'Ai deja cont?',
     createOne: 'Creează unul',
     errorGeneric: 'Nu am putut procesa cererea. Verifică datele și reîncearcă.',
+    termsPrefix: 'Am citit și accept ',
+    termsLinkTerms: 'Termenii',
+    termsAnd: ' și ',
+    termsLinkPrivacy: 'Politica de confidențialitate',
+    termsRequiredError:
+      'Bifează acceptarea Termenilor și a Politicii de confidențialitate pentru a crea contul.',
     mfaTitle: 'Verificare în doi pași',
     mfaSubtitle: 'Introdu codul de 6 cifre din aplicația ta de autentificare.',
     mfaCodeLabel: 'Cod de verificare',
@@ -181,7 +195,7 @@ const S = {
     backToLoginArrow: '← Back to sign in',
     confirmEmailTitle: 'Check your email',
     confirmSentPrefix: 'We sent a confirmation link to',
-    confirmInstructions: 'Confirm your account, then come back to sign in.',
+    confirmInstructions: 'Click the link in the email — it brings you right back into your account.',
     brandTagline: 'Set up your restaurant in minutes.',
     heroSubtitle:
       'Add your menu, generate the QR codes, and start taking orders straight from the table.',
@@ -206,6 +220,11 @@ const S = {
     hasAccount: 'Already have an account?',
     createOne: 'Create one',
     errorGeneric: 'We couldn’t process your request. Please check your details and try again.',
+    termsPrefix: 'I have read and accept the ',
+    termsLinkTerms: 'Terms',
+    termsAnd: ' and the ',
+    termsLinkPrivacy: 'Privacy Policy',
+    termsRequiredError: 'Please accept the Terms and the Privacy Policy to create your account.',
     mfaTitle: 'Two-step verification',
     mfaSubtitle: 'Enter the 6-digit code from your authenticator app.',
     mfaCodeLabel: 'Verification code',
@@ -313,6 +332,9 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   const [name, setName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Acceptarea Termenilor + Politicii e OBLIGATORIE la signup (GDPR/audit):
+  // butonul de creare cont stă dezactivat până la bifă.
+  const [termsAccepted, setTermsAccepted] = useState(false)
   // FIX: separate state for "signup needs email confirmation" case
   const [confirmEmail, setConfirmEmail] = useState(false)
   const [showReset, setShowReset] = useState(false)
@@ -353,16 +375,46 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
     setError(null)
 
     if (mode === 'signup') {
+      // Plasă de siguranță pe lângă butonul dezactivat (ex. submit cu Enter).
+      if (!termsAccepted) {
+        setError(t.termsRequiredError)
+        setLoading(false)
+        return
+      }
       const { data, error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
-        options: { data: { full_name: name } },
+        options: {
+          data: { full_name: name },
+          // Linkul de confirmare readuce userul DIRECT în aplicație (sesiune
+          // deja creată de GoTrue la click) — înainte, textul îi cerea să
+          // „revină să se autentifice" și funelul se rupea exact aici.
+          // Același pattern de URL ca resetPasswordForEmail de mai jos.
+          emailRedirectTo: (import.meta.env.VITE_APP_URL || window.location.origin) + '/auth',
+        },
       })
       if (signUpErr) {
         setError(translateAuthError(signUpErr.message))
         setLoading(false)
         return
       }
+
+      // Audit consimțământ (mig 042): consemnăm versiunea de Termeni acceptată.
+      // Best-effort: fără sesiune (confirmare de email pending) RPC-ul nu are
+      // auth.uid() și eșuează — logăm defensiv, nu blocăm niciodată signup-ul.
+      try {
+        const { error: termsErr } = await supabase.rpc('record_terms_acceptance', {
+          p_version: TERMS_VERSION,
+        })
+        if (termsErr) console.warn('[auth] record_terms_acceptance eșuat:', termsErr.message)
+      } catch (termsEx) {
+        console.warn('[auth] record_terms_acceptance eșuat:', termsEx)
+      }
+      // Telemetria funelului — zero PII (fără email/nume în properties).
+      track('signup_completed', {
+        email_confirmation_required: !data.session,
+        plan_intent: planIntent,
+      })
 
       // If Supabase requires email confirmation, session is null — don't call onSuccess()
       if (!data.session) {
@@ -893,6 +945,56 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               />
             </div>
 
+            {mode === 'signup' && (
+              <label
+                htmlFor="auth-terms"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  fontSize: '0.8rem',
+                  color: A.text2,
+                  lineHeight: 1.5,
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  id="auth-terms"
+                  type="checkbox"
+                  checked={termsAccepted}
+                  onChange={(e) => setTermsAccepted(e.target.checked)}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    marginTop: 1,
+                    accentColor: A.accent,
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                  }}
+                />
+                <span>
+                  {t.termsPrefix}
+                  <a
+                    href="/termeni"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: A.accent, fontWeight: 600 }}
+                  >
+                    {t.termsLinkTerms}
+                  </a>
+                  {t.termsAnd}
+                  <a
+                    href="/confidentialitate"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: A.accent, fontWeight: 600 }}
+                  >
+                    {t.termsLinkPrivacy}
+                  </a>
+                </span>
+              </label>
+            )}
+
             {error && (
               <div
                 role="alert"
@@ -909,7 +1011,14 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               </div>
             )}
 
-            <button type="submit" disabled={loading} style={{ ...primaryBtn(loading), marginTop: 4 }}>
+            <button
+              type="submit"
+              disabled={loading || (mode === 'signup' && !termsAccepted)}
+              style={{
+                ...primaryBtn(loading || (mode === 'signup' && !termsAccepted)),
+                marginTop: 4,
+              }}
+            >
               {loading ? t.processingBtn : mode === 'login' ? t.loginBtn : t.signupBtn}
             </button>
           </form>

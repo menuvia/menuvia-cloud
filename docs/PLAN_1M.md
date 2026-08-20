@@ -1,5 +1,10 @@
 # PLAN 0 → 1.000.000 € — realist, pe cifrele Menuvia
 
+> ⚠️ **SUPERSEDED (20 aug 2026):** planul de execuție UNIC și curent e
+> [`PLAN_0_TO_HERO.md`](PLAN_0_TO_HERO.md) — ancorat în datele reale de
+> producție. Documentul de mai jos rămâne DOAR context istoric; nu executa
+> pași de aici fără să verifici întâi acolo.
+
 > Scris 6 iulie 2026. Curs folosit: 1 € ≈ 5 lei. Prețuri reale din `lib/plans.ts`:
 > Starter 99 / Growth 249 / Pro 499 lei/lună (83/208/415 la anual).
 > „1 milion" are 3 sensuri diferite — planul le atinge în ordinea asta:

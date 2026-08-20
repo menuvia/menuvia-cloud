@@ -93,6 +93,10 @@ function OrderTracker({
 
     void poll()
     const interval = setInterval(() => {
+      // Telefonul cu tab-ul în fundal (client care a comandat și și-a băgat
+      // telefonul în buzunar) nu mai trimite cereri — același guard ca în
+      // useOrders; la revenirea în tab, primul tick reia polling-ul.
+      if (document.hidden) return
       void poll()
     }, 5000)
 
@@ -417,6 +421,8 @@ function ActiveOrdersBanner({
 
     void pollAll()
     const interval = setInterval(() => {
+      // Guard identic cu polling-ul principal: tab în fundal = zero cereri.
+      if (document.hidden) return
       void pollAll()
     }, 6000)
 

@@ -29,6 +29,12 @@ function jsonResponse(statusCode, body) {
   }
 }
 
+// Plafon pe apelurile către provideri (audit aug 2026): SINGURELE fetch-uri
+// externe din repo fără timeout erau exact cele mai lente — un provider agățat
+// consuma întreaga invocare (și pe VPS, fără kill de platformă, ar atârna
+// nelimitat). 25s = generos pentru extracția de meniu din poze, dar finit.
+const PROVIDER_TIMEOUT_MS = 25_000
+
 // ── Anti-SSRF: re-validează base_url 'custom' la request (oglindă ai-config) ──
 // Rândurile salvate înainte de validarea de la save ar putea conține host-uri
 // periculoase → re-validăm AICI înainte de fetch, plus redirect:'manual'.
@@ -149,6 +155,7 @@ async function callAnthropic({ apiKey, model, system, messages, maxTokens }) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     redirect: 'manual',
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: {
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
@@ -202,6 +209,7 @@ async function callOpenAI({ apiKey, model, system, messages, maxTokens, baseUrl,
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
     redirect: 'manual', // anti-SSRF: nu urmări redirect-uri către host-uri nevalidate
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model, max_tokens: maxTokens || 1024, messages: oaMessages }),
   })
@@ -243,6 +251,7 @@ async function callGemini({ apiKey, model, system, messages, maxTokens }) {
   const res = await fetch(url, {
     method: 'POST',
     redirect: 'manual',
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents,

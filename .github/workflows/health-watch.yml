@@ -1,0 +1,47 @@
+# Dead-man's-switch PROVIZORIU (audit aug 2026): /health există și detectează
+# cron-ul mort (incident 2–19 aug, de două ori câte 7+ zile invizibil), dar
+# NIMENI nu-l lovea din afară — monitorul extern (UptimeRobot, pasul 0.4 din
+# PLAN_0_TO_HERO) e tot neinstalat. Până apare, acest workflow bate /health
+# la 30 min și pică ROȘU (= email de la GitHub către fondator) pe orice non-200.
+#
+# ⚠️ Limitări cunoscute, deliberat acceptate pentru un stopgap:
+#   - GitHub dezactivează cron-urile după 60 de zile fără activitate în repo.
+#   - Rulează doar pe branch-ul default și are jitter de minute.
+#   - NU înlocuiește UptimeRobot (5 min, alertă push) — doar acoperă golul.
+# Când UptimeRobot e instalat și verificat, șterge acest fișier.
+name: Health watch (stopgap)
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe /health
+        env:
+          # Schimbă la https://menuvia.ro/health după cumpărarea domeniului.
+          HEALTH_URL: https://menuvia.netlify.app/health
+        run: |
+          set +e
+          body="$(curl -sS --max-time 20 -w '\n%{http_code}' "$HEALTH_URL")"
+          rc=$?
+          code="$(echo "$body" | tail -1)"
+          payload="$(echo "$body" | head -n -1)"
+          echo "HTTP $code de la $HEALTH_URL"
+          echo "$payload"
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::/health inaccesibil (curl rc=$rc) — site-ul sau funcțiile Netlify sunt CĂZUTE."
+            exit 1
+          fi
+          if [ "$code" != "200" ]; then
+            echo "::error::/health a întors $code — db down sau cron STALE (vezi payload-ul de mai sus și docs/RUNBOOK.md §Incident)."
+            exit 1
+          fi
+          echo "✓ health OK (db + cron în parametri)"

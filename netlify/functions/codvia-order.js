@@ -124,8 +124,14 @@ exports.handler = async (event) => {
 
   // Lead-ul intră în tabela existentă (mig 037) cu source dedicat — founderul
   // le filtrează după source; tabela proprie de comenzi vine în v2.
+  // CAPCANĂ supabase-js (audit aug 2026): builderul NU aruncă pe eroare DB —
+  // eșecul vine în {error}. Cu doar try/catch, un insert picat era complet
+  // invizibil; dacă pica ȘI emailul, comanda (bani reali) se pierdea total cu
+  // 200 OK către client. Acum urmărim ambele canale și picăm cererea când
+  // AMBELE au eșuat.
+  let dbOk = false
   try {
-    await supabase.from('recrutare_leads').insert({
+    const { error: dbErr } = await supabase.from('recrutare_leads').insert({
       name,
       cafe: business || '(persoană fizică)',
       city: null,
@@ -136,11 +142,14 @@ exports.handler = async (event) => {
       ip: event.headers['x-nf-client-connection-ip'] || event.headers['x-forwarded-for'] || null,
       user_agent: event.headers['user-agent'] || null,
     })
+    if (dbErr) console.error('[codvia-order] DB insert failed:', dbErr.message)
+    else dbOk = true
   } catch (e) {
     console.error('[codvia-order] DB insert failed', e)
-    // Nu picăm cererea — emailul către fondator pleacă oricum mai jos.
+    // Nu picăm cererea încă — emailul către fondator pleacă oricum mai jos.
   }
 
+  let emailOk = false
   try {
     const subject = `[Codvia] ${product.label} × ${qty} — ${business || name}`
     const html = `
@@ -177,6 +186,7 @@ exports.handler = async (event) => {
         }),
       })
       if (!resp.ok) console.error('[codvia-order] Resend failed:', await resp.text())
+      else emailOk = true
     } else {
       // GDPR: log doar metadata, nu PII în clar.
       console.log('[codvia-order] Order stored (no Resend key)', {
@@ -188,7 +198,18 @@ exports.handler = async (event) => {
     }
   } catch (e) {
     console.error('[codvia-order] Email send failed', e)
-    // Comanda e în DB, deci nu e pierdută. Returnăm OK.
+    // Dacă măcar DB-ul a mers, comanda nu e pierdută — returnăm OK mai jos.
+  }
+
+  // Ambele canale au eșuat → comanda ar dispărea FĂRĂ URMĂ. 500 ca clientul să
+  // vadă eroarea și să reîncerce/sune — nu confirmare falsă. (Lipsa cheii
+  // Resend NU e eșec de email dacă DB-ul a salvat lead-ul.)
+  if (!dbOk && !emailOk) {
+    return {
+      statusCode: 500,
+      headers: jsonHeaders,
+      body: JSON.stringify({ error: 'Comanda nu a putut fi înregistrată. Reîncearcă sau scrie-ne direct.' }),
+    }
   }
 
   return { statusCode: 200, headers: jsonHeaders, body: JSON.stringify({ ok: true }) }

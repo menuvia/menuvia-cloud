@@ -96,17 +96,24 @@ exports.handler = async (event) => {
   }
 
   // Store in leads table (created via migration 037)
+  // CAPCANĂ supabase-js (audit aug 2026): builderul NU aruncă pe eroare DB —
+  // eșecul vine în {error}, deci try/catch singur era cod mort pentru erori DB.
+  // Un lead pierdut aici e un CLIENT pierdut — urmărim ambele canale (DB +
+  // email) și picăm cererea doar când AMBELE au eșuat.
+  let dbOk = false
   try {
-    await supabase.from('recrutare_leads').insert({
+    const { error: dbErr } = await supabase.from('recrutare_leads').insert({
       name, cafe, city: city || null, phone, email,
       message: message || null,
       source: 'landing_recrutare',
       ip: event.headers['x-nf-client-connection-ip'] || event.headers['x-forwarded-for'] || null,
       user_agent: event.headers['user-agent'] || null,
     })
+    if (dbErr) console.error('[recrutare-contact] DB insert failed:', dbErr.message)
+    else dbOk = true
   } catch (e) {
     console.error('[recrutare-contact] DB insert failed', e)
-    // Don't fail the request — we still want to email the founder
+    // Don't fail the request yet — we still want to email the founder
   }
 
   // Send notification email to founder via Supabase Auth's built-in SMTP
@@ -115,6 +122,7 @@ exports.handler = async (event) => {
   //
   // For simplicity, we use a magic link generation as a hack to trigger SMTP.
   // PRODUCTION: replace with proper transactional email (Resend recommended).
+  let emailOk = false
   try {
     const subject = `[Menuvia Pilot] ${cafe} — ${city || 'oraș necunoscut'}`
     const html = `
@@ -153,6 +161,8 @@ exports.handler = async (event) => {
       })
       if (!resp.ok) {
         console.error('[recrutare-contact] Resend failed:', await resp.text())
+      } else {
+        emailOk = true
       }
     } else {
       // ✅ GDPR: log doar metadata, nu PII în clear
@@ -165,7 +175,18 @@ exports.handler = async (event) => {
     }
   } catch (e) {
     console.error('[recrutare-contact] Email send failed', e)
-    // Lead-ul e salvat în DB, deci nu e total pierdut. Returnăm OK.
+    // Dacă măcar DB-ul a salvat lead-ul, nu e pierdut — returnăm OK mai jos.
+  }
+
+  // Ambele canale au eșuat → lead-ul (singura sursă de clienți) ar dispărea
+  // fără urmă cu 200 OK. 500 ca formularul să arate eroarea și omul să
+  // reîncerce. (Lipsa cheii Resend NU e eșec dacă DB-ul a salvat.)
+  if (!dbOk && !emailOk) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(event) },
+      body: JSON.stringify({ error: 'Nu am putut înregistra cererea. Reîncearcă sau scrie-ne direct.' }),
+    }
   }
 
   return {

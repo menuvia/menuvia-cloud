@@ -57,21 +57,44 @@ if [ ! -f /etc/menuvia/env ]; then
   cat > /etc/menuvia/env <<'EOF'
 # Completează valorile (din Netlify → Site config → Environment variables).
 # Serviciul NU pornește sănătos fără SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
+# AUDIT AUG 2026: template-ul vechi NU avea STRIPE_WEBHOOK_SECRET + cele 4
+# STRIPE_*_PRICE_ID (stripe-webhook.js face fail-fast 500 fără ele) și nici
+# AI_CONFIG_SECRET / SMSO_* / VAPID_* — primul cutover ar fi rupt TOATE
+# webhook-urile Stripe cu 500 pe fiecare event. Lista de mai jos e inventarul
+# COMPLET al env-urilor citite de netlify/functions/*.js.
 SUPABASE_URL=https://swjcptdylfmpvopdepqf.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=
+# ── Stripe abonamente (stripe-webhook + stripe-checkout: fail-fast fără ele) ──
 STRIPE_SECRET_KEY=
-WEBHOOK_SECRET=
-# Plata online la masă (docs/ONLINE_PAYMENT.md) — opționale până activezi Connect:
+STRIPE_WEBHOOK_SECRET=
+STRIPE_STARTER_PRICE_ID=
+STRIPE_GROWTH_PRICE_ID=
+STRIPE_PRO_PRICE_ID=
+STRIPE_ENTERPRISE_PRICE_ID=
+STRIPE_TRIAL_DAYS=
+# ── Plata online la masă (docs/ONLINE_PAYMENT.md) — până activezi Connect: ──
 STRIPE_PUBLISHABLE_KEY=
 STRIPE_CONNECT_WEBHOOK_SECRET=
+# ── Email + SMS + push ──
 RESEND_API_KEY=
 EMAIL_FROM=
 EMAIL_REPLY_TO=
 RECRUTARE_NOTIFY_EMAIL=
-SLACK_WEBHOOK_URL=
+SMSO_API_KEY=
+SMSO_SENDER=
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_EMAIL=
+# WEBHOOK_SECRET = secretul intern pt send-push/welcome-email (NU e cel Stripe!)
+WEBHOOK_SECRET=
+# ── AI (ai-proxy / ai-config / ai-generate-image) ──
 PLATFORM_OPENAI_KEY=
 PLATFORM_ANTHROPIC_KEY=
 ANTHROPIC_API_KEY=
+# AI_CONFIG_SECRET = cheia de criptare a BYO keys din ai_provider_configs
+AI_CONFIG_SECRET=
+# ── Diverse ──
+SLACK_WEBHOOK_URL=
 APP_URL=https://menuvia.ro
 VITE_APP_URL=https://menuvia.ro
 VITE_SUPABASE_URL=https://swjcptdylfmpvopdepqf.supabase.co
