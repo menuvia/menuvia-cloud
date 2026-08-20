@@ -1396,6 +1396,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/reservation_cancel_assertions.sql
 
+      - name: "Security hardening assertions (mig 258)"
+        if: ${{ hashFiles('supabase/migrations/20260820120000_migration_258_security_hardening_audit.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/security_hardening_258_assertions.sql
+
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
       # erau referite de niciun workflow (finding-ul auditului din aug 2026).
