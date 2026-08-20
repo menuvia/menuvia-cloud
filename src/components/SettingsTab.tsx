@@ -11,6 +11,7 @@ import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MfaCard from './MfaCard'
+import GdprCard from './GdprCard'
 import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
@@ -1877,6 +1878,10 @@ export default function SettingsTab({
         {section === 'account' && (
           <>
             <MfaCard />
+
+            {/* Drepturile GDPR (Art. 15/17/20) — RPC-urile există din mig 042,
+                dar până la auditul din aug 2026 nu erau apelate de NICĂIERI. */}
+            <GdprCard />
 
             <SettingsCard icon="star" title="Plan curent">
               <span
