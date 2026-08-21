@@ -1404,6 +1404,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/security_hardening_258_assertions.sql
 
+      - name: "Fiscal enqueue INSERT parity assertions (mig 259)"
+        if: ${{ hashFiles('supabase/migrations/20260821100000_migration_259_fiscal_enqueue_insert_parity.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_enqueue_parity_assertions.sql
+
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
       # erau referite de niciun workflow (finding-ul auditului din aug 2026).

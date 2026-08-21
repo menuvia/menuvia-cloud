@@ -302,7 +302,23 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
     }
   }
 
-  async function handleRetry(id: string) {
+  async function handleRetry(id: string, errorInfo?: string | null) {
+    // Eșec AMBIGUU (marker scris de bridge/lib/fiscalnet.js): bonul POATE fi
+    // deja tipărit (timeout după predarea către driver / abort după POST).
+    // Retrimiterea oarbă = bon fiscal DUBLU real (bandă + raport Z + ANAF) —
+    // cerem verificarea umană a benzii, oglinda politicii Oblio din mig 218.
+    if (errorInfo && errorInfo.includes('POSIBIL DUPLICAT')) {
+      const ok = await confirmDialog({
+        title: 'Posibil bon deja tipărit!',
+        description:
+          'Confirmarea de la casă s-a pierdut DUPĂ trimitere — bonul poate fi deja pe bandă. ' +
+          'Verifică fizic banda casei (sau raportul X) înainte de retrimitere: dacă bonul există, ' +
+          'anulează-l pe acesta în loc să-l retrimiți, altfel emiți un bon fiscal DUBLU.',
+        confirmLabel: 'Am verificat banda — retrimite',
+        destructive: true,
+      })
+      if (!ok) return
+    }
     try {
       const { error } = await supabase.rpc('bridge_retry_receipt', { p_receipt_id: id })
       if (error) throw error
@@ -827,7 +843,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                       <td style={{ padding: '10px 8px', textAlign: 'right' }}>
                         {(r.status === 'error' || r.status === 'cancelled') && (
                           <button
-                            onClick={() => handleRetry(r.id)}
+                            onClick={() => handleRetry(r.id, r.error_info)}
                             style={btn({
                               background: 'transparent',
                               color: D.goldL,

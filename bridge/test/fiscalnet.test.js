@@ -2,7 +2,7 @@
 
 // Teste de fum pentru transportul FiscalNet, rulate contra mock-ului (fără hardware).
 // Rulare:  node --test test/     (din folderul bridge/)
-// NU e prins de vitest/CI (e în afara src/) — verificare manuală/local.
+// Rulează și în CI (jobul „Bridge tests" din test.yml, adăugat la auditul aug 2026).
 
 const test = require('node:test');
 const assert = require('node:assert');
@@ -12,7 +12,7 @@ const path = require('node:path');
 const http = require('node:http');
 
 const { createServer } = require('../mock-fiscalnet');
-const { sendReceipt, parseFiscalNetResponse } = require('../lib/fiscalnet');
+const { sendReceipt, parseFiscalNetResponse, AMBIGUOUS_PREFIX } = require('../lib/fiscalnet');
 
 function apiCfg(port) {
   return {
@@ -134,6 +134,58 @@ test('API: trimite Idempotency-Key = receipt.id (anti bon dublu la retry)', asyn
   } finally {
     server.close();
   }
+});
+
+// ── Clasificarea AMBIGUĂ (audit aug 2026, oglinda politicii Oblio mig 218) ──
+// Un eșec DUPĂ ce cererea a putut ajunge la casă = posibil bon deja tipărit;
+// retry-ul orb ar emite bon fiscal DUBLU. Marker-ul din errorInfo e contractul
+// cu BridgeTab (cere confirmare umană la retrimitere).
+
+test('AMBIGUU: timeout după trimiterea POST-ului → marker POSIBIL DUPLICAT', async () => {
+  await withServer(async (port) => {
+    const cfg = apiCfg(port);
+    cfg.fiscalnet.timeoutMs = 600;
+    // FAIL_OFFLINE: mock-ul primește cererea dar nu răspunde niciodată —
+    // exact cazul „POST ajuns, confirmare pierdută".
+    const res = await sendReceipt(cfg, { id: 'amb1', payload: 'S^X^100^1000^buc^1^1\nFAIL_OFFLINE\nP^1^100' });
+    assert.strictEqual(res.success, false);
+    assert.strictEqual(res.ambiguous, true);
+    assert.ok(res.errorInfo.startsWith(AMBIGUOUS_PREFIX), 'errorInfo trebuie să poarte marker-ul');
+  });
+});
+
+test('SIGUR: conexiune refuzată (pre-connect) → FĂRĂ marker, retry sigur', async () => {
+  // Port REAL închis (bind + close) → ECONNREFUSED autentic în err.cause.code.
+  // (Port 1 nu e bun aici: undici îl respinge ca „bad port" fără să conecteze.)
+  const net = require('node:net');
+  const srv = net.createServer();
+  await new Promise((resolve) => srv.listen(0, resolve));
+  const port = srv.address().port;
+  await new Promise((resolve) => srv.close(resolve));
+
+  const res = await sendReceipt(apiCfg(port), { id: 'amb2', payload: 'S^X^100^1000^buc^1^1' });
+  assert.strictEqual(res.success, false);
+  assert.strictEqual(res.ambiguous, false);
+  assert.ok(!String(res.errorInfo || '').includes('POSIBIL DUPLICAT'), 'refuzul de conexiune nu e ambiguu');
+});
+
+test('AMBIGUU (file): bonul predat driver-ului, fără răspuns → marker', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fnbridge-amb-'));
+  const bonuriDir = path.join(dir, 'Bonuri');
+  const raspunsDir = path.join(dir, 'Raspuns');
+  await fs.mkdir(bonuriDir);
+  await fs.mkdir(raspunsDir);
+  const cfg = {
+    fiscalnet: { mode: 'file', bonuriDir, raspunsDir, encoding: 'utf8', timeoutMs: 400, pollResponseMs: 50 },
+  };
+  // Nimeni nu scrie răspunsul → RESPONSE_TIMEOUT, dar fișierul bonului EXISTĂ
+  // deja în Bonuri/ (driver-ul poate să-l fi tipărit).
+  const res = await sendReceipt(cfg, { id: 'amb3', payload: 'S^X^100^1000^buc^1^1\nP^1^100' });
+  assert.strictEqual(res.success, false);
+  assert.strictEqual(res.errorCode, 'RESPONSE_TIMEOUT');
+  assert.strictEqual(res.ambiguous, true);
+  assert.ok(res.errorInfo.startsWith(AMBIGUOUS_PREFIX));
+  await fs.rm(dir, { recursive: true, force: true });
 });
 
 test('parse: răspuns text BONOK=0 mapează codul de eroare', () => {

@@ -11,8 +11,36 @@ const { sleep } = require('./util');
 // `S^…`, `P^…`, `CF^…`, `DP^/DV^`, `ST^`). Vezi docs/BRIDGE_FISCALNET_ARCHITECTURE.md.
 //
 // Rezultat normalizat (indiferent de transport):
-//   { success: boolean, bonNumber: string|null, errorCode: string|null, errorInfo: string|null }
+//   { success: boolean, bonNumber: string|null, errorCode: string|null, errorInfo: string|null,
+//     ambiguous: boolean }
+//
+// `ambiguous` (audit aug 2026, oglinda politicii Oblio din mig 218): true când
+// cererea POATE să fi ajuns la casă dar confirmarea s-a pierdut (timeout după
+// predarea fișierului către driver / abort după trimiterea POST-ului / eroare
+// la CITIREA răspunsului). Un retry orb pe un astfel de eșec = BON FISCAL
+// DUBLU real (bandă + raport Z + discrepanță ANAF), nu doar hârtie dublă.
+// Marker-ul AMBIGUOUS_PREFIX intră în error_info → ajunge în pending_receipts
+// → BridgeTab cere confirmare explicită la retrimitere.
 // ─────────────────────────────────────────────────────────────────────────────
+
+const AMBIGUOUS_PREFIX = 'POSIBIL DUPLICAT — verifică banda casei înainte de retrimitere: ';
+
+// Erori de rețea PRE-conectare: cererea sigur NU a ajuns la FiscalNet → retry sigur.
+const PRECONNECT_CODES = new Set([
+  'ECONNREFUSED', 'ENOTFOUND', 'EHOSTUNREACH', 'ENETUNREACH', 'EADDRNOTAVAIL', 'EAI_AGAIN',
+]);
+function isPreconnectError(err) {
+  const cause = err && err.cause;
+  const code = err && (err.code || (cause && cause.code));
+  if (code != null && PRECONNECT_CODES.has(String(code))) return true;
+  // Dual-stack (IPv4+IPv6): undici împachetează refuzurile într-un AggregateError.
+  if (cause && Array.isArray(cause.errors) && cause.errors.length > 0) {
+    return cause.errors.every((e) => PRECONNECT_CODES.has(String(e && e.code)));
+  }
+  // URL/port invalid ('bad port') — undici refuză ÎNAINTE de orice trimitere.
+  if (cause && /bad port|invalid url/i.test(String(cause.message || ''))) return true;
+  return false;
+}
 
 async function sendReceipt(cfg, receipt) {
   const lines = String(receipt.payload || '')
@@ -49,12 +77,23 @@ async function sendViaApi(cfg, lines, receiptId) {
         signal: controller.signal,
       });
     } catch (err) {
-      // Casă offline / FiscalNet oprit / timeout — NU marcăm success (retry din UI).
-      return fail('API_UNREACHABLE', `${url}: ${err.message}`);
+      // Pre-conectare (refuz/DNS) = cererea sigur n-a plecat → retry SIGUR.
+      // Abort (timeout-ul nostru) sau reset DUPĂ conectare = POST-ul poate fi
+      // ajuns și bonul tipărit → AMBIGUU, retry doar cu verificare umană.
+      const preconnect = isPreconnectError(err) && err.name !== 'AbortError';
+      return fail('API_UNREACHABLE', `${url}: ${err.message}`, !preconnect);
     }
     // Citim corpul ÎN fereastra de timeout: un server care trimite header-ele apoi
     // atârnă pe corp ar bloca altfel bridge-ul la nesfârșit.
-    const raw = await res.text();
+    let raw;
+    try {
+      raw = await res.text();
+    } catch (err) {
+      // Header-ele au sosit → serverul A PRIMIT cererea; doar răspunsul s-a
+      // pierdut. Cel mai clar caz de ambiguitate — înainte, eroarea scăpa
+      // neprinsă și ajungea BRIDGE_EXCEPTION generic, fără marker.
+      return fail('RESPONSE_READ_FAILED', `${url}: ${err.message}`, true);
+    }
     if (!res.ok) {
       return fail(`HTTP_${res.status}`, raw.slice(0, 300));
     }
@@ -89,7 +128,9 @@ async function sendViaFile(cfg, receiptId, lines) {
     }
     await sleep(pollResponseMs);
   }
-  return fail('RESPONSE_TIMEOUT', `Fără răspuns în Raspuns/${fileName} după ${timeoutMs}ms`);
+  // Fișierul bonului a fost DEJA predat driver-ului (rename reușit) — casa
+  // poate să-l fi tipărit fără ca răspunsul să apară la timp → AMBIGUU.
+  return fail('RESPONSE_TIMEOUT', `Fără răspuns în Raspuns/${fileName} după ${timeoutMs}ms`, true);
 }
 
 // ── Parsare răspuns: acceptă JSON (API) SAU text BONOK=/NRBON= (fișiere) ──
@@ -142,8 +183,11 @@ function parseKeyValueResponse(text) {
   return fail(map.ERRCODE || 'UNKNOWN', map.ERRINFO || null);
 }
 
-function fail(code, info) {
-  return { success: false, bonNumber: null, errorCode: code, errorInfo: info };
+function fail(code, info, ambiguous = false) {
+  // Marker-ul de ambiguitate călătorește ÎN error_info (singura coloană care
+  // ajunge nealterată în pending_receipts → BridgeTab), nu doar în flag.
+  const errorInfo = ambiguous ? AMBIGUOUS_PREFIX + (info || code) : info;
+  return { success: false, bonNumber: null, errorCode: code, errorInfo, ambiguous };
 }
 
-module.exports = { sendReceipt, parseFiscalNetResponse };
+module.exports = { sendReceipt, parseFiscalNetResponse, AMBIGUOUS_PREFIX };
