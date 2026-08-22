@@ -77,7 +77,7 @@ function PromptCard({
         maxWidth: 420,
         margin: '0 auto',
         background: D.s2 || '#15130F',
-        border: `1px solid ${D.gold || '#C8963C'}`,
+        border: `1px solid ${D.gold}`,
         borderRadius: 14,
         padding: 16,
         boxShadow: '0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(200,150,60,0.1)',
@@ -142,7 +142,7 @@ function PromptCard({
         <button
           onClick={onAction}
           style={{
-            background: D.gold || '#C8963C',
+            background: D.gold,
             color: '#0A0908',
             border: 'none',
             borderRadius: 8,

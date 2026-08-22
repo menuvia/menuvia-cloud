@@ -1412,6 +1412,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/fiscal_enqueue_parity_assertions.sql
 
+      - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
+        if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/plan_whitelist_sync_assertions.sql
+
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
       # erau referite de niciun workflow (finding-ul auditului din aug 2026).
