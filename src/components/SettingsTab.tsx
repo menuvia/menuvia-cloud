@@ -877,7 +877,7 @@ export default function SettingsTab({
                 >
                   <div
                     style={{
-                      color: '#4CAF6E',
+                      color: D.green,
                       marginBottom: 4,
                       display: 'flex',
                       alignItems: 'center',

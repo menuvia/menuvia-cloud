@@ -2,6 +2,7 @@
 // features.ts — Plan limits + feature gates
 // ─────────────────────────────────────────────────────────────
 import { supabase } from './supabase'
+import { PLAN_LABELS } from './constants'
 
 export type FeatureName =
   | 'menu_qr'
@@ -139,14 +140,20 @@ export function planTier(plan: string | null | undefined): PlanTier {
   }
 }
 
-// User-friendly plan names — numele COMERCIALE (cele 3 concepte publice)
-export const PLAN_NAMES: Record<string, string> = {
-  free: 'Demo gratuit',
-  starter: '📖 Meniu Digital + Rezervări',
-  growth: '🛎 Meniu + Comenzi',
-  pro: '🧾 Fiscalizare',
-  enterprise: '🏢 Custom / Lanțuri',
+// User-friendly plan names — numele COMERCIALE (cele 3 concepte publice).
+// DERIVATE din PLAN_LABELS (sursa unică, lib/constants.ts) + prefixul emoji —
+// capcana „ține PLAN_LABELS și PLAN_NAMES sincronizate manual" (CLAUDE.md,
+// audit aug 2026) dispare: redenumirea unui plan se face într-un singur loc.
+const PLAN_EMOJI: Record<string, string> = {
+  free: '',
+  starter: '📖 ',
+  growth: '🛎 ',
+  pro: '🧾 ',
+  enterprise: '🏢 ',
 }
+export const PLAN_NAMES: Record<string, string> = Object.fromEntries(
+  Object.entries(PLAN_LABELS).map(([plan, label]) => [plan, (PLAN_EMOJI[plan] ?? '') + label]),
+)
 
 // Suggest upgrade path: from current plan, what's next.
 // Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru

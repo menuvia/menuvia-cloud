@@ -352,7 +352,7 @@ export default function AiMenuImport({
                 {drafts.map((d, i) => (
                   <div key={i} style={{ background: d.include ? D.s2 : D.s1, border: `1px solid ${D.border}`, borderRadius: 10, padding: 12, opacity: d.include ? 1 : 0.55 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-                      <input type="checkbox" checked={d.include} onChange={(e) => patch(i, { include: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#C8963C' }} />
+                      <input type="checkbox" checked={d.include} onChange={(e) => patch(i, { include: e.target.checked })} style={{ width: 18, height: 18, accentColor: D.gold }} />
                       <input style={{ ...field, width: 56, textAlign: 'center' }} value={d.emoji} onChange={(e) => patch(i, { emoji: e.target.value })} placeholder="🍽️" />
                       <input style={{ ...field, flex: 1 }} value={d.name} onChange={(e) => patch(i, { name: e.target.value })} placeholder="Nume produs" />
                       <input style={{ ...field, width: 80 }} type="number" value={d.price} onChange={(e) => patch(i, { price: parseFloat(e.target.value) || 0 })} />
