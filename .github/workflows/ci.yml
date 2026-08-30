@@ -19,7 +19,7 @@ jobs:
     name: Lint + TS + Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -51,7 +51,7 @@ jobs:
       E2E_EMAIL: e2e-owner@menuvia.test
       E2E_PASSWORD: MenuviaE2E-2026!
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -190,7 +190,7 @@ jobs:
     # preview-ul Netlify (cu backend + restaurant seed-uit).
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
