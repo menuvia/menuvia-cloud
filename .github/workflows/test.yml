@@ -68,6 +68,13 @@ jobs:
           node-version: '20'
       - name: Bridge unit tests
         run: cd bridge && npm test
+      # Funcțiile Netlify de BANI (stripe-webhook, table-payment,
+      # oblio-generator) — aceeași disciplină zero-deps: harness Lambda-style
+      # cu fake-uri pentru supabase-js/stripe injectate prin Module._load
+      # (tests/functions/helpers/mocks.js). Vitest NU le vede (include-ul lui
+      # e limitat la src/**), deci pasul de aici e SINGURUL care le rulează.
+      - name: Money functions unit tests
+        run: cd tests/functions && npm test
 
   coverage:
     name: Coverage report
