@@ -5,6 +5,7 @@
 // =============================================================
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useFeatures } from '../hooks/useFeatures'
 import { getPlanByInternalId } from '../lib/plans'
 import QRCode from 'qrcode'
@@ -310,6 +311,7 @@ function TableModal({
           overflowY: 'auto',
         }}
       >
+        <FocusTrap />
         <div
           style={{
             fontFamily: 'Fraunces,serif',
@@ -1633,6 +1635,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               width: '100%',
             }}
           >
+            <FocusTrap />
             <div
               style={{
                 fontFamily: 'Fraunces,serif',
@@ -1699,6 +1702,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
               width: '100%',
             }}
           >
+            <FocusTrap />
             <div
               style={{
                 fontFamily: 'Fraunces,serif',

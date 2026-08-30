@@ -1,6 +1,7 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
 import { useState, useMemo, useRef, useEffect } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder } from '../lib/orders'
 import { buildPickupSlots } from '../lib/pickupSlots'
@@ -172,6 +173,7 @@ export default function PickupCheckoutSheet({
           outline: 'none',
         }}
       >
+        <FocusTrap />
         <div
           style={{
             width: 40,

@@ -2,6 +2,7 @@
 // Submit prin RPC create_reservation_public (SECURITY DEFINER, advisory lock).
 // Layout inspirat de design ialoc.ro: chip-pills orizontale + trust strip.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
@@ -1127,6 +1128,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
           outline: 'none',
         }}
       >
+        <FocusTrap />
         {/* Accent header bar */}
         <div
           style={{

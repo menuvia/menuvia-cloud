@@ -8,6 +8,7 @@
 //   • Sticky bottom CTA cu prețul actualizat live
 // ─────────────────────────────────────────────────────────────
 import { useEffect, useRef, useState } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
@@ -233,6 +234,7 @@ function ProductSheet({
           boxShadow: '0 -10px 40px rgba(26,18,8,0.18)',
         }}
       >
+        <FocusTrap />
         {/* Drag handle */}
         <div
           style={{

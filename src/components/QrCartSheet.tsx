@@ -5,6 +5,7 @@
 // Folosește tokens-urile temei (PUB/accent) — fără hex hardcodat. Motion prin
 // clasele din animations.css (reduced-motion respectat global).
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
@@ -256,6 +257,7 @@ export default function QrCartSheet({
           boxShadow: '0 -10px 40px rgba(26,18,8,0.18)',
         }}
       >
+        <FocusTrap />
         {/* Drag handle */}
         <div
           style={{
