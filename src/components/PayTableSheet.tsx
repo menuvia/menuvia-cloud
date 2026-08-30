@@ -4,6 +4,7 @@
 // Element (js.stripe.com) → confirmPayment → succes: bonul fiscal se emite pe
 // casa localului prin webhook (settle_table_payment), nu din client.
 import { useEffect, useRef, useState } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
   cancelTablePayment,
@@ -291,6 +292,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
           outline: 'none',
         }}
       >
+        <FocusTrap />
         <div
           style={{ width: 40, height: 4, borderRadius: 2, background: PUB.border, margin: '0 auto' }}
         />

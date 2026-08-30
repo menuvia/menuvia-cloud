@@ -5,6 +5,7 @@
 // =============================================================
 
 import { useEffect, useRef, useState } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CartItem } from '../lib/orders'
 import type { Product } from '../lib/qr'
@@ -212,6 +213,7 @@ export default function ModifierSheet({
           outline: 'none',
         }}
       >
+        <FocusTrap />
         <div
           style={{ width: 40, height: 4, borderRadius: 2, background: D.s3, margin: '12px auto 0' }}
         />

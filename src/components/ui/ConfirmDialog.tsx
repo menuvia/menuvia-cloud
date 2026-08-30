@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { FocusTrap } from './FocusTrap'
 import { createPortal } from 'react-dom'
 import { Button } from './Button'
 import { _setConfirmHandler, type ConfirmOptions } from './confirm'
@@ -62,6 +63,7 @@ export function ConfirmRoot() {
         aria-labelledby="confirm-title"
         aria-describedby={state.description ? 'confirm-desc' : undefined}
       >
+        <FocusTrap />
         <h3 id="confirm-title" className="confirm-dialog__title">
           {state.title}
         </h3>

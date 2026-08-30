@@ -12,6 +12,7 @@
 // Permisiune: admin/manager only (RPC-urile blochează waiter).
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, useCallback, useId, useRef } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { D } from '../lib/constants'
 import {
   getCurrentShift,
@@ -1411,6 +1412,7 @@ function Modal({
           overflow: 'auto',
         }}
       >
+        <FocusTrap />
         <div
           style={{
             display: 'flex',

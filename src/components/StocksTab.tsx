@@ -8,6 +8,7 @@
 //   • Profitabilitate — view product margin
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect } from 'react'
+import { FocusTrap } from './ui/FocusTrap'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { confirm as confirmDialog } from './ui/confirm'
 import { D } from '../lib/constants'
@@ -736,6 +737,7 @@ function IngredientModal({
         aria-labelledby="ing-modal-title"
         style={modalCard}
       >
+        <FocusTrap />
         <div
           id="ing-modal-title"
           style={{
@@ -986,6 +988,7 @@ function AdjustStockModal({
         aria-labelledby="adjust-modal-title"
         style={modalCard}
       >
+        <FocusTrap />
         <div
           id="adjust-modal-title"
           style={{
@@ -1203,6 +1206,7 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
             aria-labelledby="supplier-modal-title"
             style={modalCard}
           >
+            <FocusTrap />
             <div
               id="supplier-modal-title"
               style={{
@@ -1645,6 +1649,7 @@ function NirCreateModal({
         aria-labelledby="nir-modal-title"
         style={{ ...modalCard, maxWidth: 720 }}
       >
+        <FocusTrap />
         <div
           id="nir-modal-title"
           style={{
