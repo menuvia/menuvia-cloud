@@ -9,21 +9,38 @@ updates:
       time: "09:00"
       timezone: "Europe/Bucharest"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "automated"
-    # Pentru a evita PR-uri minore care fac zgomot, grupez minor + patch împreună
+    # ORDINEA GRUPURILOR E SEMANTICĂ: dependabot pune dependența în PRIMUL grup
+    # care face match. Grupurile pe familii (patterns) stau ÎNAINTEA catch-all-
+    # ului minor+patch (update-types fără patterns = match pe orice), altfel un
+    # „minor" breaking (ex. react-refresh 0.5.x, 0.x ⇒ minorul e breaking) ar
+    # ateriza tot în grupul minor+patch și l-ar rupe la npm ci (review #213).
     groups:
-      minor-and-patch:
-        update-types:
-          - "minor"
-          - "patch"
       # Majors pe perechea typescript-eslint vin ÎMPREUNĂ (parser + plugin
       # desincronizate = lint spart; auditul aug 2026 a găsit PR-urile #184/#186
       # separate, nemergeabile individual în siguranță).
       ts-eslint:
         patterns:
           - "@typescript-eslint/*"
+      # Vite + pluginurile lui vin ÎMPREUNĂ: @vitejs/plugin-react major cere
+      # vite major (peer dep) — separate (#185) sunt nemergeabile individual.
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+      # Toolchain-ul ESLint se mișcă ÎMPREUNĂ: primul PR regenerat al grupului
+      # minor+patch (#212) a picat pe ERESOLVE — eslint-plugin-react-refresh
+      # 0.5.x cere peer eslint ^9||^10, repo-ul e pe eslint 8. Grupat, pluginul
+      # vine odată cu majorul eslint, iar grupul minor+patch rămâne instalabil.
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-plugin-*"
+          - "@eslint/*"
+      # Restul minorelor + patch-urilor vin într-un singur PR (anti-zgomot).
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
     # Ignor breaking changes pe React/TypeScript core — vrei să le revizuiești manual
     ignore:
       - dependency-name: "react"
@@ -34,6 +51,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@supabase/supabase-js"
         update-types: ["version-update:semver-major"]
+      # zod major: src/schemas/index.ts e cod speculativ (zero importuri în
+      # producție, doar propria suită de teste) — zod 4 ar cere muncă pe cod
+      # nefolosit. Se re-evaluează când schemele se cablează în formulare.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   # Netlify functions (Node)
   - package-ecosystem: "npm"
@@ -42,9 +64,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "netlify-functions"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -52,5 +71,3 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 3
-    labels:
-      - "ci"
