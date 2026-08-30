@@ -18,6 +18,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
+      # Majors pe perechea typescript-eslint vin ÎMPREUNĂ (parser + plugin
+      # desincronizate = lint spart; auditul aug 2026 a găsit PR-urile #184/#186
+      # separate, nemergeabile individual în siguranță).
+      ts-eslint:
+        patterns:
+          - "@typescript-eslint/*"
     # Ignor breaking changes pe React/TypeScript core — vrei să le revizuiești manual
     ignore:
       - dependency-name: "react"
