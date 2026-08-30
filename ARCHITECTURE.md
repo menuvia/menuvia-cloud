@@ -53,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (260) — grupate pe „de ce", nu pe număr
+## Migrațiile (261) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -99,7 +99,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Analytics semi-join + meniu liniar | 253 + `tests/sql/menu_rpc_assertions.sql` | gate-ul fiscal ca SEMI-JOIN în cele 4 view-uri (43–197× măsurat); toate agregările meniului liniare, ieșire byte-identică |
 | **Notificări + anulare publică rezervări** | **254–257** + RN1–RN3, RC1–RC4 | email către owner la rezervare nouă (trigger exception-wrapped, fără gate de plan); `cancel_reservation_by_code` anon, anti-oracle, rate-limited; UI `/rezervare/:slug?cancel=COD` |
 | **Hardening audit aug 2026** | **258** + SH1–SH5 în `tests/sql/security_hardening_258_assertions.sql` | plafon supra-încasare în `add_partial_payment` (lanț →258, paritate advance_order); rate-limit anti-enumerare pe `get_loyalty_state` (40/5min per token, STABLE→VOLATILE); RLS deny-all pe `security_ownership_remediations`; invariantul is_platform_admin înghețat |
-| Paritate fiscal pe INSERT + igienă indexuri | 259–260 + FP1–FP4 în `tests/sql/fiscal_enqueue_parity_assertions.sql` | `enqueue_fiscal_receipt_trg` acoperă și INSERT (TG_OP-safe, paritate cu gate-ul 124); drop pe `orders_status_idx`/`orders_created_at_idx` (declarate înlocuite de 059, nedrop-uite 200 de migrații) |
+| Paritate fiscal pe INSERT + igienă indexuri + plafoane anon | 259–261 + FP1–FP4, AR1–AR4 | `enqueue_fiscal_receipt_trg` acoperă și INSERT (TG_OP-safe, paritate cu gate-ul 124); drop pe `orders_status_idx`/`orders_created_at_idx` (declarate înlocuite de 059, nedrop-uite 200 de migrații) |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

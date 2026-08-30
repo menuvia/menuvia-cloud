@@ -1412,6 +1412,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/fiscal_enqueue_parity_assertions.sql
 
+      - name: "Anon analytics rate-limit assertions (mig 261)"
+        if: ${{ hashFiles('supabase/migrations/20260830100000_migration_261_anon_analytics_rate_limits.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/anon_rate_limit_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
