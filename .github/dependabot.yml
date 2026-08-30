@@ -27,6 +27,16 @@ updates:
         patterns:
           - "vite"
           - "@vitejs/*"
+      # Toolchain-ul ESLint se mișcă ÎMPREUNĂ: primul PR regenerat al grupului
+      # minor+patch (#212) a picat pe ERESOLVE — eslint-plugin-react-refresh
+      # 0.5.x (0.x ⇒ „minorul" e breaking) cere peer eslint ^9||^10, repo-ul e
+      # pe eslint 8. Grupat, pluginul vine odată cu majorul eslint, iar grupul
+      # minor+patch rămâne instalabil.
+      eslint:
+        patterns:
+          - "eslint"
+          - "eslint-plugin-*"
+          - "@eslint/*"
     # Ignor breaking changes pe React/TypeScript core — vrei să le revizuiești manual
     ignore:
       - dependency-name: "react"
