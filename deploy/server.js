@@ -111,6 +111,29 @@ function cronMatches(expr, date) {
   return fieldMatches(min, date.getMinutes()) && fieldMatches(hour, date.getHours());
 }
 
+// ── Plafon de invocare (audit aug 2026) ──────────────────────────────────────
+// Netlify omoară handler-ele singur; shim-ul nu avea NICIUN plafon — un handler
+// agățat ținea conexiunea HTTP la nesfârșit, iar pe cron bloca jobul PERMANENT
+// prin anti-suprapunere (exact incidentul „cron mort tăcut", reprodus pe VPS).
+// Race cu timeout: nu putem avorta cod arbitrar (fără worker threads), dar
+// plafonul eliberează slotul de cron / conexiunea și face eșecul VIZIBIL.
+const HTTP_INVOKE_TIMEOUT_MS = Number(process.env.HTTP_INVOKE_TIMEOUT_MS || 30_000);
+const CRON_INVOKE_TIMEOUT_MS = Number(process.env.CRON_INVOKE_TIMEOUT_MS || 300_000);
+function invokeWithTimeout(name, event, ms) {
+  let timer;
+  const gate = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`invocare peste ${ms}ms (plafon shim)`)),
+      ms,
+    );
+    if (timer.unref) timer.unref();
+  });
+  return Promise.race([
+    Promise.resolve().then(() => getHandler(name)(event)),
+    gate,
+  ]).finally(() => clearTimeout(timer));
+}
+
 function startScheduler() {
   const jobs = readSchedules(NETLIFY_TOML);
   for (const j of jobs) {
@@ -137,14 +160,14 @@ function startScheduler() {
       const t0 = Date.now();
       try {
         // Netlify scheduled functions primesc un event cu body JSON ({next_run}).
-        const res = await getHandler(j.name)({
+        const res = await invokeWithTimeout(j.name, {
           httpMethod: 'POST',
           headers: {},
           body: JSON.stringify({ next_run: null }),
           queryStringParameters: {},
           path: `/.netlify/functions/${j.name}`,
           isBase64Encoded: false,
-        });
+        }, CRON_INVOKE_TIMEOUT_MS);
         log('INFO', `Cron ${j.name}: ${res && res.statusCode} în ${Date.now() - t0}ms`);
       } catch (err) {
         log('ERROR', `Cron ${j.name} a aruncat: ${err.message}`);
@@ -212,7 +235,7 @@ const server = http.createServer((req, res) => {
       isBase64Encoded: false,
     };
     try {
-      const out = (await getHandler(name)(event)) || {};
+      const out = (await invokeWithTimeout(name, event, HTTP_INVOKE_TIMEOUT_MS)) || {};
       const headers = out.headers || {};
       if (!headers['Content-Type'] && !headers['content-type']) {
         headers['Content-Type'] = 'application/json';
@@ -224,8 +247,10 @@ const server = http.createServer((req, res) => {
     } catch (err) {
       log('ERROR', `${name}: ${err.stack || err.message}`);
       notifySlack(`funcția ${name} a aruncat: ${err.message}`);
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Internal error' }));
+      // 504 pe plafon (distinct de 500 — operatorul vede „agățat", nu „crăpat").
+      const timedOut = String(err.message || '').includes('plafon shim');
+      res.writeHead(timedOut ? 504 : 500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: timedOut ? 'Function timeout' : 'Internal error' }));
     }
   });
 });

@@ -30,9 +30,16 @@ function decrypt(payload, secret) {
 const IMAGE_TOKEN_COST = 2000
 const IMAGE_COST_USD = 0.04
 
+// Plafon pe apelurile către provideri (audit aug 2026, paritate cu ai-proxy):
+// generarea de imagini e cel mai lent apel din platformă — 60s e generos dar
+// finit; pe VPS (fără kill de platformă) un provider agățat ar atârna altfel
+// nelimitat.
+const PROVIDER_TIMEOUT_MS = 60_000
+
 async function generateOpenAI(apiKey, model, prompt) {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: model || 'gpt-image-1', prompt, size: '1024x1024', n: 1 }),
   })
@@ -48,6 +55,7 @@ async function generateGemini(apiKey, model, prompt) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:predict?key=${encodeURIComponent(apiKey)}`
   const res = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ instances: [{ prompt }], parameters: { sampleCount: 1 } }),
   })
