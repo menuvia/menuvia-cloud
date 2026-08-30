@@ -73,13 +73,25 @@ jobs:
           sed -i '/^\[db\.migrations\]$/,/^\[/ s/^enabled = true/enabled = false/' supabase/config.toml
           supabase start
 
-      - name: Pre-curățare privilegii service_role (paritate cu prod)
+      - name: Pre-curățare privilegii default (paritate cu prod)
         run: |
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 <<'SQL'
           alter default privileges for role postgres in schema public
             revoke insert, update, delete, references, truncate, trigger on tables from service_role;
           alter default privileges in schema public
             revoke insert, update, delete, references, truncate, trigger on tables from service_role;
+          -- ANON + AUTHENTICATED (drift CLI, aug 2026): o versiune nouă de CLI
+          -- (setup-cli `latest`) a început să acorde default privileges și
+          -- acestor roluri pe tabelele noi — pe prod NU e cazul (lanțul acordă
+          -- EXPLICIT tot ce trebuie: mig 047/188/197...), iar asserția
+          -- fail-closed din mig 189 („anon fără SELECT direct pe
+          -- platform_settings", corectă) pica la replay DOAR aici. Dovada că
+          -- revocarea e sigură: sql-verify.yml rulează întregul lanț + toate
+          -- suitele pe Postgres GOL, fără niciun default grant, și trece.
+          alter default privileges for role postgres in schema public
+            revoke all on tables from anon, authenticated;
+          alter default privileges in schema public
+            revoke all on tables from anon, authenticated;
           SQL
 
       # psql, nu `supabase migration up`: mig 120/121 conțin meta-comenzi psql
