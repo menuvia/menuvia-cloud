@@ -146,4 +146,17 @@ begin
      'Prosecco, lichior de soc, apă tonică, mentă proaspătă',
      26.00, '🥂', true, array['nou'], array['sulfiti'], 1)
   on conflict do nothing;
+
+  -- 5. Masă + token QR — fluxul de comandă E2E (e2e/07-qr-order-flow.spec.ts)
+  -- scanează /q/tinctura-e2e-masa-1 și plasează o comandă REALĂ prin
+  -- create_order (cu sesiunea de masă din mig 088). Token fix, idempotent.
+  insert into public.tables (restaurant_id, name, slug, seats)
+    values (v_rest_id, 'Masa 1', 'masa-1', 4)
+    on conflict (restaurant_id, slug) do nothing;
+
+  insert into public.qr_tokens (restaurant_id, table_id, token)
+    select v_rest_id, t.id, 'tinctura-e2e-masa-1'
+      from public.tables t
+     where t.restaurant_id = v_rest_id and t.slug = 'masa-1'
+  on conflict (token) do nothing;
 end$$;
