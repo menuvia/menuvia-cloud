@@ -9,9 +9,6 @@ updates:
       time: "09:00"
       timezone: "Europe/Bucharest"
     open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "automated"
     # Pentru a evita PR-uri minore care fac zgomot, grupez minor + patch împreună
     groups:
       minor-and-patch:
@@ -24,6 +21,12 @@ updates:
       ts-eslint:
         patterns:
           - "@typescript-eslint/*"
+      # Vite + pluginurile lui vin ÎMPREUNĂ: @vitejs/plugin-react major cere
+      # vite major (peer dep) — separate (#185) sunt nemergeabile individual.
+      vite:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
     # Ignor breaking changes pe React/TypeScript core — vrei să le revizuiești manual
     ignore:
       - dependency-name: "react"
@@ -34,6 +37,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@supabase/supabase-js"
         update-types: ["version-update:semver-major"]
+      # zod major: src/schemas/index.ts e cod speculativ (zero importuri în
+      # producție, doar propria suită de teste) — zod 4 ar cere muncă pe cod
+      # nefolosit. Se re-evaluează când schemele se cablează în formulare.
+      - dependency-name: "zod"
+        update-types: ["version-update:semver-major"]
 
   # Netlify functions (Node)
   - package-ecosystem: "npm"
@@ -42,9 +50,6 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 3
-    labels:
-      - "dependencies"
-      - "netlify-functions"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -52,5 +57,3 @@ updates:
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 3
-    labels:
-      - "ci"
