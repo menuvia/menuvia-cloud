@@ -92,6 +92,19 @@ jobs:
             revoke all on tables from anon, authenticated;
           alter default privileges in schema public
             revoke all on tables from anon, authenticated;
+          -- ... și pe FUNCȚII + SECVENȚE (a doua fațetă a aceluiași drift:
+          -- mig 192 a picat pe „anon NU trebuie să poată executa
+          -- update_order_items" — CLI-ul nou dă anon un grant DIRECT de
+          -- EXECUTE la crearea funcției, pe care revoke-urile istorice
+          -- `from public, anon` din lanț nu aveau cum să-l anticipe).
+          alter default privileges for role postgres in schema public
+            revoke all on functions from anon, authenticated;
+          alter default privileges in schema public
+            revoke all on functions from anon, authenticated;
+          alter default privileges for role postgres in schema public
+            revoke all on sequences from anon, authenticated;
+          alter default privileges in schema public
+            revoke all on sequences from anon, authenticated;
           SQL
 
       # psql, nu `supabase migration up`: mig 120/121 conțin meta-comenzi psql
