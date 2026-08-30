@@ -9,6 +9,7 @@
 // Prerequisite: seed_tinctura_demo.sql (secțiunea 5: masa-1 + token-ul fix
 // `tinctura-e2e-masa-1`). Skip curat dacă seed-ul lipsește (ca spec 06).
 import { test, expect } from '@playwright/test'
+import { prepConsent } from './helpers'
 
 const QR_PATH = '/q/tinctura-e2e-masa-1'
 
@@ -20,6 +21,10 @@ test.describe('QR ordering — flux complet de comandă', () => {
       if (m.type() === 'error') consoleErrors.push(m.text())
     })
 
+    // Bannerul de cookie-uri (role="dialog") se randează ȘI pe /q/ și
+    // interceptează click-ul pe CTA-ul coșului (prima rulare a picat exact
+    // aici) — consimțământul se setează ÎNAINTE de navigare, ca în helpers.
+    await prepConsent(page)
     await page.goto(QR_PATH)
 
     // Așteptăm UNA dintre stările terminale ale încărcării: meniul (card de
