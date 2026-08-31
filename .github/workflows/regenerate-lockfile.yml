@@ -43,9 +43,14 @@ jobs:
           node-version: '20'
 
       - name: Reconciliază lockfile-ul cu package.json
-        # --package-lock-only: nu instalează nimic, doar rezolvă arborele;
-        # --ignore-scripts: fără lifecycle scripts (husky etc.) pe runner.
-        run: npm install --package-lock-only --ignore-scripts
+        # Regenerare DE LA ZERO: reconcilierea incrementală contra unui lockfile
+        # stale (placeholder din main) pică pe ERESOLVE — npm ține versiunile
+        # vechi din arbore și le pune în conflict cu range-urile noi (verificat:
+        # plugin-react 4.7.0 blocat vs ^6.1.1 cerut). Diff mai mare, dar corect.
+        # --package-lock-only: nu instalează nimic; --ignore-scripts: fără husky.
+        run: |
+          rm -f package-lock.json
+          npm install --package-lock-only --ignore-scripts
 
       - name: Commit + push dacă s-a schimbat
         run: |
