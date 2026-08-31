@@ -158,7 +158,8 @@ export default function WaiterAssignments({ restaurantId }: Props) {
     // Optimistic update
     const next = new Map(assignments)
     const newSet = new Set(current)
-    isAssigned ? newSet.delete(tableId) : newSet.add(tableId)
+    if (isAssigned) newSet.delete(tableId)
+    else newSet.add(tableId)
     next.set(waiterUserId, newSet)
     setAssignments(next)
 

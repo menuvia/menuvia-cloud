@@ -1091,7 +1091,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                       fontSize: '0.8rem',
                       color: D.t1,
                     }}
-                    formatter={(v: number) => [`${v.toFixed(0)} lei`, 'Venituri']}
+                    formatter={(v) => [`${Number(v ?? 0).toFixed(0)} lei`, 'Venituri']}
                   />
                   <Bar dataKey="revenue" fill={D_RAW.gold} radius={[3, 3, 0, 0]} />
                 </BarChart>
@@ -1294,8 +1294,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         borderRadius: 8,
                         fontSize: 12,
                       }}
-                      formatter={(v: number, n: string) => [
-                        n === 'Venituri' ? `${v.toFixed(2)} lei` : v,
+                      formatter={(v, n) => [
+                        n === 'Venituri' ? `${Number(v ?? 0).toFixed(2)} lei` : String(v ?? ''),
                         n,
                       ]}
                     />
