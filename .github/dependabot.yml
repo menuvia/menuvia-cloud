@@ -27,12 +27,16 @@ updates:
           - "eslint-plugin-*"
           - "@eslint/*"
           - "@typescript-eslint/*"
-      # Vite + pluginurile lui vin ÎMPREUNĂ: @vitejs/plugin-react major cere
-      # vite major (peer dep) — separate (#185) sunt nemergeabile individual.
+      # Vite + pluginurile lui + VITEST vin ÎMPREUNĂ: @vitejs/plugin-react major
+      # cere vite major (peer dep, #185), iar vitest are peer FIX pe majorul de
+      # vite (vitest 2 cere vite ^5) — fără el în grup, PR-ul vite 8 (#219) a
+      # picat la npm ci pe ERESOLVE. Majors-ii de vite/vitest migrează împreună.
       vite:
         patterns:
           - "vite"
           - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
       # Restul minorelor + patch-urilor vin într-un singur PR (anti-zgomot).
       # exclude-patterns ține familiile de toolchain AFARĂ chiar și când
       # dependabot nu re-evaluează ordinea grupurilor (vezi comentariul de sus).
@@ -44,6 +48,8 @@ updates:
           - "@typescript-eslint/*"
           - "vite"
           - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
         update-types:
           - "minor"
           - "patch"
