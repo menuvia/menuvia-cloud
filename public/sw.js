@@ -9,8 +9,8 @@
 // sau de bundle care fac neaplicabil cache-ul vechi. Activate handler
 // șterge automat cache-urile cu nume diferit, deci utilizatorii cu PWA
 // primesc instantaneu noul build (nu mai trebuie hard refresh manual).
-const CACHE_VERSION = 'menuvia-v6'
-const APP_SHELL = ['/favicon.svg', '/manifest.json']
+const CACHE_VERSION = 'menuvia-v7'
+const APP_SHELL = ['/favicon.svg', '/manifest.json', '/icon-192.png', '/icon-512.png']
 
 // ── Install: cache app shell ────────────────────────────────────
 // NU mai facem `skipWaiting()` necondiționat: noul SW intră în starea `waiting`,
@@ -125,8 +125,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'Menuvia — Comandă nouă'
   const options = {
     body: payload.body || 'O comandă nouă așteaptă în bucătărie.',
-    icon: '/favicon.svg',
-    badge: '/favicon.svg',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     tag: payload.tag || 'menuvia-order',
     renotify: true,
     vibrate: [200, 100, 200],
