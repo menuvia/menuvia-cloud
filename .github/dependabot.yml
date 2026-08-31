@@ -9,17 +9,23 @@ updates:
       time: "09:00"
       timezone: "Europe/Bucharest"
     open-pull-requests-limit: 5
-    # ORDINEA GRUPURILOR E SEMANTICĂ: dependabot pune dependența în PRIMUL grup
-    # care face match. Grupurile pe familii (patterns) stau ÎNAINTEA catch-all-
-    # ului minor+patch (update-types fără patterns = match pe orice), altfel un
-    # „minor" breaking (ex. react-refresh 0.5.x, 0.x ⇒ minorul e breaking) ar
-    # ateriza tot în grupul minor+patch și l-ar rupe la npm ci (review #213).
+    # Grupurile pe familii stau înaintea catch-all-ului minor+patch, DAR ordinea
+    # singură NU e de ajuns: la reîmprospătarea unui PR de grup EXISTENT (#212,
+    # rescanarea din 31 aug), dependabot i-a păstrat membership-ul vechi și
+    # react-refresh 0.5.x („minor" breaking pe 0.x, cere peer eslint ^9||^10) a
+    # rămas în minor+patch → ERESOLVE din nou. De aceea minor-and-patch EXCLUDE
+    # explicit familiile de toolchain — excluderea nu depinde de ordine.
     groups:
-      # Majors pe perechea typescript-eslint vin ÎMPREUNĂ (parser + plugin
-      # desincronizate = lint spart; auditul aug 2026 a găsit PR-urile #184/#186
-      # separate, nemergeabile individual în siguranță).
-      ts-eslint:
+      # Toolchain-ul de LINT se mișcă ÎMPREUNĂ, într-un singur grup: eslint 9/10
+      # cere @typescript-eslint 8+ în ACELAȘI install (ts-eslint 6 are peer
+      # eslint ^7||^8) — cu ts-eslint în grup separat, PR-ul de eslint ar fi el
+      # însuși ne-instalabil. Include și perechea parser+plugin (auditul aug
+      # 2026: #184/#186 separate erau nemergeabile individual) și react-refresh.
+      eslint:
         patterns:
+          - "eslint"
+          - "eslint-plugin-*"
+          - "@eslint/*"
           - "@typescript-eslint/*"
       # Vite + pluginurile lui vin ÎMPREUNĂ: @vitejs/plugin-react major cere
       # vite major (peer dep) — separate (#185) sunt nemergeabile individual.
@@ -27,17 +33,17 @@ updates:
         patterns:
           - "vite"
           - "@vitejs/*"
-      # Toolchain-ul ESLint se mișcă ÎMPREUNĂ: primul PR regenerat al grupului
-      # minor+patch (#212) a picat pe ERESOLVE — eslint-plugin-react-refresh
-      # 0.5.x cere peer eslint ^9||^10, repo-ul e pe eslint 8. Grupat, pluginul
-      # vine odată cu majorul eslint, iar grupul minor+patch rămâne instalabil.
-      eslint:
-        patterns:
+      # Restul minorelor + patch-urilor vin într-un singur PR (anti-zgomot).
+      # exclude-patterns ține familiile de toolchain AFARĂ chiar și când
+      # dependabot nu re-evaluează ordinea grupurilor (vezi comentariul de sus).
+      minor-and-patch:
+        exclude-patterns:
           - "eslint"
           - "eslint-plugin-*"
           - "@eslint/*"
-      # Restul minorelor + patch-urilor vin într-un singur PR (anti-zgomot).
-      minor-and-patch:
+          - "@typescript-eslint/*"
+          - "vite"
+          - "@vitejs/*"
         update-types:
           - "minor"
           - "patch"

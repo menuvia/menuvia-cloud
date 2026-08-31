@@ -14,6 +14,25 @@ test.describe('PWA installability', () => {
     expect(manifest.theme_color).toBeTruthy()
     expect(manifest.icons).toBeInstanceOf(Array)
     expect(manifest.icons.length).toBeGreaterThan(0)
+
+    // PNG-urile de instalare (audit aug 2026): doar SVG nu ajunge — Android
+    // cere 192/512 PNG pentru install prompt, iar variantele maskable au
+    // safe-zone. Asserțiile îngheață prezența lor în manifest ȘI pe disc.
+    const pngs = manifest.icons.filter((i: { type?: string }) => i.type === 'image/png')
+    expect(pngs.length).toBeGreaterThanOrEqual(4)
+    expect(
+      manifest.icons.some((i: { purpose?: string }) => i.purpose === 'maskable'),
+    ).toBe(true)
+    for (const path of ['/icon-192.png', '/icon-512.png', '/apple-touch-icon.png']) {
+      const iconRes = await request.get(path)
+      expect(iconRes.status(), `${path} trebuie servit`).toBe(200)
+    }
+  })
+
+  test('apple-touch-icon este PNG (iOS nu suportă SVG aici)', async ({ page }) => {
+    await page.goto('/')
+    const appleIcon = page.locator('link[rel="apple-touch-icon"]')
+    await expect(appleIcon).toHaveAttribute('href', /\.png$/)
   })
 
   test('sw.js is served with no-cache headers', async ({ request }) => {
