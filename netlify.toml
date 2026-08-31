@@ -4,7 +4,7 @@
   functions = "netlify/functions"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
 
 # Healthcheck extern (dead-man's-switch) — path frumos /health rutat la funcție.
 # TREBUIE înainte de catch-all-ul /* → /index.html (first-match wins), altfel SPA

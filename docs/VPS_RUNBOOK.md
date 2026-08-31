@@ -14,7 +14,7 @@
 ## 1. Setup pe server (o dată, copy/paste ca root)
 
 ```bash
-# 1. Node 20 + Caddy + unelte
+# 1. Node 22 + Caddy + unelte
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs caddy rsync
 

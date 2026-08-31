@@ -19,8 +19,8 @@ log() { printf '\n\033[1;36m── %s\033[0m\n' "$*"; }
 [ "$(id -u)" -eq 0 ] || { echo "Rulează ca root."; exit 1; }
 
 log "1/8 Node 20 + Caddy + unelte"
-if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" -lt 20 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" -lt 22 ]; then
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 fi
 apt-get update -qq
 apt-get install -y -qq nodejs caddy rsync curl ca-certificates gnupg
