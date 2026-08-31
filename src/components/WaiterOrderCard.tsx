@@ -762,4 +762,7 @@ function OrderCardInner({
 // cardurile. Handlerii din părinți sunt stabilizați cu useCallback.
 const OrderCard = memo(OrderCardInner)
 
-export { PayModal, OrderCard, STATUS_META }
+// STATUS_META rămâne LOCAL: nu-l importă nimeni de aici (WaiterPage folosește
+// varianta canonică din lib/constants), iar react-refresh 0.5.x semnalează
+// corect mixul componentă+constantă în exporturi (strica Fast Refresh).
+export { PayModal, OrderCard }

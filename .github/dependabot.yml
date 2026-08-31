@@ -8,7 +8,9 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Europe/Bucharest"
-    open-pull-requests-limit: 5
+    # 10, nu 5: valul din 31 aug (3 grupuri + 4 majors individuale) a atins
+    # plafonul — cu 5, majors-ii legitimi stăteau la coadă în spatele grupurilor.
+    open-pull-requests-limit: 10
     # Grupurile pe familii stau înaintea catch-all-ului minor+patch, DAR ordinea
     # singură NU e de ajuns: la reîmprospătarea unui PR de grup EXISTENT (#212,
     # rescanarea din 31 aug), dependabot i-a păstrat membership-ul vechi și
