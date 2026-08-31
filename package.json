@@ -23,7 +23,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@sentry/react": "^8.0.0",
+    "@sentry/react": "^10.71.0",
     "@supabase/supabase-js": "^2.112.4",
     "idb-keyval": "^6.3.0",
     "jspdf": "^4.2.1",
