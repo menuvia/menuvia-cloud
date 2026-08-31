@@ -17,10 +17,15 @@ test.describe('Public pages load', () => {
     await expect(page).toHaveTitle(/Menuvia/i)
 
     // No critical JS errors (filter known noisy warnings)
+    // „due to access control checks" e zgomot WebKit-only (documentat în spec
+    // 06): apelurile RPC anon cu fallback (ex. get_affiliate_public_defaults
+    // pe landing) sunt logate de Safari ca erori de consolă deși fluxul e BY
+    // DESIGN — o rupere adevărată pică pe aserțiunile de conținut, nu aici.
     const critical = errors.filter(e =>
       !e.includes('favicon') &&
       !e.includes('Manifest') &&
-      !e.includes('service worker')
+      !e.includes('service worker') &&
+      !e.includes('access control checks')
     )
     expect(critical).toEqual([])
   })
