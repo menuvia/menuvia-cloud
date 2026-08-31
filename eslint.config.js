@@ -7,10 +7,34 @@
 //   - dist/ + e2e/ + playwright.config.ts ignorate ca în ignorePatterns;
 //   - reportUnusedDisableDirectives a devenit linterOptions (flag-ul CLI
 //     `--report-unused-disable-directives` a dispărut).
-import js from '@eslint/js'
+//
+// eslint:recommended se ia prin SONDARE, nu prin import direct: @eslint/js nu e
+// dependență declarată (lockfile-ul nu poate fi regenerat fără acces la
+// registry), iar în eslint 10 pachetul poate lipsi din tree cu totul. Sondăm
+// întâi din root, apoi din dependențele lui eslint; dacă lipsește, rămân
+// regulile @typescript-eslint + react-hooks (config-ul nu crapă la load).
+import { createRequire } from 'node:module'
 import tsPlugin from '@typescript-eslint/eslint-plugin'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+
+const rootRequire = createRequire(import.meta.url)
+let coreRecommendedRules = {}
+try {
+  coreRecommendedRules = rootRequire('@eslint/js').configs.recommended.rules
+} catch {
+  try {
+    const eslintRequire = createRequire(rootRequire.resolve('eslint/package.json'))
+    coreRecommendedRules = eslintRequire('@eslint/js').configs.recommended.rules
+  } catch {
+    // eslint 10 fără @eslint/js în tree — vezi comentariul de sus.
+  }
+}
+
+// react-hooks: v6+ expune preset-ul flat sub 'recommended-latest'; pe formele
+// mai vechi rămâne 'recommended'. Ne interesează doar .rules (comune ambelor).
+const reactHooksRules =
+  (reactHooks.configs['recommended-latest'] ?? reactHooks.configs.recommended).rules
 
 const TS_FILES = ['**/*.ts', '**/*.tsx']
 
@@ -18,10 +42,12 @@ export default [
   {
     ignores: ['dist/**', 'e2e/**', 'playwright.config.ts', '**/*.js', '**/*.cjs', '**/*.mjs'],
   },
-  // eslint:recommended — restrâns la TS (echivalentul vechiului --ext).
-  { ...js.configs.recommended, files: TS_FILES },
+  // eslint:recommended ÎNAINTEA preset-ului TS (ordinea vechiului extends):
+  // eslint-recommended din preset stinge apoi regulile core nepotrivite pe TS
+  // (no-undef etc.) — invers, le-ar reactiva.
+  { files: TS_FILES, rules: coreRecommendedRules },
   // plugin:@typescript-eslint/recommended — preset-ul flat aduce parserul +
-  // override-urile eslint-recommended (no-undef etc. stinse pe TS).
+  // override-urile eslint-recommended.
   ...tsPlugin.configs['flat/recommended'].map((c) => ({ ...c, files: TS_FILES })),
   {
     files: TS_FILES,
@@ -33,7 +59,7 @@ export default [
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      ...reactHooksRules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unsafe-assignment': 'off',
