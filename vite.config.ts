@@ -21,14 +21,24 @@ export default defineConfig({
         //   - vendor stabili (react/supabase/query) → cache între deploy-uri
         //   - libs grele (charts/pdf/qr) → descărcate doar pe rutele care le folosesc
         //   - Sentry → încărcat oricum la pornire dar separat de aplicație
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-supabase': ['@supabase/supabase-js'],
-          'vendor-idb': ['idb-keyval'],
-          'vendor-charts': ['recharts'],
-          'vendor-pdf': ['jspdf'],
-          'vendor-qr': ['qrcode'],
-          'vendor-sentry': ['@sentry/react'],
+        // Formă de FUNCȚIE (vite 8/rolldown nu mai acceptă obiectul — build-ul
+        // pica cu „manualChunks is not a function"); aceeași împărțire pe
+        // pachete ca vechiul obiect, cu scheduler lângă react (dep de runtime).
+        manualChunks(id: string): string | undefined {
+          if (!id.includes('node_modules')) return undefined
+          const after = id.split('node_modules/').pop() ?? ''
+          const pkg = after.startsWith('@')
+            ? after.split('/').slice(0, 2).join('/')
+            : after.split('/')[0]
+          if (pkg === 'react' || pkg === 'react-dom' || pkg === 'scheduler')
+            return 'vendor-react'
+          if (pkg.startsWith('@supabase/')) return 'vendor-supabase'
+          if (pkg === 'idb-keyval') return 'vendor-idb'
+          if (pkg === 'recharts') return 'vendor-charts'
+          if (pkg === 'jspdf') return 'vendor-pdf'
+          if (pkg === 'qrcode') return 'vendor-qr'
+          if (pkg.startsWith('@sentry/')) return 'vendor-sentry'
+          return undefined
         },
       },
     },
