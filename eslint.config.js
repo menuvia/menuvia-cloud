@@ -31,10 +31,12 @@ try {
   }
 }
 
-// react-hooks: v6+ expune preset-ul flat sub 'recommended-latest'; pe formele
-// mai vechi rămâne 'recommended'. Ne interesează doar .rules (comune ambelor).
-const reactHooksRules =
-  (reactHooks.configs['recommended-latest'] ?? reactHooks.configs.recommended).rules
+// react-hooks: PARITATE cu v4, nu preset-ul v7. `recommended` în v7 aduce
+// suita nouă din era React Compiler (set-state-in-effect & co.) — 87 de erori
+// pe pattern-uri deliberate din codebase (reset de state la schimbarea
+// restaurantului etc.). Adoptarea acelor reguli e o decizie separată, cu
+// refactor dedicat — NU se strecoară într-un PR de dependențe. Cele două
+// reguli de mai jos sunt exact conținutul recommended-ului v4.
 
 const TS_FILES = ['**/*.ts', '**/*.tsx']
 
@@ -59,7 +61,8 @@ export default [
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooksRules,
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unsafe-assignment': 'off',
