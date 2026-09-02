@@ -53,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (261) — grupate pe „de ce", nu pe număr
+## Migrațiile (262) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -69,7 +69,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **Authorization lockdown** | **096A → 096B → 096C** | închidere P0 owner-membership: model cu 2 invariante + REVOKE-by-default + 7 RPC SECURITY DEFINER (vezi mai jos). |
 | **Afiliere + payouts** | **097(a–d), 098–108, 110** | affiliates/attributions/touches + `affiliate_ledger` WORM (bani în cents, bps); comisioane pe `invoice.paid` (mig 099, citește bps LIVE din rândul afiliatului); payouts cu state machine + settle trigger (098); Wise 2-faze; incrementality touch server-side |
 | Hardening Plan 1+2 | 111–143 | 2 runde de audit adversarial: gate-leak fiscal universal (124, 133), izolare multi-tenant, `security_invoker` pe views |
-| Rescriere create_order | 145–157 | 145 = ultima definiție create_order (fără twin); guards: FOR UPDATE, slug case-insensitive, tenancy pe category/happy-hour |
+| Rescriere create_order | 145–157 (+191) | **191** = ultima definiție create_order (copie verbatim 145 + guard grup `missing_required_group`; fără twin); guards: FOR UPDATE, slug case-insensitive, tenancy pe category/happy-hour |
 | **Platforma AI** | **168–171, 185** | `profiles.is_platform_admin` + ai_provider_configs/ai_usage/ai_quota; BYO key criptat; credite Stripe idempotente; 185 = idempotență metering pe request_id |
 | Reziliență/observabilitate | 160–167, 172–184 | audituri notate: email queue atomic-claim + reclaim, backoff Oblio, health hardening, fix coloană rapoarte (180: `oi.unit_price`→`item_total`), dedup guard update_order_items (184) |
 | **Founder + partener + comisioane** | **186–190, 193** | vezi secțiunea de mai jos |
@@ -100,6 +100,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **Notificări + anulare publică rezervări** | **254–257** + RN1–RN3, RC1–RC4 | email către owner la rezervare nouă (trigger exception-wrapped, fără gate de plan); `cancel_reservation_by_code` anon, anti-oracle, rate-limited; UI `/rezervare/:slug?cancel=COD` |
 | **Hardening audit aug 2026** | **258** + SH1–SH5 în `tests/sql/security_hardening_258_assertions.sql` | plafon supra-încasare în `add_partial_payment` (lanț →258, paritate advance_order); rate-limit anti-enumerare pe `get_loyalty_state` (40/5min per token, STABLE→VOLATILE); RLS deny-all pe `security_ownership_remediations`; invariantul is_platform_admin înghețat |
 | Paritate fiscal pe INSERT + igienă indexuri + plafoane anon | 259–261 + FP1–FP4, AR1–AR4 | `enqueue_fiscal_receipt_trg` acoperă și INSERT (TG_OP-safe, paritate cu gate-ul 124); drop pe `orders_status_idx`/`orders_created_at_idx` (declarate înlocuite de 059, nedrop-uite 200 de migrații) |
+| Audit v3 — hardening | 262 + AV1–AV10 | `profiles` fără INSERT/DELETE client (escaladarea is_platform_admin închisă) + trigger backstop; helperi interni fără EXECUTE anon; drop `get_restaurant_by_qr_token`; politici `products`/`invite_tokens` cu roluri explicite; `advance_order` →262 (bacșișul nu intră în order_payments/paid_amount, overpayment pe ambele ramuri); `bridge_retry_receipt` regenerează payload; `bridge_mark_stale_as_error` cu marker ambiguu + cron orar; `enqueue_invoice_for_order` anti duplicat ambiguu; DEFINER-ele primesc `public, pg_temp` |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

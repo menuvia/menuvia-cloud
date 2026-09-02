@@ -438,17 +438,6 @@ export async function fetchTablesAvailability(
   return (Array.isArray(data) ? data : []) as TableAvailabilityRow[]
 }
 
-/** Fetch restaurant by QR token using SECURITY DEFINER RPC */
-export async function fetchRestaurantByQrToken(
-  token: string,
-): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabase.rpc('get_restaurant_by_qr_token', { p_token: token })
-  if (error) return null
-  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined
-  if (row == null) return null
-  return { ...row, menu_languages: parseMenuLanguages(row.menu_languages) }
-}
-
 interface RawCategoryRow {
   id: string
   restaurant_id: string

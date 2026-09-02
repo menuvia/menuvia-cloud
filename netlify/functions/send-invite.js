@@ -28,7 +28,12 @@ exports.handler = async (event) => {
   } catch {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }
   }
-  const { email, role, restaurant_id, restaurant_name, invited_by_name } = payload
+  // ★ audit v3 (SEC-06): restaurant_name / invited_by_name NU se mai citesc din
+  // body — vin din DB după restaurant_id / user.id (mai jos). Altfel orice
+  // cont gratuit cu un restaurant propriu putea trimite 20 de emailuri/zi
+  // brandate hello@menuvia.ro cu subiect + conținut controlate de el (phishing
+  // pe reputația domeniului). Câmpurile trimise încă de clienți vechi se ignoră.
+  const { email, role, restaurant_id } = payload
 
   if (!email || !role || !restaurant_id) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) }
@@ -46,13 +51,6 @@ exports.handler = async (event) => {
   if (!['manager', 'waiter', 'kitchen'].includes(role)) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Invalid role' }) }
   }
-
-  // Conținut controlat de user, escapat pentru interpolarea în HTML-ul emailului.
-  const safeRestaurantName = escapeHtml(restaurant_name)
-  const safeInvitedBy = escapeHtml(invited_by_name || 'Cineva')
-  // Subiectul e text simplu (header), NU HTML — escaparea l-ar strica ("Fish & Chips"
-  // → "Fish &amp; Chips"). Doar curățăm newline-urile (anti header-injection).
-  const subjectRestaurantName = String(restaurant_name ?? '').replace(/[\r\n]+/g, ' ').trim()
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -77,6 +75,20 @@ exports.handler = async (event) => {
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
     return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) }
   }
+
+  // Numele restaurantului și al invitatorului — din DB (service_role), nu din body.
+  const [{ data: restRow }, { data: inviterRow }] = await Promise.all([
+    supabase.from('restaurants').select('name').eq('id', restaurant_id).maybeSingle(),
+    supabase.from('profiles').select('full_name, email').eq('id', user.id).maybeSingle(),
+  ])
+  const restaurantName = String(restRow?.name || 'restaurantul tău')
+  const invitedByName = String(inviterRow?.full_name || inviterRow?.email || 'Un coleg')
+  // Conținut escapat pentru interpolarea în HTML-ul emailului.
+  const safeRestaurantName = escapeHtml(restaurantName)
+  const safeInvitedBy = escapeHtml(invitedByName)
+  // Subiectul e text simplu (header), NU HTML — escaparea l-ar strica ("Fish & Chips"
+  // → "Fish &amp; Chips"). Doar curățăm newline-urile (anti header-injection).
+  const subjectRestaurantName = restaurantName.replace(/[\r\n]+/g, ' ').trim()
 
   // ── SEC-004: Rate limit anti-spam ──────────────────────────────
   // Max 20 invite emails / 24h per inviter. Prevents Resend domain suspension.
