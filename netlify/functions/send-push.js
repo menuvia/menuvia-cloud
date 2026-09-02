@@ -13,6 +13,16 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const webpush = require('web-push')
+const crypto = require('crypto')
+
+// Comparare constant-time a secretului (anti timing attack) — oglindă
+// welcome-email.js (audit v3 SEC-09: surorile comparau cu `!==`).
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a))
+  const bb = Buffer.from(String(b))
+  if (ab.length !== bb.length) return false
+  return crypto.timingSafeEqual(ab, bb)
+}
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -30,7 +40,7 @@ exports.handler = async (event) => {
     return json(503, { error: 'Webhook secret not configured' })
   }
   const secret = event.headers['x-webhook-secret'] || event.headers['X-Webhook-Secret']
-  if (!secret || secret !== expectedSecret) return json(401, { error: 'Unauthorized' })
+  if (!secret || !safeEqual(secret, expectedSecret)) return json(401, { error: 'Unauthorized' })
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_EMAIL } = process.env
 

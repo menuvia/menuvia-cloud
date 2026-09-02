@@ -174,6 +174,28 @@ exports.handler = async () => {
     })())
   }
 
+  // ── Job 1f: bonuri fiscale agățate în 'sent' (orar, mig 262 / audit v3 MF-03) ──
+  // Bridge-ul a revendicat bonul dar n-a confirmat în 10 min (PC restartat
+  // înainte de tipărire SAU tipărit + confirm pierdut pe rețea). Le marcăm
+  // 'error' cu markerul POSIBIL DUPLICAT — BridgeTab cere verificarea benzii
+  // înainte de retrimitere (retry orb = bon fiscal DUBLU real). Fără acest
+  // apel, rândurile 'sent' rămâneau agățate pentru totdeauna (nicio cale de
+  // retry: bridge_retry_receipt acceptă doar error/cancelled).
+  if (minute < 15) {
+    quickJobs.push((async () => {
+      try {
+        const { data, error } = await supabase.rpc('bridge_mark_stale_as_error')
+        // PGRST202 = funcția lipsește (nu ar trebui — există din mig 030), tolerat ca la surori.
+        if (error && error.code !== 'PGRST202') throw error
+        if (!error) results.fiscal_receipts_stale = data
+      } catch (e) {
+        console.error('[automation-cron] fiscal receipts stale FAILED:', e.message)
+        await postCronAlert('fiscal-receipts-stale', e.message)
+        results.fiscal_receipts_stale_error = e.message
+      }
+    })())
+  }
+
   // ── Job 1d: auto no-show pe rezervări (orar, mig 234) ──
   // Rezervările 'confirmed' cu starts_at depășit de >120 min fără să fi fost
   // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de

@@ -190,11 +190,11 @@ exports.handler = async (event) => {
         // logăm clar (best-effort alert dacă există un mecanism; altfel console.error).
         let finalPlan
         try {
-          finalPlan = await resolvePlan(stripe, subscriptionId)
+          finalPlan = await resolvePlan(stripe, subscriptionId, PLAN_BY_PRICE)
         } catch (e) {
           // resolvePlan aruncă DOAR pe eroare Stripe tranzitorie (o subscripție
           // anulată real nu aruncă — retrieve întoarce status='canceled' →
-          // normalizePlan fail-close 'free'). Deci un throw = tranzitoriu:
+          // resolvePlan fail-close 'free', audit v3 MF-07). Deci un throw = tranzitoriu:
           // marcăm processingError → 500 → Stripe RETRIMITE (backoff ~3 zile,
           // finit; update-ul de profil e idempotent). Înainte făceam `break`
           // (200, event 'completed') → clientul care tocmai a plătit rămânea pe
@@ -673,9 +673,23 @@ function normalizePlan(plan) {
 // înseamnă „nu știm" → aruncăm mai departe ca apelantul să NU aplice niciun
 // downgrade pe un client care a plătit efectiv (ar fi un downgrade greșit
 // cauzat de o eroare de infra, nu de starea reală a abonamentului).
-async function resolvePlan(stripe, subscriptionId) {
+async function resolvePlan(stripe, subscriptionId, planByPrice = {}) {
   if (!subscriptionId) return 'free'
   const sub = await stripe.subscriptions.retrieve(subscriptionId)
+  // ★ audit v3 (MF-07): un abonament deja TERMINAL la momentul livrării
+  // evenimentului NU acordă plan plătit. Cazul real: webhook mort >3 zile
+  // (env Netlify șters), founder-ul retrimite din Stripe Dashboard
+  // checkout.session.completed → între timp abonamentul s-a anulat; un
+  // abonament canceled nu mai emite niciun eveniment, deci planul ar fi rămas
+  // 'pro' pe termen nelimitat. Aceeași listă de statusuri VII ca la
+  // customer.subscription.updated (past_due = grace de dunning, nu downgrade).
+  if (!['active', 'trialing', 'past_due'].includes(sub.status)) return 'free'
+  // Planul din price.id-ul FACTURAT are prioritate (sursa de adevăr folosită
+  // și de subscription.updated); metadata.plan rămâne fallback pentru
+  // abonamentele fără price mapat (fail-closed prin normalizePlan).
+  const items = sub.items?.data || []
+  const priced = items.find((i) => i?.price?.id && planByPrice[i.price.id])
+  if (priced) return planByPrice[priced.price.id]
   return normalizePlan(sub.metadata?.plan)
 }
 

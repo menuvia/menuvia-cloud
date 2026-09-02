@@ -18,6 +18,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 const http = require('node:http');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -25,6 +26,14 @@ const PORT = Number(process.env.FUNCTIONS_PORT || 8788);
 const REPO_ROOT = path.resolve(__dirname, '..');
 const FUNCTIONS_DIR = process.env.FUNCTIONS_DIR || path.join(REPO_ROOT, 'netlify', 'functions');
 const NETLIFY_TOML = process.env.NETLIFY_TOML || path.join(REPO_ROOT, 'netlify.toml');
+
+// Comparare constant-time a cheii de cron (anti timing attack; audit v3 SEC-09).
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a ?? ''));
+  const bb = Buffer.from(String(b ?? ''));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
 
 function log(level, msg) {
   const line = `[${new Date().toISOString()}] [${level}] ${msg}`;
@@ -207,7 +216,7 @@ const server = http.createServer((req, res) => {
   // ca să nu confirmăm existența funcției. Escape operator: header x-cron-key valid.
   if (scheduledOnly.has(name)) {
     const key = req.headers['x-cron-key'];
-    if (!process.env.CRON_TRIGGER_KEY || key !== process.env.CRON_TRIGGER_KEY) {
+    if (!process.env.CRON_TRIGGER_KEY || !safeEqual(key, process.env.CRON_TRIGGER_KEY)) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       res.end(`Funcție necunoscută: ${name}`);
       return;

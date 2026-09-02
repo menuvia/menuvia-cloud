@@ -146,7 +146,7 @@ describe('stripe-webhook: checkout.session.completed', () => {
   it('abonament: planul vine din metadata subscription-ului, profilul se leagă de customer', async () => {
     state.stripeImpls['subscriptions.retrieve'] = async (id) => {
       assert.equal(id, 'sub_new')
-      return { metadata: { plan: 'pro' } }
+      return { status: 'active', metadata: { plan: 'pro' } }
     }
     const res = await fire('checkout.session.completed', {
       mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_new',
@@ -161,11 +161,47 @@ describe('stripe-webhook: checkout.session.completed', () => {
   })
 
   it('metadata.plan necunoscut → fail-closed pe free, NU un plan plătit', async () => {
-    state.stripeImpls['subscriptions.retrieve'] = async () => ({ metadata: { plan: 'platinum-hack' } })
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({ status: 'active', metadata: { plan: 'platinum-hack' } })
     await fire('checkout.session.completed', {
       mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_new',
     })
     assert.equal(profileUpdates()[0].plan, 'free')
+  })
+
+  it('abonament deja ANULAT la livrare (replay după webhook mort) → free, nu Plan 3 (audit v3 MF-07)', async () => {
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({
+      status: 'canceled',
+      metadata: { plan: 'pro' },
+      items: { data: [{ price: { id: 'price_pro' } }] },
+    })
+    const res = await fire('checkout.session.completed', {
+      mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_dead',
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(profileUpdates()[0].plan, 'free')
+    assert.equal(finalizeStatus(), 'completed')
+  })
+
+  it('past_due la livrare păstrează planul (grace de dunning, aceeași listă ca subscription.updated)', async () => {
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({
+      status: 'past_due', metadata: { plan: 'growth' }, items: { data: [] },
+    })
+    await fire('checkout.session.completed', {
+      mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_pd',
+    })
+    assert.equal(profileUpdates()[0].plan, 'growth')
+  })
+
+  it('planul vine din price.id-ul FACTURAT când există (metadata stale nu câștigă)', async () => {
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({
+      status: 'active',
+      metadata: { plan: 'enterprise' },
+      items: { data: [{ price: { id: 'price_starter' } }] },
+    })
+    await fire('checkout.session.completed', {
+      mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_new',
+    })
+    assert.equal(profileUpdates()[0].plan, 'starter')
   })
 
   it('resolvePlan tranzitoriu eșuat → 500 + rând failed, FĂRĂ nicio scriere de plan', async () => {

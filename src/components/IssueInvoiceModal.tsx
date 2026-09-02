@@ -22,6 +22,13 @@ interface Props {
   onIssued: () => void
 }
 
+// Eșec Oblio AMBIGUU (mig 218 / 239): documentul poate exista deja la Oblio —
+// re-emiterea = duplicat fiscal. Marker-ele sunt scrise de oblio-generator.js
+// (POSIBIL DUPLICAT) și de oblio_reclaim_stale_generating (STUCK_GENERATING).
+function isAmbiguousFailure(lastError: string | null | undefined): boolean {
+  return /^(POSIBIL DUPLICAT|STUCK_GENERATING)/.test(lastError ?? '')
+}
+
 export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: Props) {
   useBodyScrollLock(true)
   const [orders, setOrders] = useState<PaidOrder[]>([])
@@ -61,14 +68,23 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
         return
       }
 
-      // Step 2: filter out orders that already have queued/issued invoices
+      // Step 2: filter out orders that already have queued/issued invoices.
+      // ★ audit v3 (MF-04, mig 262): și comenzile cu o factură eșuată AMBIGUU
+      // (POSIBIL DUPLICAT / STUCK_GENERATING — Oblio POATE fi emis-o deja).
+      // RPC-ul enqueue_invoice_for_order le respinge oricum (hint
+      // ambiguous_failed_exists); aici doar nu le mai oferim ca „libere".
       const { data: existing } = await supabase
         .from('invoices')
-        .select('order_id')
+        .select('order_id, status, last_error')
         .eq('restaurant_id', restaurantId)
-        .in('status', ['queued', 'generating', 'issued'])
+        .in('status', ['queued', 'generating', 'issued', 'failed'])
 
-      const taken = new Set((existing || []).map((e) => e.order_id))
+      const rows = (existing || []) as { order_id: string; status: string; last_error: string | null }[]
+      const taken = new Set(
+        rows
+          .filter((e) => e.status !== 'failed' || isAmbiguousFailure(e.last_error))
+          .map((e) => e.order_id),
+      )
       setOrders((data || []).filter((o) => !taken.has(o.id)) as PaidOrder[])
       setLoading(false)
     })()
