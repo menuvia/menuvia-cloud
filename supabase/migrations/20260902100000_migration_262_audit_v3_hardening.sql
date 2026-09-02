@@ -26,8 +26,9 @@
 --      fiscale ale oricărei comenzi pe UUID), owner_plan, get_restaurant_features
 --      (enumerare de plan), log_ai_import / reserve_ai_import_slot /
 --      check_ai_import_quota (scriere în ai_import_log al oricărui tenant).
---      Fix: revoke de la public+anon, grant explicit authenticated+service_role
---      (apelanții reali sunt trigger-e/RPC-uri DEFINER sau dashboard-ul).
+--      Fix: revoke de la public+anon+authenticated, grant service_role;
+--      authenticated păstrează DOAR get_restaurant_features (singurul cu
+--      apelant client real) — toți ceilalți apelanți sunt DEFINER.
 --   4. SEC-04 products: politicile erau PUBLIC (fără roluri) — anon evalua
 --      is_member (fără EXECUTE) → `permission denied` pe citirea directă, adică
 --      fallback-ul fetchMenuLayered (qr.ts) era mort pentru anon; iar read-ul
@@ -86,6 +87,8 @@ set local statement_timeout = '120s';
 revoke insert, delete on table public.profiles from public, anon, authenticated;
 
 drop policy if exists "profiles_self" on public.profiles;
+drop policy if exists "profiles_self_select" on public.profiles;   -- re-rulabil (aplicare manuală pe prod)
+drop policy if exists "profiles_self_update" on public.profiles;
 create policy "profiles_self_select" on public.profiles
   for select using (auth.uid() = id);
 create policy "profiles_self_update" on public.profiles
@@ -140,11 +143,17 @@ begin
     if to_regprocedure(v_sig) is null then
       raise exception 'mig 262: helperul % lipsește — lista SEC-03 e desincronizată', v_sig;
     end if;
-    execute format('revoke execute on function %s from public, anon', v_sig);
-    -- Apelanții reali: trigger-e/RPC-uri DEFINER (owner) + dashboard-ul
-    -- autentificat (get_restaurant_features prin useFeatures) + service_role.
-    execute format('grant execute on function %s to authenticated, service_role', v_sig);
+    -- Apelanții reali sunt EXCLUSIV trigger-e/RPC-uri SECURITY DEFINER
+    -- (verificat pe replay: 12 apelanți, toți prosecdef; nicio politică sau
+    -- view nu-i referă) + service_role. Singurul helper cu apelant client
+    -- direct e get_restaurant_features (useFeatures → planTier) — restul nu
+    -- au ce căuta pe suprafața PostgREST a unui cont autentificat
+    -- (build_fiscalnet_payload citește liniile fiscale ale oricărei comenzi
+    -- pe UUID; log_ai_import scrie în ai_import_log al oricărui tenant).
+    execute format('revoke execute on function %s from public, anon, authenticated', v_sig);
+    execute format('grant execute on function %s to service_role', v_sig);
   end loop;
+  grant execute on function public.get_restaurant_features(uuid) to authenticated;
 end $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -174,6 +183,7 @@ end $$;
 -- 5. SEC-05 — invite_tokens: citirea invitațiilor e pentru admini
 -- ─────────────────────────────────────────────────────────────────────────────
 drop policy if exists "invites: member read" on public.invite_tokens;
+drop policy if exists "invites: admin read" on public.invite_tokens;   -- re-rulabil
 create policy "invites: admin read" on public.invite_tokens
   for select to authenticated
   using (public.is_admin(restaurant_id));
@@ -723,7 +733,9 @@ begin
       raise exception 'mig 262: funcția anon % proiectează wifi_password/qr_token', r.proname; end if;
   end loop;
 
-  -- 3. Helperii interni nu mai sunt executabili de anon; authenticated păstrează ce folosește.
+  -- 3. Helperii interni nu mai sunt executabili de anon/authenticated (doar
+  --    service_role + contextele DEFINER); authenticated păstrează DOAR
+  --    get_restaurant_features (apelant client real: useFeatures).
   foreach v_sig in array array[
     'public._refresh_order_totals(uuid)', 'public.build_fiscalnet_payload(uuid)',
     'public.owner_plan(uuid)', 'public.get_restaurant_features(uuid)',
@@ -732,6 +744,11 @@ begin
   ] loop
     if has_function_privilege('anon', v_sig, 'execute') then
       raise exception 'mig 262: anon încă poate executa %', v_sig; end if;
+    if not has_function_privilege('service_role', v_sig, 'execute') then
+      raise exception 'mig 262: service_role a pierdut %', v_sig; end if;
+    if v_sig <> 'public.get_restaurant_features(uuid)'
+       and has_function_privilege('authenticated', v_sig, 'execute') then
+      raise exception 'mig 262: authenticated încă poate executa helperul intern %', v_sig; end if;
   end loop;
   if not has_function_privilege('authenticated', 'public.get_restaurant_features(uuid)', 'execute') then
     raise exception 'mig 262: authenticated a pierdut get_restaurant_features (useFeatures ar muri)'; end if;

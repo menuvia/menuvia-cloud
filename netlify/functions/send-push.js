@@ -15,8 +15,13 @@ const { createClient } = require('@supabase/supabase-js')
 const webpush = require('web-push')
 const crypto = require('crypto')
 
-// Comparare constant-time a secretului (anti timing attack) — oglindă
-// welcome-email.js (audit v3 SEC-09: surorile comparau cu `!==`).
+/**
+ * Comparare constant-time a secretului (anti timing attack) — oglindă
+ * welcome-email.js (audit v3 SEC-09: surorile comparau cu `!==`).
+ * @param {unknown} a valoarea primită (header)
+ * @param {unknown} b valoarea așteptată (env)
+ * @returns {boolean} true doar la egalitate exactă (lungime + bytes)
+ */
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a))
   const bb = Buffer.from(String(b))

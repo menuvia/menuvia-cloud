@@ -182,6 +182,30 @@ describe('stripe-webhook: checkout.session.completed', () => {
     assert.equal(finalizeStatus(), 'completed')
   })
 
+  it('replay pentru un abonament VECHI terminal NU suprascrie un abonament curent mai nou (anti-clobber)', async () => {
+    scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_B_nou' })
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({
+      status: 'canceled', metadata: { plan: 'pro' }, items: { data: [{ price: { id: 'price_pro' } }] },
+    })
+    const res = await fire('checkout.session.completed', {
+      mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_A_vechi',
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(profileUpdates().length, 0, 'profilul cu abonamentul nou nu trebuie atins')
+    assert.equal(finalizeStatus(), 'completed')
+  })
+
+  it('abonamentul CURENT devenit terminal → free se scrie (nu e replay stale)', async () => {
+    scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_dead' })
+    state.stripeImpls['subscriptions.retrieve'] = async () => ({
+      status: 'canceled', metadata: { plan: 'pro' }, items: { data: [] },
+    })
+    await fire('checkout.session.completed', {
+      mode: 'subscription', client_reference_id: 'u1', customer: 'cus_1', subscription: 'sub_dead',
+    })
+    assert.equal(profileUpdates()[0].plan, 'free')
+  })
+
   it('past_due la livrare păstrează planul (grace de dunning, aceeași listă ca subscription.updated)', async () => {
     state.stripeImpls['subscriptions.retrieve'] = async () => ({
       status: 'past_due', metadata: { plan: 'growth' }, items: { data: [] },

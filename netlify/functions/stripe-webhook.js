@@ -208,6 +208,31 @@ exports.handler = async (event) => {
           break
         }
 
+        // ★ Anti-clobber pe replay (review audit v3): un checkout.session.completed
+        // ÎNTÂRZIAT pentru un abonament VECHI deja terminal (rezolvat 'free' mai
+        // sus) nu are voie să suprascrie profilul care referă deja un abonament
+        // MAI NOU (clientul a re-cumpărat între timp) — altfel replay-ul ar
+        // retrograda un plătitor activ și ar reinstala abonamentul mort ca
+        // „curent". Aceeași disciplină ca skip-ul de subscripție stale din
+        // customer.subscription.updated/deleted. Un abonament VIU diferit de cel
+        // curent e un checkout legitim nou → se scrie normal.
+        if (finalPlan === 'free') {
+          const { data: currentProfile, error: profileErr } = await supabase
+            .from('profiles')
+            .select('stripe_subscription_id')
+            .eq('id', refUserId)
+            .single()
+          // PGRST116 = profil inexistent (0 rânduri) — nu e un blocaj: scriem normal.
+          if (profileErr && profileErr.code !== 'PGRST116') {
+            throw new Error(`Profile lookup failed: ${profileErr.message}`)
+          }
+          const currentSub = currentProfile?.stripe_subscription_id
+          if (currentSub && currentSub !== subscriptionId) {
+            console.log(`[stripe-webhook] Skip stale checkout for terminal subscription ${subscriptionId} (current: ${currentSub})`)
+            break
+          }
+        }
+
         const { error } = await supabase
           .from('profiles')
           .update({
@@ -666,13 +691,19 @@ function normalizePlan(plan) {
   return VALID_PAID_PLANS.includes(p) ? p : 'free'
 }
 
-// ── Helper: resolve plan from subscription metadata ────────────────
-// Citește metadata.plan setat la checkout. Fail-CLOSED la 'free' doar dacă
-// subscription-ul chiar lipsește/nu are metadata (audit HIGH). O eroare
-// Stripe (ex. timeout tranzitoriu de rețea) NU înseamnă „plan free" —
-// înseamnă „nu știm" → aruncăm mai departe ca apelantul să NU aplice niciun
-// downgrade pe un client care a plătit efectiv (ar fi un downgrade greșit
-// cauzat de o eroare de infra, nu de starea reală a abonamentului).
+// ── Helper: resolve plan from subscription ─────────────────────────
+/**
+ * Planul canonic al unui abonament Stripe la momentul livrării evenimentului.
+ * Fail-CLOSED la 'free' dacă abonamentul lipsește, e terminal (canceled /
+ * unpaid / incomplete_expired) sau nu are nici price mapat, nici metadata
+ * validă (audit HIGH). O eroare Stripe (ex. timeout tranzitoriu de rețea) NU
+ * înseamnă „plan free" — înseamnă „nu știm" → aruncăm mai departe ca
+ * apelantul să NU aplice niciun downgrade pe un client care a plătit efectiv.
+ * @param {import('stripe')} stripe clientul Stripe
+ * @param {string|null|undefined} subscriptionId id-ul abonamentului din sesiune
+ * @param {Record<string,string>} [planByPrice] mapă price.id → plan canonic
+ * @returns {Promise<'free'|'starter'|'growth'|'pro'|'enterprise'>}
+ */
 async function resolvePlan(stripe, subscriptionId, planByPrice = {}) {
   if (!subscriptionId) return 'free'
   const sub = await stripe.subscriptions.retrieve(subscriptionId)

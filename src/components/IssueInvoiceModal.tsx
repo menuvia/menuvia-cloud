@@ -22,9 +22,11 @@ interface Props {
   onIssued: () => void
 }
 
-// Eșec Oblio AMBIGUU (mig 218 / 239): documentul poate exista deja la Oblio —
-// re-emiterea = duplicat fiscal. Marker-ele sunt scrise de oblio-generator.js
-// (POSIBIL DUPLICAT) și de oblio_reclaim_stale_generating (STUCK_GENERATING).
+/**
+ * Eșec Oblio AMBIGUU (mig 218 / 239): documentul poate exista deja la Oblio —
+ * re-emiterea = duplicat fiscal. Marker-ele sunt scrise de oblio-generator.js
+ * (POSIBIL DUPLICAT) și de oblio_reclaim_stale_generating (STUCK_GENERATING).
+ */
 function isAmbiguousFailure(lastError: string | null | undefined): boolean {
   return /^(POSIBIL DUPLICAT|STUCK_GENERATING)/.test(lastError ?? '')
 }

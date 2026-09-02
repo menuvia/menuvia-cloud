@@ -8,9 +8,9 @@
 --   AV2  Backstop: chiar cu un GRANT INSERT accidental, trigger-ul respinge
 --        scrierea directă din rolul client.
 --   AV3  SEC-02: get_restaurant_by_qr_token nu mai există.
---   AV4  SEC-03: anon nu poate executa helperii interni (privilegiu + probă
---        comportamentală pe build_fiscalnet_payload); authenticated păstrează
---        get_restaurant_features.
+--   AV4  SEC-03: anon și authenticated nu pot executa helperii interni
+--        (privilegiu + probă comportamentală pe build_fiscalnet_payload);
+--        authenticated păstrează DOAR get_restaurant_features.
 --   AV5  SEC-04: anon citește DIRECT produsele active ne-draft ale unui
 --        restaurant activ (fallback-ul fetchMenuLayered trăiește), nimic din
 --        draft sau din restaurante inactive.
@@ -140,9 +140,11 @@ begin
     if has_function_privilege('anon', v_sig, 'execute') then
       raise exception 'AV4 FAIL: anon poate executa %', v_sig; end if;
   end loop;
-  if not has_function_privilege('authenticated', 'public.get_restaurant_features(uuid)', 'execute')
-     or not has_function_privilege('authenticated', 'public.owner_plan(uuid)', 'execute') then
-    raise exception 'AV4 FAIL: authenticated a pierdut helperii de plan (dashboard-ul ar muri)'; end if;
+  if not has_function_privilege('authenticated', 'public.get_restaurant_features(uuid)', 'execute') then
+    raise exception 'AV4 FAIL: authenticated a pierdut get_restaurant_features (useFeatures ar muri)'; end if;
+  if has_function_privilege('authenticated', 'public.build_fiscalnet_payload(uuid)', 'execute')
+     or has_function_privilege('authenticated', 'public.log_ai_import(uuid, uuid, integer)', 'execute') then
+    raise exception 'AV4 FAIL: authenticated poate executa helperi interni (fără apelant client)'; end if;
 end $$;
 set local role anon;
 do $$
@@ -159,7 +161,23 @@ begin
     raise exception 'AV4 FAIL: anon a putut chema build_fiscalnet_payload'; end if;
 end $$;
 reset role;
-do $$ begin raise notice 'AV4 OK: helperii interni sunt închiși pentru anon, deschiși pentru authenticated'; end $$;
+set local role authenticated;
+set local request.jwt.claim.sub = '62000000-0000-4000-8000-000000000001';
+do $$
+declare v_blocked boolean := false;
+begin
+  begin
+    perform public.build_fiscalnet_payload('62f00000-0000-4000-8000-000000000001');
+  exception when insufficient_privilege then
+    v_blocked := true;
+  when others then
+    raise exception 'AV4: eroare neașteptată ca authenticated (%): %', sqlstate, sqlerrm;
+  end;
+  if not v_blocked then
+    raise exception 'AV4 FAIL: authenticated a putut chema build_fiscalnet_payload direct'; end if;
+end $$;
+reset role;
+do $$ begin raise notice 'AV4 OK: helperii interni sunt închiși pentru anon/authenticated; get_restaurant_features rămâne pe dashboard'; end $$;
 
 -- ── AV5: anon citește direct produsele publice (fallback-ul trăiește) ────────
 set local role anon;

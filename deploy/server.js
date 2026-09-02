@@ -27,7 +27,12 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 const FUNCTIONS_DIR = process.env.FUNCTIONS_DIR || path.join(REPO_ROOT, 'netlify', 'functions');
 const NETLIFY_TOML = process.env.NETLIFY_TOML || path.join(REPO_ROOT, 'netlify.toml');
 
-// Comparare constant-time a cheii de cron (anti timing attack; audit v3 SEC-09).
+/**
+ * Comparare constant-time a cheii de cron (anti timing attack; audit v3 SEC-09).
+ * @param {unknown} a valoarea primită (header x-cron-key)
+ * @param {unknown} b valoarea așteptată (CRON_TRIGGER_KEY)
+ * @returns {boolean} true doar la egalitate exactă (lungime + bytes)
+ */
 function safeEqual(a, b) {
   const ab = Buffer.from(String(a ?? ''));
   const bb = Buffer.from(String(b ?? ''));
