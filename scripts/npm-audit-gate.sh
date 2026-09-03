@@ -52,9 +52,19 @@ classify() {
 }
 
 for i in $(seq 1 "$ATTEMPTS"); do
+  # Două plafoane, fiindcă unul singur nu ajunge:
+  #  - `--fetch-retries=0 --fetch-timeout` opresc bucla INTERNĂ de reîncercări a
+  #    lui npm (default 2 reîncercări cu backoff exponențial până la 60 s
+  #    fiecare) — fără ele, o singură comandă `npm audit` poate sta minute bune
+  #    și plafonul nostru extern devine primul care taie, nu ultimul.
+  #  - `timeout -k 10s` e plasa: trimite SIGTERM la depășire și SIGKILL după
+  #    încă 10 s, ca un proces care ignoră SIGTERM blocat într-o citire de rețea
+  #    să nu țină jobul la nesfârșit (fără `-k`, `timeout` așteaptă la infinit).
   # `timeout` întoarce 124 la depășire; ieșirea parțială e text incomplet, deci
   # cade oricum pe ramura TRANSPORT a clasificatorului.
-  report="$(timeout "$TIMEOUT" npm audit --omit=dev --json 2>/dev/null || true)"
+  report="$(timeout -k 10s "$TIMEOUT" \
+    npm audit --omit=dev --json --fetch-retries=0 --fetch-timeout=30000 \
+    2>/dev/null || true)"
   verdict="$(printf '%s' "$report" | classify)"
 
   case "$verdict" in
