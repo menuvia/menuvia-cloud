@@ -417,7 +417,11 @@ function AppRouter() {
   if (state.view === 'qr' && state.token)
     return (
       <Suspense fallback={<PageSpinner />}>
-        <QrMenuPage token={state.token} />
+        {/* key={token}: schimbarea tokenului REMONTEAZĂ pagina, deci
+            inițializatorii useState (rehidratarea din sessionStorage) rulează
+            din nou. Fără el, starea mesei A putea fi afișată și persistată sub
+            cheia mesei B (review audit v3). */}
+        <QrMenuPage key={state.token} token={state.token} />
       </Suspense>
     )
   if (state.view === 'menu' && state.slug)

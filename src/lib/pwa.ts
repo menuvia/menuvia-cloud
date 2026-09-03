@@ -109,9 +109,19 @@ export function useSWUpdate() {
       })
     })
 
-    // Detect controller change (after applyUpdate)
+    // Detect controller change (after applyUpdate).
+    // La PRIMA vizită pagina nu are controller: SW-ul se instalează, face
+    // clients.claim() → `controllerchange` — fără gardă asta însemna un reload
+    // complet la 1–5 s după primul paint pe meniul QR, cu coșul în memorie
+    // pierdut (audit v3 FC-03). Prima preluare doar marchează pagina drept
+    // controlată; DOAR o schimbare ULTERIOARĂ (update aplicat) reîncarcă.
+    let controlled = navigator.serviceWorker.controller != null
     let refreshing = false
     navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!controlled) {
+        controlled = true
+        return
+      }
       if (refreshing) return
       refreshing = true
       window.location.reload()

@@ -3,7 +3,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import { createOrder } from '../lib/orders'
+import { createOrder, getPickupIdempotencyKey, rotatePickupIdempotencyKey } from '../lib/orders'
 import { buildPickupSlots } from '../lib/pickupSlots'
 import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
@@ -50,9 +50,12 @@ export default function PickupCheckoutSheet({
   const [pickupTime, setPickupTime] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Cheie de idempotență stabilă pe durata sheet-ului: retry-urile (după
-  // ambiguitate de rețea) refolosesc aceeași cheie → fără comenzi duplicate.
-  const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
+  // Cheie de idempotență PERSISTATĂ (sessionStorage per restaurant): retry-urile
+  // după un răspuns pierdut refolosesc aceeași cheie chiar dacă sheet-ul a fost
+  // închis/redeschis sau pagina reîncărcată → serverul dedup-uiește, fără comenzi
+  // duplicate (audit v3 FC-01 — înainte cheia murea cu sheet-ul).
+  const idemScope = String(restaurant.slug ?? restaurant.id ?? 'pickup')
+  const idempotencyKeyRef = useRef<string>(getPickupIdempotencyKey(idemScope))
 
   // Semantică de dialog modal (paritate cu QrCartSheet/ProductSheet): Escape
   // închide, focusul intră în panou la deschidere și se restaurează la închidere.
@@ -119,7 +122,7 @@ export default function PickupCheckoutSheet({
       // Rotește cheia înainte de a propaga succesul: dacă părintele lasă
       // sheet-ul montat și user-ul mai trimite o comandă, a doua nu va fi
       // dedup-uită silențios de server pe aceeași idempotency_key.
-      idempotencyKeyRef.current = crypto.randomUUID()
+      idempotencyKeyRef.current = rotatePickupIdempotencyKey(idemScope)
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)

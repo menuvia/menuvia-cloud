@@ -123,7 +123,16 @@ export default function WaiterPage() {
   // mai bine un ospătar vede „Închide comanda" o secundă decât să înregistreze
   // o plată pe un plan care nu o permite. Gating-ul real e oricum server-side.
   const restaurantFeatures = useFeatures(restaurantId)
-  const paymentsEnabled = planTier(restaurantFeatures.features?.plan) >= 3
+  // ★ audit v3 (DS-1): TRISTATE. `null` = planul NU e cunoscut (primul load
+  // sau RPC picat fără cache) — nu înseamnă „fără plăți". Înainte necunoscutul
+  // cădea pe `false` → cardul arăta „Închide comanda" (închidere NEfiscală) pe
+  // un restaurant Plan 3 și serverul o accepta → comandă `closed` fără bon și
+  // fără venit. Acum: necunoscut = fără buton de finalizare + banner de
+  // reîncercare; serverul refuză oricum close_order pe planurile fiscale (mig 263).
+  const planKnown = restaurantFeatures.features != null
+  const paymentsEnabled: boolean | null = planKnown
+    ? planTier(restaurantFeatures.features?.plan) >= 3
+    : null
 
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   // Suma deja încasată în plăți parțiale pe comanda din PayModal — ca „Plata
@@ -300,7 +309,7 @@ export default function WaiterPage() {
   const [splitLoading, setSplitLoading] = useState(false)
   // Scroll-lock pe fundal cât e deschis modalul Split Bill — consistent cu
   // PayModal/DiscountModal (altfel pe iOS pagina derulează sub overlay).
-  useBodyScrollLock(splitOrder != null && paymentsEnabled)
+  useBodyScrollLock(splitOrder != null && paymentsEnabled === true)
 
   // OPT-8: handleri stabili (useCallback) — altfel memo-ul de pe OrderCard
   // e inert: fiecare render al paginii le dădea identitate nouă.
@@ -922,8 +931,47 @@ export default function WaiterPage() {
           width: '100%',
         }}
       >
+        {/* Planul restaurantului nu s-a putut citi: finalizarea comenzilor
+            (Plată / Închide) e ascunsă până la un reload reușit (DS-1). */}
+        {paymentsEnabled === null && !restaurantFeatures.loading && (
+          <div
+            role="alert"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: D.s2,
+              border: `1px solid ${D.border}`,
+              color: D.t2,
+              fontSize: 13,
+            }}
+          >
+            <span>Nu am putut încărca planul restaurantului — plata și închiderea comenzilor sunt indisponibile.</span>
+            <button
+              type="button"
+              onClick={() => void restaurantFeatures.reload()}
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 14px',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Reîncearcă
+            </button>
+          </div>
+        )}
         {/* Comutator vedere — doar pe Pro (Fiscalizare): Listă comenzi ↔ Stadiu mese */}
-        {paymentsEnabled && (
+        {paymentsEnabled === true && (
           <div
             role="tablist"
             aria-label="Vedere comenzi"
@@ -1197,7 +1245,7 @@ export default function WaiterPage() {
         {/* Section 1 — Ready */}
         {/* Non-Pro (fără toggle) → mereu lista, ca ospătarul să nu rămână blocat
             pe „Stadiu mese" dacă restaurantul activ trece pe un plan sub Pro. */}
-        {view === 'lista' || !paymentsEnabled ? (
+        {view === 'lista' || paymentsEnabled !== true ? (
           <>
         {readyOrders.length > 0 && (
           <div>
@@ -1477,7 +1525,7 @@ export default function WaiterPage() {
 
       {payOrder != null &&
         user != null &&
-        paymentsEnabled &&
+        paymentsEnabled === true &&
         (() => {
           // Live lookup: dacă orders au fost actualizate (ex: discount aplicat),
           // PayModal afișează versiunea curentă, nu cea închisă în payOrder.
@@ -1539,7 +1587,7 @@ export default function WaiterPage() {
         })()}
 
       {/* Split Bill Modal */}
-      {splitOrder != null && paymentsEnabled && (
+      {splitOrder != null && paymentsEnabled === true && (
         <div
           className="animate-backdrop"
           onClick={() => setSplitOrder(null)}

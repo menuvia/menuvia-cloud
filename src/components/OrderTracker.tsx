@@ -360,6 +360,9 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   ready: { label: 'Gata de servit', color: '#4CAF6E' },
   served: { label: 'Servit', color: '#7EB8F7' },
   paid: { label: 'Plătit', color: '#9A9590' },
+  // Plan 2 (fără fiscalizare): comanda se termină în `closed`, nu în `paid`
+  // (audit v3 FC-06 — înainte apărea „closed" brut și rămânea „activă" + poll-uită).
+  closed: { label: 'Închisă', color: '#9A9590' },
   cancelled: { label: 'Anulat', color: '#c0392b' },
 }
 
@@ -392,7 +395,7 @@ function ActiveOrdersBanner({
 
     let cancelled = false
 
-    const TERMINAL = ['paid', 'served', 'cancelled']
+    const TERMINAL = ['paid', 'served', 'cancelled', 'closed']
 
     const pollAll = async () => {
       // Poll solo pentru comenzi non-terminale și non-offline
@@ -435,7 +438,7 @@ function ActiveOrdersBanner({
   const totalSpent = orders.reduce((s, o) => s + Number(o.total), 0)
   const activeCount = orders.filter((o) => {
     const st = statuses[o.id] || o.status
-    return !['served', 'paid', 'cancelled'].includes(st)
+    return !['served', 'paid', 'cancelled', 'closed'].includes(st)
   }).length
 
   return (

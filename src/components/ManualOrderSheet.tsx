@@ -104,6 +104,10 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Eroare la încărcarea meselor/meniului (audit v3 DS-5): supabase-js NU aruncă
+  // pe eroare, deci fără citirea `error` sheet-ul arăta „fără masă / fără
+  // produse" TĂCUT la un blip de rețea; acum afișăm mesaj + Reîncearcă.
+  const [loadError, setLoadError] = useState(false)
   // For modifier selection per product
   const [pickingProduct, setPickingProduct] = useState<Product | null>(null)
   const [modSelections, setModSelections] = useState<Record<string, string | Set<string>>>({})
@@ -114,6 +118,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
   // ─── Load tables + menu ─────────────────────────────────────
   const loadData = useCallback(async () => {
     setLoading(true)
+    setLoadError(false)
     try {
       const [tRes, catRes] = await Promise.all([
         supabase
@@ -128,6 +133,8 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
           .eq('restaurant_id', restaurantId)
           .order('display_order'),
       ])
+      if (tRes.error) throw tRes.error
+      if (catRes.error) throw catRes.error
       const tableList = (tRes.data ?? []) as Table[]
       setTables(tableList)
 
@@ -138,7 +145,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
       }
 
       // Load products + modifiers
-      const { data: prods } = await supabase
+      const { data: prods, error: prodsErr } = await supabase
         .from('products')
         .select(
           'id, name, description, price, emoji, is_active, is_sold_out, category_id, display_order',
@@ -148,6 +155,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
         .eq('is_draft', false)
         .order('display_order')
 
+      if (prodsErr) throw prodsErr
       const products = (prods ?? []) as unknown as Product[]
       if (products.length === 0) {
         setCategories(cats.map((c) => ({ ...c, products: [] })))
@@ -174,6 +182,9 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
           .eq('is_available', true),
       ])
 
+      if (pmgRes.error) throw pmgRes.error
+      if (mgRes.error) throw mgRes.error
+      if (moRes.error) throw moRes.error
       const pmgMap = new Map<string, string[]>()
       for (const pmg of (pmgRes.data ?? []) as Record<string, string>[]) {
         const arr = pmgMap.get(pmg.product_id) ?? []
@@ -220,6 +231,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
       setActiveCatId(catList[0]?.id ?? null)
     } catch (e) {
       console.error('ManualOrderSheet load error', e)
+      setLoadError(true)
     }
     setLoading(false)
   }, [restaurantId])
@@ -564,6 +576,40 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
             }}
           >
             Se încarcă meniul...
+          </div>
+        ) : loadError ? (
+          <div
+            role="alert"
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 12,
+              padding: 20,
+              color: D.t2,
+              textAlign: 'center',
+            }}
+          >
+            <div>Nu am putut încărca mesele și meniul. Verifică conexiunea și reîncearcă.</div>
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              style={{
+                background: D.gold,
+                color: '#000',
+                border: 'none',
+                borderRadius: 8,
+                padding: '10px 18px',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              Reîncearcă
+            </button>
           </div>
         ) : (
           <div style={{ flex: 1, overflowY: 'auto' }}>

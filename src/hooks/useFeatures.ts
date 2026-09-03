@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────
 // useFeatures — Hook pentru plan features + cache
 // ─────────────────────────────────────────────────────────────
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { fetchRestaurantFeatures, hasFeature, getLimit, isWithinLimit } from '../lib/features'
 import type { RestaurantFeatures, FeatureName } from '../lib/features'
 
@@ -48,8 +48,15 @@ export function useFeatures(restaurantId: string | null | undefined): UseFeature
     restaurantId ? !featuresCache.has(restaurantId) : false,
   )
   const [loadError, setLoadError] = useState(false)
+  // Restaurantul pentru care e valid state-ul curent. Un răspuns care sosește
+  // după ce userul a comutat restaurantul e IGNORAT — altfel planul vechi
+  // rămânea afișat ca „cunoscut" pentru restaurantul nou (review audit v3),
+  // iar cu gating-ul tristate din WaiterPage asta însemna butoane de plată
+  // greșite (Plan 3 al lui A pe restaurantul B, care e Plan 2).
+  const activeIdRef = useRef<string | null | undefined>(restaurantId)
 
   async function load(force = false): Promise<void> {
+    const requestId = restaurantId
     if (!restaurantId) {
       setFeatures(null)
       setLoadError(false)
@@ -66,6 +73,7 @@ export function useFeatures(restaurantId: string | null | undefined): UseFeature
       if (Date.now() - cached.at < FEATURES_TTL_MS) return
       // Stale → revalidare în fundal, fără stare de loading.
       const fresh = await fetchShared(restaurantId)
+      if (requestId !== activeIdRef.current) return
       if (fresh) {
         featuresCache.set(restaurantId, { data: fresh, at: Date.now() })
         setFeatures(fresh)
@@ -75,6 +83,7 @@ export function useFeatures(restaurantId: string | null | undefined): UseFeature
 
     setLoading(true)
     const data = await fetchShared(restaurantId)
+    if (requestId !== activeIdRef.current) return
     if (data) {
       featuresCache.set(restaurantId, { data, at: Date.now() })
       setFeatures(data)
@@ -89,6 +98,14 @@ export function useFeatures(restaurantId: string | null | undefined): UseFeature
   }
 
   useEffect(() => {
+    activeIdRef.current = restaurantId
+    // Reset SINCRON la comutarea restaurantului: planul precedent nu are voie
+    // să se scurgă peste cel nou. Cache-ul servește imediat dacă avem deja
+    // planul restaurantului nou (fără flash de „necunoscut").
+    const cached = restaurantId ? featuresCache.get(restaurantId) : null
+    setFeatures(cached?.data ?? null)
+    setLoadError(false)
+    setLoading(restaurantId ? !cached : false)
     void load()
   }, [restaurantId]) // eslint-disable-line react-hooks/exhaustive-deps
 

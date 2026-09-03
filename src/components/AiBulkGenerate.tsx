@@ -128,7 +128,7 @@ export default function AiBulkGenerate({
       for (let g = 0; g < catGroups.length && !stop; g++) {
         const group = catGroups[g]
         setCurrent(`Traduc categorii (${group.length})…`)
-        let map: Record<string, Translations> = {}
+        let map: Record<string, Translations>
         try {
           map = await aiTranslateBatch({
             restaurant_id: restaurantId,
@@ -162,7 +162,7 @@ export default function AiBulkGenerate({
       for (let g = 0; g < prodGroups.length && !stop; g++) {
         const group = prodGroups[g]
         setCurrent(`Traduc produse (${group.length})…`)
-        let map: Record<string, Translations> = {}
+        let map: Record<string, Translations>
         try {
           map = await aiTranslateBatch({
             restaurant_id: restaurantId,

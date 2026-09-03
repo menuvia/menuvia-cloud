@@ -26,6 +26,7 @@ import { T } from '../lib/publicMenuStrings'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
+import { loadQrSessionSnapshot, saveQrSessionSnapshot, clearQrSessionSnapshot } from '../lib/qrSession'
 import { callWaiter } from '../lib/orders'
 import {
   fetchLoyaltyState,
@@ -106,7 +107,13 @@ export default function QrMenuPage({ token }: Props) {
   const [search, setSearch] = useState('')
   // Focus vizibil pentru input-ul de căutare (fără :focus în inline styles).
   const [searchFocused, setSearchFocused] = useState(false)
-  const [previousOrders, setPreviousOrders] = useState<OrderConfirmationPayload[]>([])
+  // Comenzile trimise în această sesiune de masă — REHIDRATATE din
+  // sessionStorage (audit v3 FC-02): după evicția tab-ului pe iOS / back /
+  // refresh, bannerul de urmărire și „Plătește online"/split rămân disponibile
+  // (nota există server-side; înainte dispăreau cu state-ul React).
+  const [previousOrders, setPreviousOrders] = useState<OrderConfirmationPayload[]>(
+    () => loadQrSessionSnapshot(token)?.previousOrders ?? [],
+  )
   const [pairingPopup, setPairingPopup] = useState<{
     sourceProduct: Product
     pairings: Product[]
@@ -118,19 +125,43 @@ export default function QrMenuPage({ token }: Props) {
 
   // Gate B: session_id deschisă la scanare QR (open_table_session RPC).
   // Opțional — null dacă restaurantul nu e pe Gate B sau RPC eșuează (graceful).
-  const [sessionId, setSessionId] = useState<string | null>(null)
+  // Fallback-ul din snapshot acoperă cazul în care open_table_session pică la
+  // reîncărcare; la succes RPC-ul (idempotent) îl suprascrie cu sesiunea deschisă.
+  const [sessionId, setSessionId] = useState<string | null>(
+    () => loadQrSessionSnapshot(token)?.sessionId ?? null,
+  )
 
   // Plata online la masă (Etapa 1): doar AFIȘAREA e condiționată de modul —
   // gate-urile reale (plan + modul + cont Stripe) stau server-side în
   // begin_table_payment. Eroare la citire → butonul rămâne „cere nota".
   const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
   const [showPaySheet, setShowPaySheet] = useState(false)
-  const [tablePaid, setTablePaid] = useState(false)
+  const [tablePaid, setTablePaid] = useState<boolean>(() => {
+    const snap = loadQrSessionSnapshot(token)
+    return (
+      snap != null &&
+      snap.previousOrders.length > 0 &&
+      snap.previousOrders.every((o) => snap.paidOrderIds.includes(o.id))
+    )
+  })
   const [showSplitSheet, setShowSplitSheet] = useState(false)
   // Comenzile deja plătite online (client-side, aproximare a settle-ului):
   // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
   // după plată re-activează butonul (serverul recalculează oricum exact).
-  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(new Set<string>())
+  const [paidOrderIds, setPaidOrderIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(loadQrSessionSnapshot(token)?.paidOrderIds ?? []),
+  )
+
+  // Persistăm snapshot-ul sesiunii la fiecare schimbare. Confirmarea curentă
+  // (ecranul „Comanda a fost trimisă") intră și ea în listă: după un reload ea
+  // devine o comandă anterioară (banner de urmărire), nu se pierde.
+  useEffect(() => {
+    saveQrSessionSnapshot(token, {
+      previousOrders: confirmation ? [...previousOrders, confirmation] : previousOrders,
+      sessionId,
+      paidOrderIds: Array.from(paidOrderIds),
+    })
+  }, [token, previousOrders, confirmation, sessionId, paidOrderIds])
 
   function loadQr() {
     setResolving(true)
@@ -379,6 +410,7 @@ export default function QrMenuPage({ token }: Props) {
       setPreviousOrders([])
       // Full reset = grup nou la masă; re-deschidem sesiunea la next scan
       setSessionId(null)
+      clearQrSessionSnapshot(token)
       // Grup nou = notă nouă — starea de „plătit online" nu se moștenește.
       setTablePaid(false)
       setPaidOrderIds(new Set<string>())
@@ -818,7 +850,7 @@ export default function QrMenuPage({ token }: Props) {
 
         {/* Loyalty v1 (mig 226): cardul de puncte — progres spre recompensă,
             cod de arătat staff-ului, telefon opțional (anti-pierdere puncte). */}
-        {loyalty?.enabled && (
+        {loyalty?.enabled && !loyalty.rate_limited && (
           <div
             style={{
               margin: '16px 0 4px',

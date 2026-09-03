@@ -85,7 +85,7 @@ export type OrderStatus =
   | 'cancelled'
   | 'closed'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
-export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher'
+export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher' | 'card_online'
 export type MemberRole = 'owner' | 'manager' | 'waiter' | 'kitchen'
 
 export const STATUS_META: Record<OrderStatus, { label: string; color: string; bg: string }> = {
