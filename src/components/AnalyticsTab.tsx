@@ -377,6 +377,10 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const voucherRev = daily.reduce((s, d) => s + Number(d.voucher_revenue || 0), 0)
   // online_revenue apare în mig 263 (plăți online la masă) — la fel de tolerant.
   const onlineRev = daily.reduce((s, d) => s + Number(d.online_revenue || 0), 0)
+  // other_revenue (mig 263): split cu metode MIXTE (comanda primește 'other')
+  // + comenzi vechi fără metodă. Fără felia asta, suma feliilor era mai mică
+  // decât venitul total și operatorul vedea bani „dispăruți".
+  const otherRev = daily.reduce((s, d) => s + Number(d.other_revenue || 0), 0)
 
   const chartData = daily.map((d) => ({
     zi: new Date(d.day as string).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }),
@@ -388,6 +392,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
     { name: 'Card', value: cardRev, color: '#7EB8F7' },
     { name: 'Tichete de masă', value: voucherRev, color: D.goldL },
     { name: 'Card online', value: onlineRev, color: '#B08CF2' },
+    { name: 'Alte metode', value: otherRev, color: D.t2 },
   ].filter((x) => x.value > 0)
   const srcPie = [
     { name: 'QR', value: qrOrders, color: D.gold },

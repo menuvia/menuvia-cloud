@@ -89,17 +89,21 @@ async function postFn<T>(fn: string, payload: unknown): Promise<T> {
     // ne-JSON cade pe mesajul generic, iar regula eslint `preserve-caught-error`
     // (recommended, eslint 10) nu mai are un `throw` orfan în catch. `cause`
     // nu e disponibil cu lib ES2020.
-    let parsed: (Error & { code?: string; status?: number }) | null = null
+    let code: string | undefined
     try {
       const body = (await res.json()) as { error?: string; code?: string }
       if (body?.error) msg = body.error
-      parsed = new Error(msg) as Error & { code?: string; status?: number }
-      parsed.code = body?.code
-      parsed.status = res.status
+      code = body?.code
     } catch {
-      // corp ne-JSON → mesajul generic `HTTP <status>`
+      // corp ne-JSON (429 cu body gol de la un proxy, HTML de eroare) → păstrăm
+      // mesajul generic, dar NU pierdem `status`: isQuota (AiBulkGenerate)
+      // testează `status === 429`, iar fără el lotul continua să lovească o
+      // cotă epuizată apel după apel (review audit v3).
     }
-    throw parsed ?? new Error(msg)
+    const err = new Error(msg) as Error & { code?: string; status?: number }
+    err.code = code
+    err.status = res.status
+    throw err
   }
   return (await res.json()) as T
 }

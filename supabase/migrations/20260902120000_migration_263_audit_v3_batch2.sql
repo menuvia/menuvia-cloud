@@ -12,12 +12,20 @@
 --      încălcată tăcut. Gate-ul stă acum în RPC (hint
 --      `fiscal_plan_requires_payment`); UI-ul e TRISTATE (necunoscut = fără
 --      buton de finalizare).
---   2. CA-02 / MF-12 v_daily_orders (lanț 007→022→116→159→232→253→263):
---      coloană NOUĂ `online_revenue` (card_online) APPEND la final — plățile
---      online la masă (mig 202/203) nu aveau bucket; cash+card+tichete nu
---      închideau cu `revenue`. ReportsTab/AnalyticsTab o consumă tolerant.
+--   2. `close_session_orders` (lanț 085→087→263) primește ACELAȘI gate: RPC-ul
+--      trecea comenzile direct în `closed` verificând doar `table_lifecycle`,
+--      deci închiderea mesei era o portiță nefiscală echivalentă cu DS-1 (găsită
+--      la review-ul lotului). Gate-ul se aplică DOAR când sesiunea chiar are
+--      comenzi deschise — închiderea unei mese cu toate notele deja plătite
+--      rămâne o operație normală de lifecycle.
+--   3. CA-02 / MF-12 v_daily_orders (lanț 007→022→116→159→232→253→263):
+--      coloane NOI `online_revenue` (card_online) și `other_revenue`
+--      (`other` + NULL) APPEND la final — plățile online la masă (mig 202/203)
+--      nu aveau bucket, iar `other` (split cu metode mixte, mig 262) cădea doar
+--      în `revenue`: defalcarea nu închidea cu totalul. ReportsTab/AnalyticsTab
+--      le consumă tolerant.
 --
--- Teste permanente AB1–AB3: tests/sql/audit_v3_batch2_assertions.sql.
+-- Teste permanente AB1–AB4: tests/sql/audit_v3_batch2_assertions.sql.
 -- =============================================================================
 
 begin;
@@ -294,7 +302,92 @@ revoke all on function public.advance_order(uuid, text, numeric, text, numeric, 
 grant execute on function public.advance_order(uuid, text, numeric, text, numeric, text) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 2. v_daily_orders — copia mig 253 (semi-join fiscal, security_invoker) +
+-- 2. close_session_orders — lanț 085→087→263: copie a corpului din 087 + gate
+--    fiscal pe comenzile care AR FI închise nefiscal.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.close_session_orders(
+  p_session_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user_id      uuid;
+  v_session      record;
+  v_closed_count int;
+begin
+  v_user_id := auth.uid();
+  if v_user_id is null then
+    raise exception 'Authentication required'
+      using errcode = 'P0001', hint = 'auth_required';
+  end if;
+
+  select ts.*, rm.role
+  into v_session
+  from public.table_sessions ts
+  left join public.restaurant_memberships rm
+    on rm.restaurant_id = ts.restaurant_id
+   and rm.user_id = v_user_id
+  left join public.restaurants r on r.id = ts.restaurant_id
+  where ts.id = p_session_id
+    and (r.owner_id = v_user_id or rm.role in ('owner','manager','waiter'));
+
+  if not found then
+    raise exception 'Sesiunea nu există sau nu ești autorizat să o închizi.'
+      using errcode = 'P0001', hint = 'session_not_found_or_unauthorized';
+  end if;
+
+  -- ★ Gate C: feature 'table_lifecycle' (Plan 2+) ★
+  perform public.enforce_feature_for_restaurant(v_session.restaurant_id, 'table_lifecycle');
+
+  if v_session.status = 'closed' then
+    return jsonb_build_object('session_id', p_session_id, 'closed_count', 0, 'already_closed', true);
+  end if;
+
+  -- ★ mig 263 (audit v3, review lot 2): pe planurile FISCALE închiderea mesei
+  -- nu are voie să treacă în `closed` comenzi neplătite — ar fi exact portița
+  -- pe care DS-1 o închide în advance_order (bani încasați fizic, fără bon).
+  -- Gate-ul fires DOAR dacă sesiunea chiar are comenzi deschise: o masă cu
+  -- toate notele deja `paid` se închide normal (lifecycle curat).
+  if public.restaurant_has_feature(v_session.restaurant_id, 'fiscal_receipt')
+     and exists (
+       select 1 from public.orders
+        where session_id = p_session_id
+          and status not in ('paid', 'cancelled', 'closed')
+     ) then
+    raise exception 'Masa are comenzi neincasate: pe planul cu fiscalizare fiecare nota se finalizeaza prin plata (bon fiscal) inainte de inchiderea mesei'
+      using errcode = 'P0001', hint = 'fiscal_plan_requires_payment';
+  end if;
+
+  update public.orders
+    set status = 'closed',
+        served_at = coalesce(served_at, now()),
+        served_by = coalesce(served_by, v_user_id)
+  where session_id = p_session_id
+    and status not in ('paid', 'cancelled', 'closed');
+
+  get diagnostics v_closed_count = row_count;
+
+  update public.table_sessions
+    set status = 'closed',
+        closed_at = now()
+  where id = p_session_id;
+
+  return jsonb_build_object(
+    'session_id',   p_session_id,
+    'closed_count', v_closed_count,
+    'ok',           true
+  );
+end;
+$$;
+
+revoke all on function public.close_session_orders(uuid) from public;
+grant execute on function public.close_session_orders(uuid) to authenticated;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 3. v_daily_orders — copia mig 253 (semi-join fiscal, security_invoker) +
 --    coloana `online_revenue` APPEND la final (CREATE OR REPLACE păstrează
 --    coloanele existente în aceeași ordine; consumatorii vechi nu se schimbă).
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -309,7 +402,12 @@ with (security_invoker = true) as
      COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND payment_method = 'cash'::payment_method), 0::numeric) AS cash_revenue,
      COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND payment_method = 'card_pos'::payment_method), 0::numeric) AS card_revenue,
      COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND payment_method = 'meal_voucher'::payment_method), 0::numeric) AS voucher_revenue,
-     COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND payment_method = 'card_online'::payment_method), 0::numeric) AS online_revenue
+     COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND payment_method = 'card_online'::payment_method), 0::numeric) AS online_revenue,
+     -- `other` + NULL: split cu metode MIXTE (advance_order scrie 'other' cand
+     -- order_payments are >1 metoda distincta) si comenzi vechi fara metoda.
+     -- Fara bucket-ul asta, cash+card+tichete+online < revenue, iar operatorul
+     -- vedea bani „disparuti" din defalcare (review audit v3).
+     COALESCE(sum(paid_amount) FILTER (WHERE status = 'paid'::order_status AND (payment_method = 'other'::payment_method OR payment_method IS NULL)), 0::numeric) AS other_revenue
     FROM orders o
    WHERE status <> 'cancelled'::order_status
      AND o.restaurant_id IN (SELECT r.id FROM restaurants r
@@ -340,13 +438,27 @@ begin
   if has_function_privilege('anon', 'public.advance_order(uuid, text, numeric, text, numeric, text)', 'execute') then
     raise exception 'mig 263: anon poate executa advance_order'; end if;
 
-  -- v_daily_orders: coloanele vechi în aceeași ordine + online_revenue ULTIMA.
+  -- close_session_orders: gate fiscal + invariantele lanțului 085/087.
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'close_session_orders';
+  if v_src is null then raise exception 'mig 263: close_session_orders lipseste'; end if;
+  foreach v_sig in array array['fiscal_plan_requires_payment', 'table_lifecycle',
+                               'session_not_found_or_unauthorized', 'already_closed'] loop
+    if position(v_sig in v_src) = 0 then
+      raise exception 'mig 263: close_session_orders a pierdut invariantul „%"', v_sig; end if;
+  end loop;
+  if has_function_privilege('anon', 'public.close_session_orders(uuid)', 'execute') then
+    raise exception 'mig 263: anon poate executa close_session_orders'; end if;
+
+  -- v_daily_orders: coloanele vechi în aceeași ordine + bucket-urile noi ULTIMELE.
   select array_agg(attname order by attnum) into v_cols
     from pg_attribute
    where attrelid = 'public.v_daily_orders'::regclass and attnum > 0 and not attisdropped;
   if v_cols <> array['restaurant_id','day','total_orders','qr_orders','waiter_orders',
-                     'revenue','cash_revenue','card_revenue','voucher_revenue','online_revenue']::text[] then
-    raise exception 'mig 263: v_daily_orders are coloanele % (așteptat ordinea 253 + online_revenue la final)', v_cols; end if;
+                     'revenue','cash_revenue','card_revenue','voucher_revenue','online_revenue',
+                     'other_revenue']::text[] then
+    raise exception 'mig 263: v_daily_orders are coloanele % (asteptat ordinea 253 + online_revenue + other_revenue la final)', v_cols; end if;
   select pg_get_viewdef('public.v_daily_orders'::regclass) into v_src;
   if position('restaurant_has_feature' in v_src) = 0 then
     raise exception 'mig 263: v_daily_orders a pierdut gate-ul fiscal (semi-join, mig 253)'; end if;
@@ -354,7 +466,7 @@ begin
                    and c.reloptions @> array['security_invoker=true']) then
     raise exception 'mig 263: v_daily_orders a pierdut security_invoker (mig 125)'; end if;
 
-  raise notice 'mig 263: audit v3 lot 2 (close_order fiscal gate + online_revenue) OK';
+  raise notice 'mig 263: audit v3 lot 2 (gate fiscal close_order + close_session_orders, online/other_revenue) OK';
 end $$;
 
 commit;

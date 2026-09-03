@@ -19,7 +19,10 @@ import {
 const POLLING_INTERVAL_MS = 30_000
 
 const KITCHEN_STATUSES: OrderStatus[] = ['new', 'confirmed', 'preparing', 'ready']
-const WAITER_EXCLUDED: OrderStatus[] = ['paid', 'cancelled']
+// `closed` E exclus: fetchWaiterOrders folosește lista POZITIVĂ (fără closed),
+// deci un UPDATE realtime served→closed (Plan 2) trebuie să SCOATĂ comanda din
+// vedere — altfel rămânea afișată până la următorul refetch (review audit v3).
+const WAITER_EXCLUDED: OrderStatus[] = ['paid', 'cancelled', 'closed']
 
 function belongsInView(order: Order, view: 'kitchen' | 'waiter'): boolean {
   if (view === 'kitchen') return KITCHEN_STATUSES.includes(order.status)
