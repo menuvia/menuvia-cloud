@@ -29,7 +29,11 @@ jobs:
         # Auditează DOAR deps de production — care ajung în bundle-ul shipped.
         # Dev tooling (vitest/vite/@typescript-eslint) e zgomot — vulnerabili-
         # tățile lor nu ating userii finali, doar build pipeline.
-        run: npm audit --omit=dev --audit-level=high
+        # Wrapper, nu `npm audit` direct: aliasul din posthog-js forțează
+        # endpoint-ul legacy `audits/quick`, pe care registry-ul îl retrage.
+        # Scriptul reîncearcă eșecul de TRANSPORT, dar rămâne blocant pe orice
+        # vulnerabilitate găsită și pe endpoint mort. Detalii în script.
+        run: bash scripts/npm-audit-gate.sh
       - run: npm run lint
       - name: Build
         env:
