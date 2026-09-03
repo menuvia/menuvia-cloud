@@ -4,7 +4,16 @@
 -- ('paid','closed'), nu doar 'paid':
 --   SD1  comandă growth (→'closed', fără fiscal) → ingredientul scade.
 --   SD2  comandă pro (→'paid') → ingredientul scade.
---   SD3  aceeași comandă pro →'closed' după 'paid' → NU se mai scade (anti dublă).
+--   SD3  re-intrarea în starea terminală pe plan fiscal (paid→served→paid) NU
+--        mai scade a doua oară (anti dublă, backstop mig 252).
+--   SD4  re-intrarea closed→served→closed pe growth NU dublează.
+--
+-- Planul OWNER-ului se comută per scenariu, fiindcă cele două stări terminale
+-- aparțin unor planuri diferite: `closed` e finalul pe growth (Plan 2), `paid`
+-- e finalul pe planurile cu bon. Din mig 264, `trg_orders_closed_fiscal_gate`
+-- RESPINGE →'closed' pe planurile fiscale, deci un test care închidea o comandă
+-- enterprise modela o stare imposibilă în producție (se contrazicea și cu
+-- propriul comentariu „growth, fără fiscal").
 --
 -- Self-contained, ROLLBACK la final. Trigger-ul e `after update of status`.
 -- =============================================================================
@@ -35,6 +44,7 @@ insert into public.recipes (product_id, ingredient_id, quantity)
 values ('5d000000-0000-4000-8000-0000000000b0','5d000000-0000-4000-8000-0000000000c0',2);
 
 -- ── SD1: comandă growth (→'closed', fără trecere prin 'paid') scade stocul ────
+update public.profiles set plan = 'growth' where id = '5d000000-0000-4000-8000-0000000000a0';
 do $$
 declare v_stock numeric;
 begin
@@ -53,7 +63,8 @@ begin
   raise notice 'SD1 OK: comandă →closed scade stocul (94)';
 end $$;
 
--- ── SD2 + SD3: comandă pro →'paid' scade; →'closed' după NU dublează ──────────
+-- ── SD2 + SD3: comandă pe plan fiscal →'paid' scade; re-intrarea NU dublează ──
+update public.profiles set plan = 'enterprise' where id = '5d000000-0000-4000-8000-0000000000a0';
 do $$
 declare v_stock numeric;
 begin
@@ -70,16 +81,22 @@ begin
     raise exception 'SD2 FAIL: după →paid stoc=% (așteptat 90)', v_stock;
   end if;
 
-  -- →closed după paid: NU trebuie să mai scadă (OLD deja terminal)
-  update public.orders set status = 'closed' where id = '5d000000-0000-4000-8000-0000000000d2';
+  -- Re-intrare în starea terminală pe plan fiscal: paid→served→paid prin UPDATE
+  -- direct (owner care „corectează" o comandă). A doua tranziție are OLD='served',
+  -- deci guard-ul de status NU o oprește — se bazează pe tabela-claim din mig 252.
+  -- (Vechiul paid→closed testa o tranziție pe care mig 264 o interzice acum pe
+  -- planurile fiscale; gate-ul e verificat separat de AC3.)
+  update public.orders set status = 'served' where id = '5d000000-0000-4000-8000-0000000000d2';
+  update public.orders set status = 'paid', paid_at = now() where id = '5d000000-0000-4000-8000-0000000000d2';
   select current_stock into v_stock from public.ingredients where id='5d000000-0000-4000-8000-0000000000c0';
   if v_stock <> 90 then
-    raise exception 'SD3 FAIL: paid→closed a dedus DIN NOU stoc=% (așteptat 90 — dublă scădere)', v_stock;
+    raise exception 'SD3 FAIL: re-intrarea în paid a dedus DIN NOU stoc=% (așteptat 90 — dublă scădere)', v_stock;
   end if;
-  raise notice 'SD2+SD3 OK: →paid scade (90), paid→closed nu dublează';
+  raise notice 'SD2+SD3 OK: →paid scade (90), re-intrarea în paid nu dublează';
 end $$;
 
 -- ── SD4 (mig 252): re-intrare closed→served→closed NU dublează (backstop DB) ──
+update public.profiles set plan = 'growth' where id = '5d000000-0000-4000-8000-0000000000a0';
 do $$
 declare v_before numeric; v_after numeric;
 begin

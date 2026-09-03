@@ -1436,6 +1436,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/audit_v3_batch2_assertions.sql
 
+      - name: "Audit v3 council assertions (mig 264)"
+        if: ${{ hashFiles('supabase/migrations/20260904090000_migration_264_audit_v3_council.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/audit_v3_council_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
