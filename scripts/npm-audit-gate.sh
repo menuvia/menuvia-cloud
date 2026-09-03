@@ -23,6 +23,13 @@ set -uo pipefail
 
 ATTEMPTS="${AUDIT_ATTEMPTS:-4}"
 BACKOFF="${AUDIT_BACKOFF:-10}"
+# Plafon PER ÎNCERCARE. `npm audit` nu are timeout propriu pe cererea către
+# registry: pe endpoint-ul degradat a stat 5 minute înainte de 400, iar
+# reîncercările fără plafon ar fi înmulțit blocajul (4 × 5 min). Cu plafon,
+# cel mai prost caz devine ~8 minute și o zi bună costă ~1 secundă.
+# 120 s e peste cel mai lent răspuns REUȘIT observat (58 s pe main), deci nu
+# taie un endpoint lent-dar-viu.
+TIMEOUT="${AUDIT_TIMEOUT:-120}"
 
 # Clasifică raportul primit pe stdin: OK / VULN <detalii> / TRANSPORT.
 classify() {
@@ -45,7 +52,9 @@ classify() {
 }
 
 for i in $(seq 1 "$ATTEMPTS"); do
-  report="$(npm audit --omit=dev --json 2>/dev/null || true)"
+  # `timeout` întoarce 124 la depășire; ieșirea parțială e text incomplet, deci
+  # cade oricum pe ramura TRANSPORT a clasificatorului.
+  report="$(timeout "$TIMEOUT" npm audit --omit=dev --json 2>/dev/null || true)"
   verdict="$(printf '%s' "$report" | classify)"
 
   case "$verdict" in
@@ -59,7 +68,7 @@ for i in $(seq 1 "$ATTEMPTS"); do
       exit 1
       ;;
     *)
-      echo "Încercarea $i/$ATTEMPTS: endpoint-ul de audit npm nu a răspuns cu un raport valid." >&2
+      echo "Încercarea $i/$ATTEMPTS: endpoint-ul de audit npm nu a răspuns cu un raport valid (plafon ${TIMEOUT}s)." >&2
       if [ "$i" -lt "$ATTEMPTS" ]; then
         sleep $(( BACKOFF * i ))
       fi
