@@ -24,7 +24,11 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci
+      # `--no-audit`: auditul implicit din `npm ci` NU blochează nimic (npm nu
+      # eșuează instalarea pe vulnerabilități — doar tipărește), dar trece prin
+      # ACELAȘI endpoint legacy `audits/quick` și l-a ținut agățat 13 minute pe
+      # 3 sept 2026, blocând toate joburile. Poarta REALĂ e pasul de mai jos.
+      - run: npm ci --no-audit --no-fund
       - name: Security audit (prod deps only, block high+critical)
         # Auditează DOAR deps de production — care ajung în bundle-ul shipped.
         # Dev tooling (vitest/vite/@typescript-eslint) e zgomot — vulnerabili-
@@ -60,7 +64,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
 
       - uses: supabase/setup-cli@v3
         with:
@@ -199,7 +203,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
 
       - name: Build app (stub Supabase env)
         env:
