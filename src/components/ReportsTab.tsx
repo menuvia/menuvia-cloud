@@ -204,6 +204,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     cashRev: 0,
     cardRev: 0,
     voucherRev: 0,
+    onlineRev: 0,
     qrOrders: 0,
     waiterOrders: 0,
     avgTicket: 0,
@@ -315,6 +316,12 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       const voucherRev = paidOrders
         .filter((o) => o.payment_method === 'meal_voucher')
         .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      // Plăți online la masă (Stripe, mig 202/203). Fără bucket propriu,
+      // cash+card+tichete nu închideau cu venitul total pe Plan 3 cu plăți
+      // online — reconcilierea cu Stripe nu bătea (audit v3 CA-02 / MF-12).
+      const onlineRev = paidOrders
+        .filter((o) => o.payment_method === 'card_online')
+        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
       // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
@@ -327,6 +334,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         cashRev,
         cardRev,
         voucherRev,
+        onlineRev,
         qrOrders,
         waiterOrders,
         avgTicket,
@@ -490,6 +498,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
           'Cash (lei)': cashRev.toFixed(2),
           'Card (lei)': cardRev.toFixed(2),
           'Tichete de masă (lei)': voucherRev.toFixed(2),
+          'Card online (lei)': onlineRev.toFixed(2),
           'Comenzi QR': qrOrders,
           'Comenzi ospătar': waiterOrders,
         },
@@ -600,7 +609,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       )
       y += 6
       doc.text(
-        `Cash: ${m.cashRev.toFixed(2)} lei  |  Card: ${m.cardRev.toFixed(2)} lei  |  Tichete: ${m.voucherRev.toFixed(2)} lei`,
+        `Cash: ${m.cashRev.toFixed(2)} lei  |  Card: ${m.cardRev.toFixed(2)} lei  |  Tichete: ${m.voucherRev.toFixed(2)} lei  |  Online: ${m.onlineRev.toFixed(2)} lei`,
         24,
         y,
       )
@@ -659,8 +668,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
     setExporting(false)
   }
 
-  const { totalOrders, revenue, cashRev, cardRev, voucherRev, qrOrders, waiterOrders, avgTicket } =
-    metrics
+  const {
+    totalOrders,
+    revenue,
+    cashRev,
+    cardRev,
+    voucherRev,
+    onlineRev,
+    qrOrders,
+    waiterOrders,
+    avgTicket,
+  } = metrics
   const qrPct = totalOrders > 0 ? Math.round((qrOrders / totalOrders) * 100) : 0
   const waiterPct = 100 - qrPct
 
@@ -927,6 +945,14 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     value={`${voucherRev.toFixed(0)} lei`}
                     color={D.goldL}
                     sub={revenue > 0 ? `${Math.round((voucherRev / revenue) * 100)}%` : undefined}
+                  />
+                )}
+                {onlineRev > 0 && (
+                  <StatCard
+                    label="Card online"
+                    value={`${onlineRev.toFixed(0)} lei`}
+                    color="#B08CF2"
+                    sub={revenue > 0 ? `${Math.round((onlineRev / revenue) * 100)}%` : undefined}
                   />
                 )}
               </>

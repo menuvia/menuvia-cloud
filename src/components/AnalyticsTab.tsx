@@ -375,6 +375,8 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   // voucher_revenue apare abia în mig 232 — tolerant la coloana absentă
   // (frontend înaintea migrației): lipsă → 0 → felia nu se randează.
   const voucherRev = daily.reduce((s, d) => s + Number(d.voucher_revenue || 0), 0)
+  // online_revenue apare în mig 263 (plăți online la masă) — la fel de tolerant.
+  const onlineRev = daily.reduce((s, d) => s + Number(d.online_revenue || 0), 0)
 
   const chartData = daily.map((d) => ({
     zi: new Date(d.day as string).toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit' }),
@@ -385,6 +387,7 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
     { name: 'Cash', value: cashRev, color: D.green },
     { name: 'Card', value: cardRev, color: '#7EB8F7' },
     { name: 'Tichete de masă', value: voucherRev, color: D.goldL },
+    { name: 'Card online', value: onlineRev, color: '#B08CF2' },
   ].filter((x) => x.value > 0)
   const srcPie = [
     { name: 'QR', value: qrOrders, color: D.gold },

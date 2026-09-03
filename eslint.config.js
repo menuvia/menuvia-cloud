@@ -8,28 +8,20 @@
 //   - reportUnusedDisableDirectives a devenit linterOptions (flag-ul CLI
 //     `--report-unused-disable-directives` a dispărut).
 //
-// eslint:recommended se ia prin SONDARE, nu prin import direct: @eslint/js nu e
-// dependență declarată (lockfile-ul nu poate fi regenerat fără acces la
-// registry), iar în eslint 10 pachetul poate lipsi din tree cu totul. Sondăm
-// întâi din root, apoi din dependențele lui eslint; dacă lipsește, rămân
-// regulile @typescript-eslint + react-hooks (config-ul nu crapă la load).
-import { createRequire } from 'node:module'
+// eslint:recommended vine din @eslint/js (dependență explicită din sept 2026,
+// lockfile regenerat prin workflow-ul regenerate-lockfile) — vezi mai jos.
+import js from '@eslint/js'
 import tsPlugin from '@typescript-eslint/eslint-plugin'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
-const rootRequire = createRequire(import.meta.url)
-let coreRecommendedRules = {}
-try {
-  coreRecommendedRules = rootRequire('@eslint/js').configs.recommended.rules
-} catch {
-  try {
-    const eslintRequire = createRequire(rootRequire.resolve('eslint/package.json'))
-    coreRecommendedRules = eslintRequire('@eslint/js').configs.recommended.rules
-  } catch {
-    // eslint 10 fără @eslint/js în tree — vezi comentariul de sus.
-  }
-}
+// eslint:recommended REAL (audit v3 CA-01): sondarea veche prin createRequire
+// cădea tăcut pe {} — @eslint/js nu exista în lockfile (eslint 10 nu-l mai
+// aduce tranzitiv), deci setul core (no-debugger, no-dupe-keys, no-cond-assign,
+// no-empty, no-useless-escape…) NU se aplica în CI, contrar „parității 1:1"
+// promise. Acum e dependență explicită și import direct — un pachet lipsă
+// oprește lint-ul (fail-fast), nu îl golește.
+const coreRecommendedRules = js.configs.recommended.rules
 
 // react-hooks: PARITATE cu v4, nu preset-ul v7. `recommended` în v7 aduce
 // suita nouă din era React Compiler (set-state-in-effect & co.) — 87 de erori

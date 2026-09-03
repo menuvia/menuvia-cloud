@@ -471,7 +471,9 @@ interface OrderCardProps {
   // Regula de aur (review monetizare): bani + bon = Plan 3, fără excepții.
   // false (Plan 1/2) → butoanele de plată dispar; apare „Închide comanda"
   // (plata + bonul se fac pe casa de marcat existentă a localului).
-  paymentsEnabled?: boolean
+  // null (audit v3 DS-1) = planul nu e cunoscut → NICIUN buton de finalizare
+  // (o închidere nefiscală pe Plan 3 ar însemna bani fără bon).
+  paymentsEnabled?: boolean | null
   onCloseOrder?: (order: Order) => void
 }
 
@@ -678,7 +680,7 @@ function OrderCardInner({
       {/* Acțiune finală pe comenzi servite — diferită pe plan:
           Plan 3 (paymentsEnabled): Plată integrală / parțială (bon fiscal).
           Plan 1/2: „Închide comanda" — plata + bonul pe casa existentă. */}
-      {order.status === 'served' && paymentsEnabled && (
+      {order.status === 'served' && paymentsEnabled === true && (
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={() => onPayOpen(order)}
@@ -724,7 +726,7 @@ function OrderCardInner({
           </button>
         </div>
       )}
-      {order.status === 'served' && !paymentsEnabled && onCloseOrder && (
+      {order.status === 'served' && paymentsEnabled === false && onCloseOrder && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
             onClick={() => onCloseOrder(order)}
@@ -751,6 +753,20 @@ function OrderCardInner({
           <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
             Plata și bonul se fac pe casa de marcat existentă
           </div>
+        </div>
+      )}
+      {order.status === 'served' && paymentsEnabled === null && (
+        <div
+          style={{
+            color: D.t3,
+            fontSize: 12,
+            textAlign: 'center',
+            padding: '10px 0',
+            border: `1px dashed ${D.border}`,
+            borderRadius: 8,
+          }}
+        >
+          Se verifică planul restaurantului — finalizarea comenzii revine imediat.
         </div>
       )}
     </div>

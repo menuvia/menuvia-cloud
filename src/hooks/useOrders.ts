@@ -162,13 +162,19 @@ export function useOrders(
     }
     setLoading(true)
     setError(null)
+    // Guard de anulare (audit v3 DS-4): la comutarea restaurantului, răspunsul
+    // ÎNTÂRZIAT al fetch-ului vechi nu are voie să suprascrie lista noului
+    // restaurant (comenzile lui A afișate sub titlul lui B până la următorul poll).
+    let cancelled = false
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
     fetcher(restaurantId)
       .then((data) => {
+        if (cancelled) return
         setOrders(data)
         setLoading(false)
       })
       .catch((e: unknown) => {
+        if (cancelled) return
         // Surfacing real al erorii: Supabase aruncă uneori un obiect simplu
         // ({ message, code, ... }) care NU e instanceof Error → nu masca mesajul
         // ca „Unknown error", ci citește `.message` și din obiect.
@@ -181,6 +187,9 @@ export function useOrders(
         setError(msg)
         setLoading(false)
       })
+    return () => {
+      cancelled = true
+    }
   }, [restaurantId, view])
 
   const channelRef = useRef<RealtimeChannel | null>(null)
@@ -289,6 +298,9 @@ export function useOrders(
     // tick (~120s); pe 'connecting'/'disconnected' rămâne la fiecare tick.
     // NU se sare definitiv: heartbeat-ul rar prinde căderile TĂCUTE de canal.
     let tick = 0
+    // Același guard de anulare ca la fetch-ul inițial (DS-4): un heartbeat
+    // pornit pentru restaurantul vechi nu reconciliază lista celui nou.
+    let cancelled = false
     const interval = setInterval(() => {
       tick += 1
       if (typeof document !== 'undefined' && document.hidden) return
@@ -296,6 +308,7 @@ export function useOrders(
       if (connectionStatusRef.current === 'connected' && tick % 4 !== 0) return
       fetcher(restaurantId)
         .then((data) => {
+          if (cancelled) return
           // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
           if (pendingAdvancesRef.current > 0) return
           // OPT-7: reconciliere pe id cu păstrarea REFERINȚELOR — altfel
@@ -307,7 +320,10 @@ export function useOrders(
           /* ignore — păstrăm state-ul curent */
         })
     }, POLLING_INTERVAL_MS)
-    return () => clearInterval(interval)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [restaurantId, view])
 
   const advance = useCallback(

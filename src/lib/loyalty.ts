@@ -52,6 +52,10 @@ export interface LoyaltyState {
   points?: number
   short_code?: string | null
   reward_available?: boolean
+  // mig 258: peste plafonul anti-enumerare (40/5 min per token de masă) RPC-ul
+  // întoarce {enabled:true, rate_limited:true} FĂRĂ puncte/cod — UI-ul nu
+  // randează cardul (altfel apărea „0 / ” și „Strânge  puncte .”, audit v3 FC-07).
+  rate_limited?: boolean
 }
 
 // Starea cardului pentru meniul QR. `null` = eroare de rețea/RPC nedeployat

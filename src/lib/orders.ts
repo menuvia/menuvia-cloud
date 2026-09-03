@@ -11,7 +11,7 @@ export type OrderStatus =
   | 'paid'
   | 'cancelled'
 export type OrderSource = 'qr' | 'waiter' | 'pickup'
-export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher'
+export type PaymentMethod = 'cash' | 'card_pos' | 'other' | 'meal_voucher' | 'card_online'
 
 export interface SelectedExtra {
   id: string
@@ -72,6 +72,37 @@ export function getQrIdempotencyKey(token: string): string {
 export function rotateQrIdempotencyKey(token: string): string {
   const key = crypto.randomUUID()
   sessionStorage.setItem('menuvia_idem:' + token, key)
+  return key
+}
+
+// ── Idempotență comanda PICKUP (per restaurant) ──────────────────
+// Aceeași disciplină ca la QR: cheia trăiește în sessionStorage ca să
+// supraviețuiască închiderii sheet-ului/refresh-ului dintre un răspuns pierdut
+// și retrimitere. Audit v3 (FC-01): cheia stătea într-un useRef care murea cu
+// sheet-ul → a doua trimitere avea cheie NOUĂ → comandă pickup DUBLĂ pregătită
+// de restaurant. Se rotește DOAR pe succes (ca la QR). sessionStorage poate
+// lipsi (private mode/quota) → degradăm la o cheie în memorie, nu aruncăm.
+export function getPickupIdempotencyKey(scope: string): string {
+  const storageKey = 'menuvia_idem_pickup:' + scope
+  try {
+    let key = sessionStorage.getItem(storageKey)
+    if (!key) {
+      key = crypto.randomUUID()
+      sessionStorage.setItem(storageKey, key)
+    }
+    return key
+  } catch {
+    return crypto.randomUUID()
+  }
+}
+
+export function rotatePickupIdempotencyKey(scope: string): string {
+  const key = crypto.randomUUID()
+  try {
+    sessionStorage.setItem('menuvia_idem_pickup:' + scope, key)
+  } catch {
+    /* no-op */
+  }
   return key
 }
 

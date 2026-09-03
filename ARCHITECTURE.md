@@ -53,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (262) — grupate pe „de ce", nu pe număr
+## Migrațiile (263) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -85,7 +85,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Branding server-gate | 225 | `hide_branding` normalizat server-side pe feature `remove_branding` (tier 2+) |
 | **Loyalty v1** | **226** + `tests/sql/loyalty_assertions.sql` | programe/wallets/events (earn la intrarea în `paid`/`closed`, UN singur earn per comandă); telefon doar hash md5 normalizat RO; RPC-uri anon attach + redeem is_member |
 | **Tichete bucătărie** | **227** + `tests/sql/kitchen_ticket_assertions.sql` | coadă NEfiscală `kitchen_tickets` (growth+), enqueue DEFERRED la COMMIT cu catch-all, bridge dual-gate (030→133→227 + mig 149 lărgit), print ESC/POS TCP 9100 / file-drop în `bridge/lib/kitchenPrinter.js` |
-| **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron 1 min) |
+| **SMS tranzacționale** | **228** + `tests/sql/sms_queue_assertions.sql` | `sms_queue` (clona email_queue cu plafon lunar per plan), enqueue prin triggere exception-safe (rezervare confirmată + pickup ready), doar mobile RO; worker `process-sms-queue.js` (SMSO.ro, cron `*/15` în regimul de avarie — vezi netlify.toml) |
 | **Tichete de masă** | **230–231** + `tests/sql/meal_voucher_assertions.sql` | `payment_method += 'meal_voucher'` (enum în fișier separat, ca 202); add_partial_payment lanț 017→111→231 (staff înregistrează tichete, card_online rămâne interzis, gate-urile Plan 3 + rol neatinse); fiscalnet_payment_code lanț →231 (cod P 4 — de reconfirmat cu EconMedia, ca 7). Completează tripleta: bon + tichet bucătărie + tichet masă |
 | **Split pe itemi** | **229** + TP13–TP20 în `tests/sql/table_payment_assertions.sql` | `table_payment_items` (claims cu snapshot, fără FK pe order_items), `begin_split_payment`/`get_table_bill` service_role-only, settle lanț 203→207→211→229 (ramura `kind='split'` → order_payments `card_online`, paid la acoperirea totalului → UN bon fiscal) |
 | **No-show + remindere rezervări** | **233–234** + `tests/sql/reservation_noshow_assertions.sql` | `claim_reservation_reminders` lanț 057→215→234 (reclaim + AMBELE canale email/SMS); `auto_mark_reservation_no_show` (doar `confirmed`, grație ≥30 min, fereastră 48h anti-backfill); recidivist pe ultimele 9 cifre |
@@ -101,6 +101,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | **Hardening audit aug 2026** | **258** + SH1–SH5 în `tests/sql/security_hardening_258_assertions.sql` | plafon supra-încasare în `add_partial_payment` (lanț →258, paritate advance_order); rate-limit anti-enumerare pe `get_loyalty_state` (40/5min per token, STABLE→VOLATILE); RLS deny-all pe `security_ownership_remediations`; invariantul is_platform_admin înghețat |
 | Paritate fiscal pe INSERT + igienă indexuri + plafoane anon | 259–261 + FP1–FP4, AR1–AR4 | `enqueue_fiscal_receipt_trg` acoperă și INSERT (TG_OP-safe, paritate cu gate-ul 124); drop pe `orders_status_idx`/`orders_created_at_idx` (declarate înlocuite de 059, nedrop-uite 200 de migrații) |
 | Audit v3 — hardening | 262 + AV1–AV10 | `profiles` fără INSERT/DELETE client (escaladarea is_platform_admin închisă) + trigger backstop; helperi interni fără EXECUTE anon; drop `get_restaurant_by_qr_token`; politici `products`/`invite_tokens` cu roluri explicite; `advance_order` →262 (bacșișul nu intră în order_payments/paid_amount, overpayment pe ambele ramuri); `bridge_retry_receipt` regenerează payload; `bridge_mark_stale_as_error` cu marker ambiguu + cron orar; `enqueue_invoice_for_order` anti duplicat ambiguu; DEFINER-ele primesc `public, pg_temp` |
+| Audit v3 — lotul 2 | 263 + AB1–AB3 | `advance_order` →263: `close_order` respins pe planurile cu `fiscal_receipt` (hint `fiscal_plan_requires_payment`); `v_daily_orders` +`online_revenue` (card_online, append). Client: `paymentsEnabled` tristate, sesiune QR rehidratată din sessionStorage, idempotență pickup persistată, fără reload la prima instalare SW |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 
@@ -139,7 +140,7 @@ se schimbă DOAR cu testul de migrații din CI (job „Apply all migrations", Ga
 ## Datorii cunoscute (de atacat separat, nu „rescriere")
 
 1. **Automatizarea serverless e SUSPENDATĂ la nivel de cont Netlify (actualizat 2026-08-20)** — cron-urile sunt moarte din 2 aug (de două ori câte 7+ zile nedetectat; postmortem în `docs/RUNBOOK.md`), un deploy proaspăt NU le reînvie, `/health` există dar nu e monitorizat de nimeni (UptimeRobot neinstalat; stopgap: `.github/workflows/health-watch.yml`). Fix-urile care NU se pot face din cod: cauza în Netlify → Billing/Usage, plan plătit sau mutarea pe VPS (`deploy/` e gata), UptimeRobot pe `/health`, `PLATFORM_OPENAI_KEY` în env (importul AI n-a funcționat NICIODATĂ live), leaked password protection ON, MFA înrolat pe cele 2 conturi founder. Detaliile și ordinea: `docs/PLAN_0_TO_HERO.md` Blocurile 0–2.
-2. **E2E roșu cronic în CI** — lipsesc secrets + staging. Setup complet documentat pas-cu-pas în `docs/E2E_SETUP.md` (~15 min, testele-s deja defensive și read-only). Până la fix, Playwright e zgomot ignorat.
+2. ~~**E2E roșu cronic în CI**~~ — REZOLVAT: jobul E2E din ci.yml e ermetic (Supabase local + seed_tinctura_demo, zero secrets) și verde pe main din august 2026; `docs/E2E_SETUP.md` (staging cu secrets) rămâne doar context istoric. Un E2E roșu e regresie reală (audit v3 CA-04).
 3. **Numerotare migrații cu găuri** (009-010, 067, 070, 139, 144 lipsă) — istoric, inofensiv, nu „repara".
 4. **`admin_set_restaurant_plan` e per-owner** — planul stă pe `profiles.plan` al ownerului; schimbarea pentru un restaurant le schimbă pe toate ale aceluiași owner. Rezolvarea definitivă = `restaurant_subscriptions` — design complet, gata de execuție, în `docs/RESTAURANT_SUBSCRIPTIONS.md` (3 faze, Faza 0 fără schimbare de comportament).
 
