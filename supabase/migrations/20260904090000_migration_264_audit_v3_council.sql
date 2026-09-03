@@ -277,7 +277,21 @@ begin
               using errcode = 'P0001', hint = 'underpayment';
           end if;
         else
-          v_net := null;  -- comportament vechi: paid_amount rămâne neatins
+          -- ★ mig 264 (rundă review): NULL pe ramura FĂRĂ plăți parțiale era o
+          -- portiță de „bani fără bon". Comportamentul vechi trecea comanda în
+          -- 'paid' cu `paid_amount` neatins și ZERO rânduri în `order_payments`;
+          -- pe Plan 3 (singurul pe care `mark_paid` e permis — gate-ul mig 124)
+          -- guard-ul B3 din `build_fiscalnet_payload` cere
+          -- sum(order_payments) == suma liniilor, deci bonul devenea IMPOSIBIL
+          -- de emis pe o comandă deja marcată plătită.
+          -- Fail-closed DELIBERAT (nu derivăm suma ca pe ramura cu parțiale):
+          -- acolo restul e determinat de registrul existent, aici n-avem nicio
+          -- probă că banii au fost înmânați — a inventa `total` ar înregistra
+          -- venit pe care nu l-a tastat nimeni. Singurul apelant legitim
+          -- (`handlePay` → PayModal) trimite MEREU suma; o comandă cu total 0
+          -- se închide explicit cu `p_paid_amount => 0`.
+          raise exception 'mark_paid cere suma încasată (p_paid_amount) când comanda nu are plăți parțiale'
+            using errcode = 'P0001', hint = 'paid_amount_required';
         end if;
         update public.orders
           set status='paid',
@@ -373,7 +387,7 @@ alter policy "pairings: public read"  on public.product_pairings to anon, authen
 -- Asserții fail-closed
 -- ═════════════════════════════════════════════════════════════════════════════
 do $$
-declare v_src text; v_sig text; r record; v_rupte text := ''; v_oid oid;
+declare v_src text; v_sig text; r record; v_rupte text := '';
 begin
   -- 1. advance_order: pragul nou + TOATE invariantele lanțului 243/262/263.
   select pg_get_functiondef(p.oid) into v_src
@@ -384,7 +398,8 @@ begin
                                'table_lifecycle', 'invalid_payment_method', 'for update of o',
                                'cancel_reason_required', 'v_final - v_tips', 'fiscal_receipt',
                                'values (p_order_id, v_net', 'paid_amount = v_partial + v_net',
-                               'paid_amount=coalesce(v_net, paid_amount)'] loop
+                               'paid_amount=coalesce(v_net, paid_amount)',
+                               'paid_amount_required'] loop
     if position(v_sig in lower(v_src)) = 0 and position(v_sig in v_src) = 0 then
       raise exception 'mig 264: advance_order a pierdut invariantul „%"', v_sig; end if;
   end loop;
@@ -408,20 +423,32 @@ begin
   --    pe rolul PUBLIC si sa apeleze funelul de autorizare — anon nu are EXECUTE
   --    pe is_admin/is_member/my_role, deci evaluarea da 42501 si omoara citirea.
   --    Acesta e tiparul care a lasat product_extras/pairings sa scape din 262.
-  -- Privilegiul se verifică în CORPUL buclei, nu în WHERE: planificatorul poate
-  -- reordona predicatele și ar evalua has_table_privilege pe rânduri din alte
-  -- scheme (a picat o dată pe un pg_toast_*). to_regclass întoarce NULL în loc
-  -- să arunce pentru un nume care nu se rezolvă.
+  -- Citim catalogul `pg_policy` direct, nu view-ul `pg_policies`, ca să folosim
+  -- `polrelid` (un OID) în locul unui nume trecut prin `to_regclass` — exact
+  -- round-trip-ul nume→OID care a picat o dată pe un `pg_toast_*` când
+  -- planificatorul a reordonat predicatele.
+  -- `0 = any(polroles)` e ECHIVALENT cu `pg_policies.roles = '{public}'`, nu o
+  -- lărgire: Postgres NORMALIZEAZĂ orice listă care conține PUBLIC la exact
+  -- '{0}' („WARNING: ignoring specified roles other than PUBLIC"), deci forma
+  -- mixtă `{0, anon}` nu e stocabilă. Verificat empiric pe PG 16 și pe
+  -- producție (73 de politici cu PUBLIC, toate '{0}', zero mixte).
+  -- Privilegiul se verifică tot în CORPUL buclei, nu în WHERE.
   for r in
-    select p.tablename, p.policyname, p.cmd
-      from pg_policies p
-     where p.schemaname = 'public'
-       and p.cmd in ('ALL', 'SELECT')
-       and p.roles = '{public}'::name[]
-       and (coalesce(p.qual, '') || coalesce(p.with_check, '')) ~ '(is_admin|is_member|my_role)\('
+    select c.relname::text as tablename,
+           pol.polname::text as policyname,
+           case pol.polcmd when '*' then 'ALL' when 'r' then 'SELECT' end as cmd,
+           pol.polrelid as reloid
+      from pg_policy pol
+      join pg_class c on c.oid = pol.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and pol.polcmd in ('*', 'r')
+       and 0 = any(pol.polroles)
+       and (coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')
+            || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), ''))
+           ~ '(is_admin|is_member|my_role)\('
   loop
-    v_oid := to_regclass('public.' || quote_ident(r.tablename));
-    if v_oid is not null and has_table_privilege('anon', v_oid, 'SELECT') then
+    if has_table_privilege('anon', r.reloid, 'SELECT') then
       v_rupte := v_rupte || format('%s/%s[%s] ', r.tablename, r.policyname, r.cmd);
     end if;
   end loop;

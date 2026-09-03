@@ -17,6 +17,9 @@
 --        `permission denied for function is_admin`.
 --   AC5  Asserția de CLASĂ: niciun tabel cu SELECT pentru anon nu are politici
 --        pe rolul PUBLIC care apelează funelul de autorizare.
+--   AC6  `mark_paid` FĂRĂ sumă și fără plăți parțiale e respins (hint
+--        `paid_amount_required`): comportamentul vechi trecea comanda în 'paid'
+--        cu ZERO rânduri în `order_payments` — bani fără bon pe Plan 3.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -99,6 +102,42 @@ begin
   raise notice 'AC2 OK: sub-încasarea pe ramura cu parțiale e respinsă; restul exact + bacșiș închide nota la 200';
 end $$;
 
+-- ── AC6: `mark_paid` fără sumă, fără parțiale → respins ─────────────────────
+do $$
+declare v_o uuid := '64f00000-0000-4000-8000-000000000006'; v_hint text;
+        v_status text; v_n int;
+begin
+  insert into public.orders (id, restaurant_id, source, status, total)
+    values (v_o, '64b00000-0000-4000-8000-000000000001', 'waiter', 'served', 80);
+  insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total)
+    values (v_o, '64d00000-0000-4000-8000-000000000001', 'AC Cafea', 1, 80, 80);
+
+  v_hint := null;
+  begin
+    -- Wrapper-ul din orders.ts trimite `p_paid_amount: payload.paid_amount ?? null`,
+    -- deci un apel PostgREST fără sumă ajungea EXACT aici.
+    perform public.advance_order(v_o, 'mark_paid', null, 'cash', 0, null);
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'paid_amount_required' then
+    raise exception 'AC6 FAIL: mark_paid fără sumă nu a fost respins (hint=%) — comandă paid cu registrul de plăți gol', v_hint; end if;
+  select status into v_status from public.orders where id = v_o;
+  select count(*) into v_n from public.order_payments where order_id = v_o;
+  if v_status <> 'served' or v_n <> 0 then
+    raise exception 'AC6 FAIL: status=% / % plăți (așteptat served / 0)', v_status, v_n; end if;
+
+  -- Control pozitiv: CU plăți parțiale, suma lipsă rămâne legitimă — restul se
+  -- DEDUCE din registru (total - parțial + bacșiș), deci nu inventăm nimic.
+  insert into public.order_payments (order_id, amount, method, paid_by)
+    values (v_o, 30, 'cash', '64000000-0000-4000-8000-000000000001');
+  perform public.advance_order(v_o, 'mark_paid', null, 'cash', 0, null);
+  select coalesce(sum(amount), 0) into v_n from public.order_payments where order_id = v_o;
+  if v_n <> 80 then
+    raise exception 'AC6 FAIL: restul dedus nu a închis nota la 80 (sum=%)', v_n; end if;
+  raise notice 'AC6 OK: suma lipsă e respinsă fără parțiale și dedusă corect cu parțiale';
+end $$;
+
 -- ── AC3: UPDATE direct spre 'closed' — respins pe Plan 3, permis pe growth ───
 do $$
 declare v_o uuid := '64f00000-0000-4000-8000-000000000003'; v_hint text;
@@ -147,22 +186,34 @@ reset role;
 
 -- ── AC5: asserția de CLASĂ (tiparul, nu cazul particular) ────────────────────
 do $$
-declare r record; v_rupte text := ''; v_oid oid;
+declare r record; v_rupte text := '';
 begin
-  -- Privilegiul se verifică în CORPUL buclei, nu în WHERE: planificatorul poate
-  -- reordona predicatele și ar evalua has_table_privilege pe rânduri din alte
-  -- scheme (a picat o dată pe un pg_toast_*). to_regclass întoarce NULL în loc
-  -- să arunce pentru un nume care nu se rezolvă.
+  -- Citim catalogul `pg_policy` direct, nu view-ul `pg_policies`, ca să folosim
+  -- `polrelid` (un OID) în locul unui nume trecut prin `to_regclass` — exact
+  -- round-trip-ul nume→OID care a picat o dată pe un `pg_toast_*` când
+  -- planificatorul a reordonat predicatele.
+  -- `0 = any(polroles)` e ECHIVALENT cu `pg_policies.roles = '{public}'`, nu o
+  -- lărgire: Postgres NORMALIZEAZĂ orice listă care conține PUBLIC la exact
+  -- '{0}' („WARNING: ignoring specified roles other than PUBLIC"), deci forma
+  -- mixtă `{0, anon}` nu e stocabilă. Verificat empiric pe PG 16 și pe
+  -- producție (73 de politici cu PUBLIC, toate '{0}', zero mixte).
+  -- Privilegiul se verifică tot în CORPUL buclei, nu în WHERE.
   for r in
-    select p.tablename, p.policyname, p.cmd
-      from pg_policies p
-     where p.schemaname = 'public'
-       and p.cmd in ('ALL', 'SELECT')
-       and p.roles = '{public}'::name[]
-       and (coalesce(p.qual, '') || coalesce(p.with_check, '')) ~ '(is_admin|is_member|my_role)\('
+    select c.relname::text as tablename,
+           pol.polname::text as policyname,
+           case pol.polcmd when '*' then 'ALL' when 'r' then 'SELECT' end as cmd,
+           pol.polrelid as reloid
+      from pg_policy pol
+      join pg_class c on c.oid = pol.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and pol.polcmd in ('*', 'r')
+       and 0 = any(pol.polroles)
+       and (coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')
+            || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), ''))
+           ~ '(is_admin|is_member|my_role)\('
   loop
-    v_oid := to_regclass('public.' || quote_ident(r.tablename));
-    if v_oid is not null and has_table_privilege('anon', v_oid, 'SELECT') then
+    if has_table_privilege('anon', r.reloid, 'SELECT') then
       v_rupte := v_rupte || format('%s/%s[%s] ', r.tablename, r.policyname, r.cmd);
     end if;
   end loop;
