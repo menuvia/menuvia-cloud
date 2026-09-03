@@ -848,12 +848,21 @@ jobs:
             v_order_id := gen_random_uuid();
             insert into public.orders (id, restaurant_id, table_id, source, status, total, session_id)
               values (v_order_id, v_rest_id, v_table_id, 'qr', 'served', 60.00, null);
-            v_result := public.advance_order(v_order_id, 'mark_paid', 60.00, 'cash', 5.50, null);
+            -- Contractul PayModal (mig 214/262): p_paid_amount e suma ÎNMÂNATĂ,
+            -- adică nota + bacșiș (65.50 = 60.00 + 5.50). Vechiul apel trimitea
+            -- 60.00 cu bacșiș 5.50, ceea ce sub contractul de azi înseamnă doar
+            -- 54.50 pe notă — sub-încasare, respinsă de pragul din mig 264.
+            v_result := public.advance_order(v_order_id, 'mark_paid', 65.50, 'cash', 5.50, null);
             select tips_amount::text into v_status from public.orders where id = v_order_id;
             if v_status is distinct from '5.50' then
               raise exception 'ASSERTION FAILED: tips_amount ar trebui 5.50, e: %', v_status;
             end if;
-            raise notice 'OK: mark_paid scrie tips_amount (%) — regresia tips e blocată', v_status;
+            -- Bacșișul NU intră în paid_amount (mig 262): nota rămâne 60.00.
+            select paid_amount::text into v_status from public.orders where id = v_order_id;
+            if v_status is distinct from '60.00' then
+              raise exception 'ASSERTION FAILED: paid_amount ar trebui 60.00 (fără bacșiș), e: %', v_status;
+            end if;
+            raise notice 'OK: mark_paid scrie tips_amount separat de paid_amount — regresia tips e blocată';
 
             -- Test 5: REGRESIE cancel_reason — cancel cu p_cancel_reason persistă motivul.
             v_order_id := gen_random_uuid();

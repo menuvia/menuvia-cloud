@@ -14,6 +14,10 @@
 # condiții `if: hashFiles(...)` (teste de eră, valabile doar înainte de 096B/096C):
 #   - tests/sql/authorization_phase_1a_assertions.sql
 #   - tests/sql/authorization_final_state_assertions.sql
+#
+# Din sept 2026 scriptul rulează ȘI asserțiile INLINE din workflow (heredoc-uri
+# `<<'ASSERTION'`), nu doar fișierele tests/*.sql — vezi comentariul de la
+# extragere: fără ele, un replay local „verde" putea ascunde un CI roșu.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -118,6 +122,52 @@ if grep -q "tests/sql/catalog_drift/\*.sql" "$WORKFLOW"; then
     done
     echo "  ✓ catalog_drift: 18 cazuri anti-drift rulate"
   fi
+fi
+
+# ── Asserțiile INLINE din workflow (heredoc `<<'ASSERTION'`) ────────────────
+# CI le rulează, dar bucla de mai sus prinde doar fișierele `tests/...sql`.
+# Golul a fost dovedit costisitor: mig 264 a trecut local 82/82 și a picat în
+# CI pe blocul „Gate C", care încă folosea contractul de bani de dinainte de
+# mig 214/262. Extragem fiecare heredoc și îl rulăm în ordinea din workflow.
+INLINE_DIR="$WORKDIR/inline"
+mkdir -p "$INLINE_DIR"
+python3 - "$WORKFLOW" "$INLINE_DIR" <<'PYEXTRACT'
+import re, sys, pathlib
+wf, outdir = sys.argv[1], pathlib.Path(sys.argv[2])
+lines = open(wf).read().split("\n")
+name, i, n = "inline", 0, 0
+while i < len(lines):
+    m = re.search(r"- name:\s*[\"']?(.+?)[\"']?\s*$", lines[i])
+    if m:
+        name = re.sub(r"[^a-z0-9]+", "-", m.group(1).lower()).strip("-")[:60]
+    m = re.search(r"<<\s*'?([A-Z]+)'?\s*$", lines[i])
+    if m and m.group(1) not in ("EOF",):
+        term, body, i = m.group(1), [], i + 1
+        while i < len(lines) and lines[i].strip() != term:
+            body.append(lines[i]); i += 1
+        # heredoc-ul e indentat în YAML; scoatem prefixul comun
+        pad = min((len(l) - len(l.lstrip()) for l in body if l.strip()), default=0)
+        sql = "\n".join(l[pad:] for l in body)
+        if re.search(r"\bdo \$\$|select |insert |create ", sql, re.I):
+            n += 1
+            (outdir / f"{n:02d}-{name}.sql").write_text(sql + "\n")
+    i += 1
+print(n)
+PYEXTRACT
+INLINE=("$INLINE_DIR"/*.sql)
+if [ -e "${INLINE[0]}" ]; then
+  for t in "${INLINE[@]}"; do
+    # Blocul de bootstrap (roluri/extensii) e deja aplicat înainte de migrații.
+    case "$(basename "$t")" in *supabase-compatible*|*create-supabase*) continue;; esac
+    if "${PSQL[@]}" -d menuvia_test -v ON_ERROR_STOP=1 -q -f "$t" >"$WORKDIR/test.log" 2>&1; then
+      PASS=$((PASS + 1))
+    else
+      FAIL=$((FAIL + 1))
+      echo "  ✗ FAIL (inline din workflow): $(basename "$t")"
+      tail -8 "$WORKDIR/test.log"
+    fi
+  done
+  echo "  ✓ asserții inline din workflow: ${#INLINE[@]} blocuri rulate"
 fi
 
 echo "── rezultat: $PASS PASS / $FAIL FAIL"
