@@ -1464,6 +1464,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/audit_v3_council_assertions.sql
 
+      - name: "Bridge connection status assertions (mig 265)"
+        if: ${{ hashFiles('supabase/migrations/20260905090000_migration_265_bridge_connection_status.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/bridge_connection_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:

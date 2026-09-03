@@ -8,6 +8,8 @@ import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
+import { useBridgeConnected } from '../hooks/useBridgeConnected'
+import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
 import { planTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
 import type { Order, PaymentMethod } from '../lib/orders'
@@ -133,6 +135,12 @@ export default function WaiterPage() {
   const paymentsEnabled: boolean | null = planKnown
     ? planTier(restaurantFeatures.features?.plan) >= 3
     : null
+
+  // ★ audit v3 (rangul 8): pe planurile fiscale comenzile se încasează normal
+  // chiar dacă bridge-ul e căzut — dar atunci NU se emite niciun bon. Banner-ul
+  // face zgomotul pe care tăcerea nu-l face. Interogăm doar când știm SIGUR că
+  // planul e fiscal (`=== true`), niciodată pe necunoscut.
+  const bridge = useBridgeConnected(restaurantId, paymentsEnabled === true)
 
   const [payOrder, setPayOrder] = useState<Order | null>(null)
   // Suma deja încasată în plăți parțiale pe comanda din PayModal — ca „Plata
@@ -970,6 +978,7 @@ export default function WaiterPage() {
             </button>
           </div>
         )}
+        <BridgeOfflineBanner status={bridge.status} compact />
         {/* Comutator vedere — doar pe Pro (Fiscalizare): Listă comenzi ↔ Stadiu mese */}
         {paymentsEnabled === true && (
           <div
