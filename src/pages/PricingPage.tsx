@@ -87,7 +87,6 @@ export default function PricingPage({
 }) {
   const { user } = useAuth()
   const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout)
-  const [yearly, setYearly] = React.useState(false)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
   // Titlu specific rutei (SEO/share) — altfel /pricing moștenea titlul RO de
@@ -110,7 +109,6 @@ export default function PricingPage({
     name: string
     emoji: string
     price: number | null
-    priceYearly: number | null
     badge: string | null
     desc: string
     features: { t: string; ok: boolean }[]
@@ -122,7 +120,6 @@ export default function PricingPage({
     name: p.name,
     emoji: p.emoji,
     price: p.priceMonthly,
-    priceYearly: p.priceYearly,
     badge: p.badge,
     desc: p.tagline,
     features: [
@@ -336,99 +333,6 @@ export default function PricingPage({
               Păstrezi casa de marcat și POS-ul pe care le ai deja
             </span>
           </div>
-
-          {/* Yearly toggle */}
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 14,
-              background: MKT.surface,
-              border: `1px solid ${MKT.border}`,
-              borderRadius: 100,
-              padding: '7px 18px',
-              boxShadow: '0 1px 3px rgba(26,18,8,0.04)',
-            }}
-          >
-            <span
-              style={{
-                fontSize: '0.9rem',
-                color: yearly ? MKT.text3 : MKT.text,
-                fontWeight: yearly ? 400 : 600,
-                transition: 'all 0.2s',
-              }}
-            >
-              Lunar
-            </span>
-            {/* Wrapper transparent cu țintă de atingere ≥44px; pista rămâne 48×26 vizual. */}
-            <button
-              onClick={() => setYearly((y) => !y)}
-              aria-label="Schimbă între facturare lunară și anuală"
-              role="switch"
-              aria-checked={yearly}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                minWidth: 44,
-                minHeight: 44,
-                padding: 9,
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-              }}
-            >
-              <span
-                style={{
-                  display: 'block',
-                  width: 48,
-                  height: 26,
-                  borderRadius: 13,
-                  background: yearly ? MKT.accent : MKT.border,
-                  position: 'relative',
-                  transition: 'background 0.2s',
-                }}
-              >
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: 3,
-                    left: yearly ? 25 : 3,
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    background: '#fff',
-                    transition: 'left 0.2s',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                  }}
-                />
-              </span>
-            </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span
-                style={{
-                  fontSize: '0.9rem',
-                  color: yearly ? MKT.text : MKT.text3,
-                  fontWeight: yearly ? 600 : 400,
-                  transition: 'all 0.2s',
-                }}
-              >
-                Anual
-              </span>
-              <span
-                style={{
-                  fontSize: '0.7rem',
-                  background: MKT.successSoft,
-                  color: MKT.success,
-                  padding: '2px 9px',
-                  borderRadius: 100,
-                  fontWeight: 700,
-                }}
-              >
-                −17%
-              </span>
-            </div>
-          </div>
         </div>
 
         {/* Pilot Program banner */}
@@ -500,7 +404,7 @@ export default function PricingPage({
           }}
         >
           {PLANS.map((p, idx) => {
-            const price = yearly ? p.priceYearly : p.price
+            const price = p.price
             const isContact = p.price === null
             const isHighlight = p.highlight
             // Tier 1 (primul plan, ne-highlight): tratament demn — bordură și
@@ -613,20 +517,6 @@ export default function PricingPage({
                     </>
                   )}
                 </div>
-
-                {!isContact && yearly && p.price !== null && p.priceYearly !== null && (
-                  <div
-                    style={{
-                      fontSize: '0.78rem',
-                      color: MKT.success,
-                      marginBottom: 8,
-                      fontWeight: 500,
-                    }}
-                  >
-                    Facturat anual — economisești{' '}
-                    {((p.price - p.priceYearly) * 12).toLocaleString('ro-RO')} lei/an
-                  </div>
-                )}
 
                 <p
                   style={{
@@ -873,7 +763,9 @@ export default function PricingPage({
             >
               <div style={{ fontSize: '1.4rem', marginBottom: 6 }}>{t.icon}</div>
               <div style={{ color: MKT.text, fontSize: '0.88rem', fontWeight: 600 }}>{t.label}</div>
-              <div style={{ color: MKT.text3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.45 }}>
+              <div
+                style={{ color: MKT.text3, fontSize: '0.78rem', marginTop: 3, lineHeight: 1.45 }}
+              >
                 {t.desc}
               </div>
             </div>
@@ -928,7 +820,12 @@ export default function PricingPage({
           if (!url) return null
           return (
             <div
-              style={{ textAlign: 'center', marginBottom: 80, fontSize: '0.88rem', color: MKT.text2 }}
+              style={{
+                textAlign: 'center',
+                marginBottom: 80,
+                fontSize: '0.88rem',
+                color: MKT.text2,
+              }}
             >
               Ai 3+ locații sau nevoi custom?{' '}
               <a
@@ -1178,7 +1075,11 @@ export default function PricingPage({
 
       {/* FAQ */}
       <div
-        style={{ background: MKT.surface2, padding: '60px 20px', borderTop: `1px solid ${MKT.border}` }}
+        style={{
+          background: MKT.surface2,
+          padding: '60px 20px',
+          borderTop: `1px solid ${MKT.border}`,
+        }}
       >
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <h2

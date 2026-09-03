@@ -25,8 +25,16 @@ export interface Plan {
   id: PlanId
   name: string // numele vizibil clientului — NICIODATĂ „Pro"/„Growth"
   emoji: string
-  priceMonthly: number // lei/lună la billing lunar
-  priceYearly: number // lei/lună la billing anual (~17% reducere)
+  priceMonthly: number // lei/lună la billing lunar — SINGURUL preț facturabil
+  // NU adăuga `priceYearly` înapoi ca simplu câmp de afișare (audit v3,
+  // rangul 11): pagina de prețuri arăta un preț anual pe care sistemul nu-l
+  // putea încasa — checkout-ul pornea oricum abonamentul LUNAR, la prețul
+  // lunar. Facturarea anuală cere, în ordine: prețuri anuale în Stripe, câte
+  // un env var nou per plan (atenție, `stripe-checkout.js` are `.every(Boolean)`
+  // la boot, deci devin obligatorii), un parametru de perioadă dus prin
+  // `onCheckout` → `stripe-checkout.js`, ȘI intrările corespunzătoare în
+  // `PLAN_BY_PRICE` din `stripe-webhook.js` (altfel webhook-ul nu recunoaște
+  // abonamentul anual și îl tratează ca plan necunoscut).
   badge: string | null
   tagline: string
   // Features pozitive (apar cu ✓ pe card). Limitele importante sunt
@@ -48,7 +56,6 @@ export const PLANS: Plan[] = [
     name: 'Meniu Digital + Rezervări',
     emoji: '📖',
     priceMonthly: 99,
-    priceYearly: 83,
     badge: null,
     tagline: 'Meniul tău, frumos, pe telefonul clientului. QR pe masă în 15 minute.',
     included: [
@@ -73,7 +80,6 @@ export const PLANS: Plan[] = [
     name: 'Meniu + Comenzi',
     emoji: '🛎️',
     priceMonthly: 249,
-    priceYearly: 208,
     badge: 'Recomandat',
     tagline: 'Clienții comandă singuri de la masă. Plata și bonul rămân pe casa ta actuală.',
     included: [
@@ -103,7 +109,6 @@ export const PLANS: Plan[] = [
     name: 'Fiscalizare',
     emoji: '🧾',
     priceMonthly: 499,
-    priceYearly: 415,
     badge: 'Pilot',
     tagline: 'Plăți și bon fiscal direct din aplicație, pe casa ta de marcat.',
     included: [
@@ -129,9 +134,10 @@ export const PLANS: Plan[] = [
 
 // ── Helpers ─────────────────────────────────────────────────
 
-const PLAN_BY_ID: Record<PlanId, Plan> = Object.fromEntries(
-  PLANS.map((p) => [p.id, p]),
-) as Record<PlanId, Plan>
+const PLAN_BY_ID: Record<PlanId, Plan> = Object.fromEntries(PLANS.map((p) => [p.id, p])) as Record<
+  PlanId,
+  Plan
+>
 
 export function getPlan(id: PlanId): Plan {
   return PLAN_BY_ID[id]
@@ -235,5 +241,9 @@ export const TRUST_SIGNALS = [
   { icon: '🎁', label: '30 zile gratuite', desc: 'Anulezi cu un click, fără penalizări.' },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
   { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu Radu, fondatorul.' },
-  { icon: '🏪', label: 'Plătești per restaurant', desc: 'Nu per cont. Lanțurile au ofertă custom.' },
+  {
+    icon: '🏪',
+    label: 'Plătești per restaurant',
+    desc: 'Nu per cont. Lanțurile au ofertă custom.',
+  },
 ]
