@@ -1,5 +1,11 @@
 # Scorecard re-audit — săptămâna 10 (19 iul 2026)
 
+> ⚠️ **CONTEXT ISTORIC (19 iulie 2026).** Cifrele de mai jos (medie 8.05) sunt dinaintea
+> auditurilor v2 (august, 6.68) și v3 (septembrie, 5.2 → 6.1). Auditul v3 a găsit o breșă
+> critică de escaladare pe care acest scorecard o rata complet, deci notele de aici sunt
+> **greșite, nu doar vechi**. Starea curentă: [`AUDIT_V3_2026-09.md`](AUDIT_V3_2026-09.md).
+
+
 Re-audit notat al întregului sistem cu workflow-ul de agenți (inventar →
 notare 6 axe → verificare adversarială → agregare), pe modelul auditului din
 iunie 2026. **59 de unități auditabile** pe 11 capitole, fiecare notată pe
