@@ -221,8 +221,19 @@ with (security_invoker = true) as
     -- re-evaluat gate-ul fiscal și anti-join-ul din ramura B pentru FIECARE
     -- comandă — exact tiparul per-rând pe care mig 253/263 l-au scos (43× mai
     -- lent măsurat). Orice recreare păstrează forma asta.
+    -- `restaurant_id` E OBLIGATORIU în select/group by ȘI în condiția de join.
+    -- Fără el subquery-ul nu expune nicio coloană pe care planificatorul să
+    -- împingă filtrul exterior, deci agregă TOT istoricul TUTUROR restaurantelor
+    -- fiscale și abia apoi face hash join. Măsurat pe 100k comenzi, fereastră de
+    -- 30 de zile pe UN restaurant: 86 ms (forma 263) → 1369 ms fără
+    -- `restaurant_id` → 382 ms cu el; pe calea FONDATORULUI (nelimitat de RLS
+    -- prin `is_platform_admin`) 83 ms → 6.6 s → 390 ms. Cu RLS ocolit complet,
+    -- 9.3 ms → 228 ms → 42.5 ms, deci ~24× vine din FORMA join-ului, nu din
+    -- costul funelului. Agregatele sunt neschimbate (`restaurant_id` e
+    -- funcțional dependent de `order_id`), doar predicatul devine împingibil:
+    -- subquery-ul scade de la 97.006 la 12.000 de rânduri agregate.
     left join (
-      select m.order_id,
+      select m.restaurant_id, m.order_id,
              coalesce(sum(m.amount) filter (where m.method = 'cash'), 0::numeric)         as cash_amount,
              coalesce(sum(m.amount) filter (where m.method = 'card_pos'), 0::numeric)     as card_amount,
              coalesce(sum(m.amount) filter (where m.method = 'meal_voucher'), 0::numeric) as voucher_amount,
@@ -230,8 +241,8 @@ with (security_invoker = true) as
              coalesce(sum(m.amount) filter (where m.method not in
                         ('cash','card_pos','meal_voucher','card_online')), 0::numeric)    as other_amount
         from public.v_order_payment_methods m
-       group by m.order_id
-    ) pm on pm.order_id = o.id
+       group by m.restaurant_id, m.order_id
+    ) pm on pm.order_id = o.id and pm.restaurant_id = o.restaurant_id
    where o.status <> 'cancelled'::order_status
      and o.restaurant_id IN (SELECT r.id FROM public.restaurants r
                               WHERE public.restaurant_has_feature(r.id, 'fiscal_receipt'))
@@ -303,6 +314,12 @@ begin
   -- Forma NEcorelată: un `lateral` peste sursa unică readuce costul per-rând.
   if position('lateral' in v_def) > 0 then
     raise exception 'mig 267: v_daily_orders a primit un LATERAL peste sursa unică (cost per-rând, mig 253/263)'; end if;
+  -- ...dar NEcorelat NU e suficient: fără `restaurant_id` în subquery ȘI în
+  -- condiția de join, filtrul exterior nu se poate împinge și subquery-ul agregă
+  -- TOATE restaurantele (măsurat: 6.6 s pe calea fondatorului la 100k comenzi).
+  if position('pm.restaurant_id = o.restaurant_id' in v_def) = 0
+     and position('pm.restaurant_id' in v_def) = 0 then
+    raise exception 'mig 267: join-ul cu sursa unică nu mai poartă restaurant_id — filtrul nu se împinge, se agregă tot istoricul'; end if;
 
   -- (e) Contractul de coloane al lui v_daily_orders: AnalyticsTab face
   --     `select('*')`, deci NUMELE și ORDINEA sunt API public.
