@@ -15,6 +15,12 @@
 --   PM6  gate fiscal: un restaurant fără `fiscal_receipt` NU apare în niciunul
 --        dintre view-uri (regula de aur — banii sunt Plan 3).
 --   PM7  suprafață: `anon` nu are SELECT pe view-urile noi.
+--   PM8  PARITATE RLS: proprietar, ospătar și fondator (platform admin FĂRĂ
+--        membership) văd ACELAȘI split. Singura aserție din fișier care rulează
+--        sub RLS — restul rulează ca `postgres`, care o ocolește și e ORB la
+--        clasa asta de regresie.
+--   PM9  comandă `paid` cu `paid_amount` NULL intră în defalcare pe `total` și
+--        ziua închide (altfel banii dispar din găleți dar rămân în venit).
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================

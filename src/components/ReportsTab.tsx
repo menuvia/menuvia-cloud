@@ -310,19 +310,32 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Netlify (capcana E5b din CLAUDE.md).
       const breakdownP: Promise<Record<string, unknown>[] | null> = fiscalReports
         ? (async () => {
-            const { data, error } = await supabase
-              .from('v_daily_payments_by_method')
-              .select(
-                'cash_revenue, card_revenue, voucher_revenue, online_revenue, other_revenue, total_revenue',
+            try {
+              // Paginat ca restul interogărilor din tab: PostgREST trunchiază
+              // TĂCUT la `max-rows` (1000). View-ul dă un rând pe zi, deci un
+              // interval personalizat mai lung de 1000 de zile s-ar tăia — și,
+              // fiindcă reziduul se pliază în „Alte metode", TOTALUL ar continua
+              // să închidă, deci nimic n-ar arăta stricat: doar cash/card/
+              // tichete/online ar fi subevaluate. `day` e unic per restaurant,
+              // deci e o ordine total-deterministă pentru paginare.
+              return await fetchAllPages<Record<string, unknown>>((lo, hi) =>
+                supabase
+                  .from('v_daily_payments_by_method')
+                  .select(
+                    'cash_revenue, card_revenue, voucher_revenue, online_revenue, other_revenue, total_revenue',
+                  )
+                  .eq('restaurant_id', restaurantId)
+                  .gte('day', range.from)
+                  .lte('day', range.to)
+                  .order('day', { ascending: true })
+                  .range(lo, hi),
               )
-              .eq('restaurant_id', restaurantId)
-              .gte('day', range.from)
-              .lte('day', range.to)
-            // View-ul apare abia cu mig 267, iar frontend-ul se deployează
-            // ÎNAINTEA migrației (ca peste tot în repo) — `null` = „nu am sursa
-            // unică", nu „zero lei".
-            if (error) return null
-            return (data ?? []) as unknown as Record<string, unknown>[]
+            } catch {
+              // View-ul apare abia cu mig 267, iar frontend-ul se deployează
+              // ÎNAINTEA migrației (ca peste tot în repo) — `null` = „nu am sursa
+              // unică", nu „zero lei".
+              return null
+            }
           })()
         : Promise.resolve([])
       const [ordersRaw, paidRaw, breakdownRows] = await Promise.all([
