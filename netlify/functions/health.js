@@ -46,6 +46,17 @@ const DB_PING_TIMEOUT_MS = 4000
 // 2h e de 4× marja normală: fără fals-pozitive la un deploy sau un tick ratat.
 const CRON_STALE_HOURS = 2
 
+// ── Plafonul de stocare (audit v3, rangul 12) ────────────────────────────────
+// Cand Postgres atinge plafonul planului, baza trece in READ-ONLY: platforma nu
+// mai accepta comenzi, la NICIUN restaurant. E o cadere totala care se anunta cu
+// saptamani inainte si pe care nimeni nu o vede, fiindca nimic nu o masoara —
+// exact tiparul incidentului de cron din august. Pragurile lasa timp de reactie:
+// 80% doar raporteaza (200, vizibil in payload), 90% da 503, adica ALERTEAZA.
+// Plafonul e configurabil: planul Supabase se poate schimba fara redeploy de cod.
+const DB_SIZE_LIMIT_BYTES = Number(process.env.DB_SIZE_LIMIT_BYTES) || 500 * 1024 * 1024
+const DB_SIZE_WARN_PCT = 80
+const DB_SIZE_CRITICAL_PCT = 90
+
 function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -159,11 +170,50 @@ exports.handler = async (event) => {
     }
   }
 
-  const healthy = dbOk && cron !== 'stale'
+  // ── Plafonul de stocare ──────────────────────────────────────────────────
+  // Aceeasi disciplina ca la cron: doar cand DB-ul raspunde, tolerant la esec
+  // ('unknown' nu influenteaza codul de status), si DOAR 'critical' da 503.
+  // Un RPC neaplicat inca (PGRST202) lasa 'unknown' — clientul se poate deploya
+  // inaintea migratiei fara sa declanseze o alarma falsa.
+  let storage = 'unknown'
+  let storageDetail = null
+  if (dbOk) {
+    const sizeController = new AbortController()
+    const sizeTimer = setTimeout(() => sizeController.abort(), DB_PING_TIMEOUT_MS)
+    try {
+      const { data, error } = await supabase
+        .rpc('get_database_size')
+        .abortSignal(sizeController.signal)
+      if (error) throw new Error(error.message)
+      const bytes = data && Number(data.bytes)
+      if (Number.isFinite(bytes) && bytes > 0) {
+        const pct = (bytes / DB_SIZE_LIMIT_BYTES) * 100
+        storage =
+          pct >= DB_SIZE_CRITICAL_PCT ? 'critical' : pct >= DB_SIZE_WARN_PCT ? 'warn' : 'ok'
+        storageDetail = {
+          bytes,
+          pretty: data.pretty || null,
+          limit_bytes: DB_SIZE_LIMIT_BYTES,
+          used_pct: Math.round(pct * 10) / 10,
+          // Diagnosticul calatoreste CU alarma: fara el, founderul afla ca baza
+          // e la 92% si nu stie de unde sa taie.
+          top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+        }
+      }
+    } catch (e) {
+      // Nu transformam un esec de verificare intr-o alarma falsa de stocare.
+      console.error('[health] db size check failed:', e.message)
+    } finally {
+      clearTimeout(sizeTimer)
+    }
+  }
+
+  const healthy = dbOk && cron !== 'stale' && storage !== 'critical'
   return jsonResponse(healthy ? 200 : 503, {
     status: healthy ? 'ok' : 'degraded',
-    checks: { db: dbOk ? 'ok' : 'down', cron },
+    checks: { db: dbOk ? 'ok' : 'down', cron, storage },
     cron_last_run: cronLastRun,
+    storage_detail: storageDetail,
     config,
     ts,
   })
