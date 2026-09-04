@@ -201,7 +201,36 @@ begin
    where restaurant_id = '9c000000-0000-4000-8000-000000000002';
   if v_n <> 0 then
     raise exception 'PM6 FAIL: restaurantul growth apare în v_daily_payments_by_method (% rânduri)', v_n; end if;
-  raise notice 'PM6 OK: gate fiscal — growth nu apare în view-urile de bani';
+  -- Partea de mai sus e NECESARĂ dar VACUĂ pentru view-ul zilnic: acesta
+  -- filtrează `status='paid'`, iar un local growth nu POATE avea comenzi `paid`
+  -- (`trg_orders_paid_fiscal_gate`, mig 124, aruncă la INSERT). Deci „growth are
+  -- 0 rânduri" ar trece și cu gate-ul fiscal ȘTERS. Singurul scenariu în care
+  -- gate-ul chiar face muncă e DOWNGRADE-ul: un local care a fost pe Plan 3, are
+  -- comenzi `paid` istorice, și apoi coboară de pe plan. Banii lui nu mai au
+  -- voie să apară. (Găsit prin mutație: un view fără semi-join fiscal trecea
+  -- toată suita.)
+  update public.profiles set plan = 'growth'
+   where id = '9c000000-0000-4000-8000-0000000000a0';
+
+  select count(*) into v_n from public.v_daily_payments_by_method
+   where restaurant_id = '9c000000-0000-4000-8000-000000000001';
+  if v_n <> 0 then
+    raise exception 'PM6 FAIL: după downgrade, banii istorici încă apar în v_daily_payments_by_method (% rânduri) — gate fiscal MORT', v_n; end if;
+
+  select count(*) into v_n from public.v_order_payment_methods
+   where restaurant_id = '9c000000-0000-4000-8000-000000000001';
+  if v_n <> 0 then
+    raise exception 'PM6 FAIL: după downgrade, banii istorici încă apar în v_order_payment_methods (% rânduri)', v_n; end if;
+
+  select count(*) into v_n from public.v_daily_orders
+   where restaurant_id = '9c000000-0000-4000-8000-000000000001';
+  if v_n <> 0 then
+    raise exception 'PM6 FAIL: după downgrade, banii istorici încă apar în v_daily_orders (% rânduri)', v_n; end if;
+
+  -- Înapoi pe Plan 3 pentru PM8 (care are nevoie de view-uri populate).
+  update public.profiles set plan = 'enterprise'
+   where id = '9c000000-0000-4000-8000-0000000000a0';
+  raise notice 'PM6 OK: gate fiscal — growth absent ȘI banii dispar la downgrade';
 end $$;
 
 -- ── PM7: suprafață — anon nu vede banii ──────────────────────────────────────

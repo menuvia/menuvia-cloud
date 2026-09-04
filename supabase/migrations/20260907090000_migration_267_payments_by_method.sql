@@ -285,8 +285,17 @@ begin
     -- (b) Gate fiscal prezent în toate trei (regula de aur: banii = Plan 3).
     v_def := lower(pg_get_viewdef(('public.' || v_name)::regclass, true));
     if v_name = 'v_daily_payments_by_method' then
-      -- Îl moștenește din sursa unică; nu-l repetă.
-      null;
+      -- Îl MOȘTENEȘTE din sursa unică — dar atunci trebuie verificat că sursa
+      -- chiar e sursa. O scutire fără verificare e un GATE MORT: echipa roșie a
+      -- rescris view-ul citind direct `orders`+`order_payments`, cu aceleași
+      -- cifre pe metode dar FĂRĂ semi-join-ul fiscal, și au trecut și asserțiile
+      -- migrației, și toată suita PM. Gate-ul face muncă reală pe scenariul de
+      -- DOWNGRADE (pro → comandă `paid` → growth): view-ul corect întoarce 0
+      -- rânduri, cel mutat expune banii istorici ai unui local care nu mai e pe
+      -- Plan 3. Dacă view-ul își pierde sursa, își pierde ȘI gate-ul — asta
+      -- prinde ambele.
+      if position('v_order_payment_methods' in v_def) = 0 then
+        raise exception 'mig 267: v_daily_payments_by_method nu mai derivă din sursa unică — și-a pierdut și gate-ul fiscal (moștenit, nu repetat)'; end if;
     elsif position('restaurant_has_feature' in v_def) = 0 then
       raise exception 'mig 267: % a pierdut gate-ul fiscal', v_name; end if;
   end loop;
