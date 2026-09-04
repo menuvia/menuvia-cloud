@@ -75,6 +75,12 @@ jobs:
       # e limitat la src/**), deci pasul de aici e SINGURUL care le rulează.
       - name: Money functions unit tests
         run: cd tests/functions && npm test
+      # Logica pură a porții de securitate OSV (parsare lockfile, alias, CVSS,
+      # strictețea răspunsului). Zero deps, fără rețea — api.osv.dev nu e
+      # accesibil din containerul de dezvoltare, deci ASTA e singura acoperire
+      # care poate rula și local, nu doar în CI.
+      - name: OSV audit gate unit tests
+        run: node --test tests/osv-gate/osv-audit.test.mjs
 
   coverage:
     name: Coverage report

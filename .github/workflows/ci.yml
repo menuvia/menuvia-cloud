@@ -52,17 +52,11 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-          cache: 'npm'
-      - run: npm ci --no-audit --no-fund
+      # NU se rulează `npm ci` aici: poarta citește DOAR package-lock.json și
+      # interoghează OSV.dev. Jobul de securitate nu mai atinge deloc
+      # registry-ul npm — exact dependența care l-a ținut roșu ~18h pe 3–4 sept.
       - name: Security audit (prod deps only, block high+critical)
-        # Auditează DOAR deps de production — care ajung în bundle-ul shipped.
-        # Dev tooling (vitest/vite/@typescript-eslint) e zgomot — vulnerabili-
-        # tățile lor nu ating userii finali, doar build pipeline.
-        # Wrapper, nu `npm audit` direct: aliasul din posthog-js forțează
-        # endpoint-ul legacy `audits/quick`, pe care registry-ul îl retrage.
-        # Scriptul reîncearcă eșecul de TRANSPORT, dar rămâne blocant pe orice
-        # vulnerabilitate găsită și pe endpoint mort. Detalii în script.
-        run: bash scripts/npm-audit-gate.sh
+        run: node scripts/osv-audit-gate.mjs
 
   e2e:
     # ERMETIC: rulează contra unui stack Supabase LOCAL (supabase start aplică
