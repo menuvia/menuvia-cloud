@@ -146,35 +146,36 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     const { handler } = loadHealthFresh()
     scriptDbOk(BYTES_98_PCT)
 
-    const res = await handler({
-      httpMethod: 'GET',
-      queryStringParameters: { diag: 'secret-diag-token' },
-    })
-    const body = parseBody(res)
-    assert.equal(body.storage_detail.bytes, BYTES_98_PCT)
+    // Antetul e SINGURA cale. Netlify și shim-ul VPS trimit cheile minuscule.
+    const body = parseBody(
+      await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }),
+    )
+    assert.equal(body.storage_detail.bytes, BYTES_98_PCT, 'calea prin antet nu funcționează')
     assert.ok(Array.isArray(body.storage_detail.top_tables))
     assert.equal(body.storage_detail.top_tables[0].name, 'audit_log')
 
-    // Antetul e calea INTENȚIONATĂ (`?diag=` pune secretul în URL, deci în
-    // loguri). Netlify și shim-ul VPS trimit cheile minuscule.
-    const viaHeader = parseBody(
-      await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }),
+    // Tokenul în QUERY STRING trebuie RESPINS chiar dacă e corect: un secret în
+    // URL ajunge în logurile de request Netlify, în configul monitorului și în
+    // istoricul de shell (CWE-598). Prima variantă a codului îl accepta, cu un
+    // comentariu care descria exact riscul — de aceea asta e o aserție, nu o notă.
+    const viaQuery = parseBody(
+      await handler({ httpMethod: 'GET', queryStringParameters: { diag: 'secret-diag-token' } }),
     )
-    assert.equal(viaHeader.storage_detail.bytes, BYTES_98_PCT, 'calea prin antet nu funcționează')
+    assert.equal(viaQuery.storage_detail, null, 'tokenul din query string a fost ACCEPTAT')
   })
 
   it('HL6: token greșit sau env nesetat → FAIL-CLOSED, niciun detaliu', async () => {
     process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
     let { handler } = loadHealthFresh()
     scriptDbOk(BYTES_98_PCT)
-    let body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: 'gresit' } }))
+    let body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'gresit' } }))
     assert.equal(body.storage_detail, null, 'token greșit (altă lungime) a primit diagnosticul')
 
     // Token greșit de ACEEAȘI LUNGIME — altfel comparația de egalitate nu e
     // exercitată NICIODATĂ (verificarea de lungime respinge prima) și ștergerea
     // ei ar lăsa suita verde: gate-ul ar degrada la „orice șir de lungimea bună".
     const sameLen = 'x'.repeat('secret-diag-token'.length)
-    body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: sameLen } }))
+    body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': sameLen } }))
     assert.equal(body.storage_detail, null, 'token greșit de aceeași lungime a primit diagnosticul')
 
     // Env NEsetat: prezentarea unui token oarecare NU deschide suprafața.
@@ -182,7 +183,7 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     ;({ handler } = loadHealthFresh())
     resetMocks()
     scriptDbOk(BYTES_98_PCT)
-    body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: '' } }))
+    body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'orice' } }))
     assert.equal(body.storage_detail, null, 'fără env, suprafața s-a deschis (nu e fail-closed)')
   })
 })

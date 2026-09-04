@@ -38,9 +38,11 @@
 //                        unitate. Default 500 MB (planul Free). O valoare
 //                        invalida e ignorata CU avertisment in log.
 //   HEALTH_DIAG_TOKEN    (optional) deblocheaza `storage_detail` (octeti, plafon,
-//                        procent, primele 5 tabele) prin antetul `x-health-diag`
-//                        sau `?diag=`. NESETAT = diagnosticul nu e accesibil de
-//                        nicaieri (fail-closed). Vezi docs/RUNBOOK.md §4.1.
+//                        procent, primele 5 tabele) EXCLUSIV prin antetul
+//                        `x-health-diag`. NU se accepta in query string (un
+//                        secret in URL ajunge in loguri — CWE-598). NESETAT =
+//                        diagnosticul nu e accesibil de nicaieri (fail-closed).
+//                        Vezi docs/RUNBOOK.md §4.1.
 
 const crypto = require('node:crypto')
 const { createClient } = require('@supabase/supabase-js')
@@ -90,8 +92,14 @@ const DB_SIZE_LIMIT_BYTES =
 // CA-01: `DB_SIZE_LIMIT_BYTES=8GB` (sufixele de unitate sunt normale in config)
 // da NaN -> 500 MB -> 503 permanent pe un plan de 8 GB, fara ca nimic sa spuna
 // ca valoarea a fost ignorata.
-if (process.env.DB_SIZE_LIMIT_BYTES && DB_SIZE_LIMIT_BYTES === DEFAULT_DB_SIZE_LIMIT_BYTES &&
-    String(process.env.DB_SIZE_LIMIT_BYTES) !== String(DEFAULT_DB_SIZE_LIMIT_BYTES)) {
+// Verificam PREZENTA variabilei si refolosim exact predicatul de validare —
+// comparatia pe sir raporta fals ca invalida o valoare corecta scrisa altfel
+// (`5.24288e8` e egal numeric cu plafonul implicit), iar un sir gol setat
+// EXPLICIT nu producea niciun avertisment.
+if (
+  Object.prototype.hasOwnProperty.call(process.env, 'DB_SIZE_LIMIT_BYTES') &&
+  !(Number.isFinite(rawDbSizeLimit) && rawDbSizeLimit > 0)
+) {
   console.warn(
     `[health] DB_SIZE_LIMIT_BYTES="${process.env.DB_SIZE_LIMIT_BYTES}" nu e un numar finit pozitiv (octeti, fara sufix) — folosesc plafonul implicit de ${DEFAULT_DB_SIZE_LIMIT_BYTES}`,
   )
@@ -137,17 +145,20 @@ exports.handler = async (event) => {
   }
 
   // Cine are voie sa vada diagnosticul privilegiat de stocare (vezi mai jos).
+  //
+  // NUMAI prin antetul `x-health-diag`. `?diag=` NU e acceptat: un secret in URL
+  // ajunge in logurile de request Netlify, in configul monitorului si in
+  // istoricul de shell (CWE-598). Prima varianta a acestui cod ACCEPTA query
+  // param-ul si il documenta — cu un comentariu care descria exact riscul si il
+  // numea „calea neintentionata". A identifica o vulnerabilitate si a o livra
+  // oricum, cu o nota explicativa, e mai rau decat a nu o observa.
+  //
   // Comparatie CONSTANT-TIME prin `safeEqual`, aceeasi primitiva ca verificarea
   // lui `x-cron-key` din deploy/server.js (audit v3 SEC-09) — nu `===`, care e
-  // data-dependent pe siruri de lungime egala. Antetul `x-health-diag` e calea
-  // INTENTIONATA: `?diag=` pune un secret in URL, deci in logurile de request
-  // Netlify, in configul monitorului si in istoricul de shell.
+  // data-dependent pe siruri de lungime egala.
   const diagToken = process.env.HEALTH_DIAG_TOKEN || ''
   const headers = (event && event.headers) || {}
-  const presentedDiag =
-    (event && event.queryStringParameters && event.queryStringParameters.diag) ||
-    headers['x-health-diag'] ||
-    ''
+  const presentedDiag = headers['x-health-diag'] || ''
   const diagAllowed = diagToken.length > 0 && safeEqual(presentedDiag, diagToken)
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
