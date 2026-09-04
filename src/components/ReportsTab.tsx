@@ -313,7 +313,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             const { data, error } = await supabase
               .from('v_daily_payments_by_method')
               .select(
-                'cash_revenue, card_revenue, voucher_revenue, online_revenue, other_revenue',
+                'cash_revenue, card_revenue, voucher_revenue, online_revenue, other_revenue, total_revenue',
               )
               .eq('restaurant_id', restaurantId)
               .gte('day', range.from)
@@ -368,7 +368,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       // Restul: metode necunoscute + comenzi vechi fără metodă. Cu bucket-ul
       // ăsta defalcarea ÎNCHIDE cu venitul total, deci reconcilierea de seară
       // e completă.
-      const otherRev = breakdownRows ? sumCol('other_revenue') : bucketLegacy('other')
+      // Reziduul se PLIAZĂ în „Alte metode", ca cele cinci carduri să însumeze
+      // ÎNTOTDEAUNA cardul „Venituri" de deasupra lor. `revenue` se calculează
+      // client-side ca `paid_amount ?? total`, iar view-ul acoperă aceeași
+      // fereastră; pentru datele conforme (mig 264: `paid_amount ==
+      // sum(order_payments)`) diferența e ZERO. Pe un rând anormal — scris
+      // direct prin PostgREST sub `orders: admin all` — fără plierea asta banii
+      // ar dispărea tăcut din defalcare, exact regresia pe care bucketarea
+      // veche NU o avea (partiționa aceeași valoare, deci închidea mereu).
+      const otherRev = breakdownRows
+        ? sumCol('other_revenue') + (revenue - sumCol('total_revenue'))
+        : bucketLegacy('other')
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
       // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).

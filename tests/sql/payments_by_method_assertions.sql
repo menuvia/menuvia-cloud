@@ -211,4 +211,94 @@ begin
   raise notice 'PM7 OK: view-urile de bani sunt doar pentru authenticated';
 end $$;
 
+-- ── PM9: comandă `paid` cu `paid_amount` NULL intră în defalcare ─────────────
+-- Forma producibilă printr-un PATCH direct pe PostgREST (`orders: admin all`) și
+-- prezentă istoric înainte de mig 264. Cu guardul vechi (`paid_amount is not
+-- null`) dispărea din TOATE view-urile, dar ReportsTab o număra în venit
+-- (`paid_amount ?? total`) — deci găleţile nu mai închideau cu titlul de
+-- deasupra lor, o REGRESIE față de bucketarea client-side veche.
+do $$
+declare v_amt numeric; v_rev numeric; v_break numeric;
+begin
+  insert into public.orders (id, restaurant_id, source, status, payment_method,
+                             paid_amount, created_at, paid_at)
+  values ('9c000000-0000-4000-8000-0000000000d5','9c000000-0000-4000-8000-000000000001',
+          'waiter','paid', null, null, '2026-03-12 12:00:00+02','2026-03-12 12:30:00+02');
+  insert into public.order_items (order_id, product_id, product_name_snapshot,
+                                  quantity, unit_price_snapshot, item_total)
+  values ('9c000000-0000-4000-8000-0000000000d5','9c000000-0000-4000-8000-0000000000b0',
+          'Produs PM',1,60,60);
+
+  select amount into v_amt from public.v_order_payment_methods
+   where order_id = '9c000000-0000-4000-8000-0000000000d5';
+  if v_amt is distinct from 60 then
+    raise exception 'PM9 FAIL: comanda paid cu paid_amount NULL raportează amount=% (așteptat 60 din total)', v_amt;
+  end if;
+
+  select revenue,
+         cash_revenue + card_revenue + voucher_revenue + online_revenue + other_revenue
+    into v_rev, v_break
+    from public.v_daily_orders
+   where restaurant_id = '9c000000-0000-4000-8000-000000000001'
+     and day = '2026-03-12';
+  if v_rev <> 60 or v_break <> 60 then
+    raise exception 'PM9 FAIL: ziua 12 martie venit=% defalcare=% (așteptat 60/60)', v_rev, v_break;
+  end if;
+  raise notice 'PM9 OK: comanda fără sumă înregistrată intră în defalcare pe `total`, iar ziua închide';
+end $$;
+
+-- ── PM8: PARITATE RLS — fondatorul vede ACELAȘI split ca proprietarul ────────
+-- Cea mai importantă aserție din fișier, și singura care rulează sub RLS: restul
+-- suitei rulează ca `postgres` (superuser), deci NU poate vedea clasa asta.
+-- `order_payments: member read` (mig 017) inline-a un check pe
+-- `restaurant_memberships`, fără escape-urile funelului (186/187). Sub
+-- `security_invoker`, fondatorul vedea comenzile dar ZERO plăți → ramura A goală,
+-- anti-join-ul ramurii B adevărat pentru tot → view-ul cădea pe enum, adică fix
+-- clasificarea greșită. Totalurile reconciliau (88 = 88), deci nimic altceva
+-- nu putea prinde regresia.
+insert into auth.users (id, email) values
+  ('9c000000-0000-4000-8000-0000000000a2','pm-waiter@pm.test'),
+  ('9c000000-0000-4000-8000-0000000000a3','pm-founder@pm.test');
+insert into public.restaurant_memberships (restaurant_id, user_id, role) values
+  ('9c000000-0000-4000-8000-000000000001','9c000000-0000-4000-8000-0000000000a2','waiter');
+-- Fondator de platformă: FĂRĂ membership, exact ca în founder-view (membership
+-- sintetică, injectată doar în RestaurantContext).
+update public.profiles set is_platform_admin = true
+ where id = '9c000000-0000-4000-8000-0000000000a3';
+
+do $$
+declare
+  v_uid text; v_cash numeric; v_card numeric; v_other numeric; v_who text;
+begin
+  foreach v_uid in array array['9c000000-0000-4000-8000-0000000000a0',  -- owner
+                               '9c000000-0000-4000-8000-0000000000a2',  -- waiter
+                               '9c000000-0000-4000-8000-0000000000a3']  -- fondator
+  loop
+    v_who := case v_uid
+               when '9c000000-0000-4000-8000-0000000000a0' then 'owner'
+               when '9c000000-0000-4000-8000-0000000000a2' then 'waiter'
+               else 'fondator (platform admin, fără membership)' end;
+    perform set_config('request.jwt.claim.sub', v_uid, true);
+    perform set_config('request.jwt.claim.role', 'authenticated', true);
+    set local role authenticated;
+
+    select coalesce(sum(amount) filter (where method='cash'),0),
+           coalesce(sum(amount) filter (where method='card_pos'),0),
+           coalesce(sum(amount) filter (where method not in
+             ('cash','card_pos','meal_voucher','card_online')),0)
+      into v_cash, v_card, v_other
+      from public.v_order_payment_methods
+     where order_id = '9c000000-0000-4000-8000-0000000000d1';
+
+    reset role;
+
+    if v_cash <> 47 or v_card <> 41 or v_other <> 0 then
+      raise exception 'PM8 FAIL: % vede cash=% card=% alte=% (așteptat 47/41/0 — asimetria RLS readuce clasificarea pe enum)',
+        v_who, v_cash, v_card, v_other;
+    end if;
+    raise notice 'PM8: % vede 47 cash / 41 card', v_who;
+  end loop;
+  raise notice 'PM8 OK: paritate RLS — proprietar, ospătar și fondator văd ACELAȘI split';
+end $$;
+
 rollback;

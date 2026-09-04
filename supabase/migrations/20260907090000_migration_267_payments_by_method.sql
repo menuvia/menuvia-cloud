@@ -63,6 +63,49 @@ set local lock_timeout = '10s';
 set local statement_timeout = '120s';
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- 0. RLS pe `order_payments` — ALINIERE CU FUNELUL DE AUTORIZARE
+--
+-- Fără asta, tot restul migrației e inert exact pe ecranul fondatorului.
+--
+-- `orders: members read` folosește `public.is_member()`, care are DOUĂ escape-uri
+-- (`or is_platform_admin()` mig 186, `or has_partner_access()` mig 187).
+-- `order_payments: member read` (mig 017, nerevizuită de atunci) NU folosește
+-- funelul: inline-ază un `exists` pe `restaurant_memberships` cu `rm.user_id =
+-- auth.uid()`, deci cere o membership REALĂ și nu are niciun escape.
+--
+-- Sub `security_invoker = true` asimetria e fatală și TĂCUTĂ: un fondator în
+-- mod founder-view (RestaurantContext injectează o membership SINTETICĂ, fără
+-- rând în tabel) sau un partener VEDE comenzile, dar vede ZERO rânduri de
+-- `order_payments`. Deci ramura A nu întoarce nimic, anti-join-ul din ramura B
+-- devine adevărat pentru FIECARE comandă, iar view-ul degradează exact la
+-- clasificarea pe `orders.payment_method` pe care migrația asta există ca s-o
+-- omoare. Reprodus pe replay:
+--     owner / waiter        → cash 47.00  card 41.00  alte  0.00
+--     fondator / partener   → cash  0.00  card  0.00  alte 88.00
+-- Totalurile reconciliază în ambele cazuri (88 = 88), deci NICIO asserție de
+-- reconciliere nu poate prinde clasa asta — fondatorul ar fi văzut fix cifra
+-- greșită pe singura suprafață unde auditează numerele clienților.
+--
+-- `to authenticated` explicit (disciplina mig 262): `anon` NU are SELECT pe
+-- `order_payments`, deci nu se declanșează nici clasa de asserții din mig 264
+-- (politică pe rolul PUBLIC care apelează funelul, pe un tabel citibil de anon).
+-- Nu se expune nicio clasă nouă de date: fondatorul/partenerul citesc deja
+-- `orders.paid_amount` prin aceleași escape-uri.
+-- ─────────────────────────────────────────────────────────────────────────────
+drop policy if exists "order_payments: member read" on public.order_payments;
+create policy "order_payments: member read"
+  on public.order_payments
+  for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.orders o
+       where o.id = order_payments.order_id
+         and public.is_member(o.restaurant_id)
+    )
+  );
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 1. SURSA UNICĂ: o linie per (comandă, metodă)
 -- ─────────────────────────────────────────────────────────────────────────────
 create or replace view public.v_order_payment_methods
@@ -85,17 +128,28 @@ with (security_invoker = true) as
   union all
   -- Ramura B — comenzi FĂRĂ registru (istoric). Enum-ul e singura sursă
   -- disponibilă, dar aici NU minte: fără split, metoda comenzii E metoda plății.
+  --
+  -- `coalesce(o.paid_amount, o.total)` NU e cosmetic: o comandă `paid` cu
+  -- `paid_amount` NULL exista înainte de mig 264 (`mark_paid` accepta suma
+  -- lipsă) și e producibilă ȘI AZI printr-un PATCH direct pe PostgREST sub
+  -- politica `orders: admin all`. Cu guardul vechi (`paid_amount is not null`)
+  -- o astfel de comandă nu apărea în NICIUNA dintre ramuri, deci dispărea din
+  -- defalcare — dar ReportsTab o număra în venit (`paid_amount ?? total`), deci
+  -- găleţile încetau să închidă cu titlul de deasupra lor. Bucketarea VECHE,
+  -- client-side, partiționa exact aceeași valoare, deci închidea mereu: ar fi
+  -- fost o REGRESIE introdusă chiar de fix. Găsit de echipa roșie, reprodus pe
+  -- replay; în producție azi sunt 0 astfel de rânduri (deci latent, nu activ).
   select o.restaurant_id,
          o.id,
          o.status,
          o.created_at,
          o.paid_at,
          coalesce(o.payment_method::text, 'other'),
-         o.paid_amount::numeric,
+         coalesce(o.paid_amount, o.total)::numeric,
          false
     from public.orders o
    where o.status <> 'cancelled'::order_status
-     and o.paid_amount is not null
+     and (o.paid_amount is not null or o.status = 'paid'::order_status)
      and not exists (select 1 from public.order_payments op where op.order_id = o.id)
      and o.restaurant_id in (select r.id from public.restaurants r
                               where public.restaurant_has_feature(r.id, 'fiscal_receipt'));
@@ -143,7 +197,15 @@ with (security_invoker = true) as
      count(*) AS total_orders,
      count(*) FILTER (WHERE o.source = 'qr'::order_source) AS qr_orders,
      count(*) FILTER (WHERE o.source = 'waiter'::order_source) AS waiter_orders,
-     COALESCE(sum(o.paid_amount) FILTER (WHERE o.status = 'paid'::order_status), 0::numeric) AS revenue,
+     -- `revenue` se calculează din ACELEAȘI găleți, nu din `orders.paid_amount`:
+     -- așa reconcilierea „cash+card+tichete+online+alte == revenue" devine o
+     -- TAUTOLOGIE, nu o asserție care poate pica pe date anormale. Pentru datele
+     -- conforme (mig 264: `paid_amount == sum(order_payments)`) valoarea e
+     -- IDENTICĂ cu cea de dinainte — se schimbă doar pe rândurile pe care vechea
+     -- formulă le lăsa nedistribuite, și acolo noua valoare e cea corectă.
+     COALESCE(sum(pm.cash_amount + pm.card_amount + pm.voucher_amount
+                  + pm.online_amount + pm.other_amount)
+              FILTER (WHERE o.status = 'paid'::order_status), 0::numeric) AS revenue,
      -- Cele cinci găleți vin din SURSA UNICĂ (mig 267). Înainte filtrau pe
      -- `orders.payment_method`, deci orice comandă cu split (enum `'other'`)
      -- muta TOȚI banii în „Alte metode" — 88 lei clasificați greșit chiar și
@@ -194,6 +256,7 @@ grant select on public.v_daily_payments_by_method to authenticated;
 do $$
 declare
   v_def text; v_name text; v_cols text[]; v_expected text[];
+  v_chk  text;
   v_bad  record;
 begin
   -- (a) Cele trei view-uri există și sunt security_invoker (mig 125).
@@ -288,6 +351,32 @@ begin
         from unnest(enum_range(null::payment_method)) e)
      is distinct from array['card_online','card_pos','cash','meal_voucher','other'] then
     raise exception 'mig 267: enum-ul payment_method s-a schimbat — adaugă găleata nouă în TOATE defalcările înainte'; end if;
+  -- Ramura A bucketează pe `order_payments.method`, care e TEXT cu CHECK, NU pe
+  -- enum. Un clichet care verifică doar enum-ul ratează exact metoda adăugată
+  -- în CHECK (echipa roșie: comentariul promitea ambele, codul verifica una).
+  select pg_get_constraintdef(c.oid) into v_chk
+    from pg_constraint c
+   where c.conrelid = 'public.order_payments'::regclass
+     and c.contype = 'c' and c.conname = 'order_payments_method_check';
+  if v_chk is null then
+    raise exception 'mig 267: CHECK-ul order_payments_method_check lipsește'; end if;
+  foreach v_name in array array['cash','card_pos','other','card_online','meal_voucher'] loop
+    if position('''' || v_name || '''' in v_chk) = 0 then
+      raise exception 'mig 267: metoda „%” a dispărut din order_payments_method_check', v_name; end if;
+  end loop;
+  if (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 5 then
+    raise exception 'mig 267: order_payments.method are altceva decât 5 metode (%) — adaugă găleata nouă în TOATE defalcările înainte', v_chk; end if;
+
+  -- Politica de citire a registrului TREBUIE să treacă prin funel (`is_member`),
+  -- altfel fondatorul/partenerul văd zero plăți și view-ul cade tăcut pe enum.
+  select pg_get_expr(p.polqual, p.polrelid) into v_chk
+    from pg_policy p
+   where p.polrelid = 'public.order_payments'::regclass
+     and p.polname = 'order_payments: member read';
+  if v_chk is null then
+    raise exception 'mig 267: politica de citire pe order_payments lipsește'; end if;
+  if position('is_member' in v_chk) = 0 then
+    raise exception 'mig 267: order_payments nu mai trece prin funel — fondatorul/partenerul văd defalcarea VECHE (greșită)'; end if;
 
   raise notice 'mig 267: sursa unică pe metode OK (3 view-uri, contract de coloane intact, defalcarea închide)';
 end $$;
