@@ -99,6 +99,31 @@ describe('health — plafonul de stocare nu poate fi anulat din env', () => {
   })
 })
 
+describe('health — pragurile', () => {
+  const LIMIT = 500 * 1024 * 1024
+  it('HL7: exact 90% e critic (503), exact 80% e avertisment (200)', async () => {
+    let { handler } = loadHealthFresh()
+    scriptDbOk(LIMIT * 0.9)
+    let res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.storage, 'critical', 'pragul critic e exclusiv la 90%')
+    assert.equal(res.statusCode, 503)
+
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(LIMIT * 0.8)
+    res = await handler({ httpMethod: 'GET' })
+    // 80% NU alertează (200) dar TREBUIE să se vadă: e singurul preaviz —
+    // „săptămâni de reacție" din raționamentul mig 266.
+    assert.equal(parseBody(res).checks.storage, 'warn', 'pragul de avertizare a dispărut')
+    assert.equal(res.statusCode, 200)
+
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(LIMIT * 0.5)
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.storage, 'ok')
+  })
+})
+
 describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică', () => {
   it('HL4: răspunsul PUBLIC dă doar procentul, fără tabele/octeți/plafon', async () => {
     const { handler } = loadHealthFresh()
@@ -107,12 +132,13 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     const res = await handler({ httpMethod: 'GET' })
     const body = parseBody(res)
     assert.equal(body.checks.storage, 'critical', 'severitatea rămâne publică — monitorul are nevoie de ea')
-    assert.ok(typeof body.storage_detail.used_pct === 'number', 'procentul rămâne public')
-    assert.equal(body.storage_detail.top_tables, undefined, 'numele tabelelor s-au scurs public')
-    assert.equal(body.storage_detail.bytes, undefined, 'dimensiunea bazei s-a scurs public')
-    assert.equal(body.storage_detail.limit_bytes, undefined, 'plafonul s-a scurs public')
+    // Forma se ÎNGHEAȚĂ, nu se verifică pe câmpuri știute (disciplina BC5/mig 265):
+    // o verificare per-câmp lasă să treacă ORICE cheie NOUĂ — `pretty`, un
+    // `tables` redenumit, un `oldest_row` viitor. Public = zero cifre.
+    assert.equal(body.storage_detail, null, 'suprafața publică nu mai are voie să poarte cifre')
     // Plasă de siguranță pe TOT corpul, nu doar pe câmpurile știute.
     assert.ok(!JSON.stringify(body).includes('audit_log'), 'un nume de tabel a ajuns în răspunsul public')
+    assert.ok(!JSON.stringify(body).includes('used_pct'), 'procentul (deci și dimensiunea) a ajuns public')
   })
 
   it('HL5: cu tokenul corect, diagnosticul complet e livrat', async () => {
@@ -128,6 +154,13 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     assert.equal(body.storage_detail.bytes, BYTES_98_PCT)
     assert.ok(Array.isArray(body.storage_detail.top_tables))
     assert.equal(body.storage_detail.top_tables[0].name, 'audit_log')
+
+    // Antetul e calea INTENȚIONATĂ (`?diag=` pune secretul în URL, deci în
+    // loguri). Netlify și shim-ul VPS trimit cheile minuscule.
+    const viaHeader = parseBody(
+      await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }),
+    )
+    assert.equal(viaHeader.storage_detail.bytes, BYTES_98_PCT, 'calea prin antet nu funcționează')
   })
 
   it('HL6: token greșit sau env nesetat → FAIL-CLOSED, niciun detaliu', async () => {
@@ -135,7 +168,14 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     let { handler } = loadHealthFresh()
     scriptDbOk(BYTES_98_PCT)
     let body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: 'gresit' } }))
-    assert.equal(body.storage_detail.top_tables, undefined, 'token greșit a primit diagnosticul')
+    assert.equal(body.storage_detail, null, 'token greșit (altă lungime) a primit diagnosticul')
+
+    // Token greșit de ACEEAȘI LUNGIME — altfel comparația de egalitate nu e
+    // exercitată NICIODATĂ (verificarea de lungime respinge prima) și ștergerea
+    // ei ar lăsa suita verde: gate-ul ar degrada la „orice șir de lungimea bună".
+    const sameLen = 'x'.repeat('secret-diag-token'.length)
+    body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: sameLen } }))
+    assert.equal(body.storage_detail, null, 'token greșit de aceeași lungime a primit diagnosticul')
 
     // Env NEsetat: prezentarea unui token oarecare NU deschide suprafața.
     delete process.env.HEALTH_DIAG_TOKEN
@@ -143,6 +183,6 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     resetMocks()
     scriptDbOk(BYTES_98_PCT)
     body = parseBody(await handler({ httpMethod: 'GET', queryStringParameters: { diag: '' } }))
-    assert.equal(body.storage_detail.top_tables, undefined, 'fără env, suprafața s-a deschis (nu e fail-closed)')
+    assert.equal(body.storage_detail, null, 'fără env, suprafața s-a deschis (nu e fail-closed)')
   })
 })

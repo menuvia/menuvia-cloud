@@ -83,7 +83,7 @@ begin
   -- Plafonul e la fel de important ca podeaua: fără el, ștergerea lui `limit 5`
   -- din `get_database_size()` trece nedetectată cât timp rândurile rămân
   -- ordonate, iar alarma începe să care TOATĂ lista de tabele într-un răspuns
-  -- HTTP. Asertția verifica doar „ne-gol" (CodeRabbit pe #240).
+  -- HTTP. Asserția verifica doar „ne-gol" (CodeRabbit pe #240).
   if v_n > 5 then
     raise exception 'DB4 FAIL: top_tables are % intrări (plafonul e 5 — `limit 5` a dispărut?)', v_n; end if;
   raise notice 'DB4 OK: % tabele (≤5), ordonate descrescător, toate din public', v_n;

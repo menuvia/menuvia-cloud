@@ -1,6 +1,7 @@
 // tests/functions/helpers/mocks.js
-// Harness zero-dependențe pentru funcțiile Netlify de BANI (stripe-webhook,
-// table-payment, oblio-generator): interceptează require('@supabase/supabase-js')
+// Harness zero-dependențe pentru funcțiile Netlify testate direct — cele de BANI
+// (stripe-webhook, table-payment, oblio-generator) și /health (alarma de
+// stocare): interceptează require('@supabase/supabase-js')
 // și require('stripe') prin Module._load, ca handler-ele să ruleze NESCHIMBATE
 // (Lambda-style, exports.handler(event)) contra unor fake-uri scriptabile.
 //

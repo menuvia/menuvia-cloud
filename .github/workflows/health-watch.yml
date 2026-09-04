@@ -44,4 +44,15 @@ jobs:
             echo "::error::/health a întors $code — db down sau cron STALE (vezi payload-ul de mai sus și docs/RUNBOOK.md §Incident)."
             exit 1
           fi
-          echo "✓ health OK (db + cron în parametri)"
+          # Sonda de stocare NU influențează codul de status (toleranță
+          # deliberată: clientul se poate deploya înaintea migrației). Dar după
+          # ce mig 266 e aplicată, `unknown` nu mai înseamnă „se deployează", ci
+          # „sonda e MOARTĂ" — RPC șters/redenumit, EXECUTE revocat de la
+          # service_role, cheia `bytes` schimbată — și atunci alarma de stocare
+          # tace pentru totdeauna cu HTTP 200. Nimic din interior nu observă asta,
+          # deci o observăm DE AFARĂ, ca tot restul acestui workflow.
+          storage="$(echo "$payload" | sed -n 's/.*"storage":"\([a-z]*\)".*/\1/p')"
+          if [ "$storage" = "unknown" ]; then
+            echo "::warning::/health raportează storage=unknown deși db=ok — sonda get_database_size() (mig 266) nu răspunde. Alarma de stocare e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+          fi
+          echo "✓ health OK (db + cron în parametri; storage=${storage:-n/a})"
