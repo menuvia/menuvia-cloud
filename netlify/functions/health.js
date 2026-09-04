@@ -53,7 +53,18 @@ const CRON_STALE_HOURS = 2
 // exact tiparul incidentului de cron din august. Pragurile lasa timp de reactie:
 // 80% doar raporteaza (200, vizibil in payload), 90% da 503, adica ALERTEAZA.
 // Plafonul e configurabil: planul Supabase se poate schimba fara redeploy de cod.
-const DB_SIZE_LIMIT_BYTES = Number(process.env.DB_SIZE_LIMIT_BYTES) || 500 * 1024 * 1024
+const DEFAULT_DB_SIZE_LIMIT_BYTES = 500 * 1024 * 1024
+// `|| fallback` accepta Infinity SI valorile negative (ambele truthy). Masurat:
+//   "Infinity" -> limit = Infinity -> pct = 0            -> critical? NU
+//   "-1"       -> limit = -1       -> pct = -2229365100  -> critical? NU
+// Adica o singura variabila de mediu gresita stinge TACUT alarma, exact clasa
+// CA-01 din CLAUDE.md: o poarta stinsa tacut e mai rea decat una lipsa. Acceptam
+// doar valori finite SI strict pozitive; orice altceva cade pe plafonul implicit.
+const rawDbSizeLimit = Number(process.env.DB_SIZE_LIMIT_BYTES)
+const DB_SIZE_LIMIT_BYTES =
+  Number.isFinite(rawDbSizeLimit) && rawDbSizeLimit > 0
+    ? rawDbSizeLimit
+    : DEFAULT_DB_SIZE_LIMIT_BYTES
 const DB_SIZE_WARN_PCT = 80
 const DB_SIZE_CRITICAL_PCT = 90
 
@@ -93,6 +104,21 @@ exports.handler = async (event) => {
   if (method && method !== 'GET' && method !== 'HEAD') {
     return jsonResponse(405, { status: 'degraded', error: 'method_not_allowed', ts })
   }
+
+  // Cine are voie sa vada diagnosticul privilegiat de stocare (vezi mai jos).
+  // Comparatie pe lungime egala inainte de egalitate, ca sa nu depindem de
+  // scurtcircuitul lui `===` pe siruri de lungimi diferite.
+  const diagToken = process.env.HEALTH_DIAG_TOKEN || ''
+  const headers = (event && event.headers) || {}
+  const presentedDiag =
+    (event && event.queryStringParameters && event.queryStringParameters.diag) ||
+    headers['x-health-diag'] ||
+    headers['X-Health-Diag'] ||
+    ''
+  const diagAllowed =
+    diagToken.length > 0 &&
+    presentedDiag.length === diagToken.length &&
+    presentedDiag === diagToken
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -190,14 +216,21 @@ exports.handler = async (event) => {
         const pct = (bytes / DB_SIZE_LIMIT_BYTES) * 100
         storage =
           pct >= DB_SIZE_CRITICAL_PCT ? 'critical' : pct >= DB_SIZE_WARN_PCT ? 'warn' : 'ok'
-        storageDetail = {
-          bytes,
-          pretty: data.pretty || null,
-          limit_bytes: DB_SIZE_LIMIT_BYTES,
-          used_pct: Math.round(pct * 10) / 10,
-          // Diagnosticul calatoreste CU alarma: fara el, founderul afla ca baza
-          // e la 92% si nu stie de unde sa taie.
-          top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+        // PUBLIC: doar procentul. `/health` e lovit din AFARA de UptimeRobot,
+        // deci orice pune aici ajunge la oricine face curl. Procentul e tot ce-i
+        // trebuie unui monitor ca sa stie cat de rau e; numele tabelelor si
+        // dimensiunile lor scurg schema SI volumul de business (cat de mare e
+        // `orders`, cat de mare e `audit_log`).
+        storageDetail = { used_pct: Math.round(pct * 10) / 10 }
+        // DIAGNOSTICUL COMPLET doar cu token. Intentia din mig 266 („alarma cara
+        // diagnosticul cu ea") se pastreaza: founderul il ia intr-un singur curl
+        // cu tokenul. FAIL-CLOSED: daca `HEALTH_DIAG_TOKEN` nu e setat, nu se da
+        // detaliu deloc — absenta configurarii nu deschide suprafata.
+        if (diagAllowed) {
+          storageDetail.bytes = bytes
+          storageDetail.pretty = data.pretty || null
+          storageDetail.limit_bytes = DB_SIZE_LIMIT_BYTES
+          storageDetail.top_tables = Array.isArray(data.top_tables) ? data.top_tables : null
         }
       }
     } catch (e) {
