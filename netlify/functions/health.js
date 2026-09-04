@@ -34,8 +34,29 @@
 // Env vars:
 //   SUPABASE_URL || VITE_SUPABASE_URL
 //   SUPABASE_SERVICE_ROLE_KEY
+//   DB_SIZE_LIMIT_BYTES  (optional) plafonul de stocare in OCTETI, fara sufix de
+//                        unitate. Default 500 MB (planul Free). O valoare
+//                        invalida e ignorata CU avertisment in log.
+//   HEALTH_DIAG_TOKEN    (optional) deblocheaza `storage_detail` (octeti, plafon,
+//                        procent, primele 5 tabele) prin antetul `x-health-diag`
+//                        sau `?diag=`. NESETAT = diagnosticul nu e accesibil de
+//                        nicaieri (fail-closed). Vezi docs/RUNBOOK.md §4.1.
 
+const crypto = require('node:crypto')
 const { createClient } = require('@supabase/supabase-js')
+
+/**
+ * Comparare constant-time (oglinda lui `safeEqual` din deploy/server.js, SEC-09).
+ * @param {unknown} a valoarea primita
+ * @param {unknown} b valoarea asteptata
+ * @returns {boolean} true doar la egalitate exacta (lungime + bytes)
+ */
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a ?? ''))
+  const bb = Buffer.from(String(b ?? ''))
+  if (ab.length !== bb.length) return false
+  return crypto.timingSafeEqual(ab, bb)
+}
 
 // Timeout defensiv pe ping-ul DB (ms). Un DB blocat nu ține cererea agățată —
 // monitorul extern trebuie să primească un 503 rapid, nu un timeout de gateway.
@@ -53,7 +74,28 @@ const CRON_STALE_HOURS = 2
 // exact tiparul incidentului de cron din august. Pragurile lasa timp de reactie:
 // 80% doar raporteaza (200, vizibil in payload), 90% da 503, adica ALERTEAZA.
 // Plafonul e configurabil: planul Supabase se poate schimba fara redeploy de cod.
-const DB_SIZE_LIMIT_BYTES = Number(process.env.DB_SIZE_LIMIT_BYTES) || 500 * 1024 * 1024
+const DEFAULT_DB_SIZE_LIMIT_BYTES = 500 * 1024 * 1024
+// `|| fallback` accepta Infinity SI valorile negative (ambele truthy). Masurat:
+//   "Infinity" -> limit = Infinity -> pct = 0            -> critical? NU
+//   "-1"       -> limit = -1       -> pct = -2229365100  -> critical? NU
+// Adica o singura variabila de mediu gresita stinge TACUT alarma, exact clasa
+// CA-01 din CLAUDE.md: o poarta stinsa tacut e mai rea decat una lipsa. Acceptam
+// doar valori finite SI strict pozitive; orice altceva cade pe plafonul implicit.
+const rawDbSizeLimit = Number(process.env.DB_SIZE_LIMIT_BYTES)
+const DB_SIZE_LIMIT_BYTES =
+  Number.isFinite(rawDbSizeLimit) && rawDbSizeLimit > 0
+    ? rawDbSizeLimit
+    : DEFAULT_DB_SIZE_LIMIT_BYTES
+// A respinge TACUT o valoare setata EXPLICIT e aceeasi lipsa de lizibilitate ca
+// CA-01: `DB_SIZE_LIMIT_BYTES=8GB` (sufixele de unitate sunt normale in config)
+// da NaN -> 500 MB -> 503 permanent pe un plan de 8 GB, fara ca nimic sa spuna
+// ca valoarea a fost ignorata.
+if (process.env.DB_SIZE_LIMIT_BYTES && DB_SIZE_LIMIT_BYTES === DEFAULT_DB_SIZE_LIMIT_BYTES &&
+    String(process.env.DB_SIZE_LIMIT_BYTES) !== String(DEFAULT_DB_SIZE_LIMIT_BYTES)) {
+  console.warn(
+    `[health] DB_SIZE_LIMIT_BYTES="${process.env.DB_SIZE_LIMIT_BYTES}" nu e un numar finit pozitiv (octeti, fara sufix) — folosesc plafonul implicit de ${DEFAULT_DB_SIZE_LIMIT_BYTES}`,
+  )
+}
 const DB_SIZE_WARN_PCT = 80
 const DB_SIZE_CRITICAL_PCT = 90
 
@@ -93,6 +135,20 @@ exports.handler = async (event) => {
   if (method && method !== 'GET' && method !== 'HEAD') {
     return jsonResponse(405, { status: 'degraded', error: 'method_not_allowed', ts })
   }
+
+  // Cine are voie sa vada diagnosticul privilegiat de stocare (vezi mai jos).
+  // Comparatie CONSTANT-TIME prin `safeEqual`, aceeasi primitiva ca verificarea
+  // lui `x-cron-key` din deploy/server.js (audit v3 SEC-09) — nu `===`, care e
+  // data-dependent pe siruri de lungime egala. Antetul `x-health-diag` e calea
+  // INTENTIONATA: `?diag=` pune un secret in URL, deci in logurile de request
+  // Netlify, in configul monitorului si in istoricul de shell.
+  const diagToken = process.env.HEALTH_DIAG_TOKEN || ''
+  const headers = (event && event.headers) || {}
+  const presentedDiag =
+    (event && event.queryStringParameters && event.queryStringParameters.diag) ||
+    headers['x-health-diag'] ||
+    ''
+  const diagAllowed = diagToken.length > 0 && safeEqual(presentedDiag, diagToken)
 
   const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -190,14 +246,29 @@ exports.handler = async (event) => {
         const pct = (bytes / DB_SIZE_LIMIT_BYTES) * 100
         storage =
           pct >= DB_SIZE_CRITICAL_PCT ? 'critical' : pct >= DB_SIZE_WARN_PCT ? 'warn' : 'ok'
-        storageDetail = {
-          bytes,
-          pretty: data.pretty || null,
-          limit_bytes: DB_SIZE_LIMIT_BYTES,
-          used_pct: Math.round(pct * 10) / 10,
-          // Diagnosticul calatoreste CU alarma: fara el, founderul afla ca baza
-          // e la 92% si nu stie de unde sa taie.
-          top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+        // PUBLIC: NIMIC numeric. `/health` e lovit din AFARA de UptimeRobot,
+        // deci orice pune aici ajunge la oricine face curl. Severitatea
+        // (`checks.storage`: ok/warn/critical) e tot ce-i trebuie unui monitor
+        // ca sa alerteze — si e tot ce dam public.
+        //
+        // Nici macar `used_pct` nu ramane public: plafonul implicit e o CONSTANTA
+        // publica (500 MB, in sursa si in CLAUDE.md), deci un procent la 0,1%
+        // rezolutie da dimensiunea bazei la +/-262 kB, iar interogat zilnic da
+        // curba de crestere — adica volumul de comenzi. Regula devine simpla si
+        // uniforma: public = SEVERITATE, cu token = CIFRE.
+        storageDetail = null
+        // DIAGNOSTICUL COMPLET doar cu token. Intentia din mig 266 („alarma cara
+        // diagnosticul cu ea") se pastreaza: founderul il ia intr-un singur curl
+        // cu tokenul. FAIL-CLOSED: daca `HEALTH_DIAG_TOKEN` nu e setat, nu se da
+        // detaliu deloc — absenta configurarii nu deschide suprafata.
+        if (diagAllowed) {
+          storageDetail = {
+            bytes,
+            pretty: data.pretty || null,
+            limit_bytes: DB_SIZE_LIMIT_BYTES,
+            used_pct: Math.round(pct * 10) / 10,
+            top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+          }
         }
       }
     } catch (e) {

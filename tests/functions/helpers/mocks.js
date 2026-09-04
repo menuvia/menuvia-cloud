@@ -1,6 +1,7 @@
 // tests/functions/helpers/mocks.js
-// Harness zero-dependențe pentru funcțiile Netlify de BANI (stripe-webhook,
-// table-payment, oblio-generator): interceptează require('@supabase/supabase-js')
+// Harness zero-dependențe pentru funcțiile Netlify testate direct — cele de BANI
+// (stripe-webhook, table-payment, oblio-generator) și /health (alarma de
+// stocare): interceptează require('@supabase/supabase-js')
 // și require('stripe') prin Module._load, ca handler-ele să ruleze NESCHIMBATE
 // (Lambda-style, exports.handler(event)) contra unor fake-uri scriptabile.
 //
@@ -46,7 +47,9 @@ function resetMocks() {
 // builder-ul; builder-ul e thenable, deci `await` îl rezolvă prin handler-ul
 // tabelei. Handler-ul vede TOT lanțul, ca testul să distingă insert/update/
 // select(.single()) pe aceeași tabelă.
-const CHAIN_METHODS = ['insert', 'update', 'select', 'eq', 'neq', 'single', 'limit', 'order', 'is', 'in']
+// `abortSignal` e in lant fiindca /health il foloseste pe ping-ul DB si pe
+// prospetimea cron-ului (timeout defensiv, nu Promise.race).
+const CHAIN_METHODS = ['insert', 'update', 'select', 'eq', 'neq', 'single', 'limit', 'order', 'is', 'in', 'gte', 'lte', 'abortSignal']
 
 function makeBuilder(table) {
   const ops = []
@@ -73,11 +76,29 @@ function makeBuilder(table) {
 
 const fakeSupabaseModule = {
   createClient: () => ({
-    rpc: async (name, args) => {
+    // rpc(...) intoarce un THENABLE, nu un Promise: clientul real permite
+    // `.abortSignal(...)` in lant inainte de await (asa face /health). `await`
+    // functioneaza identic, deci apelantii care nu inlantuie nimic nu se schimba.
+    rpc: (name, args) => {
       state.rpcCalls.push({ name, args })
-      const handler = state.rpcHandlers[name]
-      if (!handler) return { data: null, error: null }
-      return handler(args)
+      const run = () => {
+        const handler = state.rpcHandlers[name]
+        if (!handler) return { data: null, error: null }
+        return handler(args)
+      }
+      const thenable = {
+        abortSignal: () => thenable,
+        then: (resolve, reject) => {
+          let out
+          try {
+            out = run()
+          } catch (e) {
+            return Promise.reject(e).then(resolve, reject)
+          }
+          return Promise.resolve(out).then(resolve, reject)
+        },
+      }
+      return thenable
     },
     from: (table) => makeBuilder(table),
   }),

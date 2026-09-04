@@ -206,9 +206,27 @@ Expus la `/.netlify/functions/health` și rutat frumos la **`/health`** (redirec
 curl -s https://menuvia.ro/health | jq
 ```
 
-Răspuns:
-- `200 { status:"ok", checks:{db:"ok"}, config, ts }` — DB răspunde.
-- `503 { status:"degraded", checks:{db:"down"}, config, ts }` — DB căzut **sau** env de bază lipsă.
+Răspuns (`checks` are TREI sonde: `db`, `cron`, `storage`):
+- `200 { status:"ok", checks:{db:"ok", cron:"ok", storage:"ok"}, config, ts }` — totul în parametri.
+- `503 { status:"degraded", checks:{db:"down"}, ... }` — DB căzut **sau** env de bază lipsă.
+- `503 ... checks:{cron:"stale"}` — automatizarea nu a mai rulat de >2h (incidentul 2–9 aug 2026).
+- `503 ... checks:{storage:"critical"}` — baza e la ≥90% din plafon. La ≥80% e
+  `storage:"warn"` cu **200** (preaviz, nu alertă). Când baza atinge plafonul,
+  Postgres trece în READ-ONLY: nu se mai acceptă comenzi la NICIUN restaurant.
+- `checks:{storage:"unknown"}` — sonda nu a putut fi citită (RPC neaplicat, permisiune
+  lipsă). NU influențează codul de status; dacă persistă cu `db:"ok"`, alarma de
+  stocare e MOARTĂ — vezi `get_database_size()` (mig 266).
+
+**Diagnosticul de stocare cere token.** `/health` e public, deci implicit întoarce
+doar severitatea. Cu `HEALTH_DIAG_TOKEN` setat:
+
+```bash
+curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq .storage_detail
+# { bytes, pretty, limit_bytes, used_pct, top_tables: [primele 5, descrescător] }
+```
+
+Fără token nu există `storage_detail` deloc (fail-closed) — de aceea se setează
+ÎNAINTE de incident, nu în timpul lui.
 
 `config` = booleeni de **prezență** a secretelor (niciodată valori):
 `resend`, `slack`, `stripe`, `ai_platform`. Dacă un secret a fost revocat/lipsește, îl vezi
