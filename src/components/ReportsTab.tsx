@@ -298,7 +298,51 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
               .range(lo, hi),
           )
         : Promise.resolve([])
-      const [ordersRaw, paidRaw] = await Promise.all([ordersP, paidP])
+      // Defalcarea pe metodă vine din REGISTRUL de plăți (mig 267), nu din
+      // `orders.payment_method`: enum-ul e unul singur per comandă, deci orice
+      // split (parțiale, split pe itemi, online + rest cash) îl duce pe 'other'
+      // și TOȚI banii aterizau în „Alte metode". Măsurat pe producție înainte
+      // de fix: 41 lei card + 47 lei cash raportați ca 88 lei „alte".
+      // `day` din view e deja ziua ÎNCASĂRII în fusul României, deci se
+      // filtrează direct cu `range.from`/`range.to` (YYYY-MM-DD).
+      // IIFE `async`, nu lanț `.then` pe builder: builder-ul supabase-js e doar
+      // `PromiseLike`, iar un lanț adnotat `Promise<...>` pică TS2322 DOAR pe
+      // Netlify (capcana E5b din CLAUDE.md).
+      const breakdownP: Promise<Record<string, unknown>[] | null> = fiscalReports
+        ? (async () => {
+            try {
+              // Paginat ca restul interogărilor din tab: PostgREST trunchiază
+              // TĂCUT la `max-rows` (1000). View-ul dă un rând pe zi, deci un
+              // interval personalizat mai lung de 1000 de zile s-ar tăia — și,
+              // fiindcă reziduul se pliază în „Alte metode", TOTALUL ar continua
+              // să închidă, deci nimic n-ar arăta stricat: doar cash/card/
+              // tichete/online ar fi subevaluate. `day` e unic per restaurant,
+              // deci e o ordine total-deterministă pentru paginare.
+              return await fetchAllPages<Record<string, unknown>>((lo, hi) =>
+                supabase
+                  .from('v_daily_payments_by_method')
+                  .select(
+                    'cash_revenue, card_revenue, voucher_revenue, online_revenue, other_revenue, total_revenue',
+                  )
+                  .eq('restaurant_id', restaurantId)
+                  .gte('day', range.from)
+                  .lte('day', range.to)
+                  .order('day', { ascending: true })
+                  .range(lo, hi),
+              )
+            } catch {
+              // View-ul apare abia cu mig 267, iar frontend-ul se deployează
+              // ÎNAINTEA migrației (ca peste tot în repo) — `null` = „nu am sursa
+              // unică", nu „zero lei".
+              return null
+            }
+          })()
+        : Promise.resolve([])
+      const [ordersRaw, paidRaw, breakdownRows] = await Promise.all([
+        ordersP,
+        paidP,
+        breakdownP,
+      ])
 
       // `as unknown as` — select-ul condiționat (ternar) face ca tipul rândului dedus de
       // supabase-js să fie un union ne-literal (ParserError), deci trecem prin unknown.
@@ -306,34 +350,48 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       const totalOrders = allOrders.length
       const paidOrders = (paidRaw ?? []) as unknown as Record<string, unknown>[]
       const revenue = paidOrders.reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cashRev = paidOrders
-        .filter((o) => o.payment_method === 'cash')
-        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      const cardRev = paidOrders
-        .filter((o) => o.payment_method === 'card_pos')
-        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      // Fallback pe bucketarea veche (client-side, pe enum) DOAR cât timp
+      // view-ul nu există: frontend-ul se deployează ÎNAINTEA migrației, ca
+      // peste tot în repo (fetchMenuForRestaurant, kitchen_tickets_mark_stale).
+      // Cifrele sunt cele de dinainte de fix — corecte pentru comenzile fără
+      // split, greșite pentru cele cu — dar tab-ul nu se albește.
+      const bucketLegacy = (m: string) =>
+        paidOrders
+          .filter((o) =>
+            m === 'other'
+              ? o.payment_method === 'other' ||
+                o.payment_method == null ||
+                o.payment_method === ''
+              : o.payment_method === m,
+          )
+          .reduce((s2, o) => s2 + Number(o.paid_amount ?? o.total ?? 0), 0)
+
+      const sumCol = (col: string) =>
+        (breakdownRows ?? []).reduce((s2, r) => s2 + Number(r[col] ?? 0), 0)
+
+      const cashRev = breakdownRows ? sumCol('cash_revenue') : bucketLegacy('cash')
+      const cardRev = breakdownRows ? sumCol('card_revenue') : bucketLegacy('card_pos')
       // Tichetele de masă se decontează separat cu emitentul (Edenred/Sodexo/Up) —
       // operatorul are nevoie de totalul lor distinct pentru reconciliere.
-      const voucherRev = paidOrders
-        .filter((o) => o.payment_method === 'meal_voucher')
-        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      const voucherRev = breakdownRows ? sumCol('voucher_revenue') : bucketLegacy('meal_voucher')
       // Plăți online la masă (Stripe, mig 202/203). Fără bucket propriu,
       // cash+card+tichete nu închideau cu venitul total pe Plan 3 cu plăți
       // online — reconcilierea cu Stripe nu bătea (audit v3 CA-02 / MF-12).
-      const onlineRev = paidOrders
-        .filter((o) => o.payment_method === 'card_online')
-        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
-      // Restul: split cu metode MIXTE (advance_order scrie 'other' — mig 262) +
-      // comenzi vechi fără metodă. Cu bucket-ul ăsta defalcarea ÎNCHIDE cu
-      // venitul total, deci reconcilierea de seară e completă.
-      const otherRev = paidOrders
-        .filter(
-          (o) =>
-            o.payment_method === 'other' ||
-            o.payment_method == null ||
-            o.payment_method === '',
-        )
-        .reduce((s, o) => s + Number(o.paid_amount ?? o.total ?? 0), 0)
+      const onlineRev = breakdownRows ? sumCol('online_revenue') : bucketLegacy('card_online')
+      // Restul: metode necunoscute + comenzi vechi fără metodă. Cu bucket-ul
+      // ăsta defalcarea ÎNCHIDE cu venitul total, deci reconcilierea de seară
+      // e completă.
+      // Reziduul se PLIAZĂ în „Alte metode", ca cele cinci carduri să însumeze
+      // ÎNTOTDEAUNA cardul „Venituri" de deasupra lor. `revenue` se calculează
+      // client-side ca `paid_amount ?? total`, iar view-ul acoperă aceeași
+      // fereastră; pentru datele conforme (mig 264: `paid_amount ==
+      // sum(order_payments)`) diferența e ZERO. Pe un rând anormal — scris
+      // direct prin PostgREST sub `orders: admin all` — fără plierea asta banii
+      // ar dispărea tăcut din defalcare, exact regresia pe care bucketarea
+      // veche NU o avea (partiționa aceeași valoare, deci închidea mereu).
+      const otherRev = breakdownRows
+        ? sumCol('other_revenue') + (revenue - sumCol('total_revenue'))
+        : bucketLegacy('other')
       const qrOrders = allOrders.filter((o) => o.source === 'qr').length
       const waiterOrders = totalOrders - qrOrders
       // Bon mediu = venit încasat / număr comenzi plătite (nu împărți la comenzi deschise).
