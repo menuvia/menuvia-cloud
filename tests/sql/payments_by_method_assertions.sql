@@ -21,6 +21,12 @@
 --        clasa asta de regresie.
 --   PM9  comandă `paid` cu `paid_amount` NULL intră în defalcare pe `total` și
 --        ziua închide (altfel banii dispar din găleți dar rămân în venit).
+--   PM10 CLICHET DE TAXONOMIE, VIU: enum-ul `payment_method` ȘI CHECK-ul de pe
+--        `order_payments.method` au EXACT cele 5 metode cunoscute. Clichetul
+--        există și în migrație, dar acolo se evaluează O SINGURĂ dată, la
+--        poziția 267 din lanț — o migrație VIITOARE care lărgește enum-ul sau
+--        CHECK-ul nu l-ar mai declanșa. Aici rulează pe starea FINALĂ, la
+--        fiecare rulare de CI, deci nu poate deveni un gate mort.
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -334,6 +340,38 @@ begin
     raise notice 'PM8: % vede 47 cash / 41 card', v_who;
   end loop;
   raise notice 'PM8 OK: paritate RLS — proprietar, ospătar și fondator văd ACELAȘI split';
+end $$;
+
+-- ── PM10: clichetul de taxonomie, pe starea FINALĂ a lanțului ────────────────
+-- Găleata `other` prinde tot ce nu e una din cele patru metode cunoscute, deci o
+-- metodă A CINCEA/A ȘASEA ar fi înghițită TĂCUT acolo — exact regresia CA-02/
+-- MF-12 care a cerut o dată bucket-ul `online_revenue`. Dacă asta pică, adaugă
+-- găleata nouă în TOATE defalcările ÎNAINTE de a lărgi taxonomia: ReportsTab
+-- (StatCard + CSV + PDF), AnalyticsTab, CashRegisterTab, `v_daily_orders`,
+-- `v_daily_payments_by_method`, `v_order_payment_methods`.
+do $$
+declare v_chk text; v_name text;
+begin
+  if (select array_agg(e::text order by e::text)
+        from unnest(enum_range(null::payment_method)) e)
+     is distinct from array['card_online','card_pos','cash','meal_voucher','other'] then
+    raise exception 'PM10 FAIL: enum-ul payment_method s-a schimbat — adaugă găleata nouă în TOATE defalcările înainte';
+  end if;
+
+  select pg_get_constraintdef(c.oid) into v_chk
+    from pg_constraint c
+   where c.conrelid = 'public.order_payments'::regclass
+     and c.contype = 'c' and c.conname = 'order_payments_method_check';
+  if v_chk is null then
+    raise exception 'PM10 FAIL: CHECK-ul order_payments_method_check lipsește'; end if;
+  foreach v_name in array array['cash','card_pos','other','card_online','meal_voucher'] loop
+    if position('''' || v_name || '''' in v_chk) = 0 then
+      raise exception 'PM10 FAIL: metoda „%" a dispărut din order_payments_method_check', v_name; end if;
+  end loop;
+  if (length(v_chk) - length(replace(v_chk, '::text', ''))) / 6 <> 5 then
+    raise exception 'PM10 FAIL: order_payments.method are altceva decât 5 metode (%)', v_chk; end if;
+
+  raise notice 'PM10 OK: taxonomia de metode e neschimbată (enum + CHECK, stare finală)';
 end $$;
 
 rollback;

@@ -54,7 +54,7 @@
 -- rapid decât predicatul per-rând. `security_invoker = true` peste tot (mig 125):
 -- RLS-ul de pe `orders`/`order_payments` decide ce vede fiecare membru.
 --
--- Teste permanente PM1–PM9: tests/sql/payments_by_method_assertions.sql.
+-- Teste permanente PM1–PM10: tests/sql/payments_by_method_assertions.sql.
 -- =============================================================================
 
 begin;
