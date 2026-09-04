@@ -29,21 +29,34 @@ jobs:
       # ACELAȘI endpoint legacy `audits/quick` și l-a ținut agățat 13 minute pe
       # 3 sept 2026, blocând toate joburile. Poarta REALĂ e pasul de mai jos.
       - run: npm ci --no-audit --no-fund
-      - name: Security audit (prod deps only, block high+critical)
-        # Auditează DOAR deps de production — care ajung în bundle-ul shipped.
-        # Dev tooling (vitest/vite/@typescript-eslint) e zgomot — vulnerabili-
-        # tățile lor nu ating userii finali, doar build pipeline.
-        # Wrapper, nu `npm audit` direct: aliasul din posthog-js forțează
-        # endpoint-ul legacy `audits/quick`, pe care registry-ul îl retrage.
-        # Scriptul reîncearcă eșecul de TRANSPORT, dar rămâne blocant pe orice
-        # vulnerabilitate găsită și pe endpoint mort. Detalii în script.
-        run: bash scripts/npm-audit-gate.sh
       - run: npm run lint
       - name: Build
         env:
           VITE_SUPABASE_URL:      ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
+
+  # Poarta de securitate stă în JOB PROPRIU, nu în `lint-and-build` (3 sept 2026).
+  # Motivul e structural, nu cosmetic: `e2e` și `lighthouse` au `needs:
+  # lint-and-build`, deci cât timp auditul trăia acolo, un endpoint npm care
+  # pâlpâie ȘTERGEA semnalul E2E — exact ce s-a întâmplat: gate-ul a picat pe
+  # transport, iar Playwright și Lighthouse au ieșit „skipped", fără ca nimic
+  # din codul nostru să fie de vină. O dependență EXTERNĂ nu are voie să
+  # decidă dacă rulează testele NOASTRE.
+  # Poarta rămâne la fel de blocantă: jobul apare roșu pe PR și oprește merge-ul.
+  security-audit:
+    name: Security audit (prod deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      # NU se rulează `npm ci` aici: poarta citește DOAR package-lock.json și
+      # interoghează OSV.dev. Jobul de securitate nu mai atinge deloc
+      # registry-ul npm — exact dependența care l-a ținut roșu ~18h pe 3–4 sept.
+      - name: Security audit (prod deps only, block high+critical)
+        run: node scripts/osv-audit-gate.mjs
 
   e2e:
     # ERMETIC: rulează contra unui stack Supabase LOCAL (supabase start aplică

@@ -26,6 +26,8 @@ import { useInView, revealStyle } from '../../lib/motion'
 // Paleta de scor — citește din tokens-urile existente (CSS vars).
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
 import { InlineSpinner } from '../PageLoader'
+import { useBridgeConnected } from '../../hooks/useBridgeConnected'
+import { BridgeOfflineBanner } from '../BridgeOfflineBanner'
 
 // Reveal local: fiecare instanță are PROPRIUL hook useInView (regula hooks —
 // niciodată în .map()). Folosit pentru stagger-ul secțiunilor de pe Acasă.
@@ -53,7 +55,9 @@ interface Props {
   productCount: number
   // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
   pickupOnly: boolean
-  onNavigate: (tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa') => void
+  onNavigate: (
+    tab: 'products' | 'categories' | 'mese' | 'raport' | 'comenzi' | 'echipa' | 'casa-marcat',
+  ) => void
   onViewMenu: () => void
   onPricing: () => void
   // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
@@ -262,6 +266,10 @@ export default function HomeTab({
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
 
+  // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
+  // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
+  const bridge = useBridgeConnected(restaurantId, isAdmin && tier >= 3)
+
   useEffect(() => {
     setMenuChecked(wasMenuChecked(restaurantId))
     let alive = true
@@ -441,6 +449,16 @@ export default function HomeTab({
           </p>
         </div>
       </RevealItem>
+
+      {/* ★ audit v3 (rangul 8): pe planurile fiscale, bridge-ul căzut înseamnă
+          încasări FĂRĂ bon, tăcut. Banner-ul apare doar pe o stare CUNOSCUTĂ de
+          deconectare — `null` (necunoscut) nu randează nimic. */}
+      {isAdmin && (
+        <BridgeOfflineBanner
+          status={bridge.status}
+          onOpenBridge={() => onNavigate('casa-marcat')}
+        />
+      )}
 
       {/* Cifrele zilei — „Comenzi azi" domină vizual (hero), restul secundare.
           Tier 1 (fără comenzi): grid uniform de metrici, fără hero gol. */}

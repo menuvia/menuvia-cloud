@@ -27,21 +27,30 @@ OpenAI API — PLATFORM_OPENAI_KEY (import meniu din foto; ghidul vechi zicea gr
   - `service_role key` → `SUPABASE_SERVICE_ROLE_KEY` (⚠️ secret, nu în client)
 
 ### 1b. Rulează migrațiile SQL
-Du-te la **SQL Editor** și rulează în această ordine exactă:
 
-```
-1. supabase/schema.sql
-2. supabase/migration-001-tables-qr.sql
-3. supabase/migration-002-modifiers.sql
-4. supabase/migration-003-orders-fixed.sql
-5. supabase/migration-004-members-fixed.sql
-6. supabase/migration-005-rls-fixed.sql
-7. supabase/migration-006-create-order-rpc.sql
-8. supabase/migration-007-extensions-views-invites.sql
-9. supabase/migration-008-rls-audit-fixes.sql
+Sursa unică e directorul `supabase/migrations/`, aplicat **în ordinea numelor de
+fișier** (prefix cronologic). Sunt peste 260 de migrații, cu dependențe stricte
+între ele — nu sări niciuna și nu schimba ordinea.
+
+```bash
+supabase link --project-ref <project-ref>
+supabase db push
 ```
 
-**Nu sări** nicio migrație și **nu schimba ordinea** — există dependențe între ele.
+Fără CLI, aplicarea manuală din SQL Editor înseamnă toate fișierele din
+`supabase/migrations/`, în ordine lexicografică — nu doar primele.
+
+Înainte de a împinge orice migrație nouă, rulează replay-ul complet local:
+
+```bash
+bash scripts/verify-migrations-local.sh
+```
+
+> Lista veche de aici (`supabase/schema.sql` + `migration-001…008`) trimitea la
+> copii legacy din rădăcina `supabase/`, șterse în sept 2026: erau duplicate
+> stale ale primelor 44 de migrații, iar procedura acoperea 8 fișiere din 264,
+> deci producea o bază incompletă. Sursa aplicată a fost mereu
+> `supabase/migrations/`.
 
 ### 1c. Activează Realtime
 **Dashboard → Database → Replication → Tables**
@@ -219,6 +228,8 @@ netlify/functions/
 └── welcome-email.js             # Resend — email bun venit
 
 supabase/
-├── schema.sql                   # Tabele principale
-└── migration-001 → 007          # Migrații incrementale
+├── config.toml                  # Config Supabase CLI (stack local)
+├── migrations/                  # SURSA UNICĂ — 260+ migrații, ordine lexicografică
+├── scripts/                     # Utilitare SQL rulate manual
+└── tests/                       # Aserții SQL legate în CI
 ```

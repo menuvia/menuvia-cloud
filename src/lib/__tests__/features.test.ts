@@ -163,7 +163,6 @@ describe('getPlan — accesare directă config', () => {
       expect(plan.id).toBe(id)
       expect(plan.name).toBeDefined()
       expect(plan.priceMonthly).toBeGreaterThan(0)
-      expect(plan.priceYearly).toBeGreaterThan(0)
       expect(plan.included.length).toBeGreaterThan(0)
       expect(plan.limits).toBeDefined()
       expect(plan.limits.maxProducts).toBeGreaterThan(0)
@@ -176,9 +175,13 @@ describe('getPlan — accesare directă config', () => {
     expect(getPlan('growth').priceMonthly).toBeLessThan(getPlan('pro').priceMonthly)
   })
 
-  it('prețurile anuale sunt mai mici decât cele lunare (reducere)', () => {
+  // Audit v3, rangul 11: pagina de prețuri arăta un preț anual pe care
+  // checkout-ul nu-l putea încasa (pornea abonamentul lunar, la prețul lunar).
+  // Testul păzește acum ABSENȚA câmpului: reintroducerea lui fără prețuri
+  // anuale reale în Stripe + PLAN_BY_PRICE ar readuce exact acea nepotrivire.
+  it('planurile NU expun un preț anual (nu există preț anual facturabil)', () => {
     for (const id of ['starter', 'growth', 'pro'] as const) {
-      expect(getPlan(id).priceYearly).toBeLessThan(getPlan(id).priceMonthly)
+      expect(getPlan(id)).not.toHaveProperty('priceYearly')
     }
   })
 

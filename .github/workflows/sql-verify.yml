@@ -1099,6 +1099,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/authorization_final_state_assertions.sql
 
+      # NECONDIȚIONAT (audit v3, rangul 13): asserția whitelist-ului de coloane
+      # trăia ca „F6" în suita final-state, care rulează doar în era dintre
+      # 096b și 096c — adică niciodată de la 096c încoace. Extrasă ca să
+      # păzească din nou grant-urile column-level pe `restaurants`.
+      - name: "Restaurant UPDATE whitelist assertions (RW1)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/restaurant_update_whitelist_assertions.sql
+
       - name: "Authorization PR 1C: phase-1C assertions (G1-G8)"
         if: ${{ hashFiles('supabase/migrations/20260617000000_migration_096c_authorization_validate.sql') != '' }}
         env:
@@ -1452,6 +1463,14 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/audit_v3_council_assertions.sql
+
+      - name: "Bridge connection status assertions (mig 265)"
+        if: ${{ hashFiles('supabase/migrations/20260905090000_migration_265_bridge_connection_status.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/bridge_connection_assertions.sql
 
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
