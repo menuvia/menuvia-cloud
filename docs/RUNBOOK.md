@@ -226,7 +226,9 @@ curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq .s
 ```
 
 Fără token nu există `storage_detail` deloc (fail-closed) — de aceea se setează
-ÎNAINTE de incident, nu în timpul lui.
+ÎNAINTE de incident, nu în timpul lui. Tokenul se trimite **numai prin antet**:
+`?diag=<token>` e respins deliberat (CWE-598 — un secret în URL ajunge în logurile
+de request, în configul monitorului și în istoricul de shell).
 
 `config` = booleeni de **prezență** a secretelor (niciodată valori):
 `resend`, `slack`, `stripe`, `ai_platform`. Dacă un secret a fost revocat/lipsește, îl vezi
