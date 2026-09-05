@@ -37,6 +37,10 @@ export interface Invoice {
   last_error: string | null
   issued_at: string | null
   created_at: string
+  // Prezența XML-ului e-Factura (mig 269) — NU conținutul. Pe B2B, trimiterea în
+  // SPV e obligație legală, iar datele existau din mig 041 fără să le citească
+  // nimeni. `false` acoperă și facturile emise înainte de migrație.
+  has_einvoice: boolean
 }
 
 // ── Oblio config CRUD ─────────────────────────────────────────

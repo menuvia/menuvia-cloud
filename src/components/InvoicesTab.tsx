@@ -420,6 +420,29 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
             <span style={{ color, fontWeight: 600 }}>{invoiceStatusLabel(invoice.status)}</span>
           )}
           {invoice.customer_cif && <span>CIF: {invoice.customer_cif}</span>}
+          {/* e-Factura SPV (mig 269). Semnalul care contează e ABSENȚA pe o
+              factură B2B emisă: trimiterea în SPV e obligație legală, iar până
+              acum starea se scria în DB fără să o citească nimeni. Se afișează
+              doar pe facturi EMISE — pe una în coadă absența e normală. */}
+          {invoice.status === 'issued' && invoice.is_b2b && (
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                color: invoice.has_einvoice ? D.green : D.red,
+                fontWeight: 600,
+              }}
+              title={
+                invoice.has_einvoice
+                  ? 'e-Factura generată și trimisă în SPV ANAF'
+                  : 'Factură B2B emisă FĂRĂ e-Factura — verifică în Oblio; trimiterea în SPV e obligatorie'
+              }
+            >
+              <Icon name={invoice.has_einvoice ? 'check' : 'alert'} size={12} />
+              {invoice.has_einvoice ? 'e-Factura' : 'fără e-Factura'}
+            </span>
+          )}
           <span>
             {new Date(invoice.created_at).toLocaleString('ro-RO', {
               dateStyle: 'short',

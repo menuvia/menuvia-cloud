@@ -1496,6 +1496,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/daily_payments_rpc_assertions.sql
 
+      - name: "Oblio delivery date + e-Factura assertions (mig 269)"
+        if: ${{ hashFiles('supabase/migrations/20260909090000_migration_269_oblio_delivery_date.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/oblio_delivery_date_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
