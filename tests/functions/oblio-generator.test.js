@@ -120,6 +120,62 @@ describe('oblio-generator: coada', () => {
   })
 })
 
+describe('oblio-generator: data LIVRĂRII (mig 269)', () => {
+  // Data livrării determină exigibilitatea TVA — ea așază factura într-o
+  // perioadă fiscală. Contează exact când emiterea și încasarea se despart:
+  // cron peste miezul nopții, retry cu backoff, sau retrimitere MANUALĂ a
+  // fondatorului la zile distanță (mig 218/239).
+  const roDay = (iso) =>
+    new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Bucharest' }).format(new Date(iso))
+
+  it('deliveryDate = ziua ÎNCASĂRII, nu ziua emiterii; issueDate/dueDate rămân azi', async () => {
+    const paidAt = '2026-03-10T21:55:00Z' // 23:55 EET pe 10 martie
+    queued(makeInvoice({ order_paid_at: paidAt }))
+    scriptOrderData()
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const today = roDay(new Date().toISOString())
+
+    assert.equal(payload.deliveryDate, '2026-03-10', 'livrarea nu s-a așezat pe ziua încasării')
+    assert.notEqual(payload.deliveryDate, today, 'livrarea a rămas pe ziua emiterii')
+    // O scadență anterioară emiterii poate fi respinsă de Oblio — deci NU le mutăm.
+    assert.equal(payload.issueDate, today)
+    assert.equal(payload.dueDate, today)
+  })
+
+  it('fusul contează: 21:30 UTC e ZIUA URMĂTOARE în România', async () => {
+    // 2026-09-04T21:30:00Z = 00:30 EEST pe 5 septembrie. Un
+    // `toISOString().slice(0,10)` ar da „2026-09-04" — o zi înapoi, iar peste
+    // granița de lună ar muta factura în ALTĂ perioadă fiscală.
+    queued(makeInvoice({ order_paid_at: '2026-09-04T21:30:00Z' }))
+    scriptOrderData()
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    assert.equal(
+      postedPayload().deliveryDate,
+      '2026-09-05',
+      'data s-a calculat în UTC, nu în Europe/Bucharest',
+    )
+  })
+
+  it('fără order_paid_at → cade pe ziua curentă (comportamentul dinainte)', async () => {
+    queued(makeInvoice({ order_paid_at: null }))
+    scriptOrderData()
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    assert.equal(payload.deliveryDate, roDay(new Date().toISOString()))
+    assert.equal(payload.deliveryDate, payload.issueDate)
+  })
+})
+
 describe('oblio-generator: emitere reușită', () => {
   it('happy path: mark_issued cu seria+numărul din răspuns; payload cu vatName derivat', async () => {
     queued(makeInvoice())
