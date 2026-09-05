@@ -311,8 +311,28 @@ function vatNameFromPercent(pct) {
 }
 
 // ── Compose Oblio invoice payload ────────────────────────────
+// Ziua calendaristica in fusul Romaniei, format YYYY-MM-DD.
+// `toISOString()` da ziua in UTC: o plata la 00:30 EET e 22:30 UTC in ziua
+// PRECEDENTA, deci ar muta livrarea cu o zi inapoi exact la comenzile de noapte
+// — si peste granita de luna, in alta perioada fiscala. 'sv-SE' produce nativ
+// formatul ISO scurt.
+const RO_DAY_FMT = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Bucharest' })
+function romaniaDay(value) {
+  const d = value ? new Date(value) : new Date()
+  if (Number.isNaN(d.getTime())) return null
+  return RO_DAY_FMT.format(d)
+}
+
 function composeOblioInvoice(inv, lineItems) {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = romaniaDay()
+  // Data LIVRARII determina exigibilitatea TVA, deci se aseaza pe momentul
+  // INCASARII, nu pe cel al emiterii facturii. Conteaza cand cele doua se
+  // despart: cron peste miezul noptii (si peste granita de luna), retry cu
+  // backoff, sau retrimitere MANUALA de catre fondator dupa verificare in Oblio
+  // (mig 218/239) — care poate fi la zile distanta. `issueDate` ramane azi
+  // (chiar e ziua emiterii) si `dueDate` la fel: o scadenta anterioara datei de
+  // emitere poate fi respinsa de Oblio.
+  const deliveryDate = romaniaDay(inv.order_paid_at) || today
 
   const payload = {
     cif:       inv.company_cif,
@@ -333,7 +353,7 @@ function composeOblioInvoice(inv, lineItems) {
     },
     issueDate:    today,
     dueDate:      today,
-    deliveryDate: today,
+    deliveryDate: deliveryDate,
     seriesName:   inv.default_series,
     language:     'RO',
     precision:    2,
