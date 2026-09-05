@@ -39,7 +39,16 @@
 -- și pentru orice consumator care nu are un interval. RPC-ul e calea rapidă,
 -- nu un înlocuitor.
 --
--- Teste permanente DP1–DP5: tests/sql/daily_payments_rpc_assertions.sql.
+-- PARAMETRI NULL / INTERVAL INVERSAT: RPC-ul intoarce ZERO randuri, nu o eroare.
+-- E semantica SQL normala (orice comparatie cu NULL da NULL, deci randul e
+-- exclus) si e IDENTICA cu ce face view-ul filtrat pe `day`, deci nu introduce
+-- o divergenta. Nu se ridica exceptie DELIBERAT: `raise` ar cere plpgsql, iar
+-- asta pierde inlining-ul functiilor SQL si schimba calea de executie — adica
+-- exact planul pe care migratia asta il repara si l-a masurat. Consecinta e
+-- caracterizata de DP7, ca o schimbare viitoare sa fie o decizie, nu un accident.
+-- Apelantul (ReportsTab) trimite mereu date validate din `periodRange`.
+--
+-- Teste permanente DP1–DP7: tests/sql/daily_payments_rpc_assertions.sql.
 -- =============================================================================
 
 begin;

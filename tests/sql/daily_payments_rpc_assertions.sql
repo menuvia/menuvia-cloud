@@ -23,6 +23,13 @@
 --        rămân identice — DEFINER se vede doar sub RLS, iar suita rulează ca
 --        `postgres`. Un test care verifică doar cifrele e orb la clasa asta.
 --
+--   DP7  CARACTERIZARE: parametri NULL / interval inversat dau ZERO rânduri, NU
+--        eroare. Nu e un accident: e semantica SQL normală, e identică cu a
+--        view-ului, iar un `raise` ar cere plpgsql — ceea ce pierde inlining-ul
+--        funcțiilor SQL și schimbă calea de execuție, adică exact planul pe care
+--        migrația asta îl repară. Testul ÎNGHEAȚĂ comportamentul, ca o schimbare
+--        viitoare să fie o decizie conștientă, nu o regresie tăcută.
+--
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
 
@@ -190,6 +197,34 @@ begin
     raise exception 'DP6 FAIL: RPC-ul deleagă view-ului (deci filtrează pe cheia calculată) — exact defectul pe care există să-l repare'; end if;
 
   raise notice 'DP6 OK: INVOKER + pg_temp + derivare din sursa unică + filtru sargabil pe paid_at';
+end $$;
+
+-- ── DP7: caracterizarea parametrilor degenerați ──────────────────────────────
+do $$
+declare v_n int;
+begin
+  select count(*) into v_n from public.get_daily_payments_by_method(
+    '7d000000-0000-4000-8000-000000000001', null, '2026-03-11');
+  if v_n <> 0 then
+    raise exception 'DP7 FAIL: p_from NULL a întors % rânduri (aștept 0)', v_n; end if;
+
+  select count(*) into v_n from public.get_daily_payments_by_method(
+    '7d000000-0000-4000-8000-000000000001', '2026-03-10', null);
+  if v_n <> 0 then
+    raise exception 'DP7 FAIL: p_to NULL a întors % rânduri (aștept 0)', v_n; end if;
+
+  select count(*) into v_n from public.get_daily_payments_by_method(
+    null, '2026-03-10', '2026-03-11');
+  if v_n <> 0 then
+    raise exception 'DP7 FAIL: p_restaurant_id NULL a întors % rânduri (aștept 0)', v_n; end if;
+
+  -- Interval INVERSAT (from > to): zero rânduri, nu eroare, nu tot istoricul.
+  select count(*) into v_n from public.get_daily_payments_by_method(
+    '7d000000-0000-4000-8000-000000000001', '2026-03-11', '2026-03-10');
+  if v_n <> 0 then
+    raise exception 'DP7 FAIL: interval inversat a întors % rânduri (aștept 0)', v_n; end if;
+
+  raise notice 'DP7 OK: parametrii degenerați dau zero rânduri (caracterizat, nu accidental)';
 end $$;
 
 rollback;
