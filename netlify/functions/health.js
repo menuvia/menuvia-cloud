@@ -382,11 +382,17 @@ exports.handler = async (event) => {
           }
           const cronAges = Object.keys(QUEUE_STALE_S).map((k) => [k, age(data.cron, k)])
           const bridgeAges = BRIDGE_QUEUES.map((k) => [k, age(data.bridge, k)])
+          // `slack_alerts` are doar `waiting` (raportat, nu criteriu de 503) —
+          // dar face parte din contract (QB1 îngheață cheile), deci lipsa sau
+          // forma greșită e tot „RPC re-format", nu „nimic de raportat".
+          const slack = data.cron.slack_alerts
+          const slackOk =
+            slack != null && typeof slack === 'object' && !Array.isArray(slack) && Number.isFinite(Number(slack.waiting))
           // Contractul COMPLET sau nimic: o coadă lipsă, redenumită sau fără
           // vârstă numerică înseamnă că sonda nu mai vorbește limba RPC-ului —
           // rămâne `unknown`. Un `ok` pe `{cron:{}, bridge:{}}` ar fi exact
           // alarma moartă pe care o închide RES-32 (recenzie #246).
-          if (cronAges.every(([, a]) => a != null) && bridgeAges.every(([, a]) => a != null)) {
+          if (slackOk && cronAges.every(([, a]) => a != null) && bridgeAges.every(([, a]) => a != null)) {
             const stale = cronAges.some(([k, a]) => a > QUEUE_STALE_S[k])
             const bridgeWarn = bridgeAges.some(([, a]) => a > BRIDGE_WARN_S)
             queues = stale ? 'stale' : bridgeWarn ? 'warn' : 'ok'
