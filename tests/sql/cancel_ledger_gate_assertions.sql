@@ -28,6 +28,10 @@
 --        fără motiv → void_reason_required; pe comandă `paid` → order_terminal;
 --        owner cu motiv → rândul dispare, audit_log DELETE cu void_reason, iar
 --        anularea trece. Fără storno gate-ul ar fi un blocaj fără ieșire.
+--   CL7  `void_order_payments_and_cancel` (storno pe TOATE + anulare, ATOMIC):
+--        waiter / fără motiv → respins cu registrul INTACT (nimic parțial);
+--        owner cu motiv → voided_count/amount corecte, 0 plăți, N rânduri de
+--        audit, comanda `cancelled`. Un singur RPC = o singură tranzacție.
 --
 -- Suita rulează ca `postgres`, care ocolește RLS dar NU triggerele — exact
 -- subiectul testului (CL2). Self-contained, ROLLBACK la final.
@@ -53,7 +57,8 @@ insert into public.orders (id, restaurant_id, source, status, total) values
   ('70f00000-0000-4000-8000-000000000002', '70b00000-0000-4000-8000-000000000001', 'qr', 'preparing', 100),
   ('70f00000-0000-4000-8000-000000000003', '70b00000-0000-4000-8000-000000000001', 'qr', 'served',    100),
   ('70f00000-0000-4000-8000-000000000004', '70b00000-0000-4000-8000-000000000001', 'qr', 'served',    100),
-  ('70f00000-0000-4000-8000-000000000005', '70b00000-0000-4000-8000-000000000001', 'qr', 'served',    100);
+  ('70f00000-0000-4000-8000-000000000005', '70b00000-0000-4000-8000-000000000001', 'qr', 'served',    100),
+  ('70f00000-0000-4000-8000-000000000006', '70b00000-0000-4000-8000-000000000001', 'qr', 'served',    100);
 
 select set_config('request.jwt.claim.sub', '70000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -252,6 +257,80 @@ begin
   if v_status <> 'cancelled' then
     raise exception 'CL6d FAIL: după storno anularea a fost blocată (status=%)', v_status; end if;
   raise notice 'CL6 OK: storno = ieșirea din gate (admin + motiv + audit); waiter/fără motiv/paid respinse';
+end $$;
+
+-- ── CL7: storno pe toate + anulare, într-o singură tranzacție ────────────────
+do $$
+declare v_o uuid := '70f00000-0000-4000-8000-000000000006'; v_hint text; v_res jsonb; v_n int; v_status text;
+begin
+  perform public.add_partial_payment(v_o, 30, 'cash');
+  perform public.add_partial_payment(v_o, 20, 'card_pos');
+
+  -- (a) waiter → respins ÎNAINTE de orice storno: registrul rămâne INTACT.
+  perform set_config('request.jwt.claim.sub', '70000000-0000-4000-8000-000000000002', true);
+  v_hint := null;
+  begin
+    perform public.void_order_payments_and_cancel(v_o, 'x');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'role_insufficient' then
+    raise exception 'CL7a FAIL: un waiter a putut storna+anula (hint=%)', v_hint; end if;
+  perform set_config('request.jwt.claim.sub', '70000000-0000-4000-8000-000000000001', true);
+  select count(*) into v_n from public.order_payments where order_id = v_o;
+  if v_n <> 2 then raise exception 'CL7a FAIL: registrul a fost atins parțial (n=%)', v_n; end if;
+
+  -- (b) fără motiv → respins, registrul intact.
+  v_hint := null;
+  begin
+    perform public.void_order_payments_and_cancel(v_o, '  ');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'void_reason_required' then
+    raise exception 'CL7b FAIL: storno+anulare fără motiv a trecut (hint=%)', v_hint; end if;
+  select count(*) into v_n from public.order_payments where order_id = v_o;
+  if v_n <> 2 then raise exception 'CL7b FAIL: registrul a fost atins (n=%)', v_n; end if;
+
+  -- (c) owner cu motiv → tot sau nimic: 2 storno-uri auditate + cancelled.
+  v_res := public.void_order_payments_and_cancel(v_o, 'bucătăria nu poate onora, banii returnați');
+  if (v_res->>'voided_count')::int <> 2 or (v_res->>'voided_amount')::numeric <> 50 then
+    raise exception 'CL7c FAIL: răspuns greșit (%)', v_res; end if;
+  select count(*) into v_n from public.order_payments where order_id = v_o;
+  if v_n <> 0 then raise exception 'CL7c FAIL: au rămas % plăți în registru', v_n; end if;
+  select count(*) into v_n from public.audit_log
+   where table_name = 'order_payments' and operation = 'DELETE'
+     and (old_data->>'order_id')::uuid = v_o;
+  if v_n <> 2 then raise exception 'CL7c FAIL: % rânduri de audit (așteptat 2)', v_n; end if;
+  select status into v_status from public.orders where id = v_o;
+  if v_status <> 'cancelled' then
+    raise exception 'CL7c FAIL: comanda nu e anulată după storno (status=%)', v_status; end if;
+  raise notice 'CL7 OK: storno pe toate + anulare, atomic; refuzurile lasă registrul intact';
+end $$;
+
+-- ── CL7s: clichet structural pe RPC-ul compus ────────────────────────────────
+-- Gate-ul de rol al RPC-ului compus e MASCAT comportamental de cel din
+-- void_order_payment (defense in depth: un waiter e respins oricum de prima
+-- stornare), deci CL7a nu-l poate dovedi singur — forma se îngheață aici:
+-- compune void_order_payment + advance_order (nu re-implementează nimic),
+-- DEFINER cu pg_temp, propriul is_admin ÎNAINTE de orice storno.
+do $$
+declare v_src text; v_sig text;
+begin
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'void_order_payments_and_cancel';
+  if v_src is null then raise exception 'CL7s FAIL: void_order_payments_and_cancel lipsește'; end if;
+  foreach v_sig in array array['public.void_order_payment(', 'public.advance_order(', 'is_admin',
+                               'void_reason_required', 'order_terminal', 'for update'] loop
+    if position(v_sig in v_src) = 0 then
+      raise exception 'CL7s FAIL: RPC-ul compus a pierdut „%"', v_sig; end if;
+  end loop;
+  if position('security definer' in lower(v_src)) = 0 or position('pg_temp' in v_src) = 0 then
+    raise exception 'CL7s FAIL: RPC-ul compus nu e DEFINER cu pg_temp'; end if;
+  if has_function_privilege('anon', 'public.void_order_payments_and_cancel(uuid, text)', 'EXECUTE') then
+    raise exception 'CL7s FAIL: anon poate storna+anula'; end if;
+  raise notice 'CL7s OK: RPC-ul compus păstrează forma (void + advance, is_admin propriu, DEFINER)';
 end $$;
 
 rollback;

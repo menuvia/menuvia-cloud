@@ -45,12 +45,14 @@ insert into public.tables (id, restaurant_id, name, slug, is_active, seats) valu
   ('72c00000-0000-4000-8000-000000000001', '72b00000-0000-4000-8000-000000000001', 'Masa HH 1', 'masa-hh-1', true, 4),
   ('72c00000-0000-4000-8000-000000000002', '72b00000-0000-4000-8000-000000000001', 'Masa HH 2', 'masa-hh-2', true, 4),
   ('72c00000-0000-4000-8000-000000000003', '72b00000-0000-4000-8000-000000000001', 'Masa HH 3', 'masa-hh-3', true, 4),
-  ('72c00000-0000-4000-8000-000000000004', '72b00000-0000-4000-8000-000000000001', 'Masa HH 4', 'masa-hh-4', true, 4);
+  ('72c00000-0000-4000-8000-000000000004', '72b00000-0000-4000-8000-000000000001', 'Masa HH 4', 'masa-hh-4', true, 4),
+  ('72c00000-0000-4000-8000-000000000005', '72b00000-0000-4000-8000-000000000001', 'Masa HH 5', 'masa-hh-5', true, 4);
 insert into public.qr_tokens (id, restaurant_id, table_id, token, is_active) values
   ('72d00000-0000-4000-8000-000000000001', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000001', 'tok_hh_auto1', true),
   ('72d00000-0000-4000-8000-000000000002', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000002', 'tok_hh_auto2', true),
   ('72d00000-0000-4000-8000-000000000003', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000003', 'tok_hh_auto3', true),
-  ('72d00000-0000-4000-8000-000000000004', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000004', 'tok_hh_auto4', true);
+  ('72d00000-0000-4000-8000-000000000004', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000004', 'tok_hh_auto4', true),
+  ('72d00000-0000-4000-8000-000000000005', '72b00000-0000-4000-8000-000000000001', '72c00000-0000-4000-8000-000000000005', 'tok_hh_auto5', true);
 
 insert into public.categories (id, restaurant_id, name) values
   ('72e00000-0000-4000-8000-000000000001', '72b00000-0000-4000-8000-000000000001', 'HH Cafele'),
@@ -78,8 +80,10 @@ begin
   if t is null then raise exception 'HH0 FAIL: trg_apply_happy_hour_auto lipsește de pe orders'; end if;
   if not t.tgdeferrable or not t.tginitdeferred then
     raise exception 'HH0 FAIL: trigger-ul nu e DEFERRABLE INITIALLY DEFERRED — ar trage înaintea itemilor'; end if;
-  if (t.tgtype & 1) = 0 or (t.tgtype & 4) = 0 or (t.tgtype & 2) <> 0 then
-    raise exception 'HH0 FAIL: trigger-ul trebuie să fie AFTER INSERT FOR EACH ROW (tgtype=%)', t.tgtype; end if;
+  -- tgtype EXACT 5 = ROW(1) + INSERT(4), fără BEFORE(2)/UPDATE(16)/DELETE(8):
+  -- un `after insert or update` (21) ar re-evalua reducerea la orice UPDATE.
+  if t.tgtype <> 5 then
+    raise exception 'HH0 FAIL: trigger-ul trebuie să fie EXACT AFTER INSERT FOR EACH ROW (tgtype=%, așteptat 5)', t.tgtype; end if;
   if t.fn not like '%_apply_happy_hour_auto%' then
     raise exception 'HH0 FAIL: trigger-ul nu mai cheamă _apply_happy_hour_auto (%)', t.fn; end if;
   raise notice 'HH0 OK: constraint trigger DEFERRED, AFTER INSERT ROW';
@@ -180,6 +184,35 @@ begin
 end $$;
 set constraints all deferred;
 
+-- ── HH4b: scope=category FĂRĂ cap — subtotalul categoriei ≠ subtotalul comenzii ─
+-- Plafonul din HH4 ar masca o implementare care aplică regula de categorie pe
+-- TOATĂ comanda (12.00 și 14.50 ajung amândouă la 5.00). Aici: Cafea×1 (cat A,
+-- 12) + Apa×1 (cat B, 5) = 17; B2 = 50% pe cat A → 6.00 (greșit ar fi 8.50);
+-- A → 1.70; B → 5.00 (cap). Câștigă B2 cu exact 6.00.
+insert into public.happy_hour_rules (id, restaurant_id, name, is_active, starts_at, ends_at, days_of_week,
+                                     scope, category_id, discount_type, discount_value) values
+  ('72a00000-0000-4000-8000-00000000000c', '72b00000-0000-4000-8000-000000000001', 'HH Regula B2',
+   true, '00:00:00', '24:00:00', array[]::smallint[], 'category',
+   '72e00000-0000-4000-8000-000000000001', 'percent', 50);
+do $$
+declare v_sess jsonb; v_sid uuid; v_res jsonb; v_oid uuid; o record;
+begin
+  v_sess := public.open_table_session('tok_hh_auto5');
+  v_sid  := (v_sess->>'session_id')::uuid;
+  v_res := public.create_order(
+    '72b00000-0000-4000-8000-000000000001', 'qr',
+    '72c00000-0000-4000-8000-000000000005', '72d00000-0000-4000-8000-000000000005', null,
+    '[{"product_id":"72f00000-0000-4000-8000-000000000001","quantity":1},{"product_id":"72f00000-0000-4000-8000-000000000002","quantity":1}]'::jsonb,
+    null, null, null, null, v_sid);
+  v_oid := (v_res->>'id')::uuid;
+  set constraints all immediate;
+  select discount_amount as da, discount_reason as dr, total into o from public.orders where id = v_oid;
+  if o.da <> 6.00 or o.total <> 11.00 or coalesce(o.dr, '') not like '%HH Regula B2%' then
+    raise exception 'HH4b FAIL: scope-ul de categorie nu e izolat (amount=%, total=%, reason=%; așteptat 6.00 / 11.00 / B2)', o.da, o.total, o.dr; end if;
+  raise notice 'HH4b OK: scope category fără cap — subtotalul categoriei, nu al comenzii';
+end $$;
+set constraints all deferred;
+
 -- ── HH5: reducerea manuală NU e suprascrisă ──────────────────────────────────
 do $$
 declare v_oid uuid := '72900000-0000-4000-8000-000000000005'; o record;
@@ -244,7 +277,7 @@ set constraints all deferred;
 update public.happy_hour_rules set is_active = true, days_of_week = array[]::smallint[]
  where id = '72a00000-0000-4000-8000-00000000000a';
 update public.happy_hour_rules set is_active = false
- where id = '72a00000-0000-4000-8000-00000000000b';
+ where id in ('72a00000-0000-4000-8000-00000000000b', '72a00000-0000-4000-8000-00000000000c');
 select set_config('request.jwt.claim.sub', '72000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
 do $$

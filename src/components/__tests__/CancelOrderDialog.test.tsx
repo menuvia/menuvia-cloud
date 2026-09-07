@@ -126,7 +126,9 @@ describe('describeCancelRejection', () => {
     expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'order_terminal' }))).toMatch(
       /deja finalizată/i,
     )
-    expect(describeCancelRejection(new Error('boom'))).toMatch(/verifică rolul tău/i)
+    // Hint necunoscut → mesajul serverului primează; fără mesaj → textul generic.
+    expect(describeCancelRejection(new Error('boom'))).toBe('boom')
+    expect(describeCancelRejection(new Error(''))).toMatch(/verifică rolul tău/i)
     expect(describeCancelRejection(null)).toMatch(/verifică rolul tău/i)
   })
 })

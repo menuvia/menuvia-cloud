@@ -353,8 +353,38 @@ export function describeCancelRejection(err: unknown): string {
     case 'order_terminal':
       return 'Comanda e deja finalizată și nu mai poate fi anulată.'
     default:
-      return 'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+      // Un hint nou/necunoscut NU ascunde motivul real: mesajul serverului
+      // primează, textul generic e doar pentru erori fără mesaj.
+      return (
+        (err instanceof Error && err.message) ||
+        'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+      )
   }
+}
+
+/**
+ * Storno pe TOATE plățile comenzii + anulare, într-un singur RPC (o singură
+ * tranzacție): un eșec oriunde rulează înapoi tot — nu există „stornat parțial
+ * și comanda încă deschisă". Doar owner/manager, motiv obligatoriu.
+ */
+export async function voidPaymentsAndCancel(
+  orderId: string,
+  reason: string,
+): Promise<{ order_id: string; voided_count: number; voided_amount: number }> {
+  const { data, error } = await supabase.rpc('void_order_payments_and_cancel', {
+    p_order_id: orderId,
+    p_reason: reason,
+  })
+  if (error) {
+    const err = new Error(error.message || 'Eroare la stornare/anulare') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
+  return data as { order_id: string; voided_count: number; voided_amount: number }
 }
 
 export interface CreateOrderArgs {
@@ -688,6 +718,7 @@ export async function addPartialPayment(
   return data as { ok: boolean; total_paid: number; remaining: number; fully_paid: boolean }
 }
 
+/** O linie din registrul de plăți al unei comenzi (order_payments), cum o întoarce get_order_payments. */
 export interface OrderPaymentRow {
   id: string
   amount: number
@@ -695,17 +726,19 @@ export interface OrderPaymentRow {
   created_at: string
 }
 
+/** Plățile deja înregistrate pe o comandă (parțiale cash/POS/tichete, split online). */
 export async function getOrderPayments(orderId: string): Promise<OrderPaymentRow[]> {
   const { data, error } = await supabase.rpc('get_order_payments', { p_order_id: orderId })
   if (error) throw error
   return (data ?? []) as OrderPaymentRow[]
 }
 
-// Storno pe o plată din registru (mig 270): banii au fost RETURNAȚI clientului
-// (cash înapoi / refund manual în Stripe), adminul stornează cu motiv, rândul
-// iese din order_payments și rămâne în audit_log. E ieșirea legitimă din gate-ul
-// `cancel_over_payments` — fără ea o comandă cu split online neonorabil ar
-// bloca masa permanent. Aruncă un Error REAL cu hint/code (ca advanceOrderStatus).
+/**
+ * Storno pe o plată din registru (mig 270): banii au fost RETURNAȚI clientului
+ * (cash înapoi / refund manual în Stripe), adminul stornează cu motiv, rândul
+ * iese din order_payments și rămâne în audit_log. E ieșirea legitimă din gate-ul
+ * `cancel_over_payments`. Aruncă un Error REAL cu hint/code (ca advanceOrderStatus).
+ */
 export async function voidOrderPayment(
   paymentId: string,
   reason: string,

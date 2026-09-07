@@ -34,7 +34,7 @@ import {
   getOrderPayments,
   applyOrderDiscount,
   describeCancelRejection,
-  voidOrderPayment,
+  voidPaymentsAndCancel,
 } from '../lib/orders'
 import type { OrderPaymentRow } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
@@ -1829,17 +1829,13 @@ export default function WaiterPage() {
           payments={cancelPayments}
           onClose={() => setCancelOrder(null)}
           onVoidAndCancel={async (reason) => {
-            // Storno pe fiecare plată (banii au fost returnați; online =
-            // refund manual în Stripe), apoi anularea. Fiecare storno e
-            // auditat server-side; la eșec parțial lista se reîncarcă.
+            // Storno pe TOATE plățile + anulare într-un singur RPC (o singură
+            // tranzacție): nu există „stornat parțial și comanda încă deschisă".
+            // Banii au fost returnați (online = refund manual în Stripe); fiecare
+            // storno e auditat server-side. Cardul dispare la evenimentul
+            // realtime (cancelled iese din vederea de ospătar) sau la heartbeat.
             try {
-              for (const p of cancelPayments ?? []) await voidOrderPayment(p.id, reason)
-              await advance(
-                cancelOrder.id,
-                cancelOrder.status,
-                { status: 'cancelled', cancel_reason: reason },
-                { throwOnError: true },
-              )
+              await voidPaymentsAndCancel(cancelOrder.id, reason)
               setCancelOrder(null)
               return { ok: true }
             } catch (e) {

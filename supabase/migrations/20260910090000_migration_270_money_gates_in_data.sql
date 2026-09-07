@@ -489,6 +489,80 @@ comment on function public.void_order_payment(uuid, text) is
   'mig 270 (audit v3 RES-25): storno pe o plata din order_payments — banii au fost RETURNATI (cash / refund manual Stripe). Doar owner/manager, motiv obligatoriu, doar comenzi ne-terminale; randul sters + audit_log DELETE cu void_reason. Iesirea legitima din gate-ul cancel_over_payments.';
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- A4. void_order_payments_and_cancel — storno pe TOATE plățile + anulare, ATOMIC
+--     Clientul nu are voie să facă N storno-uri + un cancel ca N+1 cereri:
+--     un eșec la mijloc lăsa registrul stornat parțial sau comanda deschisă
+--     cu registrul gol (recenzie CodeRabbit pe #246). Un singur RPC = o
+--     singură tranzacție: orice eșec (rol, motiv, terminal, gate) rulează
+--     înapoi TOT. Reutilizează void_order_payment (audit per plată) și
+--     advance_order (toate invariantele lanțului, inclusiv gate-ul din 270).
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.void_order_payments_and_cancel(p_order_id uuid, p_reason text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user  uuid;
+  v_order record;
+  v_pay   record;
+  v_res   jsonb;
+  v_n     integer := 0;
+  v_sum   numeric := 0;
+begin
+  v_user := auth.uid();
+  if v_user is null then
+    raise exception 'Authentication required'
+      using errcode = 'P0001', hint = 'auth_required';
+  end if;
+  if p_reason is null or length(trim(p_reason)) = 0 then
+    raise exception 'Motivul stornării e obligatoriu'
+      using errcode = 'P0001', hint = 'void_reason_required';
+  end if;
+
+  select o.id, o.restaurant_id, o.status into v_order
+    from public.orders o where o.id = p_order_id for update;
+  if not found then
+    raise exception 'Order not found'
+      using errcode = 'P0001', hint = 'order_not_found';
+  end if;
+  if not public.is_admin(v_order.restaurant_id) then
+    raise exception 'Doar owner/manager pot storna plăți și anula comanda'
+      using errcode = 'P0001', hint = 'role_insufficient';
+  end if;
+  if v_order.status in ('paid', 'cancelled', 'closed') then
+    raise exception 'Comanda e finalizată (%)', v_order.status
+      using errcode = 'P0001', hint = 'order_terminal';
+  end if;
+
+  -- Fiecare storno trece prin void_order_payment (aceleași gate-uri + audit_log).
+  for v_pay in
+    select op.id from public.order_payments op
+     where op.order_id = p_order_id
+     order by op.created_at, op.id
+  loop
+    v_res := public.void_order_payment(v_pay.id, p_reason);
+    v_n   := v_n + 1;
+    v_sum := v_sum + coalesce((v_res->>'amount')::numeric, 0);
+  end loop;
+
+  -- Anularea prin lanțul oficial: cancel_reason_required, gate-ul de registru
+  -- (acum gol), trigger-ele — nimic nu e ocolit.
+  perform public.advance_order(p_order_id, 'cancel', null, null, null, p_reason);
+
+  return jsonb_build_object('ok', true, 'order_id', p_order_id,
+                            'voided_count', v_n, 'voided_amount', v_sum);
+end;
+$$;
+
+revoke all on function public.void_order_payments_and_cancel(uuid, text) from public, anon;
+grant execute on function public.void_order_payments_and_cancel(uuid, text) to authenticated;
+
+comment on function public.void_order_payments_and_cancel(uuid, text) is
+  'mig 270 (audit v3 RES-25, recenzie): storno pe TOATE platile comenzii + anulare intr-o singura tranzactie (all-or-nothing). Doar owner/manager, motiv obligatoriu, doar comenzi ne-terminale. Compune void_order_payment + advance_order.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- B1. bridge_retry_receipt — lanț 030→038→262→270: semnătură nouă cu ack
 -- ─────────────────────────────────────────────────────────────────────────────
 drop function if exists public.bridge_retry_receipt(uuid);
@@ -682,6 +756,22 @@ begin
   if has_function_privilege('anon', 'public.void_order_payment(uuid, text)', 'EXECUTE')
      or not has_function_privilege('authenticated', 'public.void_order_payment(uuid, text)', 'EXECUTE') then
     raise exception 'mig 270: grant-urile pe void_order_payment sunt gresite'; end if;
+
+  -- A4. void_order_payments_and_cancel: DEFINER + pg_temp, compune void + advance.
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'void_order_payments_and_cancel';
+  if v_src is null then raise exception 'mig 270: void_order_payments_and_cancel lipseste (storno+cancel ar fi N+1 cereri)'; end if;
+  foreach v_sig in array array['public.void_order_payment(', 'public.advance_order(', 'is_admin',
+                               'void_reason_required', 'order_terminal', 'for update'] loop
+    if position(v_sig in v_src) = 0 then
+      raise exception 'mig 270: void_order_payments_and_cancel a pierdut invariantul „%"', v_sig; end if;
+  end loop;
+  if position('security definer' in lower(v_src)) = 0 or position('pg_temp' in v_src) = 0 then
+    raise exception 'mig 270: void_order_payments_and_cancel nu e DEFINER cu pg_temp'; end if;
+  if has_function_privilege('anon', 'public.void_order_payments_and_cancel(uuid, text)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.void_order_payments_and_cancel(uuid, text)', 'EXECUTE') then
+    raise exception 'mig 270: grant-urile pe void_order_payments_and_cancel sunt gresite'; end if;
 
   -- B. bridge_retry_receipt: EXACT o semnatura (anti-overload PostgREST), DEFINER
   --    cu pg_temp, gate-ul pe marker + TOATE invariantele 038/262.

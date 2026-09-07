@@ -50,6 +50,7 @@ const METHOD_LABEL: Record<string, string> = {
   other: 'Altă metodă',
 }
 
+/** Dialogul de anulare: tristate pe plăți (necunoscut → serverul decide), storno cu motiv când există bani încasați. */
 export default function CancelOrderDialog({
   order,
   payments,
@@ -72,6 +73,7 @@ export default function CancelOrderDialog({
   const reasonRequired = order.status === 'served' || blockedByPayments
   const trimmedReason = reason.trim()
 
+  /** Aplică rezultatul unei anulări/stornări: la refuz deblochează butonul și afișează mesajul serverului. */
   function handleResult(res: CancelResult): void {
     // La eșec deblocăm butonul ca utilizatorul să poată reîncerca ȘI afișăm
     // eroarea DIRECT în dialog; la succes părintele demontează dialogul.
@@ -83,7 +85,11 @@ export default function CancelOrderDialog({
 
   return (
     <div
-      onClick={onClose}
+      // Cât timp cererea e în zbor NU se închide pe backdrop: părintele ar
+      // demonta dialogul și un refuz venit după ar rămâne fără nicio suprafață.
+      onClick={() => {
+        if (!submitting) onClose()
+      }}
       style={{
         position: 'fixed',
         inset: 0,
