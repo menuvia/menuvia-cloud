@@ -384,7 +384,12 @@ describe('health — backlog-ul cozilor (mig 271, RES-32)', () => {
     renamed.cron.email = { waiting: 9, oldest_age_seconds: 3600 }
     const missingQueue = backlog()
     delete missingQueue.bridge.tickets
-    for (const data of [{ cron: {}, bridge: {} }, { cron: [], bridge: [] }, renamed, missingQueue]) {
+    // `slack_alerts` e doar raportat, dar e în contract: lipsă sau ne-numeric → unknown.
+    const missingSlack = backlog()
+    delete missingSlack.cron.slack_alerts
+    const badSlack = backlog()
+    badSlack.cron.slack_alerts = { waiting: 'multe' }
+    for (const data of [{ cron: {}, bridge: {} }, { cron: [], bridge: [] }, renamed, missingQueue, missingSlack, badSlack]) {
       ;({ handler } = loadHealthFresh())
       resetMocks()
       scriptDbOk(1024)

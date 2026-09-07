@@ -334,8 +334,9 @@ critici trebuie `true` pe production.
 
 Rulează **înainte** de a pleca (>1 săptămână). Durează ~15 min.
 
-- [ ] **`/health` verde**: `curl -s https://menuvia.ro/health | jq` → `status:"ok"`,
-      toți `config.*` critici `true`.
+- [ ] **`/health` verde**: `curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq`
+      → `status:"ok"`, toți `config.*` critici `true` (fără antet corpul PUBLIC e doar
+      `{status, checks, ts}` — `config` nu apare, deci comanda n-ar verifica nimic).
 - [ ] **Uptime monitor extern activ** (§4.3), cu alertă pe SMS/email — **nu doar Slack**.
 - [ ] **Coada email curată**: `select status, count(*) from public.email_queue group by 1;`
       — dacă `failed` e mare, rezolvă înainte (§3.2).
