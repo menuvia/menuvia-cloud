@@ -33,6 +33,7 @@ import {
   addPartialPayment,
   getOrderPayments,
   applyOrderDiscount,
+  describeCancelRejection,
 } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
@@ -149,6 +150,10 @@ export default function WaiterPage() {
   const [payOrderPaid, setPayOrderPaid] = useState(0)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
+  // Cât s-a încasat deja pe comanda din dialogul de anulare (mig 270: anularea
+  // peste bani e respinsă server-side). null = necunoscut → dialogul NU
+  // blochează, serverul rămâne gate-ul (tristate, ca BridgeOfflineBanner).
+  const [cancelPaid, setCancelPaid] = useState<number | null>(null)
   const [auditOrder, setAuditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
@@ -187,6 +192,25 @@ export default function WaiterPage() {
       alive = false
     }
   }, [payOrder])
+
+  useEffect(() => {
+    if (cancelOrder == null) {
+      setCancelPaid(null)
+      return
+    }
+    let alive = true
+    setCancelPaid(null)
+    void getOrderPayments(cancelOrder.id)
+      .then((ps) => {
+        if (alive) setCancelPaid(ps.reduce((s, p) => s + p.amount, 0))
+      })
+      .catch(() => {
+        if (alive) setCancelPaid(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [cancelOrder])
 
   // ── Offline sync state ────────────────────────────────────────
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -1800,14 +1824,23 @@ export default function WaiterPage() {
       {cancelOrder != null && (
         <CancelOrderDialog
           order={cancelOrder}
+          paidSoFar={cancelPaid}
           onClose={() => setCancelOrder(null)}
           onConfirm={async (reason) => {
-            const ok = await advance(cancelOrder.id, cancelOrder.status, {
-              status: 'cancelled',
-              cancel_reason: reason,
-            })
-            if (ok) setCancelOrder(null)
-            return ok
+            try {
+              await advance(
+                cancelOrder.id,
+                cancelOrder.status,
+                { status: 'cancelled', cancel_reason: reason },
+                { throwOnError: true },
+              )
+              setCancelOrder(null)
+              return { ok: true }
+            } catch (e) {
+              // Refuzul serverului (cancel_over_payments / cancel_reason_required
+              // / rol) ajunge ÎN dialog, cu textul lui, nu ca eroare generică.
+              return { ok: false, message: describeCancelRejection(e) }
+            }
           }}
         />
       )}

@@ -1504,6 +1504,22 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/oblio_delivery_date_assertions.sql
 
+      - name: "Cancel-over-payments gate assertions (mig 270 A)"
+        if: ${{ hashFiles('supabase/migrations/20260910090000_migration_270_money_gates_in_data.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/cancel_ledger_gate_assertions.sql
+
+      - name: "Ambiguous receipt retry gate assertions (mig 270 B)"
+        if: ${{ hashFiles('supabase/migrations/20260910090000_migration_270_money_gates_in_data.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/receipt_retry_ambiguous_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:

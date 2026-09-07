@@ -2,27 +2,50 @@
 // Menuvia — src/components/CancelOrderDialog.tsx
 // Mic modal de confirmare anulare cu textarea pentru motiv.
 // Înlocuiește window.prompt (blocat în iOS PWA standalone + UX urât).
+//
+// Audit v3 RES-25 (mig 270): o comandă cu bani deja încasați (parțiale cash,
+// split online) NU se poate anula — serverul refuză cu `cancel_over_payments`
+// (trigger în DATE). Dialogul arată suma încasată și dezactivează butonul
+// când o CUNOAȘTE; când suma e necunoscută (RPC picat) butonul rămâne activ
+// și serverul rămâne gate-ul (tristate, ca BridgeOfflineBanner). Mesajul de
+// refuz vine de la server, nu dintr-un text generic.
 // =============================================================
 
 import { useState } from 'react'
 import type { Order } from '../lib/orders'
 import { D } from '../lib/constants'
 
+export interface CancelResult {
+  ok: boolean
+  /** Mesajul de refuz al serverului (deja tradus), afișat în dialog. */
+  message?: string
+}
+
 interface Props {
   order: Order
-  // Întoarce true dacă anularea a reușit. La false, dialogul rămâne deschis
-  // (RPC respins — ex. rol insuficient / motiv obligatoriu) în loc să se închidă optimist.
-  onConfirm: (reason: string | undefined) => Promise<boolean>
+  // Cât s-a încasat deja pe comandă (order_payments): >0 = anularea e
+  // imposibilă; 0 = liberă; null = NECUNOSCUT (nu blocăm — serverul decide).
+  paidSoFar: number | null
+  // Întoarce {ok:true} dacă anularea a reușit. La ok:false dialogul rămâne
+  // deschis și afișează `message` (sau un text generic).
+  onConfirm: (reason: string | undefined) => Promise<CancelResult>
   onClose: () => void
 }
 
-export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) {
+const GENERIC_ERROR =
+  'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+
+export default function CancelOrderDialog({ order, paidSoFar, onConfirm, onClose }: Props) {
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
   // Eroarea de refuz trebuie afișată AICI, nu doar prin banner-ul din pagina
   // părinte — banner-ul e acoperit de overlay-ul acestui modal (zIndex mai
   // mic) cât timp dialogul e deschis, deci userul nu-l vede niciodată.
   const [error, setError] = useState<string | null>(null)
+  const blockedByPayments = paidSoFar != null && paidSoFar > 0
+  // mig 118: motivul e OBLIGATORIU la anularea unei comenzi servite — eticheta
+  // spunea „opțional" și pe served, iar refuzul serverului părea o eroare.
+  const reasonRequired = order.status === 'served'
 
   return (
     <div
@@ -40,6 +63,8 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Anulează comanda"
         style={{
           background: D.s2,
           border: `1px solid ${D.s3}`,
@@ -71,9 +96,27 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
           </div>
         </div>
 
+        {blockedByPayments && paidSoFar != null && (
+          <div
+            role="alert"
+            style={{
+              fontSize: 12,
+              color: D.red,
+              background: `${D.red}11`,
+              border: `1px solid ${D.red}44`,
+              padding: '8px 10px',
+              borderRadius: 6,
+              lineHeight: 1.5,
+            }}
+          >
+            Comanda are <strong>{paidSoFar.toFixed(2)} lei</strong> plăți încasate și nu poate fi
+            anulată. Finalizează prin plată (restul se deduce automat).
+          </div>
+        )}
+
         <div>
           <label style={{ fontSize: 12, color: D.t2, display: 'block', marginBottom: 6 }}>
-            Motiv (opțional)
+            {reasonRequired ? 'Motiv (obligatoriu — comanda a fost servită)' : 'Motiv (opțional)'}
           </label>
           <textarea
             value={reason}
@@ -81,6 +124,7 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
             placeholder="Ex: clientul a anulat, produs nedisponibil…"
             autoFocus
             rows={3}
+            disabled={blockedByPayments}
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -98,6 +142,7 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
 
         {error != null && (
           <div
+            role="alert"
             style={{
               fontSize: 12,
               color: D.red,
@@ -133,21 +178,19 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
             onClick={() => {
               setSubmitting(true)
               setError(null)
-              void onConfirm(reason.trim() ? reason.trim() : undefined).then((ok) => {
+              void onConfirm(reason.trim() ? reason.trim() : undefined).then((res) => {
                 // La eșec deblocăm butonul ca utilizatorul să poată reîncerca
                 // ȘI afișăm eroarea DIRECT în dialog (banner-ul din pagina
                 // părinte e acoperit de overlay-ul modalului, deci invizibil
                 // cât timp dialogul e deschis); la succes părintele demontează
                 // dialogul.
-                if (!ok) {
+                if (!res.ok) {
                   setSubmitting(false)
-                  setError(
-                    'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.',
-                  )
+                  setError(res.message || GENERIC_ERROR)
                 }
               })
             }}
-            disabled={submitting}
+            disabled={submitting || blockedByPayments}
             style={{
               flex: 1,
               background: D.red,
@@ -158,8 +201,8 @@ export default function CancelOrderDialog({ order, onConfirm, onClose }: Props) 
               fontFamily: 'DM Sans, sans-serif',
               fontSize: 14,
               fontWeight: 700,
-              cursor: submitting ? 'wait' : 'pointer',
-              opacity: submitting ? 0.7 : 1,
+              cursor: submitting ? 'wait' : blockedByPayments ? 'not-allowed' : 'pointer',
+              opacity: submitting || blockedByPayments ? 0.6 : 1,
             }}
           >
             {submitting ? 'Se anulează…' : 'Anulează comanda'}

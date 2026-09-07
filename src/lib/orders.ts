@@ -316,9 +316,43 @@ export async function advanceOrderStatus(
     p_tips_amount: payload.tips_amount ?? null,
     p_cancel_reason: payload.cancel_reason ?? null,
   })
-  if (rpcError) throw rpcError
+  if (rpcError) {
+    // Eroare business (ex. cancel_over_payments, cancel_reason_required,
+    // underpayment) → Error REAL cu hint/code păstrate, același contract ca
+    // createOrder / get_order_audit_history. Obiectul PostgREST brut nu e
+    // `instanceof Error`, deci consumatorii pierdeau hint-ul și afișau un
+    // text generic („Verifică și reîncearcă") care nu spunea CE a refuzat
+    // serverul (audit v3 RES-16/RES-25).
+    const err = new Error(rpcError.message || 'Eroare la actualizarea comenzii') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = rpcError.hint ?? undefined
+    err.code = rpcError.code ?? undefined
+    throw err
+  }
   if (opts?.hydrate === false) return null
   return fetchOrderById(orderId)
+}
+
+/** Textul RO pentru hint-urile de business ale lui `advance_order` (ramura cancel). */
+export function describeCancelRejection(err: unknown): string {
+  const hint = (err as { hint?: unknown } | null)?.hint
+  switch (hint) {
+    case 'cancel_over_payments':
+      return (
+        (err instanceof Error && err.message) ||
+        'Comanda are plăți încasate și nu poate fi anulată. Finalizează prin plată.'
+      )
+    case 'cancel_reason_required':
+      return 'Motivul e obligatoriu pentru anularea unei comenzi servite.'
+    case 'role_insufficient':
+      return 'Rolul tău nu permite anularea comenzilor.'
+    case 'order_terminal':
+      return 'Comanda e deja finalizată și nu mai poate fi anulată.'
+    default:
+      return 'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+  }
 }
 
 export interface CreateOrderArgs {

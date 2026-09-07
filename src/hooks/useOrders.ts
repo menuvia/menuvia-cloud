@@ -330,7 +330,16 @@ export function useOrders(
   }, [restaurantId, view])
 
   const advance = useCallback(
-    async (orderId: string, currentStatus: OrderStatus, payload: AdvanceOrderPayload) => {
+    async (
+      orderId: string,
+      currentStatus: OrderStatus,
+      payload: AdvanceOrderPayload,
+      // throwOnError: după rollback-ul optimist și setError, eroarea e RE-ARUNCATĂ
+      // (cu hint/code) ca apelantul s-o afișeze în propriul dialog — banner-ul
+      // paginii stă sub overlay-ul modalelor. Contractul boolean rămâne pentru
+      // ceilalți apelanți (default false).
+      opts?: { throwOnError?: boolean },
+    ) => {
       let previous: Order | undefined
       setOrders((prev) => {
         previous = prev.find((o) => o.id === orderId)
@@ -361,6 +370,7 @@ export function useOrders(
           })
         }
         setError(e instanceof Error ? e.message : 'Failed to update order')
+        if (opts?.throwOnError) throw e
         return false
       } finally {
         pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)
