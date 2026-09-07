@@ -26,6 +26,7 @@ Citește întâi `ARCHITECTURE.md` (harta sistemului în 1 pagină).
 
 `npm run typecheck && npm run lint && npm run test` (build-ul cere env vars placeholder — vezi `.github/workflows/test.yml`).
 Jobul Playwright E2E din ci.yml e ERMETIC (Supabase local + seed, zero secrets) și verde pe main din august 2026 — un E2E roșu e o regresie reală până la proba contrarie (mențiunea veche „cronic roșu, secrets lipsă" era stale; audit v3 CA-04).
+**Overlay-urile `role="dialog"` fixate jos (cookie banner, cardurile PWA de instalare/actualizare) interceptează click-urile pe bara de navigare mobilă** — E2E-ul le pre-setează în `prepPage` (e2e/helpers.ts: consent + `pwa-install-dismissed` + `pwa-update-snoozed`) ÎNAINTE de prima navigare; cardul de instalare are timer de 30 s, deci fără pre-setare un test pica în funcție de CÂT dura (03-dashboard-nav „Facturi", mobile-safari, sept 2026). `test.afterEach(dumpOverlaysOnFailure)` scrie în log textul dialogurilor deschise la eșec — Playwright spune doar „intercepts pointer events", iar artefactele nu sunt accesibile din sesiunea agentului. Cardul de actualizare SW are „Mai târziu" (amânare pe SESIUNE, `PWA_UPDATE_SNOOZE_KEY`) — înainte NU avea nicio ieșire în afară de reload.
 
 ## Capcane cunoscute
 
