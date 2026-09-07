@@ -115,10 +115,13 @@ interface UseOrdersResult {
   // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea).
   // Apelanții pe căi de bani (plată) trebuie să verifice rezultatul înainte de a
   // închide optimist modalul.
+  // Cu `opts.throwOnError` eroarea e re-aruncată (cu hint/code) în loc de
+  // `false`, ca apelantul s-o afișeze în propriul dialog (mig 270).
   advance: (
     orderId: string,
     currentStatus: OrderStatus,
     payload: AdvanceOrderPayload,
+    opts?: { throwOnError?: boolean },
   ) => Promise<boolean>
   byStatus: (statuses: OrderStatus[]) => Order[]
 }
