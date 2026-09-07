@@ -304,6 +304,15 @@ describe('health — sonda de schemă (mig 271, RES-08)', () => {
     scriptDbOk(1024)
     scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'x', latest_version: '1', missing: [] }, error: null })
     assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.schema, 'ok')
+    // `missing` absent sau ne-array pe ramura available=true → unknown, NU ok:
+    // un RPC re-format ar face altfel „behind" imposibil de raportat (recenzie #246).
+    for (const data of [{ available: true }, { available: true, missing: null }, { available: true, missing: 'x' }]) {
+      ;({ handler } = loadHealthFresh())
+      resetMocks()
+      scriptDbOk(1024)
+      scriptSchema({ data, error: null })
+      assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.schema, 'unknown', JSON.stringify(data))
+    }
   })
 
   it('HL14: sonda primește ÎNTREG manifestul, nu doar ultimul nume', async () => {
@@ -333,17 +342,24 @@ describe('health — backlog-ul cozilor (mig 271, RES-32)', () => {
     assert.equal(res.statusCode, 503)
   })
 
-  it('HL16: praguri la limită — 1800 s e ok, 1801 s e stale (email); 7200/7201 (remindere)', async () => {
-    assert.equal(parseBody(await withQueues(backlog({ 'cron.email': { waiting: 1, oldest_age_s: 1800 } }))({ httpMethod: 'GET' })).checks.queues, 'ok')
-    assert.equal(parseBody(await withQueues(backlog({ 'cron.email': { waiting: 1, oldest_age_s: 1801 } }))({ httpMethod: 'GET' })).checks.queues, 'stale')
-    assert.equal(parseBody(await withQueues(backlog({ 'cron.reminders': { waiting: 1, oldest_age_s: 7200 } }))({ httpMethod: 'GET' })).checks.queues, 'ok')
-    assert.equal(parseBody(await withQueues(backlog({ 'cron.reminders': { waiting: 1, oldest_age_s: 7201 } }))({ httpMethod: 'GET' })).checks.queues, 'stale')
+  it('HL16: praguri la limită pe TOATE cozile cron — T e ok, T+1 e stale (email 1800, sms 3600, invoices 3600, reminders 7200)', async () => {
+    // Pragurile sunt hard-codate AICI, nu importate: ștergerea unei cozi din
+    // QUEUE_STALE_S sau un prag mutat la Infinity trebuie să PICE testul.
+    const THRESHOLDS = { email: 1800, sms: 3600, invoices: 3600, reminders: 7200 }
+    for (const [k, t] of Object.entries(THRESHOLDS)) {
+      assert.equal(parseBody(await withQueues(backlog({ [`cron.${k}`]: { waiting: 1, oldest_age_s: t } }))({ httpMethod: 'GET' })).checks.queues, 'ok', `${k} @ ${t}`)
+      assert.equal(parseBody(await withQueues(backlog({ [`cron.${k}`]: { waiting: 1, oldest_age_s: t + 1 } }))({ httpMethod: 'GET' })).checks.queues, 'stale', `${k} @ ${t + 1}`)
+    }
   })
 
-  it('HL17: bonuri pending >15 min la un restaurant → warn cu 200, NICIODATĂ 503; alertele Slack singure → ok', async () => {
+  it('HL17: bonuri/tichete pending >15 min la un restaurant → warn cu 200, NICIODATĂ 503; alertele Slack singure → ok', async () => {
     const res = await withQueues(backlog({ 'bridge.receipts': { waiting: 2, oldest_age_s: 1200 } }))({ httpMethod: 'GET' })
     assert.equal(parseBody(res).checks.queues, 'warn')
     assert.equal(res.statusCode, 200)
+    assert.equal(parseBody(await withQueues(backlog({ 'bridge.tickets': { waiting: 1, oldest_age_s: 900 } }))({ httpMethod: 'GET' })).checks.queues, 'ok')
+    const tickets = await withQueues(backlog({ 'bridge.tickets': { waiting: 1, oldest_age_s: 901 } }))({ httpMethod: 'GET' })
+    assert.equal(parseBody(tickets).checks.queues, 'warn')
+    assert.equal(tickets.statusCode, 200)
     const slackOnly = await withQueues(backlog({ 'cron.slack_alerts': { waiting: 5 } }))({ httpMethod: 'GET' })
     assert.equal(parseBody(slackOnly).checks.queues, 'ok')
   })
@@ -361,6 +377,27 @@ describe('health — backlog-ul cozilor (mig 271, RES-32)', () => {
     scriptQueues({ data: { cron: {} }, error: null })
     res = await handler({ httpMethod: 'GET' })
     assert.equal(parseBody(res).checks.queues, 'unknown')
+    // Gunoi CU forma de top-level (recenzie #246): grupe goale, array-uri în
+    // loc de obiecte, o cheie de vârstă redenumită de un RPC viitor, o coadă
+    // lipsă — toate → unknown, NICIODATĂ ok. Controlul pozitiv: forma completă → ok.
+    const renamed = backlog()
+    renamed.cron.email = { waiting: 9, oldest_age_seconds: 3600 }
+    const missingQueue = backlog()
+    delete missingQueue.bridge.tickets
+    for (const data of [{ cron: {}, bridge: {} }, { cron: [], bridge: [] }, renamed, missingQueue]) {
+      ;({ handler } = loadHealthFresh())
+      resetMocks()
+      scriptDbOk(1024)
+      scriptQueues({ data, error: null })
+      res = await handler({ httpMethod: 'GET' })
+      assert.equal(parseBody(res).checks.queues, 'unknown', JSON.stringify(data))
+      assert.equal(res.statusCode, 200)
+    }
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(1024)
+    scriptQueues({ data: backlog(), error: null })
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.queues, 'ok', 'controlul pozitiv')
   })
 
   it('HL19: numărătorile ajung DOAR cu token', async () => {

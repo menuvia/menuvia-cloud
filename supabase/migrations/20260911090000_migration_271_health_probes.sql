@@ -119,25 +119,39 @@ set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
     'cron', jsonb_build_object(
-      -- claim_email_batch (242): queued, scadent, sub plafonul de încercări.
+      -- claim_email_batch (242): queued, scadent, sub plafonul de încercări —
+      -- PLUS rândurile pe care claim-ul le RECLAMĂ întâi: blocate în 'sending'
+      -- de un worker mort (>10 min), readuse în 'queued' dacă bump-ul nu atinge
+      -- plafonul. Sunt backlog prin definiția claim-ului; o sondă care le ignoră
+      -- e MOARTĂ exact în scenariul worker-ucis-mid-batch + cron oprit.
+      -- Vârsta lor = de la claim-ul eșuat (claimed_at), nu de la scadență.
       'email', (
         select jsonb_build_object(
           'waiting', count(*),
-          'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(q.scheduled_for)))), 0))
+          'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(case when q.status = 'sending' then q.claimed_at else q.scheduled_for end)))), 0))
           from public.email_queue q
-         where q.status = 'queued'
-           and q.scheduled_for <= now()
-           and q.failed_attempts < 3
+         where (q.status = 'queued'
+                and q.scheduled_for <= now()
+                and q.failed_attempts < 3)
+            or (q.status = 'sending'
+                and q.claimed_at is not null
+                and q.claimed_at < now() - interval '10 minutes'
+                and q.failed_attempts + 1 < 3)
       ),
-      -- claim_sms_batch (228): același contract.
+      -- claim_sms_batch (228): același contract, același reclaim (+1 la bump,
+      -- apoi filtrul `< 3`).
       'sms', (
         select jsonb_build_object(
           'waiting', count(*),
-          'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(q.scheduled_for)))), 0))
+          'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(case when q.status = 'sending' then q.claimed_at else q.scheduled_for end)))), 0))
           from public.sms_queue q
-         where q.status = 'queued'
-           and q.scheduled_for <= now()
-           and q.failed_attempts < 3
+         where (q.status = 'queued'
+                and q.scheduled_for <= now()
+                and q.failed_attempts < 3)
+            or (q.status = 'sending'
+                and q.claimed_at is not null
+                and q.claimed_at < now() - interval '10 minutes'
+                and q.failed_attempts + 1 < 3)
       ),
       -- bridge_oblio_get_queued (269): queued, sub plafon, fereastra de backoff
       -- trecută, DOAR la restaurante cu config Oblio activ (altfel claim-ul
@@ -155,11 +169,18 @@ as $$
       ),
       -- claim_reservation_reminders (234): confirmed, netrimis, cu un canal
       -- LIVRABIL (email SAU mobil RO + modul + feature), în fereastra
-      -- `reminder_hours_before`. Vârsta = de cât timp a intrat în fereastră.
+      -- `reminder_hours_before`. Vârsta = de cât timp e CLAIMABIL rândul:
+      -- intrarea în fereastră SAU crearea rezervării, care e mai târzie. O
+      -- rezervare făcută ÎN fereastră (same-day, min_advance 2h, fereastră 24h)
+      -- ar raporta altfel ~20h de „backlog" în secunda inserării → 503 fals
+      -- până la următorul tick al cron-ului (*/30) — alarmă pe comportament
+      -- normal al clientului. (Fără `updated_at` ca podea: reclaim-ul 215 și
+      -- resetul `reminder_sent_at=null` al worker-ului îl bumpează și ar
+      -- ascunde un reminder blocat REAL.)
       'reminders', (
         select jsonb_build_object(
           'waiting', count(*),
-          'oldest_age_s', coalesce(floor(extract(epoch from max(now() - (r.starts_at - (s.reminder_hours_before || ' hours')::interval)))), 0))
+          'oldest_age_s', coalesce(floor(extract(epoch from max(now() - greatest(r.starts_at - (s.reminder_hours_before || ' hours')::interval, r.created_at)))), 0))
           from public.reservations r
           join public.reservation_settings s on s.restaurant_id = r.restaurant_id
          where r.status = 'confirmed'
@@ -185,6 +206,14 @@ as $$
            and (h.slack_alerted_at is null or h.slack_alerted_at < now() - interval '24 hours')
       )
     ),
+    -- Bridge: predicatele oglindesc claim-urile bridge-ului, nu doar statusul.
+    -- `bridge_get_pending` (247) ridică bonuri DOAR pentru restaurantul unui
+    -- device înregistrat; `bridge_get_pending_tickets` (227/247) cere în plus
+    -- `prints_kitchen_receipts` + feature-ul `kitchen_tickets`. Un rând pending
+    -- la un restaurant fără device (device șters: `bridge_device_id` e SET NULL,
+    -- rândul rămâne) sau retrogradat sub growth nu e backlog prin definiția
+    -- claim-ului și nimic nu-l mai scoate din `pending` — ar fi `warn` PERMANENT,
+    -- care maschează un bridge căzut REAL la alt restaurant.
     'bridge', jsonb_build_object(
       'receipts', (
         select jsonb_build_object(
@@ -192,6 +221,7 @@ as $$
           'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(p.created_at)))), 0))
           from public.pending_receipts p
          where p.status = 'pending'
+           and exists (select 1 from public.bridge_devices d where d.restaurant_id = p.restaurant_id)
       ),
       'tickets', (
         select jsonb_build_object(
@@ -199,6 +229,9 @@ as $$
           'oldest_age_s', coalesce(floor(extract(epoch from (now() - min(k.created_at)))), 0))
           from public.kitchen_tickets k
          where k.status = 'pending'
+           and public.restaurant_has_feature(k.restaurant_id, 'kitchen_tickets')
+           and exists (select 1 from public.bridge_devices d
+                        where d.restaurant_id = k.restaurant_id and d.prints_kitchen_receipts = true)
       )
     )
   );
@@ -247,7 +280,11 @@ begin
     raise exception 'mig 271: get_queue_backlog nu e DEFINER cu pg_temp'; end if;
   foreach v_sig in array array['oblio_configs', 'reminder_hours_before', 'failed_attempts < 3',
                                'fn_sms_normalize_ro_phone', 'slack_alerted_at',
-                               'pending_receipts', 'kitchen_tickets'] loop
+                               'pending_receipts', 'kitchen_tickets',
+                               -- reclaim-ul din 242/228, podeaua created_at (remindere),
+                               -- gate-urile bridge-ului (247/227) — recenzie #246
+                               'claimed_at < now() - interval ''10 minutes''', 'r.created_at',
+                               'bridge_devices', 'prints_kitchen_receipts'] loop
     if position(v_sig in v_src) = 0 then
       raise exception 'mig 271: get_queue_backlog s-a dezlegat de claim-uri („%” lipseste)', v_sig; end if;
   end loop;
