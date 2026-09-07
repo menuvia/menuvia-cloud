@@ -24,10 +24,10 @@
   },
   "dependencies": {
     "@sentry/react": "^10.71.0",
-    "@supabase/supabase-js": "^2.112.4",
+    "@supabase/supabase-js": "^2.115.0",
     "idb-keyval": "^6.3.0",
     "jspdf": "^4.2.1",
-    "posthog-js": "^1.422.1",
+    "posthog-js": "^1.426.2",
     "qrcode": "^1.5.3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
