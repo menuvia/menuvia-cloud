@@ -90,18 +90,35 @@ function PayModal({
   const [amount, setAmount] = useState(String(grandTotal.toFixed(2)))
   // Refuzul serverului, afișat aici (bannerul paginii stă sub overlay).
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  // Pre-flight (informativ, NU blocant — serverul e gate-ul, mig 264): suma
+  // Pre-flight (informativ, NU blocant — serverul e gate-ul, mig 264) pe suma
   // de pe NOTĂ = suma înmânată (contractul PayModal, cu bacșiș) − bacșiș.
-  // Oglindește EXACT fallback-ul butonului (`parseFloat(amount) || grandTotal`).
+  // `handed` e SINGURA sursă a sumei trimise (butonul o folosește pe ea, nu un
+  // `parseFloat(amount) || grandTotal` paralel) — altfel preflight-ul tăcea fix
+  // pe inputurile pe care serverul le refuză (`-5`, `1e400` sunt truthy).
+  // Câmp gol = suma totală; un număr ne-valid (negativ, non-finit) nu pleacă
+  // deloc — nu e gate de business, e validare de input (serverul l-ar refuza
+  // oricum, dar fără preaviz). Recenzie adversarială #246.
+  const amountBlank = amount.trim() === ''
   const parsedAmount = parseFloat(amount)
-  const handed = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : grandTotal
+  const amountValid = amountBlank || (Number.isFinite(parsedAmount) && parsedAmount > 0)
+  const handed = amountBlank || !amountValid ? grandTotal : parsedAmount
   const netOnBill = Math.round((handed - tipsAmount) * 100) / 100
-  const preflight: string | null =
-    netOnBill < orderTotal - 0.01
+  const overBy = Math.round((netOnBill - orderTotal) * 100) / 100
+  // Supra-încasarea NU se transformă singură în bacșiș (advance_order o respinge
+  // cu `overpayment`); textul spune exact asta și oferă mutarea explicită.
+  const preflight: string | null = !amountValid
+    ? 'Suma încasată nu e un număr valid (trebuie să fie mai mare ca 0).'
+    : netOnBill < orderTotal - 0.01
       ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) e sub restul de plată (${orderTotal.toFixed(2)}). Pentru încasare în tranșe folosește „Plată parțială".`
-      : netOnBill > orderTotal + 0.01
-        ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) depășește restul (${orderTotal.toFixed(2)}). Rotunjirea în sus se înregistrează ca bacșiș.`
+      : overBy > 0.01
+        ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) depășește restul (${orderTotal.toFixed(2)}) — serverul va respinge plata. Dacă diferența e bacșiș, trece-o la Bacșiș.`
         : null
+  const canMoveOverToTips = amountValid && overBy > 0.01
+  /** Mută diferența peste rest în bacșiș: suma înmânată rămâne, nota ajunge exact la rest. */
+  function moveOverToTips(): void {
+    setTipsMode('custom')
+    setTipsCustom((Math.round((handed - orderTotal) * 100) / 100).toFixed(2))
+  }
 
   // Re-sync amount când se schimbă order.total sau tips
   useEffect(() => {
@@ -439,6 +456,27 @@ function PayModal({
           {preflight != null && errorMsg == null && (
             <div role="status" style={{ fontSize: 12, color: D.amber, marginTop: 6, lineHeight: 1.5 }}>
               {preflight}
+              {canMoveOverToTips && (
+                <button
+                  type="button"
+                  onClick={moveOverToTips}
+                  style={{
+                    display: 'block',
+                    marginTop: 6,
+                    background: 'transparent',
+                    border: `1px solid ${D.amber}`,
+                    borderRadius: 6,
+                    color: D.amber,
+                    padding: '4px 10px',
+                    fontFamily: 'DM Sans, sans-serif',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Trece {overBy.toFixed(2)} lei la bacșiș
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -460,16 +498,17 @@ function PayModal({
         )}
 
         <button
-          disabled={submitting}
+          disabled={submitting || !amountValid}
           onClick={() => {
-            if (submitting) return
+            if (submitting || !amountValid) return
             setSubmitting(true)
             setErrorMsg(null)
             // Așteptăm finalizarea; dacă onConfirm e sincron, Promise.resolve îl
             // normalizează. La refuz părintele ține modalul deschis și întoarce
             // mesajul serverului; `.catch` ÎNAINTE de `.finally`, altfel un
-            // rethrow ar deveni unhandled rejection.
-            void Promise.resolve(onConfirm(method, parseFloat(amount) || grandTotal, tipsAmount))
+            // rethrow ar deveni unhandled rejection. `handed` = aceeași sumă pe
+            // care a evaluat-o preflight-ul.
+            void Promise.resolve(onConfirm(method, handed, tipsAmount))
               .then((res) => {
                 if (res && typeof res === 'object' && res.ok === false) {
                   setErrorMsg(res.message || 'Plata nu a fost înregistrată. Verifică și reîncearcă.')

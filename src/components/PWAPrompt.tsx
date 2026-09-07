@@ -6,7 +6,7 @@
 // Ambele carduri sunt `role="dialog"` FIXATE JOS (zIndex 9999) — pe telefon
 // stau exact peste bara de navigare a dashboard-ului. De aceea AMBELE se pot
 // închide: instalarea definitiv (localStorage, lib/pwa.ts), actualizarea pe
-// SESIUNE („Mai târziu": userul alege CÂND, cum promite sw.js — înainte cardul
+// SESIUNEA de navigare („Mai târziu": userul alege CÂND, cum promite sw.js — înainte cardul
 // nu avea nicio ieșire în afară de reload, adică fix reload-ul forțat mid-tură
 // pe care politica fără skipWaiting voia să-l evite). E2E-ul pre-setează
 // ambele chei în `prepPage` (e2e/helpers.ts) — un test care dura >30 s
@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { usePWAInstall, useSWUpdate } from '../lib/pwa'
 
-/** Cheia de amânare a cardului de actualizare — pe SESIUNE, reapare la următoarea deschidere. */
+/** Cheia de amânare a cardului de actualizare — per sesiune de navigare (sessionStorage): supraviețuiește unui reload în același tab, dispare la închiderea tab-ului / a PWA-ului. */
 export const PWA_UPDATE_SNOOZE_KEY = 'pwa-update-snoozed'
 
 /** Citește amânarea din sessionStorage; orice eroare (Safari privat) = neamânat. */
@@ -44,10 +44,14 @@ export default function PWAPrompt() {
     return () => clearTimeout(t)
   }, [canInstall])
 
-  // Update prompt takes priority. „Mai târziu" amână DOAR pentru sesiunea
-  // curentă: SW-ul rămâne în `waiting`, iar la următoarea deschidere cardul
-  // reapare — userul nu poate ocoli actualizarea la nesfârșit, doar o mută
-  // în afara turei.
+  // Update prompt takes priority. „Mai târziu" amână pe SESIUNEA de navigare
+  // (sessionStorage: supraviețuiește unui reload în același tab, dispare la
+  // închiderea tab-ului / a PWA-ului din app switcher). SW-ul rămâne în
+  // `waiting`; la următoarea deschidere REALĂ nu mai are clienți vechi și se
+  // activează singur — actualizarea se aplică FĂRĂ card. Cardul reapare doar
+  // dacă alt tab ține SW-ul vechi în viață. Userul nu poate ocoli actualizarea
+  // la nesfârșit, doar o mută în afara turei (recenzie adversarială #246: prima
+  // formulare, „reapare la următoarea deschidere", descria un mecanism inexistent).
   if (updateAvailable && !updateSnoozed) {
     return (
       <PromptCard
