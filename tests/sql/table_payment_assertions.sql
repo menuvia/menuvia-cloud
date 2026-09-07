@@ -30,6 +30,19 @@
 --        vechi în superseded_intents (rândul rămâne processing — mutația e a
 --        funcției Netlify); rândurile 'created' fără intent se anulează direct.
 --
+--   IDENTITATE (audit v3, „suitele de bani nu rulează sub RLS"): suita rulează
+--   ca postgres (superuser: ocolește ACL-ul de EXECUTE ȘI RLS), deci testează
+--   LOGICA RPC-urilor DEFINER, nu identitatea. Stratul de identitate:
+--   TP3/TP8/TP14/TP20 apelează RPC-urile sub rolul REAL `service_role`
+--   (set_config('role', …) în jurul apelurilor; seed-ul și SELECT-urile de
+--   verificare rămân ca postgres — în CI service_role n-are grant-uri pe tabele).
+--   TP23 clichet VIU pe ACL: toate cele 6 semnături dau 42501 ca anon ȘI ca
+--        authenticated (un `grant … to authenticated` accidental ar lăsa orice
+--        cont logat să marcheze comenzile altui restaurant paid/card_online).
+--   TP24 politica de CITIRE sub RLS (consumatorul real: CashRegisterTab →
+--        payments.ts): owner vede, waiter NU, owner-ul altui restaurant NU,
+--        fondatorul (is_platform_admin, fără membership) DA — escape mig 186.
+--
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
 
@@ -148,6 +161,7 @@ declare
   v_settle jsonb;
   v_cnt    integer;
 begin
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
   v_begin := public.begin_table_payment('e1e1e1e1-1111-4111-8111-eeeeeeeeeeee','tok_tp_ent');
 
   -- Suma = 30 + 20 (comanda deja plătită de 15 NU intră).
@@ -170,6 +184,7 @@ begin
       v_settle->>'orders_paid', v_settle->>'orders_skipped';
   end if;
 
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
   select count(*) into v_cnt
     from public.orders
    where id in ('f1f1f1f1-1111-4111-8111-ffffffffffff','f2f2f2f2-2222-4222-8222-ffffffffffff')
@@ -325,6 +340,7 @@ begin
     ('f8f8f8f8-8888-4888-8888-ffffffffffff','b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb','qr','served',12,
      'e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','c3c3c3c3-3333-4333-8333-cccccccccccc','d3d3d3d3-3333-4333-8333-dddddddddddd');
 
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
   v_begin := public.begin_table_payment('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
 
   -- (a) Token de la ALTĂ masă → respins (nu-ți poți anula plata vecinului).
@@ -343,10 +359,12 @@ begin
      or coalesce((v_c->>'no_intent')::boolean, false) is not true then
     raise exception 'TP8 FAIL: rândul fără intent nu s-a anulat direct (%)', v_c;
   end if;
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
   if not exists (select 1 from public.table_payments
                   where id = (v_begin->>'payment_id')::uuid and status = 'canceled') then
     raise exception 'TP8 FAIL: statusul plății nu e canceled';
   end if;
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
 
   -- (c) Cu intent atașat → RPC-ul întoarce datele pentru cancel-ul Stripe.
   v_begin := public.begin_table_payment('e8e8e8e8-8888-4888-8888-eeeeeeeeeeee','tok_tp_race');
@@ -374,6 +392,7 @@ begin
      or v_c->>'status' <> 'succeeded' then
     raise exception 'TP8 FAIL: plata reușită a apărut anulabilă (%)', v_c;
   end if;
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
 
   raise notice 'TP8 OK: opt-out validat pe masă; fără intent → direct; succeeded protejat';
 end $$;
@@ -621,6 +640,7 @@ declare
   v_begin  jsonb;
   v_settle jsonb;
 begin
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
   v_begin := public.begin_split_payment('ed14ed14-1414-4141-8141-eeeeeeeeeeee','tok_tp14',
     '[{"order_item_id":"11141114-1414-4141-8141-000000000001","quantity":1}]'::jsonb);
   if (v_begin->>'amount')::numeric <> 10 then
@@ -634,6 +654,7 @@ begin
      or (v_settle->>'orders_paid')::int <> 0 then
     raise exception 'TP14 FAIL: settle split a raportat % (așteptat partial=1)', v_settle;
   end if;
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
   if not exists (
     select 1 from public.order_payments
      where order_id = 'a14aa14a-1414-4141-8141-ffffffffffff'
@@ -892,12 +913,16 @@ begin
     ('11211121-2121-4212-8212-000000000001','a21aa21a-2121-4212-8212-ffffffffffff','Vin TP',25,1,25);
 
   -- Un claim viu de 1×Bere + un parțial cash de staff pe comanda cu Vin.
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
   perform public.begin_split_payment('ed20ed20-2020-4202-8202-eeeeeeeeeeee','tok_tp14',
     '[{"order_item_id":"11201120-2020-4202-8202-000000000001","quantity":1}]'::jsonb);
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
   insert into public.order_payments (order_id, amount, method)
   values ('a21aa21a-2121-4212-8212-ffffffffffff', 5, 'cash');
 
+  perform set_config('role', 'service_role', true);   -- rolul REAL al funcției Netlify
   v_bill := public.get_table_bill('ed20ed20-2020-4202-8202-eeeeeeeeeeee','tok_tp14');
+  perform set_config('role', 'none', true);           -- înapoi la postgres pentru verificări
   if jsonb_array_length(v_bill->'orders') <> 2 then
     raise exception 'TP20 FAIL: nota are % comenzi (așteptat 2)', jsonb_array_length(v_bill->'orders');
   end if;
@@ -1018,6 +1043,100 @@ begin
     raise exception 'TP22 FAIL: comanda plătită valid nu a fost înregistrată';
   end if;
   raise notice 'TP22 OK: claim-ul de 0 lei e sărit; settle-ul nu se rostogolește';
+end $$;
+
+-- ── TP23: clichetul ACL — nicio semnătură nu e apelabilă din rolurile client ─
+-- Clichetul principal e pe CATALOG (`has_function_privilege`, ca AV4/DB1/RR7):
+-- viu la fiecare CI pe starea FINALĂ a lanțului și fail-closed — dacă o
+-- semnătură dispare (DROP+CREATE cu semnătură nouă, ca settle în 229), apelul
+-- ARUNCĂ „function does not exist" și lista de mai jos se actualizează în
+-- același PR. Un test doar pe SQLSTATE ar fi VACUU: `permission denied for
+-- schema public` e tot 42501. Controlul de EXECUȚIE (un singur apel real ca
+-- anon) verifică și textul „for function", nu doar codul.
+do $$
+declare
+  v_sig text; v_role text; v_ok boolean; v_state text; v_msg text;
+  v_sigs text[] := array[
+    'public.begin_table_payment(uuid, text)',
+    'public.attach_payment_intent(uuid, text)',
+    'public.settle_table_payment(text, text, text)',
+    'public.cancel_table_payment(uuid, uuid, text)',
+    'public.begin_split_payment(uuid, text, jsonb)',
+    'public.get_table_bill(uuid, text)'
+  ];
+begin
+  foreach v_sig in array v_sigs loop
+    foreach v_role in array array['anon', 'authenticated'] loop
+      if has_function_privilege(v_role, v_sig, 'execute') then
+        raise exception 'TP23 FAIL: % are EXECUTE pe % — grant accidental pe suprafața service_role-only (orice cont logat ar putea marca comenzile altui restaurant paid/card_online)', v_role, v_sig;
+      end if;
+    end loop;
+    if not has_function_privilege('service_role', v_sig, 'execute') then
+      raise exception 'TP23 FAIL: service_role NU are EXECUTE pe % — funcția Netlify ar primi 42501 (outage complet al plății online)', v_sig;
+    end if;
+  end loop;
+
+  -- Control de execuție: catalogul spune „nu", dar și apelul REAL trebuie să
+  -- pice pe FUNCȚIE (nu pe schemă, nu în corp).
+  perform set_config('role', 'anon', true);
+  v_ok := false;
+  begin
+    perform public.begin_table_payment('00000000-0000-4000-8000-000000000000'::uuid, 'x');
+  exception when others then
+    get stacked diagnostics v_state = returned_sqlstate, v_msg = message_text;
+    v_ok := (v_state = '42501' and v_msg like '%for function%');
+  end;
+  perform set_config('role', 'none', true);
+  if not v_ok then
+    raise exception 'TP23 FAIL: apelul real ca anon nu a picat pe ACL-ul funcției (state=%, msg=%)', v_state, v_msg;
+  end if;
+  raise notice 'TP23 OK: 6 semnături — anon/authenticated fără EXECUTE, service_role cu; apelul real ca anon → 42501 for function';
+end $$;
+
+-- ── TP24: citirea sub RLS — owner DA, waiter NU, alt owner NU, fondator DA ───
+insert into auth.users (id, email) values
+  ('a3a3a3a3-3333-4333-8333-aaaaaaaaaaaa', 'tp-waiter@tp.test'),
+  ('a4a4a4a4-4444-4444-8444-aaaaaaaaaaaa', 'tp-founder@tp.test');
+insert into public.restaurant_memberships (restaurant_id, user_id, role) values
+  ('b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb', 'a3a3a3a3-3333-4333-8333-aaaaaaaaaaaa', 'waiter');
+update public.profiles set is_platform_admin = true where id = 'a4a4a4a4-4444-4444-8444-aaaaaaaaaaaa';
+do $$
+declare
+  v_expected int; v_expected_items int; v_n int; v_ni int;
+  v_ids constant text[][] := array[
+    array['a1a1a1a1-1111-4111-8111-aaaaaaaaaaaa', 'owner R1',    'all'],
+    array['a3a3a3a3-3333-4333-8333-aaaaaaaaaaaa', 'waiter R1',   'none'],
+    array['a2a2a2a2-2222-4222-8222-aaaaaaaaaaaa', 'owner R2',    'none'],
+    array['a4a4a4a4-4444-4444-8444-aaaaaaaaaaaa', 'fondator',    'all']
+  ];
+  i int;
+begin
+  select count(*) into v_expected from public.table_payments
+   where restaurant_id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+  select count(*) into v_expected_items from public.table_payment_items tpi
+    join public.table_payments tp on tp.id = tpi.payment_id
+   where tp.restaurant_id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+  if v_expected < 1 or v_expected_items < 1 then
+    raise exception 'TP24: precondiție — suita de mai sus nu a lăsat plăți/claims de citit (%/%)', v_expected, v_expected_items; end if;
+
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  for i in 1..4 loop
+    perform set_config('request.jwt.claim.sub', v_ids[i][1], true);
+    perform set_config('role', 'authenticated', true);
+    select count(*) into v_n from public.table_payments
+     where restaurant_id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+    select count(*) into v_ni from public.table_payment_items tpi
+      join public.table_payments tp on tp.id = tpi.payment_id
+     where tp.restaurant_id = 'b1b1b1b1-1111-4111-8111-bbbbbbbbbbbb';
+    perform set_config('role', 'none', true);
+    if v_ids[i][3] = 'all' and (v_n <> v_expected or v_ni <> v_expected_items) then
+      raise exception 'TP24 FAIL: % vede %/% plăți și %/% claims (funelul is_admin + escape-ul is_platform_admin)',
+        v_ids[i][2], v_n, v_expected, v_ni, v_expected_items; end if;
+    if v_ids[i][3] = 'none' and (v_n <> 0 or v_ni <> 0) then
+      raise exception 'TP24 FAIL: % vede % plăți și % claims (așteptat 0 — scurgere prin politica de citire)',
+        v_ids[i][2], v_n, v_ni; end if;
+  end loop;
+  raise notice 'TP24 OK: citirea sub RLS — owner/fondator văd tot, waiter/alt owner nimic';
 end $$;
 
 rollback;

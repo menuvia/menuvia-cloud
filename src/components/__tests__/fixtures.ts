@@ -1,6 +1,6 @@
 // Fixture-uri comune pentru testele de componente pe fluxurile de bani.
 // Construiesc obiecte complete (TS strict) cu override-uri punctuale.
-import type { Product, Category, ModifierGroup, ModifierOption } from '../../lib/qr'
+import type { Product, Category, ModifierGroup, ModifierOption, Restaurant } from '../../lib/qr'
 import type { CartItem, Order, OrderItem, RestaurantTable } from '../../lib/orders'
 
 let seq = 0
@@ -161,6 +161,25 @@ export function makeOrder(overrides: Partial<Order> = {}): Order {
     discount_applied_at: null,
     table: null,
     order_items: [makeOrderItem()],
+    ...overrides,
+  }
+}
+
+export function makeRestaurant(overrides: Partial<Restaurant> = {}): Restaurant {
+  return {
+    id: 'r1',
+    name: 'Restaurant Demo',
+    slug: 'demo',
+    primary_color: '#c8102e',
+    logo_url: null,
+    menu_languages: [],
+    pickup_settings: {
+      enabled: true,
+      min_lead_time_minutes: 20,
+      slot_interval_minutes: 30,
+      open_hours: { start: '10:00', end: '22:00' },
+      instructions: null,
+    },
     ...overrides,
   }
 }
