@@ -244,6 +244,7 @@ export interface StaffOrdersPage {
   truncated: boolean
 }
 
+/** Cele mai noi N comenzi deschise ale restaurantului (FIFO) + flag `truncated` când plafonul a fost atins. */
 async function fetchStaffOrders(restaurantId: string, statuses: string[]): Promise<StaffOrdersPage> {
   const { data, error } = await supabase
     .from('orders')
@@ -262,10 +263,12 @@ async function fetchStaffOrders(restaurantId: string, statuses: string[]): Promi
   return { orders, truncated }
 }
 
+/** Comenzile pentru Bucătărie: doar cele de pregătit (fără `served`). */
 export function fetchKitchenOrders(restaurantId: string): Promise<StaffOrdersPage> {
   return fetchStaffOrders(restaurantId, ['new', 'confirmed', 'preparing', 'ready'])
 }
 
+/** Comenzile pentru Ospătar: tot ce nu e terminal, inclusiv `served` neîncasate. */
 export function fetchWaiterOrders(restaurantId: string): Promise<StaffOrdersPage> {
   // Statusurile „deschise" pentru ospătar = tot ce nu e paid/cancelled/closed.
   // Folosim lista POZITIVĂ `.in()` (ca fetchKitchenOrders, care funcționează) în

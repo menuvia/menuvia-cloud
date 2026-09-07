@@ -571,6 +571,7 @@ export default function WaiterPage() {
     [user, advance],
   )
 
+  /** Încasează comanda din PayModal; la refuz întoarce mesajul serverului (modalul rămâne deschis). */
   async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<PayResult> {
     if (payOrder == null || user == null) return { ok: false }
     // Cale de bani: NU închidem optimist modalul. Așteptăm rezultatul și

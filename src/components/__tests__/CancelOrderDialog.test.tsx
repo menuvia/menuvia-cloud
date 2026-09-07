@@ -106,6 +106,47 @@ describe('CancelOrderDialog', () => {
     )
     expect(screen.getByText(/motiv \(obligatoriu — comanda a fost servită\)/i)).toBeInTheDocument()
   })
+
+  it('comandă servită FĂRĂ motiv → butonul e dezactivat; cu motiv → onConfirm primește motivul', async () => {
+    // Fără gardă, clickul pleca gol la server și se întorcea `cancel_reason_required`
+    // (mig 118) — un refuz previzibil transformat în eroare. Cu spații albe
+    // motivul e tot gol (trim).
+    const onConfirm = vi.fn().mockResolvedValue({ ok: true })
+    render(
+      <CancelOrderDialog
+        order={makeOrder({ status: 'served' })}
+        payments={[]}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />,
+    )
+    const btn = screen.getByRole('button', { name: /anulează comanda/i })
+    expect(btn).toBeDisabled()
+    const box = screen.getByPlaceholderText(/clientul a anulat/i)
+    await userEvent.type(box, '   ')
+    expect(btn).toBeDisabled()
+    await userEvent.clear(box)
+    await userEvent.type(box, ' clientul a plecat ')
+    expect(btn).toBeEnabled()
+    await userEvent.click(btn)
+    expect(onConfirm).toHaveBeenCalledWith('clientul a plecat')
+  })
+
+  it('comandă NEservită fără bani → butonul e activ și fără motiv (opțional)', async () => {
+    const onConfirm = vi.fn().mockResolvedValue({ ok: true })
+    render(
+      <CancelOrderDialog
+        order={makeOrder({ status: 'preparing' })}
+        payments={[]}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />,
+    )
+    const btn = screen.getByRole('button', { name: /anulează comanda/i })
+    expect(btn).toBeEnabled()
+    await userEvent.click(btn)
+    expect(onConfirm).toHaveBeenCalledWith(undefined)
+  })
 })
 
 describe('describeCancelRejection', () => {

@@ -361,6 +361,7 @@ exports.handler = async (event) => {
       const { data, error } = await supabase.rpc('get_queue_backlog').abortSignal(qController.signal)
       if (error) throw new Error(error.message)
       if (data && typeof data === 'object' && data.cron && typeof data.cron === 'object' && data.bridge && typeof data.bridge === 'object') {
+        /** Vârsta (s) a celui mai vechi rând în așteptare din coada `key`; 0 când lipsește sau nu e numeric. */
         const age = (group, key) => {
           const v = group[key] && Number(group[key].oldest_age_s)
           return Number.isFinite(v) ? v : 0

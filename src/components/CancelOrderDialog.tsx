@@ -72,6 +72,10 @@ export default function CancelOrderDialog({
   // Pe storno (mig 270) motivul e obligatoriu indiferent de status.
   const reasonRequired = order.status === 'served' || blockedByPayments
   const trimmedReason = reason.trim()
+  // Când motivul e obligatoriu (served / storno), butonul rămâne dezactivat
+  // până se scrie ceva — altfel clickul pleacă gol la server și se întoarce
+  // `cancel_reason_required`, un refuz previzibil transformat în eroare.
+  const reasonMissing = reasonRequired && trimmedReason.length === 0
 
   /** Aplică rezultatul unei anulări/stornări: la refuz deblochează butonul și afișează mesajul serverului. */
   function handleResult(res: CancelResult): void {
@@ -242,12 +246,12 @@ export default function CancelOrderDialog({
           {blockedByPayments ? (
             <button
               onClick={() => {
-                if (!onVoidAndCancel || trimmedReason.length === 0) return
+                if (!onVoidAndCancel || reasonMissing) return
                 setSubmitting(true)
                 setError(null)
                 void onVoidAndCancel(trimmedReason).then(handleResult)
               }}
-              disabled={submitting || !onVoidAndCancel || trimmedReason.length === 0}
+              disabled={submitting || !onVoidAndCancel || reasonMissing}
               style={{
                 flex: 1,
                 background: D.red,
@@ -259,7 +263,7 @@ export default function CancelOrderDialog({
                 fontSize: 14,
                 fontWeight: 700,
                 cursor: submitting ? 'wait' : 'pointer',
-                opacity: submitting || !onVoidAndCancel || trimmedReason.length === 0 ? 0.6 : 1,
+                opacity: submitting || !onVoidAndCancel || reasonMissing ? 0.6 : 1,
               }}
             >
               {submitting ? 'Se stornează…' : 'Stornează plățile și anulează'}
@@ -267,11 +271,12 @@ export default function CancelOrderDialog({
           ) : (
             <button
               onClick={() => {
+                if (reasonMissing) return
                 setSubmitting(true)
                 setError(null)
                 void onConfirm(trimmedReason ? trimmedReason : undefined).then(handleResult)
               }}
-              disabled={submitting}
+              disabled={submitting || reasonMissing}
               style={{
                 flex: 1,
                 background: D.red,
@@ -283,7 +288,7 @@ export default function CancelOrderDialog({
                 fontSize: 14,
                 fontWeight: 700,
                 cursor: submitting ? 'wait' : 'pointer',
-                opacity: submitting ? 0.7 : 1,
+                opacity: submitting || reasonMissing ? 0.6 : 1,
               }}
             >
               {submitting ? 'Se anulează…' : 'Anulează comanda'}
