@@ -42,10 +42,13 @@ STRIPE_PUBLISHABLE_KEY=...
 STRIPE_CONNECT_WEBHOOK_SECRET=...
 # Alarma de stocare din /health (mig 266). DB_SIZE_LIMIT_BYTES = plafonul
 # planului în OCTEȚI, fără sufix ("8GB" e ignorat cu avertisment); gol = 500 MB.
-# HEALTH_DIAG_TOKEN deblochează diagnosticul (octeți + primele 5 tabele) prin
-# antetul `x-health-diag` EXCLUSIV (NU in query string — secret in URL = secret
-# in loguri); GOL = diagnostic inaccesibil (fail-closed, /health e
-# public). Setează-l ACUM, nu în timpul incidentului.
+# HEALTH_DIAG_TOKEN deblochează diagnosticul complet — config (integrări),
+# cron_last_run, storage_detail (octeți + primele 5 tabele), schema_detail
+# (migrațiile lipsă din ledger, mig 271) și queue_detail (backlog-ul cozilor) —
+# prin antetul `x-health-diag` EXCLUSIV (NU in query string — secret in URL =
+# secret in loguri); GOL = diagnostic inaccesibil (fail-closed, /health e
+# public, corpul public e doar {status, checks, ts}). Setează-l ACUM, nu în
+# timpul incidentului.
 DB_SIZE_LIMIT_BYTES=
 HEALTH_DIAG_TOKEN=
 # WEBHOOK_SECRET = secretul INTERN pt send-push/welcome-email — NU e cel Stripe!

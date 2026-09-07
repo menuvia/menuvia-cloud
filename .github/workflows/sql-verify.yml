@@ -1528,6 +1528,22 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/receipt_retry_ambiguous_assertions.sql
 
+      - name: "Schema version probe assertions (mig 271 A)"
+        if: ${{ hashFiles('supabase/migrations/20260911090000_migration_271_health_probes.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/schema_version_assertions.sql
+
+      - name: "Queue backlog probe assertions (mig 271 B)"
+        if: ${{ hashFiles('supabase/migrations/20260911090000_migration_271_health_probes.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/queue_backlog_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:

@@ -206,33 +206,57 @@ Expus la `/.netlify/functions/health` și rutat frumos la **`/health`** (redirec
 curl -s https://menuvia.ro/health | jq
 ```
 
-Răspuns (`checks` are TREI sonde: `db`, `cron`, `storage`):
-- `200 { status:"ok", checks:{db:"ok", cron:"ok", storage:"ok"}, config, ts }` — totul în parametri.
+Răspunsul PUBLIC are EXACT trei chei — `status`, `checks`, `ts` — iar `checks` are CINCI
+sonde: `db`, `cron`, `storage`, `schema`, `queues` (forma e înghețată de testul HL8; orice
+câmp nou scurs public pică CI-ul):
+- `200 { status:"ok", checks:{db:"ok", cron:"ok", storage:"ok", schema:"ok", queues:"ok"}, ts }` — totul în parametri.
+- `checks:{schema:"behind"}` cu **200** (mig 271, audit v3 RES-08) — repo-ul are migrații pe
+  care ledger-ul producției NU le are („am reparat, dar nu apără"). Nu e 503 (deploy-ul
+  înaintea migrației e un tranzit legitim), dar `health-watch.yml` pică ROȘU pe el la fiecare
+  30 min până le aplici. Lista exactă: `curl -H x-health-diag … | jq .schema_detail`.
+  Sonda compară NUMELE migrațiilor (manifestul `netlify/functions/schema-manifest.json`,
+  regenerat cu `node scripts/gen-schema-manifest.mjs`; testul SM1 pică dacă adaugi o migrație
+  fără să-l regenerezi) cu `supabase_migrations.schema_migrations.name` — NU `version`, care
+  pe prod e timestamp-ul aplicării prin MCP.
+- `503 ... checks:{queues:"stale"}` (mig 271, RES-32) — o coadă de PLATFORMĂ are muncă
+  scadentă neridicată peste prag: email 30 min, SMS 60, facturi Oblio 60, remindere 120.
+  Prinde și clasa „funcția rulează, întoarce 200 și nu face nimic" (cheie lipsă, PGRST202),
+  pe care un heartbeat per job n-o vede. `queues:"warn"` cu **200** = bonuri/tichete
+  `pending` >15 min la un restaurant (bridge-ul LUI e oprit — alarma per-tenant e bannerul
+  mig 265, nu un 503 de platformă). `queue_detail` (numărători + vârste) cere token.
 - `503 { status:"degraded", checks:{db:"down"}, ... }` — DB căzut **sau** env de bază lipsă.
 - `503 ... checks:{cron:"stale"}` — automatizarea nu a mai rulat de >2h (incidentul 2–9 aug 2026).
 - `503 ... checks:{storage:"critical"}` — baza e la ≥90% din plafon. La ≥80% e
   `storage:"warn"` cu **200** (preaviz, nu alertă). Când baza atinge plafonul,
   Postgres trece în READ-ONLY: nu se mai acceptă comenzi la NICIUN restaurant.
-- `checks:{storage:"unknown"}` — sonda nu a putut fi citită (RPC neaplicat, permisiune
-  lipsă). NU influențează codul de status; dacă persistă cu `db:"ok"`, alarma de
-  stocare e MOARTĂ — vezi `get_database_size()` (mig 266).
+- `checks:{storage|schema|queues:"unknown"}` — sonda nu a putut fi citită (RPC neaplicat,
+  permisiune lipsă). NU influențează codul de status; dacă persistă cu `db:"ok"` DUPĂ ce
+  migrația respectivă (266/271) e aplicată, sonda e MOARTĂ — `health-watch.yml` avertizează.
 
-**Diagnosticul de stocare cere token.** `/health` e public, deci implicit întoarce
-doar severitatea. Cu `HEALTH_DIAG_TOKEN` setat:
+**Diagnosticul complet cere token.** `/health` e public, deci implicit întoarce DOAR
+severitatea (public = severitate, cu token = cifre — audit v3 RES-38). Cu `HEALTH_DIAG_TOKEN`
+setat, antetul `x-health-diag` adaugă `config`, `cron_last_run`, `storage_detail`,
+`schema_detail` și `queue_detail`:
 
 ```bash
-curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq .storage_detail
-# { bytes, pretty, limit_bytes, used_pct, top_tables: [primele 5, descrescător] }
+curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq '{config, cron_last_run, storage_detail, schema_detail, queue_detail}'
+# storage_detail: { bytes, pretty, limit_bytes, used_pct, top_tables: [primele 5] }
+# schema_detail:  { expected_latest, db_latest, ledger_count, missing: [nume de migrații] }
+# queue_detail:   { cron: { email|sms|invoices|reminders: {waiting, oldest_age_s}, slack_alerts: {waiting} },
+#                   bridge: { receipts|tickets: {waiting, oldest_age_s} } }
 ```
 
-Fără token nu există `storage_detail` deloc (fail-closed) — de aceea se setează
-ÎNAINTE de incident, nu în timpul lui. Tokenul se trimite **numai prin antet**:
-`?diag=<token>` e respins deliberat (CWE-598 — un secret în URL ajunge în logurile
-de request, în configul monitorului și în istoricul de shell).
+Fără token nu există NICIUN câmp de diagnostic (fail-closed, nici măcar `config`) — de aceea
+se setează ÎNAINTE de incident, nu în timpul lui. Tokenul se trimite **numai prin antet**:
+`?diag=<token>` e respins deliberat (CWE-598 — un secret în URL ajunge în logurile de
+request, în configul monitorului și în istoricul de shell).
 
-`config` = booleeni de **prezență** a secretelor (niciodată valori):
-`resend`, `slack`, `stripe`, `ai_platform`. Dacă un secret a fost revocat/lipsește, îl vezi
-`false` aici — util pentru „de ce nu pleacă emailurile" fără să scurgi secrete.
+`config` = booleeni de **prezență** a secretelor (niciodată valori): `resend`, `slack`,
+`stripe`, `ai_platform`. Dacă un secret a fost revocat/lipsește, îl vezi `false` aici — util
+pentru „de ce nu pleacă emailurile" fără să scurgi secrete. E sub token fiindcă starea
+integrărilor (Resend/Slack morți) spune unui străin că nimeni nu va afla de un incident;
+UptimeRobot Free nu trimite antete custom, deci alerta pe `config.*` se face din
+`health-watch.yml` (cu secret) sau manual.
 
 ### 4.2 Alerte Slack ✅
 
@@ -273,7 +297,7 @@ staging). Prod și staging au proiecte Supabase **separate** — nu le amesteca.
 | `AI_CONFIG_SECRET` | ai-config | 🔴 Cheia AES-256-GCM pentru credențialele AI per-restaurant. Lipsă/`<32` chars → `ai-config` 500; fără ea **nu se pot cripta/decripta** cheile AI salvate. |
 | `EMAIL_FROM` / `EMAIL_REPLY_TO` / `APP_URL` | process-email-queue | ℹ️ Au fallback-uri (`hello@menuvia.ro`, `radu@menuvia.ro`, URL). Nu crapă, dar verifică-le pe prod. |
 
-**Test rapid post-deploy:** `curl -s https://menuvia.ro/health | jq .config` — toți booleenii
+**Test rapid post-deploy:** `curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq .config` — toți booleenii
 critici trebuie `true` pe production.
 
 ---

@@ -19,7 +19,7 @@
 const { describe, it, beforeEach, afterEach } = require('node:test')
 const assert = require('node:assert/strict')
 const path = require('node:path')
-const { state, resetMocks, installModuleMocks, parseBody } = require('./helpers/mocks')
+const { state, resetMocks, installModuleMocks, parseBody, rpcCallsFor } = require('./helpers/mocks')
 
 const HEALTH_PATH = path.join(__dirname, '..', '..', 'netlify', 'functions', 'health.js')
 
@@ -30,6 +30,35 @@ function loadHealthFresh() {
   installModuleMocks()
   delete require.cache[require.resolve(HEALTH_PATH)]
   return require(HEALTH_PATH)
+}
+
+// Forma PUBLICĂ nu mai poartă câmpurile de diagnostic deloc (audit v3 RES-38):
+// nu `null`, ci ABSENTE. Verificarea e pe prezența cheii, nu pe valoare.
+function assertNoDiag(body, msg) {
+  for (const k of ['storage_detail', 'config', 'cron_last_run', 'schema_detail', 'queue_detail']) {
+    assert.equal(k in body, false, `${msg}: cheia „${k}” a ajuns pe suprafața publică`)
+  }
+}
+
+const MANIFEST = require(path.join(__dirname, '..', '..', 'netlify', 'functions', 'schema-manifest.json'))
+
+function scriptSchema(result) {
+  state.rpcHandlers['get_schema_version'] = () => result
+}
+function scriptQueues(result) {
+  state.rpcHandlers['get_queue_backlog'] = () => result
+}
+function backlog(overrides) {
+  const z = { waiting: 0, oldest_age_s: 0 }
+  const base = {
+    cron: { email: { ...z }, sms: { ...z }, invoices: { ...z }, reminders: { ...z }, slack_alerts: { waiting: 0 } },
+    bridge: { receipts: { ...z }, tickets: { ...z } },
+  }
+  for (const [path, val] of Object.entries(overrides || {})) {
+    const [g, k] = path.split('.')
+    base[g][k] = { ...base[g][k], ...val }
+  }
+  return base
 }
 
 function scriptDbOk(bytes) {
@@ -135,7 +164,7 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     // Forma se ÎNGHEAȚĂ, nu se verifică pe câmpuri știute (disciplina BC5/mig 265):
     // o verificare per-câmp lasă să treacă ORICE cheie NOUĂ — `pretty`, un
     // `tables` redenumit, un `oldest_row` viitor. Public = zero cifre.
-    assert.equal(body.storage_detail, null, 'suprafața publică nu mai are voie să poarte cifre')
+    assertNoDiag(body, 'HL4')
     // Plasă de siguranță pe TOT corpul, nu doar pe câmpurile știute.
     assert.ok(!JSON.stringify(body).includes('audit_log'), 'un nume de tabel a ajuns în răspunsul public')
     assert.ok(!JSON.stringify(body).includes('used_pct'), 'procentul (deci și dimensiunea) a ajuns public')
@@ -161,7 +190,7 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     const viaQuery = parseBody(
       await handler({ httpMethod: 'GET', queryStringParameters: { diag: 'secret-diag-token' } }),
     )
-    assert.equal(viaQuery.storage_detail, null, 'tokenul din query string a fost ACCEPTAT')
+    assertNoDiag(viaQuery, 'HL5 (query string)')
   })
 
   it('HL6: token greșit sau env nesetat → FAIL-CLOSED, niciun detaliu', async () => {
@@ -169,14 +198,14 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     let { handler } = loadHealthFresh()
     scriptDbOk(BYTES_98_PCT)
     let body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'gresit' } }))
-    assert.equal(body.storage_detail, null, 'token greșit (altă lungime) a primit diagnosticul')
+    assertNoDiag(body, 'HL6 token greșit (altă lungime)')
 
     // Token greșit de ACEEAȘI LUNGIME — altfel comparația de egalitate nu e
     // exercitată NICIODATĂ (verificarea de lungime respinge prima) și ștergerea
     // ei ar lăsa suita verde: gate-ul ar degrada la „orice șir de lungimea bună".
     const sameLen = 'x'.repeat('secret-diag-token'.length)
     body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': sameLen } }))
-    assert.equal(body.storage_detail, null, 'token greșit de aceeași lungime a primit diagnosticul')
+    assertNoDiag(body, 'HL6 token greșit (aceeași lungime)')
 
     // Env NEsetat: prezentarea unui token oarecare NU deschide suprafața.
     delete process.env.HEALTH_DIAG_TOKEN
@@ -184,6 +213,163 @@ describe('health — diagnosticul privilegiat nu ajunge pe suprafața publică',
     resetMocks()
     scriptDbOk(BYTES_98_PCT)
     body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'orice' } }))
-    assert.equal(body.storage_detail, null, 'fără env, suprafața s-a deschis (nu e fail-closed)')
+    assertNoDiag(body, 'HL6 env nesetat')
+  })
+})
+
+describe('health — forma publică e ÎNGHEȚATĂ; diagnosticul complet cere token (audit v3 RES-38)', () => {
+  it('HL8: public = exact {checks, status, ts}; nicio integrare, nicio cifră, niciun nume de migrație', async () => {
+    const { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'x', latest_version: '1', missing: ['migration_999_x'] }, error: null })
+    scriptQueues({ data: backlog({ 'cron.email': { waiting: 3, oldest_age_s: 120 } }), error: null })
+    const body = parseBody(await handler({ httpMethod: 'GET' }))
+    assert.deepEqual(Object.keys(body).sort(), ['checks', 'status', 'ts'])
+    assert.deepEqual(Object.keys(body.checks).sort(), ['cron', 'db', 'queues', 'schema', 'storage'])
+    const raw = JSON.stringify(body)
+    for (const leak of ['config', 'cron_last_run', 'resend', 'slack', 'stripe', 'ai_platform', 'used_pct', 'oldest_age', 'migration_999', 'waiting']) {
+      assert.ok(!raw.includes(leak), `„${leak}” a ajuns pe suprafața publică`)
+    }
+  })
+
+  it('HL9: ramura 503 „env lipsă” nu poartă config fără token', async () => {
+    delete process.env.SUPABASE_URL
+    const { handler } = loadHealthFresh()
+    const res = await handler({ httpMethod: 'GET' })
+    const body = parseBody(res)
+    assert.equal(res.statusCode, 503)
+    assert.equal(body.checks.db, 'down')
+    assertNoDiag(body, 'HL9')
+  })
+
+  it('HL10: cu token, config (exact 4 booleeni), cron_last_run și detaliile sunt livrate', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    process.env.RESEND_API_KEY = 're_x'
+    delete process.env.STRIPE_SECRET_KEY
+    const { handler } = loadHealthFresh()
+    const computedAt = '2026-09-07T03:00:00.000Z'
+    state.fromHandlers['restaurants'] = () => ({ data: [{ id: 'r1' }], error: null })
+    state.fromHandlers['customer_health_scores'] = () => ({ data: [{ computed_at: computedAt }], error: null })
+    state.rpcHandlers['get_database_size'] = () => ({ data: { bytes: 1024, pretty: '1 kB', top_tables: [] }, error: null })
+    scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'migration_271_health_probes', latest_version: '1', missing: [] }, error: null })
+    scriptQueues({ data: backlog(), error: null })
+    const body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
+    assert.deepEqual(Object.keys(body.config).sort(), ['ai_platform', 'resend', 'slack', 'stripe'])
+    assert.equal(body.config.resend, true)
+    assert.equal(body.config.stripe, false)
+    assert.equal(body.cron_last_run, computedAt)
+    assert.equal(body.storage_detail.bytes, 1024)
+    assert.equal(body.schema_detail.ledger_count, 271)
+    assert.ok(body.queue_detail && body.queue_detail.cron)
+  })
+
+  it('HL11: token greșit de aceeași lungime → nici config, nici cron_last_run', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    const { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    const body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'x'.repeat('secret-diag-token'.length) } }))
+    assertNoDiag(body, 'HL11')
+  })
+})
+
+describe('health — sonda de schemă (mig 271, RES-08)', () => {
+  it('HL12: migrații lipsă din ledger → schema=behind cu 200; numele doar cu token', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    const { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: true, ledger_count: 270, latest_name: 'migration_270_money_gates_in_data', latest_version: '20260907', missing: ['migration_271_health_probes'] }, error: null })
+    const pub = await handler({ httpMethod: 'GET' })
+    const body = parseBody(pub)
+    assert.equal(pub.statusCode, 200, 'behind NU e 503 — deploy-ul înaintea migrației e un tranzit legitim')
+    assert.equal(body.checks.schema, 'behind')
+    assert.ok(!JSON.stringify(body).includes('migration_271'), 'numele migrației lipsă a ajuns public')
+    const diag = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
+    assert.deepEqual(diag.schema_detail.missing, ['migration_271_health_probes'])
+    assert.equal(diag.schema_detail.expected_latest, MANIFEST.names[MANIFEST.names.length - 1])
+    assert.equal(diag.schema_detail.db_latest, 'migration_270_money_gates_in_data')
+  })
+
+  it('HL13: eroare RPC sau available=false → unknown (nu ok, nu behind); missing=[] → ok', async () => {
+    let { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptSchema({ data: null, error: { message: 'PGRST202' } })
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.schema, 'unknown')
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: false, ledger_count: null, latest_name: null, latest_version: null, missing: null }, error: null })
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.schema, 'unknown')
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'x', latest_version: '1', missing: [] }, error: null })
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.schema, 'ok')
+  })
+
+  it('HL14: sonda primește ÎNTREG manifestul, nu doar ultimul nume', async () => {
+    const { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: true, ledger_count: 1, latest_name: 'x', latest_version: '1', missing: [] }, error: null })
+    await handler({ httpMethod: 'GET' })
+    const calls = rpcCallsFor('get_schema_version')
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0].args.p_expected, MANIFEST.names)
+    assert.ok(MANIFEST.names.length >= 270)
+  })
+})
+
+describe('health — backlog-ul cozilor (mig 271, RES-32)', () => {
+  function withQueues(data) {
+    const { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptSchema({ data: { available: true, ledger_count: 1, latest_name: 'x', latest_version: '1', missing: [] }, error: null })
+    scriptQueues({ data, error: null })
+    return handler
+  }
+
+  it('HL15: email vechi de o oră → queues=stale și 503', async () => {
+    const res = await withQueues(backlog({ 'cron.email': { waiting: 4, oldest_age_s: 3600 } }))({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.queues, 'stale')
+    assert.equal(res.statusCode, 503)
+  })
+
+  it('HL16: praguri la limită — 1800 s e ok, 1801 s e stale (email); 7200/7201 (remindere)', async () => {
+    assert.equal(parseBody(await withQueues(backlog({ 'cron.email': { waiting: 1, oldest_age_s: 1800 } }))({ httpMethod: 'GET' })).checks.queues, 'ok')
+    assert.equal(parseBody(await withQueues(backlog({ 'cron.email': { waiting: 1, oldest_age_s: 1801 } }))({ httpMethod: 'GET' })).checks.queues, 'stale')
+    assert.equal(parseBody(await withQueues(backlog({ 'cron.reminders': { waiting: 1, oldest_age_s: 7200 } }))({ httpMethod: 'GET' })).checks.queues, 'ok')
+    assert.equal(parseBody(await withQueues(backlog({ 'cron.reminders': { waiting: 1, oldest_age_s: 7201 } }))({ httpMethod: 'GET' })).checks.queues, 'stale')
+  })
+
+  it('HL17: bonuri pending >15 min la un restaurant → warn cu 200, NICIODATĂ 503; alertele Slack singure → ok', async () => {
+    const res = await withQueues(backlog({ 'bridge.receipts': { waiting: 2, oldest_age_s: 1200 } }))({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.queues, 'warn')
+    assert.equal(res.statusCode, 200)
+    const slackOnly = await withQueues(backlog({ 'cron.slack_alerts': { waiting: 5 } }))({ httpMethod: 'GET' })
+    assert.equal(parseBody(slackOnly).checks.queues, 'ok')
+  })
+
+  it('HL18: RPC lipsă / date fără formă → unknown cu 200 (absența datelor NU e sănătate, dar nici alarmă)', async () => {
+    let { handler } = loadHealthFresh()
+    scriptDbOk(1024)
+    scriptQueues({ data: null, error: { message: 'PGRST202' } })
+    let res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.queues, 'unknown')
+    assert.equal(res.statusCode, 200)
+    ;({ handler } = loadHealthFresh())
+    resetMocks()
+    scriptDbOk(1024)
+    scriptQueues({ data: { cron: {} }, error: null })
+    res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.queues, 'unknown')
+  })
+
+  it('HL19: numărătorile ajung DOAR cu token', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    const handler = withQueues(backlog({ 'cron.email': { waiting: 7, oldest_age_s: 60 } }))
+    const pub = parseBody(await handler({ httpMethod: 'GET' }))
+    assert.ok(!JSON.stringify(pub).includes('oldest_age'), 'vârsta cozii a ajuns public')
+    assert.equal('queue_detail' in pub, false)
+    const diag = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
+    assert.equal(diag.queue_detail.cron.email.waiting, 7)
   })
 })

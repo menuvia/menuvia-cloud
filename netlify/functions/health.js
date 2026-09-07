@@ -11,9 +11,12 @@
 // service_role (ca celelalte funcții). Timeout defensiv scurt pe query ca un DB
 // lent/blocat să nu țină cererea agățată — monitorul primește 503 rapid.
 //
-// Răspuns:
-//   200 { status: 'ok',       checks: { db: 'ok',   cron: 'ok'    }, ... }
-//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' }, ... }
+// Răspuns PUBLIC (exact trei chei — forma e înghețată de testul HL8):
+//   200 { status: 'ok',       checks: { db, cron, storage, schema, queues }, ts }
+//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' | storage: 'critical' | queues: 'stale' }, ts }
+// Cu antetul `x-health-diag` (HEALTH_DIAG_TOKEN) se adaugă `config`,
+// `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail`.
+// `schema: 'behind'` (mig 271) NU schimbă codul HTTP — îl alertează health-watch.
 //
 // ── De ce verificăm ȘI cron-ul aici (incident 2–9 august 2026) ──────────────
 // automation-cron a încetat să ruleze pe 2 august 19:30 și NIMENI n-a aflat
@@ -29,7 +32,9 @@
 //
 // Blocul `config` = booleeni de PREZENȚĂ a env-urilor critice (NICIODATĂ valori) —
 // founderul vede rapid dacă un secret a fost revocat/lipsă (finding audit:
-// fallback-uri silențioase care mascau erori). Fără secrete în răspuns.
+// fallback-uri silențioase care mascau erori). Fără secrete în răspuns — și,
+// din audit v3 RES-38, DOAR cu token: starea integrărilor (Resend/Slack morți)
+// spune unui străin că nimeni nu va afla de un incident.
 //
 // Env vars:
 //   SUPABASE_URL || VITE_SUPABASE_URL
@@ -37,8 +42,9 @@
 //   DB_SIZE_LIMIT_BYTES  (optional) plafonul de stocare in OCTETI, fara sufix de
 //                        unitate. Default 500 MB (planul Free). O valoare
 //                        invalida e ignorata CU avertisment in log.
-//   HEALTH_DIAG_TOKEN    (optional) deblocheaza `storage_detail` (octeti, plafon,
-//                        procent, primele 5 tabele) EXCLUSIV prin antetul
+//   HEALTH_DIAG_TOKEN    (optional) deblocheaza `config`, `cron_last_run`,
+//                        `storage_detail` (octeti, plafon, procent, primele 5
+//                        tabele), `schema_detail` si `queue_detail` EXCLUSIV prin antetul
 //                        `x-health-diag`. NU se accepta in query string (un
 //                        secret in URL ajunge in loguri — CWE-598). NESETAT =
 //                        diagnosticul nu e accesibil de nicaieri (fail-closed).
@@ -46,6 +52,18 @@
 
 const crypto = require('node:crypto')
 const { createClient } = require('@supabase/supabase-js')
+// Manifestul migrațiilor din repo (nume fără prefixul de 14 cifre), generat de
+// scripts/gen-schema-manifest.mjs și COMIS — sonda `get_schema_version` (mig
+// 271) primește lista și întoarce ce lipsește din ledger-ul producției.
+const SCHEMA_MANIFEST = require('./schema-manifest.json')
+
+// ── Praguri pentru backlog-ul cozilor (mig 271, audit v3 RES-32) ────────────
+// Grupa `cron` = platformă → `stale` dă 503 (alertă). Pragurile sunt multipli
+// de tick-ul cron-ului (5 min) — 6 tick-uri ratate pe email = ceva e mort.
+// Grupa `bridge` = PC-ul unui restaurant → DOAR `warn` (200): un 503 de
+// platformă pentru o casă oprită antrenează founderul să ignore /health.
+const QUEUE_STALE_S = { email: 30 * 60, sms: 60 * 60, invoices: 60 * 60, reminders: 120 * 60 }
+const BRIDGE_WARN_S = 15 * 60
 
 /**
  * Comparare constant-time (oglinda lui `safeEqual` din deploy/server.js, SEC-09).
@@ -167,10 +185,12 @@ exports.handler = async (event) => {
   // Lipsa env-ului de bază = nu putem verifica DB-ul → degraded (nu 500),
   // ca monitorul să alerteze la fel ca la un DB căzut.
   if (!supabaseUrl || !serviceRoleKey) {
+    // Public = doar severitatea; `config` (ce integrări sunt moarte) cere token —
+    // altfel un curl anonim afla că fondatorul e orb (fără Slack, fără cron).
     return jsonResponse(503, {
       status: 'degraded',
       checks: { db: 'down' },
-      config,
+      ...(diagAllowed ? { config } : {}),
       ts,
     })
   }
@@ -290,13 +310,90 @@ exports.handler = async (event) => {
     }
   }
 
-  const healthy = dbOk && cron !== 'stale' && storage !== 'critical'
+  // ── Decalajul de schemă (mig 271, RES-08) ────────────────────────────────
+  // `behind` = repo-ul are migrații pe care ledger-ul prod NU le are (deploy
+  // înaintea migrației — un tranzit legitim, deci NU schimbă codul HTTP; îl
+  // alertează health-watch, nu UptimeRobot). `unknown` = sonda nu răspunde
+  // (RPC neaplicat / ledger absent) — după aplicarea mig 271 înseamnă sondă
+  // moartă, vizibil din afară ca la storage. Public = doar severitatea;
+  // numele migrațiilor lipsă cer token.
+  let schema = 'unknown'
+  let schemaDetail = null
+  if (dbOk) {
+    const schemaController = new AbortController()
+    const schemaTimer = setTimeout(() => schemaController.abort(), DB_PING_TIMEOUT_MS)
+    try {
+      const { data, error } = await supabase
+        .rpc('get_schema_version', { p_expected: SCHEMA_MANIFEST.names })
+        .abortSignal(schemaController.signal)
+      if (error) throw new Error(error.message)
+      if (data && typeof data === 'object' && data.available === true) {
+        const missing = Array.isArray(data.missing) ? data.missing : []
+        schema = missing.length > 0 ? 'behind' : 'ok'
+        if (diagAllowed) {
+          schemaDetail = {
+            expected_latest: SCHEMA_MANIFEST.names[SCHEMA_MANIFEST.names.length - 1] || null,
+            db_latest: data.latest_name || null,
+            ledger_count: Number.isFinite(Number(data.ledger_count)) ? Number(data.ledger_count) : null,
+            missing,
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[health] schema version check failed:', e.message)
+    } finally {
+      clearTimeout(schemaTimer)
+    }
+  }
+
+  // ── Backlog-ul cozilor (mig 271, RES-32) ─────────────────────────────────
+  // /health vedea UN singur job din șase. Sonda e de BACKLOG (muncă ce
+  // așteaptă și nu e ridicată), cu predicate care oglindesc claim-urile —
+  // prinde și clasa „funcția rulează, întoarce 200 și nu face nimic" (cheie
+  // lipsă, PGRST202), pe care un heartbeat per job n-o vede. `data` null sau
+  // fără formă → `unknown`, NICIODATĂ `ok` (absența datelor nu e sănătate).
+  let queues = 'unknown'
+  let queueDetail = null
+  if (dbOk) {
+    const qController = new AbortController()
+    const qTimer = setTimeout(() => qController.abort(), DB_PING_TIMEOUT_MS)
+    try {
+      const { data, error } = await supabase.rpc('get_queue_backlog').abortSignal(qController.signal)
+      if (error) throw new Error(error.message)
+      if (data && typeof data === 'object' && data.cron && typeof data.cron === 'object' && data.bridge && typeof data.bridge === 'object') {
+        const age = (group, key) => {
+          const v = group[key] && Number(group[key].oldest_age_s)
+          return Number.isFinite(v) ? v : 0
+        }
+        const stale = Object.keys(QUEUE_STALE_S).some((k) => age(data.cron, k) > QUEUE_STALE_S[k])
+        const bridgeWarn = ['receipts', 'tickets'].some((k) => age(data.bridge, k) > BRIDGE_WARN_S)
+        queues = stale ? 'stale' : bridgeWarn ? 'warn' : 'ok'
+        if (diagAllowed) queueDetail = data
+      }
+    } catch (e) {
+      console.error('[health] queue backlog check failed:', e.message)
+    } finally {
+      clearTimeout(qTimer)
+    }
+  }
+
+  const healthy = dbOk && cron !== 'stale' && storage !== 'critical' && queues !== 'stale'
+  // PUBLIC = SEVERITATE, cu token = CIFRE (audit v3 RES-38): corpul public are
+  // EXACT {status, checks, ts}. `config` (ce integrări sunt moarte),
+  // `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail` apar
+  // DOAR cu `x-health-diag`. Forma publică e înghețată de HL8.
   return jsonResponse(healthy ? 200 : 503, {
     status: healthy ? 'ok' : 'degraded',
-    checks: { db: dbOk ? 'ok' : 'down', cron, storage },
-    cron_last_run: cronLastRun,
-    storage_detail: storageDetail,
-    config,
+    checks: { db: dbOk ? 'ok' : 'down', cron, storage, schema, queues },
+    ...(diagAllowed
+      ? {
+          config,
+          cron_last_run: cronLastRun,
+          storage_detail: storageDetail,
+          schema_detail: schemaDetail,
+          queue_detail: queueDetail,
+        }
+      : {}),
     ts,
   })
 }

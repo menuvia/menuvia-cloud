@@ -35,24 +35,46 @@ jobs:
           code="$(echo "$body" | tail -1)"
           payload="$(echo "$body" | head -n -1)"
           echo "HTTP $code de la $HEALTH_URL"
+          # Corpul PUBLIC e {status, checks, ts} (audit v3 RES-38) — fără
+          # cifre, fără starea integrărilor — deci poate fi tipărit în log.
           echo "$payload"
           if [ "$rc" -ne 0 ]; then
             echo "::error::/health inaccesibil (curl rc=$rc) — site-ul sau funcțiile Netlify sunt CĂZUTE."
             exit 1
           fi
           if [ "$code" != "200" ]; then
-            echo "::error::/health a întors $code — db down sau cron STALE (vezi payload-ul de mai sus și docs/RUNBOOK.md §Incident)."
+            echo "::error::/health a întors $code — db down, cron STALE, stocare critică sau cozi STALE (vezi payload-ul de mai sus și docs/RUNBOOK.md §Incident)."
             exit 1
           fi
-          # Sonda de stocare NU influențează codul de status (toleranță
-          # deliberată: clientul se poate deploya înaintea migrației). Dar după
-          # ce mig 266 e aplicată, `unknown` nu mai înseamnă „se deployează", ci
-          # „sonda e MOARTĂ" — RPC șters/redenumit, EXECUTE revocat de la
-          # service_role, cheia `bytes` schimbată — și atunci alarma de stocare
-          # tace pentru totdeauna cu HTTP 200. Nimic din interior nu observă asta,
-          # deci o observăm DE AFARĂ, ca tot restul acestui workflow.
-          storage="$(echo "$payload" | sed -n 's/.*"storage":"\([a-z]*\)".*/\1/p')"
+          sonda() { echo "$payload" | sed -n "s/.*\"$1\":\"\([a-z]*\)\".*/\1/p"; }
+          storage="$(sonda storage)"
+          schema="$(sonda schema)"
+          queues="$(sonda queues)"
+          # Sondele tolerante (storage/schema/queues) NU influențează codul de
+          # status pe `unknown` (toleranță deliberată: clientul se poate deploya
+          # înaintea migrației). Dar după ce mig 266/271 sunt aplicate, `unknown`
+          # nu mai înseamnă „se deployează", ci „sonda e MOARTĂ" — RPC șters,
+          # EXECUTE revocat, cheie schimbată — și alarma respectivă tace pentru
+          # totdeauna cu HTTP 200. Nimic din interior nu observă asta, deci o
+          # observăm DE AFARĂ, ca tot restul acestui workflow.
           if [ "$storage" = "unknown" ]; then
             echo "::warning::/health raportează storage=unknown deși db=ok — sonda get_database_size() (mig 266) nu răspunde. Alarma de stocare e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
           fi
-          echo "✓ health OK (db + cron în parametri; storage=${storage:-n/a})"
+          if [ "$queues" = "unknown" ]; then
+            echo "::warning::/health raportează queues=unknown deși db=ok — sonda get_queue_backlog() (mig 271) nu răspunde. Alarma pe cozi e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+          fi
+          if [ "$queues" = "warn" ]; then
+            echo "::warning::/health raportează queues=warn — bonuri/tichete pending >15 min la un restaurant (bridge-ul lui e probabil oprit; alarma per-tenant e bannerul mig 265)."
+          fi
+          # Decalajul de schemă e EXACT starea RES-08 („am reparat, dar nu apără"):
+          # repo-ul are migrații pe care prod-ul nu le are. Nu e un 503 (deploy-ul
+          # înaintea migrației e un tranzit legitim), dar e singurul canal care
+          # trimite email azi — nag la 30 min până la aplicare e intenționat.
+          if [ "$schema" = "unknown" ]; then
+            echo "::warning::/health raportează schema=unknown deși db=ok — sonda get_schema_version() (mig 271) nu răspunde (neaplicată încă sau moartă)."
+          fi
+          if [ "$schema" = "behind" ]; then
+            echo "::error::/health raportează schema=behind — există migrații în repo NEAPLICATE pe producție. Aplică-le (Supabase MCP apply_migration / SQL Editor) — vezi docs/RUNBOOK.md §4.1; lista exactă: curl cu x-health-diag."
+            exit 1
+          fi
+          echo "✓ health OK (db + cron în parametri; storage=${storage:-n/a} schema=${schema:-n/a} queues=${queues:-n/a})"
