@@ -2,7 +2,14 @@
 // Test navigation prin tab-urile dashboard-ului ca admin authenticated.
 // Requires E2E_EMAIL + E2E_PASSWORD env vars cu un cont real (owner).
 import { test, expect } from '@playwright/test'
-import { login, waitForDashboard, requireCreds, TEST_EMAIL, TEST_PASSWORD } from './helpers'
+import {
+  login,
+  waitForDashboard,
+  requireCreds,
+  dumpOverlaysOnFailure,
+  TEST_EMAIL,
+  TEST_PASSWORD,
+} from './helpers'
 
 test.describe('Dashboard admin navigation', () => {
   test.skip(!requireCreds(), 'Requires E2E_EMAIL + E2E_PASSWORD env vars')
@@ -11,6 +18,7 @@ test.describe('Dashboard admin navigation', () => {
     await login(page, TEST_EMAIL, TEST_PASSWORD)
     await waitForDashboard(page)
   })
+  test.afterEach(dumpOverlaysOnFailure)
 
   test('can navigate to Produse tab', async ({ page }) => {
     // „Produse" e sub-tab în grupul „Meniu" — grupul se deschide întâi (același

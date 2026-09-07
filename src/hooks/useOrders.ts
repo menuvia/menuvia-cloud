@@ -111,14 +111,19 @@ interface UseOrdersResult {
   orders: Order[]
   loading: boolean
   error: string | null
+  // Lista e plafonată (cele mai noi STAFF_ORDERS_FETCH_LIMIT comenzi deschise).
+  truncated: boolean
   connectionStatus: RealtimeConnectionStatus
   // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea).
   // Apelanții pe căi de bani (plată) trebuie să verifice rezultatul înainte de a
   // închide optimist modalul.
+  // Cu `opts.throwOnError` eroarea e re-aruncată (cu hint/code) în loc de
+  // `false`, ca apelantul s-o afișeze în propriul dialog (mig 270).
   advance: (
     orderId: string,
     currentStatus: OrderStatus,
     payload: AdvanceOrderPayload,
+    opts?: { throwOnError?: boolean },
   ) => Promise<boolean>
   byStatus: (statuses: OrderStatus[]) => Order[]
 }
@@ -130,6 +135,9 @@ export function useOrders(
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Lista a fost plafonată la STAFF_ORDERS_FETCH_LIMIT (cele mai NOI comenzi
+  // deschise) — paginile afișează un avertisment, nu tac (audit v3 RES-36).
+  const [truncated, setTruncated] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
 
   // Snapshot pentru handler-ul realtime (nu re-abonăm canalul la fiecare
@@ -171,9 +179,10 @@ export function useOrders(
     let cancelled = false
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
     fetcher(restaurantId)
-      .then((data) => {
+      .then((page) => {
         if (cancelled) return
-        setOrders(data)
+        setOrders(page.orders)
+        setTruncated(page.truncated)
         setLoading(false)
       })
       .catch((e: unknown) => {
@@ -310,14 +319,15 @@ export function useOrders(
       if (pendingAdvancesRef.current > 0) return
       if (connectionStatusRef.current === 'connected' && tick % 4 !== 0) return
       fetcher(restaurantId)
-        .then((data) => {
+        .then((page) => {
           if (cancelled) return
           // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
           if (pendingAdvancesRef.current > 0) return
           // OPT-7: reconciliere pe id cu păstrarea REFERINȚELOR — altfel
           // fiecare heartbeat crea obiecte noi pentru comenzi neschimbate,
           // re-randând tot arborele și invalidând orice memo pe carduri.
-          setOrders((prev) => reconcileOrders(prev, data))
+          setOrders((prev) => reconcileOrders(prev, page.orders))
+          setTruncated(page.truncated)
         })
         .catch(() => {
           /* ignore — păstrăm state-ul curent */
@@ -330,7 +340,16 @@ export function useOrders(
   }, [restaurantId, view])
 
   const advance = useCallback(
-    async (orderId: string, currentStatus: OrderStatus, payload: AdvanceOrderPayload) => {
+    async (
+      orderId: string,
+      currentStatus: OrderStatus,
+      payload: AdvanceOrderPayload,
+      // throwOnError: după rollback-ul optimist și setError, eroarea e RE-ARUNCATĂ
+      // (cu hint/code) ca apelantul s-o afișeze în propriul dialog — banner-ul
+      // paginii stă sub overlay-ul modalelor. Contractul boolean rămâne pentru
+      // ceilalți apelanți (default false).
+      opts?: { throwOnError?: boolean },
+    ) => {
       let previous: Order | undefined
       setOrders((prev) => {
         previous = prev.find((o) => o.id === orderId)
@@ -360,6 +379,10 @@ export function useOrders(
             return next
           })
         }
+        // Cu throwOnError apelantul afișează eroarea în propriul dialog — NU o
+        // punem și în bannerul paginii (ar rămâne acolo după închiderea
+        // dialogului, până la următorul advance).
+        if (opts?.throwOnError) throw e
         setError(e instanceof Error ? e.message : 'Failed to update order')
         return false
       } finally {
@@ -374,5 +397,5 @@ export function useOrders(
     [orders],
   )
 
-  return { orders, loading, error, connectionStatus, advance, byStatus }
+  return { orders, loading, error, truncated, connectionStatus, advance, byStatus }
 }

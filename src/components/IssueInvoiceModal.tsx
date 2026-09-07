@@ -361,7 +361,7 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
                   placeholder="RO12345678"
                 />
                 <div style={{ fontSize: 11, color: D.t3, marginTop: 4 }}>
-                  Completat = factură B2B + e-Factura SPV ANAF
+                  Completat = factură B2B (e-Factura se trimite în SPV din contul Oblio)
                 </div>
               </div>
 

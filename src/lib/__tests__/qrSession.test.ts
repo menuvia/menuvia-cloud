@@ -3,7 +3,12 @@
 // teren: clientul pierde bannerul de urmărire și „Plătește online" după ce
 // iOS evacuează tab-ul, iar nota există server-side.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { loadQrSessionSnapshot, saveQrSessionSnapshot, clearQrSessionSnapshot } from '../qrSession'
+import {
+  loadQrSessionSnapshot,
+  saveQrSessionSnapshot,
+  clearQrSessionSnapshot,
+  reconcileQrSessionSnapshot,
+} from '../qrSession'
 import type { OrderConfirmationPayload } from '../orders'
 
 const TOKEN = 'tok-abc'
@@ -114,5 +119,41 @@ describe('qrSession — snapshot-ul mesei', () => {
     })
     clearQrSessionSnapshot(TOKEN)
     expect(loadQrSessionSnapshot(TOKEN)).toBeNull()
+  })
+})
+
+// ── Reconcilierea cu sesiunea confirmată de server (audit v3 RES-27) ────────
+
+describe('reconcileQrSessionSnapshot', () => {
+  const snap = { sessionId: 'sess-A', previousOrders: [conf('o1', 30)] }
+
+  it('păstrează snapshot-ul DOAR când serverul confirmă aceeași sesiune (is_new=false, același id)', () => {
+    expect(reconcileQrSessionSnapshot(snap, { session_id: 'sess-A', is_new: false })).toEqual({
+      keep: true,
+      sessionId: 'sess-A',
+    })
+  })
+
+  it('sesiune NOUĂ pe masă → snapshot-ul se aruncă (nota veche e închisă)', () => {
+    expect(reconcileQrSessionSnapshot(snap, { session_id: 'sess-A', is_new: true }).keep).toBe(false)
+  })
+
+  it('id diferit → se aruncă, iar sessionId devine cel al serverului', () => {
+    const r = reconcileQrSessionSnapshot(snap, { session_id: 'sess-B', is_new: false })
+    expect(r).toEqual({ keep: false, sessionId: 'sess-B' })
+  })
+
+  it('snapshot fără sessionId (neconfirmat) sau fără comenzi → nu se păstrează', () => {
+    expect(
+      reconcileQrSessionSnapshot(
+        { sessionId: null, previousOrders: [conf('o1', 30)] },
+        { session_id: 'sess-A', is_new: false },
+      ).keep,
+    ).toBe(false)
+    expect(
+      reconcileQrSessionSnapshot({ sessionId: 'sess-A', previousOrders: [] }, { session_id: 'sess-A', is_new: false })
+        .keep,
+    ).toBe(false)
+    expect(reconcileQrSessionSnapshot(null, { session_id: 'sess-A', is_new: false }).keep).toBe(false)
   })
 })

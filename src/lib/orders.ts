@@ -229,33 +229,53 @@ const ORDER_SELECT = `
   order_items(id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total, selected_modifiers, notes)
 ` as const
 
-export async function fetchKitchenOrders(restaurantId: string): Promise<Order[]> {
+// Plafonul NOSTRU pe listele de staff (audit v3 RES-36). Fără `.limit()`,
+// PostgREST trunchia TĂCUT la `max_rows` (1000 pe hosted) și, cu ORDER BY ASC,
+// păstra cele mai VECHI comenzi — exact cele care nu mai contează — iar cele
+// noi dispăreau fără niciun semnal. Acum: cele mai NOI N comenzi deschise
+// (cerute DESC + LIMIT N+1, întoarse ASC/FIFO ca înainte) + flag `truncated`
+// pe care paginile îl afișează. N+1 trebuie să rămână SUB max_rows, altfel
+// flag-ul devine el însuși mort (max_rows e configurabil din Dashboard).
+export const STAFF_ORDERS_FETCH_LIMIT = 500
+
+export interface StaffOrdersPage {
+  orders: Order[]
+  /** true = existau mai multe comenzi deschise decât plafonul; lista e cele mai noi N. */
+  truncated: boolean
+}
+
+/** Cele mai noi N comenzi deschise ale restaurantului (FIFO) + flag `truncated` când plafonul a fost atins. */
+async function fetchStaffOrders(restaurantId: string, statuses: string[]): Promise<StaffOrdersPage> {
   const { data, error } = await supabase
     .from('orders')
     .select(ORDER_SELECT)
     .eq('restaurant_id', restaurantId)
-    .in('status', ['new', 'confirmed', 'preparing', 'ready'])
-    .order('created_at', { ascending: true })
+    .in('status', statuses)
+    .order('created_at', { ascending: false })
+    .limit(STAFF_ORDERS_FETCH_LIMIT + 1)
   // Aruncăm un Error REAL (nu obiectul Supabase) ca mesajul să ajungă în UI;
   // altfel `e instanceof Error` din useOrders e false și se afișează „Unknown error".
   if (error) throw new Error(error.message)
-  return (data ?? []) as unknown as Order[]
+  const rows = (data ?? []) as unknown as Order[]
+  const truncated = rows.length > STAFF_ORDERS_FETCH_LIMIT
+  // Contractul consumatorilor (KitchenPage/WaiterPage) rămâne ASC/FIFO.
+  const orders = rows.slice(0, STAFF_ORDERS_FETCH_LIMIT).reverse()
+  return { orders, truncated }
 }
 
-export async function fetchWaiterOrders(restaurantId: string): Promise<Order[]> {
+/** Comenzile pentru Bucătărie: doar cele de pregătit (fără `served`). */
+export function fetchKitchenOrders(restaurantId: string): Promise<StaffOrdersPage> {
+  return fetchStaffOrders(restaurantId, ['new', 'confirmed', 'preparing', 'ready'])
+}
+
+/** Comenzile pentru Ospătar: tot ce nu e terminal, inclusiv `served` neîncasate. */
+export function fetchWaiterOrders(restaurantId: string): Promise<StaffOrdersPage> {
   // Statusurile „deschise" pentru ospătar = tot ce nu e paid/cancelled/closed.
   // Folosim lista POZITIVĂ `.in()` (ca fetchKitchenOrders, care funcționează) în
   // loc de `.not('status','in','(...)')` — acel pattern eșua, iar comenzile nu se
   // încărcau deloc (UI: „Unknown error" + 0 comenzi). Include `served` (ospătarul
   // vede și comenzile servite neîncasate), spre deosebire de bucătărie.
-  const { data, error } = await supabase
-    .from('orders')
-    .select(ORDER_SELECT)
-    .eq('restaurant_id', restaurantId)
-    .in('status', ['new', 'confirmed', 'preparing', 'ready', 'served'])
-    .order('created_at', { ascending: true })
-  if (error) throw new Error(error.message)
-  return (data ?? []) as unknown as Order[]
+  return fetchStaffOrders(restaurantId, ['new', 'confirmed', 'preparing', 'ready', 'served'])
 }
 
 export async function fetchOrderById(orderId: string): Promise<Order> {
@@ -316,9 +336,101 @@ export async function advanceOrderStatus(
     p_tips_amount: payload.tips_amount ?? null,
     p_cancel_reason: payload.cancel_reason ?? null,
   })
-  if (rpcError) throw rpcError
+  if (rpcError) {
+    // Eroare business (ex. cancel_over_payments, cancel_reason_required,
+    // underpayment) → Error REAL cu hint/code păstrate, același contract ca
+    // createOrder / get_order_audit_history. Obiectul PostgREST brut nu e
+    // `instanceof Error`, deci consumatorii pierdeau hint-ul și afișau un
+    // text generic („Verifică și reîncearcă") care nu spunea CE a refuzat
+    // serverul (audit v3 RES-16/RES-25).
+    const err = new Error(rpcError.message || 'Eroare la actualizarea comenzii') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = rpcError.hint ?? undefined
+    err.code = rpcError.code ?? undefined
+    throw err
+  }
   if (opts?.hydrate === false) return null
   return fetchOrderById(orderId)
+}
+
+/** Textul RO pentru hint-urile de business ale lui `advance_order` (ramura cancel). */
+export function describeCancelRejection(err: unknown): string {
+  const hint = (err as { hint?: unknown } | null)?.hint
+  switch (hint) {
+    case 'cancel_over_payments':
+      return (
+        (err instanceof Error && err.message) ||
+        'Comanda are plăți încasate și nu poate fi anulată. Finalizează prin plată.'
+      )
+    case 'cancel_reason_required':
+      return 'Motivul e obligatoriu pentru anularea unei comenzi servite.'
+    case 'void_reason_required':
+      return 'Motivul e obligatoriu pentru stornarea unei plăți.'
+    case 'role_insufficient':
+      return 'Rolul tău nu permite această acțiune (doar owner/manager pot storna plăți sau anula).'
+    case 'order_terminal':
+      return 'Comanda e deja finalizată și nu mai poate fi anulată.'
+    default:
+      // Un hint nou/necunoscut NU ascunde motivul real: mesajul serverului
+      // primează, textul generic e doar pentru erori fără mesaj.
+      return (
+        (err instanceof Error && err.message) ||
+        'Anularea a fost respinsă. Verifică rolul tău sau motivul comenzii și încearcă din nou.'
+      )
+  }
+}
+
+/**
+ * Storno pe TOATE plățile comenzii + anulare, într-un singur RPC (o singură
+ * tranzacție): un eșec oriunde rulează înapoi tot — nu există „stornat parțial
+ * și comanda încă deschisă". Doar owner/manager, motiv obligatoriu.
+ */
+export async function voidPaymentsAndCancel(
+  orderId: string,
+  reason: string,
+): Promise<{ order_id: string; voided_count: number; voided_amount: number }> {
+  const { data, error } = await supabase.rpc('void_order_payments_and_cancel', {
+    p_order_id: orderId,
+    p_reason: reason,
+  })
+  if (error) {
+    const err = new Error(error.message || 'Eroare la stornare/anulare') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
+  return data as { order_id: string; voided_count: number; voided_amount: number }
+}
+
+/** Textul RO pentru hint-urile de business ale lui `advance_order` (ramura mark_paid). */
+export function describePayRejection(err: unknown): string {
+  const hint = (err as { hint?: unknown } | null)?.hint
+  const serverMsg = err instanceof Error && err.message ? err.message : ''
+  switch (hint) {
+    case 'underpayment':
+    case 'overpayment':
+      // Serverul spune exact suma și plafonul — e mesajul cel mai util.
+      return serverMsg || 'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
+    case 'paid_amount_required':
+      return 'Introdu suma încasată.'
+    case 'invalid_payment_method':
+      return 'Metoda de plată nu poate fi înregistrată manual (plățile online vin din Stripe).'
+    case 'fiscal_plan_requires_payment':
+      return 'Pe planul cu fiscalizare comanda se finalizează prin plată (bon fiscal).'
+    case 'role_insufficient':
+      return 'Rolul tău nu permite înregistrarea plăților.'
+    case 'order_terminal':
+      return 'Comanda e deja finalizată.'
+    default:
+      return serverMsg
+        ? `Plata nu a fost înregistrată: ${serverMsg}`
+        : 'Plata nu a fost înregistrată. Verifică și reîncearcă.'
+  }
 }
 
 export interface CreateOrderArgs {
@@ -652,12 +764,45 @@ export async function addPartialPayment(
   return data as { ok: boolean; total_paid: number; remaining: number; fully_paid: boolean }
 }
 
-export async function getOrderPayments(
-  orderId: string,
-): Promise<Array<{ id: string; amount: number; method: string; created_at: string }>> {
+/** O linie din registrul de plăți al unei comenzi (order_payments), cum o întoarce get_order_payments. */
+export interface OrderPaymentRow {
+  id: string
+  amount: number
+  method: string
+  created_at: string
+}
+
+/** Plățile deja înregistrate pe o comandă (parțiale cash/POS/tichete, split online). */
+export async function getOrderPayments(orderId: string): Promise<OrderPaymentRow[]> {
   const { data, error } = await supabase.rpc('get_order_payments', { p_order_id: orderId })
   if (error) throw error
-  return (data ?? []) as Array<{ id: string; amount: number; method: string; created_at: string }>
+  return (data ?? []) as OrderPaymentRow[]
+}
+
+/**
+ * Storno pe o plată din registru (mig 270): banii au fost RETURNAȚI clientului
+ * (cash înapoi / refund manual în Stripe), adminul stornează cu motiv, rândul
+ * iese din order_payments și rămâne în audit_log. E ieșirea legitimă din gate-ul
+ * `cancel_over_payments`. Aruncă un Error REAL cu hint/code (ca advanceOrderStatus).
+ */
+export async function voidOrderPayment(
+  paymentId: string,
+  reason: string,
+): Promise<{ order_id: string; amount: number; method: string }> {
+  const { data, error } = await supabase.rpc('void_order_payment', {
+    p_payment_id: paymentId,
+    p_reason: reason,
+  })
+  if (error) {
+    const err = new Error(error.message || 'Eroare la stornarea plății') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
+  return data as { order_id: string; amount: number; method: string }
 }
 
 // ── Public order status (pentru QR tracking, clienți anon) ──

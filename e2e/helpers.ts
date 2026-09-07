@@ -1,6 +1,6 @@
 // e2e/helpers.ts
 // Shared utilities for Playwright tests.
-import { type Page, expect } from '@playwright/test'
+import { type Page, type TestInfo, expect } from '@playwright/test'
 
 /**
  * Test credentials. Pe Netlify CI, set ca env vars din secrets.
@@ -11,22 +11,48 @@ export const TEST_EMAIL    = process.env.E2E_EMAIL    || 'qa@menuvia.ro'
 export const TEST_PASSWORD = process.env.E2E_PASSWORD || 'TestPassword123!'
 
 /**
- * Setează consimțământul de cookie-uri ÎNAINTE de prima navigare — altfel
- * banner-ul (role="dialog") interceptează click-urile și face testele flaky.
- * addInitScript se aplică la navigările următoare, deci se cheamă înainte de goto.
+ * Pregătește pagina ÎNAINTE de prima navigare: consimțământul de cookie-uri
+ * + suprimarea cardurilor PWA (instalare / actualizare). Toate trei sunt
+ * `role="dialog"` fixate JOS, peste bara de navigare mobilă a dashboard-ului,
+ * și interceptează click-urile. Cardul de instalare apare la 30 s după
+ * `beforeinstallprompt`, cel de actualizare când există un SW în așteptare —
+ * deci fără pre-setare un test devenea roșu în funcție de CÂT durează, nu de
+ * ce verifică (03-dashboard-nav „Facturi" pe mobile-safari, sept 2026).
+ * addInitScript rulează la fiecare document nou, deci și sessionStorage e
+ * setat la timp. Cheile sunt cele din lib/pwa.ts + components/PWAPrompt.tsx.
  */
-export async function prepConsent(page: Page) {
+export async function prepPage(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem(
       'menuvia_cookie_consent',
       JSON.stringify({ necessary: true, analytics: false, marketing: false, timestamp: Date.now() }),
     )
+    window.localStorage.setItem('pwa-install-dismissed', '1')
+    window.sessionStorage.setItem('pwa-update-snoozed', '1')
   })
+}
+
+/**
+ * La eșec, scrie în log textul tuturor `role="dialog"` deschise. Playwright
+ * spune DOAR „<div role=dialog> intercepts pointer events" — adică CEVA
+ * acoperă ținta, nu CE (cookie banner, card PWA, modal) — iar artefactele cu
+ * snapshot-ul ARIA nu sunt mereu accesibile din afara runner-ului.
+ * Folosire: `test.afterEach(dumpOverlaysOnFailure)`.
+ */
+export async function dumpOverlaysOnFailure({ page }: { page: Page }, testInfo: TestInfo) {
+  if (testInfo.status === testInfo.expectedStatus) return
+  const texts = await page
+    .getByRole('dialog')
+    .allInnerTexts()
+    .catch(() => [] as string[])
+  if (texts.length > 0) {
+    console.log(`[e2e] dialoguri deschise la eșec (${testInfo.title}): ${JSON.stringify(texts)}`)
+  }
 }
 
 /** Login flow — folosit ca pre-condition în multe teste. */
 export async function login(page: Page, email = TEST_EMAIL, password = TEST_PASSWORD) {
-  await prepConsent(page)
+  await prepPage(page)
   await page.goto('/auth')
   await page.getByLabel(/email/i).fill(email)
   await page.getByLabel(/parol/i).fill(password)

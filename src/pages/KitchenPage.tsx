@@ -8,6 +8,7 @@ import { memo, useCallback, useState, useEffect, useRef, CSSProperties, ReactNod
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import type { Order, OrderStatus } from '../lib/orders'
+import { STAFF_ORDERS_FETCH_LIMIT } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
 import { usePushNotifications } from '../hooks/usePushNotifications'
@@ -317,7 +318,7 @@ export default function KitchenPage() {
   // redeschide bannerul.
   const [dismissedError, setDismissedError] = useState<string | null>(null)
 
-  const { orders, loading, error, advance, byStatus, connectionStatus } = useOrders(
+  const { orders, loading, error, truncated, advance, byStatus, connectionStatus } = useOrders(
     restaurantId,
     'kitchen',
   )
@@ -541,6 +542,16 @@ export default function KitchenPage() {
           >
             {pushLoading ? 'Se activează...' : 'Activează →'}
           </button>
+        </div>
+      )}
+
+      {truncated && (
+        <div
+          role="status"
+          style={{ background: `${D.amber}22`, color: D.amber, padding: '8px 24px', fontSize: 13 }}
+        >
+          Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi active — finalizează
+          comenzile vechi ca lista să fie completă.
         </div>
       )}
 

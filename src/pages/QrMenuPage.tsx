@@ -26,7 +26,12 @@ import { T } from '../lib/publicMenuStrings'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
-import { loadQrSessionSnapshot, saveQrSessionSnapshot, clearQrSessionSnapshot } from '../lib/qrSession'
+import {
+  loadQrSessionSnapshot,
+  saveQrSessionSnapshot,
+  clearQrSessionSnapshot,
+  reconcileQrSessionSnapshot,
+} from '../lib/qrSession'
 import { callWaiter } from '../lib/orders'
 import {
   fetchLoyaltyState,
@@ -185,7 +190,20 @@ export default function QrMenuPage({ token }: Props) {
         // funcționează fără guard (backward compat).
         openTableSession(token)
           .then((sess) => {
-            if (!cancelled) setSessionId(sess.session_id)
+            if (cancelled) return
+            // Reconciliere snapshot ↔ sesiunea confirmată de server (RES-27):
+            // sesiune NOUĂ sau id diferit → comenzile rehidratate aparțin
+            // altei note (închisă/plătită) și se aruncă; altfel serverul ar
+            // fi confirmat o notă pe care clientul o vede ca „a lui".
+            const snap = loadQrSessionSnapshot(token)
+            const r = reconcileQrSessionSnapshot(snap, sess)
+            if (!r.keep && snap != null && snap.previousOrders.length > 0) {
+              setPreviousOrders([])
+              setPaidOrderIds(new Set())
+              setTablePaid(false)
+              clearQrSessionSnapshot(token)
+            }
+            setSessionId(r.sessionId)
           })
           .catch((err) => {
             // Loghează — submit-ul mai are un retry înainte de createOrder.

@@ -53,7 +53,7 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Logica de date | `lib/` | `orders.ts` (RPC wrappers), `features.ts` (plan gating), `offlineSync.ts` (ospătari offline), `founder.ts` (RPC-uri admin_* + mecanica founder-view), `ai.ts` |
 | State | `contexts/` (Auth, Restaurant) + `hooks/` | `useOrders` = realtime + polling fallback + optimistic advance; RestaurantContext injectează membership sintetic 'manager' în mod founder/partener |
 
-## Migrațiile (263) — grupate pe „de ce", nu pe număr
+## Migrațiile (271) — grupate pe „de ce", nu pe număr
 
 | Grup | Migrații | Povestea |
 |---|---|---|
@@ -102,6 +102,9 @@ Toate tranzițiile prin RPC advance_order (roluri + stare + plan verificate în 
 | Paritate fiscal pe INSERT + igienă indexuri + plafoane anon | 259–261 + FP1–FP4, AR1–AR4 | `enqueue_fiscal_receipt_trg` acoperă și INSERT (TG_OP-safe, paritate cu gate-ul 124); drop pe `orders_status_idx`/`orders_created_at_idx` (declarate înlocuite de 059, nedrop-uite 200 de migrații) |
 | Audit v3 — hardening | 262 + AV1–AV10 | `profiles` fără INSERT/DELETE client (escaladarea is_platform_admin închisă) + trigger backstop; helperi interni fără EXECUTE anon; drop `get_restaurant_by_qr_token`; politici `products`/`invite_tokens` cu roluri explicite; `advance_order` →262 (bacșișul nu intră în order_payments/paid_amount, overpayment pe ambele ramuri); `bridge_retry_receipt` regenerează payload; `bridge_mark_stale_as_error` cu marker ambiguu + cron orar; `enqueue_invoice_for_order` anti duplicat ambiguu; DEFINER-ele primesc `public, pg_temp` |
 | Audit v3 — lotul 2 | 263 + AB1–AB3 | `advance_order` →263: `close_order` respins pe planurile cu `fiscal_receipt` (hint `fiscal_plan_requires_payment`); `v_daily_orders` +`online_revenue` (card_online, append). Client: `paymentsEnabled` tristate, sesiune QR rehidratată din sessionStorage, idempotență pickup persistată, fără reload la prima instalare SW |
+| **Audit v3 — consiliul + rangurile 8–14** | **264–269** + AC, BC, DB, PM, DP, OB | 264: `underpayment` pe ambele ramuri + gate-ul fiscal de închidere în DATE (`trg_orders_closed_fiscal_gate`) + politici de CLASĂ pentru anon; 265: `bridge_connection_status` (banner „casa nu e conectată", liveness din `last_seen_at`); 266: `get_database_size` (alarma de stocare din `/health`); 267/268: defalcarea pe metodă din REGISTRU (`v_order_payment_methods` → `v_daily_payments_by_method` → RPC sargabil pe interval); 269: Oblio `deliveryDate` = ziua încasării (Europe/Bucharest) + `has_einvoice` vizibil |
+| **Sondele /health** | **271** + SV1–SV6, QB1–QB8, HL8–HL19, SM1–SM2 | `get_schema_version(text[])` (decalajul repo↔ledger pe NUME, manifest comis `netlify/functions/schema-manifest.json`) + `get_queue_backlog()` (backlog-ul cozilor, predicate = claim-urile; grupa `cron` poate da 503, `bridge` doar warn); corpul public al /health e exact `{status, checks, ts}` — detaliile cer `x-health-diag` |
+| **Gate-uri pe regula de aur în DATE** | **270** + CL1–CL7, RR1–RR8, HH0–HH7 | `trg_orders_cancel_ledger_gate` + guard în `advance_order` (→270): anularea peste `order_payments` ne-gol e respinsă (`cancel_over_payments`); `bridge_retry_receipt(uuid, boolean)` (DROP+CREATE, lanț 030→038→262→270): retry-ul peste markerul `POSIBIL DUPLICAT` cere ack explicit (`ambiguous_receipt`) + `trg_pending_receipts_block_client_repend` (rolurile client nu re-pun bonuri în coadă prin UPDATE direct) |
 
 ## Founder + acces partener + comisioane (186–190, 193)
 

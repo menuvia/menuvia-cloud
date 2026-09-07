@@ -302,12 +302,18 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
     }
   }
 
+  /** Retrimite un bon error/cancelled; pe marker AMBIGUU cere confirmarea benzii și trimite ack-ul serverului (mig 270). */
   async function handleRetry(id: string, errorInfo?: string | null) {
     // Eșec AMBIGUU (marker scris de bridge/lib/fiscalnet.js): bonul POATE fi
     // deja tipărit (timeout după predarea către driver / abort după POST).
     // Retrimiterea oarbă = bon fiscal DUBLU real (bandă + raport Z + ANAF) —
     // cerem verificarea umană a benzii, oglinda politicii Oblio din mig 218.
-    if (errorInfo && errorInfo.includes('POSIBIL DUPLICAT')) {
+    // mig 270: gate-ul e și SERVER-side — RPC-ul respinge retry-ul peste marker
+    // fără `p_ack_ambiguous: true` (hint ambiguous_receipt). Dialogul de aici
+    // e confirmarea umană; ack-ul spune serverului că banda a fost verificată.
+    // PREFIX, nu substring — exact predicatul serverului (`like 'POSIBIL DUPLICAT%'`).
+    const ambiguous = Boolean(errorInfo && errorInfo.startsWith('POSIBIL DUPLICAT'))
+    if (ambiguous) {
       const ok = await confirmDialog({
         title: 'Posibil bon deja tipărit!',
         description:
@@ -320,8 +326,18 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       if (!ok) return
     }
     try {
-      const { error } = await supabase.rpc('bridge_retry_receipt', { p_receipt_id: id })
-      if (error) throw error
+      const { error } = await supabase.rpc(
+        'bridge_retry_receipt',
+        ambiguous ? { p_receipt_id: id, p_ack_ambiguous: true } : { p_receipt_id: id },
+      )
+      if (error) {
+        if (error.hint === 'ambiguous_receipt') {
+          throw new Error(
+            'Serverul a refuzat retrimiterea: bonul are un eșec ambiguu și poate fi deja tipărit. Verifică banda casei și confirmă explicit.',
+          )
+        }
+        throw new Error(error.message || 'Eroare la retrimitere')
+      }
       await load()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare la retrimitere')

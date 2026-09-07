@@ -124,7 +124,9 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
           >
             Contul Oblio e gratuit de creat; abonamentul pentru emiterea facturilor pornește de
             la ~50 RON/lună (vezi oblio.eu). Conectează-l aici și emite facturi conform
-            legislației române direct din Menuvia. Suportă și e-Factura SPV ANAF pentru B2B.
+            legislației române direct din Menuvia. Pentru B2B, e-Factura se trimite în SPV ANAF din
+            contul Oblio (token ANAF conectat, trimitere automată) — Menuvia afișează ce întoarce
+            Oblio la emitere.
           </p>
           <button
             onClick={() => setShowConfig(true)}
@@ -420,27 +422,29 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
             <span style={{ color, fontWeight: 600 }}>{invoiceStatusLabel(invoice.status)}</span>
           )}
           {invoice.customer_cif && <span>CIF: {invoice.customer_cif}</span>}
-          {/* e-Factura SPV (mig 269). Semnalul care contează e ABSENȚA pe o
-              factură B2B emisă: trimiterea în SPV e obligație legală, iar până
-              acum starea se scria în DB fără să o citească nimeni. Se afișează
-              doar pe facturi EMISE — pe una în coadă absența e normală. */}
+          {/* e-Factura (mig 269). Semnalul e PREZENȚA XML-ului întors de Oblio la
+              emitere — NU starea din SPV: Menuvia nu cere transmiterea și nu
+              interoghează ANAF (audit v3 RES-19; transmiterea se face din contul
+              Oblio). Absența pe o factură B2B emisă e un semnal de verificat în
+              Oblio, nu o certitudine că nu s-a trimis — de aceea tonul e de
+              avertisment, nu de eroare. Doar pe facturi EMISE. */}
           {invoice.status === 'issued' && invoice.is_b2b && (
             <span
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: 4,
-                color: invoice.has_einvoice ? D.green : D.red,
+                color: invoice.has_einvoice ? D.green : D.gold,
                 fontWeight: 600,
               }}
               title={
                 invoice.has_einvoice
-                  ? 'e-Factura generată și trimisă în SPV ANAF'
-                  : 'Factură B2B emisă FĂRĂ e-Factura — verifică în Oblio; trimiterea în SPV e obligatorie'
+                  ? 'Oblio a întors XML-ul e-Factura la emitere (starea din SPV se vede în Oblio)'
+                  : 'Oblio nu a întors e-Factura la emitere — verifică trimiterea în SPV din contul Oblio'
               }
             >
               <Icon name={invoice.has_einvoice ? 'check' : 'alert'} size={12} />
-              {invoice.has_einvoice ? 'e-Factura' : 'fără e-Factura'}
+              {invoice.has_einvoice ? 'e-Factura (Oblio)' : 'fără e-Factura la emitere'}
             </span>
           )}
           <span>

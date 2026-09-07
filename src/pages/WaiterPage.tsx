@@ -33,11 +33,16 @@ import {
   addPartialPayment,
   getOrderPayments,
   applyOrderDiscount,
+  describeCancelRejection,
+  voidPaymentsAndCancel,
+  describePayRejection,
+  STAFF_ORDERS_FETCH_LIMIT,
 } from '../lib/orders'
+import type { OrderPaymentRow } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
-import { PayModal, OrderCard } from '../components/WaiterOrderCard'
+import { PayModal, OrderCard, type PayResult } from '../components/WaiterOrderCard'
 const DiscountModal = lazy(() => import('../components/DiscountModal'))
 const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
@@ -149,6 +154,10 @@ export default function WaiterPage() {
   const [payOrderPaid, setPayOrderPaid] = useState(0)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
+  // Plățile deja înregistrate pe comanda din dialogul de anulare (mig 270:
+  // anularea peste bani e respinsă server-side; ieșirea e storno-ul). null =
+  // necunoscut → dialogul NU blochează, serverul rămâne gate-ul (tristate).
+  const [cancelPayments, setCancelPayments] = useState<OrderPaymentRow[] | null>(null)
   const [auditOrder, setAuditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
@@ -187,6 +196,25 @@ export default function WaiterPage() {
       alive = false
     }
   }, [payOrder])
+
+  useEffect(() => {
+    if (cancelOrder == null) {
+      setCancelPayments(null)
+      return
+    }
+    let alive = true
+    setCancelPayments(null)
+    void getOrderPayments(cancelOrder.id)
+      .then((ps) => {
+        if (alive) setCancelPayments(ps)
+      })
+      .catch(() => {
+        if (alive) setCancelPayments(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [cancelOrder])
 
   // ── Offline sync state ────────────────────────────────────────
   const [isOffline, setIsOffline] = useState(!navigator.onLine)
@@ -361,6 +389,7 @@ export default function WaiterPage() {
     orders: allOrders,
     loading: ordersLoading,
     error,
+    truncated: ordersTruncated,
     advance,
     connectionStatus,
   } = useOrders(restaurantId, 'waiter')
@@ -542,22 +571,30 @@ export default function WaiterPage() {
     [user, advance],
   )
 
-  async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<void> {
-    if (payOrder == null || user == null) return
+  /** Încasează comanda din PayModal; la refuz întoarce mesajul serverului (modalul rămâne deschis). */
+  async function handlePay(method: PaymentMethod, amount: number, tips: number): Promise<PayResult> {
+    if (payOrder == null || user == null) return { ok: false }
     // Cale de bani: NU închidem optimist modalul. Așteptăm rezultatul și
     // închidem doar la succes; la refuz (rol/gate/rețea) ținem modalul deschis
-    // și anunțăm ospătarul în loc să-i lăsăm impresia că plata a trecut.
-    const ok = await advance(payOrder.id, 'served', {
-      status: 'paid',
-      paid_by: user.id,
-      payment_method: method,
-      paid_amount: amount,
-      tips_amount: tips,
-    })
-    if (ok) {
+    // și îi spunem ospătarului CE a refuzat serverul (underpayment/overpayment
+    // cu sumele, metodă invalidă, rol) — în modal, singura suprafață vizibilă.
+    try {
+      await advance(
+        payOrder.id,
+        'served',
+        {
+          status: 'paid',
+          paid_by: user.id,
+          payment_method: method,
+          paid_amount: amount,
+          tips_amount: tips,
+        },
+        { throwOnError: true },
+      )
       setPayOrder(null)
-    } else {
-      toast.error('Plata nu a fost înregistrată. Verifică și reîncearcă.')
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, message: describePayRejection(e) }
     }
   }
 
@@ -918,6 +955,16 @@ export default function WaiterPage() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {ordersTruncated && (
+        <div
+          role="status"
+          style={{ background: `${D.amber}22`, color: D.amber, padding: '8px 24px', fontSize: 13 }}
+        >
+          Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi deschise — finalizează
+          sau anulează comenzile vechi ca lista să fie completă.
         </div>
       )}
 
@@ -1800,14 +1847,40 @@ export default function WaiterPage() {
       {cancelOrder != null && (
         <CancelOrderDialog
           order={cancelOrder}
+          payments={cancelPayments}
           onClose={() => setCancelOrder(null)}
+          onVoidAndCancel={async (reason) => {
+            // Storno pe TOATE plățile + anulare într-un singur RPC (o singură
+            // tranzacție): nu există „stornat parțial și comanda încă deschisă".
+            // Banii au fost returnați (online = refund manual în Stripe); fiecare
+            // storno e auditat server-side. Cardul dispare la evenimentul
+            // realtime (cancelled iese din vederea de ospătar) sau la heartbeat.
+            try {
+              await voidPaymentsAndCancel(cancelOrder.id, reason)
+              setCancelOrder(null)
+              return { ok: true }
+            } catch (e) {
+              void getOrderPayments(cancelOrder.id)
+                .then(setCancelPayments)
+                .catch(() => setCancelPayments(null))
+              return { ok: false, message: describeCancelRejection(e) }
+            }
+          }}
           onConfirm={async (reason) => {
-            const ok = await advance(cancelOrder.id, cancelOrder.status, {
-              status: 'cancelled',
-              cancel_reason: reason,
-            })
-            if (ok) setCancelOrder(null)
-            return ok
+            try {
+              await advance(
+                cancelOrder.id,
+                cancelOrder.status,
+                { status: 'cancelled', cancel_reason: reason },
+                { throwOnError: true },
+              )
+              setCancelOrder(null)
+              return { ok: true }
+            } catch (e) {
+              // Refuzul serverului (cancel_over_payments / cancel_reason_required
+              // / rol) ajunge ÎN dialog, cu textul lui, nu ca eroare generică.
+              return { ok: false, message: describeCancelRejection(e) }
+            }
           }}
         />
       )}

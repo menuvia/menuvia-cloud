@@ -60,12 +60,18 @@ function OrderTracker({
     if (confirmation.short_id?.startsWith('LOCAL-')) return
 
     let cancelled = false
-    // 'closed' (Plan 2 non-fiscal) = terminal, nu emite bon → oprește polling.
-    // 'paid' rămâne polling: așteptăm fiscal_receipt_requested_at.
-    const TERMINAL = ['cancelled', 'closed']
+    // Stările TERMINALE ale serverului (advance_order → `order_terminal` pe
+    // paid/cancelled/closed, mig 264): după ele NIMIC nu mai variază server-side
+    // — paid_amount/tips/restaurant vin în același payload cu statusul, iar
+    // `fiscal_receipt_requested_at` e scris DOAR de acțiunea proprie a
+    // clientului (requestFiscalReceipt → state local). Vechea justificare
+    // („paid rămâne polling ca să prindem bonul") era FALSĂ și lăsa un RPC anon
+    // la 5 s, nelimitat, cât timp ecranul „Plată confirmată" stătea deschis
+    // (audit v3 RES-36). `served` RĂMÂNE poll-uit: Plan 2 → closed, Plan 3 →
+    // paid. Paritate cu lista din ActiveOrdersBanner.
+    const TERMINAL = ['paid', 'cancelled', 'closed']
 
     const poll = async () => {
-      // Continuă polling chiar și după 'paid' — vrem să prindem și fiscal_receipt update
       if (TERMINAL.includes(statusRef.current)) return
       const payload = await getOrderPublicStatus(confirmation.id, sessionId)
       if (cancelled || !payload) return
@@ -93,6 +99,13 @@ function OrderTracker({
 
     void poll()
     const interval = setInterval(() => {
+      // Odată terminală, comanda nu mai are ce aduce: oprim intervalul, nu
+      // doar poll-ul (altfel tick-ul gol rulează la nesfârșit). Se face AICI,
+      // nu în poll(): poll() rulează prima dată înainte ca `interval` să existe.
+      if (TERMINAL.includes(statusRef.current)) {
+        clearInterval(interval)
+        return
+      }
       // Telefonul cu tab-ul în fundal (client care a comandat și și-a băgat
       // telefonul în buzunar) nu mai trimite cereri — același guard ca în
       // useOrders; la revenirea în tab, primul tick reia polling-ul.

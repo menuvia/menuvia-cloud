@@ -11,9 +11,12 @@
 // service_role (ca celelalte funcții). Timeout defensiv scurt pe query ca un DB
 // lent/blocat să nu țină cererea agățată — monitorul primește 503 rapid.
 //
-// Răspuns:
-//   200 { status: 'ok',       checks: { db: 'ok',   cron: 'ok'    }, ... }
-//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' }, ... }
+// Răspuns PUBLIC (exact trei chei — forma e înghețată de testul HL8):
+//   200 { status: 'ok',       checks: { db, cron, storage, schema, queues }, ts }
+//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' | storage: 'critical' | queues: 'stale' }, ts }
+// Cu antetul `x-health-diag` (HEALTH_DIAG_TOKEN) se adaugă `config`,
+// `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail`.
+// `schema: 'behind'` (mig 271) NU schimbă codul HTTP — îl alertează health-watch.
 //
 // ── De ce verificăm ȘI cron-ul aici (incident 2–9 august 2026) ──────────────
 // automation-cron a încetat să ruleze pe 2 august 19:30 și NIMENI n-a aflat
@@ -29,7 +32,9 @@
 //
 // Blocul `config` = booleeni de PREZENȚĂ a env-urilor critice (NICIODATĂ valori) —
 // founderul vede rapid dacă un secret a fost revocat/lipsă (finding audit:
-// fallback-uri silențioase care mascau erori). Fără secrete în răspuns.
+// fallback-uri silențioase care mascau erori). Fără secrete în răspuns — și,
+// din audit v3 RES-38, DOAR cu token: starea integrărilor (Resend/Slack morți)
+// spune unui străin că nimeni nu va afla de un incident.
 //
 // Env vars:
 //   SUPABASE_URL || VITE_SUPABASE_URL
@@ -37,8 +42,9 @@
 //   DB_SIZE_LIMIT_BYTES  (optional) plafonul de stocare in OCTETI, fara sufix de
 //                        unitate. Default 500 MB (planul Free). O valoare
 //                        invalida e ignorata CU avertisment in log.
-//   HEALTH_DIAG_TOKEN    (optional) deblocheaza `storage_detail` (octeti, plafon,
-//                        procent, primele 5 tabele) EXCLUSIV prin antetul
+//   HEALTH_DIAG_TOKEN    (optional) deblocheaza `config`, `cron_last_run`,
+//                        `storage_detail` (octeti, plafon, procent, primele 5
+//                        tabele), `schema_detail` si `queue_detail` EXCLUSIV prin antetul
 //                        `x-health-diag`. NU se accepta in query string (un
 //                        secret in URL ajunge in loguri — CWE-598). NESETAT =
 //                        diagnosticul nu e accesibil de nicaieri (fail-closed).
@@ -46,6 +52,20 @@
 
 const crypto = require('node:crypto')
 const { createClient } = require('@supabase/supabase-js')
+// Manifestul migrațiilor din repo (nume fără prefixul de 14 cifre), generat de
+// scripts/gen-schema-manifest.mjs și COMIS — sonda `get_schema_version` (mig
+// 271) primește lista și întoarce ce lipsește din ledger-ul producției.
+const SCHEMA_MANIFEST = require('./schema-manifest.json')
+
+// ── Praguri pentru backlog-ul cozilor (mig 271, audit v3 RES-32) ────────────
+// Grupa `cron` = platformă → `stale` dă 503 (alertă). Pragurile sunt multipli
+// de tick-ul cron-ului (5 min) — 6 tick-uri ratate pe email = ceva e mort.
+// Grupa `bridge` = PC-ul unui restaurant → DOAR `warn` (200): un 503 de
+// platformă pentru o casă oprită antrenează founderul să ignore /health.
+const QUEUE_STALE_S = { email: 30 * 60, sms: 60 * 60, invoices: 60 * 60, reminders: 120 * 60 }
+const BRIDGE_WARN_S = 15 * 60
+// Cozile bridge-ului al căror backlog dă `warn` — lista e CONTRACT cu RPC-ul.
+const BRIDGE_QUEUES = ['receipts', 'tickets']
 
 /**
  * Comparare constant-time (oglinda lui `safeEqual` din deploy/server.js, SEC-09).
@@ -167,10 +187,12 @@ exports.handler = async (event) => {
   // Lipsa env-ului de bază = nu putem verifica DB-ul → degraded (nu 500),
   // ca monitorul să alerteze la fel ca la un DB căzut.
   if (!supabaseUrl || !serviceRoleKey) {
+    // Public = doar severitatea; `config` (ce integrări sunt moarte) cere token —
+    // altfel un curl anonim afla că fondatorul e orb (fără Slack, fără cron).
     return jsonResponse(503, {
       status: 'degraded',
       checks: { db: 'down' },
-      config,
+      ...(diagAllowed ? { config } : {}),
       ts,
     })
   }
@@ -211,31 +233,33 @@ exports.handler = async (event) => {
   // alarmă falsă pe un proiect gol; doar o vechime REALĂ peste prag e 'stale'.
   let cron = 'unknown'
   let cronLastRun = null
-  if (dbOk) {
-    const cronController = new AbortController()
-    const cronTimer = setTimeout(() => cronController.abort(), DB_PING_TIMEOUT_MS)
-    try {
-      const { data, error } = await supabase
-        .from('customer_health_scores')
-        .select('computed_at')
-        .order('computed_at', { ascending: false })
-        .limit(1)
-        .abortSignal(cronController.signal)
-      if (error) throw new Error(error.message)
-      const last = data && data[0] && data[0].computed_at
-      if (last) {
-        cronLastRun = last
-        const ageHours = (Date.now() - new Date(last).getTime()) / 3_600_000
-        cron = ageHours > CRON_STALE_HOURS ? 'stale' : 'ok'
+  const cronProbe = (async () => {
+    if (dbOk) {
+      const cronController = new AbortController()
+      const cronTimer = setTimeout(() => cronController.abort(), DB_PING_TIMEOUT_MS)
+      try {
+        const { data, error } = await supabase
+          .from('customer_health_scores')
+          .select('computed_at')
+          .order('computed_at', { ascending: false })
+          .limit(1)
+          .abortSignal(cronController.signal)
+        if (error) throw new Error(error.message)
+        const last = data && data[0] && data[0].computed_at
+        if (last) {
+          cronLastRun = last
+          const ageHours = (Date.now() - new Date(last).getTime()) / 3_600_000
+          cron = ageHours > CRON_STALE_HOURS ? 'stale' : 'ok'
+        }
+      } catch (e) {
+        // Eșecul verificării NU trebuie să dea fals-pozitiv „cron mort":
+        // rămâne 'unknown' și nu influențează codul de status.
+        console.error('[health] cron freshness check failed:', e.message)
+      } finally {
+        clearTimeout(cronTimer)
       }
-    } catch (e) {
-      // Eșecul verificării NU trebuie să dea fals-pozitiv „cron mort":
-      // rămâne 'unknown' și nu influențează codul de status.
-      console.error('[health] cron freshness check failed:', e.message)
-    } finally {
-      clearTimeout(cronTimer)
     }
-  }
+  })()
 
   // ── Plafonul de stocare ──────────────────────────────────────────────────
   // Aceeasi disciplina ca la cron: doar cand DB-ul raspunde, tolerant la esec
@@ -244,59 +268,171 @@ exports.handler = async (event) => {
   // inaintea migratiei fara sa declanseze o alarma falsa.
   let storage = 'unknown'
   let storageDetail = null
-  if (dbOk) {
-    const sizeController = new AbortController()
-    const sizeTimer = setTimeout(() => sizeController.abort(), DB_PING_TIMEOUT_MS)
-    try {
-      const { data, error } = await supabase
-        .rpc('get_database_size')
-        .abortSignal(sizeController.signal)
-      if (error) throw new Error(error.message)
-      const bytes = data && Number(data.bytes)
-      if (Number.isFinite(bytes) && bytes > 0) {
-        const pct = (bytes / DB_SIZE_LIMIT_BYTES) * 100
-        storage =
-          pct >= DB_SIZE_CRITICAL_PCT ? 'critical' : pct >= DB_SIZE_WARN_PCT ? 'warn' : 'ok'
-        // PUBLIC: NIMIC numeric. `/health` e lovit din AFARA de UptimeRobot,
-        // deci orice pune aici ajunge la oricine face curl. Severitatea
-        // (`checks.storage`: ok/warn/critical) e tot ce-i trebuie unui monitor
-        // ca sa alerteze — si e tot ce dam public.
-        //
-        // Nici macar `used_pct` nu ramane public: plafonul implicit e o CONSTANTA
-        // publica (500 MB, in sursa si in CLAUDE.md), deci un procent la 0,1%
-        // rezolutie da dimensiunea bazei la +/-262 kB, iar interogat zilnic da
-        // curba de crestere — adica volumul de comenzi. Regula devine simpla si
-        // uniforma: public = SEVERITATE, cu token = CIFRE.
-        storageDetail = null
-        // DIAGNOSTICUL COMPLET doar cu token. Intentia din mig 266 („alarma cara
-        // diagnosticul cu ea") se pastreaza: founderul il ia intr-un singur curl
-        // cu tokenul. FAIL-CLOSED: daca `HEALTH_DIAG_TOKEN` nu e setat, nu se da
-        // detaliu deloc — absenta configurarii nu deschide suprafata.
-        if (diagAllowed) {
-          storageDetail = {
-            bytes,
-            pretty: data.pretty || null,
-            limit_bytes: DB_SIZE_LIMIT_BYTES,
-            used_pct: Math.round(pct * 10) / 10,
-            top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+  const storageProbe = (async () => {
+    if (dbOk) {
+      const sizeController = new AbortController()
+      const sizeTimer = setTimeout(() => sizeController.abort(), DB_PING_TIMEOUT_MS)
+      try {
+        const { data, error } = await supabase
+          .rpc('get_database_size')
+          .abortSignal(sizeController.signal)
+        if (error) throw new Error(error.message)
+        const bytes = data && Number(data.bytes)
+        if (Number.isFinite(bytes) && bytes > 0) {
+          const pct = (bytes / DB_SIZE_LIMIT_BYTES) * 100
+          storage =
+            pct >= DB_SIZE_CRITICAL_PCT ? 'critical' : pct >= DB_SIZE_WARN_PCT ? 'warn' : 'ok'
+          // PUBLIC: NIMIC numeric. `/health` e lovit din AFARA de UptimeRobot,
+          // deci orice pune aici ajunge la oricine face curl. Severitatea
+          // (`checks.storage`: ok/warn/critical) e tot ce-i trebuie unui monitor
+          // ca sa alerteze — si e tot ce dam public.
+          //
+          // Nici macar `used_pct` nu ramane public: plafonul implicit e o CONSTANTA
+          // publica (500 MB, in sursa si in CLAUDE.md), deci un procent la 0,1%
+          // rezolutie da dimensiunea bazei la +/-262 kB, iar interogat zilnic da
+          // curba de crestere — adica volumul de comenzi. Regula devine simpla si
+          // uniforma: public = SEVERITATE, cu token = CIFRE.
+          storageDetail = null
+          // DIAGNOSTICUL COMPLET doar cu token. Intentia din mig 266 („alarma cara
+          // diagnosticul cu ea") se pastreaza: founderul il ia intr-un singur curl
+          // cu tokenul. FAIL-CLOSED: daca `HEALTH_DIAG_TOKEN` nu e setat, nu se da
+          // detaliu deloc — absenta configurarii nu deschide suprafata.
+          if (diagAllowed) {
+            storageDetail = {
+              bytes,
+              pretty: data.pretty || null,
+              limit_bytes: DB_SIZE_LIMIT_BYTES,
+              used_pct: Math.round(pct * 10) / 10,
+              top_tables: Array.isArray(data.top_tables) ? data.top_tables : null,
+            }
           }
         }
+      } catch (e) {
+        // Nu transformam un esec de verificare intr-o alarma falsa de stocare.
+        console.error('[health] db size check failed:', e.message)
+      } finally {
+        clearTimeout(sizeTimer)
       }
-    } catch (e) {
-      // Nu transformam un esec de verificare intr-o alarma falsa de stocare.
-      console.error('[health] db size check failed:', e.message)
-    } finally {
-      clearTimeout(sizeTimer)
     }
-  }
+  })()
 
-  const healthy = dbOk && cron !== 'stale' && storage !== 'critical'
+  // ── Decalajul de schemă (mig 271, RES-08) ────────────────────────────────
+  // `behind` = repo-ul are migrații pe care ledger-ul prod NU le are (deploy
+  // înaintea migrației — un tranzit legitim, deci NU schimbă codul HTTP; îl
+  // alertează health-watch, nu UptimeRobot). `unknown` = sonda nu răspunde
+  // (RPC neaplicat / ledger absent) — după aplicarea mig 271 înseamnă sondă
+  // moartă, vizibil din afară ca la storage. Public = doar severitatea;
+  // numele migrațiilor lipsă cer token.
+  let schema = 'unknown'
+  let schemaDetail = null
+  const schemaProbe = (async () => {
+    if (dbOk) {
+      const schemaController = new AbortController()
+      const schemaTimer = setTimeout(() => schemaController.abort(), DB_PING_TIMEOUT_MS)
+      try {
+        const { data, error } = await supabase
+          .rpc('get_schema_version', { p_expected: SCHEMA_MANIFEST.names })
+          .abortSignal(schemaController.signal)
+        if (error) throw new Error(error.message)
+        // `missing` TREBUIE să fie array: un RPC re-format (cheie redenumită,
+        // null pe ramura available=true) ar face altfel „behind" imposibil de
+        // raportat — alarma de decalaj verde pentru totdeauna, clasa RES-08.
+        if (data && typeof data === 'object' && data.available === true && Array.isArray(data.missing)) {
+          const missing = data.missing
+          schema = missing.length > 0 ? 'behind' : 'ok'
+          if (diagAllowed) {
+            schemaDetail = {
+              expected_latest: SCHEMA_MANIFEST.names[SCHEMA_MANIFEST.names.length - 1] || null,
+              db_latest: data.latest_name || null,
+              ledger_count: Number.isFinite(Number(data.ledger_count)) ? Number(data.ledger_count) : null,
+              missing,
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[health] schema version check failed:', e.message)
+      } finally {
+        clearTimeout(schemaTimer)
+      }
+    }
+  })()
+
+  // ── Backlog-ul cozilor (mig 271, RES-32) ─────────────────────────────────
+  // /health vedea UN singur job din șase. Sonda e de BACKLOG (muncă ce
+  // așteaptă și nu e ridicată), cu predicate care oglindesc claim-urile —
+  // prinde și clasa „funcția rulează, întoarce 200 și nu face nimic" (cheie
+  // lipsă, PGRST202), pe care un heartbeat per job n-o vede. `data` null sau
+  // fără formă → `unknown`, NICIODATĂ `ok` (absența datelor nu e sănătate).
+  let queues = 'unknown'
+  let queueDetail = null
+  const queuesProbe = (async () => {
+    if (dbOk) {
+      const qController = new AbortController()
+      const qTimer = setTimeout(() => qController.abort(), DB_PING_TIMEOUT_MS)
+      try {
+        const { data, error } = await supabase.rpc('get_queue_backlog').abortSignal(qController.signal)
+        if (error) throw new Error(error.message)
+        if (data && typeof data === 'object' && data.cron && typeof data.cron === 'object' && data.bridge && typeof data.bridge === 'object') {
+          /** Vârsta (s) a celui mai vechi rând în așteptare din coada `key`; null când coada lipsește sau nu are formă. */
+          const age = (group, key) => {
+            const q = group[key]
+            if (!q || typeof q !== 'object' || Array.isArray(q)) return null
+            const v = Number(q.oldest_age_s)
+            return Number.isFinite(v) ? v : null
+          }
+          const cronAges = Object.keys(QUEUE_STALE_S).map((k) => [k, age(data.cron, k)])
+          const bridgeAges = BRIDGE_QUEUES.map((k) => [k, age(data.bridge, k)])
+          // `slack_alerts` are doar `waiting` (raportat, nu criteriu de 503) —
+          // dar face parte din contract (QB1 îngheață cheile), deci lipsa sau
+          // forma greșită e tot „RPC re-format", nu „nimic de raportat".
+          const slack = data.cron.slack_alerts
+          const slackOk =
+            slack != null && typeof slack === 'object' && !Array.isArray(slack) && Number.isFinite(Number(slack.waiting))
+          // Contractul COMPLET sau nimic: o coadă lipsă, redenumită sau fără
+          // vârstă numerică înseamnă că sonda nu mai vorbește limba RPC-ului —
+          // rămâne `unknown`. Un `ok` pe `{cron:{}, bridge:{}}` ar fi exact
+          // alarma moartă pe care o închide RES-32 (recenzie #246).
+          if (slackOk && cronAges.every(([, a]) => a != null) && bridgeAges.every(([, a]) => a != null)) {
+            const stale = cronAges.some(([k, a]) => a > QUEUE_STALE_S[k])
+            const bridgeWarn = bridgeAges.some(([, a]) => a > BRIDGE_WARN_S)
+            queues = stale ? 'stale' : bridgeWarn ? 'warn' : 'ok'
+            if (diagAllowed) queueDetail = data
+          }
+        }
+      } catch (e) {
+        console.error('[health] queue backlog check failed:', e.message)
+      } finally {
+        clearTimeout(qTimer)
+      }
+    }
+  })()
+
+  // Cele patru sonde tolerante rulează ÎN PARALEL, nu în serie: fiecare are
+  // propriul AbortController (DB_PING_TIMEOUT_MS), deci în serie cazul cel mai
+  // rău era ping + 4 × timeout = 20 s — peste limita sincronă implicită de 10 s
+  // a funcțiilor Netlify. O bază LENTĂ-dar-vie ar fi dat 502 FĂRĂ corp (adică
+  // fără `checks`, fără diagnostic cu token) exact când ai nevoie de el. În
+  // paralel plafonul e ping + 1 × timeout = 8 s. Semantica per sondă e
+  // neschimbată: fiecare are try/catch/finally propriu și nu respinge niciodată.
+  await Promise.all([cronProbe, storageProbe, schemaProbe, queuesProbe])
+
+  const healthy = dbOk && cron !== 'stale' && storage !== 'critical' && queues !== 'stale'
+  // PUBLIC = SEVERITATE, cu token = CIFRE (audit v3 RES-38): corpul public are
+  // EXACT {status, checks, ts}. `config` (ce integrări sunt moarte),
+  // `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail` apar
+  // DOAR cu `x-health-diag`. Forma publică e înghețată de HL8.
   return jsonResponse(healthy ? 200 : 503, {
     status: healthy ? 'ok' : 'degraded',
-    checks: { db: dbOk ? 'ok' : 'down', cron, storage },
-    cron_last_run: cronLastRun,
-    storage_detail: storageDetail,
-    config,
+    checks: { db: dbOk ? 'ok' : 'down', cron, storage, schema, queues },
+    ...(diagAllowed
+      ? {
+          config,
+          cron_last_run: cronLastRun,
+          storage_detail: storageDetail,
+          schema_detail: schemaDetail,
+          queue_detail: queueDetail,
+        }
+      : {}),
     ts,
   })
 }
