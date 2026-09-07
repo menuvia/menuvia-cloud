@@ -33,12 +33,21 @@ const STATUS_META: Record<string, { label: string; color: string; bg: string }> 
 
 // ── PayModal ──────────────────────────────────────────────────
 
+export interface PayResult {
+  ok: boolean
+  /** Mesajul de refuz al serverului (deja tradus), afișat ÎN modal. */
+  message?: string
+}
+
 interface PayModalProps {
   order: Order
   // Suma deja încasată în plăți parțiale (split). „Plata integrală" cere DOAR
   // restul (order.total − alreadyPaid), nu totalul — altfel ar fi dublă-încasare.
   alreadyPaid?: number
-  onConfirm: (method: PaymentMethod, amount: number, tips: number) => void | Promise<void>
+  // Întoarce {ok:false, message} când serverul refuză (underpayment/overpayment/
+  // rol/gate): modalul rămâne deschis și afișează mesajul (audit v3 RES-16 —
+  // înainte ospătarul vedea doar „Verifică și reîncearcă", fără CE a refuzat).
+  onConfirm: (method: PaymentMethod, amount: number, tips: number) => void | Promise<void | PayResult>
   onClose: () => void
   onDiscountClick?: (() => void) | undefined
   happyHourSuggestion?: {
@@ -79,6 +88,20 @@ function PayModal({
 
   const grandTotal = orderTotal + tipsAmount
   const [amount, setAmount] = useState(String(grandTotal.toFixed(2)))
+  // Refuzul serverului, afișat aici (bannerul paginii stă sub overlay).
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  // Pre-flight (informativ, NU blocant — serverul e gate-ul, mig 264): suma
+  // de pe NOTĂ = suma înmânată (contractul PayModal, cu bacșiș) − bacșiș.
+  // Oglindește EXACT fallback-ul butonului (`parseFloat(amount) || grandTotal`).
+  const parsedAmount = parseFloat(amount)
+  const handed = Number.isFinite(parsedAmount) && parsedAmount > 0 ? parsedAmount : grandTotal
+  const netOnBill = Math.round((handed - tipsAmount) * 100) / 100
+  const preflight: string | null =
+    netOnBill < orderTotal - 0.01
+      ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) e sub restul de plată (${orderTotal.toFixed(2)}). Pentru încasare în tranșe folosește „Plată parțială".`
+      : netOnBill > orderTotal + 0.01
+        ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) depășește restul (${orderTotal.toFixed(2)}). Rotunjirea în sus se înregistrează ca bacșiș.`
+        : null
 
   // Re-sync amount când se schimbă order.total sau tips
   useEffect(() => {
@@ -397,7 +420,10 @@ function PayModal({
           <input
             type="number"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmount(e.target.value)
+              setErrorMsg(null)
+            }}
             style={{
               width: '100%',
               boxSizing: 'border-box',
@@ -410,18 +436,49 @@ function PayModal({
               padding: '10px 12px',
             }}
           />
+          {preflight != null && errorMsg == null && (
+            <div role="status" style={{ fontSize: 12, color: D.amber, marginTop: 6, lineHeight: 1.5 }}>
+              {preflight}
+            </div>
+          )}
         </div>
+
+        {errorMsg != null && (
+          <div
+            role="alert"
+            style={{
+              fontSize: 12,
+              color: D.red,
+              background: `${D.red}11`,
+              padding: '8px 10px',
+              borderRadius: 6,
+              lineHeight: 1.5,
+            }}
+          >
+            {errorMsg}
+          </div>
+        )}
 
         <button
           disabled={submitting}
           onClick={() => {
             if (submitting) return
             setSubmitting(true)
+            setErrorMsg(null)
             // Așteptăm finalizarea; dacă onConfirm e sincron, Promise.resolve îl
-            // normalizează. La eșec (părintele ține modalul deschis) redeblocăm.
-            void Promise.resolve(
-              onConfirm(method, parseFloat(amount) || grandTotal, tipsAmount),
-            ).finally(() => setSubmitting(false))
+            // normalizează. La refuz părintele ține modalul deschis și întoarce
+            // mesajul serverului; `.catch` ÎNAINTE de `.finally`, altfel un
+            // rethrow ar deveni unhandled rejection.
+            void Promise.resolve(onConfirm(method, parseFloat(amount) || grandTotal, tipsAmount))
+              .then((res) => {
+                if (res && typeof res === 'object' && res.ok === false) {
+                  setErrorMsg(res.message || 'Plata nu a fost înregistrată. Verifică și reîncearcă.')
+                }
+              })
+              .catch((e: unknown) => {
+                setErrorMsg(e instanceof Error && e.message ? e.message : 'Plata nu a fost înregistrată.')
+              })
+              .finally(() => setSubmitting(false))
           }}
           style={{
             background: D.green,
@@ -472,7 +529,9 @@ interface OrderCardProps {
   // false (Plan 1/2) → butoanele de plată dispar; apare „Închide comanda"
   // (plata + bonul se fac pe casa de marcat existentă a localului).
   // null (audit v3 DS-1) = planul nu e cunoscut → NICIUN buton de finalizare
-  // (o închidere nefiscală pe Plan 3 ar însemna bani fără bon).
+  // (o închidere nefiscală pe Plan 3 ar însemna bani fără bon). Default-ul e
+  // TOT null (fail-closed): un call-site viitor care omite prop-ul nu are voie
+  // să arate „Plată integrală" pe growth sau „Închide comanda" pe Plan 3.
   paymentsEnabled?: boolean | null
   onCloseOrder?: (order: Order) => void
 }
@@ -484,7 +543,7 @@ function OrderCardInner({
   onEdit,
   onCancel,
   onAudit,
-  paymentsEnabled = true,
+  paymentsEnabled = null,
   onCloseOrder,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]

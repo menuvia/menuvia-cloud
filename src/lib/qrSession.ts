@@ -82,3 +82,26 @@ export function clearQrSessionSnapshot(token: string): void {
     /* no-op */
   }
 }
+
+/**
+ * Reconciliază snapshot-ul rehidratat cu sesiunea CONFIRMATĂ de server
+ * (`open_table_session`). Snapshot-ul identifică MASA (cheia e token-ul), dar
+ * comenzile/plățile aparțin unei SESIUNI concrete: dacă serverul a deschis o
+ * sesiune NOUĂ (masa s-a eliberat între timp — nota veche e închisă/plătită)
+ * sau id-ul diferă de cel din snapshot, comenzile vechi nu au voie să reînvie
+ * (audit v3 RES-27: totalul „Plătește masa" ar fi numărat nota altcuiva /
+ * o notă deja închisă). Fail-closed spre stare curată: un snapshot pe care
+ * serverul nu-l confirmă se aruncă. Funcție PURĂ, testabilă.
+ */
+export function reconcileQrSessionSnapshot(
+  snap: Pick<QrSessionSnapshot, 'sessionId' | 'previousOrders'> | null,
+  server: { session_id: string; is_new: boolean },
+): { keep: boolean; sessionId: string } {
+  const keep =
+    snap != null &&
+    snap.previousOrders.length > 0 &&
+    !server.is_new &&
+    snap.sessionId != null &&
+    snap.sessionId === server.session_id
+  return { keep, sessionId: server.session_id }
+}

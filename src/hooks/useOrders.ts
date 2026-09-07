@@ -111,6 +111,8 @@ interface UseOrdersResult {
   orders: Order[]
   loading: boolean
   error: string | null
+  // Lista e plafonată (cele mai noi STAFF_ORDERS_FETCH_LIMIT comenzi deschise).
+  truncated: boolean
   connectionStatus: RealtimeConnectionStatus
   // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea).
   // Apelanții pe căi de bani (plată) trebuie să verifice rezultatul înainte de a
@@ -133,6 +135,9 @@ export function useOrders(
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // Lista a fost plafonată la STAFF_ORDERS_FETCH_LIMIT (cele mai NOI comenzi
+  // deschise) — paginile afișează un avertisment, nu tac (audit v3 RES-36).
+  const [truncated, setTruncated] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
 
   // Snapshot pentru handler-ul realtime (nu re-abonăm canalul la fiecare
@@ -174,9 +179,10 @@ export function useOrders(
     let cancelled = false
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
     fetcher(restaurantId)
-      .then((data) => {
+      .then((page) => {
         if (cancelled) return
-        setOrders(data)
+        setOrders(page.orders)
+        setTruncated(page.truncated)
         setLoading(false)
       })
       .catch((e: unknown) => {
@@ -313,14 +319,15 @@ export function useOrders(
       if (pendingAdvancesRef.current > 0) return
       if (connectionStatusRef.current === 'connected' && tick % 4 !== 0) return
       fetcher(restaurantId)
-        .then((data) => {
+        .then((page) => {
           if (cancelled) return
           // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
           if (pendingAdvancesRef.current > 0) return
           // OPT-7: reconciliere pe id cu păstrarea REFERINȚELOR — altfel
           // fiecare heartbeat crea obiecte noi pentru comenzi neschimbate,
           // re-randând tot arborele și invalidând orice memo pe carduri.
-          setOrders((prev) => reconcileOrders(prev, data))
+          setOrders((prev) => reconcileOrders(prev, page.orders))
+          setTruncated(page.truncated)
         })
         .catch(() => {
           /* ignore — păstrăm state-ul curent */
@@ -390,5 +397,5 @@ export function useOrders(
     [orders],
   )
 
-  return { orders, loading, error, connectionStatus, advance, byStatus }
+  return { orders, loading, error, truncated, connectionStatus, advance, byStatus }
 }
