@@ -346,8 +346,10 @@ export function describeCancelRejection(err: unknown): string {
       )
     case 'cancel_reason_required':
       return 'Motivul e obligatoriu pentru anularea unei comenzi servite.'
+    case 'void_reason_required':
+      return 'Motivul e obligatoriu pentru stornarea unei plăți.'
     case 'role_insufficient':
-      return 'Rolul tău nu permite anularea comenzilor.'
+      return 'Rolul tău nu permite această acțiune (doar owner/manager pot storna plăți sau anula).'
     case 'order_terminal':
       return 'Comanda e deja finalizată și nu mai poate fi anulată.'
     default:
@@ -686,12 +688,42 @@ export async function addPartialPayment(
   return data as { ok: boolean; total_paid: number; remaining: number; fully_paid: boolean }
 }
 
-export async function getOrderPayments(
-  orderId: string,
-): Promise<Array<{ id: string; amount: number; method: string; created_at: string }>> {
+export interface OrderPaymentRow {
+  id: string
+  amount: number
+  method: string
+  created_at: string
+}
+
+export async function getOrderPayments(orderId: string): Promise<OrderPaymentRow[]> {
   const { data, error } = await supabase.rpc('get_order_payments', { p_order_id: orderId })
   if (error) throw error
-  return (data ?? []) as Array<{ id: string; amount: number; method: string; created_at: string }>
+  return (data ?? []) as OrderPaymentRow[]
+}
+
+// Storno pe o plată din registru (mig 270): banii au fost RETURNAȚI clientului
+// (cash înapoi / refund manual în Stripe), adminul stornează cu motiv, rândul
+// iese din order_payments și rămâne în audit_log. E ieșirea legitimă din gate-ul
+// `cancel_over_payments` — fără ea o comandă cu split online neonorabil ar
+// bloca masa permanent. Aruncă un Error REAL cu hint/code (ca advanceOrderStatus).
+export async function voidOrderPayment(
+  paymentId: string,
+  reason: string,
+): Promise<{ order_id: string; amount: number; method: string }> {
+  const { data, error } = await supabase.rpc('void_order_payment', {
+    p_payment_id: paymentId,
+    p_reason: reason,
+  })
+  if (error) {
+    const err = new Error(error.message || 'Eroare la stornarea plății') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
+  return data as { order_id: string; amount: number; method: string }
 }
 
 // ── Public order status (pentru QR tracking, clienți anon) ──

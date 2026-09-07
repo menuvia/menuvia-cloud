@@ -1504,6 +1504,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/oblio_delivery_date_assertions.sql
 
+      - name: "Happy Hour auto-apply assertions (mig 077/192 — invariant de bani)"
+        if: ${{ hashFiles('tests/sql/happy_hour_auto_apply_assertions.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/happy_hour_auto_apply_assertions.sql
+
       - name: "Cancel-over-payments gate assertions (mig 270 A)"
         if: ${{ hashFiles('supabase/migrations/20260910090000_migration_270_money_gates_in_data.sql') != '' }}
         env:

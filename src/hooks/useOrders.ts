@@ -369,8 +369,11 @@ export function useOrders(
             return next
           })
         }
-        setError(e instanceof Error ? e.message : 'Failed to update order')
+        // Cu throwOnError apelantul afișează eroarea în propriul dialog — NU o
+        // punem și în bannerul paginii (ar rămâne acolo după închiderea
+        // dialogului, până la următorul advance).
         if (opts?.throwOnError) throw e
+        setError(e instanceof Error ? e.message : 'Failed to update order')
         return false
       } finally {
         pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)

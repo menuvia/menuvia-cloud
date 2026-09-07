@@ -27,9 +27,10 @@
 -- Singurul scriitor viu de `status='cancelled'` pe `orders` e `advance_order`
 -- (verificat: 030/041/158/227/257 scriu pe ALTE tabele), deci gate-ul nu rupe
 -- niciun flux legitim. Anularea comenzilor FĂRĂ bani rămâne neschimbată.
--- NU intră aici (feature / decizie de fondator): storno pe `order_payments`,
--- refund automat Stripe la anulare. Fluxul „clientul a plătit 40 și a plecat"
--- rămâne BLOCAT VIZIBIL (eroare cu suma), nu tăcut.
+-- Ieșirea din gate (A3): `void_order_payment` — storno cu motiv, doar admin,
+-- doar comenzi ne-terminale, audit_log. Fără ea gate-ul ar bloca PERMANENT o
+-- masă cu split online pe o comandă pe care bucătăria n-o poate onora
+-- (echipa roșie). NU intră: refund automat Stripe (rămâne manual, ca azi).
 --
 -- ── (B) RES-31 — retry-ul bonului AMBIGUU, gate doar în UI ────────────────────
 -- `bridge_retry_receipt` (030→038→262) nu citea `error_info`: markerul
@@ -76,10 +77,12 @@ declare
   v_paid numeric;
 begin
   -- Doar pe tranziția EFECTIVĂ spre 'cancelled'; 'cancelled'→'cancelled' nu
-  -- re-declanșează gate-ul (paritate cu 124/264). BEFORE UPDATE, nu INSERT:
-  -- un INSERT direct 'cancelled' nu poate avea registru (FK-ul din
-  -- order_payments cere comanda existentă).
-  if new.status = 'cancelled' and old.status is distinct from 'cancelled' then
+  -- re-declanșează gate-ul (paritate cu 124/264). Forma e TG_OP-safe ca 259/264
+  -- (pe INSERT `old` nu există); un INSERT direct 'cancelled' nu poate avea
+  -- registru (FK-ul din order_payments cere comanda existentă), dar trigger-ul
+  -- e oglinda EXACTĂ a lui trg_orders_closed_fiscal_gate.
+  if new.status = 'cancelled'
+     and (tg_op = 'INSERT' or old.status is distinct from 'cancelled') then
     select coalesce(sum(op.amount), 0) into v_paid
       from public.order_payments op
      where op.order_id = new.id;
@@ -96,7 +99,7 @@ revoke all on function public.enforce_cancel_ledger_gate() from public;
 
 drop trigger if exists trg_orders_cancel_ledger_gate on public.orders;
 create trigger trg_orders_cancel_ledger_gate
-  before update on public.orders
+  before insert or update on public.orders
   for each row
   execute function public.enforce_cancel_ledger_gate();
 
@@ -416,6 +419,76 @@ revoke all on function public.advance_order(uuid, text, numeric, text, numeric, 
 grant execute on function public.advance_order(uuid, text, numeric, text, numeric, text) to authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- A3. void_order_payment — IEȘIREA din gate: banii RETURNAȚI se stornează
+--     Fără ea, gate-ul ar produce un BLOCAJ operațional (echipa roșie): un
+--     split online pe o comandă `preparing` pe care bucătăria n-o poate onora
+--     → cancel respins, close_order respins pe Plan 3 (264), mark_paid = bon
+--     fals, close_session_orders refuză cât timp comanda e ne-terminală → masa
+--     rămâne ocupată PERMANENT. Storno-ul e calea legitimă: banii au fost
+--     RETURNAȚI clientului (cash înapoi / refund manual în Stripe — NU se face
+--     refund automat aici), adminul (owner/manager, NU waiter) stornează cu
+--     motiv obligatoriu, rândul iese din registru și rămâne în audit_log
+--     (old_data = rândul + void_reason), abia apoi anularea trece.
+--     Doar comenzi NE-terminale: pe `paid` registrul e sursa bonului emis.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.void_order_payment(p_payment_id uuid, p_reason text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user  uuid;
+  v_pay   record;
+  v_order record;
+begin
+  v_user := auth.uid();
+  if v_user is null then
+    raise exception 'Authentication required'
+      using errcode = 'P0001', hint = 'auth_required';
+  end if;
+  if p_reason is null or length(trim(p_reason)) = 0 then
+    raise exception 'Motivul stornării e obligatoriu'
+      using errcode = 'P0001', hint = 'void_reason_required';
+  end if;
+
+  select op.* into v_pay from public.order_payments op where op.id = p_payment_id for update;
+  if not found then
+    raise exception 'Plata nu există'
+      using errcode = 'P0001', hint = 'payment_not_found';
+  end if;
+  select o.id, o.restaurant_id, o.status into v_order
+    from public.orders o where o.id = v_pay.order_id for update;
+
+  if not public.is_admin(v_order.restaurant_id) then
+    raise exception 'Doar owner/manager pot storna o plată înregistrată'
+      using errcode = 'P0001', hint = 'role_insufficient';
+  end if;
+  if v_order.status in ('paid', 'cancelled', 'closed') then
+    raise exception 'Comanda e finalizată (%) — plata nu se mai poate storna', v_order.status
+      using errcode = 'P0001', hint = 'order_terminal';
+  end if;
+
+  delete from public.order_payments where id = p_payment_id;
+
+  insert into public.audit_log
+    (actor_id, actor_role, table_name, operation, row_id, restaurant_id, old_data, new_data, changed_keys)
+  values
+    (v_user, 'authenticated', 'order_payments', 'DELETE', p_payment_id::text, v_order.restaurant_id,
+     to_jsonb(v_pay) || jsonb_build_object('void_reason', trim(p_reason)), null, null);
+
+  return jsonb_build_object('ok', true, 'order_id', v_pay.order_id,
+                            'amount', v_pay.amount, 'method', v_pay.method);
+end;
+$$;
+
+revoke all on function public.void_order_payment(uuid, text) from public, anon;
+grant execute on function public.void_order_payment(uuid, text) to authenticated;
+
+comment on function public.void_order_payment(uuid, text) is
+  'mig 270 (audit v3 RES-25): storno pe o plata din order_payments — banii au fost RETURNATI (cash / refund manual Stripe). Doar owner/manager, motiv obligatoriu, doar comenzi ne-terminale; randul sters + audit_log DELETE cu void_reason. Iesirea legitima din gate-ul cancel_over_payments.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- B1. bridge_retry_receipt — lanț 030→038→262→270: semnătură nouă cu ack
 -- ─────────────────────────────────────────────────────────────────────────────
 drop function if exists public.bridge_retry_receipt(uuid);
@@ -468,7 +541,11 @@ begin
   -- Gate-ul e pe MARKER, nu pe error_code (bridge-ul scrie coduri diferite;
   -- markerul e singurul contract comun) și e independent de status (cancel
   -- NU șterge error_info). Oglinda lui `enqueue_invoice_for_order` (262).
-  if position('POSIBIL DUPLICAT' in coalesce(v_error_info, '')) > 0
+  -- Prefix (`like 'POSIBIL DUPLICAT%'`), paritate EXACTĂ cu gate-ul Oblio din
+  -- enqueue_invoice_for_order (262): ambele surse pun markerul la ÎNCEPUT;
+  -- un error_info care doar CITEAZĂ textul (ex. urma de ack de mai jos) NU
+  -- e ambiguu.
+  if coalesce(v_error_info, '') like 'POSIBIL DUPLICAT%'
      and coalesce(p_ack_ambiguous, false) is not true then
     raise exception 'Bonul are un eșec AMBIGUU (poate fi deja tipărit). Verifică banda casei și confirmă explicit retrimiterea.'
       using errcode = 'P0001', hint = 'ambiguous_receipt';
@@ -496,7 +573,16 @@ begin
          claimed_at       = null,
          completed_at     = null,
          error_code       = null,
-         error_info       = null
+         -- Pe retry-ul AMBIGUU confirmat lăsăm o URMĂ (trasabilitate fiscală):
+         -- cine a confirmat verificarea benzii și când. bridge_confirm_receipt
+         -- o suprascrie oricum la următorul rezultat; pe eșec clar rămâne NULL.
+         error_info       = case
+           when coalesce(v_error_info, '') like 'POSIBIL DUPLICAT%'
+             then 'Retrimis după verificarea benzii (ack admin '
+                  || coalesce(auth.uid()::text, '?') || ' la '
+                  || to_char(now() at time zone 'Europe/Bucharest', 'YYYY-MM-DD HH24:MI') || ')'
+           else null
+         end
    where id     = p_receipt_id
      and status in ('error', 'cancelled')
      and bon_number is null;  -- double check
@@ -573,13 +659,29 @@ begin
   select tgtype into v_tgtype from pg_trigger
    where tgname = 'trg_orders_cancel_ledger_gate' and tgrelid = 'public.orders'::regclass and not tgisinternal;
   if v_tgtype is null then raise exception 'mig 270: trg_orders_cancel_ledger_gate lipseste'; end if;
-  if (v_tgtype & 2) = 0 or (v_tgtype & 16) = 0 or (v_tgtype & 1) = 0 then
-    raise exception 'mig 270: trg_orders_cancel_ledger_gate trebuie sa fie BEFORE UPDATE FOR EACH ROW (tgtype=%)', v_tgtype; end if;
+  if (v_tgtype & 2) = 0 or (v_tgtype & 4) = 0 or (v_tgtype & 16) = 0 or (v_tgtype & 1) = 0 then
+    raise exception 'mig 270: trg_orders_cancel_ledger_gate trebuie sa fie BEFORE INSERT OR UPDATE FOR EACH ROW (tgtype=%)', v_tgtype; end if;
   select pg_get_functiondef(p.oid) into v_src
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'enforce_cancel_ledger_gate';
   if position('order_payments' in v_src) = 0 or position('cancel_over_payments' in v_src) = 0 then
     raise exception 'mig 270: enforce_cancel_ledger_gate nu citeste registrul / nu are hint-ul'; end if;
+
+  -- A3. void_order_payment: DEFINER + pg_temp, gate is_admin, doar ne-terminale, audit.
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'void_order_payment';
+  if v_src is null then raise exception 'mig 270: void_order_payment lipseste (gate-ul ar fi un blocaj fara iesire)'; end if;
+  foreach v_sig in array array['is_admin', 'audit_log', 'order_terminal', 'void_reason_required',
+                               'delete from public.order_payments', 'for update'] loop
+    if position(v_sig in v_src) = 0 then
+      raise exception 'mig 270: void_order_payment a pierdut invariantul „%"', v_sig; end if;
+  end loop;
+  if position('security definer' in lower(v_src)) = 0 or position('pg_temp' in v_src) = 0 then
+    raise exception 'mig 270: void_order_payment nu e DEFINER cu pg_temp'; end if;
+  if has_function_privilege('anon', 'public.void_order_payment(uuid, text)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.void_order_payment(uuid, text)', 'EXECUTE') then
+    raise exception 'mig 270: grant-urile pe void_order_payment sunt gresite'; end if;
 
   -- B. bridge_retry_receipt: EXACT o semnatura (anti-overload PostgREST), DEFINER
   --    cu pg_temp, gate-ul pe marker + TOATE invariantele 038/262.

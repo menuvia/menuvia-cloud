@@ -34,7 +34,9 @@ import {
   getOrderPayments,
   applyOrderDiscount,
   describeCancelRejection,
+  voidOrderPayment,
 } from '../lib/orders'
+import type { OrderPaymentRow } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
@@ -150,10 +152,10 @@ export default function WaiterPage() {
   const [payOrderPaid, setPayOrderPaid] = useState(0)
   const [editOrder, setEditOrder] = useState<Order | null>(null)
   const [cancelOrder, setCancelOrder] = useState<Order | null>(null)
-  // Cât s-a încasat deja pe comanda din dialogul de anulare (mig 270: anularea
-  // peste bani e respinsă server-side). null = necunoscut → dialogul NU
-  // blochează, serverul rămâne gate-ul (tristate, ca BridgeOfflineBanner).
-  const [cancelPaid, setCancelPaid] = useState<number | null>(null)
+  // Plățile deja înregistrate pe comanda din dialogul de anulare (mig 270:
+  // anularea peste bani e respinsă server-side; ieșirea e storno-ul). null =
+  // necunoscut → dialogul NU blochează, serverul rămâne gate-ul (tristate).
+  const [cancelPayments, setCancelPayments] = useState<OrderPaymentRow[] | null>(null)
   const [auditOrder, setAuditOrder] = useState<Order | null>(null)
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
@@ -195,17 +197,17 @@ export default function WaiterPage() {
 
   useEffect(() => {
     if (cancelOrder == null) {
-      setCancelPaid(null)
+      setCancelPayments(null)
       return
     }
     let alive = true
-    setCancelPaid(null)
+    setCancelPayments(null)
     void getOrderPayments(cancelOrder.id)
       .then((ps) => {
-        if (alive) setCancelPaid(ps.reduce((s, p) => s + p.amount, 0))
+        if (alive) setCancelPayments(ps)
       })
       .catch(() => {
-        if (alive) setCancelPaid(null)
+        if (alive) setCancelPayments(null)
       })
     return () => {
       alive = false
@@ -1824,8 +1826,29 @@ export default function WaiterPage() {
       {cancelOrder != null && (
         <CancelOrderDialog
           order={cancelOrder}
-          paidSoFar={cancelPaid}
+          payments={cancelPayments}
           onClose={() => setCancelOrder(null)}
+          onVoidAndCancel={async (reason) => {
+            // Storno pe fiecare plată (banii au fost returnați; online =
+            // refund manual în Stripe), apoi anularea. Fiecare storno e
+            // auditat server-side; la eșec parțial lista se reîncarcă.
+            try {
+              for (const p of cancelPayments ?? []) await voidOrderPayment(p.id, reason)
+              await advance(
+                cancelOrder.id,
+                cancelOrder.status,
+                { status: 'cancelled', cancel_reason: reason },
+                { throwOnError: true },
+              )
+              setCancelOrder(null)
+              return { ok: true }
+            } catch (e) {
+              void getOrderPayments(cancelOrder.id)
+                .then(setCancelPayments)
+                .catch(() => setCancelPayments(null))
+              return { ok: false, message: describeCancelRejection(e) }
+            }
+          }}
           onConfirm={async (reason) => {
             try {
               await advance(

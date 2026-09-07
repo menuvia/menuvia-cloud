@@ -24,6 +24,10 @@
 --   RR7  clichet structural VIU: EXACT o semnătură (anti PGRST203), DEFINER cu
 --        pg_temp, grant authenticated / nu anon, trigger BEFORE UPDATE ROW
 --        NE-definer pe pending_receipts.
+--   RR8  calea LEGITIMĂ cu urmă fiscală pe un bon agățat în 'sent':
+--        `bridge_force_resolve_stuck(id, false)` (045) scrie „Force-resolved …
+--        NOT printed" → retry FĂRĂ ack trece. Gate-ul e pe MARKER, nu pe orice
+--        error_info ne-nul, și nu blochează după verificarea umană din DB.
 --
 -- Self-contained, ROLLBACK la final. Seed ca AV (audit_v3_hardening).
 -- =============================================================================
@@ -56,7 +60,8 @@ select set_config('request.jwt.claim.sub', '71000000-0000-4000-8000-000000000001
 insert into public.orders (id, restaurant_id, source, status, total, paid_amount, payment_method, paid_at) values
   ('71f00000-0000-4000-8000-000000000001', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now()),
   ('71f00000-0000-4000-8000-000000000002', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now()),
-  ('71f00000-0000-4000-8000-000000000003', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now());
+  ('71f00000-0000-4000-8000-000000000003', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now()),
+  ('71f00000-0000-4000-8000-000000000004', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now());
 insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total)
 select o.id, '71d00000-0000-4000-8000-000000000001', 'RR Cafea', 1, 10, 10
   from public.orders o where o.restaurant_id = '71b00000-0000-4000-8000-000000000001';
@@ -66,8 +71,8 @@ declare v_n int;
 begin
   select count(*) into v_n from public.pending_receipts
    where restaurant_id = '71b00000-0000-4000-8000-000000000001';
-  if v_n <> 3 then
-    raise exception 'RR seed: enqueue-ul pe INSERT (mig 259) a produs % rânduri (așteptat 3)', v_n; end if;
+  if v_n <> 4 then
+    raise exception 'RR seed: enqueue-ul pe INSERT (mig 259) a produs % rânduri (așteptat 4)', v_n; end if;
 end $$;
 
 -- ── RR1: marker de CRON → retry fără ack → respins, marker intact ────────────
@@ -126,13 +131,16 @@ end $$;
 
 -- ── RR3: retry CU ack → pending, vizibil pentru bridge ───────────────────────
 do $$
-declare v_rid uuid; v_ok boolean; v_status text; v_seen int;
+declare v_rid uuid; v_ok boolean; v_status text; v_seen int; v_info text;
 begin
   select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000001';
   v_ok := public.bridge_retry_receipt(v_rid, true);
-  select status into v_status from public.pending_receipts where id = v_rid;
+  select status, error_info into v_status, v_info from public.pending_receipts where id = v_rid;
   if v_ok is not true or v_status <> 'pending' then
     raise exception 'RR3 FAIL: retry-ul CU ack nu a re-pus bonul în coadă (ok=%, status=%)', v_ok, v_status; end if;
+  -- Urma de ack (trasabilitate fiscală): cine a confirmat banda și când.
+  if coalesce(v_info, '') not like 'Retrimis după verificarea benzii%' then
+    raise exception 'RR3 FAIL: retry-ul confirmat nu a lăsat urma de ack (error_info=%)', v_info; end if;
   select count(*) into v_seen from public.bridge_get_pending('RRSECRET') g where g.id = v_rid;
   if v_seen <> 1 then
     raise exception 'RR3 FAIL: bridge_get_pending nu vede bonul re-pus (n=%)', v_seen; end if;
@@ -233,6 +241,30 @@ begin
               where n.nspname = 'public' and p.proname = 'fn_pending_receipts_block_client_repend' and p.prosecdef) then
     raise exception 'RR7 FAIL: funcția de trigger a devenit DEFINER — nu mai vede rolul apelantului, RR5 ar deveni vacuu'; end if;
   raise notice 'RR7 OK: o singură semnătură, DEFINER+pg_temp, grant-uri corecte, backstop NE-definer';
+end $$;
+
+-- ── RR8: force_resolve (NOT printed) șterge markerul → retry fără ack trece ──
+do $$
+declare v_rid uuid; v_ok boolean; v_status text; v_info text;
+begin
+  select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000004';
+  -- Bon agățat în 'sent' (bridge-ul l-a preluat, confirmarea s-a pierdut) —
+  -- ÎNAINTE ca cron-ul să-l marcheze: adminul verifică banda, bonul NU e
+  -- tipărit → force_resolve (045, doar pe 'sent') îl duce în error cu urma
+  -- „Force-resolved by admin: bon NOT printed" — fără marker ambiguu.
+  update public.pending_receipts
+     set status = 'sent', claimed_at = now(), bridge_device_id = '71e00000-0000-4000-8000-000000000001',
+         error_code = null, error_info = null, completed_at = null
+   where id = v_rid;
+  perform public.bridge_force_resolve_stuck(v_rid, false, null);
+  select status, error_info into v_status, v_info from public.pending_receipts where id = v_rid;
+  if v_status <> 'error' or v_info not like 'Force-resolved%' or v_info like 'POSIBIL DUPLICAT%' then
+    raise exception 'RR8: precondiție — force_resolve nu a lăsat urma așteptată (status=%, info=%)', v_status, v_info; end if;
+  v_ok := public.bridge_retry_receipt(v_rid);
+  select status into v_status from public.pending_receipts where id = v_rid;
+  if v_ok is not true or v_status <> 'pending' then
+    raise exception 'RR8 FAIL: după verificarea umană înregistrată în DB retry-ul fără ack a fost blocat (ok=%, status=%) — gate pe istoric, nu pe marker', v_ok, v_status; end if;
+  raise notice 'RR8 OK: force_resolve (NOT printed) e calea cu urmă; gate-ul nu supra-blochează';
 end $$;
 
 rollback;
