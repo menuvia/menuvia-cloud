@@ -25,6 +25,7 @@ import {
   rotateReservationIdempotencyKey,
   createReservationPublic,
   TERMINAL_RESERVATION_STATUSES,
+  isTerminalReservation,
 } from '../reservations'
 
 const SLUG = 'bistro-test'
@@ -119,6 +120,11 @@ describe('cheia de idempotență a rezervării', () => {
       // Dacă scrierea eșuează, cheia veche TREBUIE ștearsă — altfel un remount
       // ar reciti cheia rezervării deja trimise și serverul ar întoarce-o pe aceea.
       expect(removeItem).toHaveBeenCalledWith(STORAGE_KEY)
+      // Și, mai important decât apelul în sine: CITIREA URMĂTOARE trebuie să dea
+      // cheia NOUĂ. Fără asta, testul verifica doar că s-a chemat `removeItem`,
+      // nu și proprietatea pentru care există — exact ce trebuie să prindă.
+      expect(getReservationIdempotencyKey(SLUG)).toBe(rotated)
+      expect(getReservationIdempotencyKey(SLUG)).not.toBe(before)
     } finally {
       setItem.mockRestore()
       removeItem.mockRestore()
@@ -196,9 +202,17 @@ describe('createReservationPublic', () => {
     expect(row.party_size).toBe(7)
   })
 
-  it('R12: stările terminale sunt declarate (ecranul nu are voie să arate un rând mort ca rezervare primită)', () => {
+  it('R12: decizia „rând mort" acoperă terminalele și NU stările vii', () => {
+    // Testăm funcția de DECIZIE, nu doar existența unei constante: un test care
+    // verifică doar că array-ul conține două șiruri ar trece și dacă ramura din
+    // ReservationSheet ar fi ștearsă. Reziduu consemnat: cablajul din componentă
+    // (setError + return) nu are test de randare — call-site-ul e unul singur.
+    expect(isTerminalReservation('cancelled')).toBe(true)
+    expect(isTerminalReservation('no_show')).toBe(true)
+    for (const alive of ['pending', 'confirmed', 'seated', 'completed']) {
+      expect(isTerminalReservation(alive)).toBe(false)
+    }
     expect(TERMINAL_RESERVATION_STATUSES).toContain('cancelled')
-    expect(TERMINAL_RESERVATION_STATUSES).toContain('no_show')
   })
 
   it('R10: rândul întors poartă party_size (ecranul de confirmare îl ia de la server)', async () => {

@@ -22,7 +22,7 @@ import {
   createReservationPublic,
   getReservationIdempotencyKey,
   rotateReservationIdempotencyKey,
-  TERMINAL_RESERVATION_STATUSES,
+  isTerminalReservation,
 } from '../lib/reservations'
 
 interface PubColors {
@@ -539,7 +539,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     // („confirmată" / „în așteptare"), deci ar prezenta un rând mort drept
     // rezervare primită. Cheia tocmai s-a rotit, deci o retrimitere chiar creează
     // una nouă — fără rotire, clientul ar rămâne blocat pe rândul mort.
-    if (TERMINAL_RESERVATION_STATUSES.includes(row.status)) {
+    if (isTerminalReservation(row.status)) {
       setError(
         lang === 'ro'
           ? 'Rezervarea făcută anterior din această cerere a fost anulată. Trimite din nou pentru a face una nouă.'

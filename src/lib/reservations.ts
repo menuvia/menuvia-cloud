@@ -106,6 +106,11 @@ function firstRow(data: unknown, args: CreateReservationArgs): CreatedReservatio
  */
 export const TERMINAL_RESERVATION_STATUSES = ['cancelled', 'no_show']
 
+/** `true` dacă rezervarea întoarsă nu mai e vie și nu poate fi prezentată drept primită. */
+export function isTerminalReservation(status: string): boolean {
+  return TERMINAL_RESERVATION_STATUSES.includes(status)
+}
+
 // Ca la `createOrder` (orders.ts): aruncăm un `Error` REAL, nu obiectul
 // PostgrestError brut — altfel apelantul care testează `e instanceof Error`
 // cade pe un mesaj generic și ascunde cauza. `hint`/`code` se păstrează, fiindcă

@@ -29,6 +29,10 @@
 -- folosesc telefoane DIFERITE și rămân sub praguri; retrimiterile (care NU
 -- inserează) refolosesc deliberat același telefon, ca RI4 să aibă sens.
 --
+-- Sloturile sunt RELATIVE (`current_date + 90`), nu o dată fixă: o dată fixă
+-- face suita să pice după ce trece, din cauza plafonului de avans — adică dintr-un
+-- motiv care n-are nicio legătură cu idempotența.
+--
 -- Rulează DUPĂ migrații. Self-contained, ROLLBACK la final.
 -- =============================================================================
 
@@ -76,13 +80,13 @@ declare
 begin
   select * into v1 from public.create_reservation_public(
     'ri-bistro-slug', 'Ana Idem', '0722000001', 2::smallint,
-    (timestamp '2027-06-01 12:00') at time zone 'Europe/Bucharest',
+    ((current_date + 90)::timestamp + time '12:00') at time zone 'Europe/Bucharest',
     null, null, null, null, null,
     '7e300000-0000-4000-8000-0000000000a1'::uuid);
 
   select * into v2 from public.create_reservation_public(
     'ri-bistro-slug', 'Ana Idem', '0722000001', 2::smallint,
-    (timestamp '2027-06-01 12:00') at time zone 'Europe/Bucharest',
+    ((current_date + 90)::timestamp + time '12:00') at time zone 'Europe/Bucharest',
     null, null, null, null, null,
     '7e300000-0000-4000-8000-0000000000a1'::uuid);
 
@@ -111,7 +115,7 @@ declare v_id uuid; v_n int;
 begin
   select reservation_id into v_id from public.create_reservation_public(
     'ri-bistro-slug', 'Bogdan Alt', '0722000002', 2::smallint,
-    (timestamp '2027-06-01 14:00') at time zone 'Europe/Bucharest',
+    ((current_date + 90)::timestamp + time '14:00') at time zone 'Europe/Bucharest',
     null, null, null, null, null,
     '7e300000-0000-4000-8000-0000000000a2'::uuid);
   select count(*) into v_n from public.reservations
@@ -127,10 +131,10 @@ declare v_n int;
 begin
   perform public.create_reservation_public(
     'ri-bistro-slug', 'Cezar Fara', '0722000003', 2::smallint,
-    (timestamp '2027-06-01 16:00') at time zone 'Europe/Bucharest');
+    ((current_date + 90)::timestamp + time '16:00') at time zone 'Europe/Bucharest');
   perform public.create_reservation_public(
     'ri-bistro-slug', 'Cezar Fara', '0722000004', 2::smallint,
-    (timestamp '2027-06-01 18:00') at time zone 'Europe/Bucharest');
+    ((current_date + 90)::timestamp + time '18:00') at time zone 'Europe/Bucharest');
   select count(*) into v_n from public.reservations
    where restaurant_id = 'b7300000-0000-4000-8000-000000000001';
   if v_n <> 4 then
@@ -147,7 +151,7 @@ begin
   for v_i in 1..5 loop
     perform public.create_reservation_public(
       'ri-bistro-slug', 'Ana Idem', '0722000001', 2::smallint,
-      (timestamp '2027-06-01 12:00') at time zone 'Europe/Bucharest',
+      ((current_date + 90)::timestamp + time '12:00') at time zone 'Europe/Bucharest',
       null, null, null, null, null,
       '7e300000-0000-4000-8000-0000000000a1'::uuid);
   end loop;
@@ -186,7 +190,7 @@ begin
   begin
     perform public.create_reservation_public(
       'ri-bistro-slug', 'Dan Nou', '0722000005', 2::smallint,
-      (timestamp '2027-06-01 20:00') at time zone 'Europe/Bucharest',
+      ((current_date + 90)::timestamp + time '20:00') at time zone 'Europe/Bucharest',
       null, null, null, null, null,
       '7e300000-0000-4000-8000-0000000000a9'::uuid);
   exception when others then
@@ -202,7 +206,7 @@ begin
   begin
     select reservation_id into v_id from public.create_reservation_public(
       'ri-bistro-slug', 'Ana Idem', '0722000001', 2::smallint,
-      (timestamp '2027-06-01 12:00') at time zone 'Europe/Bucharest',
+      ((current_date + 90)::timestamp + time '12:00') at time zone 'Europe/Bucharest',
       null, null, null, null, null,
       '7e300000-0000-4000-8000-0000000000a1'::uuid);
   exception when others then
@@ -226,7 +230,7 @@ begin
 
   select reservation_id into v_id from public.create_reservation_public(
     'ri-altul-slug', 'Elena Alt Local', '0722000006', 2::smallint,
-    (timestamp '2027-06-01 12:00') at time zone 'Europe/Bucharest',
+    ((current_date + 90)::timestamp + time '12:00') at time zone 'Europe/Bucharest',
     null, null, null, null, null,
     '7e300000-0000-4000-8000-0000000000a1'::uuid);
 
