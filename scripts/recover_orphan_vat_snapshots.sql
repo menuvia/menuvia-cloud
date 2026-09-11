@@ -41,13 +41,17 @@
 -- teste îl include (`\i`) în propria tranzacție (VS9).
 -- =============================================================================
 
--- Trigger-ul de sincronizare a subtotalului (mig 248) se dezactivează pe durata
--- tranzacției, exact ca în backfill-ul din mig 272: altfel fiecare comandă
--- atinsă ar primi un UPDATE pe `orders` (audit 044 + gate-urile BEFORE UPDATE),
--- iar un total deja bonat ar putea fi „reparat" tăcut din liniile curente.
-alter table public.order_items disable trigger order_items_subtotal_sync_upd;
-select set_config('menuvia.skip_item_audit', 'on', true);
-
+-- Totul stă într-UN SINGUR bloc, cu handler de excepție: trigger-ul de
+-- sincronizare a subtotalului (mig 248) se dezactivează pe durata lucrului —
+-- altfel fiecare comandă atinsă ar primi un UPDATE pe `orders` (audit 044 +
+-- gate-urile BEFORE UPDATE), iar un total deja bonat ar putea fi „reparat" tăcut
+-- din liniile curente. Dezactivarea trebuie să se RIDICE și pe calea de eroare:
+-- dacă scriptul e rulat fără `-1` (fiecare instrucțiune își face commit), un
+-- `alter table ... disable` urmat de o excepție ar lăsa trigger-ul STINS în
+-- producție — adică subtotalurile ar înceta tăcut să se mai sincronizeze. Într-un
+-- `do` cu `exception`, eșecul dă înapoi subtranzacția (deci și dezactivarea), iar
+-- handler-ul re-activează explicit înainte de a re-arunca: fail-safe în ambele
+-- moduri de rulare.
 do $$
 declare
   v_fixed     bigint := 0;
@@ -55,6 +59,8 @@ declare
   v_unmatched bigint := 0;
   v_rec       record;
 begin
+  execute 'alter table public.order_items disable trigger order_items_subtotal_sync_upd';
+  perform set_config('menuvia.skip_item_audit', 'on', true);
   if not exists (
     select 1 from information_schema.columns
      where table_schema = 'public' and table_name = 'order_items'
@@ -127,6 +133,12 @@ begin
   loop
     raise notice '  AMBIGUU (nesetat): „%" — % linii, nume purtat de produse cu grupe TVA diferite', v_rec.nume, v_rec.linii;
   end loop;
-end $$;
 
-alter table public.order_items enable trigger order_items_subtotal_sync_upd;
+  execute 'alter table public.order_items enable trigger order_items_subtotal_sync_upd';
+exception
+  when others then
+    -- Ieșirea din subtranzacție a dat deja înapoi dezactivarea; re-activăm
+    -- explicit fiindcă e idempotent și fiindcă ne bazăm pe STARE, nu pe presupuneri.
+    execute 'alter table public.order_items enable trigger order_items_subtotal_sync_upd';
+    raise;
+end $$;
