@@ -4,8 +4,11 @@
 -- de comandă e cea de la VÂNZARE, nu cea curentă a grupei/produsului.
 --
 -- Rulează ca `postgres` (ocolește RLS) — testăm LOGICA cititorilor și a
--- trigger-ului, nu identitatea (vat_report_daily e security_invoker; RLS-ul
--- lui e testat în rls_scoping_batch2 / report_revenue_gate).
+-- trigger-ului. EXCEPȚIE: VS11 coboară la rolul real `authenticated`, fiindcă
+-- `security_invoker` pe `vat_report_daily` nu se vede altfel (ca PM8 din
+-- payments_by_method). Delegarea pe care o scrisesem aici — „RLS-ul lui e testat
+-- în rls_scoping_batch2 / report_revenue_gate" — era FALSĂ: prima suită nu
+-- pomenește view-ul, a doua nici nu există.
 --
 --   VS1  trigger-ul completează snapshot-ul (grupă + cotă) la INSERT, pe
 --        restaurantul COMENZII, pentru orice scriitor (aici: INSERT direct).
@@ -38,6 +41,9 @@
 --        VREODATĂ grupe diferite — produse distincte SAU același produs
 --        reclasificat înainte de ștergere — e ambiguu și se SARE; unul fără
 --        potrivire rămâne NULL.
+--   VS11 sub rolul REAL `authenticated`: owner-ul își vede rândurile, un cont
+--        fără apartenență vede ZERO (security_invoker + RLS). [PICĂ dacă view-ul
+--        e recreat fără security_invoker]
 --   VS10 ziua de raportare e ziua ROMÂNEASCĂ a încasării, independentă de
 --        TimeZone-ul sesiunii, și coincide cu ziua din v_daily_payments_by_method.
 --        [PICĂ pe codul vechi: date_trunc fără conversie → ziua precedentă]
@@ -261,6 +267,10 @@ begin
   if v_type is distinct from 7 then
     raise exception 'VS8 FAIL: trg_snapshot_order_item_vat trebuie BEFORE INSERT ROW (tgtype 7), găsit %', v_type; end if;
 
+  if not (coalesce((select reloptions from pg_class where oid = 'public.vat_report_daily'::regclass), '{}')
+          @> array['security_invoker=true']) then
+    raise exception 'VS8 FAIL: vat_report_daily nu mai e security_invoker — view-ul are grant SELECT către authenticated și e deținut de postgres, deci ar ocoli RLS și ar expune cifrele TUTUROR restaurantelor'; end if;
+
   v_def := pg_get_viewdef('public.vat_report_daily'::regclass, true);
   if v_def not ilike '%vat_rate_snapshot%' or v_def not ilike '%vat_group_snapshot%' then
     raise exception 'VS8 FAIL: vat_report_daily nu mai citește snapshot-ul'; end if;
@@ -452,6 +462,41 @@ begin
   raise notice 'VS10 OK: ziua de raportare e cea românească (2026-09-01), independentă de TimeZone și aliniată cu defalcarea pe metodă';
 end $$;
 
-select 'VAT RATE SNAPSHOT ASSERTIONS: VS1–VS10 PASS' as result;
+-- ── VS11: sub rolul REAL `authenticated`, view-ul respectă RLS ───────────────
+-- `security_invoker` e singurul lucru care ține `vat_report_daily` legat de RLS:
+-- view-ul e deținut de `postgres` și are `grant select ... to authenticated`, deci
+-- fără el ar rula cu drepturile proprietarului și ORICE cont autentificat — un
+-- ospătar de la alt local, sau un cont proaspăt fără nicio apartenență — ar citi
+-- brutul, TVA-ul și netul zilnic ale TUTUROR restaurantelor.
+-- Restul suitei rulează ca `postgres`, care ocolește RLS și e ORB la clasa asta.
+--   [PICĂ dacă view-ul e recreat fără `with (security_invoker = true)`]
+insert into auth.users (id, email) values
+  ('72000000-0000-4000-8000-0000000000ff', 'vs-strain@vs.test');
+
+do $$
+declare v_owner int; v_strain int;
+begin
+  -- control POZITIV: owner-ul TREBUIE să-și vadă rândurile, altfel „0 rânduri"
+  -- pentru străin n-ar dovedi nimic (ar putea fi o eroare de drepturi sau date goale)
+  perform set_config('request.jwt.claim.sub', '72000000-0000-4000-8000-000000000001', true);
+  set local role authenticated;
+  select count(*) into v_owner from public.vat_report_daily
+   where restaurant_id = '72b00000-0000-4000-8000-000000000001';
+  reset role;
+  if v_owner = 0 then
+    raise exception 'VS11 FAIL (control pozitiv): owner-ul nu-și vede propriile rânduri — testul de scurgere ar fi vacuu'; end if;
+
+  perform set_config('request.jwt.claim.sub', '72000000-0000-4000-8000-0000000000ff', true);
+  set local role authenticated;
+  select count(*) into v_strain from public.vat_report_daily;
+  reset role;
+  if v_strain <> 0 then
+    raise exception 'VS11 FAIL: SCURGERE — un cont fără nicio apartenență vede % rânduri din raportul TVA', v_strain; end if;
+
+  perform set_config('request.jwt.claim.sub', '72000000-0000-4000-8000-000000000001', true);
+  raise notice 'VS11 OK: owner vede % rânduri, cont străin vede 0 (security_invoker + RLS)', v_owner;
+end $$;
+
+select 'VAT RATE SNAPSHOT ASSERTIONS: VS1–VS11 PASS' as result;
 
 rollback;
