@@ -344,6 +344,33 @@ begin
     raise exception 'VS9 precondiție FAIL: o linie fără produs a primit snapshot la INSERT'; end if;
 end $$;
 
+-- Întâi PREVIZUALIZAREA: raportează din aceeași logică, dar nu scrie nimic și —
+-- esențial — nu ia lacătul care blochează crearea de comenzi pe toată platforma.
+set local menuvia.recover_dry_run = 'on';
+\ir ../../scripts/recover_orphan_vat_snapshots.sql
+
+do $$
+declare v_n int; v_lock int;
+begin
+  select count(*) into v_n from public.order_items
+   where id in ('72e00000-0000-4000-8000-000000000091','72e00000-0000-4000-8000-000000000092',
+                '72e00000-0000-4000-8000-000000000093','72e00000-0000-4000-8000-000000000094')
+     and vat_group_snapshot is not null;
+  if v_n <> 0 then
+    raise exception 'VS9 FAIL: previzualizarea a SCRIS % linii — trebuia să fie doar raport', v_n; end if;
+
+  -- `alter table ... disable trigger` ia ShareRowExclusiveLock pe order_items, care
+  -- blochează INSERT/UPDATE/DELETE. Previzualizarea e locul unde omul se uită și se
+  -- gândește, deci NU are voie să-l ia: altfel crearea de comenzi stă oprită pe toată
+  -- platforma cât durează decizia.
+  select count(*) into v_lock from pg_locks
+   where relation = 'public.order_items'::regclass and mode = 'ShareRowExclusiveLock';
+  if v_lock <> 0 then
+    raise exception 'VS9 FAIL: previzualizarea ține ShareRowExclusiveLock pe order_items (blochează comenzile pe toată platforma)'; end if;
+  raise notice 'VS9a OK: previzualizarea raportează fără să scrie și fără lacăt de scriere';
+end $$;
+
+set local menuvia.recover_dry_run = 'off';
 \ir ../../scripts/recover_orphan_vat_snapshots.sql
 
 do $$

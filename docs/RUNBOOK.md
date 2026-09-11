@@ -209,27 +209,28 @@ deci numele de la vânzare e singura punte. Se citește **tot istoricul** numelu
 rândul de ștergere: un produs reclasificat înainte de a fi șters ar face ca ștergerea să
 raporteze o grupă pe care vânzarea nu a avut-o.
 
-Două moduri de rulare. **Dacă vrei să vezi raportul ÎNAINTE de a decide**, rulează interactiv
-— forma neinteractivă `-1 -f` face COMMIT singură la succes, deci acolo nu mai există moment
-de decizie:
+Se rulează în **doi pași**: întâi previzualizarea (doar raportează, nu scrie nimic și nu ia
+niciun lacăt de scriere), apoi aplicarea. Nu rula scriptul într-o sesiune interactivă cu
+`begin` … `commit` ca să te uiți între timp: aplicarea ia `SHARE ROW EXCLUSIVE` pe
+`order_items`, care blochează INSERT/UPDATE/DELETE, adică **crearea de comenzi pe toată
+platforma**, cât timp tranzacția e deschisă.
 
 ```bash
-cd <rădăcina repo-ului>   # `\ir` interactiv se rezolvă față de directorul curent
-psql "$DATABASE_URL"
-```
-```sql
-begin;
-\ir scripts/recover_orphan_vat_snapshots.sql   -- tipărește câte linii recuperează / sare
--- inspectează, de exemplu:
-select vat_group_snapshot, count(*) from order_items where product_id is null group by 1;
-commit;   -- sau: rollback;
-```
+cd <rădăcina repo-ului>
 
-**Neinteractiv** (o singură tranzacție, COMMIT automat la succes, ROLLBACK automat la eroare):
+# 1. Previzualizare — câte linii s-ar recupera, câte sunt ambigue, câte fără potrivire.
+#    Nu scrie nimic, nu blochează pe nimeni.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -c "set menuvia.recover_dry_run = 'on'" \
+  -f scripts/recover_orphan_vat_snapshots.sql
 
-```bash
+# 2. Aplicare — o singură tranzacție, COMMIT automat la succes, ROLLBACK la eroare.
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
 ```
+
+Cifrele din pasul 1 vin din exact aceeași logică ca scrierea din pasul 2 (nu dintr-un raport
+scris separat, care ar putea diverge tăcut), iar pasul 2 verifică la final că a scris exact
+câte linii anunțase — dacă nu, dă eroare și nu comite.
 
 Scriptul raportează câte linii a recuperat, câte a **sărit ca ambigue** și câte au rămas
 fără potrivire. Ambiguu = numele a purtat vreodată în acel restaurant grupe TVA diferite:

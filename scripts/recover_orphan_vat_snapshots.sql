@@ -38,11 +38,24 @@
 --     restaurant, se scrie doar grupa, iar cota rămâne NULL (cititorii cad pe
 --     cota curentă a grupei — corect).
 --
--- CUM SE RULEAZĂ (o singură tranzacție, se poate inspecta și da înapoi):
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
+-- CUM SE RULEAZĂ — în DOI pași:
+--   1) previzualizare (doar raportează; nu scrie și NU ia niciun lacăt de scriere):
+--        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+--          -c "set menuvia.recover_dry_run = 'on'" \
+--          -f scripts/recover_orphan_vat_snapshots.sql
+--   2) aplicare (o singură tranzacție; COMMIT automat la succes, ROLLBACK la eroare):
+--        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
+--
+-- NU-l rula interactiv cu `begin` … te uiți … `commit`: aplicarea ia SHARE ROW
+-- EXCLUSIVE pe `order_items` (prin `alter table ... disable trigger`), care
+-- blochează INSERT/UPDATE/DELETE — adică CREAREA DE COMENZI pe toată platforma —
+-- cât timp tranzacția e deschisă. De asta există pasul 1: raportul se obține din
+-- ACEEAȘI logică, fără lacăt, iar fereastra de decizie umană stă în afara
+-- tranzacției care scrie. Pasul 2 verifică la final că a scris exact câte linii
+-- anunțase previzualizarea; dacă nu, dă eroare și nu comite.
 --
 -- Scriptul NU conține `begin`/`commit`: `psql -1` îl încadrează, iar suita de
--- teste îl include (`\i`) în propria tranzacție (VS9).
+-- teste îl include (`\ir`) în propria tranzacție (VS9), în ambele moduri.
 -- =============================================================================
 
 -- Totul stă într-UN SINGUR bloc, cu handler de excepție: trigger-ul de
@@ -59,18 +72,24 @@
 do $$
 declare
   v_fixed     bigint := 0;
+  v_fixable   bigint := 0;
   v_ambiguous bigint := 0;
   v_unmatched bigint := 0;
+  v_dry       boolean;
   v_rec       record;
 begin
-  execute 'alter table public.order_items disable trigger order_items_subtotal_sync_upd';
-  perform set_config('menuvia.skip_item_audit', 'on', true);
+  v_dry := coalesce(current_setting('menuvia.recover_dry_run', true), 'off') in ('on', 'true', '1');
+
   if not exists (
     select 1 from information_schema.columns
      where table_schema = 'public' and table_name = 'order_items'
        and column_name = 'vat_group_snapshot') then
     raise exception 'recover_orphan_vat_snapshots: mig 272 nu e aplicată (lipsește order_items.vat_group_snapshot)';
   end if;
+
+  -- Re-rulabil în aceeași tranzacție (preview, apoi aplicare).
+  drop table if exists _orphan_candidates;
+  drop table if exists _deleted_groups;
 
   -- Candidații: linii orfane (fără produs) și fără snapshot, cu nume de la vânzare.
   create temp table _orphan_candidates on commit drop as
@@ -116,6 +135,52 @@ begin
    where nume is not null
    group by 1, 2;
 
+  -- Numărătorile se fac ÎNAINTE de orice scriere, ca modul de PREVIZUALIZARE să
+  -- dea exact aceleași cifre ca rularea reală, din ACEEAȘI logică (un raport
+  -- scris separat ar putea diverge tăcut de ce face scriptul).
+  select count(*) into v_fixable
+    from _orphan_candidates c
+    join _deleted_groups s
+      on s.restaurant_id = c.restaurant_id and s.nume = c.nume
+   where s.n_grupe = 1 and s.vat_group between 1 and 4;
+
+  select count(*) into v_ambiguous
+    from _orphan_candidates c
+    join _deleted_groups s
+      on s.restaurant_id = c.restaurant_id and s.nume = c.nume
+   where s.n_grupe > 1;
+
+  select count(*) into v_unmatched
+    from _orphan_candidates c
+   where not exists (select 1 from _deleted_groups s
+                      where s.restaurant_id = c.restaurant_id and s.nume = c.nume);
+
+  for v_rec in
+    select c.nume, count(*) as linii
+      from _orphan_candidates c
+      join _deleted_groups s
+        on s.restaurant_id = c.restaurant_id and s.nume = c.nume
+     where s.n_grupe > 1
+     group by 1 order by 2 desc
+  loop
+    raise notice '  AMBIGUU (nesetat): „%" — % linii, nume purtat de produse cu grupe TVA diferite', v_rec.nume, v_rec.linii;
+  end loop;
+
+  if v_dry then
+    raise notice 'recover_orphan_vat_snapshots [PREVIZUALIZARE, nimic scris]: % linii recuperabile, % ambigue, % fără potrivire',
+      v_fixable, v_ambiguous, v_unmatched;
+    return;
+  end if;
+
+  -- De AICI încolo se scrie. `alter table ... disable trigger` ia SHARE ROW
+  -- EXCLUSIVE pe `order_items`, care blochează INSERT/UPDATE/DELETE — adică
+  -- CREAREA DE COMENZI pe toată platforma cât timp e ținut. De asta stă cât mai
+  -- târziu posibil, iar previzualizarea (unde omul se uită și se gândește) NU
+  -- ajunge niciodată aici: altfel lacătul ar fi ținut peste o fereastră de
+  -- decizie umană, deschisă oricât.
+  execute 'alter table public.order_items disable trigger order_items_subtotal_sync_upd';
+  perform set_config('menuvia.skip_item_audit', 'on', true);
+
   update public.order_items oi
      set vat_group_snapshot = s.vat_group,
          vat_rate_snapshot  = vr.rate_percent
@@ -131,32 +196,14 @@ begin
      and s.vat_group between 1 and 4;         -- respectă CHECK-ul coloanei
   get diagnostics v_fixed = row_count;
 
-  select count(*) into v_ambiguous
-    from _orphan_candidates c
-    join _deleted_groups s
-      on s.restaurant_id = c.restaurant_id and s.nume = c.nume
-   where s.n_grupe > 1;
+  execute 'alter table public.order_items enable trigger order_items_subtotal_sync_upd';
 
-  select count(*) into v_unmatched
-    from _orphan_candidates c
-   where not exists (select 1 from _deleted_groups s
-                      where s.restaurant_id = c.restaurant_id and s.nume = c.nume);
+  if v_fixed <> v_fixable then
+    raise exception 'recover_orphan_vat_snapshots: previzualizarea anunța % linii, s-au scris % — logica raportului și cea a scrierii au divergat', v_fixable, v_fixed;
+  end if;
 
   raise notice 'recover_orphan_vat_snapshots: % linii recuperate din jurnalul de audit, % sărite ca AMBIGUE, % fără potrivire (rămân pe fallback-ul grupei 1)',
     v_fixed, v_ambiguous, v_unmatched;
-
-  for v_rec in
-    select c.nume, count(*) as linii
-      from _orphan_candidates c
-      join _deleted_groups s
-        on s.restaurant_id = c.restaurant_id and s.nume = c.nume
-     where s.n_grupe > 1
-     group by 1 order by 2 desc
-  loop
-    raise notice '  AMBIGUU (nesetat): „%" — % linii, nume purtat de produse cu grupe TVA diferite', v_rec.nume, v_rec.linii;
-  end loop;
-
-  execute 'alter table public.order_items enable trigger order_items_subtotal_sync_upd';
 exception
   when others then
     -- Ieșirea din subtranzacție a dat deja înapoi dezactivarea; re-activăm
