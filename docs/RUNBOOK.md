@@ -202,19 +202,40 @@ ei a putut face asta doar pentru liniile care mai au un produs: cele al căror p
 **șters înainte** de migrație au `product_id` NULL (FK `on delete set null`) și rămân fără
 snapshot, deci raportul TVA le pune pe toate în **grupa 1**, la cota curentă a grupei 1.
 
-Grupa lor e recuperabilă din jurnalul de audit: ștergerea unui produs scrie un rând
-`audit_log` DELETE cu `old_data` complet (numele + `vat_group`). Potrivirea se face pe
+Grupa lor e recuperabilă din jurnalul de audit: orice scriere pe `products` lasă
+`old_data`/`new_data` complete (numele + `vat_group`). Potrivirea se face pe
 (restaurant, `product_name_snapshot`) — `order_items` nu are rânduri de audit pentru ele,
-deci numele de la vânzare e singura punte.
+deci numele de la vânzare e singura punte. Se citește **tot istoricul** numelui, nu doar
+rândul de ștergere: un produs reclasificat înainte de a fi șters ar face ca ștergerea să
+raporteze o grupă pe care vânzarea nu a avut-o.
+
+Două moduri de rulare. **Dacă vrei să vezi raportul ÎNAINTE de a decide**, rulează interactiv
+— forma neinteractivă `-1 -f` face COMMIT singură la succes, deci acolo nu mai există moment
+de decizie:
 
 ```bash
-# O singură tranzacție: se poate inspecta ieșirea și da ROLLBACK dacă ceva nu convine.
+cd <rădăcina repo-ului>   # `\ir` interactiv se rezolvă față de directorul curent
+psql "$DATABASE_URL"
+```
+```sql
+begin;
+\ir scripts/recover_orphan_vat_snapshots.sql   -- tipărește câte linii recuperează / sare
+-- inspectează, de exemplu:
+select vat_group_snapshot, count(*) from order_items where product_id is null group by 1;
+commit;   -- sau: rollback;
+```
+
+**Neinteractiv** (o singură tranzacție, COMMIT automat la succes, ROLLBACK automat la eroare):
+
+```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
 ```
 
-Scriptul raportează câte linii a recuperat, câte a **sărit ca ambigue** (același nume purtat
-în acel restaurant de produse cu grupe TVA diferite — nu se ghicește într-un jurnal fiscal)
-și câte au rămas fără potrivire. E idempotent: atinge doar liniile cu `vat_group_snapshot`
+Scriptul raportează câte linii a recuperat, câte a **sărit ca ambigue** și câte au rămas
+fără potrivire. Ambiguu = numele a purtat vreodată în acel restaurant grupe TVA diferite:
+produse distincte cu același nume, același produs reclasificat înainte de ștergere, sau un
+produs încă VIU care poartă azi acel nume cu altă grupă. În toate cazurile linia rămâne cum
+e — într-un jurnal fiscal nu se ghicește. E idempotent: atinge doar liniile cu `vat_group_snapshot`
 NULL, deci se poate rula din nou fără efect.
 
 **Stare la 11 sept 2026 (înainte de rulare):** 16 din 53 de linii de comandă sunt orfane,

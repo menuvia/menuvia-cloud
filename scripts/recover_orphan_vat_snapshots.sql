@@ -14,18 +14,22 @@
 -- Dintre ele, „Vin pahar" (2 linii, 36,00 lei) era în grupa 2 — raportată azi ca
 -- grupă 1. Restul chiar erau grupa 1, deci fără efect.
 --
--- Sursa de adevăr e jurnalul de audit (mig 044): ștergerea unui produs scrie un
--- rând `audit_log` DELETE cu `old_data` complet, deci numele ȘI `vat_group` de la
--- momentul ștergerii sunt păstrate. Potrivirea se face pe (restaurant, nume), cu
--- `order_items.product_name_snapshot` — numele de la VÂNZARE (mig 003).
+-- Sursa de adevăr e jurnalul de audit (mig 044): orice scriere pe `products`
+-- lasă `old_data`/`new_data` complete, deci numele ȘI `vat_group` sunt păstrate.
+-- Potrivirea se face pe (restaurant, nume), cu `order_items.product_name_snapshot`
+-- — numele de la VÂNZARE (mig 003). Se citește TOT istoricul numelui, nu doar
+-- rândul de ștergere: un produs reclasificat ÎNAINTE de ștergere ar face ca
+-- ștergerea să raporteze o grupă pe care vânzarea nu a avut-o.
 --
 -- DISCIPLINĂ (jurnal fiscal, nu date de lucru):
 --   * se ating DOAR liniile fără snapshot ȘI fără produs — nicio linie cu
 --     snapshot nu e rescrisă, deci scriptul e idempotent;
---   * un nume care în același restaurant a aparținut unor produse cu grupe TVA
---     DIFERITE e AMBIGUU: se SARE (rămâne pe fallback-ul documentat), nu se
---     ghicește. A sări o linie o lasă exact cum e azi; a ghici ar da unui
---     jurnal fiscal aparența de certitudine peste o presupunere;
+--   * un nume care în acel restaurant a purtat VREODATĂ grupe TVA diferite —
+--     fie prin produse diferite, fie prin reclasificarea aceluiași produs, fie
+--     fiindcă un produs VIU poartă azi acel nume cu altă grupă — e AMBIGUU: se
+--     SARE (rămâne pe fallback-ul documentat), nu se ghicește. A sări o linie o
+--     lasă exact cum e azi; a ghici ar da unui jurnal fiscal aparența de
+--     certitudine peste o presupunere;
 --   * liniile fără nicio potrivire (audit curățat, nume schimbat) rămân NULL;
 --   * cota scrisă e cea CURENTĂ a grupei recuperate — aceeași regulă ca
 --     backfill-ul din mig 272; pe producție s-a verificat că NICIUN restaurant
@@ -79,19 +83,37 @@ begin
      and oi.product_id is null
      and oi.product_name_snapshot is not null;
 
-  -- Grupele ștergerilor din jurnal, per (restaurant, nume). `n_grupe > 1` =
-  -- același nume a purtat grupe diferite → ambiguu → se sare.
+  -- Grupele TVA pe care le-a purtat VREODATĂ un nume, per restaurant.
+  --
+  -- Rândul DELETE singur NU e de ajuns: un produs poate fi RECLASIFICAT (grupa 1
+  -- → 2) și abia apoi șters, caz în care ștergerea spune 2, dar vânzarea s-ar fi
+  -- putut face cât timp era 1 — exact defectul pe care îl repară mig 272, doar
+  -- că strecurat înapoi prin ușa din dos. De aceea se ia TOT istoricul de audit
+  -- al numelui (orice operație, grupa din AMBELE instantanee) plus produsele
+  -- care încă EXISTĂ cu acel nume (un nume reutilizat de un produs viu cu altă
+  -- grupă e la fel de ambiguu). `n_grupe > 1` → se sare, nu se ghicește.
   create temp table _deleted_groups on commit drop as
-  select al.restaurant_id,
-         al.old_data->>'name'                        as nume,
-         min((al.old_data->>'vat_group')::smallint)  as vat_group,
-         count(distinct al.old_data->>'vat_group')   as n_grupe
-    from public.audit_log al
-   where al.table_name = 'products'
-     and al.operation  = 'DELETE'
-     and al.old_data ? 'vat_group'
-     and al.old_data ? 'name'
-     and al.restaurant_id is not null
+  with hist as (
+    select al.restaurant_id,
+           coalesce(al.old_data->>'name', al.new_data->>'name') as nume,
+           v.vg::smallint                                       as vat_group
+      from public.audit_log al
+      cross join lateral (values (al.old_data->>'vat_group'),
+                                 (al.new_data->>'vat_group')) as v(vg)
+     where al.table_name    = 'products'
+       and al.restaurant_id is not null
+       and v.vg ~ '^[0-9]+$'          -- old_data poate conține orice; nu presupunem un număr
+    union all
+    select p.restaurant_id, p.name, p.vat_group
+      from public.products p
+     where p.vat_group is not null
+  )
+  select restaurant_id,
+         nume,
+         min(vat_group)           as vat_group,
+         count(distinct vat_group) as n_grupe
+    from hist
+   where nume is not null
    group by 1, 2;
 
   update public.order_items oi

@@ -34,8 +34,10 @@
 --   VS9  scripts/recover_orphan_vat_snapshots.sql (rulat MANUAL, nu e în lanț):
 --        liniile orfane (produs șters înainte de mig 272, fără product_id și
 --        fără snapshot) își recuperează grupa din audit_log DELETE pe products,
---        potrivind pe (restaurant, product_name_snapshot). Un nume purtat de
---        grupe DIFERITE e ambiguu și se SARE; unul fără potrivire rămâne NULL.
+--        potrivind pe (restaurant, product_name_snapshot). Un nume care a purtat
+--        VREODATĂ grupe diferite — produse distincte SAU același produs
+--        reclasificat înainte de ștergere — e ambiguu și se SARE; unul fără
+--        potrivire rămâne NULL.
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -300,7 +302,8 @@ insert into public.order_items
   (id, order_id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total) values
   ('72e00000-0000-4000-8000-000000000091', '72f00000-0000-4000-8000-000000000009', null, 'VS Vin pahar', 30, 1, 30),
   ('72e00000-0000-4000-8000-000000000092', '72f00000-0000-4000-8000-000000000009', null, 'VS Ambiguu',   30, 1, 30),
-  ('72e00000-0000-4000-8000-000000000093', '72f00000-0000-4000-8000-000000000009', null, 'VS Necunoscut',30, 1, 30);
+  ('72e00000-0000-4000-8000-000000000093', '72f00000-0000-4000-8000-000000000009', null, 'VS Necunoscut',30, 1, 30),
+  ('72e00000-0000-4000-8000-000000000094', '72f00000-0000-4000-8000-000000000009', null, 'VS Reclasificat',30, 1, 30);
 
 -- Jurnalul ștergerilor: „VS Vin pahar" a fost grupa 2 (o singură ștergere),
 -- „VS Ambiguu" a purtat grupele 2 și 3, „VS Necunoscut" nu apare deloc.
@@ -312,6 +315,19 @@ insert into public.audit_log (table_name, operation, row_id, restaurant_id, old_
   ('products', 'DELETE', '72d00000-0000-4000-8000-000000000093', '72b00000-0000-4000-8000-000000000001',
    jsonb_build_object('name', 'VS Ambiguu', 'vat_group', 3));
 
+-- „VS Reclasificat": UN SINGUR produs, mutat din grupa 1 în 2 și abia apoi șters.
+-- Rândul DELETE spune 2, dar vânzarea putea fi făcută cât timp era 1 — deci
+-- istoricul are 2 grupe și linia trebuie SĂRITĂ. Dacă recuperarea s-ar uita doar
+-- la ștergere (ca în prima variantă a scriptului), ar scrie 2 cu aparență de
+-- certitudine: fix defectul pe care îl repară mig 272, strecurat înapoi.
+insert into public.audit_log (table_name, operation, row_id, restaurant_id, old_data, new_data) values
+  ('products', 'UPDATE', '72d00000-0000-4000-8000-000000000094', '72b00000-0000-4000-8000-000000000001',
+   jsonb_build_object('name', 'VS Reclasificat', 'vat_group', 1),
+   jsonb_build_object('name', 'VS Reclasificat', 'vat_group', 2));
+insert into public.audit_log (table_name, operation, row_id, restaurant_id, old_data) values
+  ('products', 'DELETE', '72d00000-0000-4000-8000-000000000094', '72b00000-0000-4000-8000-000000000001',
+   jsonb_build_object('name', 'VS Reclasificat', 'vat_group', 2));
+
 do $$
 declare v_g smallint; v_r numeric;
 begin
@@ -319,7 +335,8 @@ begin
   if exists (select 1 from public.order_items
               where id in ('72e00000-0000-4000-8000-000000000091',
                            '72e00000-0000-4000-8000-000000000092',
-                           '72e00000-0000-4000-8000-000000000093')
+                           '72e00000-0000-4000-8000-000000000093',
+                           '72e00000-0000-4000-8000-000000000094')
                 and vat_group_snapshot is not null) then
     raise exception 'VS9 precondiție FAIL: o linie fără produs a primit snapshot la INSERT'; end if;
 end $$;
@@ -344,8 +361,13 @@ begin
   if v_g is not null then
     raise exception 'VS9 FAIL: linia FĂRĂ potrivire în jurnal a primit grupa %', v_g; end if;
 
+  select vat_group_snapshot into v_g
+    from public.order_items where id = '72e00000-0000-4000-8000-000000000094';
+  if v_g is not null then
+    raise exception 'VS9 FAIL: produsul RECLASIFICAT înainte de ștergere (1 → 2) a primit grupa % — istoricul are două grupe, linia trebuia SĂRITĂ', v_g; end if;
+
   -- idempotență: a doua rulare nu rescrie nimic (se atinge doar snapshot NULL)
-  raise notice 'VS9 OK: orfan cu potrivire unică → grupa 2/21 din jurnal; ambiguul și necunoscutul rămân pe fallback';
+  raise notice 'VS9 OK: orfan cu potrivire unică → grupa 2/21 din jurnal; ambiguul, reclasificatul și necunoscutul rămân pe fallback';
 end $$;
 
 select 'VAT RATE SNAPSHOT ASSERTIONS: VS1–VS9 PASS' as result;
