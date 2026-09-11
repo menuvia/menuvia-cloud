@@ -344,9 +344,18 @@ begin
     raise exception 'VS9 precondiție FAIL: o linie fără produs a primit snapshot la INSERT'; end if;
 end $$;
 
--- Întâi PREVIZUALIZAREA: raportează din aceeași logică, dar nu scrie nimic și —
--- esențial — nu ia lacătul care blochează crearea de comenzi pe toată platforma.
-set local menuvia.recover_dry_run = 'on';
+-- Capcană de nume: o tabelă PERMANENTĂ cu numele tabelei temporare a scriptului.
+-- Un `drop table if exists _orphan_candidates` necalificat ar cădea prin
+-- search_path și ar ȘTERGE-O — tocmai genul de tabelă de lucru rămasă dintr-o
+-- reparație manuală anterioară, adică fix sesiunea din care se rulează scriptul.
+create table public._orphan_candidates (santinela int);
+insert into public._orphan_candidates values (1);
+
+-- Întâi PREVIZUALIZAREA, rulată FĂRĂ niciun steag: comportamentul IMPLICIT
+-- trebuie să fie „nu scrie". Steagul e fail-closed tocmai fiindcă un nume de GUC
+-- scris greșit sau o valoare neașteptată nu au voie să aleagă tăcut ramura care
+-- scrie într-un jurnal fiscal. Previzualizarea nici nu ia lacătul care blochează
+-- crearea de comenzi pe toată platforma.
 \ir ../../scripts/recover_orphan_vat_snapshots.sql
 
 do $$
@@ -367,10 +376,13 @@ begin
    where relation = 'public.order_items'::regclass and mode = 'ShareRowExclusiveLock';
   if v_lock <> 0 then
     raise exception 'VS9 FAIL: previzualizarea ține ShareRowExclusiveLock pe order_items (blochează comenzile pe toată platforma)'; end if;
-  raise notice 'VS9a OK: previzualizarea raportează fără să scrie și fără lacăt de scriere';
+  if not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                  where n.nspname = 'public' and c.relname = '_orphan_candidates') then
+    raise exception 'VS9 FAIL: scriptul a ȘTERS tabela PERMANENTĂ public._orphan_candidates (drop necalificat cade prin search_path)'; end if;
+  raise notice 'VS9a OK: fără steag = previzualizare (fail-closed) — nu scrie, nu ia lacăt, nu atinge tabele permanente omonime';
 end $$;
 
-set local menuvia.recover_dry_run = 'off';
+set local menuvia.recover_apply = 'on';
 \ir ../../scripts/recover_orphan_vat_snapshots.sql
 
 do $$

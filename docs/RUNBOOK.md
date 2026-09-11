@@ -218,19 +218,24 @@ platforma**, cât timp tranzacția e deschisă.
 ```bash
 cd <rădăcina repo-ului>
 
-# 1. Previzualizare — câte linii s-ar recupera, câte sunt ambigue, câte fără potrivire.
-#    Nu scrie nimic, nu blochează pe nimeni.
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -c "set menuvia.recover_dry_run = 'on'" \
-  -f scripts/recover_orphan_vat_snapshots.sql
+# 1. Previzualizare — comportamentul IMPLICIT. Câte linii s-ar recupera, câte sunt
+#    ambigue, câte fără potrivire. Nu scrie nimic, nu blochează pe nimeni.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/recover_orphan_vat_snapshots.sql
 
-# 2. Aplicare — o singură tranzacție, COMMIT automat la succes, ROLLBACK la eroare.
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
+# 2. Aplicare — trebuie cerută EXPLICIT. O singură tranzacție, COMMIT automat la
+#    succes, ROLLBACK la eroare.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -c "set menuvia.recover_apply = 'on'" \
+  -1 -f scripts/recover_orphan_vat_snapshots.sql
 ```
 
 Cifrele din pasul 1 vin din exact aceeași logică ca scrierea din pasul 2 (nu dintr-un raport
 scris separat, care ar putea diverge tăcut), iar pasul 2 verifică la final că a scris exact
 câte linii anunțase — dacă nu, dă eroare și nu comite.
+
+Steagul e **fail-closed**: fără el se previzualizează. Dacă îi greșești numele sau valoarea,
+scriptul fie previzualizează, fie dă eroare — niciodată nu scrie „din greșeală". Postgres
+acceptă tăcut orice `set prefix.nume`, deci un typo nu s-ar vedea altfel.
 
 Scriptul raportează câte linii a recuperat, câte a **sărit ca ambigue** și câte au rămas
 fără potrivire. Ambiguu = numele a purtat vreodată în acel restaurant grupe TVA diferite:

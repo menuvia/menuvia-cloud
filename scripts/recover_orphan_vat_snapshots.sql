@@ -39,12 +39,14 @@
 --     cota curentă a grupei — corect).
 --
 -- CUM SE RULEAZĂ — în DOI pași:
---   1) previzualizare (doar raportează; nu scrie și NU ia niciun lacăt de scriere):
+--   1) previzualizare — comportamentul IMPLICIT; doar raportează, nu scrie și NU
+--      ia niciun lacăt de scriere:
+--        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/recover_orphan_vat_snapshots.sql
+--   2) aplicare — trebuie cerută EXPLICIT (o singură tranzacție; COMMIT automat
+--      la succes, ROLLBACK la eroare):
 --        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
---          -c "set menuvia.recover_dry_run = 'on'" \
---          -f scripts/recover_orphan_vat_snapshots.sql
---   2) aplicare (o singură tranzacție; COMMIT automat la succes, ROLLBACK la eroare):
---        psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -1 -f scripts/recover_orphan_vat_snapshots.sql
+--          -c "set menuvia.recover_apply = 'on'" \
+--          -1 -f scripts/recover_orphan_vat_snapshots.sql
 --
 -- NU-l rula interactiv cu `begin` … te uiți … `commit`: aplicarea ia SHARE ROW
 -- EXCLUSIVE pe `order_items` (prin `alter table ... disable trigger`), care
@@ -75,10 +77,22 @@ declare
   v_fixable   bigint := 0;
   v_ambiguous bigint := 0;
   v_unmatched bigint := 0;
-  v_dry       boolean;
+  v_apply     boolean;
+  v_flag      text;
   v_rec       record;
 begin
-  v_dry := coalesce(current_setting('menuvia.recover_dry_run', true), 'off') in ('on', 'true', '1');
+  -- Steagul e FAIL-CLOSED: implicit se PREVIZUALIZEAZĂ, scrierea trebuie cerută
+  -- explicit. Invers (implicit scrie, previzualizarea cerută prin steag) orice
+  -- greșeală — un nume de GUC scris greșit, o valoare „adevărată" din afara
+  -- listei — ar fi ales tăcut ramura care SCRIE într-un jurnal fiscal, iar pasul
+  -- de previzualizare rulează deliberat fără `-1`, deci scrierea s-ar fi și
+  -- comis. Postgres acceptă orice `prefix.nume` la `set`, deci un typo e mut.
+  -- O valoare pe care n-o recunoaștem NU se interpretează: se ridică eroare.
+  v_flag := lower(trim(coalesce(current_setting('menuvia.recover_apply', true), 'off')));
+  if v_flag not in ('on', 'off') then
+    raise exception 'recover_orphan_vat_snapshots: menuvia.recover_apply acceptă doar on/off, primit „%"', v_flag;
+  end if;
+  v_apply := (v_flag = 'on');
 
   if not exists (
     select 1 from information_schema.columns
@@ -88,8 +102,12 @@ begin
   end if;
 
   -- Re-rulabil în aceeași tranzacție (preview, apoi aplicare).
-  drop table if exists _orphan_candidates;
-  drop table if exists _deleted_groups;
+  -- Calificate pe `pg_temp`: neconstrânse, `drop table if exists _orphan_candidates`
+  -- ar cădea prin search_path și ar ȘTERGE o tabelă PERMANENTĂ cu același nume
+  -- (exact genul de tabelă de lucru rămasă dintr-o reparație manuală anterioară —
+  -- adică fix sesiunea din care se rulează scriptul ăsta).
+  drop table if exists pg_temp._orphan_candidates;
+  drop table if exists pg_temp._deleted_groups;
 
   -- Candidații: linii orfane (fără produs) și fără snapshot, cu nume de la vânzare.
   create temp table _orphan_candidates on commit drop as
@@ -166,9 +184,10 @@ begin
     raise notice '  AMBIGUU (nesetat): „%" — % linii, nume purtat de produse cu grupe TVA diferite', v_rec.nume, v_rec.linii;
   end loop;
 
-  if v_dry then
+  if not v_apply then
     raise notice 'recover_orphan_vat_snapshots [PREVIZUALIZARE, nimic scris]: % linii recuperabile, % ambigue, % fără potrivire',
       v_fixable, v_ambiguous, v_unmatched;
+    raise notice '  pentru a aplica: psql ... -c "set menuvia.recover_apply = ''on''" -1 -f scripts/recover_orphan_vat_snapshots.sql';
     return;
   end if;
 
