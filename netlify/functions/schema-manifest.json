@@ -270,6 +270,7 @@
     "migration_268_daily_payments_rpc",
     "migration_269_oblio_delivery_date",
     "migration_270_money_gates_in_data",
-    "migration_271_health_probes"
+    "migration_271_health_probes",
+    "migration_272_vat_rate_snapshot"
   ]
 }

@@ -209,9 +209,16 @@ async function getOblioToken(apiEmail, apiSecret, testMode) {
 async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
   // #4: coloana corecta e unit_price_snapshot (nu unit_price, inexistent). item_total include
   // delta-urile de modificatori/extras → folosit pentru pretul real de linie (#6).
+  // mig 272 (RES-20): cota TVA vine din SNAPSHOT-ul liniei (vat_rate_snapshot,
+  // scris la vânzare), nu din products.vat_group + vat_rates la EMITERE — care
+  // poate fi la zile distanță (retry manual, mig 218/239) și după o schimbare
+  // de cotă / o reclasificare / o ștergere a produsului. Numele liniei urmează
+  // aceeași regulă (product_name_snapshot, ca pe bonul FiscalNet).
   const { data: items, error } = await supabase
     .from('order_items')
-    .select('quantity, unit_price_snapshot, item_total, products(name, vat_group)')
+    .select(
+      'quantity, unit_price_snapshot, item_total, product_name_snapshot, vat_group_snapshot, vat_rate_snapshot, products(name, vat_group)',
+    )
     .eq('order_id', orderId)
 
   if (error) throw new Error(`Order items fetch: ${error.message}`)
@@ -236,16 +243,24 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
 
   // Normalizăm întâi liniile la GROSS/unitate (TVA inclus, ca order.total).
   const rows = items.map((it) => {
-    const name = it.products?.name || 'Produs'
-    const vatGroup = it.products?.vat_group ?? 1
-    // Aliniat cu src/lib/vat.ts getVatRate: o grupă TVA lipsă din configurație e un
-    // gap de configurare, NU 0%/19% implicit. Calculul silențios cu o cotă presupusă
-    // ar produce subdeclarare/supradeclarare TVA pe bonul fiscal — eșuăm explicit,
-    // handler-ul prinde eroarea și marchează factura `failed` cu mesaj clar.
-    if (!Object.prototype.hasOwnProperty.call(vatMap, vatGroup)) {
-      throw new Error(`Grupă TVA ${vatGroup} lipsă din configurație pentru produsul ${name}`)
+    const name = it.product_name_snapshot || it.products?.name || 'Produs'
+    // Cota de la VÂNZARE (mig 272). Fallback pe cota CURENTĂ a grupei DOAR pentru
+    // rânduri fără snapshot (istoric cu produs șters înainte de backfill).
+    const snapRate = it.vat_rate_snapshot != null ? Number(it.vat_rate_snapshot) : null
+    let vatPercent
+    if (snapRate != null && Number.isFinite(snapRate)) {
+      vatPercent = snapRate
+    } else {
+      const vatGroup = it.vat_group_snapshot ?? it.products?.vat_group ?? 1
+      // Aliniat cu src/lib/vat.ts getVatRate: o grupă TVA lipsă din configurație e un
+      // gap de configurare, NU 0%/19% implicit. Calculul silențios cu o cotă presupusă
+      // ar produce subdeclarare/supradeclarare TVA pe bonul fiscal — eșuăm explicit,
+      // handler-ul prinde eroarea și marchează factura `failed` cu mesaj clar.
+      if (!Object.prototype.hasOwnProperty.call(vatMap, vatGroup)) {
+        throw new Error(`Grupă TVA ${vatGroup} lipsă din configurație pentru produsul ${name}`)
+      }
+      vatPercent = vatMap[vatGroup]
     }
-    const vatPercent = vatMap[vatGroup]
     // Factură fiscală: o cantitate zero/null/non-numerică e dată coruptă — eșuăm înainte de
     // a trimite la Oblio (altfel price s-ar calcula cu un fallback iar payload-ul ar trimite
     // cantitatea originală invalidă → total divergent).

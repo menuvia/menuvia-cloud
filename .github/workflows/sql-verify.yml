@@ -1544,6 +1544,14 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/queue_backlog_assertions.sql
 
+      - name: "VAT rate snapshot assertions (mig 272 — cota de la vânzare, RES-20)"
+        if: ${{ hashFiles('supabase/migrations/20260912090000_migration_272_vat_rate_snapshot.sql') != '' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/vat_rate_snapshot_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
