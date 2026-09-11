@@ -197,6 +197,14 @@ begin
   -- târziu posibil, iar previzualizarea (unde omul se uită și se gândește) NU
   -- ajunge niciodată aici: altfel lacătul ar fi ținut peste o fereastră de
   -- decizie umană, deschisă oricât.
+  -- Plafon de așteptare pe lacăt, ca în migrații: `alter table ... disable
+  -- trigger` se poate pune la coadă în spatele unei tranzacții care ține deja
+  -- RowExclusive pe `order_items` (o comandă în curs). Fără plafon, așteptarea e
+  -- mărginită doar de cât ține blocantul — iar în tot acel timp comenzile NOI se
+  -- așază în spatele nostru. Cu plafon, scriptul renunță și se poate relua, în
+  -- loc să prelungească coada. Măsurat de echipa roșie: 6 s de așteptare în
+  -- spatele unui blocant de 8 s.
+  perform set_config('lock_timeout', '5s', true);
   execute 'alter table public.order_items disable trigger order_items_subtotal_sync_upd';
   perform set_config('menuvia.skip_item_audit', 'on', true);
 
