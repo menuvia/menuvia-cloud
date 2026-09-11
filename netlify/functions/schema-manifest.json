@@ -271,6 +271,7 @@
     "migration_269_oblio_delivery_date",
     "migration_270_money_gates_in_data",
     "migration_271_health_probes",
-    "migration_272_vat_rate_snapshot"
+    "migration_272_vat_rate_snapshot",
+    "migration_273_reservation_idempotency"
   ]
 }

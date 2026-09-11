@@ -18,6 +18,12 @@ import type { FloorLayout } from '../lib/floorPlan'
 import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
 import FloorPlanViewer from './menu/FloorPlanViewer'
+import {
+  createReservationPublic,
+  getReservationIdempotencyKey,
+  rotateReservationIdempotencyKey,
+  isTerminalReservation,
+} from '../lib/reservations'
 
 interface PubColors {
   bg: string
@@ -57,6 +63,7 @@ interface CreateResult {
   starts_at: string
   ends_at: string
   requested_zone: string | null
+  party_size: number
 }
 
 function pad2(n: number): string {
@@ -156,6 +163,32 @@ function isoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): s
   return new Date(asUtc).toISOString()
 }
 
+// Ce se AFIȘEAZĂ pe confirmare vine din RÂNDUL serverului, nu din starea
+// formularului. Cât timp fiecare apel crea o rezervare nouă, cele două coincideau
+// mereu; cu idempotență (mig 273) NU mai coincid — dacă răspunsul primei cereri
+// s-a pierdut pe drum și clientul schimbă ora și retrimite, serverul întoarce
+// corect rezervarea DEJA existentă, cu intervalul ei. Un ecran care ar arăta ora
+// tastată acum ar minți despre o rezervare reală.
+// Formatarea e în fusul LOCALULUI, nu în UTC — aceeași regulă ca mig 269 la data
+// livrării: `sv-SE` produce nativ YYYY-MM-DD și HH:MM.
+function instantParts(iso: string, timeZone: string): { ymd: string; hm: string } {
+  const d = new Date(iso)
+  return {
+    ymd: new Intl.DateTimeFormat('sv-SE', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d),
+    hm: new Intl.DateTimeFormat('sv-SE', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d),
+  }
+}
+
 function formatDateRo(dateYmd: string, lang: string): string {
   const [y, mo, d] = dateYmd.split('-').map(Number)
   const dt = new Date(y!, mo! - 1, d!)
@@ -185,6 +218,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<CreateResult | null>(null)
+  // Cheia de idempotență a formularului (mig 273). Citită la montare din
+  // sessionStorage, ca o retrimitere după refresh/Back să poarte ACEEAȘI cheie
+  // și serverul să întoarcă rezervarea deja creată în loc să facă a doua.
+  const idemKeyRef = useRef<string>(getReservationIdempotencyKey(restaurant.id))
 
   // ── Harta sălii (rezervare cu alegere pe hartă) — pur aditiv ────
   // Dacă restaurantul n-are floor_layout sau RPC-ul dă eroare, harta pur și
@@ -403,6 +440,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(lang === 'ro' ? 'Email invalid' : 'Invalid email')
       return
     }
+    // `slug` e opțional pe tipul Restaurant; fără el nu există RPC de rezervare.
+    const slug = restaurant.slug
+    if (!slug) {
+      setError(lang === 'ro' ? 'Rezervările nu sunt disponibile aici.' : 'Reservations are unavailable here.')
+      return
+    }
     setSubmitting(true)
     // Data reală a slotului (mâine pentru sloturile de după miezul nopții).
     const startsAt = isoForLocalDateTime(
@@ -410,23 +453,37 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       timeSlot,
       tz,
     )
-    const { data, error: rpcErr } = await supabase.rpc('create_reservation_public', {
-      p_slug: restaurant.slug,
-      p_customer_name: name.trim(),
-      p_customer_phone: phone.trim(),
-      p_party_size: partySize,
-      p_starts_at: startsAt,
-      p_customer_email: email.trim().length > 0 ? email.trim() : null,
-      p_special_requests: notes.trim().length > 0 ? notes.trim() : null,
-      p_duration_minutes: null,
-      p_zone: zone,
-      // Masa aleasă pe hartă (null = auto-alocare, comportamentul clasic).
-      p_table_id: selectedTableId,
-    })
-    setSubmitting(false)
-    if (rpcErr) {
+    // Cheia de idempotență (mig 273): dublu-tap, revenire cu Back sau retrimitere
+    // după un răspuns pierdut pe rețea trebuie să întoarcă ACEEAȘI rezervare, nu
+    // să creeze a doua. Se rotește DOAR pe succes, mai jos.
+    let row: Awaited<ReturnType<typeof createReservationPublic>>
+    try {
+      row = await createReservationPublic(
+        {
+          p_slug: slug,
+          p_customer_name: name.trim(),
+          p_customer_phone: phone.trim(),
+          p_party_size: partySize,
+          p_starts_at: startsAt,
+          p_customer_email: email.trim().length > 0 ? email.trim() : null,
+          p_special_requests: notes.trim().length > 0 ? notes.trim() : null,
+          p_duration_minutes: null,
+          p_zone: zone,
+          // Masa aleasă pe hartă (null = auto-alocare, comportamentul clasic).
+          p_table_id: selectedTableId,
+        },
+        idemKeyRef.current,
+      )
+    } catch (err) {
+      setSubmitting(false)
       // Mapăm erorile DB cunoscute la mesaje prietenoase (nu expunem text brut Postgres).
-      const m = rpcErr.message || ''
+      // Se citește ÎNTÂI `hint`-ul, care e contractul STABIL al RPC-ului
+      // (`using hint = 'table_unavailable'`), și abia apoi textul mesajului:
+      // mesajele sunt în română, se pot reformula sau traduce, iar o potrivire
+      // care depinde doar de ele se rupe tăcut și cade pe mesajul generic.
+      // `createReservationPublic` păstrează `hint`/`code` pe Error tocmai pentru asta.
+      const e = err as Error & { hint?: string; code?: string }
+      const m = [e.message || '', e.hint || ''].join(' ')
       // Masa aleasă tocmai a fost luată de altcineva (hint `table_unavailable`).
       // Reîncărcăm disponibilitatea și deselectăm, ca clientul să aleagă alta.
       if (/table_unavailable/i.test(m)) {
@@ -471,9 +528,27 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(friendly)
       return
     }
-    const row = Array.isArray(data) ? data[0] : data
-    setResult(row as CreateResult)
-  }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, tz, lang])
+    setSubmitting(false)
+    // Rotim DOAR după ce serverul a confirmat: o rotire mai devreme ar face ca o
+    // retrimitere să pară o cerere nouă (dublura revine), iar una mai târziu ar
+    // face ca următoarea rezervare legitimă de pe același telefon să fie
+    // deduplicată tăcut de server.
+    idemKeyRef.current = rotateReservationIdempotencyKey(restaurant.id)
+    // O retrimitere idempotentă poate întoarce o rezervare ANULATĂ între timp:
+    // cheia rămâne legată de rândul ei, iar ecranul de succes are doar două stări
+    // („confirmată" / „în așteptare"), deci ar prezenta un rând mort drept
+    // rezervare primită. Cheia tocmai s-a rotit, deci o retrimitere chiar creează
+    // una nouă — fără rotire, clientul ar rămâne blocat pe rândul mort.
+    if (isTerminalReservation(row.status)) {
+      setError(
+        lang === 'ro'
+          ? 'Rezervarea făcută anterior din această cerere a fost anulată. Trimite din nou pentru a face una nouă.'
+          : 'The reservation from this request was cancelled. Submit again to make a new one.',
+      )
+      return
+    }
+    setResult(row)
+  }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20
 
@@ -584,19 +659,16 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               {result.confirmation_code}
             </div>
             <div style={{ fontSize: 14, color: PUB.text, marginBottom: 4 }}>
-              {formatDateRo(
-                settings ? effectiveSlotYmd(chosenDateYmd, timeSlot, settings) : chosenDateYmd,
-                lang,
-              )}{' '}
-              · {timeSlot}
+              {formatDateRo(instantParts(result.starts_at, tz).ymd, lang)}{' '}
+              · {instantParts(result.starts_at, tz).hm}
             </div>
             <div style={{ fontSize: 13, color: PUB.text2 }}>
-              {partySize}{' '}
+              {result.party_size}{' '}
               {lang === 'ro'
-                ? partySize === 1
+                ? result.party_size === 1
                   ? 'persoană'
                   : 'persoane'
-                : partySize === 1
+                : result.party_size === 1
                   ? 'person'
                   : 'people'}
               {result.table_name ? ' · ' + result.table_name : ''}
