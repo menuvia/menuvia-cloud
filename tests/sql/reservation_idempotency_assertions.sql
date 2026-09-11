@@ -96,9 +96,12 @@ begin
      or v2.status is distinct from v1.status
      or v2.table_name is distinct from v1.table_name
      or v2.starts_at is distinct from v1.starts_at
-     or v2.ends_at is distinct from v1.ends_at then
+     or v2.ends_at is distinct from v1.ends_at
+     or v2.party_size is distinct from v1.party_size then
     raise exception 'RI1 FAIL: retrimiterea a întors alt rând decât cel creat (cod %/%, status %/%, masă %/%)',
       v2.confirmation_code, v1.confirmation_code, v2.status, v1.status, v2.table_name, v1.table_name; end if;
+  if v1.party_size is distinct from 2::smallint then
+    raise exception 'RI1 FAIL: proiecția nu poartă party_size (găsit %) — ecranul de confirmare l-ar lua din formular și ar minți la o retrimitere', v1.party_size; end if;
   raise notice 'RI1 OK: retrimiterea întoarce rezervarea existentă (%), fără să creeze alta', v1.confirmation_code;
 end $$;
 

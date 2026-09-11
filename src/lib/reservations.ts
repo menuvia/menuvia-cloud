@@ -19,7 +19,8 @@ import { createIdempotencyKeyStore } from './idempotency'
 
 const reservationKeys = createIdempotencyKeyStore('menuvia_idem_resv:')
 
-/** Cheia curentă pentru formularul de rezervare al unui restaurant (scope = slug). */
+/** Cheia curentă pentru formularul de rezervare al unui restaurant (scope = id-ul
+ *  localului: ne-opțional ȘI stabil, pe când slug-ul se poate schimba). */
 export function getReservationIdempotencyKey(scope: string): string {
   return reservationKeys.get(scope)
 }
@@ -50,6 +51,7 @@ export interface CreatedReservation {
   starts_at: string
   ends_at: string
   requested_zone: string | null
+  party_size: number
 }
 
 /**

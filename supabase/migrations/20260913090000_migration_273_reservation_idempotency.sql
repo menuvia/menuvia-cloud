@@ -45,18 +45,31 @@
 -- dar e o proprietate pe care o verifică RI4/RI5, ca o mutare viitoare a vreunui
 -- trigger pe UPDATE să nu o strice tăcut.
 --
--- SEMNĂTURĂ NOUĂ → DROP + CREATE OBLIGATORIU. Un `create or replace` cu un
--- parametru în plus lasă AMBELE semnături în catalog, iar PostgREST răspunde
+-- SEMNĂTURĂ NOUĂ → DROP-ul semnăturii VECHI e OBLIGATORIU. Doar un
+-- `create or replace` cu un parametru în plus lasă AMBELE semnături în catalog,
+-- iar PostgREST răspunde
 -- PGRST203 („could not choose the best candidate function") la ORICE apel —
 -- exact ce a pățit `register_affiliate` în mig 243. Parametrul nou e ULTIMUL și
 -- are default, deci apelurile vechi (pozitionale sau cu nume) rămân valide:
--- clientul se poate deploya înainte SAU după migrație.
+-- clientul se poate deploya înainte SAU după migrație. Crearea semnăturii NOI e
+-- `or replace`, ca migrația să fie re-rulabilă (un `create` simplu pică cu
+-- „already exists" la a doua rulare); unicitatea e asigurată de DROP-ul de
+-- deasupra, nu de forma lui create — asserția (a) o verifică oricum.
 --
 -- Lanț `create_reservation_public`: 151→199→201→241→**273**. Corpul e copie
 -- VERBATIM din 241 (10 argumente cu `p_table_id`, plafonul de durată `least(...)`,
 -- gate-ul `is_module_enabled('reservations')`, wrap-around peste miezul nopții,
 -- ziua de SERVICIU) + cele trei adăugiri de mai sus. Orice recreare viitoare
 -- pornește de AICI.
+--
+-- DE CE ÎNTOARCE ȘI `party_size`: ecranul de confirmare afișa starea
+-- FORMULARULUI (data, ora, numărul de persoane tastate acum). Cât timp fiecare
+-- apel crea o rezervare nouă, cele două coincideau întotdeauna. Cu idempotență
+-- NU mai coincid: dacă răspunsul primei cereri s-a pierdut pe drum și clientul
+-- schimbă ora și retrimite, serverul întoarce — corect — rezervarea DEJA
+-- existentă, cu intervalul ei. Un ecran care ar arăta ora tastată acum ar minți
+-- despre o rezervare reală. Tot ce se afișează vine acum din RÂNDUL serverului,
+-- deci proiecția trebuie să poarte și numărul de persoane.
 --
 -- Teste permanente RI1–RI8: tests/sql/reservation_idempotency_assertions.sql
 -- =============================================================================
@@ -82,7 +95,7 @@ drop function if exists public.create_reservation_public(
   text, text, text, smallint, timestamptz, text, text, smallint, text, uuid
 );
 
-create function public.create_reservation_public(
+create or replace function public.create_reservation_public(
   p_slug text,
   p_customer_name text,
   p_customer_phone text,
@@ -102,7 +115,8 @@ returns table(
   table_name text,
   starts_at timestamp with time zone,
   ends_at timestamp with time zone,
-  requested_zone text
+  requested_zone text,
+  party_size smallint
 )
 language plpgsql
 security definer
@@ -151,7 +165,7 @@ begin
   -- `min_advance_hours`, care se apropie cu fiecare secundă).
   if p_idempotency_key is not null then
     select r.id, r.confirmation_code, r.status, t.name as table_name,
-           r.starts_at, r.ends_at, r.requested_zone
+           r.starts_at, r.ends_at, r.requested_zone, r.party_size
       into v_ex
       from public.reservations r
       left join public.tables t on t.id = r.table_id
@@ -159,7 +173,8 @@ begin
        and r.idempotency_key = p_idempotency_key;
     if found then
       return query select v_ex.id, v_ex.confirmation_code, v_ex.status,
-                          v_ex.table_name, v_ex.starts_at, v_ex.ends_at, v_ex.requested_zone;
+                          v_ex.table_name, v_ex.starts_at, v_ex.ends_at,
+                          v_ex.requested_zone, v_ex.party_size;
       return;
     end if;
   end if;
@@ -295,7 +310,7 @@ begin
     -- iasă ca eroare: un handler care înghite orice unique_violation ar
     -- răspunde fals „a mers" pe o rezervare care NU s-a scris.
     select r.id, r.confirmation_code, r.status, t.name as table_name,
-           r.starts_at, r.ends_at, r.requested_zone
+           r.starts_at, r.ends_at, r.requested_zone, r.party_size
       into v_ex
       from public.reservations r
       left join public.tables t on t.id = r.table_id
@@ -305,14 +320,15 @@ begin
       raise;
     end if;
     return query select v_ex.id, v_ex.confirmation_code, v_ex.status,
-                        v_ex.table_name, v_ex.starts_at, v_ex.ends_at, v_ex.requested_zone;
+                        v_ex.table_name, v_ex.starts_at, v_ex.ends_at,
+                        v_ex.requested_zone, v_ex.party_size;
     return;
   end;
 
   return query select
     v_new_id, v_new_code, v_status,
     v_table_name, p_starts_at, v_ends_at,
-    v_zone;
+    v_zone, p_party_size;
 end;
 $function$;
 

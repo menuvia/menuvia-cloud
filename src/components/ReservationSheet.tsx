@@ -62,6 +62,7 @@ interface CreateResult {
   starts_at: string
   ends_at: string
   requested_zone: string | null
+  party_size: number
 }
 
 function pad2(n: number): string {
@@ -159,6 +160,32 @@ function isoForLocalDateTime(dateYmd: string, hhmm: string, timeZone: string): s
     /* fus invalid → fallback la UTC brut (comportamentul vechi) */
   }
   return new Date(asUtc).toISOString()
+}
+
+// Ce se AFIȘEAZĂ pe confirmare vine din RÂNDUL serverului, nu din starea
+// formularului. Cât timp fiecare apel crea o rezervare nouă, cele două coincideau
+// mereu; cu idempotență (mig 273) NU mai coincid — dacă răspunsul primei cereri
+// s-a pierdut pe drum și clientul schimbă ora și retrimite, serverul întoarce
+// corect rezervarea DEJA existentă, cu intervalul ei. Un ecran care ar arăta ora
+// tastată acum ar minți despre o rezervare reală.
+// Formatarea e în fusul LOCALULUI, nu în UTC — aceeași regulă ca mig 269 la data
+// livrării: `sv-SE` produce nativ YYYY-MM-DD și HH:MM.
+function instantParts(iso: string, timeZone: string): { ymd: string; hm: string } {
+  const d = new Date(iso)
+  return {
+    ymd: new Intl.DateTimeFormat('sv-SE', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(d),
+    hm: new Intl.DateTimeFormat('sv-SE', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d),
+  }
 }
 
 function formatDateRo(dateYmd: string, lang: string): string {
@@ -612,19 +639,16 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               {result.confirmation_code}
             </div>
             <div style={{ fontSize: 14, color: PUB.text, marginBottom: 4 }}>
-              {formatDateRo(
-                settings ? effectiveSlotYmd(chosenDateYmd, timeSlot, settings) : chosenDateYmd,
-                lang,
-              )}{' '}
-              · {timeSlot}
+              {formatDateRo(instantParts(result.starts_at, tz).ymd, lang)}{' '}
+              · {instantParts(result.starts_at, tz).hm}
             </div>
             <div style={{ fontSize: 13, color: PUB.text2 }}>
-              {partySize}{' '}
+              {result.party_size}{' '}
               {lang === 'ro'
-                ? partySize === 1
+                ? result.party_size === 1
                   ? 'persoană'
                   : 'persoane'
-                : partySize === 1
+                : result.party_size === 1
                   ? 'person'
                   : 'people'}
               {result.table_name ? ' · ' + result.table_name : ''}

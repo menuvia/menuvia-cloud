@@ -50,6 +50,7 @@ const ROW = {
   starts_at: ARGS.p_starts_at,
   ends_at: '2027-06-01T11:00:00.000Z',
   requested_zone: null,
+  party_size: 2,
 }
 
 describe('cheia de idempotență a rezervării', () => {
@@ -179,5 +180,15 @@ describe('createReservationPublic', () => {
   it('R9b: răspuns fără rând → eroare explicită, nu undefined mai departe', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
     await expect(createReservationPublic(ARGS, null)).rejects.toThrow(/nu a putut fi confirmată/i)
+  })
+
+  it('R10: rândul întors poartă party_size (ecranul de confirmare îl ia de la server)', async () => {
+    // Cu idempotență, rândul întors poate fi o rezervare făcută MAI DEVREME, cu
+    // alt interval și alt număr de persoane decât ce e acum în formular. Ecranul
+    // afișează rândul serverului, deci proiecția trebuie să-l poarte.
+    rpcMock.mockResolvedValue({ data: [{ ...ROW, party_size: 5, starts_at: '2027-06-01T15:00:00.000Z' }], error: null })
+    const row = await createReservationPublic(ARGS, 'cheie-123')
+    expect(row.party_size).toBe(5)
+    expect(row.starts_at).toBe('2027-06-01T15:00:00.000Z')
   })
 })
