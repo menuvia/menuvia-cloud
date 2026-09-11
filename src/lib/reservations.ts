@@ -76,20 +76,35 @@ export async function createReservationPublic(
   if (error && idempotencyKey !== null && error.code === 'PGRST202') {
     const retry = await supabase.rpc('create_reservation_public', args)
     if (retry.error) throw toReservationError(retry.error)
-    return firstRow(retry.data)
+    return firstRow(retry.data, args)
   }
   if (error) throw toReservationError(error)
-  return firstRow(data)
+  return firstRow(data, args)
 }
 
-function firstRow(data: unknown): CreatedReservation {
-  const rows = (Array.isArray(data) ? data : [data]) as CreatedReservation[]
+function firstRow(data: unknown, args: CreateReservationArgs): CreatedReservation {
+  const rows = (Array.isArray(data) ? data : [data]) as Partial<CreatedReservation>[]
   const row = rows[0]
   if (!row || !row.reservation_id) {
     throw new Error('Rezervarea nu a putut fi confirmată')
   }
-  return row
+  // Pe calea de COMPATIBILITATE (bază fără mig 273) proiecția are 7 coloane, fără
+  // `party_size` — iar ecranul de confirmare îl afișează de acum din rândul
+  // serverului, deci fără asta ar randa un număr GOL. Acolo rândul e întotdeauna
+  // cel tocmai creat (vechiul RPC nu deduplică), deci numărul cerut ESTE corect.
+  return {
+    ...(row as CreatedReservation),
+    party_size: typeof row.party_size === 'number' ? row.party_size : args.p_party_size,
+  }
 }
+
+/**
+ * Stări în care rezervarea NU mai e vie. O retrimitere idempotentă poate întoarce
+ * o rezervare anulată între timp (cheia rămâne legată de rândul ei), iar ecranul
+ * de succes are doar două stări — „confirmată" și „în așteptare" — deci ar
+ * prezenta un rând mort drept rezervare primită.
+ */
+export const TERMINAL_RESERVATION_STATUSES = ['cancelled', 'no_show']
 
 // Ca la `createOrder` (orders.ts): aruncăm un `Error` REAL, nu obiectul
 // PostgrestError brut — altfel apelantul care testează `e instanceof Error`

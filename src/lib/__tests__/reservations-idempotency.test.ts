@@ -24,6 +24,7 @@ import {
   getReservationIdempotencyKey,
   rotateReservationIdempotencyKey,
   createReservationPublic,
+  TERMINAL_RESERVATION_STATUSES,
 } from '../reservations'
 
 const SLUG = 'bistro-test'
@@ -180,6 +181,24 @@ describe('createReservationPublic', () => {
   it('R9b: răspuns fără rând → eroare explicită, nu undefined mai departe', async () => {
     rpcMock.mockResolvedValue({ data: [], error: null })
     await expect(createReservationPublic(ARGS, null)).rejects.toThrow(/nu a putut fi confirmată/i)
+  })
+
+  it('R11: calea de compatibilitate (7 coloane, fără party_size) cade pe numărul CERUT', async () => {
+    // Pe o bază fără mig 273 proiecția n-are party_size, iar ecranul îl afișează
+    // din rândul serverului → ar randa un număr GOL. Acolo rândul e mereu cel
+    // tocmai creat, deci numărul cerut e corect.
+    const legacyRow = { ...ROW }
+    delete (legacyRow as { party_size?: number }).party_size
+    rpcMock
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'not found' } })
+      .mockResolvedValueOnce({ data: [legacyRow], error: null })
+    const row = await createReservationPublic({ ...ARGS, p_party_size: 7 }, 'cheie-123')
+    expect(row.party_size).toBe(7)
+  })
+
+  it('R12: stările terminale sunt declarate (ecranul nu are voie să arate un rând mort ca rezervare primită)', () => {
+    expect(TERMINAL_RESERVATION_STATUSES).toContain('cancelled')
+    expect(TERMINAL_RESERVATION_STATUSES).toContain('no_show')
   })
 
   it('R10: rândul întors poartă party_size (ecranul de confirmare îl ia de la server)', async () => {

@@ -236,6 +236,32 @@ begin
 
   perform pg_advisory_xact_lock(hashtext('reservation:' || v_restaurant_id::text));
 
+  -- mig 273: AL DOILEA lookup, sub lacăt. Primul (de sus) rezolvă retrimiterea
+  -- SECVENȚIALĂ. Pe cea CONCURENTĂ nu e de ajuns: două cereri identice trec
+  -- amândouă de el (niciuna nu vede încă rândul celeilalte), iar pe ramura cu
+  -- masă ALEASĂ (`p_table_id`) garda de disponibilitate de mai jos rulează
+  -- ÎNAINTEA insert-ului și ar respinge-o pe a doua cu `table_unavailable`,
+  -- văzând rezervarea tocmai comisă de prima — deci backstop-ul de pe insert
+  -- nu s-ar atinge niciodată și clientul ar primi o eroare în loc de rezervarea
+  -- lui. `pg_advisory_xact_lock` se ține până la COMMIT, deci cine intră al
+  -- doilea intră abia după ce primul a comis și, sub READ COMMITTED, îi VEDE
+  -- rândul. Verificat cu două sesiuni concurente reale (RI9).
+  if p_idempotency_key is not null then
+    select r.id, r.confirmation_code, r.status, t.name as table_name,
+           r.starts_at, r.ends_at, r.requested_zone, r.party_size
+      into v_ex
+      from public.reservations r
+      left join public.tables t on t.id = r.table_id
+     where r.restaurant_id  = v_restaurant_id
+       and r.idempotency_key = p_idempotency_key;
+    if found then
+      return query select v_ex.id, v_ex.confirmation_code, v_ex.status,
+                          v_ex.table_name, v_ex.starts_at, v_ex.ends_at,
+                          v_ex.requested_zone, v_ex.party_size;
+      return;
+    end if;
+  end if;
+
   if p_table_id is not null then
     select t.id, t.name into v_table_id, v_table_name
     from public.tables t
@@ -391,6 +417,16 @@ begin
     if position(v_sig in v_src) = 0 then
       raise exception 'mig 273: create_reservation_public a pierdut „%"', v_sig; end if;
   end loop;
+
+  -- (d2) DOUĂ lookup-uri: unul înaintea validărilor (retrimitere secvențială) și
+  --      unul SUB lacăt (cursa concurentă pe ramura cu masă aleasă)
+  if (length(v_src) - length(replace(v_src, 'r.idempotency_key = p_idempotency_key', ''))) 
+     / length('r.idempotency_key = p_idempotency_key') < 3 then
+    raise exception 'mig 273: lipsește un lookup de idempotență (așteptate 3: pre-validări, sub lacăt, backstop)';
+  end if;
+  if position('r.idempotency_key = p_idempotency_key' in substring(v_src from position('pg_advisory_xact_lock' in v_src))) = 0 then
+    raise exception 'mig 273: nu există lookup de idempotență DUPĂ pg_advisory_xact_lock — cursa concurentă pe ramura cu masă aleasă ar ieși cu table_unavailable';
+  end if;
 
   -- (d) lookup-ul stă ÎNAINTEA validărilor de setări: o retrimitere nu are voie
   --     să pice pe plafonul de avans, care devine adevărat cu trecerea timpului.

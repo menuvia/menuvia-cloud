@@ -22,6 +22,7 @@ import {
   createReservationPublic,
   getReservationIdempotencyKey,
   rotateReservationIdempotencyKey,
+  TERMINAL_RESERVATION_STATUSES,
 } from '../lib/reservations'
 
 interface PubColors {
@@ -533,6 +534,19 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     // face ca următoarea rezervare legitimă de pe același telefon să fie
     // deduplicată tăcut de server.
     idemKeyRef.current = rotateReservationIdempotencyKey(restaurant.id)
+    // O retrimitere idempotentă poate întoarce o rezervare ANULATĂ între timp:
+    // cheia rămâne legată de rândul ei, iar ecranul de succes are doar două stări
+    // („confirmată" / „în așteptare"), deci ar prezenta un rând mort drept
+    // rezervare primită. Cheia tocmai s-a rotit, deci o retrimitere chiar creează
+    // una nouă — fără rotire, clientul ar rămâne blocat pe rândul mort.
+    if (TERMINAL_RESERVATION_STATUSES.includes(row.status)) {
+      setError(
+        lang === 'ro'
+          ? 'Rezervarea făcută anterior din această cerere a fost anulată. Trimite din nou pentru a face una nouă.'
+          : 'The reservation from this request was cancelled. Submit again to make a new one.',
+      )
+      return
+    }
     setResult(row)
   }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
 
