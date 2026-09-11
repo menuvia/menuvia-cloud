@@ -195,6 +195,65 @@ Dacă alertele Slack nu pleacă deși scoruri critice există: verifică `SLACK_
 
 ---
 
+### 3.6 Recuperarea cotei TVA pentru liniile cu produs șters (o singură dată, după mig 272)
+
+Mig 272 a pus pe fiecare linie de comandă grupa și cota TVA **de la vânzare**. Backfill-ul
+ei a putut face asta doar pentru liniile care mai au un produs: cele al căror produs fusese
+**șters înainte** de migrație au `product_id` NULL (FK `on delete set null`) și rămân fără
+snapshot, deci raportul TVA le pune pe toate în **grupa 1**, la cota curentă a grupei 1.
+
+Grupa lor e recuperabilă din jurnalul de audit: orice scriere pe `products` lasă
+`old_data`/`new_data` complete (numele + `vat_group`). Potrivirea se face pe
+(restaurant, `product_name_snapshot`) — `order_items` nu are rânduri de audit pentru ele,
+deci numele de la vânzare e singura punte. Se citește **tot istoricul** numelui, nu doar
+rândul de ștergere: un produs reclasificat înainte de a fi șters ar face ca ștergerea să
+raporteze o grupă pe care vânzarea nu a avut-o.
+
+Se rulează în **doi pași**: întâi previzualizarea (doar raportează, nu scrie nimic și nu ia
+niciun lacăt de scriere), apoi aplicarea. Nu rula scriptul într-o sesiune interactivă cu
+`begin` … `commit` ca să te uiți între timp: aplicarea ia `SHARE ROW EXCLUSIVE` pe
+`order_items`, care blochează INSERT/UPDATE/DELETE, adică **crearea de comenzi pe toată
+platforma**, cât timp tranzacția e deschisă.
+
+```bash
+cd <rădăcina repo-ului>
+
+# 1. Previzualizare — comportamentul IMPLICIT. Câte linii s-ar recupera, câte sunt
+#    ambigue, câte fără potrivire. Nu scrie nimic, nu blochează pe nimeni.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/recover_orphan_vat_snapshots.sql
+
+# 2. Aplicare — trebuie cerută EXPLICIT. O singură tranzacție, COMMIT automat la
+#    succes, ROLLBACK la eroare.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -c "set menuvia.recover_apply = 'on'" \
+  -1 -f scripts/recover_orphan_vat_snapshots.sql
+```
+
+Cifrele din pasul 1 vin din exact aceeași logică ca scrierea din pasul 2 (nu dintr-un raport
+scris separat, care ar putea diverge tăcut), iar pasul 2 verifică la final că a scris exact
+câte linii anunțase — dacă nu, dă eroare și nu comite.
+
+Steagul e **fail-closed**: fără el se previzualizează. Dacă îi greșești numele sau valoarea,
+scriptul fie previzualizează, fie dă eroare — niciodată nu scrie „din greșeală". Postgres
+acceptă tăcut orice `set prefix.nume`, deci un typo nu s-ar vedea altfel.
+
+Scriptul raportează câte linii a recuperat, câte a **sărit ca ambigue** și câte au rămas
+fără potrivire. Ambiguu = numele a purtat vreodată în acel restaurant grupe TVA diferite:
+produse distincte cu același nume, același produs reclasificat înainte de ștergere, sau un
+produs încă VIU care poartă azi acel nume cu altă grupă. În toate cazurile linia rămâne cum
+e — într-un jurnal fiscal nu se ghicește. E idempotent: atinge doar liniile cu `vat_group_snapshot`
+NULL, deci se poate rula din nou fără efect.
+
+**Stare la 11 sept 2026 (înainte de rulare):** 16 din 53 de linii de comandă sunt orfane,
+447,00 lei, toate pe comenzi `paid`, la un singur restaurant `enterprise` — deci intră în
+raportul TVA. Una dintre potriviri („Vin pahar", 36,00 lei) era grupa **2**, raportată azi
+ca grupa 1; restul chiar erau grupa 1.
+
+Pentru comenzile de acum înainte problema nu mai există: trigger-ul din mig 272 scrie
+snapshot-ul la inserarea liniei, deci ștergerea produsului nu mai pierde grupa.
+
+---
+
 ## 4. Monitorizare
 
 ### 4.1 Endpoint `/health` ✅ (implementat — `netlify/functions/health.js`)

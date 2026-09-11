@@ -176,6 +176,119 @@ describe('oblio-generator: data LIVRĂRII (mig 269)', () => {
   })
 })
 
+describe('oblio-generator: cota TVA de la VÂNZARE (mig 272 / RES-20)', () => {
+  // Factura se emite la EMITERE — la 2 min de încasare în cazul bun, la zile
+  // distanță la un retry manual (mig 218/239). Cota trebuie să fie cea de la
+  // vânzare, adică snapshot-ul liniei, nu products.vat_group + vat_rates citite
+  // acum. Toate cele patru cazuri de mai jos dădeau cota CURENTĂ pe codul vechi.
+  function issueOk() {
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+  }
+  function orderItemsSelect() {
+    const call = state.fromCalls.find((c) => c.table === 'order_items')
+    const sel = call && call.ops.find((o) => o.m === 'select')
+    return sel ? String(sel.args[0]) : ''
+  }
+
+  it('OV1: cota grupei s-a schimbat după vânzare (11 → 9) → factura ține 11 (Redusa)', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [{
+        quantity: 1, unit_price_snapshot: 111, item_total: 111,
+        product_name_snapshot: 'Supă', vat_group_snapshot: 1, vat_rate_snapshot: '11.00',
+        products: { name: 'Supă', vat_group: 1 },
+      }],
+      order: { restaurant_id: 'r1', total: 111, discount_amount: 0 },
+      vatRates: [{ vat_group: 1, rate_percent: '9' }], // cota CURENTĂ, schimbată după vânzare
+    })
+    issueOk()
+    await handler()
+    const p = postedPayload().products[0]
+    assert.equal(p.vatPercentage, 11, 'factura a urmat cota curentă a grupei, nu cea de la vânzare')
+    assert.equal(p.vatName, 'Redusa')
+  })
+
+  it('OV2: produsul a fost RECLASIFICAT după vânzare (2 → 1) → factura ține 21 (Normala)', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [{
+        quantity: 1, unit_price_snapshot: 121, item_total: 121,
+        product_name_snapshot: 'Bere', vat_group_snapshot: 2, vat_rate_snapshot: '21.00',
+        products: { name: 'Bere', vat_group: 1 }, // acum în grupa 1
+      }],
+      order: { restaurant_id: 'r1', total: 121, discount_amount: 0 },
+      vatRates: [{ vat_group: 1, rate_percent: '11' }, { vat_group: 2, rate_percent: '21' }],
+    })
+    issueOk()
+    await handler()
+    const p = postedPayload().products[0]
+    assert.equal(p.vatPercentage, 21)
+    assert.equal(p.vatName, 'Normala')
+  })
+
+  it('OV3: produs ȘTERS după vânzare (products null) → cota + numele din snapshot, prețul NET corect', async () => {
+    queued(makeInvoice({ vat_included: false }))
+    scriptOrderData({
+      items: [{
+        quantity: 1, unit_price_snapshot: 121, item_total: 121,
+        product_name_snapshot: 'Bere', vat_group_snapshot: 2, vat_rate_snapshot: '21.00',
+        products: null,
+      }],
+      order: { restaurant_id: 'r1', total: 121, discount_amount: 0 },
+      vatRates: [{ vat_group: 1, rate_percent: '11' }, { vat_group: 2, rate_percent: '21' }],
+    })
+    issueOk()
+    await handler()
+    const p = postedPayload().products[0]
+    assert.equal(p.name, 'Bere', 'numele liniei a căzut pe „Produs" deși există product_name_snapshot')
+    assert.equal(p.vatPercentage, 21, 'produsul șters a căzut pe grupa 1 (11%)')
+    assert.ok(Math.abs(p.price - 100) < 1e-9, 'prețul net nu s-a derivat din cota de la vânzare (121/1.21)')
+  })
+
+  it('OV4: rând istoric FĂRĂ snapshot → cota CURENTĂ a grupei (fallback documentat), grupă lipsă → eșec explicit', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [{ quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'Apă', vat_group: 1 } }],
+      order: { restaurant_id: 'r1', total: 10, discount_amount: 0 },
+      vatRates: [{ vat_group: 1, rate_percent: '11' }],
+    })
+    issueOk()
+    await handler()
+    assert.equal(postedPayload().products[0].vatPercentage, 11)
+
+    // fără snapshot ȘI fără grupa în configurație → nu presupunem nimic
+    fetchCalls = []
+    resetMocks()
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [{ quantity: 1, unit_price_snapshot: 10, item_total: 10, vat_group_snapshot: 3, vat_rate_snapshot: null, products: null }],
+      order: { restaurant_id: 'r1', total: 10, discount_amount: 0 },
+      vatRates: [{ vat_group: 1, rate_percent: '11' }],
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_failed = () => ({ data: null, error: null })
+    await handler()
+    const mark = rpcCallsFor('bridge_oblio_mark_failed')[0]
+    assert.ok(mark && mark.args.p_error.includes('Grupă TVA 3'), 'grupa lipsă (din snapshot) nu a eșuat explicit')
+    assert.equal(fetchCalls.filter((c) => c.url.includes('/docs/invoice')).length, 0)
+  })
+
+  it('OV5 (clichet): select-ul pe order_items CERE coloanele de snapshot', async () => {
+    // Fake-ul întoarce ce i se dă, deci OV1–OV3 ar trece și cu un select care
+    // nu mai cere coloanele — PostgREST le-ar omite, iar fallback-ul ar reciti
+    // cota curentă TĂCUT. Contractul e select-ul, nu doar logica.
+    queued(makeInvoice())
+    scriptOrderData()
+    issueOk()
+    await handler()
+    const sel = orderItemsSelect()
+    for (const col of ['vat_rate_snapshot', 'vat_group_snapshot', 'product_name_snapshot']) {
+      assert.ok(sel.includes(col), `select-ul pe order_items nu cere ${col}: ${sel}`)
+    }
+  })
+})
+
 describe('oblio-generator: emitere reușită', () => {
   it('happy path: mark_issued cu seria+numărul din răspuns; payload cu vatName derivat', async () => {
     queued(makeInvoice())
