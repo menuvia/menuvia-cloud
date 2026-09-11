@@ -403,6 +403,16 @@ comment on function public.build_fiscalnet_payload(uuid) is
 -- pe produs/cota curentă DOAR când snapshot-ul lipsește. Eticheta rămâne cea
 -- curentă a grupei (cosmetică). Numele, ordinea și TIPURILE coloanelor sunt
 -- NEATINSE (`create or replace view` ar respinge altfel).
+-- Ziua de raportare e ziua ROMÂNEASCĂ a încasării. Lanțul moștenise
+-- `date_trunc('day', o.paid_at)` FĂRĂ conversie, deci se rezolva în TimeZone-ul
+-- sesiunii — UTC pe Supabase (verificat pe producție: `current_setting('TimeZone')`
+-- = UTC). O încasare la 00:30 ora României pica în ziua PRECEDENTĂ, iar la
+-- granița de lună în PERIOADA FISCALĂ precedentă, în timp ce VatReportTab cere
+-- intervalul cu `toRomaniaYMD` și `v_daily_payments_by_method` (267) / 
+-- `get_daily_payments_by_method` (268) raportau aceeași încasare pe ziua
+-- românească — deci raportul de TVA și cel de venit nu puteau reconcilia
+-- niciodată pe o lună. Aceeași clasă pe care mig 269 a reparat-o pentru
+-- `deliveryDate` la Oblio. Verificat prin mutație: VS10.
 create or replace view public.vat_report_daily
 with (security_invoker = true) as
   WITH order_sub AS (
@@ -411,7 +421,7 @@ with (security_invoker = true) as
      GROUP BY oi2.order_id
   )
   SELECT o.restaurant_id,
-     date_trunc('day'::text, o.paid_at)::date AS report_date,
+     date_trunc('day'::text, (o.paid_at AT TIME ZONE 'Europe/Bucharest'::text))::date AS report_date,
      COALESCE(oi.vat_group_snapshot::integer, p.vat_group::integer, 1) AS vat_group,
      COALESCE(oi.vat_rate_snapshot, vr.rate_percent, 0::numeric) AS vat_rate_percent,
      COALESCE(vr.label, '?'::text) AS vat_label,
@@ -432,7 +442,7 @@ with (security_invoker = true) as
      AND o.paid_at IS NOT NULL
      AND o.restaurant_id IN (SELECT r.id FROM restaurants r
                               WHERE public.restaurant_has_feature(r.id, 'fiscal_receipt'))
-   GROUP BY o.restaurant_id, (date_trunc('day'::text, o.paid_at)::date),
+   GROUP BY o.restaurant_id, (date_trunc('day'::text, (o.paid_at AT TIME ZONE 'Europe/Bucharest'::text))::date),
             (COALESCE(oi.vat_group_snapshot::integer, p.vat_group::integer, 1)),
             (COALESCE(oi.vat_rate_snapshot, vr.rate_percent, 0::numeric)),
             (COALESCE(vr.label, '?'::text));

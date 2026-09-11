@@ -38,6 +38,9 @@
 --        VREODATĂ grupe diferite — produse distincte SAU același produs
 --        reclasificat înainte de ștergere — e ambiguu și se SARE; unul fără
 --        potrivire rămâne NULL.
+--   VS10 ziua de raportare e ziua ROMÂNEASCĂ a încasării, independentă de
+--        TimeZone-ul sesiunii, și coincide cu ziua din v_daily_payments_by_method.
+--        [PICĂ pe codul vechi: date_trunc fără conversie → ziua precedentă]
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -370,6 +373,46 @@ begin
   raise notice 'VS9 OK: orfan cu potrivire unică → grupa 2/21 din jurnal; ambiguul, reclasificatul și necunoscutul rămân pe fallback';
 end $$;
 
-select 'VAT RATE SNAPSHOT ASSERTIONS: VS1–VS9 PASS' as result;
+-- ── VS10: ziua de raportare e ziua ROMÂNEASCĂ, independentă de TimeZone ──────
+-- `date_trunc('day', paid_at)` fără conversie se rezolvă în TimeZone-ul SESIUNII
+-- (UTC pe Supabase), deci o încasare la 00:30 ora României cădea în ziua
+-- precedentă — iar la graniță de lună, în PERIOADA FISCALĂ precedentă. Clientul
+-- (VatReportTab) cere intervalul cu `toRomaniaYMD`, iar defalcarea pe metodă
+-- (267/268) folosește ziua românească, deci raportul TVA și cel de venit nu
+-- puteau reconcilia pe o lună.
+--   [PICĂ pe codul vechi: report_date = 2026-08-31 sub TimeZone=UTC]
+insert into public.orders (id, restaurant_id, source, status, total, paid_at, paid_amount, payment_method) values
+  ('72f00000-0000-4000-8000-00000000000a', '72b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 111,
+   timestamptz '2026-09-01 00:30:00+03', 111, 'cash');
+insert into public.order_items (order_id, product_id, product_name_snapshot, unit_price_snapshot, quantity, item_total) values
+  ('72f00000-0000-4000-8000-00000000000a', '72d00000-0000-4000-8000-000000000001', 'VS Supă', 111, 1, 111);
+
+do $$
+declare v_utc date; v_syd date; v_pay date;
+begin
+  -- aceeași interogare, două fusuri de sesiune diferite: rezultatul TREBUIE să fie identic
+  set local timezone = 'UTC';
+  select report_date into v_utc from public.vat_report_daily
+   where restaurant_id = '72b00000-0000-4000-8000-000000000001' and gross_total = 111.00;
+  set local timezone = 'Australia/Sydney';
+  select report_date into v_syd from public.vat_report_daily
+   where restaurant_id = '72b00000-0000-4000-8000-000000000001' and gross_total = 111.00;
+  set local timezone = 'UTC';
+
+  if v_utc is distinct from date '2026-09-01' then
+    raise exception 'VS10 FAIL: încasarea de la 00:30 ora României e raportată pe % (așteptat 2026-09-01) — ziua se calculează în UTC, nu în Europe/Bucharest', v_utc; end if;
+  if v_syd is distinct from v_utc then
+    raise exception 'VS10 FAIL: report_date depinde de TimeZone-ul sesiunii (UTC=%, Sydney=%)', v_utc, v_syd; end if;
+
+  -- și trebuie să cadă pe ACEEAȘI zi ca defalcarea pe metodă (mig 267), altfel
+  -- raportul TVA și cel de venit nu reconciliază pe lună
+  select day into v_pay from public.v_daily_payments_by_method
+   where restaurant_id = '72b00000-0000-4000-8000-000000000001' and cash_revenue = 111.00;
+  if v_pay is distinct from v_utc then
+    raise exception 'VS10 FAIL: raportul TVA pune încasarea pe %, defalcarea pe metodă pe % — surse de zi divergente', v_utc, v_pay; end if;
+  raise notice 'VS10 OK: ziua de raportare e cea românească (2026-09-01), independentă de TimeZone și aliniată cu defalcarea pe metodă';
+end $$;
+
+select 'VAT RATE SNAPSHOT ASSERTIONS: VS1–VS10 PASS' as result;
 
 rollback;
