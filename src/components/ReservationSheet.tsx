@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
-import { supabase } from '../lib/supabase'
 import { T } from '../lib/publicMenuStrings'
 import type { Restaurant } from '../lib/qr'
 import {
@@ -18,6 +17,11 @@ import type { FloorLayout } from '../lib/floorPlan'
 import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
 import FloorPlanViewer from './menu/FloorPlanViewer'
+import {
+  createReservationPublic,
+  getReservationIdempotencyKey,
+  rotateReservationIdempotencyKey,
+} from '../lib/reservations'
 
 interface PubColors {
   bg: string
@@ -185,6 +189,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<CreateResult | null>(null)
+  // Cheia de idempotență a formularului (mig 273). Citită la montare din
+  // sessionStorage, ca o retrimitere după refresh/Back să poarte ACEEAȘI cheie
+  // și serverul să întoarcă rezervarea deja creată în loc să facă a doua.
+  const idemKeyRef = useRef<string>(getReservationIdempotencyKey(restaurant.slug))
 
   // ── Harta sălii (rezervare cu alegere pe hartă) — pur aditiv ────
   // Dacă restaurantul n-are floor_layout sau RPC-ul dă eroare, harta pur și
@@ -410,23 +418,31 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       timeSlot,
       tz,
     )
-    const { data, error: rpcErr } = await supabase.rpc('create_reservation_public', {
-      p_slug: restaurant.slug,
-      p_customer_name: name.trim(),
-      p_customer_phone: phone.trim(),
-      p_party_size: partySize,
-      p_starts_at: startsAt,
-      p_customer_email: email.trim().length > 0 ? email.trim() : null,
-      p_special_requests: notes.trim().length > 0 ? notes.trim() : null,
-      p_duration_minutes: null,
-      p_zone: zone,
-      // Masa aleasă pe hartă (null = auto-alocare, comportamentul clasic).
-      p_table_id: selectedTableId,
-    })
-    setSubmitting(false)
-    if (rpcErr) {
+    // Cheia de idempotență (mig 273): dublu-tap, revenire cu Back sau retrimitere
+    // după un răspuns pierdut pe rețea trebuie să întoarcă ACEEAȘI rezervare, nu
+    // să creeze a doua. Se rotește DOAR pe succes, mai jos.
+    let row: Awaited<ReturnType<typeof createReservationPublic>>
+    try {
+      row = await createReservationPublic(
+        {
+          p_slug: restaurant.slug,
+          p_customer_name: name.trim(),
+          p_customer_phone: phone.trim(),
+          p_party_size: partySize,
+          p_starts_at: startsAt,
+          p_customer_email: email.trim().length > 0 ? email.trim() : null,
+          p_special_requests: notes.trim().length > 0 ? notes.trim() : null,
+          p_duration_minutes: null,
+          p_zone: zone,
+          // Masa aleasă pe hartă (null = auto-alocare, comportamentul clasic).
+          p_table_id: selectedTableId,
+        },
+        idemKeyRef.current,
+      )
+    } catch (err) {
+      setSubmitting(false)
       // Mapăm erorile DB cunoscute la mesaje prietenoase (nu expunem text brut Postgres).
-      const m = rpcErr.message || ''
+      const m = (err as Error).message || ''
       // Masa aleasă tocmai a fost luată de altcineva (hint `table_unavailable`).
       // Reîncărcăm disponibilitatea și deselectăm, ca clientul să aleagă alta.
       if (/table_unavailable/i.test(m)) {
@@ -471,8 +487,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(friendly)
       return
     }
-    const row = Array.isArray(data) ? data[0] : data
-    setResult(row as CreateResult)
+    setSubmitting(false)
+    // Rotim DOAR după ce serverul a confirmat: o rotire mai devreme ar face ca o
+    // retrimitere să pară o cerere nouă (dublura revine), iar una mai târziu ar
+    // face ca următoarea rezervare legitimă de pe același telefon să fie
+    // deduplicată tăcut de server.
+    idemKeyRef.current = rotateReservationIdempotencyKey(restaurant.slug)
+    setResult(row)
   }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20

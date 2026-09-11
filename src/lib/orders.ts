@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
+import { createIdempotencyKeyStore } from './idempotency'
 
 export type OrderStatus =
   | 'new'
@@ -76,55 +77,22 @@ export function rotateQrIdempotencyKey(token: string): string {
 }
 
 // ── Idempotență comanda PICKUP (per restaurant) ──────────────────
-// Aceeași disciplină ca la QR: cheia trăiește în sessionStorage ca să
-// supraviețuiască închiderii sheet-ului/refresh-ului dintre un răspuns pierdut
-// și retrimitere. Audit v3 (FC-01): cheia stătea într-un useRef care murea cu
-// sheet-ul → a doua trimitere avea cheie NOUĂ → comandă pickup DUBLĂ pregătită
-// de restaurant. Se rotește DOAR pe succes (ca la QR). sessionStorage poate
-// lipsi (private mode/quota) → degradăm la o cheie în memorie, nu aruncăm.
-// Fallback la nivel de MODUL când sessionStorage nu e disponibil (private mode,
-// quota depășită): o cheie nouă la fiecare apel ar fi anulat exact protecția —
-// retrimiterea după un răspuns pierdut ar fi creat o comandă DUBLĂ (review
-// audit v3). Harta trăiește cât pagina, adică fix cât sesiunea de comandă.
-const pickupKeyFallback = new Map<string, string>()
+// Aceeași disciplină ca la QR, dar peste fabrica din `lib/idempotency.ts`:
+// cheia trăiește în sessionStorage ca să supraviețuiască închiderii
+// sheet-ului/refresh-ului dintre un răspuns pierdut și retrimitere. Audit v3
+// (FC-01): cheia stătea într-un useRef care murea cu sheet-ul → a doua
+// trimitere avea cheie NOUĂ → comandă pickup DUBLĂ pregătită de restaurant.
+// Se rotește DOAR pe succes. Fallback-ul din memorie și ștergerea cheii vechi
+// când scrierea persistentă eșuează sunt în fabrică (aceeași implementare o
+// folosește și rezervarea publică — mig 273).
+const pickupKeys = createIdempotencyKeyStore('menuvia_idem_pickup:')
 
 export function getPickupIdempotencyKey(scope: string): string {
-  const storageKey = 'menuvia_idem_pickup:' + scope
-  try {
-    let key = sessionStorage.getItem(storageKey)
-    if (!key) {
-      key = pickupKeyFallback.get(scope) ?? crypto.randomUUID()
-      sessionStorage.setItem(storageKey, key)
-    }
-    pickupKeyFallback.set(scope, key)
-    return key
-  } catch {
-    let key = pickupKeyFallback.get(scope)
-    if (!key) {
-      key = crypto.randomUUID()
-      pickupKeyFallback.set(scope, key)
-    }
-    return key
-  }
+  return pickupKeys.get(scope)
 }
 
 export function rotatePickupIdempotencyKey(scope: string): string {
-  const key = crypto.randomUUID()
-  const storageKey = 'menuvia_idem_pickup:' + scope
-  // Fallback-ul se actualizează ÎNTOTDEAUNA; dacă scrierea persistentă eșuează,
-  // ȘTERGEM cheia veche din storage — altfel un remount ar reciti cheia comenzii
-  // deja trimise și serverul ar deduplica tăcut comanda NOUĂ.
-  pickupKeyFallback.set(scope, key)
-  try {
-    sessionStorage.setItem(storageKey, key)
-  } catch {
-    try {
-      sessionStorage.removeItem(storageKey)
-    } catch {
-      /* storage complet indisponibil — fallback-ul din memorie e sursa */
-    }
-  }
-  return key
+  return pickupKeys.rotate(scope)
 }
 
 export interface RestaurantTable {
