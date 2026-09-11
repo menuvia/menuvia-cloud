@@ -167,9 +167,11 @@ begin
      and idempotency_key = '7e300000-0000-4000-8000-0000000000a1';
   select count(*) into v_n from public.email_queue
    where dedup_key = 'resv_created:' || v_id::text;
-  if v_n > 1 then
-    raise exception 'RI5 FAIL: % emailuri în coadă pentru aceeași rezervare — retrimiterea a re-notificat localul', v_n; end if;
-  raise notice 'RI5 OK: un singur email de rezervare nouă în coadă (% rând)', v_n;
+  -- EXACT unu, nu „cel mult unu": un `> 1` ar trece și cu ZERO emailuri, adică
+  -- și dacă trigger-ul de notificare a localului ar dispărea cu totul.
+  if v_n <> 1 then
+    raise exception 'RI5 FAIL: % emailuri în coadă pentru rezervare (așteptat EXACT 1) — fie retrimiterea a re-notificat localul, fie notificarea nu mai pleacă deloc', v_n; end if;
+  raise notice 'RI5 OK: exact un email de rezervare nouă în coadă, după 6 apeluri cu aceeași cheie';
 end $$;
 
 -- ── RI6: retrimiterea trece chiar dacă validările ar respinge ACUM ──────────

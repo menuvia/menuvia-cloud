@@ -476,7 +476,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     } catch (err) {
       setSubmitting(false)
       // Mapăm erorile DB cunoscute la mesaje prietenoase (nu expunem text brut Postgres).
-      const m = (err as Error).message || ''
+      // Se citește ÎNTÂI `hint`-ul, care e contractul STABIL al RPC-ului
+      // (`using hint = 'table_unavailable'`), și abia apoi textul mesajului:
+      // mesajele sunt în română, se pot reformula sau traduce, iar o potrivire
+      // care depinde doar de ele se rupe tăcut și cade pe mesajul generic.
+      // `createReservationPublic` păstrează `hint`/`code` pe Error tocmai pentru asta.
+      const e = err as Error & { hint?: string; code?: string }
+      const m = [e.message || '', e.hint || ''].join(' ')
       // Masa aleasă tocmai a fost luată de altcineva (hint `table_unavailable`).
       // Reîncărcăm disponibilitatea și deselectăm, ca clientul să aleagă alta.
       if (/table_unavailable/i.test(m)) {
