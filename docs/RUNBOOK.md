@@ -399,14 +399,176 @@ critici trebuie `true` pe production.
 | **RPO** (cât date poți pierde) | 🔲 depinde de plan | PITR (dacă activ) → secunde/minute; daily-only → până la 24h |
 | **RTO** (cât durează restore) | 🔲 depinde de plan | Restore Supabase → minute–ore; confirmă în consolă |
 
-### Recomandări (TODO) 🔲
-- **Export extern periodic** (independent de Supabase): `pg_dump` săptămânal (sau prin
-  Supabase scheduled backup export) într-un storage separat (S3/GCS) — protejează împotriva
-  pierderii **contului** Supabase, nu doar a datelor.
-- **Verifică PITR e ON** pe proiectul de producție (nu doar daily).
-- **Test de restore** cel puțin o dată: restaurează într-un proiect nou și confirmă că
-  aplicația pornește. Un backup netestat nu e backup.
-- **Runbook de restore** documentat separat (pași concreți de restore + re-pointare env).
+### 6.1 Ce cară și ce NU cară un dump (măsurat pe replay la mig 273, nu presupus)
+
+| Artefact | `--schema-only` | `--data-only` | `pg_dumpall --roles-only` |
+|---|---|---|---|
+| GRANT / REVOKE pe obiecte | 340 / 230 | 0 / 0 | — |
+| CREATE POLICY | 114 | 0 | — |
+| ENABLE ROW LEVEL SECURITY | 76 | 0 | — |
+| ALTER DEFAULT PRIVILEGES | 2 | 0 | — |
+| OWNER TO | 407 | 0 | — |
+| CREATE TRIGGER | 84 | 0 | — |
+| setval pe secvențe | 0 | 1 (`audit_log_id_seq`) | — |
+| **CREATE/ALTER ROLE (inclusiv `service_role` BYPASSRLS)** | **0** | **0** | da |
+
+Trei concluzii care contrazic intuiția:
+
+1. **Un `pg_dump` NORMAL cară regimul de privilegii.** Restaurat într-o bază goală, RW1 și
+   G1–G5 trec și `security_invoker` supraviețuiește. Regimul se pierde din **FLAGS**, nu
+   din dump/restore.
+2. **Defectul era în comenzile NOASTRE (audit v3 RES-07).** Ambele scripturi de backup ale
+   repo-ului treceau `--no-privileges` (iar `deploy/backup-db.sh` și `--schema=public`).
+   Restaurat din acel artefact: 114 politici și RLS pe toate tabelele intacte, dar 0 GRANT
+   și 0 REVOKE → `proacl` devine NULL, EXECUTE-ul implicit al lui PUBLIC revine, și **anon
+   poate apela `accept_invite`, `change_restaurant_slug`, `build_fiscalnet_payload`**.
+   Simultan, `authenticated` pierde SELECT pe `restaurants`, deci aplicația e moartă la
+   primul login: o cădere ZGOMOTOASĂ peste o escaladare TĂCUTĂ la nivel de funcție.
+   Flag-urile sunt scoase; dacă folosești un backup mai VECHI, presupune că e golit și
+   lasă replay-ul lanțului să refacă ACL-urile. `--no-owner` e un NO-OP măsurat pe `-Fc`.
+   `--schema=public` lăsa `auth.users` GOL, iar `profiles.id` și
+   `restaurant_memberships.user_id` sunt FK `ON DELETE CASCADE` către el → fiecare profil
+   și fiecare membership respins la restore, restaurantele orfane.
+3. **Ce NU se poate restaura din NICIUN dump** — verifică manual:
+   - **Rolurile** (`anon`/`authenticated`/`service_role`) și atributele lor, inclusiv
+     `service_role BYPASSRLS`. Pe un proiect Supabase nou vin cu proiectul; RP1 le verifică.
+   - **Event trigger-ul `ensure_rls` + `public.rls_auto_enable()`**: obiect de PLATFORMĂ,
+     NU e în lanț, NU e în repo, NU e membru de extensie. Dacă proiectul nou nu îl are,
+     RLS-ul nu se mai pornește automat pe tabele NOI și **nu poate fi recreat de operator**
+     (`CREATE EVENT TRIGGER` cere superuser, iar `postgres` pe prod are `rolsuper=false`) →
+     tichet la Supabase.
+   - **Default-ACL-urile cu grantor `supabase_admin`** (pe prod dau `anon` arwdDxtm pe
+     tabelele viitoare). Cele ale APLICAȚIEI (grantor `postgres`, mig 047) se refac din
+     replay și sunt verificate de RP8; backstop-ul pentru cele de platformă e RP2 (RLS pe
+     fiecare tabel).
+   - **pg_cron** (mig 274): extensia se instalează la replay-ul lanțului, iar joburile
+     se programează din manifest; `cron.job_run_details` (istoricul) nu se restaurează —
+     nici nu trebuie. După restore, `/health` → `checks.pgcron` trece prin `warming`
+     până la primele reușite.
+
+### 6.2 Procedura de restore (proiect Supabase nou)
+
+Forma e **replay al lanțului → `--data-only` → poartă**, NU `pg_restore` al unui dump
+complet. Motivele sunt concrete: ACL-urile vin din **migrații revizuite**, nu din starea în
+care a driftat prod; și e singurul mod în care moștenești jumătatea de PLATFORMĂ a
+regimului (§6.1 punctul 3), pe care un `pg_restore` al unui dump complet o pierde definitiv.
+
+```bash
+export NEW_DB_URL="postgresql://postgres:...@db.<proj>.supabase.co:5432/postgres"
+cd /path/to/menuvia-cloud        # checkout la COMITUL lanțului din dump
+```
+
+1. **Proiect nou**, aceeași regiune. Notează noile `SUPABASE_URL` / chei. NU re-pointa
+   încă env-ul.
+2. **Replay-ul lanțului cu `psql`, nu cu runner-ul CLI** (mig 120/121 au meta-comenzi
+   `\set` pe care CLI-ul nu le știe — de asta și CI-ul folosește psql):
+   ```bash
+   for m in $(ls supabase/migrations/*.sql | sort -V); do
+     psql "$NEW_DB_URL" -v ON_ERROR_STOP=1 -f "$m" || { echo "PICAT: $m"; exit 1; }
+   done
+   ```
+   **Dacă o migrație pică pe o asserție de PRIVILEGII** (default-uri mai largi pe un proiect
+   proaspăt decât pe prod), aplică pre-curățarea — aceeași ca bootstrap-ul din `ci.yml` —
+   și reia de la migrația care a picat:
+   ```sql
+   alter default privileges for role postgres in schema public
+     revoke insert, update, delete, references, truncate, trigger on tables from service_role;
+   alter default privileges for role postgres in schema public revoke all on tables    from anon, authenticated;
+   alter default privileges for role postgres in schema public revoke all on functions from anon, authenticated;
+   ```
+   Mig 047 reacordă mai târziu, explicit, ce trebuie (RP8 verifică starea finală).
+   NEVERIFICAT dacă un proiect hosted nou are nevoie de pasul ăsta — de asta e
+   condiționat, nu obligatoriu.
+3. **Golește rândurile semănate de LANȚ**, ÎNAINTE de COPY. Un COPY din pg_dump care
+   lovește o cheie duplicată **abandonează TOT tabelul**, deci baza ar păstra TĂCUT
+   valorile migrației:
+   ```sql
+   truncate public.plan_features, public.plan_limits,
+            public.platform_settings, public.gdpr_deletion_config,
+            public.pg_cron_janitor_manifest;
+   delete from storage.buckets;   -- sau exclude schema storage din dump-ul de date
+   ```
+   Contează pentru `platform_settings`: default-urile de comision al afiliaților
+   (mig 188/099) se citesc LIVE și sunt editabile de fondator. Azi e latent
+   (`plan_features` e byte-identic prod vs. replay), dar prima editare s-ar pierde.
+   `pg_cron_janitor_manifest` se re-populează cu `select public.pg_cron_apply_manifest();`
+   după încărcare (sau re-aplicând mig 274, care e re-rulabilă).
+4. **Dezactivează triggerele NE-INTERNE, PE NUME**, într-un bloc care reactivează pe
+   calea de EROARE (aceeași disciplină ca `scripts/recover_orphan_vat_snapshots.sql`, și
+   pentru același motiv măsurat: 84 din 89 lăsate stinse e invizibil). `--disable-triggers`
+   și `session_replication_role='replica'` sunt INDISPONIBILE pe Supabase gestionat: ambele
+   cer superuser (`DISABLE TRIGGER ALL` → „permission denied: RI_ConstraintTrigger… is a
+   system trigger"; GUC-ul are context `superuser`). Un PROPRIETAR de tabel ne-superuser
+   POATE dezactiva triggere NUMITE, inclusiv constraint triggers (verificat pe replay).
+   ```bash
+   psql "$NEW_DB_URL" -tA -c "
+     select format('alter table %I.%I disable trigger %I;', n.nspname, c.relname, t.tgname)
+       from pg_trigger t join pg_class c on c.oid = t.tgrelid
+       join pg_namespace n on n.oid = c.relnamespace
+      where not t.tgisinternal order by 1;" > /tmp/disable.sql
+   sed 's/ disable trigger / enable trigger /' /tmp/disable.sql > /tmp/enable.sql
+   psql "$NEW_DB_URL" -v ON_ERROR_STOP=1 -f /tmp/disable.sql
+   ```
+   Lista **trebuie** să includă `on_auth_user_created` (altfel `handle_new_user` fabrică
+   profile la încărcarea `auth.users`, COPY-ul real pe `profiles` avortează pe cheie
+   duplicată și TOATE planurile rămân `free` — măsurat) și triggerele **`audit_*`**
+   (altfel COPY-ul pe `audit_log` avortează și jurnalul FISCAL se termină cu rândurile
+   care descriu restore-ul, în locul celor reale).
+5. **`auth.users` ÎNAINTE de `public`**: `profiles.id` și `restaurant_memberships.user_id`
+   sunt FK `ON DELETE CASCADE` către `auth.users(id)`. Un dump `--data-only` pe toată baza
+   le ordonează singur; dacă restaurezi selectiv, `auth` primul.
+6. **Încarcă datele cu `ON_ERROR_STOP`**: `psql "$NEW_DB_URL" -v ON_ERROR_STOP=1 -f data_only.sql`.
+   Fără el psql iese **0** peste COPY-uri avortate (măsurat: 19) și rămâi cu
+   `restaurants=0 / orders=0` pe o bază „restaurată".
+7. **REACTIVEAZĂ triggerele**: `psql "$NEW_DB_URL" -v ON_ERROR_STOP=1 -f /tmp/enable.sql`.
+   Nu te baza pe memorie — pasul 9 (RP7) verifică.
+8. **Paritate de DATE** (poarta verifică regimul, nu datele): numără
+   `restaurants / orders / order_items / profiles / restaurant_memberships / audit_log /
+   pending_receipts` și **distribuția planurilor** (`select plan, count(*) from
+   public.profiles group by 1`) — `free` peste tot e semnătura încărcării cu triggerele
+   pornite. Secvențe: `public` are EXACT una și `--data-only` cară `setval`-ul; confirmă cu
+   `select last_value >= (select max(id) from public.audit_log) from public.audit_log_id_seq;`
+   Invariant pe care un restore îl lasă LATENT rupt (`restaurants.owner_id` NU are FK către
+   `auth.users`, iar `trg_enforce_owner_membership_invariant` e constraint trigger — se
+   declanșează DOAR la mutație):
+   ```sql
+   select r.id, r.slug from public.restaurants r
+    where (select count(*) from public.restaurant_memberships m
+            where m.restaurant_id = r.id and m.role = 'owner'
+              and m.user_id = r.owner_id) <> 1;   -- TREBUIE 0 rânduri
+   ```
+9. **POARTA (§6.3) — obligatorie, blocantă.** Abia dacă iese 0, re-pointează env-ul.
+10. **Re-pointare + verificări externe**: `SUPABASE_URL` / chei / `DB_URL` în Netlify sau
+    `/etc/menuvia/env` (VPS), endpoint-ul de webhook Stripe, apoi
+    `curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" .../health | jq` — `checks.schema`
+    trebuie `ok`, nu `behind`; `checks.pgcron` trece de la `warming` la `ok` după primele
+    reușite. Dacă poarta arată că `rls_auto_enable()` lipsește, deschide tichet la Supabase
+    (§6.1 punctul 3).
+
+### 6.3 Poarta de verificare (go/no-go)
+
+```bash
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/privilege_regime_assertions.sql
+echo "exit=$?"     # 0 = GO. Orice altceva = NO-GO.
+```
+
+100% READ-ONLY (catalog + `set role` + SELECT), rulabilă pe producție în paralel cu trafic,
+și rulează NECONDIȚIONAT în CI la fiecare replay — deci nu se poate învechi fără să facă
+build-ul roșu. Rulează-o ca owner-ul bazei (pe Supabase: `postgres`, care e membru în
+anon/authenticated/service_role): RP1 e FAIL-CLOSED dacă nu poate lua rolurile, fiindcă
+atunci nu poate verifica RLS-ul. Dacă pică pe RP3 („ancoră anti-vacuitate"), backup-ul era
+golit de `--no-privileges` — reia de la pasul 2 cu un artefact corect; NU „repara" acordând
+privilegii larg. RP12 cere rânduri în `restaurants` — pe un restore `--schema-only` pică
+zgomotos, corect: regimul RLS nu se poate dovedi fără date.
+
+### 6.4 Ce NU e automatizat, deliberat 🔲
+- **RES-06 rămâne deschis, decizie de fondator**: azi nu există niciun backup funcțional
+  (`db-backup.yml` e inert fără secrets, Supabase Free). Secțiunea asta face procedura
+  CORECTĂ și DOVEDITĂ pentru momentul în care armezi backup-urile — nu înlocuiește armarea.
+- **Export extern periodic + PITR ON**: rămân recomandări (protejează contra pierderii
+  CONTULUI Supabase, nu doar a datelor).
+- **Test de restore programat**: cere un al doilea proiect Supabase (cost). Până atunci,
+  poarta §6.3 e ce transformă un restore manual dintr-o speranță într-o verificare.
 
 ---
 

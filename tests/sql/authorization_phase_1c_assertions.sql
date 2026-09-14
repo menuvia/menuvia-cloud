@@ -364,4 +364,115 @@ end$$;
 -- ═══════════════════════ G8. A6 validated (convalidated + 3 cazuri) ══════════
 \ir assertions/a6_invite_owner_constraint_validated.sql
 
-\echo '✅ phase-1C assertions passed (G1-G8)'
+
+-- ═══════════════════════ G9. change_member_role, cale POZITIVĂ (fostul F4.1) ═════
+-- Mutat VERBATIM din `authorization_final_state_assertions.sql` (ȘTEARSĂ în audit
+-- v3 RES-07: `if:`-ul ei — hashFiles(096b)!='' && hashFiles(096c)=='' — era permanent
+-- fals din iunie 2026, iar F1/F3 nu mai treceau pe lanțul curent). E singurul test
+-- COMPORTAMENTAL care rulează un RPC de autorizare sub rolul REAL `authenticated`
+-- și verifică apoi că a SCRIS efectiv — poarta read-only
+-- (tests/sql/privilege_regime_assertions.sql) nu poate face asta, fiindcă mută
+-- date. F4.2 (bootstrap-ul create_restaurant) NU a fost mutat: G6.2 îl acoperă.
+-- G9: change_member_role waiter→kitchen pe …a603 (membership existent în fixture)
+begin;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000a601';
+set local role authenticated;
+do $$
+declare v_mid uuid; v_resp jsonb; v_role public.member_role;
+begin
+  select id into v_mid from public.restaurant_memberships
+   where restaurant_id = '00000000-0000-4000-8000-00000000a602'
+     and user_id       = '00000000-0000-4000-8000-00000000a603';
+  v_resp := public.change_member_role(v_mid, 'kitchen'::public.member_role);
+  if not (v_resp->>'ok')::boolean then raise exception 'G9 FAIL: resp=%', v_resp; end if;
+  select role into v_role from public.restaurant_memberships where id = v_mid;
+  if v_role <> 'kitchen'::public.member_role then
+    raise exception 'G9 FAIL: role after=%', v_role;
+  end if;
+  raise notice 'G9 PASS: change_member_role waiter→kitchen via RPC';
+end$$;
+rollback;
+
+-- ═══════════════════════ G10. change_restaurant_slug TOCTOU (fostul F9) ═══════════
+-- Mutat VERBATIM din aceeași suită ștearsă (identificatorii f9_* → g10_*). Contractul
+-- {ok:false, reason:'slug_taken', slug} nu era păzit de nimic altundeva
+-- (`grep -ln slug_taken tests/sql/*.sql` întorcea DOAR suita ștearsă). Fără
+-- handler-ul de unique_violation din mig 221, RPC-ul lasă 23505 brut să iasă la
+-- client. Mută date, deci nu poate sta în poarta read-only.
+-- ═══════════════════════ G10. change_restaurant_slug TOCTOU safety net ════════
+--   Forțează unique_violation pe UPDATE-ul intern (printr-un trigger BEFORE
+--   UPDATE care injectează un rând cu același slug) și asertă că funcția
+--   returnează contractul {ok:false, reason:slug_taken, slug} în loc să lase
+--   23505 să iasă către client. Acoperă fereastra TOCTOU dintre `exists` check
+--   și UPDATE care nu poate fi eliminată single-statement.
+do $$
+declare v_resp jsonb;
+        v_parasite uuid := gen_random_uuid();
+        v_parasite_user uuid := gen_random_uuid();
+        v_target_slug text := 'g10-toctou-' || substring(gen_random_uuid()::text, 1, 8);
+        v_my uuid := '00000000-0000-4000-8000-00000000a602';
+begin
+  -- Preconditii fixture-ului existent + competitor user/profile
+  insert into auth.users (id, email) values (v_parasite_user, 'f9-parasite@test.invalid')
+    on conflict (id) do nothing;
+  insert into public.profiles (id, email, full_name)
+    values (v_parasite_user, 'f9-parasite@test.invalid', 'G10 Parasite')
+    on conflict (id) do nothing;
+
+  -- Trigger injection: la UPDATE-ul restaurantului țintă, inserează rândul
+  -- competitor cu acelaşi slug → unique_violation.
+  create or replace function pg_temp.g10_race_inject() returns trigger language plpgsql as $f$
+  begin
+    if NEW.slug = current_setting('app.g10_race_slug', true) then
+      insert into public.restaurants (id, owner_id, name, slug, primary_color)
+      values (
+        current_setting('app.g10_race_parasite_id')::uuid,
+        current_setting('app.g10_race_parasite_user')::uuid,
+        'G10 Parasite Restaurant',
+        NEW.slug,
+        '#000000'
+      );
+    end if;
+    return NEW;
+  end$f$;
+
+  perform set_config('app.g10_race_slug', v_target_slug, true);
+  perform set_config('app.g10_race_parasite_id', v_parasite::text, true);
+  perform set_config('app.g10_race_parasite_user', v_parasite_user::text, true);
+
+  -- Conditional drop ca să nu emitem NOTICE inutil în CI dacă triggerul lipsea.
+  if exists (
+    select 1 from pg_trigger
+     where tgrelid = 'public.restaurants'::regclass
+       and tgname  = 'trg_g10_toctou_inject'
+  ) then
+    drop trigger trg_g10_toctou_inject on public.restaurants;
+  end if;
+  create trigger trg_g10_toctou_inject before update on public.restaurants
+    for each row execute function pg_temp.g10_race_inject();
+
+  perform set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-00000000a601', true);
+  v_resp := public.change_restaurant_slug(v_my, v_target_slug);
+
+  drop trigger trg_g10_toctou_inject on public.restaurants;
+
+  -- Contractul trebuie să fie EXACT {ok:false, reason:slug_taken, slug:v_target_slug}.
+  -- `IS DISTINCT FROM` pe jsonb întreg e null-safe (cheile lipsă nu mai produc NULL).
+  if v_resp is distinct from jsonb_build_object(
+    'ok',     false,
+    'reason', 'slug_taken',
+    'slug',   v_target_slug
+  ) then
+    raise exception 'G10 FAIL: TOCTOU race response=% (expected {ok:false, reason:slug_taken, slug:%})',
+      v_resp, v_target_slug;
+  end if;
+
+  -- Cleanup (parasite row a fost inserat în loc, restaurantul țintă neschimbat)
+  delete from public.restaurants where id = v_parasite;
+  delete from public.profiles  where id = v_parasite_user;
+  delete from auth.users       where id = v_parasite_user;
+
+  raise notice 'G10 PASS: change_restaurant_slug TOCTOU race → {ok:false, reason:slug_taken, slug:%}', v_target_slug;
+end$$;
+
+\echo '✅ phase-1C assertions passed (G1-G10)'

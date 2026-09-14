@@ -1083,21 +1083,15 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/authorization_test_fixture.sql
 
-      - name: "Authorization PR 1A: phase-1A assertions (A1-A8)"
-        if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' && hashFiles('supabase/migrations/20260616000000_migration_096b_authorization_enforcement.sql') == '' }}
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
-            -f tests/sql/authorization_phase_1a_assertions.sql
-
-      - name: "Authorization PR 1B: final-state assertions (F1-F9)"
-        if: ${{ hashFiles('supabase/migrations/20260616000000_migration_096b_authorization_enforcement.sql') != '' && hashFiles('supabase/migrations/20260617000000_migration_096c_authorization_validate.sql') == '' }}
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
-            -f tests/sql/authorization_final_state_assertions.sql
+      # ȘTERSE (audit v3 RES-07): cele două suite „de eră" (phase-1A A1-A8,
+      # final-state F1-F9) rulau sub `if:`-uri PERMANENT FALSE —
+      # hashFiles(096a)!='' && hashFiles(096b)=='' și hashFiles(096b)!='' &&
+      # hashFiles(096c)=='' — din iunie 2026, și NU MAI TRECEAU pe lanțul curent
+      # (A2: CHECK-ul A6 e VALIDAT de 096c; F1: fn_block_owner_membership_mutation
+      # a fost retrasă de 096c). Fișierele sunt șterse, nu păstrate: o suită care
+      # nu poate trece e documentație care minte. Harta de supersedare per
+      # asserție e în antetul porții de mai jos; F4.1→G9 și F9→G10 sunt mutate în
+      # suita 1C (VIE), F6→RW1 (deja necondiționat), restul → RP1-RP12.
 
       # NECONDIȚIONAT (audit v3, rangul 13): asserția whitelist-ului de coloane
       # trăia ca „F6" în suita final-state, care rulează doar în era dintre
@@ -1110,7 +1104,22 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/restaurant_update_whitelist_assertions.sql
 
-      - name: "Authorization PR 1C: phase-1C assertions (G1-G8)"
+      # NECONDIȚIONAT (audit v3 RES-07). Regimul de privilegii — invariantele care
+      # NU se reconstituie din date. ACELAȘI fișier e poarta go/no-go de după un
+      # restore (docs/RUNBOOK.md §6.3), deci pasul ăsta îl ține ONEST: dacă poarta
+      # s-ar învechi, CI-ul o prinde, nu operatorul la 3 dimineața. NU pune `if:`
+      # aici — forma `hashFiles(X)!='' && hashFiles(Y)==''` e exact ce a omorât
+      # A1-A8 și F1-F9. POZIȚIA CONTEAZĂ: RP12 citește sub rolul real
+      # `authenticated` și cere rânduri (pică zgomotos altfel), deci stă DUPĂ
+      # fixture-ul de autorizare; RP1-RP11 sunt fără date.
+      - name: "Privilege regime assertions (RP1-RP12 + RW1) — audit v3 RES-07"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/privilege_regime_assertions.sql
+
+      - name: "Authorization PR 1C: phase-1C assertions (G1-G10)"
         if: ${{ hashFiles('supabase/migrations/20260617000000_migration_096c_authorization_validate.sql') != '' }}
         env:
           PGPASSWORD: postgres
