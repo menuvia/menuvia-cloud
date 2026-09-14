@@ -232,7 +232,12 @@ as $$
     ) as t(fn_name, reason);
 $$;
 
-revoke all on function public.pg_cron_janitor_denylist() from public;
+-- `revoke ... from public` NU atinge un grant DIRECT: pe stack-ul Supabase (prod
+-- ȘI `supabase start` din E2E) default privileges acordă EXECUTE pe orice
+-- funcție NOUĂ direct lui service_role (și, pe CLI-ul nou, lui anon/authenticated),
+-- deci revoke-urile se fac EXPLICIT per rol (CJ9 a prins-o în jobul E2E, nu în
+-- sql-verify, unde postgres:15 n-are default-uri).
+revoke all on function public.pg_cron_janitor_denylist() from public, anon, authenticated;
 grant execute on function public.pg_cron_janitor_denylist() to service_role;
 
 comment on function public.pg_cron_janitor_denylist() is
@@ -267,7 +272,7 @@ begin
   return v_deleted;
 end $fn$;
 
-revoke all on function public.cron_prune_run_details(integer) from public;
+revoke all on function public.cron_prune_run_details(integer) from public, anon, authenticated;
 grant execute on function public.cron_prune_run_details(integer) to service_role;
 
 comment on function public.cron_prune_run_details(integer) is
@@ -366,7 +371,7 @@ begin
   return v_res;
 end $fn$;
 
-revoke all on function public.get_cron_janitor_health() from public;
+revoke all on function public.get_cron_janitor_health() from public, anon, authenticated;
 grant execute on function public.get_cron_janitor_health() to service_role;
 
 comment on function public.get_cron_janitor_health() is
@@ -442,7 +447,9 @@ begin
   return v_n;
 end $fn$;
 
-revoke all on function public.pg_cron_apply_manifest() from public;
+-- DOAR postgres (din migrații). service_role primește EXECUTE prin default
+-- privileges pe Supabase, deci revoke-ul explicit e cel care contează (CJ9).
+revoke all on function public.pg_cron_apply_manifest() from public, anon, authenticated, service_role;
 
 comment on function public.pg_cron_apply_manifest() is
   'mig 274: descarca joburile-stafie cu prefixul menuvia_janitor_ si (re)programeaza fiecare rand din pg_cron_janitor_manifest (upsert pe nume). Stampileaza scheduled_at DOAR la prima programare reala. Apelata din migratii, ca postgres; CJ12 o exerseaza pe o schema cron simulata.';

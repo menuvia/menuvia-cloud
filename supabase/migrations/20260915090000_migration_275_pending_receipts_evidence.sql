@@ -134,7 +134,8 @@ begin
 end;
 $$;
 
-revoke all on function public.fn_pending_receipts_block_delete() from public;
+-- explicit per rol: pe Supabase default privileges dau EXECUTE direct (vezi mig 274).
+revoke all on function public.fn_pending_receipts_block_delete() from public, anon, authenticated, service_role;
 
 drop trigger if exists trg_pending_receipts_block_delete on public.pending_receipts;
 create trigger trg_pending_receipts_block_delete
