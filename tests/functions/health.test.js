@@ -35,7 +35,7 @@ function loadHealthFresh() {
 // Forma PUBLICĂ nu mai poartă câmpurile de diagnostic deloc (audit v3 RES-38):
 // nu `null`, ci ABSENTE. Verificarea e pe prezența cheii, nu pe valoare.
 function assertNoDiag(body, msg) {
-  for (const k of ['storage_detail', 'config', 'cron_last_run', 'schema_detail', 'queue_detail']) {
+  for (const k of ['storage_detail', 'config', 'cron_last_run', 'schema_detail', 'queue_detail', 'pgcron_detail']) {
     assert.equal(k in body, false, `${msg}: cheia „${k}” a ajuns pe suprafața publică`)
   }
 }
@@ -47,6 +47,30 @@ function scriptSchema(result) {
 }
 function scriptQueues(result) {
   state.rpcHandlers['get_queue_backlog'] = () => result
+}
+// ── Sonda pg_cron (mig 274) ──────────────────────────────────────────────────
+const PGCRON_JOB_KEYS = [
+  'job_name', 'scheduled', 'active', 'schedule_ok',
+  'last_status', 'last_run_age_s', 'last_success_age_s', 'since_scheduled_s', 'max_age_s',
+]
+function pgcronJob(o) {
+  return {
+    job_name: 'menuvia_janitor_fiscal_stale', scheduled: true, active: true, schedule_ok: true,
+    last_status: 'succeeded', last_run_age_s: 60, last_success_age_s: 60,
+    since_scheduled_s: 9999, max_age_s: 10800, ...(o || {}),
+  }
+}
+function scriptPgcron(data) {
+  state.rpcHandlers['get_cron_janitor_health'] = () => ({ data, error: null })
+}
+const pgcronPayload = (jobs, unexpected) => ({
+  available: true, jobs, unexpected: unexpected || [], run_details_rows: 1,
+})
+/** Restul sondelor scriptate sănătos, ca verdictul să depindă DOAR de pgcron. */
+function scriptOthersHealthy() {
+  scriptDbOk(1024)
+  scriptSchema({ data: { available: true, ledger_count: 274, latest_name: 'x', latest_version: '1', missing: [] }, error: null })
+  scriptQueues({ data: backlog(), error: null })
 }
 function backlog(overrides) {
   const z = { waiting: 0, oldest_age_s: 0 }
@@ -223,11 +247,12 @@ describe('health — forma publică e ÎNGHEȚATĂ; diagnosticul complet cere to
     scriptDbOk(1024)
     scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'x', latest_version: '1', missing: ['migration_999_x'] }, error: null })
     scriptQueues({ data: backlog({ 'cron.email': { waiting: 3, oldest_age_s: 120 } }), error: null })
+    scriptPgcron(pgcronPayload([pgcronJob()]))
     const body = parseBody(await handler({ httpMethod: 'GET' }))
     assert.deepEqual(Object.keys(body).sort(), ['checks', 'status', 'ts'])
-    assert.deepEqual(Object.keys(body.checks).sort(), ['cron', 'db', 'queues', 'schema', 'storage'])
+    assert.deepEqual(Object.keys(body.checks).sort(), ['cron', 'db', 'pgcron', 'queues', 'schema', 'storage'])
     const raw = JSON.stringify(body)
-    for (const leak of ['config', 'cron_last_run', 'resend', 'slack', 'stripe', 'ai_platform', 'used_pct', 'oldest_age', 'migration_999', 'waiting']) {
+    for (const leak of ['config', 'cron_last_run', 'resend', 'slack', 'stripe', 'ai_platform', 'used_pct', 'oldest_age', 'migration_999', 'waiting', 'pgcron_detail', 'menuvia_janitor', 'run_details_rows']) {
       assert.ok(!raw.includes(leak), `„${leak}” a ajuns pe suprafața publică`)
     }
   })
@@ -413,5 +438,108 @@ describe('health — backlog-ul cozilor (mig 271, RES-32)', () => {
     assert.equal('queue_detail' in pub, false)
     const diag = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
     assert.equal(diag.queue_detail.cron.email.waiting, 7)
+  })
+})
+
+describe('health — sonda pg_cron (mig 274, RES-04/RES-09)', () => {
+  it('HL20: stare sănătoasă -> pgcron=ok, 200', async () => {
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    scriptPgcron(pgcronPayload([pgcronJob()]))
+    const res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.pgcron, 'ok')
+    assert.equal(res.statusCode, 200)
+  })
+
+  it('HL21: contract COMPLET sau unknown — niciodată ok (cu control pozitiv)', async () => {
+    const broken = [
+      ['data null', null],
+      ['data array', [pgcronJob()]],
+      ['jobs gol', pgcronPayload([])],
+      ['jobs nu e array', { available: true, jobs: {}, unexpected: [] }],
+      ['unexpected nu e array', { available: true, jobs: [pgcronJob()], unexpected: null }],
+      ['job null', pgcronPayload([null])],
+      ['available nu e boolean', { available: 'true', jobs: [pgcronJob()], unexpected: [] }],
+      ['last_success_age_s ne-numeric', pgcronPayload([pgcronJob({ last_success_age_s: 'ieri' })])],
+      ['max_age_s ne-numeric', pgcronPayload([pgcronJob({ max_age_s: null })])],
+    ]
+    for (const k of PGCRON_JOB_KEYS) {
+      const j = pgcronJob(); delete j[k]
+      broken.push([`cheia ${k} lipsește`, pgcronPayload([j])])
+    }
+    for (const [label, data] of broken) {
+      const { handler } = loadHealthFresh(); scriptOthersHealthy(); scriptPgcron(data)
+      const res = await handler({ httpMethod: 'GET' })
+      assert.equal(parseBody(res).checks.pgcron, 'unknown', `HL21 ${label}`)
+      assert.equal(res.statusCode, 200, `HL21 ${label}: unknown nu are voie să dea 503`)
+    }
+    // CONTROL POZITIV: fără el, un „unknown mereu" ar trece toate cazurile.
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    scriptPgcron(pgcronPayload([pgcronJob()]))
+    assert.equal(parseBody(await handler({ httpMethod: 'GET' })).checks.pgcron, 'ok')
+  })
+
+  it('HL22: drift și stale dau 503; failing, warming și absent dau 200 cu eticheta lor', async () => {
+    const cases = [
+      ['drift', 503, pgcronPayload([pgcronJob({ scheduled: false })])],
+      ['drift', 503, pgcronPayload([pgcronJob({ active: false })])],
+      ['drift', 503, pgcronPayload([pgcronJob({ schedule_ok: false })])],
+      ['drift', 503, pgcronPayload([pgcronJob()], ['menuvia_janitor_rogue'])],
+      ['drift', 503, pgcronPayload([pgcronJob({ scheduled: false, last_status: 'failed' })])], // drift bate failing
+      ['stale', 503, pgcronPayload([pgcronJob({ last_success_age_s: 20000 })])],
+      // fără nicio reușită și programat de MULT -> stale (worker-ul nu se conectează)
+      ['stale', 503, pgcronPayload([pgcronJob({ last_status: null, last_run_age_s: null, last_success_age_s: null, since_scheduled_s: 20000 })])],
+      // ultima rulare a EȘUAT, dar a reușit recent -> failing, 200 (health-watch avertizează)
+      ['failing', 200, pgcronPayload([pgcronJob({ last_status: 'failed', last_run_age_s: 10, last_success_age_s: 3600 })])],
+      // ultima rulare a eșuat ȘI reușita e prea veche -> stale bate failing
+      ['stale', 503, pgcronPayload([pgcronJob({ last_status: 'failed', last_run_age_s: 10, last_success_age_s: 20000 })])],
+      ['warming', 200, pgcronPayload([pgcronJob({ last_status: null, last_run_age_s: null, last_success_age_s: null, since_scheduled_s: 60 })])],
+      ['absent', 200, { available: false, jobs: [], unexpected: [], run_details_rows: 0 }],
+    ]
+    for (const [want, code, data] of cases) {
+      const { handler } = loadHealthFresh(); scriptOthersHealthy(); scriptPgcron(data)
+      const res = await handler({ httpMethod: 'GET' })
+      const body = parseBody(res)
+      assert.equal(body.checks.pgcron, want, JSON.stringify(data))
+      assert.equal(res.statusCode, code, `${want}: ${JSON.stringify(data)}`)
+      assert.ok(!JSON.stringify(body).includes('menuvia_janitor'), 'numele jobului a ajuns public')
+    }
+    // Pragul e PER JOB: un job zilnic la ~27h NU e stale (max_age_s = 48h).
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    scriptPgcron(pgcronPayload([pgcronJob({ last_run_age_s: 100000, last_success_age_s: 100000, max_age_s: 172800 })]))
+    const ok = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(ok).checks.pgcron, 'ok')
+    assert.equal(ok.statusCode, 200)
+  })
+
+  it('HL23: un singur job stale între mai multe sănătoase e de ajuns pentru 503', async () => {
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    scriptPgcron(pgcronPayload([
+      pgcronJob({ job_name: 'menuvia_janitor_a' }),
+      pgcronJob({ job_name: 'menuvia_janitor_b', last_success_age_s: 99999 }),
+      pgcronJob({ job_name: 'menuvia_janitor_c' }),
+    ]))
+    const res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.pgcron, 'stale')
+    assert.equal(res.statusCode, 503)
+  })
+
+  it('HL24: pgcron_detail (nume de joburi) NUMAI cu x-health-diag corect', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    scriptPgcron(pgcronPayload([pgcronJob()]))
+    const pub = parseBody(await handler({ httpMethod: 'GET' }))
+    assert.equal('pgcron_detail' in pub, false)
+    const wrong = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'nope' } }))
+    assert.equal('pgcron_detail' in wrong, false)
+    const diag = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
+    assert.equal(diag.pgcron_detail.jobs[0].job_name, 'menuvia_janitor_fiscal_stale')
+  })
+
+  it('HL25: fără RPC (PGRST202 / neaplicat) -> unknown, 200 — deploy înaintea migrației nu alarmează', async () => {
+    const { handler } = loadHealthFresh(); scriptOthersHealthy()
+    state.rpcHandlers['get_cron_janitor_health'] = () => ({ data: null, error: { message: 'Could not find the function public.get_cron_janitor_health', code: 'PGRST202' } })
+    const res = await handler({ httpMethod: 'GET' })
+    assert.equal(parseBody(res).checks.pgcron, 'unknown')
+    assert.equal(res.statusCode, 200)
   })
 })

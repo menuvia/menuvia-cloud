@@ -12,10 +12,10 @@
 // lent/blocat să nu țină cererea agățată — monitorul primește 503 rapid.
 //
 // Răspuns PUBLIC (exact trei chei — forma e înghețată de testul HL8):
-//   200 { status: 'ok',       checks: { db, cron, storage, schema, queues }, ts }
-//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' | storage: 'critical' | queues: 'stale' }, ts }
+//   200 { status: 'ok',       checks: { db, cron, storage, schema, queues, pgcron }, ts }
+//   503 { status: 'degraded', checks: { db: 'down' | cron: 'stale' | storage: 'critical' | queues: 'stale' | pgcron: 'drift' | 'stale' }, ts }
 // Cu antetul `x-health-diag` (HEALTH_DIAG_TOKEN) se adaugă `config`,
-// `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail`.
+// `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail`, `pgcron_detail`.
 // `schema: 'behind'` (mig 271) NU schimbă codul HTTP — îl alertează health-watch.
 //
 // ── De ce verificăm ȘI cron-ul aici (incident 2–9 august 2026) ──────────────
@@ -44,7 +44,7 @@
 //                        invalida e ignorata CU avertisment in log.
 //   HEALTH_DIAG_TOKEN    (optional) deblocheaza `config`, `cron_last_run`,
 //                        `storage_detail` (octeti, plafon, procent, primele 5
-//                        tabele), `schema_detail` si `queue_detail` EXCLUSIV prin antetul
+//                        tabele), `schema_detail`, `queue_detail` si `pgcron_detail` EXCLUSIV prin antetul
 //                        `x-health-diag`. NU se accepta in query string (un
 //                        secret in URL ajunge in loguri — CWE-598). NESETAT =
 //                        diagnosticul nu e accesibil de nicaieri (fail-closed).
@@ -66,6 +66,22 @@ const QUEUE_STALE_S = { email: 30 * 60, sms: 60 * 60, invoices: 60 * 60, reminde
 const BRIDGE_WARN_S = 15 * 60
 // Cozile bridge-ului al căror backlog dă `warn` — lista e CONTRACT cu RPC-ul.
 const BRIDGE_QUEUES = ['receipts', 'tickets']
+
+// ── Janitoarele din DB (mig 274, RES-04/RES-09) ─────────────────────────────
+// `checks.cron` măsoară planificatorul NETLIFY (customer_health_scores, scris de
+// compute_health_scores, care rămâne DELIBERAT pe Netlify ca dead-man's switch).
+// `checks.pgcron` măsoară AL DOILEA planificator, cel din BAZĂ, care duce
+// janitoarele fiscale. Sunt două lucruri diferite și se raportează separat: un
+// pg_cron verde nu spune NIMIC despre Netlify, și invers. Fără sonda asta, mig
+// 274 ar instala un planificator pe care nimic nu-l observă.
+// Contract COMPLET sau `unknown` (disciplina HL13/HL18 de la cozi): `jobs`
+// trebuie să fie un array NE-VID de obiecte cu TOATE cele 9 chei. Un
+// `{available:true, jobs:[]}` ar da „ok" pentru zero joburi, iar o cheie lipsă
+// ar face o ramură de severitate IMPOSIBIL de atins.
+const PGCRON_JOB_KEYS = [
+  'job_name', 'scheduled', 'active', 'schedule_ok',
+  'last_status', 'last_run_age_s', 'last_success_age_s', 'since_scheduled_s', 'max_age_s',
+]
 
 /**
  * Comparare constant-time (oglinda lui `safeEqual` din deploy/server.js, SEC-09).
@@ -407,23 +423,118 @@ exports.handler = async (event) => {
     }
   })()
 
-  // Cele patru sonde tolerante rulează ÎN PARALEL, nu în serie: fiecare are
-  // propriul AbortController (DB_PING_TIMEOUT_MS), deci în serie cazul cel mai
-  // rău era ping + 4 × timeout = 20 s — peste limita sincronă implicită de 10 s
-  // a funcțiilor Netlify. O bază LENTĂ-dar-vie ar fi dat 502 FĂRĂ corp (adică
-  // fără `checks`, fără diagnostic cu token) exact când ai nevoie de el. În
-  // paralel plafonul e ping + 1 × timeout = 8 s. Semantica per sondă e
-  // neschimbată: fiecare are try/catch/finally propriu și nu respinge niciodată.
-  await Promise.all([cronProbe, storageProbe, schemaProbe, queuesProbe])
+  // ── Janitoarele pg_cron (mig 274) ────────────────────────────────────────
+  // Severitatea se ia din PROSPEȚIMEA ULTIMEI REUȘITE (sau, pentru un job care
+  // n-a reușit niciodată, din vârsta de la PROGRAMARE), nu din statusul ultimei
+  // rulări — un eșec izolat pe un job zilnic nu are voie să țină alarma roșie
+  // 24h (antrenează ignorarea ei), dar un job care nu mai REUȘEȘTE ajunge
+  // oricum la `stale` după max_age_s-ul LUI din manifest.
+  // `drift`   = manifest != cron.job (job lipsă, dezactivat, orar/comandă
+  //             schimbate, sau job-stafie cu prefixul nostru) -> 503.
+  // `stale`   = ultima reușită mai veche decât max_age_s -> 503. Pentru un job
+  //             fără nicio reușită, semnalul e `since_scheduled_s` — singurul
+  //             detector automat pentru „worker-ul pg_cron nu se conectează"
+  //             (zero rulări = zero erori = verde perfect altfel).
+  // `failing` = ULTIMA rulare a eșuat, dar o reușită e încă în fereastră -> 200;
+  //             health-watch avertizează.
+  // `warming` = programat, fără nicio reușită, încă în grație -> 200 (starea
+  //             normală imediat după aplicarea migrației).
+  // `absent`  = RPC-ul răspunde, dar pg_cron NU e instalat. Migrația pică
+  //             ZGOMOTOS dacă nu poate instala extensia, deci un `false` aici,
+  //             cu RPC-ul prezent, înseamnă că extensia a DISPĂRUT (toggle din
+  //             Dashboard, restore, branch reset) -> 200 + warning din
+  //             health-watch: e o regresie de configurare, nu o cădere, și
+  //             trebuie să aibă o cale de întoarcere (vezi RUNBOOK).
+  // `unknown` = RPC neaplicat (PGRST202) sau contract necunoscut. NU schimbă
+  //             codul de status (deploy-înaintea-migrației e tranzit legitim).
+  let pgcron = 'unknown'
+  let pgcronDetail = null
+  const pgcronProbe = (async () => {
+    if (dbOk) {
+      const pcController = new AbortController()
+      const pcTimer = setTimeout(() => pcController.abort(), DB_PING_TIMEOUT_MS)
+      try {
+        const { data, error } = await supabase
+          .rpc('get_cron_janitor_health')
+          .abortSignal(pcController.signal)
+        if (error) throw new Error(error.message)
+        if (
+          data && typeof data === 'object' && !Array.isArray(data) &&
+          typeof data.available === 'boolean' && Array.isArray(data.unexpected)
+        ) {
+          if (data.available === false) {
+            pgcron = 'absent'
+            if (diagAllowed) pgcronDetail = data
+          } else if (Array.isArray(data.jobs) && data.jobs.length > 0) {
+            // `Number(null)` e 0 și `Number('')` e 0 — deci un `isFinite(Number(v))`
+            // naiv ar lua un `max_age_s: null` drept „0 secunde" și ar raporta
+            // `stale` în loc de `unknown` (prins de HL21). Numeric = număr finit
+            // sau șir numeric ne-vid; nimic altceva.
+            const isNum = (v) =>
+              typeof v === 'number'
+                ? Number.isFinite(v)
+                : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))
+            /** Număr finit sau null (null = „nicio rulare”), altfel undefined = contract rupt. */
+            const numOrNull = (v) => (v == null ? null : isNum(v) ? Number(v) : undefined)
+            const shaped = data.jobs.every(
+              (j) =>
+                j && typeof j === 'object' && !Array.isArray(j) &&
+                PGCRON_JOB_KEYS.every((k) => k in j) &&
+                typeof j.scheduled === 'boolean' &&
+                typeof j.active === 'boolean' &&
+                typeof j.schedule_ok === 'boolean' &&
+                isNum(j.max_age_s) &&
+                isNum(j.since_scheduled_s) &&
+                numOrNull(j.last_run_age_s) !== undefined &&
+                numOrNull(j.last_success_age_s) !== undefined,
+            )
+            if (shaped) {
+              // Vârsta care contează: ultima REUȘITĂ, sau — dacă n-a reușit
+              // niciodată — cât timp a trecut de la programare.
+              const freshness = (j) =>
+                j.last_success_age_s == null ? Number(j.since_scheduled_s) : Number(j.last_success_age_s)
+              const drift =
+                data.unexpected.length > 0 ||
+                data.jobs.some((j) => !j.scheduled || !j.active || !j.schedule_ok)
+              const stale = data.jobs.some((j) => freshness(j) > Number(j.max_age_s))
+              const failing = data.jobs.some((j) => j.last_status === 'failed')
+              const warming = data.jobs.some((j) => j.last_success_age_s == null)
+              pgcron = drift ? 'drift' : stale ? 'stale' : failing ? 'failing' : warming ? 'warming' : 'ok'
+              if (diagAllowed) pgcronDetail = data
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[health] pg_cron janitor check failed:', e.message)
+      } finally {
+        clearTimeout(pcTimer)
+      }
+    }
+  })()
 
-  const healthy = dbOk && cron !== 'stale' && storage !== 'critical' && queues !== 'stale'
+  // Cele CINCI sonde tolerante rulează ÎN PARALEL, nu în serie: fiecare are
+  // propriul AbortController (DB_PING_TIMEOUT_MS), deci în serie cazul cel mai
+  // rău ar fi ping + 5 × timeout = 24 s — peste limita sincronă implicită de
+  // 10 s a funcțiilor Netlify. O bază LENTĂ-dar-vie ar fi dat 502 FĂRĂ corp
+  // (adică fără `checks`, fără diagnostic cu token) exact când ai nevoie de el.
+  // În paralel plafonul e ping + 1 × timeout = 8 s. Semantica per sondă e
+  // neschimbată: fiecare are try/catch/finally propriu și nu respinge niciodată.
+  await Promise.all([cronProbe, storageProbe, schemaProbe, queuesProbe, pgcronProbe])
+
+  // `pgcron` în drift/stale = plasele de recuperare fiscală din mig 262 sunt
+  // INERTE, adică exact starea RES-04 pe care mig 274 o închide. `failing`,
+  // `warming`, `absent` și `unknown` NU dau 503 — dar `warming` devine `stale`
+  // după max_age_s, deci un worker mort ajunge oricum la 503.
+  const healthy =
+    dbOk && cron !== 'stale' && storage !== 'critical' && queues !== 'stale' &&
+    pgcron !== 'drift' && pgcron !== 'stale'
   // PUBLIC = SEVERITATE, cu token = CIFRE (audit v3 RES-38): corpul public are
   // EXACT {status, checks, ts}. `config` (ce integrări sunt moarte),
-  // `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail` apar
-  // DOAR cu `x-health-diag`. Forma publică e înghețată de HL8.
+  // `cron_last_run`, `storage_detail`, `schema_detail`, `queue_detail`,
+  // `pgcron_detail` apar DOAR cu `x-health-diag`. Forma publică e înghețată de HL8.
   return jsonResponse(healthy ? 200 : 503, {
     status: healthy ? 'ok' : 'degraded',
-    checks: { db: dbOk ? 'ok' : 'down', cron, storage, schema, queues },
+    checks: { db: dbOk ? 'ok' : 'down', cron, storage, schema, queues, pgcron },
     ...(diagAllowed
       ? {
           config,
@@ -431,6 +542,7 @@ exports.handler = async (event) => {
           storage_detail: storageDetail,
           schema_detail: schemaDetail,
           queue_detail: queueDetail,
+          pgcron_detail: pgcronDetail,
         }
       : {}),
     ts,

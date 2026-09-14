@@ -265,10 +265,27 @@ Expus la `/.netlify/functions/health` și rutat frumos la **`/health`** (redirec
 curl -s https://menuvia.ro/health | jq
 ```
 
-Răspunsul PUBLIC are EXACT trei chei — `status`, `checks`, `ts` — iar `checks` are CINCI
-sonde: `db`, `cron`, `storage`, `schema`, `queues` (forma e înghețată de testul HL8; orice
-câmp nou scurs public pică CI-ul):
-- `200 { status:"ok", checks:{db:"ok", cron:"ok", storage:"ok", schema:"ok", queues:"ok"}, ts }` — totul în parametri.
+Răspunsul PUBLIC are EXACT trei chei — `status`, `checks`, `ts` — iar `checks` are ȘASE
+sonde: `db`, `cron`, `storage`, `schema`, `queues`, `pgcron` (forma e înghețată de testul HL8;
+orice câmp nou scurs public pică CI-ul):
+- `200 { status:"ok", checks:{db:"ok", cron:"ok", storage:"ok", schema:"ok", queues:"ok", pgcron:"ok"}, ts }` — totul în parametri.
+- `checks:{pgcron:…}` (mig 274, audit v3 RES-04/RES-09) — AL DOILEA planificator, cel din
+  BAZĂ (pg_cron), care duce janitoarele fiscale (bonuri agățate în `sent`, facturi Oblio
+  blocate în `generating`, tichete, sesiuni de masă, no-show, rate limits). E o sondă
+  DIFERITĂ de `cron`, care măsoară planificatorul NETLIFY prin `customer_health_scores`
+  (`compute_health_scores` rămâne deliberat pe Netlify ca dead-man's switch — mutat pe
+  pg_cron, alarma ar deveni verde cu Netlify mort). Valori: `drift` (**503**: manifestul
+  `public.pg_cron_janitor_manifest` nu coincide cu `cron.job` — job lipsă, dezactivat, orar
+  sau comandă schimbate, job-stafie cu prefixul `menuvia_janitor_`), `stale` (**503**: ultima
+  REUȘITĂ a unui job e mai veche decât `max_age_s`-ul lui, sau jobul n-a reușit niciodată de
+  când e programat — singurul detector automat pentru „worker-ul pg_cron nu se conectează"),
+  `failing` (200 + warning în health-watch: ultima rulare a eșuat, dar mai e o reușită în
+  fereastră), `warming` (200: programat de curând, nicio reușită încă — normal în primele ore
+  după mig 274), `absent` (200 + warning: extensia a DISPĂRUT deși migrația a instalat-o —
+  re-activează pg_cron din Dashboard → Database → Extensions și re-aplică mig 274, e
+  re-rulabilă), `unknown` (RPC neaplicat sau contract rupt; nu schimbă codul). Istoricul
+  real: `select * from cron.job_run_details order by runid desc limit 50;`. Detaliul per job
+  (`pgcron_detail`) cere token.
 - `checks:{schema:"behind"}` cu **200** (mig 271, audit v3 RES-08) — repo-ul are migrații pe
   care ledger-ul producției NU le are („am reparat, dar nu apără"). Nu e 503 (deploy-ul
   înaintea migrației e un tranzit legitim), dar `health-watch.yml` pică ROȘU pe el la fiecare
@@ -288,21 +305,25 @@ câmp nou scurs public pică CI-ul):
 - `503 ... checks:{storage:"critical"}` — baza e la ≥90% din plafon. La ≥80% e
   `storage:"warn"` cu **200** (preaviz, nu alertă). Când baza atinge plafonul,
   Postgres trece în READ-ONLY: nu se mai acceptă comenzi la NICIUN restaurant.
-- `checks:{storage|schema|queues:"unknown"}` — sonda nu a putut fi citită (RPC neaplicat,
+- `checks:{storage|schema|queues|pgcron:"unknown"}` — sonda nu a putut fi citită (RPC neaplicat,
   permisiune lipsă). NU influențează codul de status; dacă persistă cu `db:"ok"` DUPĂ ce
-  migrația respectivă (266/271) e aplicată, sonda e MOARTĂ — `health-watch.yml` avertizează.
+  migrația respectivă (266/271/274) e aplicată, sonda e MOARTĂ — `health-watch.yml` avertizează.
+  `health-watch.yml` citește și raportează TOATE sondele ÎNAINTE de a ieși pe non-200 (altfel,
+  pe un 503, semnalele per sondă ar fi îngropate sub „a întors 503" — cod mort până în sept 2026).
 
 **Diagnosticul complet cere token.** `/health` e public, deci implicit întoarce DOAR
 severitatea (public = severitate, cu token = cifre — audit v3 RES-38). Cu `HEALTH_DIAG_TOKEN`
 setat, antetul `x-health-diag` adaugă `config`, `cron_last_run`, `storage_detail`,
-`schema_detail` și `queue_detail`:
+`schema_detail`, `queue_detail` și `pgcron_detail`:
 
 ```bash
-curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq '{config, cron_last_run, storage_detail, schema_detail, queue_detail}'
+curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq '{config, cron_last_run, storage_detail, schema_detail, queue_detail, pgcron_detail}'
 # storage_detail: { bytes, pretty, limit_bytes, used_pct, top_tables: [primele 5] }
 # schema_detail:  { expected_latest, db_latest, ledger_count, missing: [nume de migrații] }
 # queue_detail:   { cron: { email|sms|invoices|reminders: {waiting, oldest_age_s}, slack_alerts: {waiting} },
 #                   bridge: { receipts|tickets: {waiting, oldest_age_s} } }
+# pgcron_detail:  { available, run_details_rows, unexpected: [stafii], jobs: [{ job_name, scheduled, active,
+#                   schedule_ok, last_status, last_run_age_s, last_success_age_s, since_scheduled_s, max_age_s }] }
 ```
 
 Fără token nu există NICIUN câmp de diagnostic (fail-closed, nici măcar `config`) — de aceea

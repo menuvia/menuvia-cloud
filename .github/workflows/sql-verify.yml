@@ -1559,6 +1559,27 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/reservation_idempotency_assertions.sql
 
+      # FĂRĂ `if:`, deliberat (ca la mig 273): un gate care poate deveni
+      # permanent fals e mai rău decât un check lipsă (clasa F1-F9). Suita nu
+      # are nevoie de pg_cron — validează CONTRACTUL manifestului și exersează
+      # sonda pe o schemă `cron` simulată; varianta pe pg_cron REAL (CJ12b)
+      # rulează în jobul E2E din ci.yml.
+      - name: "pg_cron janitor manifest assertions (mig 274 — RES-04/RES-09, CJ1–CJ13)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/pgcron_janitors_assertions.sql
+
+      # NECONDIȚIONAT, deliberat: fără `if:`, ștergerea fișierului de teste pică
+      # pasul (fail-closed).
+      - name: "Janitor liveness + pending_receipts evidence assertions (mig 275, JL1–JL9)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/janitor_liveness_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
