@@ -3,8 +3,9 @@
 # Rulat de menuvia-backup.timer; env-urile vin din /etc/menuvia/env
 # (SUPABASE_DB_URL = connection string-ul direct din Supabase Dashboard).
 #
-# Restore (testează-l măcar o dată! — criteriu Faza 1 din PLAN_10):
-#   pg_restore --clean --if-exists -d "$SUPABASE_DB_URL" /srv/menuvia/backups/<fisier>.dump
+# Restore: docs/RUNBOOK.md §6.2 (replay al lanțului → extragere SELECTIVĂ din arhivă
+# → --data-only cu triggerele dezactivate pe nume → poarta §6.3). NU
+# `pg_restore --clean --if-exists` peste un proiect nou — vezi audit v3 RES-07.
 set -euo pipefail
 
 BACKUP_DIR=/srv/menuvia/backups

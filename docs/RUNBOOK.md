@@ -514,9 +514,35 @@ cd /path/to/menuvia-cloud        # checkout la COMITUL lanțului din dump
    duplicată și TOATE planurile rămân `free` — măsurat) și triggerele **`audit_*`**
    (altfel COPY-ul pe `audit_log` avortează și jurnalul FISCAL se termină cu rândurile
    care descriu restore-ul, în locul celor reale).
-5. **`auth.users` ÎNAINTE de `public`**: `profiles.id` și `restaurant_memberships.user_id`
-   sunt FK `ON DELETE CASCADE` către `auth.users(id)`. Un dump `--data-only` pe toată baza
-   le ordonează singur; dacă restaurezi selectiv, `auth` primul.
+5. **Extrage `data_only.sql` din arhiva `-Fc`, SELECTIV pe tabelă.** Arhiva cară toată
+   baza (§6.1 — de aceea backup-ul nu mai are `--schema=public`; verificat pe prod la
+   14 sept 2026 că `postgres` are SELECT pe TOATE relațiile din toate schemele, deci
+   `pg_dump` fără filtru nu pică pe permisiuni), dar la restore intră DOAR ce e al
+   aplicației ȘI ce poate scrie `postgres` pe un proiect nou (măsurat pe prod, `INSERT`):
+   `auth.users` + `auth.identities` + `auth.mfa_factors` (identitățile — `profiles.id` și
+   `restaurant_memberships.user_id` sunt FK `ON DELETE CASCADE` către `auth.users(id)`;
+   parolele stau în `auth.users`, factorii TOTP din mig 235 în `mfa_factors`), tot
+   `public`, `storage.buckets` + `storage.objects` (metadate; fișierele stau în S3-ul
+   proiectului VECHI și se re-încarcă separat), `archive` (istoricul owner-invite din
+   096b) și `supabase_migrations.schema_migrations` (ledger-ul — replay-ul cu psql NU îl
+   scrie, iar fără el `/health` → `checks.schema` ar raporta `behind` pe veci). NU
+   intră: `auth.schema_migrations`, `storage.migrations`, `storage.buckets_vectors`,
+   `storage.vector_indexes` (`postgres` N-ARE INSERT pe ele — sub `ON_ERROR_STOP`
+   primul ar opri TOATĂ încărcarea; sunt stare de platformă oricum), sesiunile și
+   token-urile din `auth` (`refresh_tokens`, `sessions`, `one_time_tokens`… — utilizatorii
+   se re-loghează), `vault.secrets` (criptate cu cheia proiectului VECHI), `realtime.*`
+   și `cron.*` (`cron.job` se re-populează din manifest la replay; un COPY direct în el
+   ar ocoli `cron.schedule`).
+   ```bash
+   pg_restore -l menuvia.dump \
+     | grep -E ' (TABLE DATA|SEQUENCE SET) (public|archive|supabase_migrations) | TABLE DATA auth (users|identities|mfa_factors) | TABLE DATA storage (buckets|objects) ' \
+     > /tmp/restore.list
+   grep -c 'TABLE DATA' /tmp/restore.list   # ≈ 77 public + 3 auth + 2 storage + 1 + 1
+   pg_restore -L /tmp/restore.list --data-only --no-owner -f data_only.sql menuvia.dump
+   ```
+   `SEQUENCE SET` e în listă deliberat: e `setval`-ul pe care pasul 8 îl verifică.
+   `pg_restore` ordonează `auth.users` înaintea lui `public` singur (dependențele de FK
+   sunt în arhivă); dacă restaurezi selectiv altfel, `auth` PRIMUL.
 6. **Încarcă datele cu `ON_ERROR_STOP`**: `psql "$NEW_DB_URL" -v ON_ERROR_STOP=1 -f data_only.sql`.
    Fără el psql iese **0** peste COPY-uri avortate (măsurat: 19) și rămâi cu
    `restaurants=0 / orders=0` pe o bază „restaurată".
