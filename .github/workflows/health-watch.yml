@@ -9,6 +9,13 @@
 #   - Rulează doar pe branch-ul default și are jitter de minute.
 #   - NU înlocuiește UptimeRobot (5 min, alertă push) — doar acoperă golul.
 # Când UptimeRobot e instalat și verificat, șterge acest fișier.
+#
+# ORDINEA E PORTANTĂ (recenzie adversarială mig 274): sondele se citesc și se
+# raportează ÎNAINTE de a ieși pe non-200. Înainte, `exit 1` venea PRIMUL, deci
+# pe un 503 (starea de azi: Netlify mort → db down) niciun `::warning::` și
+# niciun `::error::` per sondă nu se mai emitea — schema=behind, queues=unknown
+# și pgcron=* erau ÎNGROPATE sub „a întors 503", iar documentația care spunea că
+# health-watch „pică roșu pe schema:behind" descria un cod mort.
 name: Health watch (stopgap)
 
 on:
@@ -42,39 +49,73 @@ jobs:
             echo "::error::/health inaccesibil (curl rc=$rc) — site-ul sau funcțiile Netlify sunt CĂZUTE."
             exit 1
           fi
-          if [ "$code" != "200" ]; then
-            echo "::error::/health a întors $code — db down, cron STALE, stocare critică sau cozi STALE (vezi payload-ul de mai sus și docs/RUNBOOK.md §Incident)."
-            exit 1
-          fi
+
+          # 1) Citim TOATE sondele întâi, indiferent de codul HTTP.
           sonda() { echo "$payload" | sed -n "s/.*\"$1\":\"\([a-z]*\)\".*/\1/p"; }
+          db="$(sonda db)"
+          cron="$(sonda cron)"
           storage="$(sonda storage)"
           schema="$(sonda schema)"
           queues="$(sonda queues)"
-          # Sondele tolerante (storage/schema/queues) NU influențează codul de
-          # status pe `unknown` (toleranță deliberată: clientul se poate deploya
-          # înaintea migrației). Dar după ce mig 266/271 sunt aplicate, `unknown`
-          # nu mai înseamnă „se deployează", ci „sonda e MOARTĂ" — RPC șters,
-          # EXECUTE revocat, cheie schimbată — și alarma respectivă tace pentru
-          # totdeauna cu HTTP 200. Nimic din interior nu observă asta, deci o
-          # observăm DE AFARĂ, ca tot restul acestui workflow.
-          if [ "$storage" = "unknown" ]; then
-            echo "::warning::/health raportează storage=unknown deși db=ok — sonda get_database_size() (mig 266) nu răspunde. Alarma de stocare e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
-          fi
-          if [ "$queues" = "unknown" ]; then
-            echo "::warning::/health raportează queues=unknown deși db=ok — sonda get_queue_backlog() (mig 271) nu răspunde. Alarma pe cozi e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+          pgcron="$(sonda pgcron)"
+          echo "sonde: db=${db:-n/a} cron=${cron:-n/a} storage=${storage:-n/a} schema=${schema:-n/a} queues=${queues:-n/a} pgcron=${pgcron:-n/a}"
+
+          # 2) Raportăm fiecare semnal pe canalul lui, ÎNAINTE de verdict.
+          fail=0
+          # Sondele tolerante (storage/schema/queues/pgcron) NU influențează codul
+          # de status pe `unknown` (toleranță deliberată: clientul se poate deploya
+          # înaintea migrației). Dar după ce mig 266/271/274 sunt aplicate,
+          # `unknown` nu mai înseamnă „se deployează", ci „sonda e MOARTĂ" — RPC
+          # șters, EXECUTE revocat, cheie schimbată — și alarma respectivă tace
+          # pentru totdeauna cu HTTP 200. O observăm DE AFARĂ, ca tot restul.
+          if [ "$db" = "ok" ]; then
+            if [ "$storage" = "unknown" ]; then
+              echo "::warning::/health raportează storage=unknown deși db=ok — sonda get_database_size() (mig 266) nu răspunde. Alarma de stocare e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+            fi
+            if [ "$queues" = "unknown" ]; then
+              echo "::warning::/health raportează queues=unknown deși db=ok — sonda get_queue_backlog() (mig 271) nu răspunde. Alarma pe cozi e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+            fi
+            if [ "$schema" = "unknown" ]; then
+              echo "::warning::/health raportează schema=unknown deși db=ok — sonda get_schema_version() (mig 271) nu răspunde (neaplicată încă sau moartă)."
+            fi
+            if [ "$pgcron" = "unknown" ]; then
+              echo "::warning::/health raportează pgcron=unknown deși db=ok — sonda get_cron_janitor_health() (mig 274) nu răspunde. Alarma pe janitoarele din DB e MOARTĂ: vezi docs/RUNBOOK.md §4.1."
+            fi
           fi
           if [ "$queues" = "warn" ]; then
             echo "::warning::/health raportează queues=warn — bonuri/tichete pending >15 min la un restaurant (bridge-ul lui e probabil oprit; alarma per-tenant e bannerul mig 265)."
+          fi
+          # Janitoarele pg_cron (mig 274): `warming` e normal în primele ore după
+          # aplicare și e SINGURUL semnal timpuriu că worker-ul pg_cron nu se
+          # conectează (devine `stale`, adică 503, după max_age_s). `failing` =
+          # ultima rulare a eșuat, dar mai e o reușită în fereastră. `absent` =
+          # extensia a DISPĂRUT după ce migrația a instalat-o (toggle Dashboard,
+          # restore, branch reset) — regresie de configurare, cu cale de întoarcere
+          # în docs/RUNBOOK.md §4.1.
+          if [ "$pgcron" = "warming" ]; then
+            echo "::warning::/health raportează pgcron=warming — joburile din manifest sunt programate dar NU au nicio reușită în cron.job_run_details. Normal în primele ore după mig 274; persistent = worker-ul pg_cron nu rulează joburile."
+          fi
+          if [ "$pgcron" = "failing" ]; then
+            echo "::warning::/health raportează pgcron=failing — ultima rulare a cel puțin unui janitor pg_cron a EȘUAT (mai există o reușită în fereastră). Detaliul: curl cu x-health-diag → pgcron_detail; istoricul: select * from cron.job_run_details order by runid desc."
+          fi
+          if [ "$pgcron" = "absent" ]; then
+            echo "::warning::/health raportează pgcron=absent — extensia pg_cron NU mai e instalată deși mig 274 a instalat-o. Janitoarele fiscale din DB NU rulează. Re-activează pg_cron (Dashboard → Database → Extensions) și re-aplică mig 274 (e re-rulabilă)."
           fi
           # Decalajul de schemă e EXACT starea RES-08 („am reparat, dar nu apără"):
           # repo-ul are migrații pe care prod-ul nu le are. Nu e un 503 (deploy-ul
           # înaintea migrației e un tranzit legitim), dar e singurul canal care
           # trimite email azi — nag la 30 min până la aplicare e intenționat.
-          if [ "$schema" = "unknown" ]; then
-            echo "::warning::/health raportează schema=unknown deși db=ok — sonda get_schema_version() (mig 271) nu răspunde (neaplicată încă sau moartă)."
-          fi
           if [ "$schema" = "behind" ]; then
             echo "::error::/health raportează schema=behind — există migrații în repo NEAPLICATE pe producție. Aplică-le (Supabase MCP apply_migration / SQL Editor) — vezi docs/RUNBOOK.md §4.1; lista exactă: curl cu x-health-diag."
+            fail=1
+          fi
+
+          # 3) Verdictul, cu sondele deja tipărite deasupra lui.
+          if [ "$code" != "200" ]; then
+            echo "::error::/health a întors $code — db=${db:-n/a} cron=${cron:-n/a} storage=${storage:-n/a} queues=${queues:-n/a} pgcron=${pgcron:-n/a}. Semnificații: db down / cron Netlify STALE / stocare critică / cozi STALE / janitoarele pg_cron în drift sau stale (plasele fiscale din mig 262 nu rulează). Vezi docs/RUNBOOK.md §Incident; detaliul: curl cu x-health-diag."
             exit 1
           fi
-          echo "✓ health OK (db + cron în parametri; storage=${storage:-n/a} schema=${schema:-n/a} queues=${queues:-n/a})"
+          if [ "$fail" -ne 0 ]; then
+            exit 1
+          fi
+          echo "✓ health OK (db + cron în parametri; storage=${storage:-n/a} schema=${schema:-n/a} queues=${queues:-n/a} pgcron=${pgcron:-n/a})"
