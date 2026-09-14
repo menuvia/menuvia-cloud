@@ -238,7 +238,11 @@ begin
   exception when others then
     raise exception 'CJ10: sonda ARUNCA (%) - /health ar raporta unknown din EROARE', sqlerrm;
   end;
-  select array_agg(k order by k) into v_keys from jsonb_object_keys(v_res) k;
+  -- `collate "C"`: ordinea textului depinde de LOCALE — sub en_US „scheduled" vine
+  -- înaintea lui „schedule_ok" (punctuația e ignorată la primul nivel), sub C e
+  -- invers ('_' < 'd'). CI (postgres:15) și replay-ul local au colatii diferite,
+  -- deci o egalitate pe array ordonat implicit a picat în CI și trecea local.
+  select array_agg(k order by k collate "C") into v_keys from jsonb_object_keys(v_res) k;
   if v_keys is distinct from array['available','jobs','run_details_rows','unexpected'] then
     raise exception 'CJ10: forma top-level a sondei s-a schimbat: %', v_keys; end if;
   if to_regclass('cron.job') is null and (v_res->>'available') <> 'false' then
@@ -361,9 +365,10 @@ begin
                     or e->>'last_status' <> 'succeeded'
                     or (e->>'last_success_age_s')::numeric > (e->>'max_age_s')::numeric) then
     raise exception 'CJ12/S1: starea sanatoasa nu e raportata ca atare: %', v; end if;
-  if (select array_agg(k order by k) from jsonb_object_keys(v->'jobs'->0) k)
+  -- ordinea C explicit (vezi CJ10): '_' < litere, deci schedule_ok < scheduled.
+  if (select array_agg(k order by k collate "C") from jsonb_object_keys(v->'jobs'->0) k)
      is distinct from array['active','job_name','last_run_age_s','last_status','last_success_age_s','max_age_s','schedule_ok','scheduled','since_scheduled_s'] then
-    raise exception 'CJ12/S1: forma per job s-a schimbat: %', (select array_agg(k order by k) from jsonb_object_keys(v->'jobs'->0) k); end if;
+    raise exception 'CJ12/S1: forma per job s-a schimbat: %', (select array_agg(k order by k collate "C") from jsonb_object_keys(v->'jobs'->0) k); end if;
 
   -- S2: job DISPARUT din cron.job -> scheduled=false.
   execute 'delete from cron.job where jobname = ''menuvia_janitor_fiscal_stale''';
