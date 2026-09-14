@@ -10,10 +10,11 @@
 # auth/storage mock, extensions) se EXTRAGE din .github/workflows/sql-verify.yml
 # — sursă unică; dacă workflow-ul evoluează, scriptul rămâne sincron automat.
 #
-# Două fișiere de asserții sunt sărite INTENȚIONAT — și CI-ul le sare, prin
-# condiții `if: hashFiles(...)` (teste de eră, valabile doar înainte de 096B/096C):
-#   - tests/sql/authorization_phase_1a_assertions.sql
-#   - tests/sql/authorization_final_state_assertions.sql
+# Nu se mai sare NIMIC. Cele două suite „de eră" (phase_1a A1-A8, final_state
+# F1-F9) au fost ȘTERSE în audit v3 RES-07: `if:`-urile lor erau permanent false
+# din iunie 2026 și asserțiile nu mai treceau pe lanțul curent. Poarta nouă,
+# tests/sql/privilege_regime_assertions.sql, e descoperită AUTOMAT de grep-ul de
+# mai jos peste sql-verify.yml, deci CI-ul și replay-ul local nu pot divergea.
 #
 # Din sept 2026 scriptul rulează ȘI asserțiile INLINE din workflow (heredoc-uri
 # `<<'ASSERTION'`), nu doar fișierele tests/*.sql — vezi comentariul de la
@@ -78,9 +79,9 @@ for mig in $(ls *.sql | sort -V); do
 done
 echo "✓ $COUNT migrații aplicate"
 
-echo "── asserțiile SQL (ordinea din workflow; testele de eră sărite ca în CI)"
+echo "── asserțiile SQL (ordinea din workflow)"
 cd "$REPO_ROOT"
-SKIP="authorization_phase_1a_assertions.sql authorization_final_state_assertions.sql"
+SKIP=""   # RES-07: nu mai există suite de eră de sărit
 PASS=0; FAIL=0
 # Prinde și `supabase/tests/...` (testul de payload FiscalNet, legat în CI la
 # auditul din aug 2026) — nu doar `tests/sql/...`.
