@@ -338,6 +338,32 @@ function romaniaDay(value) {
   return RO_DAY_FMT.format(d)
 }
 
+// Referința bonului fiscal (mig 276 / RES-18). O factură emisă pentru o vânzare
+// deja BONATĂ trebuie să trimită la bon: numărul (NRBON, text) și ziua
+// tipăririi. Sursa e `pending_receipts` (status='success'), adusă de
+// `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_completed_at`.
+// Gol/blanc = fără bon. Ziua e cea ROMÂNEASCĂ (aceeași capcană de fus ca
+// deliveryDate: 21:30 UTC e 00:30 EEST în ziua următoare) și NU cade pe „azi"
+// când lipsește — o dată inventată pe o mențiune fiscală e mai rea decât lipsa
+// ei. Pe o DB fără mig 276 coloanele lipsesc → null → payload-ul de dinainte.
+function receiptRef(inv) {
+  const number = inv && inv.receipt_bon_number != null ? String(inv.receipt_bon_number).trim() : ''
+  if (!number) return null
+  const day = inv.receipt_completed_at ? romaniaDay(inv.receipt_completed_at) : null
+  return { number, day }
+}
+
+// YYYY-MM-DD → DD.MM.YYYY (formatul uzual pe documentele românești).
+function roDateFromDay(day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : null
+}
+
+function receiptMention(receipt) {
+  const when = receipt.day ? roDateFromDay(receipt.day) : null
+  return `Factura emisă în baza bonului fiscal nr. ${receipt.number}${when ? ` din ${when}` : ''}`
+}
+
 function composeOblioInvoice(inv, lineItems) {
   const today = romaniaDay()
   // Data LIVRARII determina exigibilitatea TVA, deci se aseaza pe momentul
@@ -348,6 +374,7 @@ function composeOblioInvoice(inv, lineItems) {
   // (chiar e ziua emiterii) si `dueDate` la fel: o scadenta anterioara datei de
   // emitere poate fi respinsa de Oblio.
   const deliveryDate = romaniaDay(inv.order_paid_at) || today
+  const receipt = receiptRef(inv)
 
   const payload = {
     cif:       inv.company_cif,
@@ -397,12 +424,13 @@ function composeOblioInvoice(inv, lineItems) {
     // E doar trasabilitate manuală (căutare/reconciliere ulterioară în Oblio după
     // internalNote). Dedup real ar necesita un research suplimentar pe API-ul
     // Oblio (ex. verificare existență document pe seriesName+client înainte de POST).
-    internalNote: `order:${inv.order_id}`,
+    internalNote: receipt ? `order:${inv.order_id}; bon:${receipt.number}` : `order:${inv.order_id}`,
     deputyName:   '',
     deputyIdentityCard: '',
     deputyAuto:   '',
     selesAgent:   '',
-    mentions:     '',
+    // Mențiune TIPĂRITĂ pe factură (mig 276): legătura cu bonul fiscal aferent.
+    mentions:     receipt ? receiptMention(receipt) : '',
     workStation:  'Sediu',
     useStock:     0,
     sendEmail:    inv.send_email ? 1 : 0,

@@ -486,6 +486,55 @@ describe('oblio-generator: batch + cache de token', () => {
   })
 })
 
+describe('oblio-generator: mențiunea bonului fiscal (mig 276 / RES-18)', () => {
+  // Contractul: bridge_oblio_get_queued aduce `receipt_bon_number` +
+  // `receipt_completed_at` din pending_receipts (status='success'). Pe o DB
+  // fără mig 276 coloanele lipsesc, deci OM2 e și testul de compatibilitate.
+  function issue(overrides) {
+    queued(makeInvoice(overrides))
+    scriptOrderData()
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+  }
+
+  it('OM1: bon reușit → mențiune TIPĂRITĂ cu numărul + ziua ROMÂNEASCĂ a tipăririi; internalNote poartă bonul', async () => {
+    // 21:30 UTC = 00:30 EEST pe 5 septembrie — ziua bonului e 05.09, nu 04.09
+    // (aceeași capcană de fus ca deliveryDate, mig 269).
+    issue({ receipt_bon_number: '0042', receipt_completed_at: '2026-09-04T21:30:00Z' })
+    const res = await handler()
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(JSON.parse(res.body), { processed: 1, issued: 1, failed: 0 })
+    const payload = postedPayload()
+    assert.equal(payload.mentions, 'Factura emisă în baza bonului fiscal nr. 0042 din 05.09.2026')
+    assert.equal(payload.internalNote, `order:${queuedOrderId()}; bon:0042`)
+  })
+
+  it('OM2: fără coloanele de bon (DB dinaintea mig 276 sau comandă fără bon) → mentions gol, internalNote ca înainte', async () => {
+    issue({})
+    await handler()
+    const payload = postedPayload()
+    assert.equal(payload.mentions, '')
+    assert.equal(payload.internalNote, `order:${queuedOrderId()}`)
+  })
+
+  it('OM3: bon FĂRĂ completed_at → mențiune fără dată; NU cade pe ziua de azi', async () => {
+    issue({ receipt_bon_number: '0042', receipt_completed_at: null })
+    await handler()
+    const payload = postedPayload()
+    assert.equal(payload.mentions, 'Factura emisă în baza bonului fiscal nr. 0042')
+    assert.ok(!payload.mentions.includes(' din '), 'o dată inventată a apărut pe mențiunea fiscală')
+    assert.ok(!payload.mentions.includes(new Date().getFullYear().toString()), 'mențiunea a căzut pe ziua curentă')
+  })
+
+  it('OM4: bon gol/blanc → tratat ca lipsă (fără mențiune, fără bon în internalNote)', async () => {
+    issue({ receipt_bon_number: '   ', receipt_completed_at: '2026-09-04T21:30:00Z' })
+    await handler()
+    const payload = postedPayload()
+    assert.equal(payload.mentions, '')
+    assert.equal(payload.internalNote, `order:${queuedOrderId()}`)
+  })
+})
+
 // order_id-ul ultimei facturi generate de makeInvoice (pentru asserția pe internalNote).
 function queuedOrderId() {
   return `ord-${emailSeq}`
