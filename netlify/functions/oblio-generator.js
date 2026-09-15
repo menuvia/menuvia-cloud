@@ -1,8 +1,7 @@
 // netlify/functions/oblio-generator.js
-// Cron-triggered: la fiecare 2 min, procesează coada `invoices` cu status='queued'.
-// Schedule (netlify.toml):
-//   [functions."oblio-generator"]
-//     schedule = "*/2 * * * *"
+// Cron-triggered: procesează coada `invoices` cu status='queued'. Cadența e în
+// netlify.toml (sursa UNICĂ — azi `*/15`, regimul de avarie; vezi comentariul
+// de acolo), nu aici.
 //
 // Flux:
 //   1. Claim până la 5 facturi din coadă (skip-locked atomic via RPC)
@@ -338,6 +337,47 @@ function romaniaDay(value) {
   return RO_DAY_FMT.format(d)
 }
 
+/**
+ * Referința bonului fiscal (mig 276 / RES-18). O factură emisă pentru o vânzare
+ * deja BONATĂ trebuie să trimită la bon: numărul (NRBON, text) și ziua
+ * tipăririi. Sursa e `pending_receipts` (status='success'), adusă de
+ * `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_printed_at`
+ * (= claimed_at al bonului, momentul tipăririi; completed_at doar ca rezervă).
+ * Gol/blanc = fără bon. Ziua e cea ROMÂNEASCĂ (aceeași capcană de fus ca
+ * deliveryDate: 21:30 UTC e 00:30 EEST în ziua următoare) și NU cade pe „azi"
+ * când lipsește — o dată inventată pe o mențiune fiscală e mai rea decât lipsa
+ * ei. Pe o DB fără mig 276 coloanele lipsesc → null → payload-ul de dinainte.
+ * @param {object} inv rândul revendicat de bridge_oblio_get_queued
+ * @returns {{number: string, day: string|null}|null} null când comanda nu are bon reușit
+ */
+function receiptRef(inv) {
+  const number = inv && inv.receipt_bon_number != null ? String(inv.receipt_bon_number).trim() : ''
+  if (!number) return null
+  const day = inv.receipt_printed_at ? romaniaDay(inv.receipt_printed_at) : null
+  return { number, day }
+}
+
+/**
+ * YYYY-MM-DD → DD.MM.YYYY (formatul uzual pe documentele românești).
+ * @param {string|null} day ziua în forma produsă de romaniaDay()
+ * @returns {string|null} null pe orice altă formă
+ */
+function roDateFromDay(day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : null
+}
+
+/**
+ * Textul TIPĂRIT pe factură (câmpul `mentions` din Oblio) care o leagă de bon.
+ * Fără dată când momentul tipăririi lipsește — niciodată „azi".
+ * @param {{number: string, day: string|null}} receipt referința din receiptRef()
+ * @returns {string}
+ */
+function receiptMention(receipt) {
+  const when = receipt.day ? roDateFromDay(receipt.day) : null
+  return `Factura emisă în baza bonului fiscal nr. ${receipt.number}${when ? ` din ${when}` : ''}`
+}
+
 function composeOblioInvoice(inv, lineItems) {
   const today = romaniaDay()
   // Data LIVRARII determina exigibilitatea TVA, deci se aseaza pe momentul
@@ -348,6 +388,7 @@ function composeOblioInvoice(inv, lineItems) {
   // (chiar e ziua emiterii) si `dueDate` la fel: o scadenta anterioara datei de
   // emitere poate fi respinsa de Oblio.
   const deliveryDate = romaniaDay(inv.order_paid_at) || today
+  const receipt = receiptRef(inv)
 
   const payload = {
     cif:       inv.company_cif,
@@ -397,12 +438,13 @@ function composeOblioInvoice(inv, lineItems) {
     // E doar trasabilitate manuală (căutare/reconciliere ulterioară în Oblio după
     // internalNote). Dedup real ar necesita un research suplimentar pe API-ul
     // Oblio (ex. verificare existență document pe seriesName+client înainte de POST).
-    internalNote: `order:${inv.order_id}`,
+    internalNote: receipt ? `order:${inv.order_id}; bon:${receipt.number}` : `order:${inv.order_id}`,
     deputyName:   '',
     deputyIdentityCard: '',
     deputyAuto:   '',
     selesAgent:   '',
-    mentions:     '',
+    // Mențiune TIPĂRITĂ pe factură (mig 276): legătura cu bonul fiscal aferent.
+    mentions:     receipt ? receiptMention(receipt) : '',
     workStation:  'Sediu',
     useStock:     0,
     sendEmail:    inv.send_email ? 1 : 0,

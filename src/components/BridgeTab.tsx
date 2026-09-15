@@ -190,6 +190,12 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
 
   // Filter
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'error' | 'done'>('active')
+  // mig 277: bon cu eșec AMBIGUU (POSIBIL DUPLICAT) pe care adminul l-a GĂSIT pe
+  // bandă → înregistrează numărul (bridge_force_resolve_stuck pe error+marker).
+  const [printedFor, setPrintedFor] = useState<PendingReceipt | null>(null)
+  const [printedBon, setPrintedBon] = useState('')
+  const [printedBusy, setPrintedBusy] = useState(false)
+  const [printedErr, setPrintedErr] = useState<string | null>(null)
 
   // Guard de secvență: la schimbarea restaurantului, un răspuns vechi nu trebuie
   // să afișeze device-urile/bonurile/device_secret ale altui restaurant.
@@ -341,6 +347,40 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       await load()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare la retrimitere')
+    }
+  }
+
+  /** Deschide dialogul „Bonul a ieșit” pentru un bon cu marker ambiguu (mig 277). */
+  function openPrinted(r: PendingReceipt) {
+    setPrintedFor(r)
+    setPrintedBon('')
+    setPrintedErr(null)
+  }
+
+  /** Bon AMBIGUU găsit TIPĂRIT pe bandă: scrie numărul lui ca success (cu audit), fără să-l retrimită. */
+  async function handleVerifiedPrinted() {
+    if (!printedFor) return
+    const bon = printedBon.trim()
+    if (!bon) return
+    setPrintedBusy(true)
+    setPrintedErr(null)
+    try {
+      const { error } = await supabase.rpc('bridge_force_resolve_stuck', {
+        p_receipt_id: printedFor.id,
+        p_was_printed: true,
+        p_bon_number: bon,
+      })
+      if (error) {
+        // Refuzul serverului cu textul lui (already_resolved / not_resolvable / role_insufficient).
+        setPrintedErr(error.message || 'Eroare la înregistrarea bonului')
+        return
+      }
+      setPrintedFor(null)
+      await load()
+    } catch (e) {
+      setPrintedErr(e instanceof Error ? e.message : 'Eroare la înregistrarea bonului')
+    } finally {
+      setPrintedBusy(false)
     }
   }
 
@@ -872,6 +912,23 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                             Retrimite
                           </button>
                         )}
+                        {r.status === 'error' && (r.error_info ?? '').startsWith('POSIBIL DUPLICAT') && (
+                          <button
+                            onClick={() => openPrinted(r)}
+                            title="Bonul există fizic pe bandă — înregistrează numărul lui, fără retrimitere"
+                            style={btn({
+                              background: 'transparent',
+                              color: D.goldL,
+                              border: `1px solid ${D.border}`,
+                              height: 44,
+                              fontSize: '0.74rem',
+                              padding: '0 10px',
+                              marginLeft: 6,
+                            })}
+                          >
+                            Bonul a ieșit
+                          </button>
+                        )}
                         {r.status === 'pending' && (
                           <button
                             onClick={() => handleCancel(r.id)}
@@ -1115,6 +1172,75 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       )}
 
       {/* ── New Secret Display ─── */}
+      {printedFor && (
+        <Modal
+          onClose={() => {
+            if (!printedBusy) setPrintedFor(null)
+          }}
+          title="Bonul a ieșit pe bandă"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
+              Confirmarea de la casă s-a pierdut, dar bonul <strong>există fizic pe bandă</strong>.
+              Scrie numărul lui (NRBON de pe bon sau din raportul X): se înregistrează ca tipărit, cu
+              urmă în audit, iar factura Oblio a comenzii (dacă e cerută) iese cu mențiunea lui.{' '}
+              <strong>Nu retrimite</strong> — ar ieși un bon fiscal dublu.
+            </div>
+            <label style={{ fontSize: '0.78rem', color: D.t2 }}>
+              Numărul bonului
+              <input
+                value={printedBon}
+                onChange={(e) => setPrintedBon(e.target.value)}
+                placeholder="Ex: 0042"
+                inputMode="numeric"
+                autoFocus
+                disabled={printedBusy}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  marginTop: 6,
+                  height: 44,
+                  padding: '0 12px',
+                  borderRadius: 8,
+                  border: `1px solid ${D.border}`,
+                  background: D.s3,
+                  color: D.t1,
+                  fontSize: '0.95rem',
+                  fontFamily: 'monospace',
+                }}
+              />
+            </label>
+            {printedErr && (
+              <div role="alert" style={{ fontSize: '0.78rem', color: D.red }}>
+                {printedErr}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setPrintedFor(null)}
+                disabled={printedBusy}
+                style={btn({
+                  background: 'transparent',
+                  color: D.t2,
+                  border: `1px solid ${D.border}`,
+                  height: 44,
+                  padding: '0 14px',
+                })}
+              >
+                Renunță
+              </button>
+              <button
+                onClick={() => void handleVerifiedPrinted()}
+                disabled={printedBusy || !printedBon.trim()}
+                style={btn({ height: 44, padding: '0 14px' })}
+              >
+                {printedBusy ? 'Se înregistrează…' : 'Înregistrează bonul'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {newSecret && (
         <Modal
           // Cheia de instalare se afișează O SINGURĂ DATĂ („nu mai poate fi

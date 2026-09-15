@@ -274,6 +274,8 @@
     "migration_272_vat_rate_snapshot",
     "migration_273_reservation_idempotency",
     "migration_274_pgcron_janitors",
-    "migration_275_pending_receipts_evidence"
+    "migration_275_pending_receipts_evidence",
+    "migration_276_oblio_receipt_mention",
+    "migration_277_receipt_verified_printed"
   ]
 }
