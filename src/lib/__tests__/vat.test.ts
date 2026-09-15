@@ -1,6 +1,12 @@
 // src/lib/__tests__/vat.test.ts
 import { describe, it, expect } from 'vitest'
-import { getVatLabel, getVatRate, aggregateVatReport, type VatRate, type VatReportRow } from '../vat'
+import {
+  getVatLabel,
+  getVatRate,
+  aggregateVatReport,
+  type VatRate,
+  type VatReportRow,
+} from '../vat'
 
 const mockRates: VatRate[] = [
   {
@@ -117,9 +123,19 @@ describe('aggregateVatReport()', () => {
 
   it('VR1: aceeași grupă cu două cote (schimbare de cotă în interval) dă DOUĂ agregate, nu unul', () => {
     const { byRate } = aggregateVatReport([
-      row({ vat_rate_percent: 11, gross_total: '111.00', vat_amount: '11.00', net_total: '100.00' }),
+      row({
+        vat_rate_percent: 11,
+        gross_total: '111.00',
+        vat_amount: '11.00',
+        net_total: '100.00',
+      }),
       row({ vat_rate_percent: 9, gross_total: '109.00', vat_amount: '9.00', net_total: '100.00' }),
-      row({ vat_rate_percent: 11, gross_total: '222.00', vat_amount: '22.00', net_total: '200.00' }),
+      row({
+        vat_rate_percent: 11,
+        gross_total: '222.00',
+        vat_amount: '22.00',
+        net_total: '200.00',
+      }),
     ])
     expect(byRate).toHaveLength(2)
     expect(byRate.map((a) => [a.vat_group, a.rate, a.gross])).toEqual([

@@ -83,6 +83,19 @@ export interface VatReportSummary {
   totalNet: number
 }
 
+/**
+ * Agregă rândurile din `vat_report_daily` pentru cardurile și totalurile
+ * raportului TVA.
+ *
+ * Cheia de agregare e perechea (grupă, cotă), nu grupa singură: cota din view
+ * e cea snapshot-uită la vânzare (mig 272), deci după o schimbare de cotă
+ * aceeași grupă apare cu două cote în interval și fiecare primește propriul
+ * agregat. Cota e normalizată prin `Number`, ca `'9.00'` și `9` să nu se
+ * despartă în două chei.
+ *
+ * @param rows rândurile view-ului pentru un restaurant și un interval
+ * @returns agregatele sortate cotă ASC, apoi grupă ASC, plus totalurile generale
+ */
 export function aggregateVatReport(rows: readonly VatReportRow[]): VatReportSummary {
   const map = new Map<string, VatReportAggregate>()
   let totalGross = 0

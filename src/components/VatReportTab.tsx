@@ -340,46 +340,46 @@ export default function VatReportTab({ restaurantId }: Props) {
             }}
           >
             {byRate.map((agg) => (
+              <div
+                key={`${agg.vat_group}:${agg.rate}`}
+                style={{
+                  background: D.s2,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                }}
+              >
                 <div
-                  key={`${agg.vat_group}:${agg.rate}`}
                   style={{
-                    background: D.s2,
-                    border: `1px solid ${D.border}`,
-                    borderRadius: 12,
-                    padding: '14px 16px',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: D.t3,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.07em',
+                    marginBottom: 4,
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      color: D.t3,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {agg.rate}% {agg.label}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'Fraunces,serif',
-                      fontSize: '1.3rem',
-                      fontWeight: 700,
-                      color: D.t1,
-                      letterSpacing: '-0.02em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {fmt(agg.gross)} lei
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                    TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
-                    <br />
-                    Net: {fmt(agg.net)}
-                  </div>
+                  {agg.rate}% {agg.label}
                 </div>
-              ))}
+                <div
+                  style={{
+                    fontFamily: 'Fraunces,serif',
+                    fontSize: '1.3rem',
+                    fontWeight: 700,
+                    color: D.t1,
+                    letterSpacing: '-0.02em',
+                    marginBottom: 4,
+                  }}
+                >
+                  {fmt(agg.gross)} lei
+                </div>
+                <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
+                  TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
+                  <br />
+                  Net: {fmt(agg.net)}
+                </div>
+              </div>
+            ))}
             <div
               style={{
                 background: D.goldA,
@@ -518,8 +518,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             </span>
             <span>
               <strong>Ce face contabilul cu acest raport:</strong> introduce sumele în softul de
-              contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se deschide
-              direct în Excel sau Google Sheets.
+              contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se
+              deschide direct în Excel sau Google Sheets.
             </span>
           </div>
         </>
