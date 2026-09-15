@@ -11,7 +11,8 @@
 --   TG1  SUB ROLUL REAL `authenticated` (owner-ul lui R2): INSERT în
 --        pending_receipts cu order_id = comanda lui R1 → respins de trigger cu
 --        hint `receipt_tenant_mismatch` (nu de RLS — politica lasă rândul să
---        ajungă la gate; ca postgres testul ar fi orb la asta).
+--        ajungă la gate; ca postgres testul ar fi orb la asta). TG1b: o comandă
+--        INEXISTENTĂ dă exact aceeași eroare — fără oracol de existență.
 --   TG2  același rol, comanda PROPRIE → trece.
 --   TG3  UPDATE care mută order_id la comanda altui restaurant → respins;
 --        rând istoric cu order_id NULL → UPDATE de status trece (nimic de
@@ -53,7 +54,7 @@ select set_config('request.jwt.claim.sub', '7c000000-0000-4000-8000-000000000002
 set local role authenticated;
 
 do $$
-declare v_hint text; v_ok boolean := false; v_n int;
+declare v_hint text; v_state text; v_ok boolean := false; v_n int;
 begin
   begin
     insert into public.pending_receipts (restaurant_id, order_id, payload, status, bon_number, total_snapshot)
@@ -69,6 +70,24 @@ begin
     raise exception 'TG1 FAIL: owner-ul lui R2 a inserat un bon pe comanda lui R1 — rând cross-tenant acceptat';
   end if;
   raise notice 'TG1 OK: sub authenticated, bonul pe comanda altui restaurant e respins (receipt_tenant_mismatch)';
+
+  -- TG1b: comandă INEXISTENTĂ → EXACT aceeași eroare (SQLSTATE + hint) ca la
+  -- comanda altui restaurant. Trigger-ul BEFORE rulează înaintea FK-ului, deci
+  -- două erori diferite ar fi un oracol de existență pentru id-uri străine
+  -- (recenzie CodeRabbit pe #259).
+  v_ok := false;
+  begin
+    insert into public.pending_receipts (restaurant_id, order_id, payload, status, total_snapshot)
+    values ('7cb00000-0000-4000-8000-000000000002', '7cd00000-0000-4000-8000-0000000000ff', 'S^x', 'pending', 10);
+    v_ok := true;
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint, v_state = returned_sqlstate;
+    if v_hint is distinct from 'receipt_tenant_mismatch' or v_state <> 'P0001' then
+      raise exception 'TG1b FAIL: comanda inexistentă dă altă eroare (%, hint=%) decât cea cross-tenant — oracol de existență', v_state, v_hint;
+    end if;
+  end;
+  if v_ok then raise exception 'TG1b FAIL: rând cu comandă inexistentă acceptat'; end if;
+  raise notice 'TG1b OK: comanda inexistentă și cea străină dau aceeași eroare (fără oracol de existență)';
 
   -- TG2: comanda proprie → trece
   insert into public.pending_receipts (id, restaurant_id, order_id, payload, status, total_snapshot)

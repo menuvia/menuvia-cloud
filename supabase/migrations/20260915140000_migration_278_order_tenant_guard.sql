@@ -30,8 +30,8 @@
 -- făcut coloana nullable). DEFINER cu `public, pg_temp`: sub INVOKER, B nu
 -- vede comanda lui A prin RLS și ar primi „comanda nu există" — tot respins,
 -- dar cu un mesaj care minte; iar în cascade/roluri fără SELECT pe `orders`
--- gate-ul ar deveni ORB. Mesajul spune exact ce e greșit (hint
--- `receipt_tenant_mismatch`). Trigger BEFORE INSERT OR UPDATE OF (order_id,
+-- gate-ul ar deveni ORB. O singură eroare (hint `receipt_tenant_mismatch`)
+-- pentru „nu există" și „e a altuia" — fără oracol de existență. Trigger BEFORE INSERT OR UPDATE OF (order_id,
 -- restaurant_id) FOR EACH ROW pe TOATE cele patru tabele care poartă perechea
 -- — `pending_receipts` (gaura vie), `kitchen_tickets`, `invoices`,
 -- `order_feedback` (scrise azi doar prin RPC-uri DEFINER/service_role, deci
@@ -79,16 +79,14 @@ begin
   end if;
 
   select o.restaurant_id into v_rid from public.orders o where o.id = new.order_id;
-  if v_rid is null then
-    -- Aceeași clasă/semantică pe care o dă FK-ul la finalul statement-ului
-    -- (existența comenzii e deja observabilă prin FK), doar mai devreme.
-    raise exception 'Comanda % nu există.', new.order_id
-      using errcode = '23503', hint = 'order_not_found';
-  end if;
-  if v_rid <> new.restaurant_id then
-    -- Mesajul NU dezvăluie restaurantul comenzii (recenzie CodeRabbit pe #259):
-    -- apelantul află doar că perechea e respinsă, nu CUI aparține comanda.
-    raise exception 'Rândul din % (restaurant %) nu poate referi comanda %: aparține altui restaurant.',
+  -- O SINGURĂ eroare pentru „comanda nu există" ȘI „comanda e a altui
+  -- restaurant" (recenzie CodeRabbit pe #259): trigger-ul BEFORE rulează
+  -- ÎNAINTEA verificării FK, deci două erori diferite ar fi un oracol de
+  -- existență pentru id-uri de comenzi străine. Mesajul nu dezvăluie nici
+  -- restaurantul comenzii, nici dacă ea există: apelantul află doar că perechea
+  -- (comandă, restaurant) e respinsă. Hint-ul e contractul testelor/clientului.
+  if v_rid is null or v_rid <> new.restaurant_id then
+    raise exception 'Rândul din % (restaurant %) nu poate referi comanda %: nu aparține acestui restaurant.',
       tg_table_name, new.restaurant_id, new.order_id
       using errcode = 'P0001', hint = 'receipt_tenant_mismatch';
   end if;
@@ -100,7 +98,7 @@ $$;
 revoke all on function public.enforce_order_tenant_consistency() from public, anon, authenticated, service_role;
 
 comment on function public.enforce_order_tenant_consistency() is
-  'mig 278: gate de tenant in DATE pentru orice tabela cu (order_id, restaurant_id) — comanda referita trebuie sa apartina aceluiasi restaurant (hint receipt_tenant_mismatch). order_id NULL = nimic de verificat. DEFINER: sub INVOKER un rol care nu vede comanda prin RLS ar primi un mesaj fals, iar in cascade gate-ul ar fi orb. Clichet de clasa: TG4.';
+  'mig 278: gate de tenant in DATE pentru orice tabela cu (order_id, restaurant_id) — comanda referita trebuie sa apartina aceluiasi restaurant (hint receipt_tenant_mismatch, aceeasi eroare si pentru comanda inexistenta — fara oracol de existenta). order_id NULL = nimic de verificat. DEFINER: sub INVOKER un rol care nu vede comanda prin RLS ar primi un mesaj fals, iar in cascade gate-ul ar fi orb. Clichet de clasa: TG4.';
 
 -- ── Partea PĂRINTE: orders.restaurant_id e IMUABIL ───────────────────────────
 -- Gate-ul de mai sus apără scrierile pe COPII. Politica `orders: admin all`
