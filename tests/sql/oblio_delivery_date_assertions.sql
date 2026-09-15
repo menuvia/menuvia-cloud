@@ -18,10 +18,10 @@
 --        nu anon.
 --   OB7  (mig 276 / RES-18) claim-ul poartă bonul fiscal al comenzii:
 --        `receipt_bon_number` + `receipt_printed_at` (= claimed_at, cu
---        completed_at ca rezervă) din rândul `success` cel mai recent al
---        ACELUIAȘI restaurant; un `cancelled` mai nou cu bon, un success mai
---        vechi și un success-parazit al altui restaurant NU contează; fără
---        niciun rând → NULL.
+--        completed_at ca rezervă) din rândul `success` cel mai recent; un
+--        `cancelled` mai nou cu bon și un success mai vechi NU contează; fără
+--        niciun rând → NULL. (Parazitul altui tenant e respins în DATE de mig
+--        278 — TG1; scope-ul lateralului rămâne ținut de OB8.)
 --   OB8  contractul de coloane al claim-ului: EXACT o semnătură, 21 de coloane,
 --        cele două noi la FINAL, invariantele lanțului în corp (clichet VIU —
 --        verificările din corpul mig 276 rulează o singură dată).
@@ -219,14 +219,15 @@ end $$;
 --                         success 0042 claimed 11.03 21:03, completed 12.03 00:30
 --                                                       → printed_at = claimed_at
 --                         cancelled 9999 (cel mai NOU, cu bon) → status ≠ success
---   d7 @ restaurantul 2:  success 666, completed cel mai NOU → alt tenant
 --   d8: niciun rând → claim cu NULL (comandă fără bridge → fără bon, ca înainte)
+-- Rândul-parazit al ALTUI restaurant pe d7 (success 666, cel mai nou) a stat
+-- aici până la mig 278: gate-ul de tenant din DATE îl respinge acum la INSERT
+-- (TG1 îl acoperă sub rolul real), deci nu mai poate fi construit — predicatul
+-- `r.restaurant_id = c.restaurant_id` din lateral rămâne ca a doua centură și e
+-- ținut de OB8 (literal), nu de o fixtură.
 do $$
 declare v_bon text; v_at timestamptz; v_n int;
 begin
-  insert into public.restaurants (id, owner_id, name, slug, city, is_active) values
-    ('8e000000-0000-4000-8000-000000000002','8e000000-0000-4000-8000-0000000000a0',
-     'OB Parazit','ob-parazit-slug','Cluj',true);
   insert into public.orders (id, restaurant_id, source, status, payment_method,
                              paid_amount, created_at, paid_at)
   values ('8e000000-0000-4000-8000-0000000000d7','8e000000-0000-4000-8000-000000000001',
@@ -240,9 +241,7 @@ begin
          ('8e000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-0000000000d7',
           'S^x', 'success', '0042', 100, '2026-03-11 21:01:00+02', '2026-03-11 21:03:00+02', '2026-03-12 00:30:00+02'),
          ('8e000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-0000000000d7',
-          'S^x', 'cancelled', '9999', 100, '2026-03-12 01:40:00+02', null, '2026-03-12 01:41:00+02'),
-         ('8e000000-0000-4000-8000-000000000002','8e000000-0000-4000-8000-0000000000d7',
-          'S^x', 'success', '666', 100, '2026-03-12 02:00:00+02', '2026-03-12 02:01:00+02', '2026-03-12 02:02:00+02');
+          'S^x', 'cancelled', '9999', 100, '2026-03-12 01:40:00+02', null, '2026-03-12 01:41:00+02');
   insert into public.invoices (id, restaurant_id, order_id, customer_name, is_b2b,
                                total_with_vat, status, created_at)
   values ('8e000000-0000-4000-8000-0000000000f7','8e000000-0000-4000-8000-000000000001',
@@ -261,7 +260,7 @@ begin
   select receipt_bon_number, receipt_printed_at into v_bon, v_at
     from ob7_claim where invoice_id = '8e000000-0000-4000-8000-0000000000f7';
   if v_bon is distinct from '0042' then
-    raise exception 'OB7 FAIL: receipt_bon_number = % (așteptat 0042: success-ul cel mai recent al ACESTUI restaurant — nu 0007/vechi, nu 9999/cancelled, nu 666/alt tenant)', v_bon; end if;
+    raise exception 'OB7 FAIL: receipt_bon_number = % (așteptat 0042: success-ul cel mai recent — nu 0007/vechi, nu 9999/cancelled)', v_bon; end if;
   if v_at is distinct from timestamptz '2026-03-11 21:03:00+02' then
     raise exception 'OB7 FAIL: receipt_printed_at = % (așteptat claimed_at 2026-03-11 21:03 EET, nu completed_at de a doua zi)', v_at; end if;
 

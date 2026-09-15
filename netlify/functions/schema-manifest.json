@@ -276,6 +276,7 @@
     "migration_274_pgcron_janitors",
     "migration_275_pending_receipts_evidence",
     "migration_276_oblio_receipt_mention",
-    "migration_277_receipt_verified_printed"
+    "migration_277_receipt_verified_printed",
+    "migration_278_order_tenant_guard"
   ]
 }
