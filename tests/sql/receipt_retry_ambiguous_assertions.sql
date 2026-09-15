@@ -37,7 +37,8 @@
 --   RR11 (mig 277) error + marker + „NU e tipărit” → rămâne error, markerul e
 --        înlocuit cu urma Force-resolved → retry-ul fără ack trece (ca RR8).
 --   RR12 (mig 277) clichet: o singură semnătură, DEFINER+pg_temp, grant
---        authenticated / nu anon, corpul poartă ramura ambiguă + auditul.
+--        authenticated / nu anon, corpul poartă ramura ambiguă + auditul +
+--        lacătul `for update` pe rând (rezolvări concurente).
 --
 -- Self-contained, ROLLBACK la final. Seed ca AV (audit_v3_hardening).
 -- =============================================================================
@@ -397,6 +398,10 @@ begin
   if position('POSIBIL DUPLICAT%' in v_src) = 0 or position('public.audit_log' in v_src) = 0
      or position('not_resolvable' in v_src) = 0 or position('bon_number_required' in v_src) = 0 then
     raise exception 'RR12 FAIL: ramura ambiguă, hint-urile sau auditul au dispărut din corp'; end if;
+  -- Lacătul pe rând (recenzie #258): fără el două rezolvări concurente trec
+  -- amândouă de gărzi (dublu audit / „NOT printed” peste un success).
+  if position('where id = p_receipt_id for update' in v_src) = 0 then
+    raise exception 'RR12 FAIL: lookup-ul din bridge_force_resolve_stuck nu mai ia lacăt (for update)'; end if;
   if has_function_privilege('anon', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE')
      or not has_function_privilege('authenticated', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE') then
     raise exception 'RR12 FAIL: grant-urile s-au schimbat'; end if;

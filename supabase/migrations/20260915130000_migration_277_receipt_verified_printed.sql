@@ -66,7 +66,11 @@ declare
   v_actor     uuid := auth.uid();
   v_stamp     text := to_char(now() at time zone 'Europe/Bucharest', 'YYYY-MM-DD HH24:MI');
 begin
-  select * into v_old from public.pending_receipts where id = p_receipt_id;
+  -- Lacăt pe rând ÎNAINTE de validări (recenzie CodeRabbit pe #258): două
+  -- rezolvări concurente ale aceluiași bon ar fi trecut amândouă de gărzi și
+  -- ar fi scris două rânduri de audit (sau un „NOT printed" peste un success).
+  -- Cu lacăt, a doua așteaptă și vede rândul deja rezolvat → `already_resolved`.
+  select * into v_old from public.pending_receipts where id = p_receipt_id for update;
   if not found then return false; end if;
 
   if not public.is_admin(v_old.restaurant_id) then
@@ -155,6 +159,8 @@ begin
     raise exception 'mig 277: ramura AMBIGUA sau auditul lipsesc din corp'; end if;
   if position('claimed_at' in v_src) = 0 then
     raise exception 'mig 277: claimed_at trebuie mentionat explicit (momentul tiparirii nu se atinge)'; end if;
+  if position('where id = p_receipt_id for update' in v_src) = 0 then
+    raise exception 'mig 277: lookup-ul nu mai ia lacat pe rand (for update) — rezolvari concurente ar trece amandoua'; end if;
   if has_function_privilege('anon', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE')
      or not has_function_privilege('authenticated', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE') then
     raise exception 'mig 277: grant-urile s-au schimbat'; end if;
