@@ -40,15 +40,21 @@
 --
 -- Clichet de CLASĂ (TG4, permanent): ORICE tabelă din `public` care are ambele
 -- coloane trebuie să poarte trigger-ul (tgtype 23 = BEFORE + INSERT + UPDATE +
--- ROW, pe această funcție). O tabelă VIITOARE cu perechea (order_id,
--- restaurant_id) face CI roșu până primește gate-ul — nu se mai poate strecura.
+-- ROW, pe această funcție, cu AMBELE coloane în lista `UPDATE OF` — tgattr —
+-- sau lista goală). O tabelă VIITOARE cu perechea (order_id, restaurant_id)
+-- face CI roșu până primește gate-ul — nu se mai poate strecura.
+--
+-- Partea PĂRINTE (TG5): `orders.restaurant_id` devine IMUABIL
+-- (`trg_orders_restaurant_id_immutable`) — altfel invariantul se sparge fără
+-- să se scrie niciun copil: un admin la două restaurante muta comanda, iar
+-- bonul/tichetul/factura rămâneau pe restaurantul vechi.
 --
 -- One-shot: zero rânduri cross-tenant existente (prod, 15 sept 2026: 0 în
 -- toate cele patru; un rând istoric cu order_id NULL, scutit). Dacă apar la
 -- aplicare, migrația PICĂ — o inconsistență fiscală existentă e decizie de
 -- fondator, nu se ascunde sub un trigger.
 --
--- Teste permanente TG1–TG4: tests/sql/order_tenant_guard_assertions.sql
+-- Teste permanente TG1–TG5: tests/sql/order_tenant_guard_assertions.sql
 -- (TG1 rulează SUB rolul real `authenticated` — ca postgres RLS-ul e ocolit și
 -- testul ar fi orb la faptul că politica lasă INSERT-ul să ajungă la trigger).
 -- =============================================================================
@@ -74,12 +80,16 @@ begin
 
   select o.restaurant_id into v_rid from public.orders o where o.id = new.order_id;
   if v_rid is null then
+    -- Aceeași clasă/semantică pe care o dă FK-ul la finalul statement-ului
+    -- (existența comenzii e deja observabilă prin FK), doar mai devreme.
     raise exception 'Comanda % nu există.', new.order_id
       using errcode = '23503', hint = 'order_not_found';
   end if;
   if v_rid <> new.restaurant_id then
-    raise exception 'Rândul din % (restaurant %) nu poate referi comanda % a altui restaurant (%).',
-      tg_table_name, new.restaurant_id, new.order_id, v_rid
+    -- Mesajul NU dezvăluie restaurantul comenzii (recenzie CodeRabbit pe #259):
+    -- apelantul află doar că perechea e respinsă, nu CUI aparține comanda.
+    raise exception 'Rândul din % (restaurant %) nu poate referi comanda %: aparține altui restaurant.',
+      tg_table_name, new.restaurant_id, new.order_id
       using errcode = 'P0001', hint = 'receipt_tenant_mismatch';
   end if;
   return new;
@@ -91,6 +101,41 @@ revoke all on function public.enforce_order_tenant_consistency() from public, an
 
 comment on function public.enforce_order_tenant_consistency() is
   'mig 278: gate de tenant in DATE pentru orice tabela cu (order_id, restaurant_id) — comanda referita trebuie sa apartina aceluiasi restaurant (hint receipt_tenant_mismatch). order_id NULL = nimic de verificat. DEFINER: sub INVOKER un rol care nu vede comanda prin RLS ar primi un mesaj fals, iar in cascade gate-ul ar fi orb. Clichet de clasa: TG4.';
+
+-- ── Partea PĂRINTE: orders.restaurant_id e IMUABIL ───────────────────────────
+-- Gate-ul de mai sus apără scrierile pe COPII. Politica `orders: admin all`
+-- (mig 015/096) permite însă un UPDATE direct prin PostgREST, iar `authenticated`
+-- are UPDATE pe coloana `restaurant_id` (verificat pe replay): un cont care e
+-- admin la DOUĂ restaurante (lanț, agenție) putea muta o comandă din A în B, iar
+-- copiii ei (bon, tichet, factură, feedback) rămâneau cu `restaurant_id = A` —
+-- invariantul de mai sus, spart prin părinte, fără ca vreun copil să fie scris
+-- (recenzie CodeRabbit pe #259). Mig 113/240 apără doar `table_id` (comenzile
+-- pickup n-au masă). Niciun scriitor legitim nu mută comenzi între restaurante
+-- (grep pe migrații/funcții/client: zero), deci coloana devine imuabilă, ca
+-- `restaurants.owner_id` (096c). Fără DEFINER: compară doar OLD/NEW.
+create or replace function public.fn_orders_restaurant_id_immutable()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if new.restaurant_id is distinct from old.restaurant_id then
+    raise exception 'orders.restaurant_id este imuabil: comanda % nu poate fi mutată la alt restaurant.', old.id
+      using errcode = 'P0001', hint = 'order_restaurant_immutable';
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.fn_orders_restaurant_id_immutable() from public, anon, authenticated, service_role;
+
+comment on function public.fn_orders_restaurant_id_immutable() is
+  'mig 278: orders.restaurant_id e imuabil (hint order_restaurant_immutable) — partea PARINTE a gate-ului de tenant: o comanda mutata la alt restaurant ar lasa copiii (bon/tichet/factura/feedback) cu restaurant_id-ul vechi.';
+
+drop trigger if exists trg_orders_restaurant_id_immutable on public.orders;
+create trigger trg_orders_restaurant_id_immutable
+  before update of restaurant_id on public.orders
+  for each row execute function public.fn_orders_restaurant_id_immutable();
 
 -- ── Pre-instalare: zero rânduri cross-tenant EXISTENTE (altfel PICĂ) ──────────
 do $$
@@ -128,7 +173,7 @@ create trigger trg_order_feedback_tenant_guard
   for each row execute function public.enforce_order_tenant_consistency();
 
 -- ═════════════════════════════════════════════════════════════════════════════
--- Verificări ONE-SHOT (poziția 278). Permanentele: TG1–TG4.
+-- Verificări ONE-SHOT (poziția 278). Permanentele: TG1–TG5.
 -- ═════════════════════════════════════════════════════════════════════════════
 do $$
 declare r record; v_missing text[] := '{}'; v_n int;
@@ -140,14 +185,28 @@ begin
        and exists (select 1 from pg_attribute where attrelid = c.oid and attname = 'order_id' and not attisdropped)
        and exists (select 1 from pg_attribute where attrelid = c.oid and attname = 'restaurant_id' and not attisdropped)
   loop
+    -- tgtype 23 = BEFORE + INSERT + UPDATE + ROW; lista `UPDATE OF` (tgattr)
+    -- trebuie sa contina AMBELE coloane de tenant (sau sa fie goala = toate
+    -- coloanele) — un trigger cu `update of status` ar satisface tgtype si ar
+    -- lasa UPDATE-ul pe order_id/restaurant_id sa treaca (recenzie #259).
     if not exists (select 1 from pg_trigger t
                     where t.tgrelid = r.oid and not t.tgisinternal and t.tgtype = 23
-                      and t.tgfoid = 'public.enforce_order_tenant_consistency'::regproc) then
+                      and t.tgfoid = 'public.enforce_order_tenant_consistency'::regproc
+                      and (t.tgattr = ''::int2vector
+                           or ((select attnum from pg_attribute where attrelid = r.oid and attname = 'order_id') = any (t.tgattr::int2[])
+                               and (select attnum from pg_attribute where attrelid = r.oid and attname = 'restaurant_id') = any (t.tgattr::int2[])))) then
       v_missing := v_missing || r.relname;
     end if;
   end loop;
   if array_length(v_missing, 1) > 0 then
-    raise exception 'mig 278: tabele cu (order_id, restaurant_id) fara gate de tenant: %', v_missing; end if;
+    raise exception 'mig 278: tabele cu (order_id, restaurant_id) fara gate de tenant (sau cu lista UPDATE OF incompleta): %', v_missing; end if;
+  -- partea parinte: trigger BEFORE UPDATE ROW (tgtype 19) pe orders, cu restaurant_id in lista
+  if not exists (select 1 from pg_trigger t
+                  where t.tgrelid = 'public.orders'::regclass and not t.tgisinternal and t.tgtype = 19
+                    and t.tgfoid = 'public.fn_orders_restaurant_id_immutable'::regproc
+                    and (t.tgattr = ''::int2vector
+                         or (select attnum from pg_attribute where attrelid = 'public.orders'::regclass and attname = 'restaurant_id') = any (t.tgattr::int2[]))) then
+    raise exception 'mig 278: orders.restaurant_id nu e imuabil (trigger parinte lipsa)'; end if;
   select count(*) into v_n from pg_trigger
    where tgfoid = 'public.enforce_order_tenant_consistency'::regproc and not tgisinternal;
   if v_n < 4 then raise exception 'mig 278: doar % triggere de tenant (asteptat >= 4)', v_n; end if;
@@ -156,9 +215,12 @@ begin
     raise exception 'mig 278: functia de gate nu e DEFINER cu pg_temp'; end if;
   if has_function_privilege('anon', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
-     or has_function_privilege('service_role', 'public.enforce_order_tenant_consistency()', 'EXECUTE') then
-    raise exception 'mig 278: functia de gate e executabila de un rol client/service'; end if;
-  raise notice 'mig 278: gate de tenant pe % tabele cu (order_id, restaurant_id) — OK (permanentele: TG1-TG4)', v_n;
+     or has_function_privilege('service_role', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
+     or has_function_privilege('anon', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE') then
+    raise exception 'mig 278: o functie de gate e executabila de un rol client/service'; end if;
+  raise notice 'mig 278: gate de tenant pe % tabele cu (order_id, restaurant_id) + orders.restaurant_id imuabil — OK (permanentele: TG1-TG5)', v_n;
 end $$;
 
 commit;

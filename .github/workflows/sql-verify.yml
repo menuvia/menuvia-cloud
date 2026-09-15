@@ -1592,7 +1592,7 @@ jobs:
       # NECONDIȚIONAT (mig 278): gate de tenant pe orice tabelă cu (order_id,
       # restaurant_id) — TG1 rulează sub rolul REAL authenticated; TG4 e clichet
       # de CLASĂ (o tabelă nouă cu perechea fără trigger face pasul roșu).
-      - name: "Order tenant guard assertions (mig 278, TG1–TG4)"
+      - name: "Order tenant guard assertions (mig 278, TG1–TG5)"
         env:
           PGPASSWORD: postgres
         run: |

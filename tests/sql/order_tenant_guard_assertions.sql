@@ -17,8 +17,14 @@
 --        rând istoric cu order_id NULL → UPDATE de status trece (nimic de
 --        verificat).
 --   TG4  clichet de CLASĂ: orice tabelă din `public` cu ambele coloane poartă
---        trigger-ul (tgtype 23, funcția de gate), ≥ 4 azi; funcția e DEFINER
---        cu pg_temp și nu e executabilă de roluri client/service.
+--        trigger-ul (tgtype 23, funcția de gate, AMBELE coloane în lista
+--        `UPDATE OF` — tgattr — sau lista goală), ≥ 4 azi; funcția e DEFINER
+--        cu pg_temp și nu e executabilă de roluri client/service. Trigger-ul
+--        părinte de pe `orders` (tgtype 19, restaurant_id în listă) există.
+--   TG5  partea PĂRINTE, SUB `authenticated`, ca un cont admin la AMBELE
+--        restaurante (owner R2 + manager R1): UPDATE de status pe comanda lui
+--        R1 trece (control pozitiv — RLS-ul îl lasă), UPDATE de restaurant_id
+--        → `order_restaurant_immutable`; comanda rămâne pe R1.
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -114,14 +120,27 @@ begin
        and exists (select 1 from pg_attribute where attrelid = c.oid and attname = 'order_id' and not attisdropped)
        and exists (select 1 from pg_attribute where attrelid = c.oid and attname = 'restaurant_id' and not attisdropped)
   loop
+    -- lista `UPDATE OF` (tgattr) trebuie să conțină AMBELE coloane de tenant
+    -- (sau să fie goală): un trigger cu `update of status` ar avea tot tgtype 23
+    -- și ar lăsa UPDATE-ul pe order_id/restaurant_id să treacă.
     if not exists (select 1 from pg_trigger t
                     where t.tgrelid = r.oid and not t.tgisinternal and t.tgtype = 23
-                      and t.tgfoid = 'public.enforce_order_tenant_consistency'::regproc) then
+                      and t.tgfoid = 'public.enforce_order_tenant_consistency'::regproc
+                      and (t.tgattr = ''::int2vector
+                           or ((select attnum from pg_attribute where attrelid = r.oid and attname = 'order_id') = any (t.tgattr::int2[])
+                               and (select attnum from pg_attribute where attrelid = r.oid and attname = 'restaurant_id') = any (t.tgattr::int2[])))) then
       v_missing := v_missing || r.relname;
     end if;
   end loop;
   if array_length(v_missing, 1) > 0 then
-    raise exception 'TG4 FAIL: tabele cu (order_id, restaurant_id) FĂRĂ gate de tenant: % — orice tabelă nouă cu perechea primește trigger-ul (mig 278)', v_missing;
+    raise exception 'TG4 FAIL: tabele cu (order_id, restaurant_id) FĂRĂ gate de tenant sau cu lista UPDATE OF incompletă: % — orice tabelă nouă cu perechea primește trigger-ul (mig 278)', v_missing;
+  end if;
+  if not exists (select 1 from pg_trigger t
+                  where t.tgrelid = 'public.orders'::regclass and not t.tgisinternal and t.tgtype = 19
+                    and t.tgfoid = 'public.fn_orders_restaurant_id_immutable'::regproc
+                    and (t.tgattr = ''::int2vector
+                         or (select attnum from pg_attribute where attrelid = 'public.orders'::regclass and attname = 'restaurant_id') = any (t.tgattr::int2[]))) then
+    raise exception 'TG4 FAIL: trigger-ul părinte trg_orders_restaurant_id_immutable lipsește sau nu acoperă restaurant_id';
   end if;
   select count(*) into v_n from pg_trigger
    where tgfoid = 'public.enforce_order_tenant_consistency'::regproc and not tgisinternal;
@@ -132,9 +151,59 @@ begin
     raise exception 'TG4 FAIL: funcția de gate nu mai e DEFINER cu pg_temp (sub INVOKER mesajul minte, în cascade e oarbă)'; end if;
   if has_function_privilege('anon', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
-     or has_function_privilege('service_role', 'public.enforce_order_tenant_consistency()', 'EXECUTE') then
-    raise exception 'TG4 FAIL: funcția de gate e executabilă de un rol client/service'; end if;
-  raise notice 'TG4 OK: % tabele cu (order_id, restaurant_id), toate cu gate; funcția DEFINER+pg_temp, fără EXECUTE client', v_n;
+     or has_function_privilege('service_role', 'public.enforce_order_tenant_consistency()', 'EXECUTE')
+     or has_function_privilege('anon', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.fn_orders_restaurant_id_immutable()', 'EXECUTE') then
+    raise exception 'TG4 FAIL: o funcție de gate e executabilă de un rol client/service'; end if;
+  raise notice 'TG4 OK: % tabele cu (order_id, restaurant_id), toate cu gate pe ambele coloane; părintele imuabil; funcții fără EXECUTE client', v_n;
+end $$;
+
+-- ── TG5: partea PĂRINTE — orders.restaurant_id e imuabil, sub authenticated ──
+-- Owner-ul lui R2 devine și manager la R1 (un cont admin la două restaurante:
+-- lanț/agenție). Membership-ul de owner al lui R1 rămâne unic (invariantul 096
+-- e constraint trigger DEFERRED; tranzacția se rulează înapoi oricum).
+insert into public.restaurant_memberships (restaurant_id, user_id, role)
+values ('7cb00000-0000-4000-8000-000000000001', '7c000000-0000-4000-8000-000000000002', 'manager');
+
+select set_config('request.jwt.claim.sub', '7c000000-0000-4000-8000-000000000002', true);
+set local role authenticated;
+
+do $$
+declare v_hint text; v_ok boolean := false; v_n int; v_rid uuid;
+begin
+  -- control pozitiv: RLS-ul (orders: admin all) îl lasă să editeze comanda lui R1
+  update public.orders set notes = 'tg5' where id = '7cd00000-0000-4000-8000-000000000001';
+  get diagnostics v_n = row_count;
+  if v_n <> 1 then
+    raise exception 'TG5 FAIL: controlul pozitiv a picat — managerul lui R1 nu poate edita comanda (RLS), testul ar fi vacuu';
+  end if;
+
+  begin
+    update public.orders set restaurant_id = '7cb00000-0000-4000-8000-000000000002'
+     where id = '7cd00000-0000-4000-8000-000000000001';
+    v_ok := true;
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    if v_hint is distinct from 'order_restaurant_immutable' then
+      raise exception 'TG5 FAIL: mutarea respinsă din ALT motiv (%, hint=%) — nu trigger-ul părinte a prins-o', sqlerrm, v_hint;
+    end if;
+  end;
+  if v_ok then
+    raise exception 'TG5 FAIL: comanda lui R1 a fost mutată la R2 prin UPDATE — copiii ei ar rămâne pe R1';
+  end if;
+  raise notice 'TG5 OK: orders.restaurant_id e imuabil sub authenticated (order_restaurant_immutable)';
+end $$;
+
+reset role;
+
+do $$
+declare v_rid uuid;
+begin
+  select restaurant_id into v_rid from public.orders where id = '7cd00000-0000-4000-8000-000000000001';
+  if v_rid <> '7cb00000-0000-4000-8000-000000000001' then
+    raise exception 'TG5 FAIL: comanda nu mai e pe R1 (%)', v_rid;
+  end if;
 end $$;
 
 rollback;
