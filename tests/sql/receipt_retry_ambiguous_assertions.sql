@@ -28,6 +28,16 @@
 --        `bridge_force_resolve_stuck(id, false)` (045) scrie „Force-resolved …
 --        NOT printed" → retry FĂRĂ ack trece. Gate-ul e pe MARKER, nu pe orice
 --        error_info ne-nul, și nu blochează după verificarea umană din DB.
+--   RR9  (mig 277) bon `error` + marker pe care adminul l-a GĂSIT pe bandă →
+--        `bridge_force_resolve_stuck(id, true, nr)` → success cu bonul,
+--        `claimed_at` NEATINS (momentul tipăririi, mig 276), marker înlocuit,
+--        rând în audit_log (pending_receipts/UPDATE).
+--   RR10 (mig 277) un `error` FĂRĂ marker (eșec CLAR) NU e rezolvabil manual
+--        (hint `not_resolvable`) — nu s-a tipărit nimic; și nici cu număr gol.
+--   RR11 (mig 277) error + marker + „NU e tipărit” → rămâne error, markerul e
+--        înlocuit cu urma Force-resolved → retry-ul fără ack trece (ca RR8).
+--   RR12 (mig 277) clichet: o singură semnătură, DEFINER+pg_temp, grant
+--        authenticated / nu anon, corpul poartă ramura ambiguă + auditul.
 --
 -- Self-contained, ROLLBACK la final. Seed ca AV (audit_v3_hardening).
 -- =============================================================================
@@ -265,6 +275,132 @@ begin
   if v_ok is not true or v_status <> 'pending' then
     raise exception 'RR8 FAIL: după verificarea umană înregistrată în DB retry-ul fără ack a fost blocat (ok=%, status=%) — gate pe istoric, nu pe marker', v_ok, v_status; end if;
   raise notice 'RR8 OK: force_resolve (NOT printed) e calea cu urmă; gate-ul nu supra-blochează';
+end $$;
+
+-- ── RR9–RR11: bonul găsit pe bandă se ÎNREGISTREAZĂ (mig 277) ───────────────
+-- Trei comenzi noi → enqueue (259) → trei rânduri pending; fiecare e adus în
+-- starea de plecare a testului.
+insert into public.orders (id, restaurant_id, source, status, total, paid_amount, payment_method, paid_at) values
+  ('71f00000-0000-4000-8000-000000000005', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now()),
+  ('71f00000-0000-4000-8000-000000000006', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now()),
+  ('71f00000-0000-4000-8000-000000000007', '71b00000-0000-4000-8000-000000000001', 'waiter', 'paid', 10, 10, 'cash', now());
+insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total)
+select o.id, '71d00000-0000-4000-8000-000000000001', 'RR Cafea', 1, 10, 10
+  from public.orders o
+ where o.id in ('71f00000-0000-4000-8000-000000000005','71f00000-0000-4000-8000-000000000006','71f00000-0000-4000-8000-000000000007');
+
+do $$
+declare v_rid uuid; v_claimed timestamptz := now() - interval '25 minutes';
+        v_row public.pending_receipts%rowtype; v_ok boolean; v_n int; v_hint text;
+begin
+  -- RR9: cron-ul a marcat rândul (sent → error + POSIBIL DUPLICAT); adminul
+  -- verifică banda și GĂSEȘTE bonul 0042.
+  select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000005';
+  update public.pending_receipts
+     set status = 'sent', claimed_at = v_claimed, bridge_device_id = '71e00000-0000-4000-8000-000000000001',
+         error_code = null, error_info = null, completed_at = null
+   where id = v_rid;
+  v_n := public.bridge_mark_stale_as_error();
+  select * into v_row from public.pending_receipts where id = v_rid;
+  if v_row.status <> 'error' or v_row.error_info not like 'POSIBIL DUPLICAT%' then
+    raise exception 'RR9: precondiție — cron-ul nu a marcat rândul (status=%, info=%)', v_row.status, v_row.error_info; end if;
+
+  v_ok := public.bridge_force_resolve_stuck(v_rid, true, '  0042 ');
+  select * into v_row from public.pending_receipts where id = v_rid;
+  if v_ok is not true or v_row.status <> 'success' or v_row.bon_number is distinct from '0042' then
+    raise exception 'RR9 FAIL: bonul verificat pe bandă nu s-a înregistrat (ok=%, status=%, bon=%)', v_ok, v_row.status, v_row.bon_number; end if;
+  if v_row.claimed_at is distinct from v_claimed then
+    raise exception 'RR9 FAIL: claimed_at s-a schimbat (% → %) — momentul tipăririi de pe factura Oblio ar fi fals', v_claimed, v_row.claimed_at; end if;
+  if v_row.completed_at is null or v_row.error_code is not null
+     or v_row.error_info not like 'Force-resolved%' or v_row.error_info like 'POSIBIL DUPLICAT%' then
+    raise exception 'RR9 FAIL: urma rezolvării lipsește sau markerul a rămas (code=%, info=%)', v_row.error_code, v_row.error_info; end if;
+  select count(*) into v_n from public.audit_log
+   where table_name = 'pending_receipts' and operation = 'UPDATE' and row_id = v_rid::text
+     and old_data->>'status' = 'error' and new_data->>'bon_number' = '0042'
+     and actor_id = '71000000-0000-4000-8000-000000000001';
+  if v_n <> 1 then
+    raise exception 'RR9 FAIL: rezolvarea nu a lăsat rând în audit_log (%)', v_n; end if;
+  -- A doua rezolvare e refuzată: numărul e deja scris.
+  v_hint := null;
+  begin
+    perform public.bridge_force_resolve_stuck(v_rid, true, '0043');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'already_resolved' then
+    raise exception 'RR9 FAIL: un bon cu număr a putut fi rezolvat din nou (hint=%)', v_hint; end if;
+  raise notice 'RR9 OK: error+marker → success cu bon, claimed_at neatins, audit scris, fără dublă rezolvare';
+
+  -- RR10: eșec CLAR (fără marker) → NU e rezolvabil manual; nici număr gol.
+  select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000006';
+  update public.pending_receipts
+     set status = 'error', error_code = 'BONOK0', error_info = 'BONOK=0: casa a respins payload-ul',
+         claimed_at = v_claimed, completed_at = now()
+   where id = v_rid;
+  v_hint := null;
+  begin
+    perform public.bridge_force_resolve_stuck(v_rid, true, '0044');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  select * into v_row from public.pending_receipts where id = v_rid;
+  if v_hint is distinct from 'not_resolvable' or v_row.status <> 'error' or v_row.bon_number is not null then
+    raise exception 'RR10 FAIL: un error CLAR a fost rezolvat ca tipărit (hint=%, status=%, bon=%)', v_hint, v_row.status, v_row.bon_number; end if;
+  -- marker prezent, dar număr gol → refuz explicit
+  update public.pending_receipts set error_info = 'POSIBIL DUPLICAT — test' where id = v_rid;
+  v_hint := null;
+  begin
+    perform public.bridge_force_resolve_stuck(v_rid, true, '   ');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'bon_number_required' then
+    raise exception 'RR10 FAIL: numărul gol a trecut (hint=%)', v_hint; end if;
+  raise notice 'RR10 OK: eșecul clar nu e rezolvabil manual; numărul e obligatoriu';
+
+  -- RR11: error + marker, adminul spune „NU e tipărit” → markerul e înlocuit
+  -- cu urma umană, retry-ul fără ack trece (aceeași semantică ca RR8).
+  select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000007';
+  update public.pending_receipts
+     set status = 'error', error_code = 'RESPONSE_TIMEOUT',
+         error_info = 'POSIBIL DUPLICAT — verifică banda casei înainte de retrimitere: RESPONSE_TIMEOUT',
+         claimed_at = v_claimed, completed_at = now()
+   where id = v_rid;
+  v_ok := public.bridge_force_resolve_stuck(v_rid, false, null);
+  select * into v_row from public.pending_receipts where id = v_rid;
+  if v_ok is not true or v_row.status <> 'error' or v_row.bon_number is not null
+     or v_row.error_info not like 'Force-resolved%' or v_row.error_info like 'POSIBIL DUPLICAT%' then
+    raise exception 'RR11 FAIL: „NU e tipărit” pe un error ambiguu nu a lăsat urma (status=%, info=%)', v_row.status, v_row.error_info; end if;
+  v_ok := public.bridge_retry_receipt(v_rid);
+  select status into v_row.status from public.pending_receipts where id = v_rid;
+  if v_ok is not true or v_row.status <> 'pending' then
+    raise exception 'RR11 FAIL: după verificarea umană retry-ul fără ack tot e blocat (ok=%, status=%)', v_ok, v_row.status; end if;
+  select count(*) into v_n from public.audit_log
+   where table_name = 'pending_receipts' and operation = 'UPDATE' and row_id = v_rid::text;
+  if v_n <> 1 then
+    raise exception 'RR11 FAIL: ramura „NU e tipărit” nu a scris audit (%)', v_n; end if;
+  raise notice 'RR11 OK: NU e tipărit → marker înlocuit cu urmă, retry fără ack trece, audit scris';
+end $$;
+
+-- ── RR12: clichet pe bridge_force_resolve_stuck (mig 277) ────────────────────
+do $$
+declare v_n int; v_src text;
+begin
+  select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'bridge_force_resolve_stuck';
+  if v_n <> 1 then
+    raise exception 'RR12 FAIL: bridge_force_resolve_stuck are % semnături (PGRST203)', v_n; end if;
+  select pg_get_functiondef(p.oid) into v_src from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'bridge_force_resolve_stuck';
+  if position('security definer' in lower(v_src)) = 0 or position('pg_temp' in v_src) = 0 then
+    raise exception 'RR12 FAIL: nu e DEFINER cu pg_temp'; end if;
+  if position('POSIBIL DUPLICAT%' in v_src) = 0 or position('public.audit_log' in v_src) = 0
+     or position('not_resolvable' in v_src) = 0 or position('bon_number_required' in v_src) = 0 then
+    raise exception 'RR12 FAIL: ramura ambiguă, hint-urile sau auditul au dispărut din corp'; end if;
+  if has_function_privilege('anon', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE')
+     or not has_function_privilege('authenticated', 'public.bridge_force_resolve_stuck(uuid, boolean, text)', 'EXECUTE') then
+    raise exception 'RR12 FAIL: grant-urile s-au schimbat'; end if;
+  raise notice 'RR12 OK: o singură semnătură, DEFINER+pg_temp, grant-uri corecte, ramura ambiguă + audit în corp';
 end $$;
 
 rollback;

@@ -69,12 +69,10 @@
 -- vechi cu DB nouă coloanele în plus se ignoră.
 --
 -- Reziduuri CONSEMNATE, neadresate aici (fiecare e o schimbare separată):
---   • un bon TIPĂRIT pe care janitorul orar (262/274) l-a trecut în `error` +
---     marker POSIBIL DUPLICAT nu poate fi înregistrat ca `success` prin niciun
---     RPC (confirm și force-resolve cer `sent`) — adminul care verifică banda
---     n-are cum să scrie numărul; până atunci factura lui stă amânată (2), nu
---     iese fără mențiune. Cere o extensie a lui `bridge_force_resolve_stuck`
---     (lanț 045) cu audit — migrație separată.
+--   • [ÎNCHIS în mig 277] un bon TIPĂRIT pe care janitorul orar (262/274) l-a
+--     trecut în `error` + marker POSIBIL DUPLICAT nu putea fi înregistrat ca
+--     `success` prin niciun RPC — factura lui ar fi stat amânată (2) pe veci.
+--     `bridge_force_resolve_stuck` acceptă acum și error+marker (RR9–RR12).
 --   • un bon stornat ulterior la casă nu are reprezentare în bază; mențiunea ar
 --     cita un bon stornat. Decizie de model de date (înregistrare de storno).
 --   • legătura bon↔factură e persistată DOAR la Oblio; `invoices` n-are coloană

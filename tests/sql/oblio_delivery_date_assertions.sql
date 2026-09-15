@@ -27,7 +27,9 @@
 --        verificările din corpul mig 276 rulează o singură dată).
 --   OB9  o factură a cărei comandă are un bon în TRANZIT (pending/sent/error)
 --        NU se revendică; iese la primul claim de după success (cu bon) sau
---        cancelled (fără bon).
+--        cancelled (fără bon). Success-ul vine pe calea REALĂ de recuperare
+--        (mig 277: error+marker → bridge_force_resolve_stuck), cu ziua
+--        tipăririi (claimed_at) pe factură.
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -311,7 +313,7 @@ end $$;
 
 -- ── OB9: bon în TRANZIT → factura așteaptă (mig 276, punctul 2) ─────────────
 do $$
-declare v_n int; v_bon text; v_st text; v_rid uuid;
+declare v_n int; v_bon text; v_st text; v_at timestamptz;
 begin
   insert into public.orders (id, restaurant_id, source, status, payment_method,
                              paid_amount, created_at, paid_at)
@@ -344,15 +346,22 @@ begin
   if v_st <> 'queued' then
     raise exception 'OB9 FAIL: factura amânată nu mai e queued (%)', v_st; end if;
 
-  -- success cu bon → se revendică, cu bonul.
+  -- Recuperarea REALĂ (mig 277): rândul e `error` + marker POSIBIL DUPLICAT
+  -- (bridge-ul a murit după ce casa a tipărit); adminul verifică banda și
+  -- înregistrează bonul 0077 → claim-ul iese cu bonul și cu ziua TIPĂRIRII
+  -- (claimed_at), nu cu ziua în care a apăsat adminul (completed_at = now()).
   update public.pending_receipts
-     set status = 'success', bon_number = '0077',
-         claimed_at = '2026-03-12 21:02:00+02', completed_at = '2026-03-12 21:02:30+02'
+     set error_info = 'POSIBIL DUPLICAT — verifică banda casei: RESPONSE_TIMEOUT',
+         claimed_at = '2026-03-12 21:02:00+02'
    where id = '8e000000-0000-4000-8000-0000000000e9';
-  select receipt_bon_number into v_bon from public.bridge_oblio_get_queued(10)
+  perform set_config('request.jwt.claim.sub', '8e000000-0000-4000-8000-0000000000a0', true);
+  perform public.bridge_force_resolve_stuck('8e000000-0000-4000-8000-0000000000e9', true, '0077');
+  select receipt_bon_number, receipt_printed_at into v_bon, v_at from public.bridge_oblio_get_queued(10)
    where invoice_id = '8e000000-0000-4000-8000-0000000000f9';
   if v_bon is distinct from '0077' then
-    raise exception 'OB9 FAIL: după success factura nu iese cu bonul (%)', v_bon; end if;
+    raise exception 'OB9 FAIL: după înregistrarea bonului verificat pe bandă factura nu iese cu el (%)', v_bon; end if;
+  if v_at is distinct from timestamptz '2026-03-12 21:02:00+02' then
+    raise exception 'OB9 FAIL: ziua de pe factură e % (așteptat claimed_at 21:02, nu momentul apăsării)', v_at; end if;
 
   -- cancelled (fără bon) → NU e în tranzit: se revendică fără mențiune.
   update public.pending_receipts set status = 'cancelled'
