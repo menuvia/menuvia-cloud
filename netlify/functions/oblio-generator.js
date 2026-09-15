@@ -337,15 +337,19 @@ function romaniaDay(value) {
   return RO_DAY_FMT.format(d)
 }
 
-// Referința bonului fiscal (mig 276 / RES-18). O factură emisă pentru o vânzare
-// deja BONATĂ trebuie să trimită la bon: numărul (NRBON, text) și ziua
-// tipăririi. Sursa e `pending_receipts` (status='success'), adusă de
-// `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_printed_at`
-// (= claimed_at al bonului, momentul tipăririi; completed_at doar ca rezervă).
-// Gol/blanc = fără bon. Ziua e cea ROMÂNEASCĂ (aceeași capcană de fus ca
-// deliveryDate: 21:30 UTC e 00:30 EEST în ziua următoare) și NU cade pe „azi"
-// când lipsește — o dată inventată pe o mențiune fiscală e mai rea decât lipsa
-// ei. Pe o DB fără mig 276 coloanele lipsesc → null → payload-ul de dinainte.
+/**
+ * Referința bonului fiscal (mig 276 / RES-18). O factură emisă pentru o vânzare
+ * deja BONATĂ trebuie să trimită la bon: numărul (NRBON, text) și ziua
+ * tipăririi. Sursa e `pending_receipts` (status='success'), adusă de
+ * `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_printed_at`
+ * (= claimed_at al bonului, momentul tipăririi; completed_at doar ca rezervă).
+ * Gol/blanc = fără bon. Ziua e cea ROMÂNEASCĂ (aceeași capcană de fus ca
+ * deliveryDate: 21:30 UTC e 00:30 EEST în ziua următoare) și NU cade pe „azi"
+ * când lipsește — o dată inventată pe o mențiune fiscală e mai rea decât lipsa
+ * ei. Pe o DB fără mig 276 coloanele lipsesc → null → payload-ul de dinainte.
+ * @param {object} inv rândul revendicat de bridge_oblio_get_queued
+ * @returns {{number: string, day: string|null}|null} null când comanda nu are bon reușit
+ */
 function receiptRef(inv) {
   const number = inv && inv.receipt_bon_number != null ? String(inv.receipt_bon_number).trim() : ''
   if (!number) return null
@@ -353,12 +357,22 @@ function receiptRef(inv) {
   return { number, day }
 }
 
-// YYYY-MM-DD → DD.MM.YYYY (formatul uzual pe documentele românești).
+/**
+ * YYYY-MM-DD → DD.MM.YYYY (formatul uzual pe documentele românești).
+ * @param {string|null} day ziua în forma produsă de romaniaDay()
+ * @returns {string|null} null pe orice altă formă
+ */
 function roDateFromDay(day) {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '')
   return m ? `${m[3]}.${m[2]}.${m[1]}` : null
 }
 
+/**
+ * Textul TIPĂRIT pe factură (câmpul `mentions` din Oblio) care o leagă de bon.
+ * Fără dată când momentul tipăririi lipsește — niciodată „azi".
+ * @param {{number: string, day: string|null}} receipt referința din receiptRef()
+ * @returns {string}
+ */
 function receiptMention(receipt) {
   const when = receipt.day ? roDateFromDay(receipt.day) : null
   return `Factura emisă în baza bonului fiscal nr. ${receipt.number}${when ? ` din ${when}` : ''}`
