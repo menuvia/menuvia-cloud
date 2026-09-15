@@ -50,3 +50,63 @@ export function getVatRate(rates: VatRate[], vatGroup: number): number | null {
   const r = rates.find((r) => r.vat_group === vatGroup)
   return r ? r.rate_percent : null
 }
+
+// ── Raport TVA: agregare pe (grupă, cotă) ─────────────────────────────────────
+// `vat_report_daily` (mig 272) întoarce cota SNAPSHOT-uită la vânzare, deci după
+// o schimbare de cotă aceeași grupă apare cu DOUĂ cote în interval (ex. grupa 1
+// la 9% până pe 31.07 și la 11% după). Cheia de agregare e (grupă, cotă), NU
+// grupa singură — altfel două cote se însumează sub o singură etichetă, cea a
+// primului rând, iar cardul „9% Mâncare” ar cuprinde și vânzările la 11%.
+// Sumele erau corecte și înainte; eticheta mințea. Rezidualul cosmetic din 272.
+export interface VatReportRow {
+  vat_group: number
+  vat_rate_percent: number
+  vat_label: string
+  gross_total: number | string
+  vat_amount: number | string
+  net_total: number | string
+}
+
+export interface VatReportAggregate {
+  vat_group: number
+  rate: number
+  label: string
+  gross: number
+  vat: number
+  net: number
+}
+
+export interface VatReportSummary {
+  byRate: VatReportAggregate[] // sortat: cotă ASC, apoi grupă ASC
+  totalGross: number
+  totalVat: number
+  totalNet: number
+}
+
+export function aggregateVatReport(rows: readonly VatReportRow[]): VatReportSummary {
+  const map = new Map<string, VatReportAggregate>()
+  let totalGross = 0
+  let totalVat = 0
+  let totalNet = 0
+  for (const r of rows) {
+    const rate = Number(r.vat_rate_percent)
+    const key = `${r.vat_group}:${rate}`
+    const agg = map.get(key) ?? {
+      vat_group: r.vat_group,
+      rate,
+      label: r.vat_label,
+      gross: 0,
+      vat: 0,
+      net: 0,
+    }
+    agg.gross += Number(r.gross_total)
+    agg.vat += Number(r.vat_amount)
+    agg.net += Number(r.net_total)
+    map.set(key, agg)
+    totalGross += Number(r.gross_total)
+    totalVat += Number(r.vat_amount)
+    totalNet += Number(r.net_total)
+  }
+  const byRate = [...map.values()].sort((a, b) => a.rate - b.rate || a.vat_group - b.vat_group)
+  return { byRate, totalGross, totalVat, totalNet }
+}

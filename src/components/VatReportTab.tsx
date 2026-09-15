@@ -11,6 +11,7 @@ import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { toRomaniaYMD } from '../lib/dates'
+import { aggregateVatReport } from '../lib/vat'
 
 interface VatRow {
   restaurant_id: string
@@ -73,30 +74,10 @@ export default function VatReportTab({ restaurantId }: Props) {
     void load()
   }, [restaurantId, from, to]) // eslint-disable-line
 
-  // Aggregations
-  const byVatGroup = new Map<
-    number,
-    { gross: number; vat: number; net: number; rate: number; label: string }
-  >()
-  let totalGross = 0,
-    totalVat = 0,
-    totalNet = 0
-  for (const r of rows) {
-    const existing = byVatGroup.get(r.vat_group) ?? {
-      gross: 0,
-      vat: 0,
-      net: 0,
-      rate: r.vat_rate_percent,
-      label: r.vat_label,
-    }
-    existing.gross += Number(r.gross_total)
-    existing.vat += Number(r.vat_amount)
-    existing.net += Number(r.net_total)
-    byVatGroup.set(r.vat_group, existing)
-    totalGross += Number(r.gross_total)
-    totalVat += Number(r.vat_amount)
-    totalNet += Number(r.net_total)
-  }
+  // Agregare pe (grupă, cotă) — după o schimbare de cotă aceeași grupă are
+  // două rânduri cu cote diferite (snapshot la vânzare, mig 272); cheia doar pe
+  // grupă le însuma sub eticheta primului rând. Helper pur, testat în vat.test.ts.
+  const { byRate, totalGross, totalVat, totalNet } = aggregateVatReport(rows)
 
   function exportCsv() {
     // CSV with header + rows + totals
@@ -142,7 +123,7 @@ export default function VatReportTab({ restaurantId }: Props) {
     // Aggregated totals
     lines.push('')
     lines.push(row(['TOTAL PER COTA TVA', '', '', '', '', '', '']))
-    for (const agg of [...byVatGroup.values()].sort((a, b) => a.rate - b.rate)) {
+    for (const agg of byRate) {
       lines.push(
         row([
           '',
@@ -358,11 +339,9 @@ export default function VatReportTab({ restaurantId }: Props) {
               gap: 10,
             }}
           >
-            {[...byVatGroup.entries()]
-              .sort(([, a], [, b]) => a.rate - b.rate)
-              .map(([group, agg]) => (
+            {byRate.map((agg) => (
                 <div
-                  key={group}
+                  key={`${agg.vat_group}:${agg.rate}`}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.border}`,
