@@ -1,8 +1,7 @@
 // netlify/functions/oblio-generator.js
-// Cron-triggered: la fiecare 2 min, procesează coada `invoices` cu status='queued'.
-// Schedule (netlify.toml):
-//   [functions."oblio-generator"]
-//     schedule = "*/2 * * * *"
+// Cron-triggered: procesează coada `invoices` cu status='queued'. Cadența e în
+// netlify.toml (sursa UNICĂ — azi `*/15`, regimul de avarie; vezi comentariul
+// de acolo), nu aici.
 //
 // Flux:
 //   1. Claim până la 5 facturi din coadă (skip-locked atomic via RPC)
@@ -341,7 +340,8 @@ function romaniaDay(value) {
 // Referința bonului fiscal (mig 276 / RES-18). O factură emisă pentru o vânzare
 // deja BONATĂ trebuie să trimită la bon: numărul (NRBON, text) și ziua
 // tipăririi. Sursa e `pending_receipts` (status='success'), adusă de
-// `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_completed_at`.
+// `bridge_oblio_get_queued` în `receipt_bon_number` / `receipt_printed_at`
+// (= claimed_at al bonului, momentul tipăririi; completed_at doar ca rezervă).
 // Gol/blanc = fără bon. Ziua e cea ROMÂNEASCĂ (aceeași capcană de fus ca
 // deliveryDate: 21:30 UTC e 00:30 EEST în ziua următoare) și NU cade pe „azi"
 // când lipsește — o dată inventată pe o mențiune fiscală e mai rea decât lipsa
@@ -349,7 +349,7 @@ function romaniaDay(value) {
 function receiptRef(inv) {
   const number = inv && inv.receipt_bon_number != null ? String(inv.receipt_bon_number).trim() : ''
   if (!number) return null
-  const day = inv.receipt_completed_at ? romaniaDay(inv.receipt_completed_at) : null
+  const day = inv.receipt_printed_at ? romaniaDay(inv.receipt_printed_at) : null
   return { number, day }
 }
 

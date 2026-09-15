@@ -488,7 +488,7 @@ describe('oblio-generator: batch + cache de token', () => {
 
 describe('oblio-generator: mențiunea bonului fiscal (mig 276 / RES-18)', () => {
   // Contractul: bridge_oblio_get_queued aduce `receipt_bon_number` +
-  // `receipt_completed_at` din pending_receipts (status='success'). Pe o DB
+  // `receipt_printed_at` din pending_receipts (status='success'). Pe o DB
   // fără mig 276 coloanele lipsesc, deci OM2 e și testul de compatibilitate.
   function issue(overrides) {
     queued(makeInvoice(overrides))
@@ -500,7 +500,7 @@ describe('oblio-generator: mențiunea bonului fiscal (mig 276 / RES-18)', () => 
   it('OM1: bon reușit → mențiune TIPĂRITĂ cu numărul + ziua ROMÂNEASCĂ a tipăririi; internalNote poartă bonul', async () => {
     // 21:30 UTC = 00:30 EEST pe 5 septembrie — ziua bonului e 05.09, nu 04.09
     // (aceeași capcană de fus ca deliveryDate, mig 269).
-    issue({ receipt_bon_number: '0042', receipt_completed_at: '2026-09-04T21:30:00Z' })
+    issue({ receipt_bon_number: '0042', receipt_printed_at: '2026-09-04T21:30:00Z' })
     const res = await handler()
     assert.equal(res.statusCode, 200)
     assert.deepEqual(JSON.parse(res.body), { processed: 1, issued: 1, failed: 0 })
@@ -518,7 +518,7 @@ describe('oblio-generator: mențiunea bonului fiscal (mig 276 / RES-18)', () => 
   })
 
   it('OM3: bon FĂRĂ completed_at → mențiune fără dată; NU cade pe ziua de azi', async () => {
-    issue({ receipt_bon_number: '0042', receipt_completed_at: null })
+    issue({ receipt_bon_number: '0042', receipt_printed_at: null })
     await handler()
     const payload = postedPayload()
     assert.equal(payload.mentions, 'Factura emisă în baza bonului fiscal nr. 0042')
@@ -527,7 +527,7 @@ describe('oblio-generator: mențiunea bonului fiscal (mig 276 / RES-18)', () => 
   })
 
   it('OM4: bon gol/blanc → tratat ca lipsă (fără mențiune, fără bon în internalNote)', async () => {
-    issue({ receipt_bon_number: '   ', receipt_completed_at: '2026-09-04T21:30:00Z' })
+    issue({ receipt_bon_number: '   ', receipt_printed_at: '2026-09-04T21:30:00Z' })
     await handler()
     const payload = postedPayload()
     assert.equal(payload.mentions, '')
