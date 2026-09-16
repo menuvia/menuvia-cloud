@@ -7,6 +7,8 @@ export interface Profile {
   email: string
   full_name: string | null
   plan: string
+  /** Consimțământul la Termeni (mig 042). `null` = nu s-a consemnat niciodată. */
+  terms_accepted_at: string | null
 }
 
 interface AuthContextValue {
@@ -37,7 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('id, email, full_name, plan')
+        .select('id, email, full_name, plan, terms_accepted_at')
         .eq('id', userId)
         .single()
       if (data) {
@@ -47,6 +49,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: row.email as string,
           full_name: (row.full_name as string | null) ?? null,
           plan: (row.plan as string) ?? 'free',
+          terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
         })
       }
     } catch (err) {

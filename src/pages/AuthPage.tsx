@@ -17,11 +17,11 @@ import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
 import { track } from '../lib/analytics'
-
-// Versiunea de Termeni consemnată la signup prin RPC-ul record_terms_acceptance
-// (mig 042, semnătura: p_version text default '1.0'). Incrementeaz-o când se
-// publică o versiune nouă a documentelor legale.
-const TERMS_VERSION = '1.0'
+// Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
+// folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
+// apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
+// când se publică o versiune nouă a documentelor legale.
+import { TERMS_VERSION, recordTermsAcceptance, storePendingTermsConsent } from '../lib/terms'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -195,7 +195,8 @@ const S = {
     backToLoginArrow: '← Back to sign in',
     confirmEmailTitle: 'Check your email',
     confirmSentPrefix: 'We sent a confirmation link to',
-    confirmInstructions: 'Click the link in the email — it brings you right back into your account.',
+    confirmInstructions:
+      'Click the link in the email — it brings you right back into your account.',
     brandTagline: 'Set up your restaurant in minutes.',
     heroSubtitle:
       'Add your menu, generate the QR codes, and start taking orders straight from the table.',
@@ -399,16 +400,21 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         return
       }
 
-      // Audit consimțământ (mig 042): consemnăm versiunea de Termeni acceptată.
-      // Best-effort: fără sesiune (confirmare de email pending) RPC-ul nu are
-      // auth.uid() și eșuează — logăm defensiv, nu blocăm niciodată signup-ul.
-      try {
-        const { error: termsErr } = await supabase.rpc('record_terms_acceptance', {
-          p_version: TERMS_VERSION,
-        })
-        if (termsErr) console.warn('[auth] record_terms_acceptance eșuat:', termsErr.message)
-      } catch (termsEx) {
-        console.warn('[auth] record_terms_acceptance eșuat:', termsEx)
+      // Audit consimțământ (mig 042). RPC-ul cere `auth.uid()`, iar cu
+      // confirmarea de email PORNITĂ `signUp` întoarce `session = null` prin
+      // construcție — apelul de aici pica MEREU, iar eșecul era înghițit de un
+      // `console.warn`: 0 din 7 conturi de producție aveau consimțământ
+      // consemnat. Acum păstrăm bifa ca intenție (legată de email) și o
+      // consemnăm la PRIMA sesiune; dacă GoTrue a dat deja una, chiar acum.
+      storePendingTermsConsent(email, TERMS_VERSION)
+      if (data.session) {
+        try {
+          await recordTermsAcceptance(TERMS_VERSION)
+        } catch (termsEx) {
+          // Contul e deja creat, deci nu-l blocăm aici; `TermsAcceptanceGate`
+          // preia la prima încărcare a aplicației și cere acceptarea.
+          console.error('[auth] record_terms_acceptance eșuat:', termsEx)
+        }
       }
       // Telemetria funelului — zero PII (fără email/nume în properties).
       track('signup_completed', {
@@ -692,7 +698,11 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
               {error}
             </div>
           )}
-          <button type="submit" disabled={loading || mfaCode.length < 6} style={primaryBtn(loading)}>
+          <button
+            type="submit"
+            disabled={loading || mfaCode.length < 6}
+            style={primaryBtn(loading)}
+          >
             {loading ? t.processingBtn : t.mfaVerifyBtn}
           </button>
           <button

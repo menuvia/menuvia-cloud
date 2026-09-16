@@ -8,6 +8,14 @@ import {
 } from '../lib/plans'
 import { MKT, whatsappUrl } from '../lib/marketing'
 import { writePlanIntent } from '../lib/planIntent'
+import { CheckoutError, type CheckoutAction } from '../lib/checkout'
+import {
+  EXTRA_FEATURES,
+  INCLUDED_EVERYWHERE,
+  PILOT_BANNER,
+  TRIAL_FAQ,
+  TRIAL_HEADLINE,
+} from '../lib/pricingCopy'
 import { MOTION } from '../lib/motion'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
@@ -27,6 +35,22 @@ function ComparisonValue({ value }: { value: string | boolean }) {
   return <span>{value}</span>
 }
 
+// Butonul de acțiune din banner-ul de eroare la checkout (login / facturare /
+// WhatsApp) — același tratament vizual, indiferent de acțiune.
+const errorActionBtn: React.CSSProperties = {
+  background: MKT.accent,
+  color: MKT.onAccent,
+  border: 'none',
+  borderRadius: 10,
+  padding: '9px 16px',
+  fontFamily: 'DM Sans,sans-serif',
+  fontWeight: 700,
+  fontSize: '0.85rem',
+  cursor: 'pointer',
+  textDecoration: 'none',
+  whiteSpace: 'nowrap',
+}
+
 // Auto-trigger checkout după login: dacă userul ajunge pe /pricing logat și
 // avem plan_intent în sessionStorage (setat înainte de /auth), pornim imediat
 // Stripe Checkout pe planul țintă. Asta închide bucla pricing→auth→checkout.
@@ -40,6 +64,7 @@ function ComparisonValue({ value }: { value: string | boolean }) {
 function usePlanIntentAutoCheckout(
   user: { id: string } | null,
   onCheckout: (plan: string) => void | Promise<void>,
+  onError: (err: unknown) => void,
 ): string | null {
   const [pendingPlan, setPendingPlan] = React.useState<string | null>(() => {
     try {
@@ -59,17 +84,20 @@ function usePlanIntentAutoCheckout(
     }
     let alive = true
     // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul
-    // nu mai contează. Dacă eșuează (sau Stripe nu e configurat), curățăm
-    // guard-ul ca pricing-ul să se afișeze normal.
+    // nu mai contează. Dacă eșuează, curățăm guard-ul ȘI arătăm motivul —
+    // înainte, `.catch(() => undefined)` lăsa omul întors pe pricing fără
+    // nicio explicație, exact pe drumul auto pricing→auth→checkout.
     Promise.resolve(onCheckout(pendingPlan))
-      .catch(() => undefined)
+      .catch((err) => {
+        if (alive) onError(err)
+      })
       .then(() => {
         if (alive) setPendingPlan(null)
       })
     return () => {
       alive = false
     }
-  }, [user, pendingPlan, onCheckout])
+  }, [user, pendingPlan, onCheckout, onError])
 
   // Guard activ doar pentru useri logați — anonimii văd pricing-ul normal
   // chiar dacă au un intent vechi în session (îl vor consuma după login).
@@ -86,8 +114,48 @@ export default function PricingPage({
   onCheckout: (plan: string) => void
 }) {
   const { user } = useAuth()
-  const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
+  // Eșecul de checkout se AFIȘEAZĂ. Funcția întoarce nouă forme de răspuns
+  // non-200; clientul trata două, restul lăsau butonul mut (audit v3).
+  const [checkoutError, setCheckoutError] = React.useState<{
+    message: string
+    action: CheckoutAction
+  } | null>(null)
+
+  const showCheckoutError = React.useCallback((err: unknown) => {
+    if (err instanceof CheckoutError) {
+      setCheckoutError({ message: err.message, action: err.action })
+      return
+    }
+    setCheckoutError({
+      message:
+        err instanceof Error && err.message
+          ? err.message
+          : 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe WhatsApp.',
+      action: 'retry',
+    })
+  }, [])
+
+  // Un singur drum pentru toate CTA-urile: curăță eroarea veche, ține butonul
+  // în „Se procesează" CÂT ȚINE cererea (înainte, `void onCheckout(...)`
+  // rezolva instant, deci spinner-ul clipea și dispărea în timp ce fetch-ul
+  // era încă în aer) și afișează motivul dacă pică.
+  const runCheckout = React.useCallback(
+    async (planId: string, fn: () => void | Promise<void>) => {
+      setCheckoutError(null)
+      setLoadingPlan(planId)
+      try {
+        await fn()
+      } catch (err) {
+        showCheckoutError(err)
+      } finally {
+        setLoadingPlan(null)
+      }
+    },
+    [showCheckoutError],
+  )
+
+  const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout, showCheckoutError)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
   // Titlu specific rutei (SEO/share) — altfel /pricing moștenea titlul RO de
   // homepage din index.html. Restaurat la demontare (SPA).
@@ -131,14 +199,18 @@ export default function PricingPage({
       if (p.id === 'pro') {
         // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
         const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
-        if (url) window.open(url, '_blank')
-        else void onCheckout('pro')
-        return
+        if (url) {
+          window.open(url, '_blank')
+          return
+        }
+        return onCheckout('pro')
       }
       writePlanIntent(p.id)
       // Tier 1+2: dacă userul nu e logat, mergem la auth (cu ?plan=) — App
       // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
-      void onCheckout(p.id)
+      // ÎNTOARCEM promisiunea: altfel butonul nu poate aștepta și nici nu
+      // poate afla că a picat.
+      return onCheckout(p.id)
     },
     highlight: p.highlight,
   }))
@@ -170,40 +242,24 @@ export default function PricingPage({
     },
   ]
 
-  const EXTRAS_MONTHLY = [
-    {
-      // 💳 rămâne emoji: nu există un icon de card/plată în IconName (Icon.tsx).
-      icon: '💳',
-      title: 'Plăți online prin QR (în curând)',
-      price: 'În curând',
-      // Aliniat cu PLAN_COMPARISON și cu gate-ul real (online_payments =
-      // pro/enterprise): plățile online sunt exclusiv pe Fiscalizare.
-      plans: 'Doar Fiscalizare',
-      desc: 'Clientul va plăti direct cu cardul, bacșiș integrat. În dezvoltare — momentan plata se face cash sau card la POS.',
-    },
-    {
-      icon: <Icon name="link" size={26} color={MKT.accent} />,
-      title: 'Integrare casă de marcat (pilot)',
-      price: '+99 lei/lună',
-      plans: 'Doar Fiscalizare',
-      desc: 'Conectare cu Datecs / Activa / Tremol prin FiscalNet. În pilot — disponibil pe bază de cerere, nu activat automat.',
-    },
-  ]
-
-  // Bandă compactă „Incluse în orice plan" — a înlocuit cele 8 carduri de
-  // bonusuri. Parteneriatul (fost „referral") trăiește discret în footer.
-  const INCLUDED_EVERYWHERE = [
-    'Migrare gratuită a meniului',
-    '30 de zile garanție',
-    'Backup zilnic + GDPR',
-    'Suport WhatsApp direct',
-  ]
+  // Textul celor două carduri vine din `lib/pricingCopy` (date, nu markup):
+  // acolo e păzit de PC1-PC5, care încrucișează fiecare afirmație cu
+  // PLAN_COMPARISON și cu prețurile REALE din PLANS. Aici rămâne doar iconița.
+  // 💳 rămâne emoji: nu există un icon de card/plată în IconName (Icon.tsx).
+  const EXTRA_ICONS: Record<string, React.ReactNode> = {
+    online_payments: '💳',
+    fiscal_bridge: <Icon name="link" size={26} color={MKT.accent} />,
+  }
+  const EXTRAS_MONTHLY = EXTRA_FEATURES.map((f) => ({
+    icon: EXTRA_ICONS[f.id] ?? <Icon name="sparkle" size={26} color={MKT.accent} />,
+    title: f.title,
+    price: f.price,
+    plans: f.plans,
+    desc: f.desc,
+  }))
 
   const FAQ = [
-    {
-      q: 'Ce se întâmplă după cele 30 de zile gratuite?',
-      a: 'După trial, abonamentul continuă la prețul planului ales — abia atunci se face prima plată. Dacă nu ești mulțumit, anulezi cu un click înainte de facturare, fără penalizări. Datele tale sunt disponibile pentru export 30 de zile după anulare.',
-    },
+    TRIAL_FAQ,
     {
       q: 'Care plan e potrivit pentru mine?',
       a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — disponibil în pilot.',
@@ -220,7 +276,7 @@ export default function PricingPage({
       // Comasat: fostele „Este necesar hardware special?" și „Aveți integrare
       // cu casă de marcat?" — un singur răspuns, cu partea fiscală completă.
       q: 'E nevoie de hardware special sau de casă de marcat?',
-      a: 'Nu e nevoie de hardware special — funcționează pe orice telefon sau tabletă, iar pentru bucătărie merge orice ecran. Integrarea cu casa de marcat există în pilot, pe planul Fiscalizare (+99 lei/lună): suportăm Datecs, Activa și Tremol prin protocolul FiscalNet, disponibil pe bază de cerere — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
+      a: 'Nu e nevoie de hardware special — funcționează pe orice telefon sau tabletă, iar pentru bucătărie merge orice ecran. Integrarea cu casa de marcat e inclusă în planul Fiscalizare, fără cost suplimentar: suportăm Datecs, Activa și Tremol, iar în pilot instalarea o facem împreună — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
     {
       q: 'Garantați prețul?',
@@ -310,7 +366,7 @@ export default function PricingPage({
               textWrap: 'balance',
             }}
           >
-            30 de zile gratuite pe orice plan. Anulezi cu un click, fără penalizări.
+            {TRIAL_HEADLINE}
           </p>
 
           {/* Poziționare centrală — argumentul pe care concurența nu-l poate mima
@@ -361,11 +417,10 @@ export default function PricingPage({
                 marginBottom: 3,
               }}
             >
-              Program Pilot — 60 de zile gratis
+              {PILOT_BANNER.title}
             </div>
             <div style={{ fontSize: '0.85rem', color: MKT.text2, lineHeight: 1.5 }}>
-              Primii 10 patroni primesc setup personal cu Radu și 60 zile gratis pe Meniu + Comenzi.
-              Locurile sunt limitate.
+              {PILOT_BANNER.body}
             </div>
           </div>
           {(() => {
@@ -393,6 +448,64 @@ export default function PricingPage({
             )
           })()}
         </div>
+
+        {/* Motivul pentru care nu s-a pornit plata — vizibil, cu pasul următor.
+            Cazul REAL de azi e 500 „Stripe not configured" (funcțiile rulează
+            fără env), care înainte ducea tăcut pe /dashboard. */}
+        {checkoutError && (
+          <div
+            role="alert"
+            style={{
+              maxWidth: 720,
+              margin: '0 auto 24px',
+              padding: '14px 18px',
+              background: MKT.surface,
+              border: `1.5px solid ${MKT.accent}`,
+              borderRadius: 12,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            <Icon name="alert" size={20} color={MKT.accent} />
+            <span
+              style={{
+                flex: 1,
+                minWidth: 220,
+                color: MKT.text,
+                fontSize: '0.9rem',
+                lineHeight: 1.5,
+              }}
+            >
+              {checkoutError.message}
+            </span>
+            {checkoutError.action === 'login' && (
+              <button onClick={onLogin} className="pressable" style={errorActionBtn}>
+                Autentifică-te
+              </button>
+            )}
+            {checkoutError.action === 'billing' && (
+              <a href="/dashboard?tab=billing" className="pressable" style={errorActionBtn}>
+                Portalul de facturare
+              </a>
+            )}
+            {checkoutError.action === 'contact' &&
+              (() => {
+                const url = whatsappUrl('Salut Radu, vreau să activez un plan Menuvia')
+                if (!url) return null
+                return (
+                  <button
+                    onClick={() => window.open(url, '_blank')}
+                    className="pressable"
+                    style={errorActionBtn}
+                  >
+                    Scrie-ne pe WhatsApp
+                  </button>
+                )
+              })()}
+          </div>
+        )}
 
         {/* Plans grid */}
         <RevealItem
@@ -585,11 +698,7 @@ export default function PricingPage({
                   // curs — altfel un al doilea click pe alt plan pornește două
                   // sesiuni Stripe concurente (două redirecturi în cursă).
                   disabled={loadingPlan !== null}
-                  onClick={async () => {
-                    setLoadingPlan(p.id)
-                    await p.ctaFn()
-                    setLoadingPlan(null)
-                  }}
+                  onClick={() => void runCheckout(p.id, p.ctaFn)}
                   style={{
                     width: '100%',
                     borderRadius: 12,
@@ -1197,7 +1306,7 @@ export default function PricingPage({
           <button
             onClick={() => {
               writePlanIntent('growth')
-              void onCheckout('growth')
+              void runCheckout('growth', () => onCheckout('growth'))
             }}
             className="pressable"
             style={{

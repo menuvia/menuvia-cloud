@@ -30,6 +30,11 @@ const state = {
   stripeImpls: Object.create(null),
   stripeCalls: [],
   stripeCtors: [],
+  // supabase.auth.getUser(token): userul întors, sau o funcție (token) =>
+  // {data,error}. `null` (implicit) = token invalid — fail-closed, ca un test
+  // care uită să scripteze autentificarea să nu treacă din greșeală.
+  authUser: null,
+  authCalls: [],
 }
 
 function resetMocks() {
@@ -40,6 +45,8 @@ function resetMocks() {
   state.stripeImpls = Object.create(null)
   state.stripeCalls = []
   state.stripeCtors = []
+  state.authUser = null
+  state.authCalls = []
 }
 
 // ── Fake supabase-js ─────────────────────────────────────────────────────────
@@ -101,6 +108,15 @@ const fakeSupabaseModule = {
       return thenable
     },
     from: (table) => makeBuilder(table),
+    auth: {
+      getUser: async (token) => {
+        state.authCalls.push({ token })
+        const h = state.authUser
+        if (typeof h === 'function') return h(token)
+        if (h) return { data: { user: h }, error: null }
+        return { data: { user: null }, error: { message: 'invalid token' } }
+      },
+    },
   }),
 }
 
