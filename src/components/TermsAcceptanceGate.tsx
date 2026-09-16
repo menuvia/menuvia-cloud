@@ -42,7 +42,10 @@ export default function TermsAcceptanceGate() {
 
   // Citit o singură dată per cont: un obiect nou la fiecare randare ar face
   // efectele de mai jos să se re-execute la infinit prin lista de dependențe.
-  const pending = useMemo(() => readPendingTermsConsent(), [user?.id])
+  // Fără user nu există intenție de luat în seamă, deci `uid` chiar e folosit
+  // în corp (nu e o dependență decorativă).
+  const uid = user?.id ?? null
+  const pending = useMemo(() => (uid ? readPendingTermsConsent() : null), [uid])
 
   const needs = !!user && needsTermsAcceptance(profile)
   const hasOwnPending = pendingConsentMatches(pending, user?.email)
@@ -56,7 +59,6 @@ export default function TermsAcceptanceGate() {
   }, [pending, user, profile, hasOwnPending])
 
   useEffect(() => {
-    const uid = user?.id
     if (!needs || !hasOwnPending || !uid || autoTriedFor.current === uid) return
     autoTriedFor.current = uid
     void (async () => {
@@ -70,7 +72,7 @@ export default function TermsAcceptanceGate() {
         setAutoFailedFor(uid)
       }
     })()
-  }, [needs, hasOwnPending, pending, refreshProfile, user?.id])
+  }, [needs, hasOwnPending, pending, refreshProfile, uid])
 
   const accept = useCallback(async () => {
     if (!checked || busy) return
@@ -92,7 +94,7 @@ export default function TermsAcceptanceGate() {
 
   if (!needs) return null
   // Consemnare automată în curs pentru cineva care A bifat deja: nu-l oprim.
-  if (hasOwnPending && autoFailedFor !== user?.id) return null
+  if (hasOwnPending && autoFailedFor !== uid) return null
 
   return (
     <div

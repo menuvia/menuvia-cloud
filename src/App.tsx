@@ -575,7 +575,7 @@ function AppRouter() {
 
             // 405 întoarce text simplu, nu JSON — parse-ul nu are voie să
             // transforme un răspuns cunoscut într-o eroare de rețea.
-            let payload: unknown = null
+            let payload: unknown
             try {
               payload = await res.json()
             } catch {

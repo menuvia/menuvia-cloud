@@ -90,6 +90,17 @@ begin
     -- dashboard-ul complet (toate tab-urile, fără gate de tier).
     update public.profiles set plan = 'enterprise' where id = v_owner_id;
 
+    -- Consimțământ consemnat pe owner-ul de demo: e un cont ONBOARDAT, deci
+    -- asta e starea lui reală. Fără el, `TermsAcceptanceGate` (client) ar
+    -- randa ecranul de acceptare peste dashboard și ar intercepta click-urile
+    -- din TOATE spec-urile E2E autentificate — exact clasa de overlay
+    -- `role="dialog"` documentată în CLAUDE.md. Nu slăbește nimic: gate-ul
+    -- rămâne activ pentru conturile reale, care chiar n-au acceptat.
+    update public.profiles
+       set terms_accepted_at      = coalesce(terms_accepted_at, now()),
+           terms_accepted_version = coalesce(terms_accepted_version, '1.0')
+     where id = v_owner_id;
+
     insert into public.restaurant_memberships (restaurant_id, user_id, role)
       values (v_rest_id, v_owner_id, 'owner')
       on conflict (restaurant_id, user_id) do nothing;
