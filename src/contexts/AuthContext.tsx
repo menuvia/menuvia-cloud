@@ -7,6 +7,8 @@ export interface Profile {
   email: string
   full_name: string | null
   plan: string
+  /** Consimțământul la Termeni (mig 042). `null` = nu s-a consemnat niciodată. */
+  terms_accepted_at: string | null
 }
 
 interface AuthContextValue {
@@ -33,20 +35,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // Ultimul profil CERUT: un răspuns întârziat pentru contul anterior nu are
+  // voie să suprascrie profilul contului curent (recenzie CodeRabbit pe #261).
+  // Consecința nu e cosmetică: `TermsAcceptanceGate` citește
+  // `terms_accepted_at` de aici, deci un profil străin ar putea sări
+  // consimțământul pentru contul nou. Aceeași disciplină ca guard-ul de
+  // anulare din useOrders.
+  const profileReqRef = useRef<string | null>(null)
+
   async function loadProfile(userId: string) {
+    profileReqRef.current = userId
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('id, email, full_name, plan')
+        .select('id, email, full_name, plan, terms_accepted_at')
         .eq('id', userId)
         .single()
-      if (data) {
+      if (data && profileReqRef.current === userId) {
         const row = data as Record<string, unknown>
         setProfile({
           id: row.id as string,
           email: row.email as string,
           full_name: (row.full_name as string | null) ?? null,
           plan: (row.plan as string) ?? 'free',
+          terms_accepted_at: (row.terms_accepted_at as string | null) ?? null,
         })
       }
     } catch (err) {
@@ -80,8 +92,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const changed = lastUserIdRef.current !== (next?.id ?? null)
       lastUserIdRef.current = next?.id ?? null
       if (changed) {
+        // Profilul vechi dispare ÎNAINTE de încărcare: până sosește cel nou,
+        // „necunoscut" e singurul răspuns onest, iar gate-urile tristate
+        // (Termeni, plan) sunt construite exact pentru asta.
+        setProfile(null)
         if (next) void loadProfile(next.id)
-        else setProfile(null)
       }
       setUser((prev) => (prev?.id === next?.id ? prev : next))
       setLoading(false)
