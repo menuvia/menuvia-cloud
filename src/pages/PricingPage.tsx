@@ -209,7 +209,7 @@ export default function PricingPage({
         // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
         const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
         if (url) {
-          window.open(url, '_blank')
+          window.open(url, '_blank', 'noopener')
           return
         }
         return onCheckout('pro')
@@ -437,7 +437,7 @@ export default function PricingPage({
             if (!url) return null
             return (
               <button
-                onClick={() => window.open(url, '_blank')}
+                onClick={() => window.open(url, '_blank', 'noopener')}
                 className="pressable"
                 style={{
                   background: MKT.accent,
@@ -506,7 +506,7 @@ export default function PricingPage({
                 if (!url) return null
                 return (
                   <button
-                    onClick={() => window.open(url, '_blank')}
+                    onClick={() => window.open(url, '_blank', 'noopener')}
                     className="pressable"
                     style={errorActionBtn}
                   >
@@ -1314,6 +1314,7 @@ export default function PricingPage({
             30 zile gratuite. Setup în 10 minute.
           </p>
           <button
+            disabled={loadingPlan !== null}
             onClick={() => {
               writePlanIntent('growth')
               void runCheckout('growth', () => onCheckout('growth'))

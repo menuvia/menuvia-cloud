@@ -32,54 +32,80 @@ export interface PendingTermsConsent {
 }
 
 /**
- * Reține că omul a bifat Termenii la signup, ca să consemnăm după ce apare
- * sesiunea. `localStorage`, nu `sessionStorage`: confirmarea de email poate
- * veni în alt tab, la ore distanță.
- *
- * Emailul e parte din cheie deliberat: pe un dispozitiv partajat, A se
- * înregistrează și nu confirmă, apoi B se autentifică — fără potrivire de
- * email am consemna în contul lui B un consimțământ pe care B nu l-a dat,
- * adică exact defectul pe care îl reparăm, pe dos.
+ * Câte intenții ținem simultan. Sunt indexate pe email, nu într-un singur
+ * slot: două înregistrări din taburi diferite se suprascriau, iar primul om
+ * ajungea să vadă ecranul de acceptare deși bifase (recenzie CodeRabbit pe
+ * #261). Plafonul ține `localStorage` mărginit — intențiile cele mai vechi
+ * cad primele, iar pierderea uneia înseamnă doar o întrebare în plus.
  */
-export function storePendingTermsConsent(email: string, version: string = TERMS_VERSION): void {
+const MAX_PENDING = 5
+
+type PendingMap = Record<string, string>
+
+function readAll(): PendingMap {
   try {
-    localStorage.setItem(PENDING_KEY, JSON.stringify({ version, email: email.toLowerCase() }))
+    const raw = localStorage.getItem(PENDING_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {}
+    const out: PendingMap = {}
+    for (const [email, version] of Object.entries(parsed as Record<string, unknown>)) {
+      if (email && typeof version === 'string' && version) out[email] = version
+    }
+    return out
+  } catch {
+    // Inclusiv JSON stricat (o cheie dintr-o versiune veche) → tratat ca gol.
+    return {}
+  }
+}
+
+function writeAll(map: PendingMap): void {
+  try {
+    localStorage.setItem(PENDING_KEY, JSON.stringify(map))
   } catch {
     // Private mode / cotă plină: rămâne ecranul de acceptare ca plasă.
   }
 }
 
-export function readPendingTermsConsent(): PendingTermsConsent | null {
-  try {
-    const raw = localStorage.getItem(PENDING_KEY)
-    if (!raw) return null
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return null
-    const { version, email } = parsed as { version?: unknown; email?: unknown }
-    if (typeof version !== 'string' || !version) return null
-    if (typeof email !== 'string' || !email) return null
-    return { version, email }
-  } catch {
-    // Inclusiv JSON stricat (versiune veche de cheie) → tratat ca absent.
-    return null
-  }
+/**
+ * Reține că omul a bifat Termenii la signup, ca să consemnăm după ce apare
+ * sesiunea. `localStorage`, nu `sessionStorage`: confirmarea de email poate
+ * veni în alt tab, la ore distanță.
+ *
+ * Indexat pe email deliberat: pe un dispozitiv partajat, A se înregistrează și
+ * nu confirmă, apoi B se autentifică — o intenție fără email ar consemna în
+ * contul lui B un consimțământ pe care nu l-a dat, adică exact defectul pe dos.
+ */
+export function storePendingTermsConsent(email: string, version: string = TERMS_VERSION): void {
+  const key = email.toLowerCase()
+  const map = readAll()
+  delete map[key]
+  const entries = Object.entries(map).slice(-(MAX_PENDING - 1))
+  entries.push([key, version])
+  writeAll(Object.fromEntries(entries))
 }
 
-/** Intenția păstrată aparține sesiunii curente? */
-export function pendingConsentMatches(
-  pending: PendingTermsConsent | null,
-  email: string | null | undefined,
-): boolean {
-  if (!pending || !email) return false
-  return pending.email === email.toLowerCase()
+/** Intenția păstrată pentru ACEST email, sau `null`. */
+export function readPendingTermsConsent(email: string): PendingTermsConsent | null {
+  if (!email) return null
+  const key = email.toLowerCase()
+  const version = readAll()[key]
+  return version ? { version, email: key } : null
 }
 
-export function clearPendingTermsConsent(): void {
-  try {
-    localStorage.removeItem(PENDING_KEY)
-  } catch {
-    /* ignore */
+/** Șterge intenția unui singur cont (fără email: pe toate). */
+export function clearPendingTermsConsent(email?: string): void {
+  if (!email) {
+    try {
+      localStorage.removeItem(PENDING_KEY)
+    } catch {
+      /* ignore */
+    }
+    return
   }
+  const map = readAll()
+  delete map[email.toLowerCase()]
+  writeAll(map)
 }
 
 /**
@@ -87,7 +113,10 @@ export function clearPendingTermsConsent(): void {
  * (același tipar ca `createOrder`/`createReservationPublic`) — apelanții
  * afișează mesajul, nu îl înghit.
  */
-export async function recordTermsAcceptance(version: string = TERMS_VERSION): Promise<void> {
+export async function recordTermsAcceptance(
+  version: string = TERMS_VERSION,
+  email?: string,
+): Promise<void> {
   const { error } = await supabase.rpc('record_terms_acceptance', { p_version: version })
   if (error) {
     const err = new Error(
@@ -100,7 +129,8 @@ export async function recordTermsAcceptance(version: string = TERMS_VERSION): Pr
     err.hint = error.hint ?? undefined
     throw err
   }
-  clearPendingTermsConsent()
+  // Curățăm DOAR intenția contului consemnat; ale altor conturi rămân.
+  clearPendingTermsConsent(email)
 }
 
 /**

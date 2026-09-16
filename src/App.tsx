@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
-import TermsAcceptanceGate from './components/TermsAcceptanceGate'
+import TermsAcceptanceGate, { ROUTE_CHANGE_EVENT } from './components/TermsAcceptanceGate'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
 import { getStoredReferral, getVisitorId } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
@@ -294,6 +294,12 @@ function AppRouter() {
   const navigate = (path: string) => {
     window.history.pushState({}, '', path)
     setState(parsePath())
+    // `pushState` NU emite `popstate`, iar componentele montate în AFARA
+    // routerului (TermsAcceptanceGate) nu se re-randează la un setState de
+    // aici. Fără anunț, gate-ul rămânea cu ruta de la montare: cine intra pe
+    // /auth și se autentifica avea gate-ul suprimat toată sesiunea, deci
+    // consimțământul nu se mai consemna deloc (recenzie CodeRabbit pe #261).
+    window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
   }
   const replace = (path: string) => {
     window.history.replaceState({}, '', path)

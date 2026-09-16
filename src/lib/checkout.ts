@@ -155,5 +155,14 @@ export function readCheckoutUrl(body: unknown): string | null {
   if (typeof body !== 'object' || body === null) return null
   const url = (body as { url?: unknown }).url
   if (typeof url !== 'string' || !url) return null
-  return url.startsWith('https://') ? url : null
+  try {
+    // Parsare reală, nu `startsWith('https://')`: acela accepta și `https://`
+    // gol, pe care atribuirea în `window.location.href` îl poate arunca în
+    // afara oricărui `catch` (recenzie CodeRabbit pe #261).
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || !parsed.hostname) return null
+    return url
+  } catch {
+    return null
+  }
 }

@@ -140,6 +140,10 @@ describe('readCheckoutUrl()', () => {
     )
     expect(readCheckoutUrl({ url: 'http://evil.example/x' })).toBeNull()
     expect(readCheckoutUrl({ url: 'javascript:alert(1)' })).toBeNull()
+    // `https://` gol trecea de o verificare pe prefix și putea arunca la
+    // atribuirea în window.location; parsarea reală îl respinge.
+    expect(readCheckoutUrl({ url: 'https://' })).toBeNull()
+    expect(readCheckoutUrl({ url: 'https://?x=1' })).toBeNull()
     expect(readCheckoutUrl({ url: '/dashboard' })).toBeNull()
     expect(readCheckoutUrl({ url: '' })).toBeNull()
     expect(readCheckoutUrl({})).toBeNull()

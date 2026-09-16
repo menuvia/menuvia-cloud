@@ -24,7 +24,6 @@ import {
   TERMS_VERSION,
   clearPendingTermsConsent,
   needsTermsAcceptance,
-  pendingConsentMatches,
   readPendingTermsConsent,
   recordTermsAcceptance,
 } from '../lib/terms'
@@ -38,15 +37,33 @@ import {
  */
 const AUTH_PATHS = ['/auth', '/reset-password']
 
+/** Anunțul de navigare emis de `navigate()` din App (pushState nu emite nimic). */
+export const ROUTE_CHANGE_EVENT = 'menuvia:route'
+
+function readPath(): string {
+  try {
+    return window.location.pathname
+  } catch {
+    return ''
+  }
+}
+
 export default function TermsAcceptanceGate() {
   const { user, profile, refreshProfile, signOut } = useAuth()
-  const [onAuthRoute] = useState(() => {
-    try {
-      return AUTH_PATHS.includes(window.location.pathname)
-    } catch {
-      return false
+  // Ruta se RECITEȘTE la fiecare navigare, nu doar la montare: gate-ul e
+  // montat lângă router și nu se remontează, deci o valoare înghețată la
+  // montare l-ar suprima pentru toată sesiunea celui care intră pe /auth.
+  const [path, setPath] = useState(readPath)
+  useEffect(() => {
+    const sync = () => setPath(readPath())
+    window.addEventListener('popstate', sync)
+    window.addEventListener(ROUTE_CHANGE_EVENT, sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener(ROUTE_CHANGE_EVENT, sync)
     }
-  })
+  }, [])
+  const onAuthRoute = AUTH_PATHS.includes(path)
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,10 +78,12 @@ export default function TermsAcceptanceGate() {
   // Fără user nu există intenție de luat în seamă, deci `uid` chiar e folosit
   // în corp (nu e o dependență decorativă).
   const uid = user?.id ?? null
-  const pending = useMemo(() => (uid ? readPendingTermsConsent() : null), [uid])
+  const email = user?.email ?? null
+  // Intențiile sunt indexate pe email, deci citim DOAR pe a contului curent.
+  const pending = useMemo(() => (email ? readPendingTermsConsent(email) : null), [email])
 
   const needs = !!user && !onAuthRoute && needsTermsAcceptance(profile)
-  const hasOwnPending = pendingConsentMatches(pending, user?.email)
+  const hasOwnPending = !!pending
 
   // Schimbarea contului în același tab resetează ecranul. Fără asta, B ar
   // găsi căsuța BIFATĂ de A — exact tiparul pe care un ecran de consimțământ
@@ -76,35 +95,35 @@ export default function TermsAcceptanceGate() {
   }, [uid])
 
   useEffect(() => {
-    // Intenție rămasă de la alt cont (dispozitiv partajat) sau deja consemnată:
-    // o ștergem, ca să nu fie folosită mai târziu pentru cineva care n-a bifat.
-    if (!pending) return
-    if (user && !hasOwnPending) clearPendingTermsConsent()
-    else if (profile && !needsTermsAcceptance(profile)) clearPendingTermsConsent()
-  }, [pending, user, profile, hasOwnPending])
+    // Consimțământul e deja consemnat în profil → intenția nu mai are rost.
+    // Ștergem DOAR intrarea acestui cont: intențiile altor conturi de pe
+    // același dispozitiv rămân valabile pentru sesiunile lor.
+    if (!pending || !email) return
+    if (profile && !needsTermsAcceptance(profile)) clearPendingTermsConsent(email)
+  }, [pending, email, profile])
 
   useEffect(() => {
     if (!needs || !hasOwnPending || !uid || autoTriedFor.current === uid) return
     autoTriedFor.current = uid
     void (async () => {
       try {
-        await recordTermsAcceptance(pending?.version ?? TERMS_VERSION)
+        await recordTermsAcceptance(pending?.version ?? TERMS_VERSION, email ?? undefined)
         await refreshProfile()
       } catch (err) {
         // Nu ascundem eșecul: ecranul de mai jos preia și cere acceptarea.
         console.error('[terms] consemnarea automată a eșuat:', err)
-        clearPendingTermsConsent()
+        clearPendingTermsConsent(email ?? undefined)
         setAutoFailedFor(uid)
       }
     })()
-  }, [needs, hasOwnPending, pending, refreshProfile, uid])
+  }, [needs, hasOwnPending, pending, refreshProfile, uid, email])
 
   const accept = useCallback(async () => {
     if (!checked || busy) return
     setBusy(true)
     setError(null)
     try {
-      await recordTermsAcceptance(TERMS_VERSION)
+      await recordTermsAcceptance(TERMS_VERSION, email ?? undefined)
       await refreshProfile()
     } catch (err) {
       setError(
@@ -115,7 +134,7 @@ export default function TermsAcceptanceGate() {
     } finally {
       setBusy(false)
     }
-  }, [checked, busy, refreshProfile])
+  }, [checked, busy, refreshProfile, email])
 
   if (!needs) return null
   // Consemnare automată în curs pentru cineva care A bifat deja: nu-l oprim.

@@ -23,7 +23,6 @@ import {
   TERMS_VERSION,
   clearPendingTermsConsent,
   needsTermsAcceptance,
-  pendingConsentMatches,
   readPendingTermsConsent,
   recordTermsAcceptance,
   storePendingTermsConsent,
@@ -38,24 +37,38 @@ beforeEach(() => {
 })
 
 describe('intenția de consimțământ', () => {
-  it('TM1: se păstrează și se recitește identic', () => {
+  it('TM1: se păstrează și se recitește, cu emailul normalizat', () => {
     storePendingTermsConsent('Ana@Example.COM', TERMS_VERSION)
-    expect(readPendingTermsConsent()).toEqual({ version: TERMS_VERSION, email: 'ana@example.com' })
+    expect(readPendingTermsConsent('ana@example.com')).toEqual({
+      version: TERMS_VERSION,
+      email: 'ana@example.com',
+    })
+    // Citirea e case-insensitive, ca sesiunea să se potrivească oricum vine.
+    expect(readPendingTermsConsent('ANA@EXAMPLE.COM')).not.toBeNull()
   })
 
-  it('TM2: nu se moștenește între conturi pe același dispozitiv', () => {
+  it('TM2: nu se moștenește între conturi și nu se suprascriu între ele', () => {
     storePendingTermsConsent('a@x.test')
-    const pending = readPendingTermsConsent()
-    expect(pendingConsentMatches(pending, 'a@x.test')).toBe(true)
-    expect(pendingConsentMatches(pending, 'A@X.TEST')).toBe(true)
-    expect(pendingConsentMatches(pending, 'b@x.test')).toBe(false)
-    expect(pendingConsentMatches(pending, null)).toBe(false)
-    expect(pendingConsentMatches(null, 'a@x.test')).toBe(false)
+    storePendingTermsConsent('b@x.test')
+    // Două înregistrări din taburi diferite: a doua NU o distruge pe prima
+    // (înainte exista un singur slot, deci primul om vedea ecranul degeaba).
+    expect(readPendingTermsConsent('a@x.test')).not.toBeNull()
+    expect(readPendingTermsConsent('b@x.test')).not.toBeNull()
+    expect(readPendingTermsConsent('c@x.test')).toBeNull()
+    expect(readPendingTermsConsent('')).toBeNull()
+  })
+
+  it('TM2b: numărul de intenții e mărginit (localStorage nu crește la nesfârșit)', () => {
+    for (let i = 0; i < 8; i++) storePendingTermsConsent(`u${i}@x.test`)
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, string>
+    expect(Object.keys(stored).length).toBeLessThanOrEqual(5)
+    // Cele mai noi supraviețuiesc.
+    expect(readPendingTermsConsent('u7@x.test')).not.toBeNull()
   })
 
   it('TM3: storage indisponibil sau corupt nu aruncă', () => {
     localStorage.setItem(KEY, '{nu e json')
-    expect(readPendingTermsConsent()).toBeNull()
+    expect(readPendingTermsConsent('a@x.test')).toBeNull()
 
     const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceeded')
@@ -64,17 +77,23 @@ describe('intenția de consimțământ', () => {
     spy.mockRestore()
   })
 
-  it('TM4: consemnarea reușită curăță intenția', async () => {
+  it('TM4: consemnarea reușită curăță DOAR intenția contului consemnat', async () => {
     storePendingTermsConsent('a@x.test')
-    await recordTermsAcceptance(TERMS_VERSION)
+    storePendingTermsConsent('b@x.test')
+    await recordTermsAcceptance(TERMS_VERSION, 'a@x.test')
     expect(rpcMock).toHaveBeenCalledWith('record_terms_acceptance', { p_version: TERMS_VERSION })
-    expect(readPendingTermsConsent()).toBeNull()
+    expect(readPendingTermsConsent('a@x.test')).toBeNull()
+    expect(readPendingTermsConsent('b@x.test')).not.toBeNull()
   })
 
-  it('clearPendingTermsConsent șterge explicit', () => {
+  it('clearPendingTermsConsent șterge un cont sau tot', () => {
     storePendingTermsConsent('a@x.test')
+    storePendingTermsConsent('b@x.test')
+    clearPendingTermsConsent('a@x.test')
+    expect(readPendingTermsConsent('a@x.test')).toBeNull()
+    expect(readPendingTermsConsent('b@x.test')).not.toBeNull()
     clearPendingTermsConsent()
-    expect(readPendingTermsConsent()).toBeNull()
+    expect(readPendingTermsConsent('b@x.test')).toBeNull()
   })
 })
 
@@ -85,12 +104,14 @@ describe('recordTermsAcceptance()', () => {
     })
     storePendingTermsConsent('a@x.test')
 
-    await expect(recordTermsAcceptance(TERMS_VERSION)).rejects.toThrow('Autentificare necesară')
+    await expect(recordTermsAcceptance(TERMS_VERSION, 'a@x.test')).rejects.toThrow(
+      'Autentificare necesară',
+    )
     // Intenția NU se pierde pe eșec: gate-ul o va folosi la următoarea sesiune.
-    expect(readPendingTermsConsent()).not.toBeNull()
+    expect(readPendingTermsConsent('a@x.test')).not.toBeNull()
 
     try {
-      await recordTermsAcceptance(TERMS_VERSION)
+      await recordTermsAcceptance(TERMS_VERSION, 'a@x.test')
       expect.unreachable('trebuia să arunce')
     } catch (e) {
       const err = e as Error & { code?: string; hint?: string }

@@ -88,7 +88,7 @@ describe('TermsAcceptanceGate', () => {
     render(<TermsAcceptanceGate />)
 
     expect(screen.queryByRole('dialog')).toBeNull()
-    await waitFor(() => expect(recordMock).toHaveBeenCalledWith('1.0'))
+    await waitFor(() => expect(recordMock).toHaveBeenCalledWith('1.0', USER.email))
     await waitFor(() => expect(refreshMock).toHaveBeenCalled())
   })
 
