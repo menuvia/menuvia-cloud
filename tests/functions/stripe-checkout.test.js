@@ -144,6 +144,43 @@ describe('stripe-checkout — suprafața de eroare', () => {
     assert.equal(state.stripeCalls.length, 0)
   })
 
+  it('SC10: abonament deja activ → 409 cu code `subscription_exists`', async () => {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => [{ status: 'active' }]
+
+    const res = await post({ plan: 'growth' })
+    assert.equal(res.statusCode, 409)
+    // `code` e cheia pe care clientul ramifică ÎNAINTEA statusului
+    // (describeCheckoutFailure) — dacă dispare, banner-ul pierde butonul de
+    // Portal de facturare și omul e trimis să plătească a doua oară.
+    assert.equal(parseBody(res).code, 'subscription_exists')
+  })
+
+  it('SC11: istoricul de abonamente necitibil → 503 `subscription_lookup_failed`, fail-closed', async () => {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => {
+      throw new Error('stripe down')
+    }
+
+    const res = await post({ plan: 'growth' })
+    assert.equal(res.statusCode, 503)
+    assert.equal(parseBody(res).code, 'subscription_lookup_failed')
+    // Fail-closed: nicio sesiune de checkout nu pleacă fără verificarea istoricului.
+    assert.equal(state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length, 0)
+  })
+
   it('SC9: toate răspunsurile de eroare JSON au cheia `error`', async () => {
     setEnv()
     state.authUser = { id: 'u1', email: 'a@x.test' }

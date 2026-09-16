@@ -29,8 +29,24 @@ import {
   recordTermsAcceptance,
 } from '../lib/terms'
 
+/**
+ * Rutele pe care gate-ul NU are voie să apară. Recuperarea parolei creează o
+ * sesiune REALĂ, deci fără excepția asta un om care și-a uitat parola ar
+ * trebui să accepte Termenii înainte să și-o poată schimba. Citit o singură
+ * dată, la montare: fluxul de recuperare pornește mereu cu o navigare
+ * completă din email, deci acolo unde contează valoarea e corectă.
+ */
+const AUTH_PATHS = ['/auth', '/reset-password']
+
 export default function TermsAcceptanceGate() {
-  const { user, profile, refreshProfile } = useAuth()
+  const { user, profile, refreshProfile, signOut } = useAuth()
+  const [onAuthRoute] = useState(() => {
+    try {
+      return AUTH_PATHS.includes(window.location.pathname)
+    } catch {
+      return false
+    }
+  })
   const [checked, setChecked] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -47,8 +63,17 @@ export default function TermsAcceptanceGate() {
   const uid = user?.id ?? null
   const pending = useMemo(() => (uid ? readPendingTermsConsent() : null), [uid])
 
-  const needs = !!user && needsTermsAcceptance(profile)
+  const needs = !!user && !onAuthRoute && needsTermsAcceptance(profile)
   const hasOwnPending = pendingConsentMatches(pending, user?.email)
+
+  // Schimbarea contului în același tab resetează ecranul. Fără asta, B ar
+  // găsi căsuța BIFATĂ de A — exact tiparul pe care un ecran de consimțământ
+  // nu are voie să-l aibă.
+  useEffect(() => {
+    setChecked(false)
+    setError(null)
+    setAutoFailedFor(null)
+  }, [uid])
 
   useEffect(() => {
     // Intenție rămasă de la alt cont (dispozitiv partajat) sau deja consemnată:
@@ -104,7 +129,9 @@ export default function TermsAcceptanceGate() {
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 9000,
+        // Peste cookie banner (9999) și cardurile PWA: pe un telefon scurt,
+        // banner-ul de cookie-uri acoperea butonul „Accept și continui".
+        zIndex: 10000,
         background: 'rgba(12, 10, 8, 0.72)',
         display: 'flex',
         alignItems: 'center',
@@ -195,6 +222,7 @@ export default function TermsAcceptanceGate() {
         <button
           onClick={() => void accept()}
           disabled={!checked || busy}
+          data-testid="terms-accept"
           style={{
             width: '100%',
             padding: '13px 0',
@@ -209,6 +237,29 @@ export default function TermsAcceptanceGate() {
           }}
         >
           {busy ? 'Se consemnează...' : 'Accept și continui'}
+        </button>
+
+        {/* Ieșirea din cont e obligatorie: fără ea, cineva care nu vrea să
+            accepte (sau la care consemnarea pică) rămâne blocat în propriul
+            cont, fără nicio cale de ieșire. */}
+        <button
+          onClick={() => void signOut()}
+          disabled={busy}
+          style={{
+            width: '100%',
+            marginTop: 10,
+            padding: '11px 0',
+            borderRadius: 11,
+            border: `1px solid ${D.border}`,
+            background: 'transparent',
+            color: D.t2,
+            fontFamily: 'DM Sans,sans-serif',
+            fontWeight: 600,
+            fontSize: '0.88rem',
+            cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          Ieși din cont
         </button>
       </div>
     </div>

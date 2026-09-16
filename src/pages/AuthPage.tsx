@@ -21,7 +21,7 @@ import { track } from '../lib/analytics'
 // folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
 // apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
 // când se publică o versiune nouă a documentelor legale.
-import { TERMS_VERSION, recordTermsAcceptance, storePendingTermsConsent } from '../lib/terms'
+import { TERMS_VERSION, storePendingTermsConsent } from '../lib/terms'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -406,16 +406,13 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
       // `console.warn`: 0 din 7 conturi de producție aveau consimțământ
       // consemnat. Acum păstrăm bifa ca intenție (legată de email) și o
       // consemnăm la PRIMA sesiune; dacă GoTrue a dat deja una, chiar acum.
+      // Un SINGUR drum, și când sesiunea există deja: `TermsAcceptanceGate`
+      // consemnează și cheamă `refreshProfile()`. Un apel direct de aici ar
+      // scrie în DB fără să înștiințeze contextul, iar `loadProfile` (pornit
+      // de evenimentul SIGNED_IN) ar putea citi rândul ÎNAINTE de UPDATE —
+      // profilul ar rămâne cu `terms_accepted_at` null, intenția ar fi deja
+      // consumată, și i-am cere acceptarea unui om care tocmai a bifat.
       storePendingTermsConsent(email, TERMS_VERSION)
-      if (data.session) {
-        try {
-          await recordTermsAcceptance(TERMS_VERSION)
-        } catch (termsEx) {
-          // Contul e deja creat, deci nu-l blocăm aici; `TermsAcceptanceGate`
-          // preia la prima încărcare a aplicației și cere acceptarea.
-          console.error('[auth] record_terms_acceptance eșuat:', termsEx)
-        }
-      }
       // Telemetria funelului — zero PII (fără email/nume în properties).
       track('signup_completed', {
         email_confirmation_required: !data.session,

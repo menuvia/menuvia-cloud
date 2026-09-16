@@ -25,7 +25,7 @@ import {
   comparisonRowFor,
   includedPriceLabel,
 } from '../pricingCopy'
-import { PLANS, getPlan } from '../plans'
+import { PLANS, TRUST_SIGNALS, getPlan } from '../plans'
 
 const ALL_COPY = [
   TRIAL_HEADLINE,
@@ -35,6 +35,9 @@ const ALL_COPY = [
   PILOT_BANNER.body,
   ...INCLUDED_EVERYWHERE,
   ...EXTRA_FEATURES.flatMap((f) => [f.title, f.price, f.plans, f.desc]),
+  // Semnalele de încredere sunt pe ACEEAȘI pagină, deci intră în aceleași
+  // invariante — altfel promisiunea scoasă din headline supraviețuia acolo.
+  ...TRUST_SIGNALS.flatMap((t) => [t.label, t.desc]),
 ]
 
 describe('copy-ul de pe pagina de prețuri', () => {
@@ -70,6 +73,19 @@ describe('copy-ul de pe pagina de prețuri', () => {
     expect(PILOT_BANNER.title).toContain(String(PILOT_DAYS))
     // Fără referința la cele 30 de zile, cele două oferte se contrazic.
     expect(PILOT_BANNER.title + PILOT_BANNER.body).toContain(String(TRIAL_DAYS))
+  })
+
+  it('PC6: orice număr de zile gratuite de pe pagină e unul real', () => {
+    // `TRUST_SIGNALS` ține „30 zile gratuite" ca literal, în alt fișier decât
+    // TRIAL_DAYS: fără asta, o schimbare a trialului ar lăsa badge-ul mințind.
+    // Singurele valori legitime sunt trialul și oferta pilot.
+    for (const text of ALL_COPY) {
+      const m = /(\d+)\s*(?:de\s*)?zile\s+gratuit/i.exec(text)
+      if (!m) continue
+      expect([TRIAL_DAYS, PILOT_DAYS], `„${text}" promite un număr de zile inventat`).toContain(
+        Number(m[1]),
+      )
+    }
   })
 
   it('PC5: niciun card nu contrazice tabelul comparativ', () => {

@@ -122,19 +122,28 @@ export default function PricingPage({
     action: CheckoutAction
   } | null>(null)
 
+  const errorRef = React.useRef<HTMLDivElement | null>(null)
+
   const showCheckoutError = React.useCallback((err: unknown) => {
     if (err instanceof CheckoutError) {
       setCheckoutError({ message: err.message, action: err.action })
       return
     }
+    // Orice altceva (ex. o eroare brută supabase-js) e INTERN: îl logăm
+    // pentru diagnoză, dar afișăm text românesc. Un mesaj intern în fața
+    // clientului e aceeași greșeală ca tăcerea, doar mai zgomotoasă.
+    console.error('[checkout] eșec neclasificat:', err)
     setCheckoutError({
-      message:
-        err instanceof Error && err.message
-          ? err.message
-          : 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe WhatsApp.',
+      message: 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe WhatsApp.',
       action: 'retry',
     })
   }, [])
+
+  // Banner-ul stă sus, iar CTA-ul de jos e la ~1000px: fără asta, cine apasă
+  // butonul din subsol vede doar un licăr, adică exact tăcerea reparată aici.
+  React.useEffect(() => {
+    if (checkoutError) errorRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [checkoutError])
 
   // Un singur drum pentru toate CTA-urile: curăță eroarea veche, ține butonul
   // în „Se procesează" CÂT ȚINE cererea (înainte, `void onCheckout(...)`
@@ -455,6 +464,7 @@ export default function PricingPage({
         {checkoutError && (
           <div
             role="alert"
+            ref={errorRef}
             style={{
               maxWidth: 720,
               margin: '0 auto 24px',

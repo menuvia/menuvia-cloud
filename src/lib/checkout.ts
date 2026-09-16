@@ -61,11 +61,12 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
 
   // Coduri explicite de business — au întotdeauna mesaj românesc de la server.
   if (code === 'subscription_exists') {
+    // FĂRĂ concatenare: mesajul serverului spune deja „Schimbă planul din
+    // Portalul de facturare", iar butonul de lângă banner poartă aceeași
+    // etichetă — un adaos ar fi a treia repetiție a aceleiași propoziții.
     return {
       code,
-      message:
-        (msg ?? 'Ai deja un abonament activ.') +
-        ' Schimbi planul din Portalul de facturare, fără să plătești de două ori.',
+      message: msg ?? 'Ai deja un abonament activ. Schimbi planul din Portalul de facturare.',
       action: 'billing',
     }
   }
