@@ -12,6 +12,13 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+// Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
+// fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
+// (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
+// versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
+// verzi (stripe-node 14.x → '2023-10-16').
+const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
   return {
@@ -96,7 +103,7 @@ exports.handler = async (event) => {
   }
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
-  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
 
   try {
     const session = await stripe.billingPortal.sessions.create({

@@ -15,7 +15,7 @@
 
 ```bash
 # 1. Node 22 + Caddy + unelte
-curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -   # Node 22 — aceeași versiune ca CI/Netlify (pinuit în 9 locuri)
 apt-get install -y nodejs caddy rsync
 
 # 2. User de rulare + structura
@@ -73,6 +73,9 @@ ANTHROPIC_API_KEY=...
 # Cheia de criptare a BYO keys din ai_provider_configs (ai-proxy/ai-config):
 AI_CONFIG_SECRET=...
 APP_URL=https://menuvia.ro
+# Declanșare MANUALĂ a unui cron pe VPS: POST /.netlify/functions/<nume> cu antetul
+# `x-cron-key: $CRON_TRIGGER_KEY` (deploy/server.js; comparație constant-time). Gol = dezactivat.
+CRON_TRIGGER_KEY=
 VITE_APP_URL=https://menuvia.ro
 VITE_SUPABASE_URL=https://swjcptdylfmpvopdepqf.supabase.co
 EOF

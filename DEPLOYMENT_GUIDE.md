@@ -73,10 +73,11 @@ Fără asta, KitchenPage și WaiterPage nu primesc update-uri live.
 
 ---
 
-## 3. Anthropic — AI import meniu
+## 3. OpenAI — AI import meniu
 
-- console.anthropic.com → API Keys → Create key
-- Salvează: `ANTHROPIC_API_KEY`
+- platform.openai.com → API keys → Create key
+- Salvează: `PLATFORM_OPENAI_KEY` (cheia platformei; clienții pot aduce cheia lor prin
+  `ai-config`, criptată cu `AI_CONFIG_SECRET`). `ANTHROPIC_API_KEY` nu mai e citită de nimic.
 
 ---
 
@@ -90,7 +91,7 @@ Fără asta, KitchenPage și WaiterPage nu primesc update-uri live.
 ```
 Build command:   npm run build
 Publish dir:     dist
-Node version:    18
+Node version:    22
 ```
 
 ### 4c. Environment variables
@@ -106,7 +107,9 @@ VITE_APP_URL                = https://menuvia.netlify.app  ← sau domeniu custo
 SUPABASE_URL                = https://xxxxxxxxxxxx.supabase.co
 SUPABASE_SERVICE_ROLE_KEY   = eyJhbGciOi...
 RESEND_API_KEY              = re_...
-ANTHROPIC_API_KEY           = sk-ant-...
+PLATFORM_OPENAI_KEY         = sk-...
+AI_CONFIG_SECRET            = <openssl rand -hex 32>
+STRIPE_WEBHOOK_SECRET       = whsec_...  (+ cele 4 STRIPE_*_PRICE_ID — vezi docs/VPS_RUNBOOK.md pentru lista completă)
 ```
 
 ⚠️ `VITE_APP_URL` trebuie să fie URL-ul final al aplicației (fără `/` la final).

@@ -1,5 +1,7 @@
 # Loyalty v1 — design (înainte de orice migrație)
 
+> **IMPLEMENTAT** în mig 226 (puncte la intrarea în `paid`/`closed`, telefon doar ca hash, `get_loyalty_state` cu rate-limit din mig 258) — vezi bullet-ul din `CLAUDE.md` și `tests/sql/loyalty_assertions.sql`. Documentul de mai jos e designul ISTORIC, păstrat pentru raționament; nu mai descrie o decizie deschisă.
+
 > PLAN_10 F4 / MASTER_PLAN „URMEAZĂ" #3: „puncte per comandă + prag → recompensă;
 > simplu, pe module". Modulul `loyalty` există deja în whitelist (mig 086) și în
 > `ModuleKey` (frontend) — infrastructura de toggle e gratis.

@@ -59,7 +59,7 @@ Un tick ratat de Netlify nu produce dubluri și, în general, se recuperează la
 | `send-health-slack-alerts` | `5,35 * * * *` (scorurile se calculează doar la :00/:30) | ✅ (`claim_pending_slack_alerts`, re-alert după 24h) | ✅ (reset pe POST eșuat) | Alertă Slack întârziată 30 min |
 | `process-sms-queue` | `*/15 * * * *` (regim de avarie; la primul client SMS → `* * * * *`) | ✅ (claim atomic; SMSO fără Idempotency-Key → dublu-send rezidual) | ✅ | SMS întârziat max 15 min |
 
-> **Sursa unică a schedule-urilor e `netlify.toml`** (o citește și shim-ul VPS).
+> **Sursa unică a schedule-urilor HTTP (Netlify/VPS) e `netlify.toml`** (o citește și shim-ul VPS). **Janitoarele pure-SQL NU sunt aici**: din mig 274 rulează pe pg_cron ÎN Supabase, cu sursa unică `public.pg_cron_janitor_manifest` (8 joburi: lifecycle, bridge_mark_stale_as_error, oblio_reclaim_stale_generating, kitchen_tickets_mark_stale, expire_inactive_sessions, auto_mark_reservation_no_show, cleanup_old_rate_limits, cron_prune_run_details) — stare: `select public.get_cron_janitor_health()` sau `checks.pgcron` din /health.
 > Tabelul de mai sus se actualizează în ACELAȘI commit cu orice schimbare acolo —
 > un runbook care minte pe cron-uri se citește exact în timpul incidentului.
 
@@ -166,7 +166,7 @@ limit 50;
 - După ce cauza e rezolvată, repune facturile în coadă pentru re-emitere:
 
 ```sql
--- Re-declanșează procesarea (oblio-generator rulează la */2 min și le va prelua)
+-- Re-declanșează procesarea (oblio-generator rulează la */15 min în regimul de avarie din netlify.toml și le va prelua)
 update public.invoices
 set status = 'queued', retry_count = 0, last_error = null
 where status = 'failed'
@@ -336,7 +336,11 @@ request, în configul monitorului și în istoricul de shell).
 pentru „de ce nu pleacă emailurile" fără să scurgi secrete. E sub token fiindcă starea
 integrărilor (Resend/Slack morți) spune unui străin că nimeni nu va afla de un incident;
 UptimeRobot Free nu trimite antete custom, deci alerta pe `config.*` se face din
-`health-watch.yml` (cu secret) sau manual.
+`health-watch.yml` — DOAR dacă același token e pus și în **GitHub → Settings → Secrets →
+Actions → `HEALTH_DIAG_TOKEN`** (workflow-ul trimite antetul `x-health-diag` și emite
+`::error::` pe fiecare `config.<x>: false`; fără secret, avertizează că alarma e oarbă).
+Până la 16 sept 2026 acest paragraf afirma că alerta există, dar workflow-ul nu trimitea
+antetul — documentație care minte, reparată odată cu mig 279.
 
 ### 4.2 Alerte Slack ✅
 
@@ -669,7 +673,7 @@ o cădere de cron — monitorizare din AFARĂ, nu dinăuntru.
 1. **Netlify → Functions → Logs** pe `automation-cron`: vezi de ce s-a oprit
    (limită de plan Free? eroare la boot? funcție dezactivată?).
 2. Dacă e limită de invocări: cron-urile consumă ~50k invocări/lună la trafic
-   zero (vezi GO_LIVE Faza 4) → fie plan plătit, fie mutarea cron-urilor pe
+   zero (vezi `docs/PLAN_0_TO_HERO.md` BLOC 0 + issue #250) → fie plan plătit, fie mutarea cron-urilor pe
    VPS-ul din `deploy/` (shim-ul e gata), fie rărirea lor.
 3. **UptimeRobot** (gratuit, 5 min) pe `https://<domeniu>/health` — de acum
    alertează și la cron mort, nu doar la DB căzut.

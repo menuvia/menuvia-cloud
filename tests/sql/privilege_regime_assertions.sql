@@ -739,4 +739,31 @@ end$$;
 rollback;
 do $$ begin raise notice 'RP12 OK: authenticated fără membership vede 0 restaurante / 0 plăți (sub RLS real)'; end$$;
 
-\echo '✅ REGIM DE PRIVILEGII INTACT (RP1-RP12 + RW1)'
+-- ═══════ RP13. Funcțiile de TRIGGER nu sunt executabile de roluri client (mig 279) ══
+-- Clichet de CLASĂ: orice funcție `returns trigger` din public, prezentă sau
+-- VIITOARE, trebuie să fie fără EXECUTE pentru anon/authenticated. Default
+-- privileges din Supabase re-acordă EXECUTE oricărei funcții NOI, deci fără
+-- acest clichet lista ar crește tăcut la fiecare trigger adăugat. Control
+-- pozitiv: trigger-ele chiar există (prag, nu egalitate — vezi RP3).
+do $$
+declare v_bad text; v_cnt int;
+begin
+  select count(*) into v_cnt
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prorettype = 'trigger'::regtype;
+  if v_cnt < 40 then
+    raise exception 'RP13 FAIL (anti-vacuitate): doar % funcții de trigger în public', v_cnt;
+  end if;
+  select string_agg(p.proname, ', ' order by p.proname collate "C") into v_bad
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prorettype = 'trigger'::regtype
+     and (has_function_privilege('anon', p.oid, 'execute')
+       or has_function_privilege('authenticated', p.oid, 'execute'));
+  if v_bad is not null then
+    raise exception 'RP13 FAIL: funcții de trigger executabile de anon/authenticated prin /rpc (revoke explicit — mig 279): %', v_bad;
+  end if;
+  raise notice 'RP13 OK: % funcții de trigger, niciuna executabilă de roluri client', v_cnt;
+end$$;
+
+\echo '✅ REGIM DE PRIVILEGII INTACT (RP1-RP13 + RW1)'

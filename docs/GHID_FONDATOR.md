@@ -26,7 +26,7 @@
    (armează backup-ul zilnic criptat din db-backup.yml).
 6. Supabase: Authentication → Password → **Leaked password protection ON**;
    contul tău → înrolează **TOTP** (MfaCard din Setări → Cont).
-7. UptimeRobot gratuit pe `https://menuvia.netlify.app/health` la 5 min.
+7. UptimeRobot gratuit pe `https://menuvia.netlify.app/health` la 5 min (după cumpărarea domeniului: `https://menuvia.ro/health` — același host pe care îl bate `health-watch.yml`).
 
 **C. SĂPTĂMÂNA ASTA (~3 ore de muncă)**
 8. **Testul uman pe telefon** (singurul lucru pe care nu-l pot face eu):
@@ -45,7 +45,7 @@
     — dă-le unui avocat împreună cu datele firmei.
 
 **E. DUPĂ TOATE DE MAI SUS** — pașii VPS de mai jos (serverul devine necesar
-abia când factura de funcții Netlify crește — vezi GO_LIVE Faza 4; NU e
+abia când factura de funcții Netlify crește — vezi `docs/PLAN_0_TO_HERO.md` BLOC 0 (GO_LIVE e istoric, superseded); NU e
 primul pas, oricât de detaliat e descris în continuare).
 
 ---
@@ -73,15 +73,21 @@ Scriptul instalează tot și la final **îți afișează pe ecran cheia SSH pent
 nano /etc/menuvia/env
 ```
 
-Doar astea 5 sunt OBLIGATORII ca site-ul să meargă (restul pot rămâne goale la început):
+Lista COMPLETĂ cu efectul fiecărei variabile e în `docs/VPS_RUNBOOK.md` (blocul
+`/etc/menuvia/env`) — e aceeași listă pentru Netlify. Fără cele de mai jos, funcțiile
+fac **fail-fast** (500) sau degradează tăcut:
 
-| Variabilă | De unde iei valoarea |
-|---|---|
-| `SUPABASE_SERVICE_ROLE_KEY` | https://supabase.com/dashboard/project/swjcptdylfmpvopdepqf/settings/api → „service_role" (Reveal) |
-| `STRIPE_SECRET_KEY` | https://dashboard.stripe.com/apikeys → Secret key |
-| `WEBHOOK_SECRET` | https://dashboard.stripe.com/webhooks → endpoint-ul tău → Signing secret |
-| `RESEND_API_KEY` | https://resend.com/api-keys |
-| `PLATFORM_OPENAI_KEY` | https://platform.openai.com/api-keys (asta PORNEȘTE AI-ul pentru toți clienții) |
+| Variabilă | De unde iei valoarea | Fără ea |
+|---|---|---|
+| `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | https://supabase.com/dashboard/project/swjcptdylfmpvopdepqf/settings/api → „service_role" (Reveal) | NICIO funcție nu atinge baza (`/health` → `db: down`) |
+| `STRIPE_SECRET_KEY` | https://dashboard.stripe.com/apikeys → Secret key | checkout/webhook 500 |
+| **`STRIPE_WEBHOOK_SECRET`** | https://dashboard.stripe.com/webhooks → endpoint-ul tău → Signing secret. **ATENȚIE: NU `WEBHOOK_SECRET`** — acela e secretul INTERN pentru send-push/welcome-email, altă variabilă | planul nu se activează după plată, dunning mort |
+| `STRIPE_STARTER_PRICE_ID`, `STRIPE_GROWTH_PRICE_ID`, `STRIPE_PRO_PRICE_ID`, `STRIPE_ENTERPRISE_PRICE_ID` | Stripe → Products → fiecare plan → Price ID | `stripe-checkout` ȘI `stripe-webhook` fac fail-fast pe TOATE patru (`stripe-webhook.js:38-47`) |
+| `RESEND_API_KEY` | https://resend.com/api-keys | niciun email nu pleacă |
+| `PLATFORM_OPENAI_KEY` | https://platform.openai.com/api-keys (asta PORNEȘTE AI-ul pentru toți clienții) | importul AI din poze nu funcționează — exact pasul la care au murit toți cei 4 utilizatori reali |
+| `AI_CONFIG_SECRET` (≥32 caractere, `openssl rand -hex 32`) | îl generezi tu | `ai-config`/`ai-proxy` 500 |
+| `HEALTH_DIAG_TOKEN` (`openssl rand -hex 32`) | îl generezi tu | diagnosticul din `/health` inaccesibil (fail-closed) |
+| `SLACK_WEBHOOK_URL` | Slack → Incoming webhooks | 7 alerte degradează TĂCUT |
 
 Apoi:
 
@@ -129,7 +135,7 @@ https://supabase.com/dashboard/project/swjcptdylfmpvopdepqf/auth/providers
 
 https://dashboard.stripe.com/webhooks → endpoint-ul existent → **Update endpoint** →
 URL: `https://menuvia.ro/.netlify/functions/stripe-webhook`
-(dacă creezi endpoint NOU, copiază noul Signing secret în `/etc/menuvia/env` → `WEBHOOK_SECRET` → `systemctl restart menuvia-functions`).
+(dacă creezi endpoint NOU, copiază noul Signing secret în `/etc/menuvia/env` → `STRIPE_WEBHOOK_SECRET` (NU `WEBHOOK_SECRET`) → `systemctl restart menuvia-functions`).
 
 ---
 
