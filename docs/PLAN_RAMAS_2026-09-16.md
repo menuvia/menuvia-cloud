@@ -161,8 +161,8 @@ Plafonul rămâne cel din audit: codul te duce la ~7,5; **ultimele 1,5 puncte ș
 
 ## Verificare (pentru ce execut eu)
 
-- B0: `git grep -n "WEBHOOK_SECRET" docs/` întoarce doar `STRIPE_WEBHOOK_SECRET`; `git grep -n "RES-35\|mig 263 pe prod" docs/AUDIT_V3_2026-09.md` arată ✅; `.env.example` conține fiecare variabilă din `grep -ho "process.env.[A-Z_]*" netlify/functions/*.js deploy/server.js | sort -u`.
-- B1: `health-watch.yml` cu `-H "x-health-diag"`; `grep -c "apiVersion" netlify/functions/*.js` = 9; `sql-verify.yml` cu `postgres:17` și lanțul verde; mig 279 + clichet: `select count(*) from pg_proc where prorettype='trigger'::regtype and has_function_privilege('anon',oid,'execute')` = 0; test verificat că PICĂ fără migrație.
+- B0: `git grep -nw "WEBHOOK_SECRET" docs/GHID_FONDATOR.md` întoarce DOAR nota de dezambiguizare („NU `WEBHOOK_SECRET`"), nicio celulă de tabel/instrucțiune care să-l ceară pentru Stripe; `git grep -n "RES-35\|mig 263 pe prod" docs/AUDIT_V3_2026-09.md` arată ✅; `.env.example` conține fiecare variabilă din `grep -ho "process.env.[A-Z_]*" netlify/functions/*.js deploy/server.js | sort -u`.
+- B1: `health-watch.yml` cu `-H "x-health-diag"`; `grep -o "apiVersion: STRIPE_API_VERSION" netlify/functions/*.js | wc -l` = 9 (total, nu per fișier); `sql-verify.yml` cu `postgres:17` și lanțul verde; mig 279 + clichet: `select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.prorettype='trigger'::regtype and (has_function_privilege('anon',p.oid,'execute') or has_function_privilege('authenticated',p.oid,'execute'))` = 0 (AMBELE roluri client); test verificat că PICĂ fără migrație.
 - B2: CI verde pe fiecare PR; `cd tests/functions && npm test` verde pe bump-ul stripe.
 - B3: replay local `bash scripts/verify-migrations-local.sh`; fixtura cu un rând la 11 luni (neatins) și unul la 13 luni (anonimizat); `get_cron_janitor_health()` listează jobul; mutația „fără filtrul de 12 luni" pică.
 - Nicio migrație nu se aplică pe prod fără merge + `apply_migration` cu copia fără tranzacție, apoi verificarea catalogului pe prod.

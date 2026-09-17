@@ -44,7 +44,8 @@ Locul exact al morții: **introducerea meniului**. Un user a ajuns la 3 mese cu
 > **0/2**, deploy-ul PUBLICAT pe Netlify e din **31 aug** și funcțiile rulează
 > **fără env** (`/health` 503 `db: down` — issue **#250**), `db-backup` roșu
 > de 42 de ori (zero backup-uri), migrații **278**. Singura automatizare vie:
-> cele 8 janitoare pg_cron din mig 274. Niciun bloc de mai jos nu e bifat.
+> cele 8 janitoare pg_cron din mig 274. Din blocurile de mai jos e bifat DOAR
+> pasul de cod 0.1 (PR #203); niciun pas de fondator (0.0, 0.2–4.4) nu e făcut.
 
 ---
 

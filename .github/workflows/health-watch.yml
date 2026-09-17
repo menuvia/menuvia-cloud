@@ -44,13 +44,16 @@ jobs:
           HEALTH_DIAG_TOKEN: ${{ secrets.HEALTH_DIAG_TOKEN }}
         run: |
           set +e
+          # rc-ul se ia IMEDIAT după curl, în fiecare ramură: după un `echo` de
+          # avertisment, `$?` ar fi 0 și un curl picat ar trece drept „verde".
           if [ -n "$HEALTH_DIAG_TOKEN" ]; then
             body="$(curl -sS --max-time 20 -H "x-health-diag: $HEALTH_DIAG_TOKEN" -w '\n%{http_code}' "$HEALTH_URL")"
+            rc=$?
           else
             body="$(curl -sS --max-time 20 -w '\n%{http_code}' "$HEALTH_URL")"
+            rc=$?
             echo "::warning::HEALTH_DIAG_TOKEN nu e setat în GitHub Secrets — alarma pe config.* (chei lipsă/revocate) e OARBĂ. Setează același token ca în env-ul Netlify."
           fi
-          rc=$?
           code="$(echo "$body" | tail -1)"
           payload="$(echo "$body" | head -n -1)"
           echo "HTTP $code de la $HEALTH_URL"
@@ -60,13 +63,21 @@ jobs:
           echo "$payload" | sed -n 's/.*\("checks":{[^}]*}\).*/\1/p'
           # Alerta pe integrări: orice `config.<x>: false` = cheie lipsă sau
           # revocată în env-ul de producție (issue #250 e exact starea „toate false").
-          if [ -n "$HEALTH_DIAG_TOKEN" ]; then
+          if [ -n "$HEALTH_DIAG_TOKEN" ] && [ "$code" = "200" ]; then
             cfg="$(echo "$payload" | sed -n 's/.*"config":{\([^}]*\)}.*/\1/p')"
             if [ -n "$cfg" ]; then
               echo "config: $cfg"
               for k in $(echo "$cfg" | tr ',' '\n' | sed -n 's/^"\([a-z_]*\)":false$/\1/p'); do
                 echo "::error::/health raportează config.$k=false — cheia integrării '$k' LIPSEȘTE sau e revocată în env-ul Netlify (RUNBOOK §5, docs/VPS_RUNBOOK.md)."
+                cfg_fail=1
               done
+            else
+              # Am trimis antetul și n-am primit `config` → token greșit/rotit în
+              # Netlify, deploy fără suport de diag sau formă schimbată. Oricare ar
+              # fi, alarma pe integrări e OARBĂ — și un verde aici ar fi exact
+              # gate-ul mort (recenzie CodeRabbit #262). Se tratează ca eșec.
+              echo "::error::Antetul x-health-diag a fost trimis, dar /health NU a întors \`config\` — HEALTH_DIAG_TOKEN din GitHub nu coincide cu cel din env-ul Netlify (sau deploy-ul nu are diag). Alarma pe integrări e OARBĂ."
+              cfg_fail=1
             fi
           fi
           if [ "$rc" -ne 0 ]; then
@@ -85,7 +96,7 @@ jobs:
           echo "sonde: db=${db:-n/a} cron=${cron:-n/a} storage=${storage:-n/a} schema=${schema:-n/a} queues=${queues:-n/a} pgcron=${pgcron:-n/a}"
 
           # 2) Raportăm fiecare semnal pe canalul lui, ÎNAINTE de verdict.
-          fail=0
+          fail="${cfg_fail:-0}"
           # Sondele tolerante (storage/schema/queues/pgcron) NU influențează codul
           # de status pe `unknown` (toleranță deliberată: clientul se poate deploya
           # înaintea migrației). Dar după ce mig 266/271/274 sunt aplicate,

@@ -12,10 +12,12 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
-// Versiunea de API PINUITĂ (audit v3 OPS-8): fără pin, SDK-ul folosește versiunea lui
-// implicită, iar un bump de pachet sau o schimbare din Stripe Dashboard schimbă FORMA
-// payload-urilor — un webhook cu formă nouă trece semnătura și sare tăcut ramura de
-// comision. Se schimbă DELIBERAT, cu tests/functions/ verzi (stripe-node 14.x → '2023-10-16').
+// Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
+// fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
+// (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
+// versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
+// verzi (stripe-node 14.x → '2023-10-16').
 const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
