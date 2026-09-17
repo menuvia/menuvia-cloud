@@ -35,16 +35,40 @@ jobs:
         env:
           # Schimbă la https://menuvia.ro/health după cumpărarea domeniului.
           HEALTH_URL: https://menuvia.netlify.app/health
+          # Secretul din env-ul Netlify (RUNBOOK §4.1). Cu el, /health întoarce și
+          # `config.*` (ce integrări au cheie), iar acest workflow poate alerta pe
+          # o cheie LIPSĂ/revocată — până la măturarea din 16 sept 2026 RUNBOOK
+          # afirma că health-watch face asta, dar workflow-ul nu trimitea antetul
+          # (documentație care minte, OPS-15). Fără secret setat: comportamentul
+          # public de dinainte, plus un avertisment că alarma pe config e oarbă.
+          HEALTH_DIAG_TOKEN: ${{ secrets.HEALTH_DIAG_TOKEN }}
         run: |
           set +e
-          body="$(curl -sS --max-time 20 -w '\n%{http_code}' "$HEALTH_URL")"
+          if [ -n "$HEALTH_DIAG_TOKEN" ]; then
+            body="$(curl -sS --max-time 20 -H "x-health-diag: $HEALTH_DIAG_TOKEN" -w '\n%{http_code}' "$HEALTH_URL")"
+          else
+            body="$(curl -sS --max-time 20 -w '\n%{http_code}' "$HEALTH_URL")"
+            echo "::warning::HEALTH_DIAG_TOKEN nu e setat în GitHub Secrets — alarma pe config.* (chei lipsă/revocate) e OARBĂ. Setează același token ca în env-ul Netlify."
+          fi
           rc=$?
           code="$(echo "$body" | tail -1)"
           payload="$(echo "$body" | head -n -1)"
           echo "HTTP $code de la $HEALTH_URL"
-          # Corpul PUBLIC e {status, checks, ts} (audit v3 RES-38) — fără
-          # cifre, fără starea integrărilor — deci poate fi tipărit în log.
-          echo "$payload"
+          # În log tipărim DOAR partea publică {status, checks} (audit v3 RES-38):
+          # cu token, corpul mai conține storage_detail (nume de tabele, octeți),
+          # queue_detail (volum de business) — n-au ce căuta într-un log de CI.
+          echo "$payload" | sed -n 's/.*\("checks":{[^}]*}\).*/\1/p'
+          # Alerta pe integrări: orice `config.<x>: false` = cheie lipsă sau
+          # revocată în env-ul de producție (issue #250 e exact starea „toate false").
+          if [ -n "$HEALTH_DIAG_TOKEN" ]; then
+            cfg="$(echo "$payload" | sed -n 's/.*"config":{\([^}]*\)}.*/\1/p')"
+            if [ -n "$cfg" ]; then
+              echo "config: $cfg"
+              for k in $(echo "$cfg" | tr ',' '\n' | sed -n 's/^"\([a-z_]*\)":false$/\1/p'); do
+                echo "::error::/health raportează config.$k=false — cheia integrării '$k' LIPSEȘTE sau e revocată în env-ul Netlify (RUNBOOK §5, docs/VPS_RUNBOOK.md)."
+              done
+            fi
+          fi
           if [ "$rc" -ne 0 ]; then
             echo "::error::/health inaccesibil (curl rc=$rc) — site-ul sau funcțiile Netlify sunt CĂZUTE."
             exit 1

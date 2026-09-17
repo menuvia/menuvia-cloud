@@ -7,6 +7,11 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+// Versiunea de API PINUITĂ (audit v3 OPS-8): fără pin, SDK-ul folosește versiunea lui
+// implicită, iar un bump de pachet sau o schimbare din Stripe Dashboard schimbă FORMA
+// payload-urilor — un webhook cu formă nouă trece semnătura și sare tăcut ramura de
+// comision. Se schimbă DELIBERAT, cu tests/functions/ verzi (stripe-node 14.x → '2023-10-16').
+const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
   return {
@@ -69,7 +74,7 @@ exports.handler = async (event) => {
     return jsonResponse(403, { error: 'Forbidden' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
 
   // Reutilizează/creează customer-ul Stripe al userului.
   const { data: profile, error: profileErr } = await supabase

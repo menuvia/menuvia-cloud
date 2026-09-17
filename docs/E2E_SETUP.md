@@ -1,5 +1,7 @@
 # E2E verde în CI — setup staging (o singură dată, ~15 minute)
 
+> **SUPERSEDED (aug 2026).** Jobul „Playwright E2E" e **ERMETIC** în `ci.yml`: `supabase start` local + migrațiile cu psql + user GoTrue + `seed_tinctura_demo.sql`, zero secrets — și e verde pe main. NU mai e nevoie de un proiect de staging și de cele 4 secrets descrise mai jos; documentul rămâne doar ca istoric al problemei.
+
 > Starea azi: jobul „Playwright E2E" e roșu cronic pentru că build-ul din CI
 > primește un Supabase placeholder. Testele sunt deja scrise defensiv
 > (skip grațios fără secrets, skip pe `/m/tinctura` fără seed) și sunt

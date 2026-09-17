@@ -88,8 +88,12 @@
     Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
     # Cross-Origin policies (relevant pentru Stripe/Supabase popups)
     Cross-Origin-Opener-Policy = "same-origin-allow-popups"
-    # CSP în Report-Only mode pentru 2-4 săptămâni — monitorizare în Sentry
-    # După ce nu mai vin violations, mută la `Content-Security-Policy` (enforce)
+    # CSP în Report-Only. ATENȚIE (măturare 16 sept 2026, OPS-16): fără o directivă
+    # `report-uri`/`report-to` violările NU ajung NICĂIERI — „monitorizare în Sentry"
+    # nu există până nu se adaugă endpoint-ul de securitate al proiectului Sentry
+    # (Project → Security Headers → CSP report URI; cere DSN-ul real, act de fondator).
+    # Abia după 2 săptămâni cu rapoarte reale și zero violări se mută la
+    # `Content-Security-Policy` (enforce) — vezi decizia C9 din docs/PLAN_RAMAS_2026-09-16.md.
     Content-Security-Policy-Report-Only = '''
       default-src 'self';
       script-src 'self' 'unsafe-inline' https://js.stripe.com https://*.posthog.com https://*.sentry.io https://www.googletagmanager.com;

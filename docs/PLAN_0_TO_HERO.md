@@ -37,6 +37,15 @@ Locul exact al morții: **introducerea meniului**. Un user a ajuns la 3 mese cu
 | MFA pe conturile de platform admin | **dezactivat** (acces total pe toți tenanții, doar cu parolă) |
 | Migrații / suite de teste | 257 / 57 SQL + 20 UI — toate verzi |
 
+> **Actualizare 16 sept 2026** (verificat live, nu din memorie; detaliile în
+> `docs/PLAN_RAMAS_2026-09-16.md`): 7 utilizatori (1 nou din 9 aug), **0**
+> termeni acceptați, **1** comandă în 30 de zile (a fondatorului), **0** clienți
+> Stripe, **0 emailuri trimise vreodată** (4 în coadă de 38 de zile), MFA
+> **0/2**, deploy-ul PUBLICAT pe Netlify e din **31 aug** și funcțiile rulează
+> **fără env** (`/health` 503 `db: down` — issue **#250**), `db-backup` roșu
+> de 42 de ori (zero backup-uri), migrații **278**. Singura automatizare vie:
+> cele 8 janitoare pg_cron din mig 274. Niciun bloc de mai jos nu e bifat.
+
 ---
 
 ## 1. Diagnosticul central (o frază)
@@ -61,10 +70,11 @@ Nimic nu se consideră „gata" fără dovadă.
 
 | Pas | Acțiune | Verificare |
 |---|---|---|
-| 0.1 | Merge PR #203 (`/health` detectează cron mort) | deploy verde |
+| 0.0 | **Issue #250**: Netlify → Environment variables (lista cu efectul fiecăreia: `docs/VPS_RUNBOOK.md`; capcană: secretul Stripe e `STRIPE_WEBHOOK_SECRET`, nu `WEBHOOK_SECRET`) + **publică ultimul build de main** (deploy-ul live e din 31 aug) | `curl -H "x-health-diag: $TOKEN" .../health` → `status: ok`, `config.*: true`; cele 4 emailuri din coadă pleacă |
+| 0.1 | ~~Merge PR #203~~ ✅ (4ba2c88; `/health` are acum 5 sonde, mig 271) | deploy verde |
 | 0.2 | **Netlify → Functions → Logs → `automation-cron`**: de ce s-a oprit pe 2 aug. Suspect principal: limita planului Free | vezi cauza scrisă |
-| 0.3 | Repară (plan plătit / rărește cron-urile / mută pe VPS — shim-ul din `deploy/` e gata) | `menuvia.ro/health` → **200** cu `cron: "ok"` |
-| 0.4 | **UptimeRobot** gratuit pe `/health`, la 5 min | primești email de test la oprire |
+| 0.3 | Repară (plan plătit / rărește cron-urile / mută pe VPS — shim-ul din `deploy/` e gata, `deploy-vps.yml` e inert fără `VPS_HOST`/`VPS_SSH_KEY`) | `/health` → **200** cu `cron: "ok"` (pe `menuvia.netlify.app` până la 1.2; `menuvia.ro` abia după domeniu) |
+| 0.4 | **UptimeRobot** gratuit pe `/health`, la 5 min, apoi **șterge stopgap-ul** `.github/workflows/health-watch.yml` (se auto-dezactivează oricum după 60 de zile fără activitate) | primești email de test la oprire |
 
 > Fără blocul ăsta, tot ce urmează e construit pe nisip: emailurile nu pleacă,
 > facturile nu se generează, reminderele nu se trimit — tăcut.
@@ -103,7 +113,7 @@ Prima validare umană din istoria produsului. Fă-le pe telefonul tău real.
 | 3.3 | Anulează rezervarea cu codul din email | status `cancelled` + email „masa s-a eliberat" |
 | 3.4 | Import AI dintr-o poză reală de meniu (4 pagini) | produse + categorii create |
 | 3.5 | `/founder` → „Intră pe cont" + refresh | bannerul persistă |
-| 3.6 | Verifică în DB: `select status, count(*) from email_queue group by 1` | apar rânduri **`sent`** |
+| 3.6 | Verifică în DB: `select status, count(*) from email_queue group by 1` (atenție: din mig 274 rândurile terminale mai vechi de 30 de zile sunt curățate de un janitor — dovada e un `sent` RECENT, nu istoricul) | apar rânduri **`sent`** |
 
 > Dacă 3.2 sau 3.6 eșuează, blocul 1 nu e cu adevărat terminat.
 
@@ -179,7 +189,7 @@ fiecare dintre ei să încerce din nou, în 10 minute, cu poza meniului.
 
 > **Nu se mai scrie cod nou până la Faza 3.**
 
-Ai 257 de migrații, 202 PR-uri și 35 de documente pentru zero clienți. Codul e
+Ai 278 de migrații, 261 de PR-uri și 30+ documente pentru zero clienți plătitori — iar între 9 aug și 16 sept regula de mai jos a fost încălcată de 47 de commit-uri și 21 de migrații (auditul v3), fără ca vreun bloc de mai sus să fie bifat. Codul e
 la nota 8+; dovada că funcționează e la 3. Singurele excepții permise până la
 primul client plătitor:
 1. bug-uri găsite de utilizatori REALI,
@@ -193,7 +203,8 @@ fără să miște acul.
 ## 5. Ordinea de citit a documentelor
 
 1. **Acesta** — ordinea și de ce
-2. `docs/vanzare/README.md` → pitch, obiecții, outreach, playbook pilot
-3. `GHID_FONDATOR.md` → pașii tehnici, la detaliu
-4. `RUNBOOK.md` → ce faci când se strică ceva (+ postmortemul cron 2–9 aug)
-5. `GO_LIVE.md` / `EXPANSION.md` → context tehnic și direcție pe termen lung
+2. `docs/PLAN_RAMAS_2026-09-16.md` → lista COMPLETĂ și curentă a tot ce mai e de făcut, cu owner pe fiecare rând
+3. `docs/vanzare/README.md` → pitch, obiecții, outreach, playbook pilot
+4. `docs/GHID_FONDATOR.md` → pașii tehnici, la detaliu
+5. `docs/RUNBOOK.md` → ce faci când se strică ceva (+ postmortemul cron 2–9 aug)
+6. `docs/GO_LIVE.md` / `docs/EXPANSION.md` → context istoric (superseded) și direcție pe termen lung

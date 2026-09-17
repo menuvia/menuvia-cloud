@@ -59,7 +59,8 @@ const SCHEMA_MANIFEST = require('./schema-manifest.json')
 
 // ── Praguri pentru backlog-ul cozilor (mig 271, audit v3 RES-32) ────────────
 // Grupa `cron` = platformă → `stale` dă 503 (alertă). Pragurile sunt multipli
-// de tick-ul cron-ului (5 min) — 6 tick-uri ratate pe email = ceva e mort.
+// de tick-ul REAL al fiecărui worker din netlify.toml (email */5 → 30 min = 6
+// tick-uri ratate; sms/invoices */15 → 60 min = 4; remindere */30 → 120 min = 4).
 // Grupa `bridge` = PC-ul unui restaurant → DOAR `warn` (200): un 503 de
 // platformă pentru o casă oprită antrenează founderul să ignore /health.
 const QUEUE_STALE_S = { email: 30 * 60, sms: 60 * 60, invoices: 60 * 60, reminders: 120 * 60 }
