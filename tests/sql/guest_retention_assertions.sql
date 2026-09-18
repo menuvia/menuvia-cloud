@@ -308,6 +308,18 @@ begin
      is distinct from '{"customer_name":"[anonimizat]"}'::jsonb then
     raise exception 'GR5: o cheie deja mascata produce un rezultat DIFERIT — UPDATE-ul ar rescrie la infinit'; end if;
 
+  -- NE-obiect (scalar / array): NEATINS. Fara garda, `||` CONCATENEAZA:
+  -- `'5'::jsonb` devine `[5, {}]`, adica un instantaneu de jurnal fiscal corupt
+  -- TACIT. Azi intrarile vin din `to_jsonb(ROW)` si sunt mereu obiecte, dar
+  -- helperul e general si asta e clasa de defect pe care o vanam peste tot.
+  if public.pii_mask_jsonb('5'::jsonb, v_keys, '[anonimizat]') is distinct from '5'::jsonb then
+    raise exception 'GR5: un jsonb SCALAR a fost modificat (concatenare, nu imbinare): %',
+      public.pii_mask_jsonb('5'::jsonb, v_keys, '[anonimizat]'); end if;
+  if public.pii_mask_jsonb('["customer_name"]'::jsonb, v_keys, '[anonimizat]')
+     is distinct from '["customer_name"]'::jsonb then
+    raise exception 'GR5: un jsonb ARRAY a fost modificat: %',
+      public.pii_mask_jsonb('["customer_name"]'::jsonb, v_keys, '[anonimizat]'); end if;
+
   -- cazul viu
   if public.pii_mask_jsonb('{"customer_name":"Dan","total":5}'::jsonb, v_keys, '[anonimizat]')
      is distinct from '{"customer_name":"[anonimizat]","total":5}'::jsonb then

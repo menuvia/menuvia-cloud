@@ -133,6 +133,12 @@ set search_path = public, pg_temp
 as $fn$
   select case
     when p_data is null then null
+    -- Orice altceva decât un OBIECT se întoarce NEATINS. Fără garda asta, `||`
+    -- CONCATENEAZĂ în loc să îmbine: verificat, `'5'::jsonb` devine `[5, {}]` și
+    -- `'["customer_name"]'::jsonb` devine `["customer_name", {}]` — coruperea
+    -- TĂCUTĂ a unui instantaneu dintr-un jurnal fiscal. Azi `old_data`/`new_data`
+    -- vin din `to_jsonb(ROW)` și sunt mereu obiecte, dar helperul e general.
+    when jsonb_typeof(p_data) <> 'object' then p_data
     else p_data || coalesce(
       (select jsonb_object_agg(k, to_jsonb(p_marker))
          from unnest(p_keys) as k
