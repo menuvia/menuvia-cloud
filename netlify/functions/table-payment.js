@@ -11,6 +11,13 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+// Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
+// fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
+// (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
+// versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
+// verzi (stripe-node 14.x → '2023-10-16').
+const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
   return {
@@ -138,7 +145,7 @@ exports.handler = async (event) => {
     // cancel NU blochează nota (itemii respectivi rămân „în plată").
     const staleIntents = Array.isArray(bill.stale_split_intents) ? bill.stale_split_intents : []
     if (staleIntents.length > 0 && bill.stripe_account_id) {
-      const stripeS = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
+      const stripeS = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
       // Fiecare intent stale se anulează+settle-ază INDEPENDENT — perechea
       // cancel→settle rămâne serială per intent (settle DOAR după cancel reușit),
       // dar intent-urile diferite rulează în paralel ca nota să nu aștepte N×RTT.
@@ -199,7 +206,7 @@ exports.handler = async (event) => {
     }
     // Are intent atașat: anulăm ÎNTÂI la Stripe (dacă între timp plata a
     // reușit, Stripe refuză și clientul află că a plătit deja), apoi settle.
-    const stripeC = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
+    const stripeC = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
     try {
       await stripeC.paymentIntents.cancel(c.stripe_payment_intent_id, {
         stripeAccount: c.stripe_account_id,
@@ -257,7 +264,7 @@ exports.handler = async (event) => {
     return jsonResponse(500, { error: 'Sumă invalidă.' })
   }
 
-  const stripe = new Stripe(STRIPE_SECRET_KEY, { timeout: 6000, maxNetworkRetries: 0 })
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
 
   // 1b) Un singur intent live per sesiune (mig 211): intent-urile deschise de
   // alte telefoane la aceeași masă se anulează la Stripe ÎNAINTE de a crea

@@ -139,6 +139,15 @@ jobs:
               -v ON_ERROR_STOP=1 -q -f "$f"
           done
 
+      # Stack-ul Supabase local are pg_cron PREÎNCĂRCAT, deci mig 274 chiar a
+      # instalat extensia și a programat manifestul aici. E singurul loc din CI
+      # unde „joburile sunt programate" se verifică pe cron.job REAL (CJ12b);
+      # în sql-verify (postgres gol) aceeași suită acoperă doar simularea.
+      - name: pg_cron janitor manifest pe pg_cron REAL (mig 274, CJ12b)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/pgcron_janitors_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |

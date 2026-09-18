@@ -3,8 +3,9 @@
 # Rulat de menuvia-backup.timer; env-urile vin din /etc/menuvia/env
 # (SUPABASE_DB_URL = connection string-ul direct din Supabase Dashboard).
 #
-# Restore (testează-l măcar o dată! — criteriu Faza 1 din PLAN_10):
-#   pg_restore --clean --if-exists -d "$SUPABASE_DB_URL" /srv/menuvia/backups/<fisier>.dump
+# Restore: docs/RUNBOOK.md §6.2 (replay al lanțului → extragere SELECTIVĂ din arhivă
+# → --data-only cu triggerele dezactivate pe nume → poarta §6.3). NU
+# `pg_restore --clean --if-exists` peste un proiect nou — vezi audit v3 RES-07.
 set -euo pipefail
 
 BACKUP_DIR=/srv/menuvia/backups
@@ -19,12 +20,22 @@ mkdir -p "$BACKUP_DIR"
 STAMP=$(date +%Y%m%d-%H%M%S)
 OUT="$BACKUP_DIR/menuvia-$STAMP.dump"
 
-# --no-owner/--no-privileges: restore-ul nu depinde de rolurile Supabase interne.
-# Doar schema public — auth/storage sunt gestionate de Supabase (și se refac din
-# proiect); datele de business (comenzi, meniuri, afiliați) sunt toate în public.
+# Privilegiile SE PĂSTREAZĂ, iar dump-ul NU e limitat la `public` (audit v3
+# RES-07 — comentariul de dinainte era documentație care minte, pe ambele puncte):
+#  (a) `--no-privileges` scotea din arhivă TOT regimul de privilegii: măsurat pe
+#      replay, 0 GRANT / 0 REVOKE / 0 ALTER DEFAULT PRIVILEGES → `proacl` NULL →
+#      EXECUTE-ul implicit al lui PUBLIC revine și `anon` putea apela
+#      `accept_invite` / `change_restaurant_slug` / `build_fiscalnet_payload`.
+#  (b) `profiles.id` și `restaurant_memberships.user_id` sunt FK `ON DELETE
+#      CASCADE` către `auth.users(id)` — cu `auth.users` GOL, fiecare profil și
+#      fiecare membership e respins la restore, iar restaurantele rămân ORFANE
+#      (`restaurants.owner_id` n-are FK).
+# `--no-owner` rămâne, dar e un NO-OP măsurat pentru arhivele `-Fc`.
+# Restore: NU `pg_restore --clean --if-exists` pe un proiect nou — urmează
+# docs/RUNBOOK.md §6.2 (replay lanț → truncate seed-uri → --data-only cu
+# triggerele dezactivate pe nume → re-enable → poarta §6.3).
 pg_dump "$SUPABASE_DB_URL" \
-  --format=custom --compress=6 \
-  --schema=public --no-owner --no-privileges \
+  --format=custom --compress=6 --no-owner \
   --file="$OUT"
 
 SIZE=$(du -h "$OUT" | cut -f1)

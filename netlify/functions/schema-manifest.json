@@ -272,6 +272,12 @@
     "migration_270_money_gates_in_data",
     "migration_271_health_probes",
     "migration_272_vat_rate_snapshot",
-    "migration_273_reservation_idempotency"
+    "migration_273_reservation_idempotency",
+    "migration_274_pgcron_janitors",
+    "migration_275_pending_receipts_evidence",
+    "migration_276_oblio_receipt_mention",
+    "migration_277_receipt_verified_printed",
+    "migration_278_order_tenant_guard",
+    "migration_279_trigger_fn_execute_lockdown"
   ]
 }

@@ -7,7 +7,7 @@ SaaS HoReCa pentru cafenele și restaurante RO.
 - Supabase (Postgres + Auth + Realtime + Storage)
 - Stripe Connect + Tax
 - Netlify Functions + Cron
-- Anthropic Claude (AI import meniu)
+- OpenAI (AI import meniu din poze, `PLATFORM_OPENAI_KEY`; chei BYO per restaurant prin `ai-config`)
 - Oblio (e-Factura RO)
 
 ## Quickstart

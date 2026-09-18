@@ -1,5 +1,7 @@
 # Menuvia — Staging Checklist (cap-coadă, manual)
 
+> **Parțial stale (sept 2026):** checklist-ul a fost scris la mig 092; lanțul e la 278. Sar peste orice item despre **facturarea anuală** („Anual −17%" a fost scoasă deliberat — audit v3 rang 11) și tratează numerele de migrații de mai jos ca istorice. Testul uman CURENT e BLOC 3 din `docs/PLAN_0_TO_HERO.md`.
+
 > Rulezi asta pe staging înainte de demo. Bifezi tot. Ce pică → notezi în
 > secțiunea „Bug-uri găsite" de la final și repari DOAR ce blochează
 > demo/vânzare. Fiecare item are forma: acțiune → ce trebuie să vezi.

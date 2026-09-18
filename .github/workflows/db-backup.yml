@@ -17,7 +17,9 @@ name: DB Backup
 # upload. Restaurare:
 #   openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
 #     -in menuvia-YYYY-MM-DD.dump.enc -out menuvia.dump
-#   pg_restore -d <target> --clean --if-exists menuvia.dump
+#   RESTORE: NU `pg_restore --clean --if-exists` pe un proiect nou — urmează
+#   docs/RUNBOOK.md §6.2 (replay migrații → truncate seed-uri → --data-only cu
+#   triggerele dezactivate pe nume → re-enable → poarta §6.3, audit v3 RES-07).
 
 on:
   schedule:
@@ -74,7 +76,10 @@ jobs:
           set -euo pipefail
           STAMP="$(date -u +%Y-%m-%d)"
           # Format custom (-Fc): comprimat + restaurabil selectiv cu pg_restore.
-          pg_dump "$DB_URL" -Fc --no-owner --no-privileges -f "menuvia-$STAMP.dump"
+          # FĂRĂ `--no-privileges`: scotea TOT regimul de privilegii din arhivă
+          # (audit v3 RES-07 — vezi docs/RUNBOOK.md §6.1). `--no-owner` e oricum un
+          # NO-OP măsurat pe `-Fc`.
+          pg_dump "$DB_URL" -Fc --no-owner -f "menuvia-$STAMP.dump"
           openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
             -in "menuvia-$STAMP.dump" -out "menuvia-$STAMP.dump.enc"
           rm "menuvia-$STAMP.dump"
