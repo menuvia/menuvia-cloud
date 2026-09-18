@@ -237,6 +237,12 @@ begin
   -- 4) Coada de email — DOAR rânduri terminale. `queued`/`sending` sunt muncă
   --    în curs; golirea destinatarului acolo ar trimite un email către
   --    „[anonimizat]" sau l-ar pierde. `dedup_key` rămâne NEATINS.
+  --    GOL CONSEMNAT: un rând blocat în `sending` pentru totdeauna (worker ucis
+  --    după ce a epuizat reclaim-urile) nu ajunge niciodată terminal, deci
+  --    PII-ul lui rămâne. NU se acoperă aici, fiindcă anonimizarea lui ar rupe
+  --    reclaim-ul din 242 (destinatarul ar dispărea înainte de ultima
+  --    încercare). Condiția e VIZIBILĂ, nu tăcută: sonda de backlog din mig 271
+  --    numără exact rândurile `sending` mai vechi de 10 minute.
   update public.email_queue e
      set recipient_email = v_marker,
          recipient_name  = null,
@@ -292,6 +298,18 @@ begin
   );
 end;
 $fn$;
+
+-- Plafoane pe FUNCȚIE, nu pe tranzacția apelantului: sub pg_cron nimeni nu pune
+-- `set local`, iar un UPDATE care așteaptă la nesfârșit după un lacăt ține o
+-- tranzacție deschisă, ceea ce blochează `vacuum` pe `orders`/`audit_log` —
+-- adică un janitor de igienă ar produce exact problema de întreținere pe care
+-- ar trebui s-o prevină. La expirare rularea se rulează înapoi ÎNTREAGĂ și se
+-- vede din afară (jobul eșuat → `/health` → `checks.pgcron`), conform modelului
+-- de eșec de mai sus; următorul tick zilnic reia de la zero, fiindcă predicatele
+-- sunt auto-consumate.
+alter function public.anonymize_guest_pii(integer, integer, integer)
+  set lock_timeout = '10s'
+  set statement_timeout = '600s';
 
 comment on function public.anonymize_guest_pii(integer, integer, integer) is
   'mig 280 (RES-33): pseudonimizeaza PII-ul oaspetilor dupa p_months (decizie fondator: 12), cozile de livrare terminale dupa p_queue_days si identificatorii tehnici dupa p_tech_days. Nu sterge niciun rand. Mascheaza si instantaneele din audit_log ale comenzilor anonimizate (doua chei), altfel pasul pe orders e teatru. Toate predicatele sunt auto-consumate: a doua rulare atinge zero randuri.';

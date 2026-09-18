@@ -428,6 +428,19 @@ begin
                     and array_to_string(proconfig, ',') like '%pg_temp%') then
     raise exception 'GR9: janitorul nu are search_path = public, pg_temp'; end if;
 
+  -- Plafoanele de lacăt/instrucțiune sunt pe FUNCȚIE: sub pg_cron nimeni nu pune
+  -- `set local`, iar un UPDATE care așteaptă la nesfârșit ține o tranzacție
+  -- deschisă și blochează `vacuum` pe `orders`/`audit_log`. O recreare care le
+  -- pierde readuce exact asta, tăcut.
+  if not exists (select 1 from pg_proc
+                  where oid = 'public.anonymize_guest_pii(integer,integer,integer)'::regprocedure
+                    and array_to_string(proconfig, ',') like '%lock_timeout=%') then
+    raise exception 'GR9: janitorul nu mai are lock_timeout pe functie — poate astepta la nesfarsit dupa un lacat'; end if;
+  if not exists (select 1 from pg_proc
+                  where oid = 'public.anonymize_guest_pii(integer,integer,integer)'::regprocedure
+                    and array_to_string(proconfig, ',') like '%statement_timeout=%') then
+    raise exception 'GR9: janitorul nu mai are statement_timeout pe functie'; end if;
+
   select * into v_m from public.pg_cron_janitor_manifest where job_name = 'menuvia_janitor_guest_pii';
   if v_m.job_name is null then
     raise exception 'GR9: jobul lipseste din manifestul pg_cron — retentia nu ruleaza nicaieri'; end if;
