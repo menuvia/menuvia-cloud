@@ -82,6 +82,19 @@
 --   • ștergerea conturilor (Art. 17) rămâne `process_account_deletions`, în
 --     denylist-ul pg_cron din mig 274 (cale ireversibilă, decizie separată).
 --
+-- ── Modelul de eșec, deliberat ATOMIC și ZGOMOTOS ────────────────────────────
+-- Tot janitorul e o singură tranzacție: dacă o găleată aruncă, TOATE se rulează
+-- înapoi și jobul pg_cron e marcat eșuat, iar `/health` → `checks.pgcron` trece
+-- pe `failing` (și pe `stale` dacă nu mai reușește în fereastră) — deci se vede
+-- de AFARĂ, prin health-watch. Alternativa — fiecare pas într-un `begin …
+-- exception` — ar produce o retenție PARȚIALĂ raportată ca succes, adică exact
+-- modul de eșec pe care o obligație de conformitate nu-l suportă.
+-- Singura cale prin care un rând poate deveni ne-actualizabil e ca
+-- `trg_enforce_order_table_tenant` / `trg_reservation_table_tenant` (BEFORE
+-- UPDATE pe TOATE coloanele) să respingă o masă ajunsă la alt restaurant. Nu
+-- există scriitor care să mute o masă între restaurante, iar FK-ul împiedică
+-- referința suspendată — dacă totuși apare, alarma de mai sus e cea care spune.
+--
 -- Teste permanente: tests/sql/guest_retention_assertions.sql (GR1–GR10).
 -- =============================================================================
 
