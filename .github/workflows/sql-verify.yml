@@ -1599,6 +1599,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/order_tenant_guard_assertions.sql
 
+      # NECONDIȚIONAT (mig 280): retenția PII a oaspeților. GR10 e clichet de
+      # CLASĂ — o tabelă VIITOARE cu o coloană de identitate face pasul roșu
+      # până primește ori acoperire în janitor, ori o scutire cu motiv.
+      - name: "Guest PII retention assertions (mig 280, GR1–GR10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/guest_retention_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:

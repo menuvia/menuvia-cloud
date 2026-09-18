@@ -87,6 +87,26 @@ Plata cu cardul la masă se procesează prin **Stripe Connect**: banii ajung dir
 
 **f) Feedback și bacșiș (tips)** — dacă lăsați feedback sau bacșiș prin Platformă, se rețin conținutul feedback-ului și valoarea bacșișului, asociate comenzii.
 
+**g) Cât timp păstrăm aceste date — retenția implicită a Platformei**
+
+Duratele de mai jos sunt **comportamentul implicit al Platformei** și se aplică automat, printr-un proces zilnic care rulează în baza de date. Restaurantul (operatorul) poate stabili prin DPA durate mai scurte.
+
+| Ce | Cât | Ce se întâmplă la expirare |
+|---|---|---|
+| Nume, telefon, e-mail și preferințele din **rezervări** | **12 luni** de la data rezervării | Câmpurile de identificare sunt înlocuite cu „[anonimizat]", respectiv golite. Rezervarea în sine rămâne (dată, oră, număr de persoane, status), fără nicio legătură cu dvs. |
+| Nume și telefon de la **comenzile pickup** | **12 luni** de la încasare (sau de la plasare, dacă nu a existat încasare) | Identic: numele devine „[anonimizat]", telefonul se golește. Comanda rămâne, ca document de business |
+| Destinatarul și conținutul **e-mailurilor și SMS-urilor** deja trimise (sau eșuate/anulate) | **90 de zile** | Adresa/numărul și datele din șablon se golesc. Rândul rămâne exclusiv ca **jeton tehnic anti-dublare**, ca să nu vă retrimitem același mesaj |
+| **Adresa IP și identificatorul de browser (user-agent)** de la feedback și de la scanările QR | **30 de zile** | Se șterg complet. Sunt colectate doar ca semnal anti-abuz, iar utilitatea lor dispare odată cu recența |
+| Evidența de **fidelizare (loyalty)** | — | Nu conține numere de telefon lizibile: doar amprenta criptografică descrisă la (d) |
+
+Trei precizări de transparență, ca să nu promitem mai mult decât facem:
+
+1. **Pseudonimizare, nu ștergere.** Rândurile tranzacționale (rezervarea, comanda) **rămân** după expirare — sunt documente de business, iar comenzile plătite intră și sub obligația fiscală de la 3.5. Ce dispare este legătura dintre ele și dvs.
+2. **Jurnalul de audit.** Modificările asupra comenzilor sunt înregistrate într-un jurnal de securitate și trasabilitate (3.1). Atunci când o comandă e anonimizată, **numele și telefonul sunt mascate și în instantaneele din jurnal**, nu doar în comandă; restul instantaneului (sume, statusuri, momente) se păstrează, fiindcă el este chiar dovada cerută de trasabilitatea fiscală.
+3. **Bonul fiscal și factura.** Dacă pentru comanda dvs. s-a emis bon fiscal sau factură, documentul respectiv intră sub retenția de **10 ani** de la 3.5 și nu este atins de termenele de mai sus.
+
+Dacă vreți ștergerea datelor înainte de aceste termene, vezi secțiunea 5 (drepturile dvs.); cererea se adresează **restaurantului**, care este operatorul, iar noi o executăm la indicația lui.
+
 ### 3.3. Lead-uri de pe pagina /recrutare și comenzile Codvia
 
 Dacă completați formularul de contact de pe pagina de recrutare parteneri sau plasați o comandă de materiale Codvia (ex. suporturi QR pre-tipărite), Menuvia este **operator** și prelucrează:

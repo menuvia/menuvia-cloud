@@ -148,6 +148,15 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/pgcron_janitors_assertions.sql
 
+      # Aceeași suită, pe stack-ul REAL: mig 280 chiar a programat jobul de
+      # retenție în cron.job aici, iar default privileges ale Supabase re-acordă
+      # EXECUTE pe orice funcție NOUĂ — sql-verify (postgres gol, fără
+      # default-uri) e ORB la clasa aia, exact ce a prins CJ9 la mig 274.
+      - name: Retenția PII pe stack-ul Supabase real (mig 280, GR1–GR10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/guest_retention_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
