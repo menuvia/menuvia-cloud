@@ -11,6 +11,7 @@ import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { toRomaniaYMD } from '../lib/dates'
+import { aggregateVatReport } from '../lib/vat'
 
 interface VatRow {
   restaurant_id: string
@@ -73,30 +74,10 @@ export default function VatReportTab({ restaurantId }: Props) {
     void load()
   }, [restaurantId, from, to]) // eslint-disable-line
 
-  // Aggregations
-  const byVatGroup = new Map<
-    number,
-    { gross: number; vat: number; net: number; rate: number; label: string }
-  >()
-  let totalGross = 0,
-    totalVat = 0,
-    totalNet = 0
-  for (const r of rows) {
-    const existing = byVatGroup.get(r.vat_group) ?? {
-      gross: 0,
-      vat: 0,
-      net: 0,
-      rate: r.vat_rate_percent,
-      label: r.vat_label,
-    }
-    existing.gross += Number(r.gross_total)
-    existing.vat += Number(r.vat_amount)
-    existing.net += Number(r.net_total)
-    byVatGroup.set(r.vat_group, existing)
-    totalGross += Number(r.gross_total)
-    totalVat += Number(r.vat_amount)
-    totalNet += Number(r.net_total)
-  }
+  // Agregare pe (grupă, cotă) — după o schimbare de cotă aceeași grupă are
+  // două rânduri cu cote diferite (snapshot la vânzare, mig 272); cheia doar pe
+  // grupă le însuma sub eticheta primului rând. Helper pur, testat în vat.test.ts.
+  const { byRate, totalGross, totalVat, totalNet } = aggregateVatReport(rows)
 
   function exportCsv() {
     // CSV with header + rows + totals
@@ -142,7 +123,7 @@ export default function VatReportTab({ restaurantId }: Props) {
     // Aggregated totals
     lines.push('')
     lines.push(row(['TOTAL PER COTA TVA', '', '', '', '', '', '']))
-    for (const agg of [...byVatGroup.values()].sort((a, b) => a.rate - b.rate)) {
+    for (const agg of byRate) {
       lines.push(
         row([
           '',
@@ -358,49 +339,47 @@ export default function VatReportTab({ restaurantId }: Props) {
               gap: 10,
             }}
           >
-            {[...byVatGroup.entries()]
-              .sort(([, a], [, b]) => a.rate - b.rate)
-              .map(([group, agg]) => (
+            {byRate.map((agg) => (
+              <div
+                key={`${agg.vat_group}:${agg.rate}`}
+                style={{
+                  background: D.s2,
+                  border: `1px solid ${D.border}`,
+                  borderRadius: 12,
+                  padding: '14px 16px',
+                }}
+              >
                 <div
-                  key={group}
                   style={{
-                    background: D.s2,
-                    border: `1px solid ${D.border}`,
-                    borderRadius: 12,
-                    padding: '14px 16px',
+                    fontSize: '0.7rem',
+                    fontWeight: 600,
+                    color: D.t3,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.07em',
+                    marginBottom: 4,
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      color: D.t3,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {agg.rate}% {agg.label}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'Fraunces,serif',
-                      fontSize: '1.3rem',
-                      fontWeight: 700,
-                      color: D.t1,
-                      letterSpacing: '-0.02em',
-                      marginBottom: 4,
-                    }}
-                  >
-                    {fmt(agg.gross)} lei
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
-                    TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
-                    <br />
-                    Net: {fmt(agg.net)}
-                  </div>
+                  {agg.rate}% {agg.label}
                 </div>
-              ))}
+                <div
+                  style={{
+                    fontFamily: 'Fraunces,serif',
+                    fontSize: '1.3rem',
+                    fontWeight: 700,
+                    color: D.t1,
+                    letterSpacing: '-0.02em',
+                    marginBottom: 4,
+                  }}
+                >
+                  {fmt(agg.gross)} lei
+                </div>
+                <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5 }}>
+                  TVA: <strong style={{ color: D.gold }}>{fmt(agg.vat)}</strong>
+                  <br />
+                  Net: {fmt(agg.net)}
+                </div>
+              </div>
+            ))}
             <div
               style={{
                 background: D.goldA,
@@ -539,8 +518,8 @@ export default function VatReportTab({ restaurantId }: Props) {
             </span>
             <span>
               <strong>Ce face contabilul cu acest raport:</strong> introduce sumele în softul de
-              contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se deschide
-              direct în Excel sau Google Sheets.
+              contabilitate (SAGA, ContaPC, NextUp), grupate pe cota TVA. CSV-ul exportat se
+              deschide direct în Excel sau Google Sheets.
             </span>
           </div>
         </>

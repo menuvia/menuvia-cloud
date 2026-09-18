@@ -16,6 +16,20 @@
 --        FINAL (clientul face cast, deci ordinea veche nu se atinge).
 --   OB6  suprafață: claim-ul e service_role EXCLUSIV; lista e authenticated,
 --        nu anon.
+--   OB7  (mig 276 / RES-18) claim-ul poartă bonul fiscal al comenzii:
+--        `receipt_bon_number` + `receipt_printed_at` (= claimed_at, cu
+--        completed_at ca rezervă) din rândul `success` cel mai recent; un
+--        `cancelled` mai nou cu bon și un success mai vechi NU contează; fără
+--        niciun rând → NULL. (Parazitul altui tenant e respins în DATE de mig
+--        278 — TG1; scope-ul lateralului rămâne ținut de OB8.)
+--   OB8  contractul de coloane al claim-ului: EXACT o semnătură, 21 de coloane,
+--        cele două noi la FINAL, invariantele lanțului în corp (clichet VIU —
+--        verificările din corpul mig 276 rulează o singură dată).
+--   OB9  o factură a cărei comandă are un bon în TRANZIT (pending/sent/error)
+--        NU se revendică; iese la primul claim de după success (cu bon) sau
+--        cancelled (fără bon). Success-ul vine pe calea REALĂ de recuperare
+--        (mig 277: error+marker → bridge_force_resolve_stuck), cu ziua
+--        tipăririi (claimed_at) pe factură.
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -195,6 +209,167 @@ begin
   if has_function_privilege('anon','public.list_invoices_for_restaurant(uuid, integer, integer)','EXECUTE') then
     raise exception 'OB6 FAIL: anon poate lista facturi'; end if;
   raise notice 'OB6 OK: claim service_role-only, listă authenticated';
+end $$;
+
+-- ── OB7: bonul fiscal al comenzii ajunge în claim (mig 276 / RES-18) ─────────
+-- Fixtura e construită ca fiecare predicat al lateralului să aibă un rând care
+-- l-ar contrazice (verificat prin mutație — fără rândurile astea testul era
+-- VACUU pe filtrul de status, pe tenant, pe ordine și pe momentul tipăririi):
+--   d7 @ restaurantul 1:  success 0007 (mai VECHI)      → ordinea alege 0042
+--                         success 0042 claimed 11.03 21:03, completed 12.03 00:30
+--                                                       → printed_at = claimed_at
+--                         cancelled 9999 (cel mai NOU, cu bon) → status ≠ success
+--   d8: niciun rând → claim cu NULL (comandă fără bridge → fără bon, ca înainte)
+-- Rândul-parazit al ALTUI restaurant pe d7 (success 666, cel mai nou) a stat
+-- aici până la mig 278: gate-ul de tenant din DATE îl respinge acum la INSERT
+-- (TG1 îl acoperă sub rolul real), deci nu mai poate fi construit — predicatul
+-- `r.restaurant_id = c.restaurant_id` din lateral rămâne ca a doua centură și e
+-- ținut de OB8 (literal), nu de o fixtură.
+do $$
+declare v_bon text; v_at timestamptz; v_n int;
+begin
+  insert into public.orders (id, restaurant_id, source, status, payment_method,
+                             paid_amount, created_at, paid_at)
+  values ('8e000000-0000-4000-8000-0000000000d7','8e000000-0000-4000-8000-000000000001',
+          'waiter','paid','cash',100,'2026-03-11 20:00:00+02','2026-03-11 21:00:00+02'),
+         ('8e000000-0000-4000-8000-0000000000d8','8e000000-0000-4000-8000-000000000001',
+          'waiter','paid','cash',100,'2026-03-11 20:10:00+02','2026-03-11 21:10:00+02');
+  insert into public.pending_receipts (restaurant_id, order_id, payload, status, bon_number,
+                                       total_snapshot, created_at, claimed_at, completed_at)
+  values ('8e000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-0000000000d7',
+          'S^x', 'success', '0007', 100, '2026-03-11 20:30:00+02', '2026-03-11 20:31:00+02', '2026-03-11 20:32:00+02'),
+         ('8e000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-0000000000d7',
+          'S^x', 'success', '0042', 100, '2026-03-11 21:01:00+02', '2026-03-11 21:03:00+02', '2026-03-12 00:30:00+02'),
+         ('8e000000-0000-4000-8000-000000000001','8e000000-0000-4000-8000-0000000000d7',
+          'S^x', 'cancelled', '9999', 100, '2026-03-12 01:40:00+02', null, '2026-03-12 01:41:00+02');
+  insert into public.invoices (id, restaurant_id, order_id, customer_name, is_b2b,
+                               total_with_vat, status, created_at)
+  values ('8e000000-0000-4000-8000-0000000000f7','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000d7','Client OB7', true, 100, 'queued', now()),
+         ('8e000000-0000-4000-8000-0000000000f8','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000d8','Client OB8', true, 100, 'queued', now());
+
+  create temp table ob7_claim on commit drop as
+    select * from public.bridge_oblio_get_queued(10);
+
+  select count(*) into v_n from ob7_claim
+   where invoice_id in ('8e000000-0000-4000-8000-0000000000f7','8e000000-0000-4000-8000-0000000000f8');
+  if v_n <> 2 then
+    raise exception 'OB7 FAIL: claim-ul a întors % din cele 2 facturi (join-ul pe bon a pierdut rânduri?)', v_n; end if;
+
+  select receipt_bon_number, receipt_printed_at into v_bon, v_at
+    from ob7_claim where invoice_id = '8e000000-0000-4000-8000-0000000000f7';
+  if v_bon is distinct from '0042' then
+    raise exception 'OB7 FAIL: receipt_bon_number = % (așteptat 0042: success-ul cel mai recent — nu 0007/vechi, nu 9999/cancelled)', v_bon; end if;
+  if v_at is distinct from timestamptz '2026-03-11 21:03:00+02' then
+    raise exception 'OB7 FAIL: receipt_printed_at = % (așteptat claimed_at 2026-03-11 21:03 EET, nu completed_at de a doua zi)', v_at; end if;
+
+  select receipt_bon_number, receipt_printed_at into v_bon, v_at
+    from ob7_claim where invoice_id = '8e000000-0000-4000-8000-0000000000f8';
+  if v_bon is not null or v_at is not null then
+    raise exception 'OB7 FAIL: comanda FĂRĂ niciun bon raportează bon % / % — mențiunea ar minți', v_bon, v_at; end if;
+  raise notice 'OB7 OK: bonul e success-ul cel mai recent al restaurantului (0042 @ claimed_at), NULL fără rânduri';
+end $$;
+
+-- ── OB8: contractul de coloane + invariantele lanțului (clichet VIU) ─────────
+do $$
+declare v_cols text[]; v_src text; v_sig text; v_n int;
+begin
+  select count(*) into v_n
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'bridge_oblio_get_queued';
+  if v_n <> 1 then
+    raise exception 'OB8 FAIL: % semnaturi pentru bridge_oblio_get_queued (PGRST203 la orice apel)', v_n; end if;
+
+  select array_agg(u.nm order by u.ord) into v_cols
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace,
+    lateral unnest(p.proargnames, p.proargmodes) with ordinality as u(nm, md, ord)
+   where n.nspname = 'public' and p.proname = 'bridge_oblio_get_queued' and u.md = 't';
+  if array_length(v_cols, 1) <> 21
+     or v_cols[1]  is distinct from 'invoice_id'
+     or v_cols[19] is distinct from 'order_paid_at'
+     or v_cols[20] is distinct from 'receipt_bon_number'
+     or v_cols[21] is distinct from 'receipt_printed_at' then
+    raise exception 'OB8 FAIL: contractul de coloane al claim-ului s-a schimbat: %', v_cols; end if;
+
+  select pg_get_functiondef(p.oid) into v_src
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'bridge_oblio_get_queued';
+  foreach v_sig in array array['for update skip locked', 'generating_since',
+                               'failed_attempts < 3', 'next_attempt_at', 'oc.is_active',
+                               'order by i.created_at asc', 'public.pending_receipts',
+                               'r.status = ''success''', 'r.bon_number is not null',
+                               'r.restaurant_id = c.restaurant_id',
+                               'r.restaurant_id = i.restaurant_id',
+                               'r.status in (''pending'', ''sent'', ''error'')',
+                               'coalesce(r.claimed_at, r.completed_at)',
+                               'order by r.completed_at desc nulls last, r.created_at desc'] loop
+    if position(v_sig in v_src) = 0 then
+      raise exception 'OB8 FAIL: claim-ul a pierdut invariantul "%"', v_sig; end if;
+  end loop;
+  raise notice 'OB8 OK: o singură semnătură, 21 de coloane cu bonul la final, invariantele în corp';
+end $$;
+
+-- ── OB9: bon în TRANZIT → factura așteaptă (mig 276, punctul 2) ─────────────
+do $$
+declare v_n int; v_bon text; v_st text; v_at timestamptz;
+begin
+  insert into public.orders (id, restaurant_id, source, status, payment_method,
+                             paid_amount, created_at, paid_at)
+  values ('8e000000-0000-4000-8000-0000000000d9','8e000000-0000-4000-8000-000000000001',
+          'waiter','paid','cash',100,'2026-03-12 20:00:00+02','2026-03-12 21:00:00+02'),
+         ('8e000000-0000-4000-8000-0000000000da','8e000000-0000-4000-8000-000000000001',
+          'waiter','paid','cash',100,'2026-03-12 20:10:00+02','2026-03-12 21:10:00+02');
+  insert into public.pending_receipts (id, restaurant_id, order_id, payload, status, total_snapshot, created_at)
+  values ('8e000000-0000-4000-8000-0000000000e9','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000d9','S^x','pending',100,'2026-03-12 21:00:30+02'),
+         ('8e000000-0000-4000-8000-0000000000ea','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000da','S^x','pending',100,'2026-03-12 21:10:30+02');
+  insert into public.invoices (id, restaurant_id, order_id, customer_name, is_b2b,
+                               total_with_vat, status, created_at)
+  values ('8e000000-0000-4000-8000-0000000000f9','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000d9','Client OB9', true, 100, 'queued', now()),
+         ('8e000000-0000-4000-8000-0000000000fa','8e000000-0000-4000-8000-000000000001',
+          '8e000000-0000-4000-8000-0000000000da','Client OB9b', true, 100, 'queued', now());
+
+  -- pending → sent → error: niciuna nu se revendică, factura rămâne `queued`.
+  foreach v_st in array array['pending', 'sent', 'error'] loop
+    update public.pending_receipts set status = v_st
+     where id = '8e000000-0000-4000-8000-0000000000e9';
+    select count(*) into v_n from public.bridge_oblio_get_queued(10)
+     where invoice_id = '8e000000-0000-4000-8000-0000000000f9';
+    if v_n <> 0 then
+      raise exception 'OB9 FAIL: factura a fost revendicată cu bonul în %, mențiunea s-ar pierde pentru totdeauna', v_st; end if;
+  end loop;
+  select status::text into v_st from public.invoices where id = '8e000000-0000-4000-8000-0000000000f9';
+  if v_st <> 'queued' then
+    raise exception 'OB9 FAIL: factura amânată nu mai e queued (%)', v_st; end if;
+
+  -- Recuperarea REALĂ (mig 277): rândul e `error` + marker POSIBIL DUPLICAT
+  -- (bridge-ul a murit după ce casa a tipărit); adminul verifică banda și
+  -- înregistrează bonul 0077 → claim-ul iese cu bonul și cu ziua TIPĂRIRII
+  -- (claimed_at), nu cu ziua în care a apăsat adminul (completed_at = now()).
+  update public.pending_receipts
+     set error_info = 'POSIBIL DUPLICAT — verifică banda casei: RESPONSE_TIMEOUT',
+         claimed_at = '2026-03-12 21:02:00+02'
+   where id = '8e000000-0000-4000-8000-0000000000e9';
+  perform set_config('request.jwt.claim.sub', '8e000000-0000-4000-8000-0000000000a0', true);
+  perform public.bridge_force_resolve_stuck('8e000000-0000-4000-8000-0000000000e9', true, '0077');
+  select receipt_bon_number, receipt_printed_at into v_bon, v_at from public.bridge_oblio_get_queued(10)
+   where invoice_id = '8e000000-0000-4000-8000-0000000000f9';
+  if v_bon is distinct from '0077' then
+    raise exception 'OB9 FAIL: după înregistrarea bonului verificat pe bandă factura nu iese cu el (%)', v_bon; end if;
+  if v_at is distinct from timestamptz '2026-03-12 21:02:00+02' then
+    raise exception 'OB9 FAIL: ziua de pe factură e % (așteptat claimed_at 21:02, nu momentul apăsării)', v_at; end if;
+
+  -- cancelled (fără bon) → NU e în tranzit: se revendică fără mențiune.
+  update public.pending_receipts set status = 'cancelled'
+   where id = '8e000000-0000-4000-8000-0000000000ea';
+  select count(*), max(receipt_bon_number) into v_n, v_bon from public.bridge_oblio_get_queued(10)
+   where invoice_id = '8e000000-0000-4000-8000-0000000000fa';
+  if v_n <> 1 or v_bon is not null then
+    raise exception 'OB9 FAIL: bon cancelled → factura ar trebui revendicată fără mențiune (n=%, bon=%)', v_n, v_bon; end if;
+  raise notice 'OB9 OK: pending/sent/error amână factura; success o eliberează cu bon, cancelled fără';
 end $$;
 
 rollback;

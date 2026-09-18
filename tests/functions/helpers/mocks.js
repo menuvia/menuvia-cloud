@@ -30,6 +30,11 @@ const state = {
   stripeImpls: Object.create(null),
   stripeCalls: [],
   stripeCtors: [],
+  // supabase.auth.getUser(token): userul întors, sau o funcție (token) =>
+  // {data,error}. `null` (implicit) = token invalid — fail-closed, ca un test
+  // care uită să scripteze autentificarea să nu treacă din greșeală.
+  authUser: null,
+  authCalls: [],
 }
 
 function resetMocks() {
@@ -40,6 +45,8 @@ function resetMocks() {
   state.stripeImpls = Object.create(null)
   state.stripeCalls = []
   state.stripeCtors = []
+  state.authUser = null
+  state.authCalls = []
 }
 
 // ── Fake supabase-js ─────────────────────────────────────────────────────────
@@ -49,7 +56,21 @@ function resetMocks() {
 // select(.single()) pe aceeași tabelă.
 // `abortSignal` e in lant fiindca /health il foloseste pe ping-ul DB si pe
 // prospetimea cron-ului (timeout defensiv, nu Promise.race).
-const CHAIN_METHODS = ['insert', 'update', 'select', 'eq', 'neq', 'single', 'limit', 'order', 'is', 'in', 'gte', 'lte', 'abortSignal']
+const CHAIN_METHODS = [
+  'insert',
+  'update',
+  'select',
+  'eq',
+  'neq',
+  'single',
+  'limit',
+  'order',
+  'is',
+  'in',
+  'gte',
+  'lte',
+  'abortSignal',
+]
 
 function makeBuilder(table) {
   const ops = []
@@ -101,6 +122,15 @@ const fakeSupabaseModule = {
       return thenable
     },
     from: (table) => makeBuilder(table),
+    auth: {
+      getUser: async (token) => {
+        state.authCalls.push({ token })
+        const h = state.authUser
+        if (typeof h === 'function') return h(token)
+        if (h) return { data: { user: h }, error: null }
+        return { data: { user: null }, error: { message: 'invalid token' } }
+      },
+    },
   }),
 }
 
@@ -124,7 +154,26 @@ function FakeStripe(key, opts) {
       create: stripeMethod('paymentIntents.create'),
       cancel: stripeMethod('paymentIntents.cancel'),
     },
-    subscriptions: { retrieve: stripeMethod('subscriptions.retrieve') },
+    subscriptions: {
+      retrieve: stripeMethod('subscriptions.retrieve'),
+      // `list()` NU e async în stripe-node: întoarce un obiect paginabil, iar
+      // stripe-checkout cheamă `.autoPagingToArray({limit})` pe el. Impl-ul
+      // scriptat primește argumentele listei + opțiunile de paginare.
+      list: (...args) => {
+        state.stripeCalls.push({ name: 'subscriptions.list', args })
+        return {
+          autoPagingToArray: async (opts) => {
+            const impl = state.stripeImpls['subscriptions.list']
+            if (!impl) throw new Error("stripe mock: 'subscriptions.list' nescriptat în acest test")
+            return impl(...args, opts)
+          },
+        }
+      },
+    },
+    customers: {
+      create: stripeMethod('customers.create'),
+      del: stripeMethod('customers.del'),
+    },
     refunds: { list: stripeMethod('refunds.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {

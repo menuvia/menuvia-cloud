@@ -54,7 +54,7 @@ create table public.restaurant_subscriptions (
   updated_at             timestamptz not null default now()
 );
 -- RLS: SELECT prin is_member(restaurant_id); scrieri DOAR service_role/RPC
--- (același regim ca profiles.plan azi — vezi authorization_phase_1a_assertions.sql:61-65).
+-- (același regim ca profiles.plan azi — vezi RP4 din tests/sql/privilege_regime_assertions.sql — whitelist EXACT de coloane UPDATE pe profiles).
 ```
 
 Rezolvarea planului devine o singură funcție nouă, cu fallback:

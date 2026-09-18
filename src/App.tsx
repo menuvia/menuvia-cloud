@@ -4,6 +4,8 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
+import TermsAcceptanceGate, { ROUTE_CHANGE_EVENT } from './components/TermsAcceptanceGate'
+import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
 import { getStoredReferral, getVisitorId } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
@@ -292,6 +294,12 @@ function AppRouter() {
   const navigate = (path: string) => {
     window.history.pushState({}, '', path)
     setState(parsePath())
+    // `pushState` NU emite `popstate`, iar componentele montate în AFARA
+    // routerului (TermsAcceptanceGate) nu se re-randează la un setState de
+    // aici. Fără anunț, gate-ul rămânea cu ruta de la montare: cine intra pe
+    // /auth și se autentifica avea gate-ul suprimat toată sesiunea, deci
+    // consimțământul nu se mai consemna deloc (recenzie CodeRabbit pe #261).
+    window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
   }
   const replace = (path: string) => {
     window.history.replaceState({}, '', path)
@@ -466,10 +474,7 @@ function AppRouter() {
     state.view === 'vertical-cafenele'
   ) {
     // 'vertical-hoteluri' → 'hoteluri' (cheia de config din VerticalPage)
-    const vertical = state.view.replace('vertical-', '') as
-      | 'hoteluri'
-      | 'terase'
-      | 'cafenele'
+    const vertical = state.view.replace('vertical-', '') as 'hoteluri' | 'terase' | 'cafenele'
     return (
       <Suspense fallback={<PageSpinner />}>
         <VerticalPage vertical={vertical} navigate={navigate} />
@@ -543,15 +548,21 @@ function AppRouter() {
               navigate('/auth?plan=' + encodeURIComponent(plan) + '&lang=ro')
               return
             }
+            const {
+              data: { session: s },
+            } = await supabase.auth.getSession()
+            // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
+            // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
+            const referralCode = getStoredReferral()
+            const visitorId = getVisitorId()
+
+            // Orice eșec ARUNCĂ un CheckoutError cu mesaj în română — pagina
+            // de prețuri îl afișează. Înainte, tot ce nu era `url` sau exact
+            // „Stripe not configured" nu producea NIMIC vizibil: omul apăsa
+            // „Activează", nu se întâmpla nimic și pleca (audit v3).
+            let res: Response
             try {
-              const {
-                data: { session: s },
-              } = await supabase.auth.getSession()
-              // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
-              // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
-              const referralCode = getStoredReferral()
-              const visitorId = getVisitorId()
-              const res = await fetch(fnUrl('stripe-checkout'), {
+              res = await fetch(fnUrl('stripe-checkout'), {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -563,12 +574,28 @@ function AppRouter() {
                   ...(visitorId ? { visitor_id: visitorId } : {}),
                 }),
               })
-              const d = await res.json()
-              if (d.url) window.location.href = d.url
-              else if (d.error === 'Stripe not configured') navigate('/dashboard')
             } catch {
-              navigate('/dashboard')
+              // Rețea căzută / funcție inexistentă: status 0 = „n-am ajuns".
+              throw new CheckoutError(describeCheckoutFailure(0, null))
             }
+
+            // 405 întoarce text simplu, nu JSON — parse-ul nu are voie să
+            // transforme un răspuns cunoscut într-o eroare de rețea.
+            let payload: unknown
+            try {
+              payload = await res.json()
+            } catch {
+              payload = null
+            }
+
+            if (res.ok) {
+              const url = readCheckoutUrl(payload)
+              if (url) {
+                window.location.href = url
+                return
+              }
+            }
+            throw new CheckoutError(describeCheckoutFailure(res.ok ? 200 : res.status, payload))
           }}
         />
       </Suspense>
@@ -647,42 +674,42 @@ function AppRouter() {
     }
     return (
       <Suspense fallback={<PageSpinner />}>
-      <AuthPage
-        onSuccess={() => {
-          // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
-          // înapoi la pricing — onCheckout va detecta că e logat și va sări
-          // la Stripe. Fără intent, mergem la dashboard ca până acum.
-          let intent: string | null = null
-          let afiliatIntent: string | null = null
-          try {
-            intent = sessionStorage.getItem('menuvia.plan_intent')
-            afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
-          } catch {
-            /* ignore (private mode) */
-          }
-          if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
-            navigate('/pricing')
-            return
-          }
-          // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
-          // (altfel ateriza pe dashboard și pierdea complet firul înscrierii).
-          if (afiliatIntent === '1') {
+        <AuthPage
+          onSuccess={() => {
+            // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
+            // înapoi la pricing — onCheckout va detecta că e logat și va sări
+            // la Stripe. Fără intent, mergem la dashboard ca până acum.
+            let intent: string | null = null
+            let afiliatIntent: string | null = null
             try {
-              sessionStorage.removeItem('menuvia.afiliat_intent')
+              intent = sessionStorage.getItem('menuvia.plan_intent')
+              afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
             } catch {
-              /* ignore */
+              /* ignore (private mode) */
             }
-            navigate('/afiliat')
-            return
-          }
-          // Cursă cu efectul de auto-redirect din AppRouter: dacă el a apucat
-          // deja să consume afiliat_intent și a dus userul pe /afiliat, acest
-          // closure (care rulează după `await signIn`, chiar și demontat) NU
-          // are voie să-l suprascrie cu /dashboard.
-          if (window.location.pathname === '/afiliat') return
-          navigate('/dashboard')
-        }}
-      />
+            if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
+              navigate('/pricing')
+              return
+            }
+            // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
+            // (altfel ateriza pe dashboard și pierdea complet firul înscrierii).
+            if (afiliatIntent === '1') {
+              try {
+                sessionStorage.removeItem('menuvia.afiliat_intent')
+              } catch {
+                /* ignore */
+              }
+              navigate('/afiliat')
+              return
+            }
+            // Cursă cu efectul de auto-redirect din AppRouter: dacă el a apucat
+            // deja să consume afiliat_intent și a dus userul pe /afiliat, acest
+            // closure (care rulează după `await signIn`, chiar și demontat) NU
+            // are voie să-l suprascrie cu /dashboard.
+            if (window.location.pathname === '/afiliat') return
+            navigate('/dashboard')
+          }}
+        />
       </Suspense>
     )
   }
@@ -749,6 +776,10 @@ export default function App() {
         <RestaurantProvider>
           <ToastProvider>
             <AppRouter />
+            {/* Consimțământul la Termeni: se consemnează la prima sesiune, iar
+                conturile fără el primesc ecranul o singură dată. Randează null
+                pentru vizitatorii anonimi (meniul QR nu e atins). */}
+            <TermsAcceptanceGate />
             <Suspense fallback={null}>
               <PWAPrompt />
             </Suspense>
