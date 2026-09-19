@@ -98,13 +98,21 @@ Tiparul pe care CLAUDE.md îl consemnează de trei ori; azi există în 12 locur
 - **#249 stripe 14→22**: NU se merge-uiește orb — PR propriu care combină bump-ul cu pin-ul de `apiVersion` din B1, rulat prin `tests/functions/` (stripe-webhook/table-payment) + review pe schimbările de tip (`subscriptions.list` e non-async etc.).
 - Închide #14 (mort). **#11 onboarding banner**: nu se merge-uiește (bază din mai, `DashboardPage.tsx` are 1.797 linii acum) — se **re-implementează** ca item B4c dacă decizi (e singurul cod care atacă direct locul morții din PLAN §1).
 
-### B3 — Retenție PII oaspeți, 12 luni (M, ~1 zi) — DECIS
+### B3 — Retenție PII oaspeți, 12 luni (M, ~1 zi) — **LIVRAT** (mig 280)
 
 Migrație **280** + `tests/sql/guest_retention_assertions.sql`:
 - Inventarul real (SCOPE-33.1): `reservations` (customer_name/phone/email, special_requests), `orders` pickup (customer_name/phone), `sms_queue`, `email_queue` (recipient_*), `order_feedback` (**ip_address + user_agent — nu apar în politica publicată**), loyalty (doar hash).
 - Pseudonimizare, NU ștergere: rândurile tranzacționale rămân (obligație fiscală), PII-ul devine `NULL`/`'[anonimizat]'` la **12 luni** de la `starts_at`/`paid_at`; cozile SMS/email: purge pe rândurile terminale la 90 de zile; `order_feedback.ip_address/user_agent`: 30 de zile. *Ultimele două sunt propunerile mele — spui dacă vrei altfel.*
 - Janitor pe pg_cron conform contractului mig 274 (manifest, minut etalat, `safety_marker`, control pozitiv JL1, **NU în același job cu ceva ce atinge `auth.users`**), cu fixtură care contrazice fiecare predicat, mutații dovedite.
 - Textul politicii (`menuvia-pack/03-DRAFT-CONFIDENTIALITATE.md` §3.2, randat pe `/legal`) actualizat cu numerele reale.
+
+**Ce s-a livrat efectiv, cu abaterile de la planul de mai sus:**
+- Cozile email/SMS **NU se șterg**, se pseudonimizează: `email_queue.dedup_key` are index UNIC și E mecanismul anti-dublare, deci un DELETE ar permite un al doilea email REAL către un om. Rândul rămâne exclusiv ca jeton tehnic.
+- S-a adăugat `qr_scans.user_agent` la fereastra de 30 de zile (aceeași clasă tehnică; nu era în inventarul inițial).
+- S-a adăugat pasul care lipsea din plan și fără de care restul e teatru: **mascarea celor două chei de PII în `audit_log`**. `orders` are trigger de audit FOR EACH ROW, deci istoricul conținea deja numele/telefonul, iar UPDATE-ul de anonimizare ar mai fi scris o copie proaspătă. Niciun rând nu se șterge (retenția `audit_log` rămâne ÎNCHISĂ).
+- **GR10 e clichet de CLASĂ**: o tabelă viitoare cu o coloană de identitate face CI roșu până primește ori acoperire, ori o scutire cu motiv.
+- 12 mutații verificate că pică (inclusiv două găuri găsite ASTFEL în propriile mele asserții: `x <> 'valoare'` e NULL când mutația pune NULL, deci nu se declanșează; și fixtura nu avea niciun rând care să intre în predicat FĂRĂ nume).
+- Pe prod: ZERO rânduri depășesc vreuna dintre ferestre (prima comandă e din 2 iunie 2026), deci aplicarea e un NO-OP dovedit.
 
 ### B4 — Feature-uri, DUPĂ deciziile din C (nu înainte)
 
