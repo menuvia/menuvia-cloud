@@ -30,11 +30,6 @@ if (typeof window !== 'undefined') {
   })
 }
 
-/**
- * Hook to detect if the app can be installed as PWA.
- * Returns { canInstall, install, dismiss } where install() triggers
- * the native install prompt.
- */
 const INSTALL_DISMISSED_KEY = 'pwa-install-dismissed'
 
 /**
@@ -56,6 +51,11 @@ function readInstallDismissed(): boolean {
   }
 }
 
+/**
+ * Hook to detect if the app can be installed as PWA.
+ * Returns { canInstall, install, dismiss } where install() triggers
+ * the native install prompt.
+ */
 export function usePWAInstall() {
   const [canInstall, setCanInstall] = useState(false)
   const [dismissed, setDismissed] = useState(readInstallDismissed)
