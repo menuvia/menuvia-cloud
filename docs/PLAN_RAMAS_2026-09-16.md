@@ -122,10 +122,14 @@ Migrație **280** + `tests/sql/guest_retention_assertions.sql`:
 
 ### B5 — Reziduuri de cod, mici, oricând (S fiecare)
 
-- RESID-15: cheia de idempotență QR pe fabrica comună (azi aruncă în private mode Safari).
-- RESID-17: `process_account_deletions` pe pg_cron cu advisory lock + `for update skip locked` + `order by` — azi ștergerile GDPR la D+30 **nu rulează** cât Netlify e mort (cere OK-ul tău: cale ireversibilă → C6).
-- OPS-14: gate-urile din `automation-cron` presupun tick la 15 min — mută-le pe un claim în DB.
-- RESID-28 (`hide_branding` după downgrade), RESID-32 (test pe „rând mort" în ReservationSheet), RESID-34 (±secunde la miezul nopții pe `receipt_printed_at`).
+Stare la 19 sept 2026: **patru din cinci închise**; singurul rămas e RESID-17, care e blocat pe o decizie de fondator (C6).
+
+- ✅ **RESID-15** — cheia de idempotență QR pe fabrica comună. Scopul s-a dovedit mai mare: `lib/pwa.ts` avea aceeași clasă de defect, iar consecința nu era „cheia se pierde" ci ecran de eroare în locul MENIULUI (ambele accese erau în inițializatoare de `useState`, sub singurul `ErrorBoundary`, care înfășoară tot arborele). PR #267.
+- ⏳ **RESID-17**: `process_account_deletions` pe pg_cron cu advisory lock + `for update skip locked` + `order by` — azi ștergerile GDPR la D+30 **nu rulează** cât Netlify e mort. Rămâne pe decizia C6 (cale IREVERSIBILĂ).
+- ✅ **OPS-14** — varianta MICĂ, deliberat: `TICK_MINUTES` + `tickSlot()` în `automation-cron.js` și un clichet (`tests/functions/automation-cron-schedule.test.js`) care cere ca orarul din `netlify.toml` să fie `*/TICK_MINUTES`. Refactorul pe claim în DB e REFUZAT motivat: joburile rămase acolo sunt exact denylist-ul pg_cron din mig 274, sunt money-adjacent, iar consumatorul lor e mort până la issue #250 — s-ar face fără nicio cale de verificare în teren.
+- ✅ **RESID-28** — `hide_branding` se gate-uiește acum la CITIRE (mig 281), nu doar la scriere. Motivul cu care mig 225 îl declarase ne-critic („beneficiul dispare oricum din UI") era FALS: beneficiul e badge-ul ascuns pe meniul PUBLIC, iar proiecțiile anon nu verificau planul. Bonus găsit de fixtura suitei: gate-ul de scriere din 225 era ORB la INSERT.
+- ✅ **RESID-32** — ramura „rând mort" din `ReservationSheet` are test de RANDARE (RS-A/RS-B/RS-C), nu doar de decizie.
+- ⛔ **RESID-34** — ÎNCHIS ca reziduu INERENT, fără cod: FiscalNet nu întoarce momentul tipăririi, deci `claimed_at` e cea mai bună sursă care există. Orice alternativă ar fi o presupunere cu aparență de precizie într-un document fiscal. Mutat în lista de reziduuri consemnate din `CLAUDE.md`.
 
 ---
 
