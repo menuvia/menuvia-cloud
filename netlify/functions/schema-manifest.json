@@ -279,6 +279,7 @@
     "migration_277_receipt_verified_printed",
     "migration_278_order_tenant_guard",
     "migration_279_trigger_fn_execute_lockdown",
-    "migration_280_guest_pii_retention"
+    "migration_280_guest_pii_retention",
+    "migration_281_public_branding_read_gate"
   ]
 }

@@ -1599,6 +1599,18 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/order_tenant_guard_assertions.sql
 
+      # NECONDIȚIONAT (mig 281): gate de branding la CITIRE. PB1 e singura
+      # asserție care exersează scenariul de DOWNGRADE — singurul în care
+      # gate-ul face muncă reală (tiparul PM6); PB8 acoperă §F (gate-ul de SCRIERE
+      # din 225 era orb la INSERT: `restaurant_has_feature(NEW.id, …)` nu poate
+      # vedea rândul care tocmai se inserează).
+      - name: "Public branding read gate assertions (mig 281, PB1–PB8)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/public_branding_gate_assertions.sql
+
       # NECONDIȚIONAT (mig 280): retenția PII a oaspeților. GR10 e clichet de
       # CLASĂ — o tabelă VIITOARE cu o coloană de identitate face pasul roșu
       # până primește ori acoperire în janitor, ori o scutire cu motiv.
