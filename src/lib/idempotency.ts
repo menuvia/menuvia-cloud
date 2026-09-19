@@ -15,9 +15,13 @@
 //     anulat exact protecția pentru care există mecanismul (audit v3, runda de
 //     recenzie pe cheia pickup).
 //
-// `getQrIdempotencyKey` / `rotateQrIdempotencyKey` din `orders.ts` sunt mai
-// vechi și NU au încă fallback-ul din memorie; migrarea lor pe fabrica asta e o
-// schimbare de comportament (azi aruncă în private mode) și se face separat.
+// Din RESID-15 fabrica asta e folosită de TOATE cele trei scrieri publice:
+// comanda QR (`menuvia_idem:`), comanda pickup (`menuvia_idem_pickup:`) și
+// rezervarea publică. Cheia QR era ultima pe `sessionStorage` direct, iar
+// consecința nu era „cheia se pierde": `QrMenuPage` o citește în
+// inițializatorul de `useState`, deci pe un browser care blochează cookie-urile
+// throw-ul ajungea la `ErrorBoundary`-ul care înfășoară tot arborele și
+// oaspetele primea ecran de eroare în loc de meniu.
 
 export interface IdempotencyKeyStore {
   /** Cheia curentă pentru acest scope; o creează dacă nu există. */

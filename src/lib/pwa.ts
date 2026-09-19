@@ -35,12 +35,30 @@ if (typeof window !== 'undefined') {
  * Returns { canInstall, install, dismiss } where install() triggers
  * the native install prompt.
  */
+const INSTALL_DISMISSED_KEY = 'pwa-install-dismissed'
+
+/**
+ * Citește amânarea instalării; orice eroare = „neamânat" (fail-open).
+ *
+ * RESID-15: garda de dinainte era `typeof localStorage === 'undefined'`, care
+ * acoperă DOAR cazul SSR (obiectul lipsește). În Safari cu „Block All Cookies"
+ * obiectul EXISTĂ și `getItem` ARUNCĂ `SecurityError` — iar apelul e în
+ * inițializatorul de `useState`, deci throw-ul urca până la `ErrorBoundary`-ul
+ * din App.tsx, care înfășoară TOT arborele. `PWAPrompt` e montat global
+ * (App.tsx), deci asta lovea inclusiv meniul QR al unui oaspete.
+ * Aceeași semantică fail-open ca `readUpdateSnoozed` din PWAPrompt.tsx.
+ */
+function readInstallDismissed(): boolean {
+  try {
+    return localStorage.getItem(INSTALL_DISMISSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export function usePWAInstall() {
   const [canInstall, setCanInstall] = useState(false)
-  const [dismissed, setDismissed] = useState(() => {
-    if (typeof localStorage === 'undefined') return false
-    return localStorage.getItem('pwa-install-dismissed') === '1'
-  })
+  const [dismissed, setDismissed] = useState(readInstallDismissed)
 
   useEffect(() => {
     if (deferredPrompt && !dismissed) setCanInstall(true)
@@ -70,7 +88,11 @@ export function usePWAInstall() {
   function dismiss() {
     setDismissed(true)
     setCanInstall(false)
-    localStorage.setItem('pwa-install-dismissed', '1')
+    try {
+      localStorage.setItem(INSTALL_DISMISSED_KEY, '1')
+    } catch {
+      /* Safari privat: fără persistență — starea locală ajunge pentru sesiunea curentă */
+    }
   }
 
   return { canInstall, install, dismiss }

@@ -53,27 +53,35 @@ export function lineTotal(item: CartItem): number {
 // Cheia trăiește în sessionStorage ca să supraviețuiască refresh-urilor de
 // pagină din TIMPUL unei comenzi (retry cu aceeași cheie = dedup pe server,
 // index UNIQUE pe (restaurant_id, idempotency_key) — mig 088/145).
+//
+// RESID-15: implementarea veche atingea `sessionStorage` DIRECT, fără try/catch.
+// În Safari cu „Block All Cookies" (și în unele webview-uri) obiectul EXISTĂ,
+// dar orice acces ARUNCĂ `SecurityError` — iar `QrMenuPage` cheamă `get` în
+// INIȚIALIZATORUL de `useState`, deci throw-ul venea la prima randare. Cum
+// singurul `ErrorBoundary` (App.tsx) înfășoară tot arborele și nu există
+// boundary pe rută, rezultatul nu era „o componentă crapă", ci ecranul de
+// eroare ÎN LOCUL meniului, pentru un oaspete care tocmai scanase codul de pe
+// masă. Acum trece prin aceeași fabrică ca PICKUP-ul și rezervarea publică.
+//
+// **Prefixul rămâne EXACT `menuvia_idem:`**: un prefix nou ar orfana cheile
+// clienților aflați în mijlocul unei comenzi în momentul deploy-ului, iar
+// retrimiterea lor ar ajunge la server cu o cheie NOUĂ → exact comanda dublă
+// pe care mecanismul o previne.
+const qrKeys = createIdempotencyKeyStore('menuvia_idem:')
+
 export function getQrIdempotencyKey(token: string): string {
-  const storageKey = 'menuvia_idem:' + token
-  let key = sessionStorage.getItem(storageKey)
-  if (!key) {
-    key = crypto.randomUUID()
-    sessionStorage.setItem(storageKey, key)
-  }
-  return key
+  return qrKeys.get(token)
 }
 
-// Rotește cheia de idempotență: generează una nouă ȘI o scrie imediat în
-// sessionStorage (aceeași cheie de storage folosită la citirea inițială din
+// Rotește cheia de idempotență: generează una nouă ȘI o persistă imediat
+// (aceeași cheie de storage folosită la citirea inițială din
 // getQrIdempotencyKey). Dacă am scrie doar în state React, un refresh de
 // pagină exact în timpul unei comenzi noi ar regenera cheia din citirea
 // inițială (care ar recrea una veche/inexistentă), riscând submit duplicat.
 // SE APELEAZĂ PE SUCCES (nu doar la reset) — altfel un coș NOU după refresh
 // ar refolosi cheia comenzii deja trimise → dedup server → comandă pierdută.
 export function rotateQrIdempotencyKey(token: string): string {
-  const key = crypto.randomUUID()
-  sessionStorage.setItem('menuvia_idem:' + token, key)
-  return key
+  return qrKeys.rotate(token)
 }
 
 // ── Idempotență comanda PICKUP (per restaurant) ──────────────────
