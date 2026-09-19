@@ -2,6 +2,12 @@
 // documentată în CLAUDE.md: cheia se rotește PE SUCCES, altfel un coș nou
 // după refresh refolosește cheia comenzii trimise → dedup server → comandă
 // pierdută tăcut. Aici verificăm contractul de storage al helperelor.
+//
+// Din RESID-15 și cheia QR trece prin `createIdempotencyKeyStore`
+// (`lib/idempotency.ts`), ca PICKUP-ul și rezervarea publică — deci are
+// fallback în MEMORIE când storage-ul aruncă. Vezi blocul „storage indisponibil"
+// de mai jos: pe implementarea veche, un browser care blochează cookie-urile
+// omora întregul meniu QR, nu doar cheia.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
@@ -51,6 +57,86 @@ describe('idempotență QR — getQrIdempotencyKey / rotateQrIdempotencyKey', ()
     rotateQrIdempotencyKey('tok-a')
     // Rotația mesei A nu atinge cheia mesei B.
     expect(getQrIdempotencyKey('tok-b')).toBe(b)
+  })
+})
+
+// ── QR, storage OSTIL (RESID-15) ─────────────────────────────────────────────
+// Implementarea veche atingea `sessionStorage` DIRECT. În Safari cu „Block All
+// Cookies" obiectul EXISTĂ dar orice acces ARUNCĂ `SecurityError`, iar
+// `QrMenuPage` cheamă `getQrIdempotencyKey` în INIȚIALIZATORUL de `useState` →
+// throw la prima randare → `ErrorBoundary`-ul din App.tsx (care înfășoară tot
+// arborele, fără boundary pe rută) înlocuia MENIUL cu ecranul de eroare.
+// Q9 e chiar bug-ul; Q5–Q8 oglindesc P5–P8 peste fabrica comună.
+//
+// Fallback-ul fabricii e un Map la nivel de MODUL (supraviețuiește între teste)
+// → fiecare test de aici folosește un scope DISTINCT.
+describe('idempotență QR — storage indisponibil (RESID-15)', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function breakStorage(): void {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError')
+    })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError')
+    })
+  }
+
+  it('Q5 storage indisponibil → aceeași cheie din memorie (nu una nouă la fiecare apel)', () => {
+    breakStorage()
+    const k1 = getQrIdempotencyKey('q5')
+    expect(getQrIdempotencyKey('q5')).toBe(k1)
+    expect(getQrIdempotencyKey('q5')).toBe(k1)
+  })
+
+  it('Q6 storage indisponibil → rotația actualizează fallback-ul', () => {
+    breakStorage()
+    const k1 = getQrIdempotencyKey('q6')
+    const r = rotateQrIdempotencyKey('q6')
+    expect(r).not.toBe(k1)
+    expect(getQrIdempotencyKey('q6')).toBe(r)
+  })
+
+  it('Q7 cheia veche din storage e ȘTEARSĂ când scrierea celei noi eșuează', () => {
+    sessionStorage.setItem('menuvia_idem:q7', 'old-key')
+    expect(getQrIdempotencyKey('q7')).toBe('old-key')
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('quota', 'QuotaExceededError')
+    })
+    const r = rotateQrIdempotencyKey('q7')
+    expect(r).not.toBe('old-key')
+    // Un remount NU are voie să recitească cheia comenzii deja trimise.
+    expect(sessionStorage.getItem('menuvia_idem:q7')).toBeNull()
+    expect(getQrIdempotencyKey('q7')).toBe(r)
+  })
+
+  it('Q8 storage-ul revine → cheia din memorie se re-persistă, nu una nouă', () => {
+    breakStorage()
+    const k = getQrIdempotencyKey('q8')
+    vi.restoreAllMocks()
+    expect(getQrIdempotencyKey('q8')).toBe(k)
+    expect(sessionStorage.getItem('menuvia_idem:q8')).toBe(k)
+  })
+
+  it('Q9 NU aruncă atunci când storage-ul aruncă — meniul QR trebuie să se monteze', () => {
+    breakStorage()
+    // Exact apelul din inițializatorul de `useState` al lui QrMenuPage.
+    expect(() => getQrIdempotencyKey('q9')).not.toThrow()
+    expect(() => rotateQrIdempotencyKey('q9')).not.toThrow()
+    expect(getQrIdempotencyKey('q9')).toBeTruthy()
+  })
+
+  it('Q10 prefixul de storage rămâne `menuvia_idem:` (compatibilitate la deploy)', () => {
+    // Un prefix NOU ar orfana cheile clienților aflați în mijlocul unei comenzi
+    // în momentul deploy-ului: retrimiterea lor ar pleca spre server cu o cheie
+    // nouă, adică exact comanda dublă pe care mecanismul o previne.
+    const key = getQrIdempotencyKey('q10')
+    expect(sessionStorage.getItem('menuvia_idem:q10')).toBe(key)
   })
 })
 
