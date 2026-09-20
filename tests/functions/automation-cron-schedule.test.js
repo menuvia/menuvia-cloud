@@ -61,24 +61,44 @@ describe('automation-cron — lățimea tick-ului (OPS-14)', () => {
     )
   })
 
-  it('OC2: fiecare index de slot e atins de un tick (nicio fereastră moartă)', () => {
+  it('OC2: gate-urile păstrează ORELE DE CEAS pe care le encodează', () => {
+    // Prima variantă a acestui test cerea doar ca perechea (TICK_MINUTES,
+    // orar) să rămână COERENTĂ — și am scris asta în corpul PR-ului ca pe o
+    // calitate. E greșit, iar recenzia pe #268 a arătat de ce: la `30` în
+    // AMBELE locuri verificarea trecea, dar `hour === 3 && tickSlot === 1` se
+    // muta tăcut de la 03:15 la 03:30, iar `tickSlot % 2 === 0` (health
+    // scores) trecea de la 30 de minute la ORAR. Gate-urile nu encodează „al
+    // câtelea tick", encodează ORE DE CEAS — deci contractul se verifică pe
+    // minutele de declanșare, nu pe forma perechii.
     const tick = loadTickMinutes()
     assert.ok(tick > 0 && tick <= 60, `TICK_MINUTES nesănătos: ${tick}`)
     assert.equal(60 % tick, 0, `60 nu e divizibil cu TICK_MINUTES=${tick} — sloturile derivă în oră`)
 
-    // Minutele la care chiar se declanșează `*/tick`, mapate pe indexul de slot
-    // folosit de gate-uri. Trebuie să acopere TOATE sloturile, fiecare o
-    // singură dată: un slot neatins = un job care nu mai rulează niciodată;
-    // un slot atins de două ori = job rulat de două ori pe oră.
-    const slots = []
+    // Minutele la care `*/tick` chiar se declanșează, cu indexul de slot pe
+    // care îl vede `tickSlot()`.
+    const firings = []
     for (let m = 0; m < 60; m++) {
-      if (m % tick === 0) slots.push(Math.floor(m / tick))
+      if (m % tick === 0) firings.push({ minute: m, slot: Math.floor(m / tick) })
     }
+    const minutesWhere = (pred) => firings.filter((f) => pred(f.slot)).map((f) => f.minute)
+
+    // Cele TREI forme de gate care există în automation-cron.js, cu ora pe care
+    // fiecare o promite. Orice schimbare de lățime care le mută = CI roșu.
+    assert.deepEqual(minutesWhere((s) => s === 0), [0], 'gate-ul `tickSlot === 0` nu mai e primul tick al orei')
     assert.deepEqual(
-      slots,
-      Array.from({ length: 60 / tick }, (_, i) => i),
-      'sloturile de tick nu sunt acoperite exact o dată',
+      minutesWhere((s) => s === 1),
+      [15],
+      'gate-ul `hour === 3 && tickSlot === 1` nu mai cade la :15 — curățarea zilnică de rate-limits se mută de la 03:15',
     )
+    assert.deepEqual(
+      minutesWhere((s) => s % 2 === 0),
+      [0, 30],
+      'gate-ul `tickSlot % 2 === 0` nu mai înseamnă „la fiecare 30 min" — compute_health_scores își schimbă frecvența',
+    )
+
+    // Implicat de harta de mai sus (slotul 1 la minutul 15 ⇒ tick = 15); stă
+    // aici doar ca mesajul de eșec să numească direct numărul.
+    assert.equal(tick, 15, 'automation-cron cere tick de 15 minute')
   })
 
   it('OC3 (control pozitiv): parser-ul chiar găsește programările din netlify.toml', () => {

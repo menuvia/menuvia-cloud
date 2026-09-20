@@ -29,9 +29,18 @@ const { createClient } = require('@supabase/supabase-js')
 // pica ceva.
 //
 // Acum e o constantă exportată, iar `tests/functions/automation-cron-schedule.test.js`
-// cere ca orarul din `netlify.toml` să fie exact `*/TICK_MINUTES` ȘI ca fiecare
-// index de tick să fie atins (60 divizibil cu lățimea) — o rărire a orarului
-// devine CI roșu în loc de joburi moarte în tăcere.
+// cere ca orarul din `netlify.toml` să fie exact `*/TICK_MINUTES` (OC1) ȘI ca
+// ORELE DE CEAS encodate de gate-uri să rămână cele de mai jos (OC2) — o rărire
+// a orarului devine CI roșu în loc de joburi moarte în tăcere.
+//
+// ATENȚIE: „coerența perechii" NU e invariantul. Dacă și constanta, și orarul
+// ar deveni 30, gate-urile ar rămâne sintactic valide dar ar MINȚI: slotul 1 ar
+// cădea la :30 (curățarea zilnică se mută de la 03:15) și „sloturile pare" ar
+// deveni orare (compute_health_scores pierde jumătate din rulări). De aceea
+// OC2 verifică minutele, nu forma. Contractul, pe cele trei forme folosite:
+//   tickSlot(minute) === 0        → minutul {0}      (primul tick al orei)
+//   tickSlot(minute) === 1        → minutul {15}     (Job 3, cleanup la 03:15)
+//   tickSlot(minute) % 2 === 0    → minutele {0, 30} (la fiecare 30 min)
 const TICK_MINUTES = 15
 
 /** Indexul tick-ului în oră: 0 = primul tick, 1 = al doilea, … */
