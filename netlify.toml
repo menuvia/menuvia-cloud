@@ -34,9 +34,13 @@
 # clienți, fiecare tick pe o coadă goală costă cotă degeaba. Programările de
 # mai jos sunt REGIMUL DE AVARIE (~20k invocări/lună, era ~49k); fiecare
 # funcție are notat în comentariu pragul la care se accelerează înapoi.
-# ATENȚIE: automation-cron NU se rărește sub */15 — gate-urile interne
-# (ferestre `minute < 15`, cleanup zilnic la 03:15-03:30) presupun tick la
-# 15 min; la */30 jobul de cleanup nu s-ar mai declanșa NICIODATĂ.
+# ATENȚIE: automation-cron NU se rărește sub */15 — gate-urile interne sunt
+# „al câtelea tick al orei" (`tickSlot(minute) === 1` = cleanup zilnic la
+# 03:15); la */30 slotul 1 n-ar mai fi atins de NICIUN tick și cleanup-ul nu
+# s-ar mai declanșa NICIODATĂ, tăcut. Cuplajul nu mai trăiește doar în nota
+# asta: `TICK_MINUTES` e o constantă în automation-cron.js, iar
+# `tests/functions/automation-cron-schedule.test.js` cere ca orarul de mai jos
+# să fie exact `*/TICK_MINUTES` — o rărire aici devine CI roșu (OPS-14).
 
 # La 5 min: process queued emails. Rămâne la 5 min — e coada operațională
 # (notificarea de rezervare nouă către owner trebuie să ajungă repede).

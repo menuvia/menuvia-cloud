@@ -19,6 +19,33 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
+// ── Lățimea tick-ului, în cod, nu în proză (OPS-14) ──────────────────────────
+// Gate-urile temporale de mai jos NU sunt ferestre de ceas arbitrare: sunt
+// „al câtelea tick al orei". `minute < 15` însemna „primul tick" DOAR pentru
+// că `netlify.toml` programează funcția la `*/15`; la `*/30` fereastra
+// [15,30) n-ar mai conține NICIUN tick, iar curățarea zilnică de rate-limits
+// (Job 3) n-ar mai rula NICIODATĂ — tăcut. Cuplajul trăia până acum doar
+// într-un avertisment în PROZĂ în `netlify.toml`, adică nicăieri unde să poată
+// pica ceva.
+//
+// Acum e o constantă exportată, iar `tests/functions/automation-cron-schedule.test.js`
+// cere ca orarul din `netlify.toml` să fie exact `*/TICK_MINUTES` (OC1) ȘI ca
+// ORELE DE CEAS encodate de gate-uri să rămână cele de mai jos (OC2) — o rărire
+// a orarului devine CI roșu în loc de joburi moarte în tăcere.
+//
+// ATENȚIE: „coerența perechii" NU e invariantul. Dacă și constanta, și orarul
+// ar deveni 30, gate-urile ar rămâne sintactic valide dar ar MINȚI: slotul 1 ar
+// cădea la :30 (curățarea zilnică se mută de la 03:15) și „sloturile pare" ar
+// deveni orare (compute_health_scores pierde jumătate din rulări). De aceea
+// OC2 verifică minutele, nu forma. Contractul, pe cele trei forme folosite:
+//   tickSlot(minute) === 0        → minutul {0}      (primul tick al orei)
+//   tickSlot(minute) === 1        → minutul {15}     (Job 3, cleanup la 03:15)
+//   tickSlot(minute) % 2 === 0    → minutele {0, 30} (la fiecare 30 min)
+const TICK_MINUTES = 15
+
+/** Indexul tick-ului în oră: 0 = primul tick, 1 = al doilea, … */
+const tickSlot = (minute) => Math.floor(minute / TICK_MINUTES)
+
 // ── Alertă Slack pe eșec de cron ────────────────────────────────
 // Trimite founderului un mesaj scurt când un sub-job moare. Best-effort:
 // dacă SLACK_WEBHOOK_URL lipsește → no-op; orice eroare de rețea/Slack e
@@ -120,7 +147,7 @@ exports.handler = async () => {
   // ── Job 1b: expiră sesiunile de masă inactive (orar) ──
   // Sesiunile QR rămase deschise (clientul a plecat fără a închide) blochează masa pentru
   // următorii clienți. Le expirăm orar (inactiv > 3h). Idempotent — un tick ratat se reia.
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('expire_inactive_sessions', { p_inactive_hours: 3 })
@@ -138,7 +165,7 @@ exports.handler = async () => {
   // Un bridge care a revendicat tichetul dar a murit înainte de confirm lasă
   // tichetul agățat în 'sent' — îl marcăm error (BRIDGE_TIMEOUT) ca să apară
   // butonul „Reîncearcă" în dashboard; purge pe terminale >30 zile (mig 227).
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('kitchen_tickets_mark_stale')
@@ -159,7 +186,7 @@ exports.handler = async () => {
   // 'generating' pentru totdeauna — o marcăm 'failed' cu eroare ambiguă
   // (NU o re-punem în coadă: risc de duplicat fiscal), ca să apară în lista
   // de eșecuri a founderului pentru retry manual după verificare în Oblio.
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('oblio_reclaim_stale_generating')
@@ -181,7 +208,7 @@ exports.handler = async () => {
   // înainte de retrimitere (retry orb = bon fiscal DUBLU real). Fără acest
   // apel, rândurile 'sent' rămâneau agățate pentru totdeauna (nicio cale de
   // retry: bridge_retry_receipt acceptă doar error/cancelled).
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('bridge_mark_stale_as_error')
@@ -200,7 +227,7 @@ exports.handler = async () => {
   // Rezervările 'confirmed' cu starts_at depășit de >120 min fără să fi fost
   // așezate (seated) trec automat în 'no_show' — alimentează badge-ul de
   // recidivist din ReservationsTab fără să depindă de disciplina staff-ului.
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('auto_mark_reservation_no_show')
@@ -216,7 +243,7 @@ exports.handler = async () => {
   }
 
   // ── Job 2: compute health scores (every 30 min) ──
-  if (minute < 15 || (minute >= 30 && minute < 45)) {
+  if (tickSlot(minute) % 2 === 0) {
     quickJobs.push((async () => {
       try {
         const { data, error } = await supabase.rpc('compute_health_scores')
@@ -232,7 +259,7 @@ exports.handler = async () => {
   }
 
   // ── Job 3: cleanup rate limits (once daily at 03:15) ──
-  if (hour === 3 && minute >= 15 && minute < 30) {
+  if (hour === 3 && tickSlot(minute) === 1) {
     try {
       const { data, error } = await supabase.rpc('cleanup_old_rate_limits')
       if (error) throw error
@@ -325,7 +352,7 @@ exports.handler = async () => {
 
   // ── Job 5: win-back inactive (daily 09:00-09:15 Bucharest) ──
   // Detector SQL face deduplication per lună prin dedup_key.
-  if (hour === 9 && minute < 15) {
+  if (hour === 9 && tickSlot(minute) === 0) {
     try {
       const { data, error } = await supabase.rpc('detect_winback_inactive')
       if (error) throw error
@@ -342,7 +369,7 @@ exports.handler = async () => {
   // ── Job 6: NPS due (daily 10:00-10:15 Bucharest) ──
   // Useri la 60+ zile post-signup care n-au primit încă survey-ul.
   // Dedup_key lifetime — fiecare user primește exact 1 email vreodată.
-  if (hour === 10 && minute < 15) {
+  if (hour === 10 && tickSlot(minute) === 0) {
     try {
       const { data, error } = await supabase.rpc('detect_nps_due')
       if (error) throw error
@@ -379,7 +406,7 @@ exports.handler = async () => {
   // fiecărei ore (determinist pe minutul curent), deci max 1 alertă/oră,
   // nu la fiecare tick de 15 min. Nota: coloana de timp e `received_at`
   // (mig 038), nu `created_at`.
-  if (minute < 15) {
+  if (tickSlot(minute) === 0) {
     quickJobs.push((async () => {
     try {
       const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
@@ -577,3 +604,7 @@ async function dispatchDailyReports(supabase) {
     return 'sent'
   })
 }
+
+// Exportat pentru clichetul din `tests/functions/automation-cron-schedule.test.js`:
+// testul citește `netlify.toml` și cere ca orarul să fie `*/TICK_MINUTES`.
+exports.TICK_MINUTES = TICK_MINUTES
