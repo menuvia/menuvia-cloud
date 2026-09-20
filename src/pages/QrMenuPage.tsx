@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, la
 import {
   resolveQrMenu,
   fetchMenuForRestaurant,
+  recordQrScan,
   fetchActiveHappyHour,
   happyHourPercentForProduct,
   openTableSession,
@@ -168,6 +169,13 @@ export default function QrMenuPage({ token }: Props) {
     })
   }, [token, previousOrders, confirmation, sessionId, paidOrderIds])
 
+  // RESID-14: o scanare = un rând. `loadQr` se re-execută la schimbarea
+  // token-ului, iar sub StrictMode efectul rulează de DOUĂ ori la montare —
+  // fără guard, fiecare scanare ar fi numărată dublu, adică exact metrica de
+  // activare pe care o conectăm ar fi de 2×. Set, nu boolean: un client care
+  // schimbă masa în aceeași pagină trebuie să raporteze ambele scanări.
+  const scanReportedRef = useRef<Set<string>>(new Set())
+
   function loadQr() {
     setResolving(true)
     setInvalid(false)
@@ -209,6 +217,11 @@ export default function QrMenuPage({ token }: Props) {
             // Loghează — submit-ul mai are un retry înainte de createOrder.
             console.warn('[QrMenuPage] openTableSession failed:', err)
           })
+        // Scanare QR — non-blocking, o singură dată per token (RESID-14).
+        if (!scanReportedRef.current.has(token)) {
+          scanReportedRef.current.add(token)
+          void recordQrScan(result.restaurant.id, result.token.id)
+        }
         // Plăți online — non-blocking; doar pentru eticheta butonului de plată.
         void fetchOnlinePaymentEnabled(result.restaurant.id)
           .then((enabled) => {

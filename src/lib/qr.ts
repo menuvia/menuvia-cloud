@@ -806,6 +806,43 @@ export interface TableSessionResult {
 }
 
 /** Deschide sau returnează sesiunea curentă a mesei. Apelat la scanarea QR. */
+/**
+ * Înregistrează o scanare de QR (RESID-14 / decizia C10).
+ *
+ * RPC-ul `record_qr_scan` (mig 013→261) exista din mai 2026 dar NU era chemat
+ * de nimeni — `qr_scans` avea 0 rânduri pe producție la 20 sept 2026, cu 35 de
+ * mese cu token activ. E singura măsură de ACTIVARE pe QR: fără ea nu se poate
+ * spune dacă oaspeții chiar scanează codul de pe masă.
+ *
+ * Contract server-side (mig 261): DEFINER, grant anon, rate-limit 300/15 min per
+ * restaurant, iar peste plafon **iese TĂCUT** (analytics, nu bani). Token-ul se
+ * validează în RPC; unul străin e ignorat fără să dezvăluie nimic.
+ *
+ * Fire-and-forget deliberat: o scanare neînregistrată e o cifră lipsă, iar o
+ * eroare propagată ar fi meniul stricat pentru oaspetele de la masă. Aceeași
+ * semantică ca `fetchActiveHappyHour` din QrMenuPage.
+ */
+export async function recordQrScan(restaurantId: string, qrTokenId: string): Promise<void> {
+  // NU aruncă NICIODATĂ — nici pe eroare de business, nici pe respingere de
+  // transport. Apelantul face `void recordQrScan(...)`, iar o promisiune
+  // `void`-uită care se respinge e unhandled rejection în browserul
+  // oaspetelui. Alternativa (`.catch(() => {})` la fiecare call-site) mută
+  // responsabilitatea într-un loc unde se poate uita; aici e imposibil de
+  // folosit greșit. Contrastul e deliberat față de `createOrder`/`openTableSession`,
+  // care ARUNCĂ fiindcă hint-urile lor de business trebuie să ajungă la client.
+  try {
+    const { error } = await supabase.rpc('record_qr_scan', {
+      p_restaurant_id: restaurantId,
+      p_qr_token_id: qrTokenId,
+    })
+    // Log pentru diagnoză (ex. RPC nedeployat → PGRST202 pe un client livrat
+    // înaintea migrației).
+    if (error) console.warn('[qr] recordQrScan:', error.message)
+  } catch (err) {
+    console.warn('[qr] recordQrScan (transport):', err)
+  }
+}
+
 export async function openTableSession(token: string): Promise<TableSessionResult> {
   const { data, error } = await supabase.rpc('open_table_session', { p_token: token })
   // Error real, nu PostgrestError brut — callerii testează `instanceof Error`.

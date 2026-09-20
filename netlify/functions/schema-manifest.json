@@ -281,6 +281,7 @@
     "migration_279_trigger_fn_execute_lockdown",
     "migration_280_guest_pii_retention",
     "migration_281_public_branding_read_gate",
-    "migration_282_gdpr_deletions_pgcron"
+    "migration_282_gdpr_deletions_pgcron",
+    "migration_283_scan_views_grant"
   ]
 }
