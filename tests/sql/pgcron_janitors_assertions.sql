@@ -102,12 +102,41 @@ begin
 end $$;
 
 -- ── CJ4: lista de excludere e INTACTĂ și DISJUNCTĂ de manifest ──────────────
+-- mig 282: verificarea pe NUME, ca set EXACT, nu pe numar.
+-- Podeaua veche (`count >= 9`) era mai SLABA in doua feluri: (a) nu prindea un
+-- SWAP — scoti o interdictie reala si adaugi una nelegata, numarul ramane; (b)
+-- la o scoatere LEGITIMA (process_account_deletions, mig 282, dupa ce a primit
+-- lacatul + order by + skip locked) singura reparatie era coborarea pragului,
+-- adica exact gestul „ajustez testul ca sa treaca". Setul exact nu are ambele
+-- probleme: o scoatere legitima se vede in diff, ca o linie stearsa din lista.
+-- `collate "C"` pe AMBELE parti — o egalitate pe array_agg ordonat e dependenta
+-- de LOCALE (capcana care a facut CI-ul rosu pe #256: sub en_US punctuatia e
+-- ignorata la primul nivel, sub C nu).
 do $$
-declare v_bad text; v_n int;
+declare
+  v_bad text;
+  v_n int;
+  v_have text[];
+  v_want text[] := array[
+    'audit_log_cleanup',
+    'compute_daily_report',
+    'compute_health_scores',
+    'compute_weekly_report',
+    'detect_nps_due',
+    'detect_winback_inactive',
+    'pending_receipts_cleanup_old',
+    'run_affiliate_payout_batch'
+  ];
 begin
-  select count(*) into v_n from public.pg_cron_janitor_denylist();
-  if v_n < 9 then
-    raise exception 'CJ4: lista de excludere s-a SCURTAT (% < 9) - o intrare stearsa e o interdictie pierduta', v_n; end if;
+  select array_agg(d.fn_name order by d.fn_name collate "C")
+    into v_have
+    from public.pg_cron_janitor_denylist() d;
+  if v_have is distinct from (
+       select array_agg(w order by w collate "C") from unnest(v_want) as w
+     ) then
+    raise exception 'CJ4: lista de excludere s-a SCHIMBAT. Are: % / Se astepta: % - o intrare stearsa e o interdictie pierduta, iar una adaugata in locul alteia e un SWAP tacut',
+      v_have, v_want; end if;
+  v_n := array_length(v_have, 1);
   select string_agg(d.fn_name || ' :: ' || left(d.reason, 90), ' | ')
     into v_bad
     from public.pg_cron_janitor_denylist() d

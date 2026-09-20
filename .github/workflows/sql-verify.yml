@@ -1599,6 +1599,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/order_tenant_guard_assertions.sql
 
+      # NECONDIȚIONAT (mig 282): stergerile GDPR pe pg_cron. GD3 e clichetul pe
+      # cele TREI mecanisme de siguranta (lacat / order by / skip locked) fara
+      # care functia era in denylist-ul 274. Concurenta REALA nu se poate testa
+      # intr-o singura sesiune — vezi antetul migratiei.
+      - name: "GDPR deletion safety assertions (mig 282, GD1–GD6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/gdpr_deletion_lock_assertions.sql
+
       # NECONDIȚIONAT (mig 281): gate de branding la CITIRE. PB1 e singura
       # asserție care exersează scenariul de DOWNGRADE — singurul în care
       # gate-ul face muncă reală (tiparul PM6); PB8 acoperă §F (gate-ul de SCRIERE
