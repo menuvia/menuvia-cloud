@@ -9,12 +9,20 @@
 // ar propaga eroarea în `.catch`-ul care setează `networkError`, adică o
 // scanare neînregistrată ar deveni „meniul nu se încarcă" pentru oaspetele de
 // la masă. Exact clasa RESID-15, pe altă cale.
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
 
 import { recordQrScan } from '../qr'
+
+// S4/S5 citesc SURSA paginii. Calea se rezolvă din `process.cwd()` (rădăcina
+// repo-ului — `vitest.config.ts` nu setează `root`), NU din `import.meta.url`:
+// sub vitest acela nu e un URL `file://`, iar `readFileSync(new URL(...))`
+// aruncă ERR_INVALID_URL_SCHEME înainte de orice asserție (CI roșu pe #269).
+const QR_MENU_PAGE = resolve(process.cwd(), 'src/pages/QrMenuPage.tsx')
 
 describe('recordQrScan — RESID-14', () => {
   beforeEach(() => {
@@ -54,24 +62,16 @@ describe('recordQrScan — RESID-14', () => {
     expect(warn).toHaveBeenCalled()
   })
 
-  it('S4 apelul din QrMenuPage e `void`-uit (intenția fire-and-forget e explicită)', async () => {
-    const fs = await import('node:fs')
-    const src = fs.readFileSync(
-      new URL('../../pages/QrMenuPage.tsx', import.meta.url),
-      'utf8',
-    )
+  it('S4 apelul din QrMenuPage e `void`-uit (intenția fire-and-forget e explicită)', () => {
+    const src = readFileSync(QR_MENU_PAGE, 'utf8')
     expect(src).toMatch(/void recordQrScan\(/)
   })
 
-  it('S5 guard-ul de o-singură-dată e un SET pe token, nu un boolean', async () => {
+  it('S5 guard-ul de o-singură-dată e un SET pe token, nu un boolean', () => {
     // O scanare = un rând. `loadQr` se re-execută la schimbarea token-ului, iar
     // sub StrictMode efectul rulează de două ori la montare — un boolean ar
     // bloca a doua MASĂ, un set contorizează corect ambele.
-    const fs = await import('node:fs')
-    const src = fs.readFileSync(
-      new URL('../../pages/QrMenuPage.tsx', import.meta.url),
-      'utf8',
-    )
+    const src = readFileSync(QR_MENU_PAGE, 'utf8')
     expect(src).toMatch(/scanReportedRef\s*=\s*useRef<Set<string>>/)
     expect(src).toMatch(/scanReportedRef\.current\.has\(token\)/)
     expect(src).toMatch(/scanReportedRef\.current\.add\(token\)/)

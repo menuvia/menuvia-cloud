@@ -61,12 +61,14 @@ do $$
 declare
   v_ids uuid[];
 begin
-  select array_agg(deleted_user_id order by ord)
+  -- WITH ORDINALITY exprima direct contractul „ordinea EMISA de functie";
+  -- un row_number() over () FARA order by in fereastra are numerotare
+  -- NESPECIFICATA, deci asertia de ordine s-ar fi sprijinit pe nimic
+  -- (recenzie CodeRabbit pe #269).
+  select array_agg(t.deleted_user_id order by t.ord)
     into v_ids
-    from (
-      select deleted_user_id, row_number() over () as ord
-        from public.process_account_deletions()
-    ) t;
+    from public.process_account_deletions()
+         with ordinality as t(deleted_user_id, deleted_at, ord);
 
   -- GD1: ordinea e cea a vechimii cererii, nu cea de inserare.
   if v_ids is null then
