@@ -153,7 +153,7 @@ declare
   v_denyall text[] := array[
     'affiliate_touches','function_rate_limits','gdpr_deletion_config','leads',
     'order_stock_deductions','pg_cron_janitor_manifest','recrutare_leads',
-    'retained_invoices','security_ownership_remediations','stripe_events'];
+    'retained_invoices','retained_receipts','security_ownership_remediations','stripe_events'];
   v_core text[] := array['restaurants','restaurant_memberships','orders','order_items',
                          'order_payments','profiles','invite_tokens','products'];
 begin

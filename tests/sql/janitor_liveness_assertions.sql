@@ -38,7 +38,8 @@
 --   JL7  CLASĂ, pe TABELĂ: nicio funcție/procedură din `public` nu ȘTERGE din
 --        `pending_receipts`. Cu CANAR (asserție de ABSENȚĂ).
 --   JL8  premisele deciziei „fără ștergere automată": `bon_number` are exact o
---        copie în schemă și NICIUN trigger de pe tabelă nu scrie în audit_log
+--        copie VIE în schemă (+ arhiva GDPR din mig 284, `retained_receipts`,
+--        cu UN singur scriitor) și NICIUN trigger de pe tabelă nu scrie în audit_log
 --        (pe COMPORTAMENT — orice funcție de trigger al cărei corp pomenește
 --        audit_log — nu pe numele unei singure funcții).
 --   JL9  CHECK-ul de status admite exact cele 5 valori.
@@ -414,8 +415,19 @@ declare v_tbl text[]; v_trg text[];
 begin
   select array_agg(table_name || '.' || column_name order by table_name) into v_tbl
     from information_schema.columns where table_schema = 'public' and column_name = 'bon_number';
-  if v_tbl is distinct from array['pending_receipts.bon_number'] then
-    raise exception 'JL8 FAIL: bon_number apare in % — re-examineaza drop-ul din mig 275 (exista o a doua copie?)', v_tbl; end if;
+  -- mig 284 a adăugat A DOUA coloană, re-examinată: `retained_receipts` e
+  -- arhiva jurnalului pentru tenanți DEJA ȘTERȘI (GDPR), deci pentru un
+  -- restaurant VIU `pending_receipts` rămâne singura copie și decizia din 275
+  -- („nu se șterge") stă în picioare. Premisa ține DOAR cât timp arhiva are un
+  -- singur scriitor — altfel ar deveni o copie „vie" care ar justifica ștergeri.
+  if v_tbl is distinct from array['pending_receipts.bon_number', 'retained_receipts.bon_number'] then
+    raise exception 'JL8 FAIL: bon_number apare in % — re-examineaza drop-ul din mig 275 (exista o a treia copie?)', v_tbl; end if;
+  select array_agg(p.proname::text order by p.proname) into v_trg
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prosrc ~* 'insert[[:space:]]+into[[:space:]]+(public\.)?retained_receipts';
+  if v_trg is distinct from array['archive_fiscal_receipts_for_user'] then
+    raise exception 'JL8 FAIL: retained_receipts are alti scriitori decat arhivarea GDPR (%) — ar deveni o copie vie a lui bon_number', v_trg; end if;
+  v_trg := null;
   -- Pe COMPORTAMENT, nu pe numele unei functii: orice trigger de pe tabela a
   -- carui functie pomeneste audit_log (repo-ul are deja doua nume diferite de
   -- functii de audit: audit_trigger_fn si audit_order_items_fn).
@@ -425,7 +437,7 @@ begin
      and p.prosrc ~* 'audit_log';
   if v_trg is not null then
     raise exception 'JL8 FAIL: pending_receipts are acum trigger(e) care scriu in audit_log (%) — bon_number ar avea o copie acolo, deci retentia audit_log devine cuplata cu proba fiscala', v_trg; end if;
-  raise notice 'JL8 OK: bon_number are exact o copie, fara trigger de audit pe tabel';
+  raise notice 'JL8 OK: bon_number are o copie vie (pending_receipts) + arhiva GDPR cu un singur scriitor, fara trigger de audit pe tabel';
 end $$;
 
 -- ══ JL9: taxonomia de status a tabelei e ÎNGHEȚATĂ ═════════════════════════

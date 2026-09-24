@@ -57,7 +57,18 @@ strict fiscale** ale fiecărei facturi emise, care **NU e cascadat** de la
 ## 2. Cele 3 politici (configurabile)
 
 Politica activă se citește din `public.gdpr_deletion_config.policy` (single-row).
-Default = `archive_anonymize`.
+Default = `archive_anonymize` — și aceasta e politica ACTIVĂ pe producție
+(citit 24 sept 2026).
+
+**Pe ORICE politică (mig 284):** înaintea ștergerii, jurnalul de bonuri fiscale
+al restaurantelor owner-ului (`pending_receipts`: bonuri `success` cu
+`bon_number`, rapoarte Z/X, eșecuri cu marcaj POSIBIL DUPLICAT) se copiază în
+`public.retained_receipts`. Motivul: cascada `auth.users → profiles →
+restaurants → orders → pending_receipts` l-ar șterge, iar `pending_receipts` e
+SINGURA legătură comandă↔bon din bază (mig 275). Payload-ul FiscalNet conține
+doar produse, prețuri și plăți — nicio dată de client. Idempotent (dedup pe
+`original_receipt_id`); o eroare de arhivare lasă contul NEșters (reîncercat la
+tick-ul următor), niciodată șters fără arhivă.
 
 ### `archive_anonymize` (DEFAULT, recomandat)
 
@@ -72,7 +83,8 @@ Pentru fiecare user peste fereastra de 30 zile cu facturi emise:
 
 ### `block`
 
-Dacă owner-ul are restaurante cu facturi emise → **NU șterge** contul. Setează
+Dacă owner-ul are restaurante cu facturi emise **sau bonuri fiscale tipărite
+(`pending_receipts.status = 'success'`, mig 284)** → **NU șterge** contul. Setează
 `profiles.deletion_blocked_reason` (loghează `raise notice`), lasă
 `deletion_requested_at` intact, iar batch-ul sare peste conturile deja blocate.
 Owner-ul trebuie să rezolve manual (transfer / închidere restaurant) prin
@@ -103,7 +115,7 @@ plus semnalizarea că restaurantul a rămas fără owner.
 
 ## 3. Convenții tehnice respectate
 
-- `retained_invoices` și `gdpr_deletion_config`: RLS activat, **fără policy
+- `retained_invoices`, `retained_receipts` (mig 284) și `gdpr_deletion_config`: RLS activat, **fără policy
   permisivă** (default deny) + `revoke all ... from public, anon, authenticated`.
   Acces doar service_role (BYPASSRLS). Retenția legală nu e citibilă de clienți.
 - RPC-uri `SECURITY DEFINER`, `set search_path = public, pg_temp`,
@@ -143,7 +155,9 @@ plus semnalizarea că restaurantul a rămas fără owner.
 
 - Migrație: `supabase/migrations/20260630190000_migration_179_gdpr_fiscal_retention.sql`
 - RPC atins: `public.process_account_deletions` (redefinit; original în mig 042)
-- Tabele noi: `public.retained_invoices`, `public.gdpr_deletion_config`
+- Tabele noi: `public.retained_invoices`, `public.gdpr_deletion_config`;
+  `public.retained_receipts` (mig 284, `20260924090000_migration_284_gdpr_receipt_archive.sql`,
+  teste RA1–RA5 în `tests/sql/gdpr_receipt_archive_assertions.sql`)
 - Coloane noi: `restaurants.is_tombstoned/tombstoned_at/tombstoned_reason`,
   `profiles.deletion_blocked_reason`
 - Transfer real owner (manual): `scripts/apply_ownership_remediation.sql`

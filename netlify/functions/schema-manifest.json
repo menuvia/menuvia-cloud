@@ -282,6 +282,7 @@
     "migration_280_guest_pii_retention",
     "migration_281_public_branding_read_gate",
     "migration_282_gdpr_deletions_pgcron",
-    "migration_283_scan_views_grant"
+    "migration_283_scan_views_grant",
+    "migration_284_gdpr_receipt_archive"
   ]
 }
