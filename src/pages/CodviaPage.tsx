@@ -109,12 +109,34 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Starea gate-ului de pe server (codvia-order.js, GET). TRISTATE: `null` =
+  // necunoscut (rețea / funcție veche) → formularul rămâne și decide serverul
+  // la trimitere; `false` = comenzile sunt în pauză → nu mai cerem nimănui să
+  // completeze un formular pe care serverul îl va refuza.
+  const [ordersOpen, setOrdersOpen] = useState<boolean | null>(null)
 
   useEffect(() => {
     const prevTitle = document.title
     document.title = 'Codvia — suporturi QR fizice pentru localul tău'
     return () => {
       document.title = prevTitle
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(fnUrl('codvia-order'), { method: 'GET' })
+        if (!res.ok) return
+        const body = (await res.json()) as { open?: unknown }
+        if (!cancelled && typeof body.open === 'boolean') setOrdersOpen(body.open)
+      } catch {
+        // Necunoscut rămâne `null`: formularul rămâne, serverul decide.
+      }
+    })()
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -433,6 +455,24 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
                 <div style={{ fontSize: 14, color: D.t2, lineHeight: 1.55 }}>
                   Te contactăm în maximum 24 de ore pentru confirmare. Dacă nu primești telefonul
                   nostru, scrie-ne la pilot@menuvia.ro.
+                </div>
+              </div>
+            ) : ordersOpen === false ? (
+              <div
+                role="status"
+                style={{
+                  background: D.amberA,
+                  border: `1px solid ${D.amber}`,
+                  borderRadius: 14,
+                  padding: '26px 24px',
+                }}
+              >
+                <div style={{ fontSize: 17, fontWeight: 700, color: D.amber, marginBottom: 6 }}>
+                  Comenzile sunt în pauză
+                </div>
+                <div style={{ fontSize: 14, color: D.t2, lineHeight: 1.55 }}>
+                  Pregătim lansarea oficială Codvia. Catalogul de mai sus rămâne valabil — revino
+                  în curând ca să plasezi comanda.
                 </div>
               </div>
             ) : (
