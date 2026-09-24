@@ -69,6 +69,8 @@ Nimic nu se consideră „gata" fără dovadă.
 
 ### BLOC 0 — Repară ce e mort (azi, ~1 oră) 🔴
 
+> **24 sept 2026:** ordinea canonică a sarcinilor de fondator e acum `docs/ECOSISTEM.md` §3 (0a → 0b → 0c); blocurile 0–4 de mai jos rămân detaliul pașilor. Pasul 0.0 = valul 0a (doar cele 2 variabile Supabase + republicare), restul env-urilor intră în 0b.
+
 | Pas | Acțiune | Verificare |
 |---|---|---|
 | 0.0 | **Issue #250**: Netlify → Environment variables (lista cu efectul fiecăreia: `docs/VPS_RUNBOOK.md`; capcană: secretul Stripe e `STRIPE_WEBHOOK_SECRET`, nu `WEBHOOK_SECRET`) + **publică ultimul build de main** (deploy-ul live e din 31 aug) | `curl -H "x-health-diag: $TOKEN" .../health` → `status: ok`, `config.*: true`; cele 4 emailuri din coadă pleacă |

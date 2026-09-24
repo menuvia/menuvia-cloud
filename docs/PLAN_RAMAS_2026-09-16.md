@@ -1,5 +1,7 @@
 # PLAN RĂMAS — tot ce mai e de făcut (16 sept 2026)
 
+> **Actualizare 24 sept 2026.** Producția e la **mig 283** (282 + 283 aplicate pe 23 sept, #269 = `e1a3ae2`); C6 (mig 282) și C10 (mig 283) sunt ÎNCHISE. Direcția pentru produsele noi (Codvia / Webvia / Bookvia) și **ordinea canonică a sarcinilor tale** sunt în `docs/ECOSISTEM.md` §3 (0a → 0b → 0c) — secțiunea A de mai jos rămâne catalogul de itemi cu verificarea fiecăruia, iar ORDINEA e cea din ECOSISTEM.
+
 > **Documentul de lucru curent.** `PLAN_0_TO_HERO.md` rămâne DIRECȚIA, `AUDIT_V3_2026-09.md` rămâne RAPORTUL; aici e LISTA, cu owner pe fiecare rând (cod / fondator / terț / decizie) și cu verificarea care poate eșua la fiecare pas. Se actualizează la fiecare item închis, altfel devine documentația care minte.
 
 ## Context
@@ -44,9 +46,14 @@ Rezultatul: o listă cu owner pe fiecare rând (**cod / fondator / terț / deciz
 
 ---
 
-## A. Ce blochează TOT — fondator, ~1 zi de lucru, în ordinea asta
+## A. Ce blochează TOT — fondator
 
 Fiecare pas se termină cu o verificare care poate eșua. Nimic nu e „gata" fără ea.
+
+**Ordinea (24 sept, `docs/ECOSISTEM.md` §3)** — itemii de mai jos se fac în trei valuri, nu în ordinea numerelor:
+- **0a — o oră, AZI**: din A1 DOAR `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + republicarea `main` (după ce ai anulat în `email_queue` rândurile vechi fără sens). Poartă: `/health` cu `checks.db: "ok"` — poate rămâne 503 pe `queues: "stale"` până la 0b, e normal.
+- **0b — zile, în paralel**: restul lui A1, A2, A3 (backup-ul; restore-ul de repetiție cere un al doilea proiect Supabase), A4, A5, A6, A7, A8. Poartă: `/health` 200 + `health-watch` verde cu `config.*: true`.
+- **0c — săptămâni, pornit AZI**: BLOC 4 (SRL → bancă → Stripe pe firmă → **SPV + cont Oblio/SmartBill pentru SRL-ul Menuvia**, fiindcă nimic din repo nu emite facturile proprii ale Menuviei) + drafturile de-placeholder-izate + A9. A10 se face după 0a+0b.
 
 | # | Acțiune | Verificare | Deblochează |
 |---|---|---|---|
@@ -61,7 +68,7 @@ Fiecare pas se termină cu o verificare care poate eșua. Nimic nu e „gata" f�
 | A9 | **Stripe Dashboard**: Customer Portal ON (OPS-7), verifică versiunea API a endpoint-urilor de webhook (OPS-8), activează Connect (DOC-20) | `stripe-portal` nu mai dă `portal_unavailable`; versiunea notată în RUNBOOK | dunning CTA, comisioane afiliați, plata la masă |
 | A10 | **BLOC 3 — testul uman** pe telefonul tău: QR → comandă → Bucătărie; rezervare → email; anulare cu cod; import AI din poză; `/founder` | fiecare rând bifat cu dovadă | poarta FAZA 0 |
 
-**În paralel, cu lead-time lung (BLOC 4)**: SRL la ONRC → cont bancar → Stripe pe firmă (**4 price ID-uri**, nu unul — `stripe-checkout.js:40` face fail-fast pe toate) → SPV/e-Factura + Oblio → avocat pe cele 5 draft-uri din `menuvia-pack/`. **Fără SRL nu se încasează legal primul leu.**
+**În paralel, cu lead-time lung (BLOC 4)**: SRL la ONRC → cont bancar → Stripe pe firmă (**4 price ID-uri**, nu unul — `stripe-checkout.js:47` face fail-fast pe toate) → SPV/e-Factura + Oblio → avocat pe cele 5 draft-uri din `menuvia-pack/`. **Fără SRL nu se încasează legal primul leu.**
 
 Apoi **FAZA 1 (cel mai mare ROI)**: sună-i pe cei 4 utilizatori reali din iunie–iulie. **FAZA 2**: un singur local pilot.
 
@@ -142,11 +149,11 @@ Stare la 19 sept 2026: **patru din cinci închise**; singurul rămas e RESID-17,
 | C3 | **Bacșiș în sertar** (fără preferință azi) | Linie separată, sertar net |
 | C4 | **RES-28.3**: un singur sistem i18n pe fluxul oaspetelui | (A) totul pe `PUBLIC_MENU_STRINGS` 7 limbi cu `lang` prop; `i18n.ts` rămâne doar pentru dashboard |
 | C5 | **RES-37.1**: unde stă „eliberează masa" | În vederea LISTĂ a WaiterPage (grupat per masă), ca să ajungă la Plan 2 |
-| C6 | **RESID-17**: ștergerile GDPR pe pg_cron (cale ireversibilă) | Da, cu advisory lock — altfel Art. 17 e oprit de facto |
+| C6 | ~~**RESID-17**: ștergerile GDPR pe pg_cron~~ | ✅ ÎNCHIS — mig 282 (lacăt + order by + skip locked), aplicată 23 sept; prima rulare pe prod 24 sept 03:37 `succeeded` |
 | C7 | **OPS-12**: arhivă fiscală 10 ani (artefactele GitHub țin 30 de zile, VPS 14) | Sink extern S3-compatibil, lunar; decizie de cont |
 | C8 | Preț starter 99 vs ~83 la concurent (AUDIT-NOCOMMIT-7) | După FAZA 1 |
 | C9 | CSP enforce (azi Report-Only cu `unsafe-inline`) | După 2 săptămâni cu `report-to` (B1) fără violări |
-| C10 | RESID-14: `record_qr_scan`/`record_page_view` — le conectezi sau le ștergi cu teste cu tot | Conectează `record_qr_scan` (1 linie în QrMenuPage) — e singura măsură de activare pe QR |
+| C10 | ~~RESID-14: `record_qr_scan`~~ | ✅ ÎNCHIS — conectat + `daily_scans`/`weekly_scans` citibile (mig 283, 23 sept); `record_page_view` rămâne nechemat |
 | C11 | SCOPE-33.4: flux de ștergere pentru OASPEȚI (fără cont) | Proces manual prin privacy@menuvia.ro, scris explicit în politică |
 | C12 | OPS-13: pragurile de revenire ale cron-urilor rărite („la primul client plătitor") sunt doar comentarii | Le legi de A1: când ai primul abonament, `*/15`→`*/5` pe oblio |
 

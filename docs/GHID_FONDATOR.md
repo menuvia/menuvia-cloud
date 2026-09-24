@@ -3,7 +3,18 @@
 > Tot restul e automatizat sau îl fac eu. Când termini un bloc, scrie-mi
 > „gata pasul N" și verific eu totul.
 
-## ⚡ ORDINEA ACTUALĂ (august 2026) — fă-le EXACT în ordinea asta
+## ⚡ ORDINEA (24 sept 2026) — sursa unică e `docs/ECOSISTEM.md` §3
+
+> Lista de mai jos (august) e păstrată pentru DETALIILE fiecărui pas, dar
+> ORDINEA e cea din ECOSISTEM §3, în trei valuri:
+> **0a (o oră, azi)** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` în Netlify +
+> republicarea `main` — fără ele NIMIC de pe server nu merge (issue #250);
+> **0b (zile)** domeniu + Resend, restul cheilor, backup, MFA, UptimeRobot;
+> **0c (săptămâni, pornit azi)** SRL → bancă → Stripe pe firmă → SPV + cont
+> Oblio pentru facturile PROPRII ale Menuviei → drafturile legale cu CUI-ul real.
+> Unde lista de mai jos contrazice ECOSISTEM §3, câștigă ECOSISTEM.
+
+### Lista din august (detalii pe pași)
 
 > Auditul pe capitole a re-ordonat lista: domeniile înaintea oricărui server,
 > iar SRL-ul (absent din orice versiune anterioară a ghidului) pornit DEVREME
