@@ -5,6 +5,13 @@
 // confirmă telefonic și livrează cu plata ramburs/transfer. Tabelă dedicată +
 // Stripe vin în v2, când volumul o justifică (vezi docs/CODVIA.md).
 // Pattern identic cu recrutare-contact.js (CORS restrictiv, rate-limit, Resend).
+//
+// COMENZILE SUNT ÎN PAUZĂ până la lansarea legală (docs/ECOSISTEM.md, Pariul 2):
+// pagina vinde bunuri fizice și consumatorilor, dar termenii de vânzare nu sunt
+// randați, cumpărătorul nu primește nicio confirmare pe suport durabil (emailul
+// pleacă doar la fondator), iar 1 × PVC = −13 lei marjă (CODVIA_LANSARE.md:228).
+// Gate-ul e AICI, pe server — sursa unică; pagina doar îl citește prin GET.
+// Fail-closed: se deschide DOAR cu `CODVIA_ORDERS_OPEN=true` EXACT în env.
 
 const { createClient } = require('@supabase/supabase-js')
 
@@ -30,13 +37,20 @@ const PRODUCTS = {
   nfc_combo: { label: 'NFC + QR combo', price: 179 },
 }
 
+const ORDERS_PAUSED_MESSAGE =
+  'Comenzile Codvia sunt în pauză până la lansarea oficială. Revino în curând.'
+
+function ordersOpen() {
+  return process.env.CODVIA_ORDERS_OPEN === 'true'
+}
+
 function corsHeaders(event) {
   const origin = (event.headers && (event.headers.origin || event.headers.Origin)) || ''
   const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     Vary: 'Origin',
   }
 }
@@ -45,8 +59,26 @@ exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 204, headers: corsHeaders(event) }
   }
+  // Starea gate-ului, pentru pagină. Fără DB, fără date — doar un boolean.
+  if (event.httpMethod === 'GET') {
+    return {
+      statusCode: 200,
+      headers: { ...corsHeaders(event), 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      body: JSON.stringify({ open: ordersOpen() }),
+    }
+  }
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' }
+  }
+
+  // ÎNAINTEA oricărei procesări: cât timp e închis, nicio validare, niciun
+  // rate-limit, nicio scriere în DB, niciun email.
+  if (!ordersOpen()) {
+    return {
+      statusCode: 503,
+      headers: { ...corsHeaders(event), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: ORDERS_PAUSED_MESSAGE, code: 'orders_paused' }),
+    }
   }
 
   let body

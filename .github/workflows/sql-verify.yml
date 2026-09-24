@@ -1610,6 +1610,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/gdpr_deletion_lock_assertions.sql
 
+      # NECONDIȚIONAT (mig 284): ștergerea GDPR a unui owner arhivează jurnalul
+      # de bonuri (retained_receipts) ÎNAINTEA cascadei auth.users → restaurants
+      # → pending_receipts, pe ORICE politică (pe prod activă e archive_anonymize,
+      # ramura care nu blochează); `block` blochează și pe bonuri `success`.
+      - name: "GDPR receipt archive assertions (mig 284, RA1–RA5)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/gdpr_receipt_archive_assertions.sql
+
       # NECONDIȚIONAT (mig 281): gate de branding la CITIRE. PB1 e singura
       # asserție care exersează scenariul de DOWNGRADE — singurul în care
       # gate-ul face muncă reală (tiparul PM6); PB8 acoperă §F (gate-ul de SCRIERE

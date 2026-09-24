@@ -6,6 +6,19 @@
 > auz. Domenii verificate libere la decizie (30 iul 2026): codvia.ro, codvia.shop
 > ($2,99/an), codvia.io, codvia.eu. `codvia.com` e luat.
 
+## ⏸ Stare: comenzile sunt în PAUZĂ (24 sept 2026)
+
+`codvia-order.js` refuză orice comandă cu 503 `orders_paused` cât timp
+`CODVIA_ORDERS_OPEN` nu e EXACT `true` în env (fail-closed), iar `/codvia`
+afișează „Comenzile sunt în pauză" în locul formularului (starea vine din GET
+pe aceeași funcție — serverul e sursa unică). Motivul: pagina vinde bunuri
+fizice și consumatorilor fără termeni de vânzare randați (draft 06), fără
+confirmare pe suport durabil către cumpărător (emailul pleacă doar la fondator)
+și acceptă 1 × PVC = −13 lei marjă (`docs/vanzare/CODVIA_LANSARE.md:228`).
+Se redeschide după „Pariul 2 — Codvia minim legal" din `docs/ECOSISTEM.md`.
+Teste: CO1–CO5 (`tests/functions/codvia-order.test.js`), CV1–CV3
+(`src/pages/__tests__/CodviaPage.test.tsx`).
+
 ## Ce există în cod (v1, acest PR)
 
 - **`/codvia`** (`src/pages/CodviaPage.tsx`) — landing + catalog 4 produse +
