@@ -7,8 +7,12 @@
 
 > Lista de mai jos (august) e păstrată pentru DETALIILE fiecărui pas, dar
 > ORDINEA e cea din ECOSISTEM §3, în trei valuri:
-> **0a (o oră, azi)** `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` în Netlify +
-> republicarea `main` — fără ele NIMIC de pe server nu merge (issue #250);
+> **0a (o oră, azi)** ÎNTÂI anulează în `email_queue` (Table Editor,
+> `status='cancelled'`) rândurile vechi care nu mai au sens — primul tick cu
+> Resend le-ar trimite pe toate; apoi `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`
+> în Netlify + republicarea `main` — fără ele NIMIC de pe server nu merge
+> (issue #250). Poartă: `/health` cu `checks.db: "ok"` (503 pe `queues` e
+> normal până la 0b);
 > **0b (zile)** domeniu + Resend, restul cheilor, backup, MFA, UptimeRobot;
 > **0c (săptămâni, pornit azi)** SRL → bancă → Stripe pe firmă → SPV + cont
 > Oblio pentru facturile PROPRII ale Menuviei → drafturile legale cu CUI-ul real.

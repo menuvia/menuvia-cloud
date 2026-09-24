@@ -15,8 +15,12 @@
 --   RA3  block, control pozitiv: un owner cu bon DOAR `error` se șterge —
 --        blocajul e pe bon TIPĂRIT, nu pe orice rând din coadă
 --   RA4  arhivarea e idempotentă (a doua rulare nu dublează)
---   RA5  structură + suprafață: arhivarea e ÎNAINTEA ștergerii în corp;
---        siguranțele din 282 au rămas; tabela și funcția sunt închise
+--   RA5  structură + suprafață: lacătul pe jurnal și arhivarea sunt ÎNAINTEA
+--        ștergerii în corp; siguranțele din 282 au rămas; tabela și funcția
+--        sunt închise (concurența cu bridge-ul cere două sesiuni — aici se
+--        verifică PREZENȚA lacătului, ca la GD3)
+--   RA6  un bon `sent` (în tipărire) AMÂNĂ userul un tick: nu se șterge, nu se
+--        blochează (deletion_blocked_reason rămâne NULL), rândul rămâne
 --
 -- Rulează ca `postgres`, într-o tranzacție derulată la final.
 -- =============================================================================
@@ -193,6 +197,43 @@ begin
   raise notice 'RA3 OK';
 end $$;
 
+-- ── RA6: bon în tipărire (`sent`) → amânare, nu blocaj ─────────────────────
+do $$
+declare
+  v_uid uuid := '8b000000-0000-4000-8000-0000000000a4'::uuid;
+  v_ids uuid[];
+begin
+  insert into auth.users (id, email) values (v_uid, 'ra4@ra.test');
+  update public.profiles set plan = 'enterprise' where id = v_uid;
+  insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+  values ('8b100000-0000-4000-8000-0000000000a4'::uuid, v_uid, 'RA4', 'ra4-test', 'Cluj', true);
+  insert into public.orders (id, restaurant_id, source, status, total)
+  values ('8b200000-0000-4000-8000-0000000000a4'::uuid, '8b100000-0000-4000-8000-0000000000a4'::uuid,
+          'waiter', 'served', 80.00);
+  insert into public.pending_receipts
+    (id, restaurant_id, order_id, command_type, payload, status, total_snapshot, claimed_at)
+  values ('8b300000-0000-4000-8000-0000000000d4'::uuid, '8b100000-0000-4000-8000-0000000000a4'::uuid,
+          '8b200000-0000-4000-8000-0000000000a4'::uuid, 'order', 'S^Supa^80.00^1^buc^1^1', 'sent', 80.00,
+          now() - interval '1 minute');
+
+  insert into public.gdpr_deletion_config (id, policy) values (true, 'archive_anonymize')
+  on conflict (id) do update set policy = 'archive_anonymize';
+  update public.profiles set deletion_requested_at = now() - interval '45 days' where id = v_uid;
+
+  select coalesce(array_agg(deleted_user_id), '{}') into v_ids from public.process_account_deletions();
+
+  if v_uid = any(v_ids) or not exists (select 1 from auth.users where id = v_uid) then
+    raise exception 'RA6: contul a fost sters in timp ce un bon era in TIPARIRE (sent)';
+  end if;
+  if (select deletion_blocked_reason from public.profiles where id = v_uid) is not null then
+    raise exception 'RA6: bonul in tiparire a BLOCAT contul — amanarea trebuia sa fie de un tick, nu permanenta';
+  end if;
+  if not exists (select 1 from public.pending_receipts where id = '8b300000-0000-4000-8000-0000000000d4'::uuid and status = 'sent') then
+    raise exception 'RA6: bonul in tiparire a fost atins';
+  end if;
+  raise notice 'RA6 OK';
+end $$;
+
 -- ── RA5: structură + suprafață ─────────────────────────────────────────────
 do $$
 declare v_src text; v_arch int; v_del int;
@@ -204,6 +245,9 @@ begin
   v_del  := position('delete from auth.users where id = v_user.id' in v_src);
   if v_arch = 0 or v_del = 0 or v_arch > v_del then
     raise exception 'RA5: arhivarea bonurilor lipseste sau e DUPA stergere (arch=%, del=%)', v_arch, v_del;
+  end if;
+  if position('for update of pr' in v_src) = 0 or position('for update of pr' in v_src) > v_arch then
+    raise exception 'RA5: jurnalul de bonuri nu e blocat INAINTEA arhivarii (cursa cu bridge_confirm_receipt)';
   end if;
   if position('pg_try_advisory_xact_lock' in v_src) = 0
      or position('order by deletion_requested_at, id' in v_src) = 0

@@ -29,7 +29,7 @@ Rezultatul: o listă cu owner pe fiecare rând (**cod / fondator / terț / deciz
 | Janitoarele pg_cron (mig 274) | toate 8 `succeeded` ✅ — singura automatizare vie |
 | MFA pe conturile de platformă | **0 / 2** |
 | Baza | 22 MB / 500 MB; `audit_log` 541 rânduri |
-| `qr_scans` / `page_views` | 0 / 0 (RPC-urile nu sunt chemate de nimeni) |
+| `qr_scans` / `page_views` | 0 / 0 la 16 sept — de atunci `record_qr_scan` e CONECTAT (mig 283, C10), `record_page_view` rămâne nechemat |
 | **Netlify deploy PUBLICAT** | **`6a9584cb` din 31 aug** — tot ce e pe main din 31 aug NU e live; plan Free; fără domeniu propriu |
 | `/health` | **503** `{db:"down", config:{resend,slack,stripe,ai_platform:false}}` — funcțiile rulează fără env |
 | `health-watch.yml` | roșu la fiecare rulare (290 rulări) |

@@ -73,7 +73,7 @@ Nimic nu se consideră „gata" fără dovadă.
 
 | Pas | Acțiune | Verificare |
 |---|---|---|
-| 0.0 | **Issue #250**: Netlify → Environment variables (lista cu efectul fiecăreia: `docs/VPS_RUNBOOK.md`; capcană: secretul Stripe e `STRIPE_WEBHOOK_SECRET`, nu `WEBHOOK_SECRET`) + **publică ultimul build de main** (deploy-ul live e din 31 aug) | `curl -H "x-health-diag: $TOKEN" .../health` → `status: ok`, `config.*: true`; cele 4 emailuri din coadă pleacă |
+| 0.0 | **Issue #250, valul 0a** (`docs/ECOSISTEM.md` §3): ÎNTÂI anulează în `email_queue` rândurile vechi fără sens (claim-ul nu are plafon de vechime); apoi DOAR `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` în Netlify + **publică ultimul build de main** (deploy-ul live e din 31 aug). Restul env-urilor (lista: `docs/VPS_RUNBOOK.md`; capcană: secretul Stripe e `STRIPE_WEBHOOK_SECRET`, nu `WEBHOOK_SECRET`) intră în 0b | `/health` → `checks.db: "ok"` (poate rămâne 503 pe `queues: "stale"` până la Resend — normal); `config.*: true` și emailurile care pleacă sunt poarta lui **0b** |
 | 0.1 | ~~Merge PR #203~~ ✅ (4ba2c88; `/health` are acum 5 sonde, mig 271) | deploy verde |
 | 0.2 | **Netlify → Functions → Logs → `automation-cron`**: de ce s-a oprit pe 2 aug. Suspect principal: limita planului Free | vezi cauza scrisă |
 | 0.3 | Repară (plan plătit / rărește cron-urile / mută pe VPS — shim-ul din `deploy/` e gata, `deploy-vps.yml` e inert fără `VPS_HOST`/`VPS_SSH_KEY`) | `/health` → **200** cu `cron: "ok"` (pe `menuvia.netlify.app` până la 1.2; `menuvia.ro` abia după domeniu) |

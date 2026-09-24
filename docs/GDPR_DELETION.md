@@ -68,7 +68,11 @@ restaurants → orders → pending_receipts` l-ar șterge, iar `pending_receipts
 SINGURA legătură comandă↔bon din bază (mig 275). Payload-ul FiscalNet conține
 doar produse, prețuri și plăți — nicio dată de client. Idempotent (dedup pe
 `original_receipt_id`); o eroare de arhivare lasă contul NEșters (reîncercat la
-tick-ul următor), niciodată șters fără arhivă.
+tick-ul următor), niciodată șters fără arhivă. Restaurantele și rândurile de
+jurnal ale owner-ului se BLOCHEAZĂ înaintea arhivării (o confirmare de bon venită
+între citire și cascadă nu mai scapă), iar un bon `sent` (în tipărire) amână
+contul un tick, fără blocaj — un `sent` agățat e mutat în `error` orar de
+janitorul `bridge_mark_stale_as_error`, deci amânarea e mărginită.
 
 ### `archive_anonymize` (DEFAULT, recomandat)
 

@@ -34,6 +34,10 @@
 --   C. `process_account_deletions` (lanț …→282→284): copie VERBATIM din 282 +
 --      (1) arhivarea bonurilor înainte de `delete`, pe orice politică;
 --      (2) politica `block` blochează și pe bonuri `success`, nu doar pe facturi.
+--      (3) lacăte pe restaurantele și pe rândurile de jurnal ale owner-ului
+--      ÎNAINTEA arhivării (recenzie CodeRabbit pe #271 — altfel o confirmare de
+--      bon sau un rând nou din fereastra arhivare→cascadă scăpa); un bon `sent`
+--      (în tipărire) AMÂNĂ userul un tick, fără blocaj — `pending` nu.
 --      Lacătul, ordinea, `skip locked`, cele 3 politici, arhivarea facturilor,
 --      `limit 100` și izolarea per-user rămân neatinse.
 --
@@ -201,6 +205,37 @@ begin
            and i.status in ('issued', 'cancelled')
       ) into v_has_invoices;
 
+      -- mig 284: SERIALIZARE cu bridge-ul, ÎNAINTEA oricărei verificări pe bonuri
+      -- (recenzie CodeRabbit pe #271). Fără lacăte, sub READ COMMITTED: un bon
+      -- `sent` confirmat de bridge DUPĂ citirea arhivei ar fi arhivat în starea
+      -- veche (fără bon_number), iar un rând inserat între arhivare și cascadă
+      -- s-ar șterge fără arhivă. `for update` pe restaurante blochează inserările
+      -- noi (FK-ul ia KEY SHARE pe părinte); lacătul pe rândurile de jurnal
+      -- blochează confirmările și claim-urile pe rândurile existente.
+      perform 1 from public.restaurants where owner_id = v_user.id for update;
+      perform 1
+        from public.pending_receipts pr
+        join public.restaurants r on r.id = pr.restaurant_id
+       where r.owner_id = v_user.id
+       for update of pr;
+
+      -- Un bon `sent` e în TIPĂRIRE: nu ștergem contul sub el. Se SARE pentru
+      -- tick-ul ăsta, FĂRĂ deletion_blocked_reason — rămâne eligibil, iar
+      -- janitorul orar `bridge_mark_stale_as_error` (pg_cron, mig 274) mută un
+      -- `sent` agățat în `error`, deci amânarea e MĂRGINITĂ. `pending` NU se
+      -- așteaptă: un bridge offline pe termen nedefinit ar bloca Art. 17 pentru
+      -- totdeauna, tăcut; rândul `pending` se arhivează ca atare (nimic tipărit).
+      if exists (
+        select 1
+          from public.pending_receipts pr
+          join public.restaurants r on r.id = pr.restaurant_id
+         where r.owner_id = v_user.id
+           and pr.status = 'sent'
+      ) then
+        raise notice 'process_account_deletions: user % sărit — bon în tipărire (sent), reîncercat la tick-ul următor', v_user.id;
+        continue;
+      end if;
+
       -- mig 284: are owner-ul bonuri fiscale TIPĂRITE (`success`, cu bon_number)?
       -- `pending_receipts` e singura legătură comandă↔bon din bază (mig 275), iar
       -- cascada auth.users → profiles → restaurants → orders → pending_receipts
@@ -329,6 +364,13 @@ begin
   end if;
   if v_arch > v_del then
     raise exception 'mig 284: arhivarea bonurilor e DUPA stergere — cascada ar fi sters deja jurnalul';
+  end if;
+  if position('for update of pr' in v_src) = 0
+     or position('for update of pr' in v_src) > v_arch then
+    raise exception 'mig 284: jurnalul de bonuri nu e blocat INAINTEA arhivarii (cursa cu bridge_confirm_receipt)';
+  end if;
+  if position('and pr.status = ''sent''' in v_src) = 0 then
+    raise exception 'mig 284: lipseste amanarea pe bon in tiparire (sent)';
   end if;
   if position('v_policy = ''block'' and (v_has_invoices or v_has_receipts)' in v_src) = 0 then
     raise exception 'mig 284: politica block nu blocheaza pe bonuri success';
