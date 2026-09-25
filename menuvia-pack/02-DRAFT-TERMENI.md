@@ -56,7 +56,7 @@ Prețurile sunt exprimate în lei (RON). Regimul TVA se va menționa la facturar
 
 4.2. Fiecare plan include limite (număr de produse, mese/QR-uri, membri de echipă, plafoane de SMS etc.) afișate pe pagina de prețuri și în aplicație. Limitele și componența planurilor pot evolua; modificările care restrâng semnificativ un plan activ urmează procedura de la art. 15.
 
-4.3. **Plata abonamentului** se face prin card, procesată de Stripe. Abonamentul se reînnoiește automat la sfârșitul fiecărei perioade (lună sau an), până la anulare.
+4.3. **Plata abonamentului** se face prin card, procesată de Stripe. Abonamentul se reînnoiește automat la sfârșitul fiecărei luni, până la anulare.
 
 4.4. **Anulare oricând.** Clientul poate anula abonamentul în orice moment, din aplicație (secțiunea de facturare / portalul de facturare) sau prin cerere la contact@menuvia.ro. Anularea produce efecte la finalul perioadei de facturare deja achitate; Serviciul rămâne activ până atunci. Sumele achitate pentru perioada în curs nu se rambursează, cu excepția cazurilor prevăzute de lege sau agreate expres în scris.
 

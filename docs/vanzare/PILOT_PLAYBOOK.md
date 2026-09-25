@@ -510,7 +510,8 @@ Nimeni nu publică ceva ce n-a aprobat.
 
 **În aceeași discuție, dar DUPĂ ce ai obținut testimonialul**, deschizi subiectul afilierii:
 > [SUSPENDAT până la decizia E9 din `docs/ECOSISTEM.md` §6: programul de afiliere nu aprobă
-> pe nimeni până la recalcul, iar codul plătește 10% × 12 luni, nu „cât rămâne client”.]
+> pe nimeni până la recalcul. Nu promite procente (nici comisionul de setup, nici cel recurent)
+> până la publicarea setărilor active — fondatorul le poate schimba global și per afiliat.]
 
 Programul de afiliere există în produs (cerere → aprobare → comisioane live → dashboard cu
 downline), dar are **0 afiliați activi**. Primul tău client mulțumit e cel mai firesc primul
