@@ -15,7 +15,15 @@ pe aceeași funcție — serverul e sursa unică). Motivul: pagina vinde bunuri
 fizice și consumatorilor fără termeni de vânzare randați (draft 06), fără
 confirmare pe suport durabil către cumpărător (emailul pleacă doar la fondator)
 și acceptă 1 × PVC = −13 lei marjă (`docs/vanzare/CODVIA_LANSARE.md:228`).
-Se redeschide după „Pariul 2 — Codvia minim legal" din `docs/ECOSISTEM.md`.
+Se redeschide (`CODVIA_ORDERS_OPEN=true`) după ce pariurile **2a + 2b** din
+`docs/ECOSISTEM.md` §3 sunt livrate și publicate și după 0c (SRL + regim TVA).
+Pauza e live abia după republicarea din 0a — până atunci build-ul din 31 aug ia
+comenzi ca înainte. **Acest document e superseded de ECOSISTEM §3 pe patru
+puncte:** modelul „confirmare telefonică în 24h” (contractul cu consumatorul se
+încheie la acceptarea scrisă, 2b); `codvia_orders` „doar în v2” (e în 2b, înainte
+de redeschidere); „Codvia se înscrie ca afiliat” (niciun afiliat aprobat până la
+decizia E9); insert-ul din colet (fără adrese `@menuvia.ro` până la căsuța de
+primire din 0b-2).
 Teste: CO1–CO5 (`tests/functions/codvia-order.test.js`), CV1–CV3
 (`src/pages/__tests__/CodviaPage.test.tsx`).
 

@@ -3,19 +3,24 @@
 > Tot restul e automatizat sau îl fac eu. Când termini un bloc, scrie-mi
 > „gata pasul N" și verific eu totul.
 
-## ⚡ ORDINEA (24 sept 2026) — sursa unică e `docs/ECOSISTEM.md` §3
+## ⚡ ORDINEA (25 sept 2026, v3) — sursa unică e `docs/ECOSISTEM.md` §3
 
 > Lista de mai jos (august) e păstrată pentru DETALIILE fiecărui pas, dar
 > ORDINEA e cea din ECOSISTEM §3, în trei valuri:
-> **0a (o oră, azi)** ÎNTÂI anulează în `email_queue` (Table Editor,
-> `status='cancelled'`) rândurile vechi care nu mai au sens — primul tick cu
-> Resend le-ar trimite pe toate; apoi `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`
-> în Netlify + republicarea `main` — fără ele NIMIC de pe server nu merge
-> (issue #250). Poartă: `/health` cu `checks.db: "ok"` (503 pe `queues` e
-> normal până la 0b);
-> **0b (zile)** domeniu + Resend, restul cheilor, backup, MFA, UptimeRobot;
-> **0c (săptămâni, pornit azi)** SRL → bancă → Stripe pe firmă → SPV + cont
-> Oblio pentru facturile PROPRII ale Menuviei → drafturile legale cu CUI-ul real.
+> **0a (o oră, azi)** ÎNTÂI cumpără `menuvia.ro` (pct. 1): e DEJA fixat în build
+> (`netlify.toml:154`, `VITE_APP_URL`), deci QR-urile, confirmarea de cont și
+> resetarea parolei de pe prod duc acolo; apoi `SUPABASE_SERVICE_ROLE_KEY` în
+> Netlify + republicarea `main` — fără ea NIMIC de pe server nu merge (issue
+> #250). `SUPABASE_URL` (public), anularea celor 4 emailuri vechi din coadă și
+> verificarea `VITE_WHATSAPP_NUMBER` le fac eu la „da”-ul tău. Poartă: `/health`
+> cu `checks.db: "ok"` (503 pe `queues` e normal până la 0b);
+> **0b (zile, patru bucăți mici)** backup; email (Resend Verified ÎNAINTE de
+> `RESEND_API_KEY` + SMTP-ul Supabase Auth + căsuță de primire); monitorizare
+> (`HEALTH_DIAG_TOKEN`, UptimeRobot, MFA, leaked-password); chei (AI cu plafon de
+> cost, Stripe DOAR de TEST);
+> **0c (săptămâni, pornit azi)** SRL → bancă → contabil + regim TVA → Stripe pe
+> firmă → SPV + cont Oblio pentru facturile PROPRII ale Menuviei → drafturile
+> legale cu CUI-ul real → comutarea Stripe pe LIVE (ultimul pas).
 > Unde lista de mai jos contrazice ECOSISTEM §3, câștigă ECOSISTEM.
 
 ### Lista din august (detalii pe pași)
@@ -30,7 +35,9 @@
    fiecare). Adaugă-le ca domenii în Netlify (Domain management).
 2. **Resend → Domains → menuvia.ro** → pune înregistrările DKIM/SPF în DNS →
    verifică. Fără asta, TOATE emailurile de producție (rezervări noi, dunning,
-   comenzi Codvia, remindere) se pun în coadă dar NU pleacă.
+   comenzi Codvia, remindere) NU pleacă — iar cu `RESEND_API_KEY` pusă ÎNAINTEA
+   verificării, Resend le respinge (4xx) și ajung `failed` definitiv, fără retry
+   (`process-email-queue.js`, ramura `err.permanent`). Cheia se pune DOAR după Verified.
 3. Interimar 5 min (până se propagă DNS-ul): în Netlify env,
    `RECRUTARE_NOTIFY_EMAIL=georgeradu119@gmail.com`.
 

@@ -1,6 +1,6 @@
 # PLAN RĂMAS — tot ce mai e de făcut (16 sept 2026)
 
-> **Actualizare 24 sept 2026.** Producția e la **mig 283** (282 + 283 aplicate pe 23 sept, #269 = `e1a3ae2`); C6 (mig 282) și C10 (mig 283) sunt ÎNCHISE. Direcția pentru produsele noi (Codvia / Webvia / Bookvia) și **ordinea canonică a sarcinilor tale** sunt în `docs/ECOSISTEM.md` §3 (0a → 0b → 0c) — secțiunea A de mai jos rămâne catalogul de itemi cu verificarea fiecăruia, iar ORDINEA e cea din ECOSISTEM.
+> **Actualizare 24 sept 2026.** Producția e la **mig 284** (282 + 283 pe 23 sept, #269 = `e1a3ae2`; 284 pe 24 sept, #271 = `109696c`); C6 (mig 282) și C10 (mig 283) sunt ÎNCHISE. Direcția pentru produsele noi (Codvia / Webvia / Bookvia) și **ordinea canonică a sarcinilor tale** sunt în `docs/ECOSISTEM.md` §3 (0a → 0b → 0c) — secțiunea A de mai jos rămâne catalogul de itemi cu verificarea fiecăruia, iar ORDINEA e cea din ECOSISTEM.
 
 > **Documentul de lucru curent.** `PLAN_0_TO_HERO.md` rămâne DIRECȚIA, `AUDIT_V3_2026-09.md` rămâne RAPORTUL; aici e LISTA, cu owner pe fiecare rând (cod / fondator / terț / decizie) și cu verificarea care poate eșua la fiecare pas. Se actualizează la fiecare item închis, altfel devine documentația care minte.
 
@@ -50,16 +50,14 @@ Rezultatul: o listă cu owner pe fiecare rând (**cod / fondator / terț / deciz
 
 Fiecare pas se termină cu o verificare care poate eșua. Nimic nu e „gata" fără ea.
 
-**Ordinea (24 sept, `docs/ECOSISTEM.md` §3)** — itemii de mai jos se fac în trei valuri, nu în ordinea numerelor:
-- **0a — o oră, AZI**: din A1 DOAR `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + republicarea `main` (după ce ai anulat în `email_queue` rândurile vechi fără sens). Poartă: `/health` cu `checks.db: "ok"` — poate rămâne 503 pe `queues: "stale"` până la 0b, e normal.
-- **0b — zile, în paralel**: restul lui A1, A2, A3 (backup-ul; restore-ul de repetiție cere un al doilea proiect Supabase), A4, A5, A6, A7, A8. Poartă: `/health` 200 + `health-watch` verde cu `config.*: true`.
-- **0c — săptămâni, pornit AZI**: BLOC 4 (SRL → bancă → Stripe pe firmă → **SPV + cont Oblio/SmartBill pentru SRL-ul Menuvia**, fiindcă nimic din repo nu emite facturile proprii ale Menuviei) + drafturile de-placeholder-izate + A9. A10 se face după 0a+0b.
+**Ordinea** — itemii de mai jos NU se fac în ordinea numerelor:
+- **Ordinea e cea din `docs/ECOSISTEM.md` §3 (v3, 25 sept)**, cu itemii de mai jos mapați pe rânduri: **0a** = domeniul `menuvia.ro` cumpărat ÎNTÂI (e fixat în build prin `netlify.toml:154`) + `SUPABASE_SERVICE_ROLE_KEY` + republicarea `main` (agentul pune `SUPABASE_URL`, anulează rândurile vechi din `email_queue`, verifică `VITE_WHATSAPP_NUMBER`); poartă `/health` cu `checks.db: "ok"`, 503 pe `queues` e normal până la 0b-2. **0b-1** A3a (backup); **0b-2** A6 + Resend Verified ÎNAINTEA cheii + SMTP-ul Supabase Auth + căsuța de primire; **0b-3** `HEALTH_DIAG_TOKEN`, A2, A4, A5, A7; **0b-4** chei AI cu plafon de cost, chei Stripe DOAR de test, A8. **0c** SRL → bancă → contabil + regim TVA → Stripe pe firmă → A3b (restore de repetiție) → comutarea pe LIVE + A9. **A10** după 0b.
 
 | # | Acțiune | Verificare | Deblochează |
 |---|---|---|---|
-| A1 | **Issue #250**: Netlify → Environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, cele 4 `STRIPE_*_PRICE_ID`, `AI_CONFIG_SECRET`, `HEALTH_DIAG_TOKEN`, `PLATFORM_OPENAI_KEY`, `SLACK_WEBHOOK_URL`; lista corectă e `docs/VPS_RUNBOOK.md:28-78`, NU `.env.example` — vezi B0) + **publică ultimul build de main** (sau VPS-ul din `deploy/`, `docs/VPS_RUNBOOK.md`). ATENȚIE: ghidul spune `WEBHOOK_SECRET`, codul citește **`STRIPE_WEBHOOK_SECRET`** (DOC-1) | `curl -H "x-health-diag: $TOKEN" https://menuvia.netlify.app/health` → `status:ok`, `config.*: true`; `health-watch` verde singur; cele 4 emailuri din coadă pleacă la primul tick | emailuri, SMS, Oblio, rapoarte, payout afiliați, importul AI, tot ce e server-side |
+| A1 | **Issue #250**: Netlify → Environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, cele 4 `STRIPE_*_PRICE_ID`, `AI_CONFIG_SECRET`, `HEALTH_DIAG_TOKEN`, `PLATFORM_OPENAI_KEY`, `SLACK_WEBHOOK_URL`; lista corectă e `docs/VPS_RUNBOOK.md:28-78`, NU `.env.example` — vezi B0) + **publică ultimul build de main** (sau VPS-ul din `deploy/`, `docs/VPS_RUNBOOK.md`). ATENȚIE: ghidul spune `WEBHOOK_SECRET`, codul citește **`STRIPE_WEBHOOK_SECRET`** (DOC-1) | `curl -H "x-health-diag: $TOKEN" https://menuvia.netlify.app/health` → `status:ok`, `config.*: true`; `health-watch` verde singur; cele 4 emailuri vechi din coadă (toate către fondator) se ANULEAZĂ în 0a, nu se trimit | emailuri, SMS, Oblio, rapoarte, payout afiliați, importul AI, tot ce e server-side |
 | A2 | **UptimeRobot** gratuit pe `/health` la 5 min (BLOC-0.4/DOC-17) | primești email de test la oprire | detectarea următorului „cron mort 7 zile" |
-| A3 | **Backup** (RES-06/BLOC-2.5): GitHub Secrets `SUPABASE_DB_URL` (Session pooler, IPv4) + `BACKUP_PASSPHRASE` → `workflow_dispatch` → descarcă artefactul → **restore de probă** pe un proiect gol prin `RUNBOOK §6.2` cu poarta `tests/sql/privilege_regime_assertions.sql` (§6.3) | `db-backup` verde + artefact; poarta RP1–RP12 trece pe baza restaurată | RPO azi = tot istoricul |
+| A3 | **Backup** (RES-06/BLOC-2.5): GitHub Secrets `SUPABASE_DB_URL` (Session pooler, IPv4) + `BACKUP_PASSPHRASE` → `workflow_dispatch` → descarcă artefactul → **restore de probă** pe un proiect gol prin `RUNBOOK §6.2` cu poarta `tests/sql/privilege_regime_assertions.sql` (§6.3) | `db-backup` verde + artefact; poarta RP1–RP13 trece pe baza restaurată | RPO azi = tot istoricul |
 | A4 | **TOTP** pe ambele conturi platform admin (Setări → Cont → MfaCard) + `set_my_mfa_enforced(true)` (RES-17) | login-ul cere codul; `profiles.mfa_enforced = true` pe ambele | singura cale spre datele tuturor tenanților nu mai e doar-cu-parolă |
 | A5 | Supabase → Auth → **Leaked password protection ON** (BLOC-2.3, advisor WARN) | advisor-ul nu mai raportează | igienă auth |
 | A6 | **Domeniu**: cumpără menuvia.ro (+ codvia.ro), Netlify primary, **Resend → Domains → verified** (DKIM/SPF/DMARC), OSIM/EUIPO 5 min (BLOC-1) | `https://menuvia.ro` încarcă; Resend `Verified`; o rezervare de test → email în inbox (BLOC-3.2) | QR-uri tipărite, emailuri cu identitate, reset parolă, SEO, Codvia |
@@ -168,15 +166,9 @@ Stare la 19 sept 2026: **patru din cinci închise**; singurul rămas e RESID-17,
 
 Bon stornat la casă fără reprezentare; legătura bon↔factură doar la Oblio; refund Stripe manual la `void_order_payment`; pinning IP în ai-proxy (cere `undici`); `authenticated` cu INSERT pe `pending_receipts` (limitat de mig 278); dublu-send SMSO; retry după schimbare legală de cotă; TOCTOU pe cota AI; bon per plătitor la split = v2; Codvia v2; advisor `auth_rls_initplan`/`multiple_permissive_policies`/FK neindexate (performanță — irelevante la 30 de comenzi, se reevaluează la 500/zi); Prettier non-blocking; Lighthouse advisory.
 
-## F. Ordinea și porțile
+## F. Ordinea și porțile — RETRAS (25 sept)
 
-1. **Azi, în paralel**: tu A1–A2 (~1h); eu B0 + B1 + B2 (trei PR-uri, merge pe verde cu re-citirea review-urilor). **Poartă**: `/health` 200, health-watch verde, 4 emailuri `sent`.
-2. **Zilele 1–2**: tu A3–A9; eu B3 (retenție). **Poartă**: artefact de backup + restore de probă trecut prin RP1–RP12; MFA 2/2; Resend Verified.
-3. **Ziua 3**: A10 + FAZA 1 (cele 4 apeluri) → decizia C1.
-4. **Apoi**: C4/C5 → B4a/B4b/B4c doar dacă pilotul le cere (turiști → B4a; Plan 2 → B4b; onboarding nou → B4c). Restul din C după FAZA 1.
-5. **Săptămânile 2–4**: FAZA 2 (un local), BLOC 4 în paralel; FAZA 3 = primul leu ridică interdicția §4.
-
-Plafonul rămâne cel din audit: codul te duce la ~7,5; **ultimele 1,5 puncte și primele 2 puncte de VALOARE sunt în A, nu în B**.
+Ordinea și porțile sunt în `docs/ECOSISTEM.md` §3 (v3). Lista care stătea aici (16 sept) cerea „4 emailuri `sent`” la prima poartă și punea SRL-ul în săptămânile 2–4; ambele contrazic ordinea curentă și nu se mai folosesc.
 
 ## Verificare (pentru ce execut eu)
 

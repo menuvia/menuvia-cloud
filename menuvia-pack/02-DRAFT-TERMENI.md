@@ -45,14 +45,14 @@
 
 4.1. Planurile comerciale disponibile la data acestui document sunt:
 
-| Plan | Preț (abonament lunar) | Preț (abonament anual, exprimat pe lună) | Descriere pe scurt |
-|---|---|---|---|
-| **Demo gratuit** | 0 lei | — | cont de evaluare/demonstrație, cu funcții și limite restrânse |
-| **Meniu Digital + Rezervări** | 99 lei/lună | 83 lei/lună | meniu QR multilingv, imagini, alergeni, rezervări online, notificări SMS în limita planului |
-| **Meniu + Comenzi** | 249 lei/lună | 208 lei/lună | tot ce e mai sus + comenzi prin QR, dashboard bucătărie, pickup, fidelizare, stocuri, rapoarte; **plata și bonul rămân pe casa existentă a Clientului** |
-| **Fiscalizare** | 499 lei/lună | 415 lei/lună | tot ce e mai sus + Modulul de Fiscalizare: plăți în aplicație, plată online la masă, bon fiscal pe casa Clientului, raport TVA, facturi |
+| Plan | Preț (abonament lunar) | Descriere pe scurt |
+|---|---|---|
+| **Demo gratuit** | 0 lei | cont de evaluare/demonstrație, cu funcții și limite restrânse |
+| **Meniu Digital + Rezervări** | 99 lei/lună | meniu QR multilingv, imagini, alergeni, rezervări online, notificări SMS în limita planului |
+| **Meniu + Comenzi** | 249 lei/lună | tot ce e mai sus + comenzi prin QR, dashboard bucătărie, pickup, fidelizare, stocuri, rapoarte; **plata și bonul rămân pe casa existentă a Clientului** |
+| **Fiscalizare** | 499 lei/lună | tot ce e mai sus + Modulul de Fiscalizare: plăți în aplicație, plată online la masă, bon fiscal pe casa Clientului, raport TVA, facturi |
 
-Prețurile sunt exprimate în lei (RON). Regimul TVA se va menționa la facturare conform statutului fiscal al Furnizorului la data emiterii. Facturarea anuală se achită în avans pentru 12 luni, la prețul lunar redus indicat.
+Prețurile sunt exprimate în lei (RON). Regimul TVA se va menționa la facturare conform statutului fiscal al Furnizorului la data emiterii.
 
 4.2. Fiecare plan include limite (număr de produse, mese/QR-uri, membri de echipă, plafoane de SMS etc.) afișate pe pagina de prețuri și în aplicație. Limitele și componența planurilor pot evolua; modificările care restrâng semnificativ un plan activ urmează procedura de la art. 15.
 

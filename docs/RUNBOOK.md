@@ -672,7 +672,7 @@ o cădere de cron — monitorizare din AFARĂ, nu dinăuntru.
 
 1. **Netlify → Functions → Logs** pe `automation-cron`: vezi de ce s-a oprit
    (limită de plan Free? eroare la boot? funcție dezactivată?).
-2. Dacă e limită de invocări: cron-urile consumă ~50k invocări/lună la trafic
+2. Dacă e limită de invocări: cron-urile consumă ~20.160 invocări/lună (orarul de avarie din `netlify.toml`; ~49k înainte de el) la trafic
    zero (vezi `docs/PLAN_0_TO_HERO.md` BLOC 0 + issue #250) → fie plan plătit, fie mutarea cron-urilor pe
    VPS-ul din `deploy/` (shim-ul e gata), fie rărirea lor.
 3. **UptimeRobot** (gratuit, 5 min) pe `https://<domeniu>/health` — de acum

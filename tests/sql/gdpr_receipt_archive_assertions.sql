@@ -1,6 +1,6 @@
 -- tests/sql/gdpr_receipt_archive_assertions.sql
 -- =============================================================================
--- RA1–RA5 — clichetul PERMANENT al mig 284: ștergerea GDPR a unui owner nu mai
+-- RA1–RA6 — clichetul PERMANENT al mig 284: ștergerea GDPR a unui owner nu mai
 -- distruge jurnalul de bonuri fiscale.
 --
 -- Ce păzește: `delete from auth.users` cascadează profiles → restaurants →
