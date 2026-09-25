@@ -167,7 +167,7 @@ fiecare dintre ei să încerce din nou, în 10 minute, cu poza meniului.
 - Rămâi în local prima seară de funcționare
 - **Poarta:** 10 comenzi reale de la clienți străini + patronul spune „e ok"
 
-### FAZA 3 — „Primul leu" (zilele 15–30)
+### FAZA 3 — „Primul leu" (la ≥30 de zile după comutarea Stripe pe LIVE — `docs/ECOSISTEM.md` §3, „Calendarul primului leu”; pe pilot, la finalul celor 60 de zile)
 - SRL-ul e gata → Stripe live → pilotul devine **plătitor** (starter 99 lei)
 - Butonul de rezervare pe profilul lui Google (`docs/GOOGLE_REZERVARI.md`)
 - Ceri testimonialul + 3 poze reale din local

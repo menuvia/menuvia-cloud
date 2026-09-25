@@ -161,7 +161,7 @@ plus semnalizarea că restaurantul a rămas fără owner.
 - RPC atins: `public.process_account_deletions` (redefinit; original în mig 042)
 - Tabele noi: `public.retained_invoices`, `public.gdpr_deletion_config`;
   `public.retained_receipts` (mig 284, `20260924090000_migration_284_gdpr_receipt_archive.sql`,
-  teste RA1–RA5 în `tests/sql/gdpr_receipt_archive_assertions.sql`)
+  teste RA1–RA6 în `tests/sql/gdpr_receipt_archive_assertions.sql`)
 - Coloane noi: `restaurants.is_tombstoned/tombstoned_at/tombstoned_reason`,
   `profiles.deletion_blocked_reason`
 - Transfer real owner (manual): `scripts/apply_ownership_remediation.sql`

@@ -481,8 +481,9 @@ Vine cu 3–4 zile înainte de expirarea celor 30 de zile gratuite — **nu în 
 2. **Ce n-a mers** (1 minut, spus de tine primul, înainte să-l spună el). Onestitatea aici
    valorează cât toate cifrele de mai sus.
 3. **Întrebarea:** „Continuăm?" Și **taci.** Lasă tăcerea să lucreze.
-4. Dacă da → activezi abonamentul (growth, 249 lei/lună; sau anual, cu ~17% reducere —
-   îi propui varianta anuală **doar dacă e clar entuziasmat**, altfel pare că fugi cu banii).
+4. Dacă da → activezi abonamentul (growth, 249 lei/lună) și ceri denumirea, CUI-ul și sediul
+   pentru factură. Varianta anuală NU există (un singur price ID per plan,
+   `netlify/functions/stripe-checkout.js:37-42`) — nu o promite.
 
 **Cererea de testimonial — momentul și formularea.**
 
@@ -508,9 +509,9 @@ Apoi îi trimiți textul finisat: **„Uite cum am scris. Schimbă orice, sau ș
 Nimeni nu publică ceva ce n-a aprobat.
 
 **În aceeași discuție, dar DUPĂ ce ai obținut testimonialul**, deschizi subiectul afilierii:
-> „Mai e ceva. Dacă îi zici unui prieten patron și semnează, îți dau comision din abonamentul
-> lui, lunar, cât rămâne client. Se face din aplicație, cu cerere și aprobare. Zi-mi dacă te
-> interesează, nu insist."
+> [SUSPENDAT până la decizia E9 din `docs/ECOSISTEM.md` §6: programul de afiliere nu aprobă
+> pe nimeni până la recalcul. Nu promite procente (nici comisionul de setup, nici cel recurent)
+> până la publicarea setărilor active — fondatorul le poate schimba global și per afiliat.]
 
 Programul de afiliere există în produs (cerere → aprobare → comisioane live → dashboard cu
 downline), dar are **0 afiliați activi**. Primul tău client mulțumit e cel mai firesc primul
