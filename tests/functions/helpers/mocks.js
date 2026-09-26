@@ -174,6 +174,10 @@ function FakeStripe(key, opts) {
       create: stripeMethod('customers.create'),
       del: stripeMethod('customers.del'),
     },
+    // stripe-checkout.js: fără namespace, orice test care ajunge la crearea
+    // sesiunii murea cu TypeError, deci nicio ramură 200 a funcției nu era
+    // testabilă (RES-11 — trialul fără card stă exact acolo).
+    checkout: { sessions: { create: stripeMethod('checkout.sessions.create') } },
     refunds: { list: stripeMethod('refunds.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {

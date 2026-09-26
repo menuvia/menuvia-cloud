@@ -12,15 +12,76 @@ const FROM_EMAIL = process.env.EMAIL_FROM || 'Menuvia <hello@menuvia.ro>'
 const REPLY_TO   = process.env.EMAIL_REPLY_TO || 'radu@menuvia.ro'
 const APP_URL    = process.env.APP_URL || 'https://menuvia.netlify.app'
 
+// Numele COMERCIALE ale planurilor — oglinda EXACTĂ a `PLAN_LABELS` din
+// src/lib/constants.ts (funcția e CommonJS și nu poate importa TS-ul clientului;
+// ET4 din tests/functions/email-templates.test.js citește ambele și cere
+// egalitate, deci o redenumire făcută doar într-un loc face CI roșu).
+const PLAN_COMMERCIAL = {
+  free: 'Demo gratuit',
+  starter: 'Meniu Digital + Rezervări',
+  growth: 'Meniu + Comenzi',
+  pro: 'Fiscalizare',
+  enterprise: 'Custom / Lanțuri',
+}
+
+// Planurile cu `fiscal_receipt` (mig 094) — singurele pe care un email are voie
+// să pomenească casa fiscală.
+const FISCAL_PLANS = new Set(['pro', 'enterprise'])
+
+function planName(plan) {
+  return PLAN_COMMERCIAL[plan] || 'Menuvia'
+}
+
+// Ziua ROMÂNEASCĂ dintr-un timestamp Stripe (secunde Unix). Netlify rulează în
+// UTC: o dată de sfârșit la 00:30 EEST ar ieși ziua PRECEDENTĂ cu toISOString —
+// aceeași clasă reparată la Oblio (mig 269, OM1).
+function formatStripeDayRo(unixSeconds) {
+  const n = Number(unixSeconds)
+  if (!Number.isFinite(n) || n <= 0) return ''
+  try {
+    return new Date(n * 1000).toLocaleDateString('ro-RO', {
+      day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Bucharest',
+    })
+  } catch {
+    return ''
+  }
+}
+
+// Ce pierde concret un cont care revine pe `free` (plan_features, mig 083/094):
+// comenzile de la masă există doar de la `growth` în sus, deci pe `starter` o
+// asemenea frază ar fi falsă. Produsele deja create RĂMÂN (limita de 15 din
+// mig 028 e verificată doar la INSERT), deci meniul publicat nu dispare.
+function downgradeConsequence(plan) {
+  const ordersLine = plan === 'growth' || FISCAL_PLANS.has(plan)
+    ? 'comenzile de la masă se opresc, '
+    : ''
+  return `meniul publicat rămâne, ${ordersLine}funcțiile planului ${planName(plan)} se opresc și nu mai poți adăuga produse peste limita planului gratuit`
+}
+
+// Anulare = trial expirat FĂRĂ card (RES-11, `missing_payment_method:'cancel'`)
+// și nu o anulare voluntară: Stripe închide abonamentul în momentul sfârșitului
+// de trial. Marja de o oră acoperă întârzierea dintre trial_end și ended_at.
+function isTrialExpiredWithoutCard(d) {
+  const trialEnd = Number(d && d.trial_end)
+  const endedAt = Number(d && d.ended_at)
+  if (!Number.isFinite(trialEnd) || trialEnd <= 0) return false
+  if (!Number.isFinite(endedAt) || endedAt <= 0) return false
+  if (d.had_payment_method === true) return false
+  return endedAt >= trialEnd && endedAt <= trialEnd + 3600
+}
+
 // ── Email templates (Romanian, warm tone) ──────────────────────
 // Each renders to { subject, html } given templateData.
 const TEMPLATES = {
+  // `subscription_started` (mig 220) pune `plan` în event_data. Înainte textul
+  // promitea „planul Pro: … casă fiscală” ORICUI — inclusiv unui abonat
+  // Meniu Digital, care nu are nici comenzi, nici bon fiscal.
   welcome: (d) => ({
     subject: '🎉 Bun venit la Menuvia!',
     html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
         <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:28px;margin:0 0 16px">Bun venit, ${esc(d.owner_name || 'patron')}!</h1>
-        <p style="color:#333;font-size:16px;line-height:1.55">Mulțumesc că ai ales Menuvia. Acum ai acces complet la <b>planul Pro</b>: meniu QR, comenzi în timp real, casă fiscală, gestiune stocuri și rapoarte detaliate.</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Mulțumesc că ai ales Menuvia. Abonamentul <b>${esc(planName(d.plan))}</b> e activ${FISCAL_PLANS.has(d.plan) ? ', inclusiv plățile în aplicație și bonul fiscal pe casa ta' : ''}.</p>
         <p style="color:#333;font-size:16px;line-height:1.55"><b>Pași următori:</b></p>
         <ol style="color:#333;font-size:15px;line-height:1.7">
           <li>Configurează meniul (import CSV sau import AI)</li>
@@ -50,18 +111,29 @@ const TEMPLATES = {
     `,
   }),
 
-  trial_ending_3d: (d) => ({
-    subject: '⏰ Trial-ul se termină în 3 zile',
-    html: `
+  // RES-11: trialul pornește FĂRĂ card, deci „actualizează cardul” era fals, iar
+  // „Continuă cu Pro →” numea planul greșit. Emailul e SINGURUL punct de contact
+  // înainte ca abonamentul să se anuleze singur: spune data, planul și ce se
+  // întâmplă concret dacă nu se adaugă un card.
+  trial_ending_3d: (d) => {
+    const day = formatStripeDayRo(d.ends_at)
+    const plan = planName(d.plan)
+    const hasCard = d.has_payment_method === true
+    return {
+      subject: day ? `⏰ Trialul Menuvia se încheie pe ${day}` : '⏰ Trialul Menuvia se încheie în curând',
+      html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
-        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Trial-ul tău Menuvia se termină în 3 zile</h1>
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Trialul tău se încheie${day ? ` pe ${esc(day)}` : ' în curând'}</h1>
         <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')}!</p>
-        <p style="color:#333;font-size:16px;line-height:1.55">Văd că folosești Menuvia și sper că ți-a fost de folos. Trial-ul gratuit se încheie în 3 zile. Pentru a continua fără întreruperi, actualizează cardul în setări.</p>
-        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Continuă cu Pro →</a>
+        ${hasCard
+          ? `<p style="color:#333;font-size:16px;line-height:1.55">Ai un card salvat, deci abonamentul <b>${esc(plan)}</b> continuă fără întrerupere, iar prima plată se face la sfârșitul trialului.</p>`
+          : `<p style="color:#333;font-size:16px;line-height:1.55">Ca abonamentul <b>${esc(plan)}</b> să continue, adaugă un card până atunci. Dacă nu adaugi, abonamentul se oprește singur, fără nicio plată, iar contul revine la planul gratuit: ${esc(downgradeConsequence(d.plan))}.</p>`}
+        <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${hasCard ? 'Vezi abonamentul →' : 'Adaugă un card →'}</a>
         <p style="color:#666;font-size:13px;margin-top:24px">Dacă ai întrebări despre planuri, scrie-mi direct.</p>
       </div>
     `,
-  }),
+    }
+  },
 
   payment_failed: (d) => ({
     subject: `⚠️ Plata nu s-a putut procesa (încercarea ${d.attempt || 1})`,
@@ -341,7 +413,21 @@ const TEMPLATES = {
     `,
   }),
 
-  subscription_cancelled: (d) => ({
+  subscription_cancelled: (d) => (isTrialExpiredWithoutCard(d) ? {
+    // RES-11: trialul s-a încheiat fără card. „Confirmăm că abonamentul a fost
+    // anulat” era fals — omul n-a anulat nimic.
+    subject: 'Trialul Menuvia s-a încheiat',
+    html: `
+      <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
+        <h1 style="font-family:Georgia,serif;color:#0A0908;font-size:24px">Trialul tău s-a încheiat</h1>
+        <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')},</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Perioada gratuită s-a încheiat fără un card adăugat, așa că abonamentul s-a oprit singur. Nu ai fost taxat. Contul a revenit la planul gratuit: ${esc(downgradeConsequence(d.plan))}.</p>
+        <p style="color:#333;font-size:16px;line-height:1.55">Poți reporni oricând abonamentul, alegând un plan.</p>
+        <a href="${APP_URL}/pricing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Alege un plan →</a>
+        <p style="color:#666;font-size:13px;margin-top:24px">Dacă ceva nu ți-a plăcut, aș aprecia un răspuns la acest email.<br/>— Radu</p>
+      </div>
+    `,
+  } : {
     subject: 'Abonamentul Menuvia a fost anulat',
     html: `
       <div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#fafaf7">
@@ -765,3 +851,8 @@ exports.handler = async () => {
     body: JSON.stringify({ processed: pending.length, sent, failed, authFailures }),
   }
 }
+
+// Pentru teste (tests/functions/email-templates.test.js) — precedent:
+// `exports.TICK_MINUTES` din automation-cron.js.
+exports.TEMPLATES = TEMPLATES
+exports.PLAN_COMMERCIAL = PLAN_COMMERCIAL

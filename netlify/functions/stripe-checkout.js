@@ -12,6 +12,33 @@ const Stripe = require('stripe')
 // verzi (stripe-node 14.x → '2023-10-16').
 const STRIPE_API_VERSION = '2023-10-16'
 
+// Planurile care primesc trial (RES-11). Oglinda EXACTĂ a `TRIAL_PLAN_IDS` din
+// src/lib/pricingCopy.ts — se schimbă în AMBELE locuri. Gate-ul stă AICI, pe
+// server: clientul arată trialul doar pe starter/growth, dar un POST direct
+// `{plan:'pro'}` (sau fallback-ul `onCheckout('pro')` din PricingPage când
+// WhatsApp nu e configurat) ajunge tot aici. Cu trial FĂRĂ card, un trial pe
+// pro/enterprise ar da 30 de zile de Plan 3 (`fiscal_receipt`) fără nicio
+// metodă de plată — regula de aur cere gate server-side.
+const TRIAL_PLANS = ['starter', 'growth']
+
+// Durata trialului: `STRIPE_TRIAL_DAYS` NESETAT = 30 (= `TRIAL_DAYS` din
+// pricingCopy.ts, promisiunea de pe pagina de prețuri). Parsare STRICTĂ:
+// `parseInt('30abc')` dădea 30, iar o valoare fără plafon (typo `3000`) trecea
+// de `Number.isFinite` și Stripe respingea TOATE checkout-urile cu trial (max
+// 730 de zile). Acceptăm doar 0–90; orice altceva → 30, cu avertisment în log.
+const DEFAULT_TRIAL_DAYS = 30
+const MAX_TRIAL_DAYS = 90
+function resolveTrialDays(raw) {
+  if (raw == null || String(raw).trim() === '') return DEFAULT_TRIAL_DAYS
+  const s = String(raw).trim()
+  if (/^\d{1,3}$/.test(s)) {
+    const n = Number(s)
+    if (n <= MAX_TRIAL_DAYS) return n
+  }
+  console.warn(`[stripe-checkout] STRIPE_TRIAL_DAYS invalid (${JSON.stringify(raw)}), folosesc ${DEFAULT_TRIAL_DAYS}`)
+  return DEFAULT_TRIAL_DAYS
+}
+
 function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -202,12 +229,9 @@ exports.handler = async (event) => {
 
   const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
 
-  // Trial configurabil — default 30 zile (onorează promisiunea din landing).
-  // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
-  // STRIPE_TRIAL_DAYS non-numeric (typo în env) ar da NaN → trial dezactivat silentios.
-  // Fallback la 30 dacă valoarea nu e un întreg valid.
-  const parsedTrial = parseInt(STRIPE_TRIAL_DAYS ?? '30', 10)
-  const trialDays = Number.isFinite(parsedTrial) ? parsedTrial : 30
+  // Trial configurabil — default 30 zile. `STRIPE_TRIAL_DAYS=0` îl dezactivează
+  // fără cod; orice valoare invalidă cade pe 30 (resolveTrialDays, sus).
+  const trialDays = resolveTrialDays(STRIPE_TRIAL_DAYS)
 
   // ── Anti dublu-abonament (#5) + trial-once (#15) ───────────────────────────
   // Self-contained în Stripe (fără coloană nouă în DB): citim istoricul de
@@ -215,7 +239,7 @@ exports.handler = async (event) => {
   //   • dacă există deja una activă/în trial → 409 (schimbarea planului se face
   //     din Portalul de facturare, nu printr-un nou checkout — altfel dublă plată);
   //   • dacă a existat VREODATĂ un trial → nu mai acordăm altul (anti trial-farming).
-  let allowTrial = trialDays > 0
+  let allowTrial = trialDays > 0 && TRIAL_PLANS.includes(requestedPlan)
   let subsAll = []
   // OPT-R2: pe un customer creat de NOI cu milisecunde în urmă (isFreshCustomer)
   // lista de subscripții e garantat goală — sărim RTT-ul Stripe. Pe orice altă
@@ -254,36 +278,78 @@ exports.handler = async (event) => {
   const hadTrial = subsAll.some((s) => s.trial_start != null || s.trial_end != null)
   if (hadTrial) allowTrial = false
 
-  const session = await stripe.checkout.sessions.create(
-    {
-      customer: customerId,
-      client_reference_id: user.id,
-      mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${appUrl}/dashboard?checkout=success`,
-      cancel_url: `${appUrl}/pricing?checkout=cancelled`,
-      subscription_data: {
-        // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
-        // referral_code persistă pe subscription → disponibil în invoice.paid
-        // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
-        metadata: {
-          supabase_user_id: user.id,
-          plan: requestedPlan,
-          ...(referralCode ? { referral_code: referralCode } : {}),
+  // RES-11 — trial FĂRĂ card. Două chei, în DOUĂ locuri diferite, ambele DOAR
+  // pe ramura cu trial:
+  //   • `payment_method_collection` e parametru al SESIUNII (lângă `mode`), NU
+  //     al lui `subscription_data` — pus acolo, Stripe respinge cererea;
+  //   • `trial_settings.end_behavior.missing_payment_method: 'cancel'` stă ÎN
+  //     `subscription_data`: fără card la ziua 30, abonamentul se ANULEAZĂ (nu
+  //     intră în `past_due`, deci dunning-ul nu pornește pe oameni fără card) →
+  //     `customer.subscription.deleted` → planul cade pe free în webhook.
+  // Pe ramura fără trial (trial deja folosit, plan exclus, trial dezactivat)
+  // prima factură e imediată, deci cardul e cerut oricum — nu trimitem nimic.
+  let session
+  try {
+    session = await stripe.checkout.sessions.create(
+      {
+        customer: customerId,
+        client_reference_id: user.id,
+        mode: 'subscription',
+        ...(allowTrial ? { payment_method_collection: 'if_required' } : {}),
+        // Datele de facturare ale abonatului (denumire, CUI, adresă): factura
+        // SRL-ului Menuvia le cere, iar până acum nu le colecta nimic — customer-ul
+        // Stripe avea doar emailul. Rămân pe Stripe Customer (fără coloane noi).
+        // `customer_update` e OBLIGATORIU fiindcă sesiunea primește un customer
+        // existent: fără el, Stripe nu poate salva numele/adresa colectate.
+        tax_id_collection: { enabled: true },
+        billing_address_collection: 'required',
+        customer_update: { name: 'auto', address: 'auto' },
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${appUrl}/dashboard?checkout=success`,
+        cancel_url: `${appUrl}/pricing?checkout=cancelled`,
+        subscription_data: {
+          // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
+          // referral_code persistă pe subscription → disponibil în invoice.paid
+          // (sursă secundară; atribuirea primară e legată de stripe_customer_id).
+          metadata: {
+            supabase_user_id: user.id,
+            plan: requestedPlan,
+            ...(referralCode ? { referral_code: referralCode } : {}),
+          },
+          ...(allowTrial
+            ? {
+                trial_period_days: trialDays,
+                trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
+              }
+            : {}),
         },
-        ...(allowTrial ? { trial_period_days: trialDays } : {}),
       },
-    },
-    {
-      // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
-      // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
-      // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
-      // sesiune (dedup); orice diferență → cheie nouă.
-      // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
-      // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
-      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
-    },
-  )
+      {
+        // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
+        // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
+        // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
+        // sesiune (dedup); orice diferență → cheie nouă.
+        // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
+        // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
+        // Prefixul `checkout_v2_`: RES-11 a schimbat corpul cererii (chei noi), iar
+        // o cerere repetată peste deploy, în aceeași fereastră de 30 min, ar fi
+        // plecat cu corpul NOU pe cheia VECHE → `idempotency_error` la Stripe.
+        idempotencyKey: `checkout_v2_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+      },
+    )
+  } catch (e) {
+    // Fail-closed VIZIBIL: fără try/catch, o respingere Stripe (parametru
+    // necunoscut pe versiunea pinuită, CUI refuzat etc.) ieșea din handler ca
+    // excepție → 500/502 fără corp și fără cauză în log. Clientul afișează
+    // mesajul românesc (describeCheckoutFailure) și oferă reîncercarea.
+    console.error('[stripe-checkout] session create failed:', {
+      type: e?.type, code: e?.code, param: e?.param, message: e?.message,
+    })
+    return jsonResponse(502, {
+      error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      code: 'checkout_create_failed',
+    })
+  }
 
   return jsonResponse(200, { url: session.url })
 }

@@ -329,6 +329,66 @@ describe('stripe-webhook: customer.subscription.deleted', () => {
     await fire('customer.subscription.deleted', { id: 'sub_old', customer: 'cus_1' })
     assert.equal(profileUpdates().length, 0)
   })
+
+  // RES-11: cu trialul fără card, FIECARE trial neconvertit trece pe aici. Un
+  // blip de DB care dădea `break` + 200 lăsa contul pe planul plătit, gratis,
+  // pe termen nelimitat (un abonament anulat nu mai emite nimic).
+  it('DEL1: blip de infra la lookup → 500 + rând failed, fără nicio scriere', async () => {
+    scriptProfile(null, { code: '08006', message: 'conn reset' })
+    const res = await fire('customer.subscription.deleted', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(finalizeStatus(), 'failed')
+    assert.equal(profileUpdates().length, 0)
+  })
+
+  it('DEL2: profil inexistent (PGRST116) → ACK 200 (nu e retriabil)', async () => {
+    scriptProfile(null, { code: 'PGRST116', message: 'no rows' })
+    const res = await fire('customer.subscription.deleted', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(profileUpdates().length, 0)
+  })
+
+  it('DEL3: contextul anulării ajunge în event_data (emailul distinge trialul expirat de anulare)', async () => {
+    scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_1' })
+    await fire('customer.subscription.deleted', {
+      id: 'sub_1', customer: 'cus_1', trial_end: 1_800_000_000, ended_at: 1_800_000_060,
+      default_payment_method: null, metadata: { plan: 'growth' },
+    })
+    const lc = lifecycleInserts()[0]
+    assert.equal(lc.event_type, 'subscription_cancelled')
+    assert.deepEqual(lc.event_data, {
+      trial_end: 1_800_000_000, ended_at: 1_800_000_060, had_payment_method: false, plan: 'growth',
+    })
+  })
+})
+
+describe('stripe-webhook: customer.subscription.trial_will_end', () => {
+  it('TWE1: blip de infra la lookup → 500 (singurul email dinaintea anulării nu se pierde)', async () => {
+    scriptProfile(null, { code: '08006', message: 'conn reset' })
+    const res = await fire('customer.subscription.trial_will_end', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(finalizeStatus(), 'failed')
+    assert.equal(lifecycleInserts().length, 0)
+  })
+
+  it('TWE2: event_data poartă planul REAL și dacă există card', async () => {
+    scriptProfile({ id: 'u1' })
+    const res = await fire('customer.subscription.trial_will_end', {
+      id: 'sub_1', customer: 'cus_1', trial_end: 1_800_000_000,
+      default_payment_method: null, metadata: { plan: 'starter' },
+    })
+    assert.equal(res.statusCode, 200)
+    const lc = lifecycleInserts()[0]
+    assert.equal(lc.event_type, 'trial_ending_soon')
+    assert.deepEqual(lc.event_data, { ends_at: 1_800_000_000, plan: 'starter', has_payment_method: false })
+  })
+
+  it('TWE3: profil inexistent (PGRST116) → ACK 200, fără email', async () => {
+    scriptProfile(null, { code: 'PGRST116', message: 'no rows' })
+    const res = await fire('customer.subscription.trial_will_end', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(lifecycleInserts().length, 0)
+  })
 })
 
 describe('stripe-webhook: invoice.payment_failed (dunning)', () => {
