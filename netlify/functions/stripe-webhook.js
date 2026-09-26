@@ -325,6 +325,19 @@ exports.handler = async (event) => {
           .eq('stripe_customer_id', customerId)
           .single()
 
+        // RES-11: cu trialul FĂRĂ card, FIECARE trial neconvertit trece pe aici
+        // (missing_payment_method:'cancel' → abonament anulat la ziua 30). Un blip
+        // de DB pe lookup NU are voie să devină `break` + 200: Stripe nu mai
+        // retrimite, iar un abonament anulat nu mai emite nimic — contul ar păstra
+        // planul plătit pe termen NELIMITAT, gratis. Paritate cu
+        // `invoice.payment_failed`: PGRST116 (profil inexistent) = ACK 200, orice
+        // altă eroare = processingError → 500 → retry. Retry-ul e sigur: UPDATE-ul
+        // pe free e idempotent, iar lifecycle-ul are dedup.
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
         if (lookupErr || !profile) {
           console.warn(`[stripe-webhook] No profile for cancelled customer ${customerId}`)
           break
@@ -348,7 +361,19 @@ exports.handler = async (event) => {
 
         if (error) throw new Error(`Downgrade failed: ${error.message}`)
 
-        await safeInsertLifecycleEvent(supabase, profile.id, 'subscription_cancelled', {})
+        // Contextul anulării ajunge în template_data (mig 220 concatenează
+        // event_data): fără el, emailul „Confirmăm că abonamentul a fost anulat”
+        // pleca și la cine NU a anulat nimic — trialul i s-a încheiat fără card.
+        await safeInsertLifecycleEvent(supabase, profile.id, 'subscription_cancelled', {
+          trial_end: subscription.trial_end ?? null,
+          ended_at: subscription.ended_at ?? null,
+          had_payment_method: Boolean(subscription.default_payment_method),
+          // `cancellation_requested` = omul a anulat (inclusiv programat la
+          // sfârșitul trialului, când ended_at coincide cu trial_end) — atunci
+          // emailul NU are voie să spună „trialul s-a încheiat fără card”.
+          cancellation_reason: subscription.cancellation_details?.reason ?? null,
+          plan: subscription.metadata?.plan ?? null,
+        })
 
         console.log(`[stripe-webhook] User ${profile.id} downgraded to free`)
         break
@@ -364,18 +389,27 @@ exports.handler = async (event) => {
           .eq('stripe_customer_id', customerId)
           .single()
 
+        // Pe trialul fără card, acest email e SINGURUL punct de contact înainte
+        // ca abonamentul să se anuleze singur — un blip de DB nu are voie să-l
+        // piardă definitiv (200 = Stripe nu mai retrimite). PGRST116 = ACK;
+        // orice altă eroare = retry (paritate cu invoice.payment_failed).
+        if (lookupErr && lookupErr.code !== 'PGRST116') {
+          processingError = `${stripeEvent.type}: lookup profil eșuat (tranzitoriu) pentru customer ${customerId}: ${lookupErr.message}`
+          console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+          break
+        }
         if (lookupErr) {
-          // Distingem un eșec de infra (conexiune DB, timeout) de „profil
-          // inexistent" (PGRST116 la .single() fără rezultat) — audit medium:
-          // fără log aici, un eșec de DB pentru trial_will_end trecea neobservat
-          // (notificarea de trial nu se trimite, dar nimeni nu află de ce).
-          console.error(`[stripe-webhook] trial_will_end: lookup eșuat pentru customer ${customerId}:`, lookupErr.message)
+          console.warn(`[stripe-webhook] ${stripeEvent.type}: profil inexistent pentru customer ${customerId}`)
         }
 
         if (profile) {
           userId = profile.id
           await safeInsertLifecycleEvent(supabase, profile.id, 'trial_ending_soon', {
             ends_at: subscription.trial_end,
+            // Planul REAL din metadata (stripe-checkout.js îl pune la creare):
+            // emailul numește planul pe care omul îl pierde, nu „Pro”.
+            plan: subscription.metadata?.plan ?? null,
+            has_payment_method: Boolean(subscription.default_payment_method),
           })
         }
         break

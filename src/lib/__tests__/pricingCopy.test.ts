@@ -88,6 +88,14 @@ describe('copy-ul de pe pagina de prețuri', () => {
     }
   })
 
+  it('PC7: trialul fără card nu promite că abonamentul „continuă” singur (RES-11)', () => {
+    // stripe-checkout.js trimite `missing_payment_method: 'cancel'`: fără card la
+    // final, abonamentul se ANULEAZĂ. Textul vechi spunea exact contrariul.
+    expect(TRIAL_HEADLINE + ' ' + TRIAL_FAQ.a).toMatch(/fără card|nu îți cerem cardul/i)
+    expect(TRIAL_FAQ.a).not.toContain('abonamentul continuă la prețul planului ales, abia atunci')
+    expect(TRIAL_FAQ.a).toMatch(/se oprește singur/)
+  })
+
   it('PC5: niciun card nu contrazice tabelul comparativ', () => {
     for (const f of EXTRA_FEATURES) {
       const row = comparisonRowFor(f)

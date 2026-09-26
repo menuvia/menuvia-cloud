@@ -1,7 +1,7 @@
 // Teste pe traducerea răspunsurilor lui `stripe-checkout` (audit v3).
 //
 // Ce păzesc, în ordinea în care contează:
-//   CH1  fiecare dintre cele NOUĂ forme de răspuns non-200 produce un mesaj —
+//   CH1  fiecare dintre cele ZECE forme de răspuns non-200 produce un mesaj —
 //        clichetul central: înainte, șapte dintre ele lăsau butonul MUT;
 //   CH2  niciun mesaj intern în engleză nu ajunge la client;
 //   CH3  mesajele ROMÂNEȘTI scrise de server se păstrează (nu le rescriem);
@@ -47,6 +47,14 @@ const RESPONSES: Array<{ name: string; status: number; body: unknown }> = [
     body: {
       error: 'Ai deja un abonament. Schimbă planul din Portalul de facturare.',
       code: 'subscription_exists',
+    },
+  },
+  {
+    name: '502 Stripe a respins crearea sesiunii (RES-11)',
+    status: 502,
+    body: {
+      error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      code: 'checkout_create_failed',
     },
   },
 ]
@@ -110,6 +118,16 @@ describe('describeCheckoutFailure()', () => {
     expect(describeCheckoutFailure(401, { error: 'Invalid token' }).action).toBe('login')
     // 500 „not configured" nu e reparabil de client → contact.
     expect(describeCheckoutFailure(500, { error: 'Stripe not configured' }).action).toBe('contact')
+  })
+
+  it('CH8: sesiunea respinsă de Stripe (502 `checkout_create_failed`) → mesajul serverului + retry', () => {
+    const f = describeCheckoutFailure(502, {
+      error: 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      code: 'checkout_create_failed',
+    })
+    expect(f.code).toBe('checkout_create_failed')
+    expect(f.action).toBe('retry')
+    expect(f.message).toBe('Nu am putut porni plata. Reîncearcă în câteva momente.')
   })
 
   it('CH5: rețeaua căzută (status 0) are mesajul ei', () => {

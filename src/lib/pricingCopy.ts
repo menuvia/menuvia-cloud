@@ -39,18 +39,23 @@ export const TRIAL_PLAN_IDS: PlanId[] = ['starter', 'growth']
 
 const trialPlanNames = TRIAL_PLAN_IDS.map((id) => getPlan(id).name)
 
+// RES-11: trialul pornește FĂRĂ card (`payment_method_collection:'if_required'`
+// + `missing_payment_method:'cancel'` în stripe-checkout.js). Fără card la
+// final, abonamentul se oprește SINGUR, fără plată — textul de mai jos nu mai
+// are voie să promită că „abonamentul continuă” (PC7 îl păzește).
 export const TRIAL_HEADLINE =
-  `${TRIAL_DAYS} de zile gratuite pe ${trialPlanNames.join(' și ')}. ` +
+  `${TRIAL_DAYS} de zile gratuite pe ${trialPlanNames.join(' și ')}, fără card. ` +
   'Anulezi cu un click, fără penalizări.'
 
 export const TRIAL_FAQ = {
   q: `Ce se întâmplă după cele ${TRIAL_DAYS} de zile gratuite?`,
   a:
     `Trialul de ${TRIAL_DAYS} de zile e pe ${trialPlanNames.join(' și ')} și se acordă o singură ` +
-    'dată per cont. După el, abonamentul continuă la prețul planului ales, abia atunci se face ' +
-    'prima plată. Dacă nu ești mulțumit, anulezi cu un click înainte de facturare, fără ' +
-    'penalizări. Fiscalizarea intră prin programul pilot, cu setup făcut împreună. Datele tale ' +
-    `rămân disponibile pentru export ${TRIAL_DAYS} de zile după anulare.`,
+    'dată per cont. Nu îți cerem cardul la început. Dacă adaugi un card până la final, ' +
+    'abonamentul continuă la prețul planului și atunci se face prima plată. Dacă nu adaugi, ' +
+    'abonamentul se oprește singur, fără nicio plată: meniul publicat rămâne, iar contul revine ' +
+    'la limitele planului gratuit. Fiscalizarea intră prin programul pilot, cu setup făcut ' +
+    `împreună. Datele tale rămân disponibile pentru export ${TRIAL_DAYS} de zile după anulare.`,
 }
 
 export const PILOT_BANNER = {
