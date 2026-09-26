@@ -368,6 +368,10 @@ exports.handler = async (event) => {
           trial_end: subscription.trial_end ?? null,
           ended_at: subscription.ended_at ?? null,
           had_payment_method: Boolean(subscription.default_payment_method),
+          // `cancellation_requested` = omul a anulat (inclusiv programat la
+          // sfârșitul trialului, când ended_at coincide cu trial_end) — atunci
+          // emailul NU are voie să spună „trialul s-a încheiat fără card”.
+          cancellation_reason: subscription.cancellation_details?.reason ?? null,
           plan: subscription.metadata?.plan ?? null,
         })
 

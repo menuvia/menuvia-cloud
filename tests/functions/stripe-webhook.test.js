@@ -353,11 +353,13 @@ describe('stripe-webhook: customer.subscription.deleted', () => {
     await fire('customer.subscription.deleted', {
       id: 'sub_1', customer: 'cus_1', trial_end: 1_800_000_000, ended_at: 1_800_000_060,
       default_payment_method: null, metadata: { plan: 'growth' },
+      cancellation_details: { reason: 'cancellation_requested' },
     })
     const lc = lifecycleInserts()[0]
     assert.equal(lc.event_type, 'subscription_cancelled')
     assert.deepEqual(lc.event_data, {
-      trial_end: 1_800_000_000, ended_at: 1_800_000_060, had_payment_method: false, plan: 'growth',
+      trial_end: 1_800_000_000, ended_at: 1_800_000_060, had_payment_method: false,
+      cancellation_reason: 'cancellation_requested', plan: 'growth',
     })
   })
 })

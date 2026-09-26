@@ -67,6 +67,9 @@ function isTrialExpiredWithoutCard(d) {
   if (!Number.isFinite(trialEnd) || trialEnd <= 0) return false
   if (!Number.isFinite(endedAt) || endedAt <= 0) return false
   if (d.had_payment_method === true) return false
+  // Anulare CERUTĂ de om, programată la sfârșitul trialului: ended_at ==
+  // trial_end, dar nu e un trial expirat fără card.
+  if (d.cancellation_reason === 'cancellation_requested') return false
   return endedAt >= trialEnd && endedAt <= trialEnd + 3600
 }
 
@@ -111,6 +114,10 @@ const TEMPLATES = {
     `,
   }),
 
+  // `has_payment_method` citește DOAR metoda de plată a ABONAMENTULUI; un card
+  // pus din Portal poate sta pe customer (invoice_settings), pe care Stripe îl
+  // folosește la fel. De aceea ramura „fără card” e CONDIȚIONALĂ („dacă n-ai
+  // adăugat încă”), nu o afirmație care ar minți un client care a pus cardul.
   // RES-11: trialul pornește FĂRĂ card, deci „actualizează cardul” era fals, iar
   // „Continuă cu Pro →” numea planul greșit. Emailul e SINGURUL punct de contact
   // înainte ca abonamentul să se anuleze singur: spune data, planul și ce se
@@ -127,7 +134,7 @@ const TEMPLATES = {
         <p style="color:#333;font-size:16px;line-height:1.55">Bună ${esc(d.owner_name || 'patron')}!</p>
         ${hasCard
           ? `<p style="color:#333;font-size:16px;line-height:1.55">Ai un card salvat, deci abonamentul <b>${esc(plan)}</b> continuă fără întrerupere, iar prima plată se face la sfârșitul trialului.</p>`
-          : `<p style="color:#333;font-size:16px;line-height:1.55">Ca abonamentul <b>${esc(plan)}</b> să continue, adaugă un card până atunci. Dacă nu adaugi, abonamentul se oprește singur, fără nicio plată, iar contul revine la planul gratuit: ${esc(downgradeConsequence(d.plan))}.</p>`}
+          : `<p style="color:#333;font-size:16px;line-height:1.55">Dacă n-ai adăugat încă un card, adaugă-l până atunci ca abonamentul <b>${esc(plan)}</b> să continue. Fără card, abonamentul se oprește singur, fără nicio plată, iar contul revine la planul gratuit: ${esc(downgradeConsequence(d.plan))}.</p>`}
         <a href="${APP_URL}/dashboard?tab=billing" style="display:inline-block;background:#C8963C;color:#0A0908;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">${hasCard ? 'Vezi abonamentul →' : 'Adaugă un card →'}</a>
         <p style="color:#666;font-size:13px;margin-top:24px">Dacă ai întrebări despre planuri, scrie-mi direct.</p>
       </div>

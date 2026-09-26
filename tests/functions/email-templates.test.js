@@ -45,6 +45,8 @@ describe('email templates — trialul fără card (RES-11)', () => {
     assert.match(html, /1 noiembrie 2026/)
     assert.doesNotMatch(html, /31 octombrie/)
     assert.match(html, /Adaugă un card/)
+    // Condițional: cardul poate sta pe customer, nu pe abonament.
+    assert.match(html, /Dacă n-ai adăugat încă un card/)
     assert.match(html, /Meniu \+ Comenzi/)
     assert.match(html, /comenzile de la masă se opresc/)
     assert.doesNotMatch(html, /Continuă cu Pro/)
@@ -95,6 +97,13 @@ describe('email templates — trialul fără card (RES-11)', () => {
       trial_end: trialEnd, ended_at: trialEnd + 90 * 86_400, had_payment_method: true,
     })
     assert.match(paying.html, /Confirmăm că abonamentul/)
+
+    // Anulare CERUTĂ, programată la sfârșitul trialului (ended_at == trial_end).
+    const scheduledAtTrialEnd = TEMPLATES.subscription_cancelled({
+      trial_end: trialEnd, ended_at: trialEnd, had_payment_method: false,
+      cancellation_reason: 'cancellation_requested',
+    })
+    assert.match(scheduledAtTrialEnd.html, /Confirmăm că abonamentul/)
 
     // Fără context (evenimente dinaintea RES-11) → textul vechi, neschimbat.
     assert.match(TEMPLATES.subscription_cancelled({}).html, /Confirmăm că abonamentul/)
