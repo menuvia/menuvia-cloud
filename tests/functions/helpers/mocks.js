@@ -138,8 +138,38 @@ const fakeSupabaseModule = {
 // new Stripe(key, opts) → obiect cu namespace-urile folosite de funcții.
 // Fiecare metodă caută state.stripeImpls['<ns>.<metodă>']; nescriptată → throw
 // (testul care o atinge fără s-o scripteze e un test greșit, nu un fallback).
+//
+// CONVENȚIA DE ARGUMENTE a stripe-node ≥ 22 e impusă AICI, nu doar în SDK:
+// params și options NU se mai amestecă. Metodele pe un id primesc
+// (id, params, options), celelalte (params, options); o cheie de options pusă în
+// slotul de params (ex. `cancel(id, { stripeAccount })`) pleacă în CORPUL cererii
+// și nu mai devine antet — v14 o accepta, v22 o trimite tăcut pe contul
+// PLATFORMEI. Fake-ul aruncă, ca testul să pice exact cum ar pica producția.
+// Lista = OPTIONS_KEYS din stripe-node 22 (src/utils.ts).
+const STRIPE_OPTIONS_KEYS = [
+  'apiKey', 'idempotencyKey', 'stripeAccount', 'apiVersion', 'maxNetworkRetries',
+  'timeout', 'apiBase', 'authenticator', 'stripeContext', 'headers',
+  'additionalHeaders', 'streaming',
+]
+const STRIPE_ID_METHODS = new Set([
+  'paymentIntents.cancel', 'paymentIntents.retrieve', 'subscriptions.retrieve',
+  'customers.del', 'customers.retrieve', 'charges.retrieve', 'accounts.retrieve',
+])
+function assertStripeArgs(name, args) {
+  const params = STRIPE_ID_METHODS.has(name) ? args[1] : args[0]
+  if (params && typeof params === 'object') {
+    const leaked = Object.keys(params).filter((k) => STRIPE_OPTIONS_KEYS.includes(k))
+    if (leaked.length) {
+      throw new Error(
+        `stripe mock: '${name}' primește chei de options în slotul de params (${leaked.join(', ')}) — ` +
+        'stripe-node ≥ 22 le trimite în corp; mută-le în argumentul options',
+      )
+    }
+  }
+}
 function stripeMethod(name) {
   return async (...args) => {
+    assertStripeArgs(name, args)
     state.stripeCalls.push({ name, args })
     const impl = state.stripeImpls[name]
     if (!impl) throw new Error(`stripe mock: '${name}' nescriptat în acest test`)
@@ -160,6 +190,7 @@ function FakeStripe(key, opts) {
       // stripe-checkout cheamă `.autoPagingToArray({limit})` pe el. Impl-ul
       // scriptat primește argumentele listei + opțiunile de paginare.
       list: (...args) => {
+        assertStripeArgs('subscriptions.list', args)
         state.stripeCalls.push({ name: 'subscriptions.list', args })
         return {
           autoPagingToArray: async (opts) => {
@@ -190,21 +221,31 @@ function FakeStripe(key, opts) {
 }
 
 // ── Interceptarea require-urilor ─────────────────────────────────────────────
-let installed = false
-function installModuleMocks() {
-  if (installed) return
-  installed = true
+// `stripe: 'real'` lasă require('stripe') să ajungă la pachetul REAL (folosit de
+// tests/stripe-contract/, care rulează după `npm ci`); supabase rămâne fake.
+// Modul se fixează la PRIMA instalare: o a doua cerere cu alt mod aruncă, ca un
+// fișier de test să nu amestece tăcut fake-ul cu SDK-ul real.
+let installedMode = null
+function installModuleMocks({ stripe = 'fake' } = {}) {
+  if (stripe !== 'fake' && stripe !== 'real') throw new Error(`mod stripe necunoscut: ${stripe}`)
+  if (installedMode) {
+    if (installedMode !== stripe) {
+      throw new Error(`mocks deja instalate cu stripe='${installedMode}', nu '${stripe}'`)
+    }
+    return
+  }
+  installedMode = stripe
   const originalLoad = Module._load
   Module._load = function (request, parent, isMain) {
     if (request === '@supabase/supabase-js') return fakeSupabaseModule
-    if (request === 'stripe') return FakeStripe
+    if (request === 'stripe' && stripe === 'fake') return FakeStripe
     return originalLoad.apply(this, arguments)
   }
 }
 
 // Încarcă o funcție Netlify cu mock-urile instalate. path relativ la repo root.
-function loadFunction(relPath) {
-  installModuleMocks()
+function loadFunction(relPath, opts) {
+  installModuleMocks(opts)
   return require(require('path').join(__dirname, '..', '..', '..', relPath))
 }
 

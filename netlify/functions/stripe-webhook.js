@@ -16,9 +16,36 @@ const Stripe = require('stripe')
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
 // versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
-// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
-// verzi (stripe-node 14.x → '2023-10-16').
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
+// tests/stripe-contract/ verzi — suita care încarcă SDK-ul REAL; tests/functions/
+// înlocuiește modulul 'stripe' cu totul și e oarbă la un bump de SDK.
+// Din stripe-node 22 versiunea implicită e '2026-08-26.dahlia', deci pin-ul
+// poartă greutate reală: fără el, cererile ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
+
+// ── Citiri tolerante la forma payload-ului de webhook ───────────────
+// Forma evenimentelor o decide versiunea ENDPOINT-ului din Stripe, nu SDK-ul
+// și nu pin-ul de mai sus. Un cont Stripe NOU pornește pe versiunea curentă,
+// iar între '2023-10-16' și dahlia exact patru citiri de aici s-au mutat
+// (basil, 2025-03-31): price-ul liniei de factură, tipul liniei, abonamentul
+// facturii și factura charge-ului. Fără citirile duble, un endpoint creat pe
+// versiunea implicită ar sări TĂCUT comisioanele și clawback-urile de afiliere
+// (RPC-urile întorc skip pe plan/factură null, evenimentul se marchează
+// 'completed', iar Job 8 din automation-cron citește doar rândurile 'failed').
+const refId = (x) => (typeof x === 'string' ? x : x && x.id) || null
+function linePriceId(l) {
+  if (l && l.price && l.price.id) return l.price.id
+  const p = l && l.pricing && l.pricing.price_details && l.pricing.price_details.price
+  return refId(p)
+}
+function isSubscriptionLine(l) {
+  return !!l && (l.type === 'subscription' || (l.parent && l.parent.type === 'subscription_item_details'))
+}
+function invoiceSubscriptionId(inv) {
+  if (!inv) return null
+  return refId(inv.subscription) ||
+    refId(inv.parent && inv.parent.subscription_details && inv.parent.subscription_details.subscription)
+}
 
 function jsonResponse(statusCode, body) {
   return {
@@ -76,8 +103,21 @@ exports.handler = async (event) => {
   try {
     stripeEvent = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET)
   } catch (err) {
-    console.error('[stripe-webhook] Signature verification failed:', err.message)
+    // `type` distinge o semnătură greșită (StripeSignatureVerificationError) de
+    // un payload pe care SDK-ul îl refuză din alt motiv — ex. un endpoint creat
+    // cu payload „thin" (v2), pe care stripe-node 22 îl respinge cu Error simplu.
+    console.error('[stripe-webhook] Signature verification failed:', (err && err.type) || 'Error', err && err.message)
     return jsonResponse(400, { error: 'Invalid signature' })
+  }
+
+  // Versiunea endpoint-ului ≠ pin-ul: citirile de mai jos sunt tolerante la
+  // ambele forme cunoscute, dar o nepotrivire trebuie să se VADĂ — endpoint-ul
+  // se recreează pe pin (versiunea nu se poate schimba pe un endpoint existent).
+  if (stripeEvent.api_version && stripeEvent.api_version !== STRIPE_API_VERSION) {
+    console.error(
+      `[stripe-webhook] ALERT api_version mismatch endpoint=${stripeEvent.api_version} ` +
+      `pin=${STRIPE_API_VERSION} event=${stripeEvent.id} type=${stripeEvent.type}`,
+    )
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
@@ -461,7 +501,7 @@ exports.handler = async (event) => {
             amount_paid:     invoice.amount_paid,
             currency:        invoice.currency,
             invoice_id:      invoice.id,
-            subscription_id: invoice.subscription,
+            subscription_id: invoiceSubscriptionId(invoice),
           })
           // Dunning — recuperare: attempt_count>1 ⇒ factura a eșuat cel puțin o
           // dată înainte să reușească (clientul a primit deja emailul alarmant
@@ -507,10 +547,10 @@ exports.handler = async (event) => {
             // cu același period.end — altfel reduce() păstra prima întâlnită
             // (posibil linia de credit), riscând un billedPlan/periodMonth greșit.
             const invoiceLines = invoice.lines?.data || []
-            const planLines = invoiceLines.filter((l) => l?.price?.id && PLAN_BY_PRICE[l.price.id])
+            const planLines = invoiceLines.filter((l) => linePriceId(l) && PLAN_BY_PRICE[linePriceId(l)])
             const subPool = planLines.length
               ? planLines
-              : invoiceLines.filter((l) => l?.type === 'subscription')
+              : invoiceLines.filter(isSubscriptionLine)
             const subLine = subPool.reduce((best, l) => {
               if (!best) return l
               const lEnd = l?.period?.end || 0
@@ -527,12 +567,25 @@ exports.handler = async (event) => {
             }
             // Planul EFECTIV facturat din price.id (downgrade-safe). null →
             // RPC-ul refuză comisionul (fail-closed pe Plan 3).
-            const billedPriceId = subLine?.price?.id || null
+            const billedPriceId = linePriceId(subLine)
             const billedPlan = PLAN_BY_PRICE[billedPriceId] || null
+            const invoiceSubId = invoiceSubscriptionId(invoice)
+            // Bani reali pe un abonament, dar NICIO linie cu price lizibil = o
+            // formă de payload pe care n-o știm citi (nu un plan necunoscut).
+            // Tăcerea ar pierde comisionul definitiv; 500 → Stripe retrimite și
+            // rândul rămâne 'failed', vizibil în Job 8. Un price LIZIBIL dar
+            // nemapat rămâne skip (fail-closed pe plan, ca până acum).
+            if (!billedPlan && (invoiceSubId || invoiceLines.some(isSubscriptionLine)) &&
+                !invoiceLines.some((l) => linePriceId(l))) {
+              processingError = `invoice.paid ${invoice.id}: nicio linie cu price lizibil ` +
+                `(api_version=${stripeEvent.api_version || '?'}) — formă de payload necunoscută`
+              console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+              break
+            }
             const { error: commErr } = await supabase.rpc('process_affiliate_invoice_paid', {
               p_event_id:               stripeEvent.id,
               p_stripe_customer_id:     customerId,
-              p_stripe_subscription_id: invoice.subscription || null,
+              p_stripe_subscription_id: invoiceSubId,
               p_stripe_invoice_id:      invoice.id,
               p_billing_reason:         billingReason,
               p_amount_paid_cents:      invoice.amount_paid,
@@ -569,8 +622,14 @@ exports.handler = async (event) => {
         // effort), clawback-ul RECUPEREAZĂ bani → un eșec NU trebuie înghițit:
         // setăm processingError → 500 → Stripe retrimite (retry e sigur,
         // idempotent pe refund_id), altfel comisionul pe venit stornat rămâne.
-        const charge = stripeEvent.data.object
+        let charge = stripeEvent.data.object
         try {
+          // Pe un endpoint basil+ (dahlia) Charge NU mai are câmpul `invoice`.
+          // Re-citim charge-ul: răspunsul cererii NOASTRE e randat pe pin, deci îl
+          // are. `invoice: null` e legitim (plată unică, ex. credite AI) → skip.
+          if (!('invoice' in charge)) {
+            charge = await stripe.charges.retrieve(charge.id)
+          }
           // NU ne bazăm pe `charge.refunds.data` inline din payload: pe versiunile
           // API Stripe ≥ 2022-11-15 lista de refund-uri NU mai e expandată pe obiectul
           // Charge din webhook → ar fi `undefined` → bucla nu rula → clawback ratat
