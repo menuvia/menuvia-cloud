@@ -40,8 +40,16 @@ const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.m
 const { packages } = productionPackages(lock)
 const names = new Set(packages.map((p) => p.name))
 
+// Podeaua anti-vacuitate: 147 de pachete măsurate după stripe 22 (zero
+// dependențe — a scos `qs` + lanțul `side-channel`, 19 pachete; înainte 166).
+// Numărul singur e o ancoră slabă (se mișcă legitim la orice bump), deci e
+// dublat de pachete de producție NUMITE: o extragere care pierde ramuri reale
+// pică pe nume, nu doar pe un prag care trebuie tot coborât.
 test('extrage arborele de producție de dimensiune plauzibilă', () => {
-  assert.ok(packages.length > 150, `doar ${packages.length} pachete`)
+  assert.ok(packages.length > 120, `doar ${packages.length} pachete`)
+  for (const n of ['react', 'react-dom', '@supabase/supabase-js', '@supabase/postgrest-js', 'stripe', 'posthog-js', '@sentry/react', 'zod']) {
+    assert.ok(names.has(n), `${n} (producție) lipsește din extragere`)
+  }
 })
 test('aliasul apare sub numele REAL, niciodată sub cel din cale', () => {
   assert.ok(names.has('web-vitals'), 'web-vitals lipsește')

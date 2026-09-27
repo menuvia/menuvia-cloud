@@ -14,8 +14,10 @@ const Stripe = require('stripe')
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
 // versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
-// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
-// verzi (stripe-node 14.x → '2023-10-16').
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
+// tests/stripe-contract/ verzi (SDK-ul REAL; tests/functions/ îl înlocuiește cu
+// totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
+// ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
@@ -63,8 +65,20 @@ exports.handler = async (event) => {
       STRIPE_CONNECT_WEBHOOK_SECRET,
     )
   } catch (err) {
-    console.error('[connect-webhook] Signature verification failed:', err.message)
+    // `type` distinge semnătura greșită de un payload refuzat din alt motiv
+    // (ex. endpoint „thin"/v2, respins de stripe-node 22 cu Error simplu).
+    console.error('[connect-webhook] Signature verification failed:', (err && err.type) || 'Error', err && err.message)
     return jsonResponse(400, { error: 'Invalid signature' })
+  }
+
+  // Versiunea endpoint-ului ≠ pin: câmpurile citite aici (payment_intent.id /
+  // status / metadata, account) sunt identice în '2023-10-16' și dahlia, dar
+  // nepotrivirea trebuie să se VADĂ — endpoint-ul se recreează pe pin.
+  if (stripeEvent.api_version && stripeEvent.api_version !== STRIPE_API_VERSION) {
+    console.error(
+      `[connect-webhook] ALERT api_version mismatch endpoint=${stripeEvent.api_version} ` +
+      `pin=${STRIPE_API_VERSION} event=${stripeEvent.id} type=${stripeEvent.type}`,
+    )
   }
 
   // account.application.deauthorized: contul conectat a revocat platforma din

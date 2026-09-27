@@ -375,6 +375,7 @@ staging). Prod și staging au proiecte Supabase **separate** — nu le amesteca.
 | `SLACK_WEBHOOK_URL` | health-alerts, automation-cron | ⚠️ **Silent**: nicio alertă (health, cron fail). Ești orb. `config.slack:false`. |
 | `STRIPE_SECRET_KEY` | stripe-webhook, checkout | 🔴 Webhook 500 → Stripe reîncearcă; plăți/upgrade blocate. |
 | `STRIPE_WEBHOOK_SECRET` | stripe-webhook | 🔴 Semnătura eșuează (400) → **toate** webhook-urile respinse. |
+| `STRIPE_CONNECT_WEBHOOK_SECRET` | stripe-connect-webhook | 🔴 Semnătura eșuează (400) → plățile la masă nu se mai confirmă în Menuvia (intentul reușește la Stripe, nota rămâne „în plată"). |
 | `STRIPE_STARTER_PRICE_ID` / `_GROWTH_` / `_PRO_` / `_ENTERPRISE_PRICE_ID` | stripe-webhook | 🔴 **Fail-fast** (500): fără ele, mapping plan ar downgrada tăcut abonamente plătite. Cerute explicit. |
 | `PLATFORM_OPENAI_KEY` **sau** `PLATFORM_ANTHROPIC_KEY` | ai-proxy, ai-generate | ⚠️ Feature-urile AzoAI (import/generare) nu merg. `config.ai_platform:false`. |
 | `OBLIO_*` | — | ℹ️ **NU în env**: credențialele Oblio sunt **per-restaurant**, stocate criptat în DB. Nu există env global Oblio. |
@@ -383,6 +384,29 @@ staging). Prod și staging au proiecte Supabase **separate** — nu le amesteca.
 
 **Test rapid post-deploy:** `curl -s -H "x-health-diag: $HEALTH_DIAG_TOKEN" https://menuvia.ro/health | jq .config` — toți booleenii
 critici trebuie `true` pe production.
+
+**Versiunea endpoint-urilor de webhook Stripe** (pin-ul codului: `2023-10-16`,
+constanta `STRIPE_API_VERSION` din cele 7 funcții Stripe). Endpoint-urile se creează
+PRIN API cu `api_version=2023-10-16` (procedura: `GHID_FONDATOR.md` PASUL 5);
+versiunea nu se poate schimba pe un endpoint existent.
+
+| Endpoint | Mod | `api_version` confirmat | Data |
+|---|---|---|---|
+| stripe-webhook | test | _(de completat)_ | |
+| stripe-connect-webhook | test | _(de completat)_ | |
+| stripe-webhook | live | _(de completat)_ | |
+| stripe-connect-webhook | live | _(de completat)_ | |
+
+Semnale în loguri:
+- `ALERT api_version mismatch endpoint=<v> pin=2023-10-16` → endpoint-ul e pe altă
+  versiune. Codul citește ambele forme cunoscute (price-ul liniei, tipul liniei,
+  abonamentul facturii, factura charge-ului), deci banii nu se pierd azi, dar o
+  versiune VIITOARE poate muta alte câmpuri: recreează endpoint-ul pe pin.
+- `invoice.paid … nicio linie cu price lizibil` → 500 intenționat (Stripe retrimite,
+  rândul rămâne `failed` în `stripe_events`): formă de payload necunoscută; aceeași
+  remediere.
+- `Signature verification failed: Error …` (nu `StripeSignatureVerificationError`) →
+  endpoint creat cu payload „thin"; recreează-l ca „snapshot".
 
 ---
 

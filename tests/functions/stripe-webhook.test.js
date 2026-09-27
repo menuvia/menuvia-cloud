@@ -34,8 +34,9 @@ function setEnv() {
 
 // Trimite un eveniment prin handler cu semnătura „validă" (constructEvent
 // scriptat să întoarcă evenimentul — nu testăm criptografia stripe-node).
-async function fire(type, object, { eventId = 'evt_1' } = {}) {
+async function fire(type, object, { eventId = 'evt_1', apiVersion } = {}) {
   const ev = { id: eventId, type, created: 1_700_000_000, data: { object } }
+  if (apiVersion) ev.api_version = apiVersion
   state.stripeImpls['webhooks.constructEvent'] = () => ev
   return handler({
     httpMethod: 'POST',
@@ -445,8 +446,12 @@ describe('stripe-webhook: clawback (refund + dispute)', () => {
   it('clawback eșuat → 500 (banii stornați nu rămân comisionați tăcut)', async () => {
     state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 3000 }] })
     state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: { message: 'rpc down' } })
-    const res = await fire('charge.refunded', { id: 'ch_1', amount: 9900 })
+    // `invoice` PREZENT (forma 2023-10-16): fără el handler-ul re-citește charge-ul,
+    // iar testul ar fi trecut pe 500-ul de la retrieve-ul nescriptat, nu pe RPC.
+    const res = await fire('charge.refunded', { id: 'ch_1', invoice: 'in_1', amount: 9900 })
     assert.equal(res.statusCode, 500)
+    assert.equal(rpcCallsFor('process_affiliate_refund').length, 1)
+    assert.equal(stripeCallsFor('charges.retrieve').length, 0)
   })
 
   it('dispute pierdută → clawback TOTAL cu cheie idempotentă dispute_<id>', async () => {
@@ -484,5 +489,111 @@ describe('stripe-webhook: evenimente necunoscute', () => {
     assert.equal(res.statusCode, 200)
     assert.equal(finalizeStatus(), 'completed')
     assert.equal(profileUpdates().length, 0)
+  })
+})
+
+// ── Forma payload-ului: endpoint pe '2023-10-16' vs dahlia (stripe-node 22) ──
+// Forma evenimentului o decide versiunea ENDPOINT-ului din Stripe, nu pin-ul.
+// Un cont nou pornește pe versiunea curentă; între cele două forme exact patru
+// citiri s-au mutat (basil): price-ul liniei, tipul liniei, abonamentul facturii
+// și factura charge-ului. Fixturile de mai jos au forma DAHLIA (fără câmpurile
+// vechi) — pe codul dinainte, comisionul pleca cu plan/abonament null (skip
+// tăcut în RPC) și clawback-ul fără factură.
+describe('stripe-webhook: payload dahlia (endpoint pe altă versiune decât pin-ul)', () => {
+  const DAHLIA = '2026-08-26.dahlia'
+  function dahliaInvoice(overrides = {}) {
+    return {
+      id: 'in_d', customer: 'cus_1', amount_paid: 24900, currency: 'ron',
+      billing_reason: 'subscription_cycle', attempt_count: 1, period_start: 1_719_792_000,
+      parent: { type: 'subscription_details', subscription_details: { subscription: 'sub_d' } },
+      lines: { data: [{
+        amount: 24900,
+        period: { start: 1_719_792_000, end: 1_722_470_400 },
+        parent: { type: 'subscription_item_details' },
+        pricing: { type: 'price_details', price_details: { price: 'price_pro', product: 'prod_1' } },
+      }] },
+      ...overrides,
+    }
+  }
+  function withConsoleError(fn) {
+    const orig = console.error
+    const lines = []
+    console.error = (...a) => { lines.push(a.join(' ')) }
+    return Promise.resolve(fn()).finally(() => { console.error = orig }).then(() => lines)
+  }
+
+  it('WV1: invoice.paid dahlia → planul din pricing.price_details, abonamentul din parent', async () => {
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
+    const res = await fire('invoice.paid', dahliaInvoice(), { apiVersion: DAHLIA })
+    assert.equal(res.statusCode, 200)
+    const call = rpcCallsFor('process_affiliate_invoice_paid')[0]
+    assert.equal(call.args.p_plan, 'pro')
+    assert.equal(call.args.p_stripe_subscription_id, 'sub_d')
+    assert.equal(call.args.p_period_month, '2024-07-01')
+    assert.equal(lifecycleInserts()[0].event_data.subscription_id, 'sub_d')
+  })
+
+  it('WV2: price și abonament EXPANDATE (obiecte, nu id-uri) → se citesc la fel', async () => {
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
+    const inv = dahliaInvoice({
+      parent: { type: 'subscription_details', subscription_details: { subscription: { id: 'sub_x' } } },
+    })
+    inv.lines.data[0].pricing.price_details.price = { id: 'price_growth' }
+    await fire('invoice.paid', inv, { apiVersion: DAHLIA })
+    const call = rpcCallsFor('process_affiliate_invoice_paid')[0]
+    assert.equal(call.args.p_plan, 'growth')
+    assert.equal(call.args.p_stripe_subscription_id, 'sub_x')
+  })
+
+  it('WV3: bani reali pe abonament, dar NICIO linie cu price lizibil → 500 (formă necunoscută), fără RPC', async () => {
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
+    const inv = dahliaInvoice()
+    inv.lines.data[0].pricing = {}
+    const res = await fire('invoice.paid', inv, { apiVersion: DAHLIA })
+    assert.equal(res.statusCode, 500)
+    assert.equal(finalizeStatus(), 'failed')
+    assert.equal(rpcCallsFor('process_affiliate_invoice_paid').length, 0)
+  })
+
+  it('WV4: price LIZIBIL dar nemapat → skip ca până acum (p_plan null, 200), nu alarmă', async () => {
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
+    const inv = dahliaInvoice()
+    inv.lines.data[0].pricing.price_details.price = 'price_vechi_nemapat'
+    const res = await fire('invoice.paid', inv, { apiVersion: DAHLIA })
+    assert.equal(res.statusCode, 200)
+    assert.equal(rpcCallsFor('process_affiliate_invoice_paid')[0].args.p_plan, null)
+  })
+
+  it('WV5: charge.refunded fără câmpul `invoice` → re-citire pe pin, clawback-ul primește factura', async () => {
+    state.stripeImpls['charges.retrieve'] = async (id) => ({ id, invoice: 'in_9', amount: 9900 })
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 3000 }] })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    const res = await fire('charge.refunded', { id: 'ch_9', amount: 9900 }, { apiVersion: DAHLIA })
+    assert.equal(res.statusCode, 200)
+    assert.equal(stripeCallsFor('charges.retrieve')[0].args[0], 'ch_9')
+    assert.equal(rpcCallsFor('process_affiliate_refund')[0].args.p_stripe_invoice_id, 'in_9')
+  })
+
+  it('WV5b: `invoice: null` PREZENT (plată unică) → fără re-citire', async () => {
+    state.stripeImpls['refunds.list'] = async () => ({ data: [] })
+    const res = await fire('charge.refunded', { id: 'ch_1', invoice: null, amount: 500 })
+    assert.equal(res.statusCode, 200)
+    assert.equal(stripeCallsFor('charges.retrieve').length, 0)
+  })
+
+  it('WV6: api_version ≠ pin → ALERT în log, dar evenimentul se procesează (200)', async () => {
+    const lines = await withConsoleError(async () => {
+      const res = await fire('customer.unknown', {}, { apiVersion: DAHLIA })
+      assert.equal(res.statusCode, 200)
+    })
+    assert.ok(lines.some((l) => l.includes('ALERT api_version mismatch') && l.includes(DAHLIA)), lines.join('\n'))
+    // Control negativ: pe pin, nicio alarmă.
+    resetMocks(); setEnv()
+    const quiet = await withConsoleError(() => fire('customer.unknown', {}, { apiVersion: '2023-10-16' }))
+    assert.ok(!quiet.some((l) => l.includes('ALERT api_version mismatch')), quiet.join('\n'))
   })
 })

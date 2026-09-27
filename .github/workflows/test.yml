@@ -46,6 +46,15 @@ jobs:
       - name: Unit tests
         run: npm run test
 
+      # SDK-ul Stripe REAL (din node_modules-ul de mai sus), fără rețea: pin-ul de
+      # versiune pe fir, anularea pe contul conectat, codarea parametrilor,
+      # semnătura webhook-ului. tests/functions/ înlocuiește modulul 'stripe' cu
+      # un fake și e ORB la un bump de SDK — poarta bump-urilor e AICI. Rulează
+      # în jobul cu `npm ci` deliberat; fără gardă de „skip dacă lipsește":
+      # un gate care sare e un gate mort.
+      - name: Stripe SDK contract tests
+        run: cd tests/stripe-contract && npm test
+
       - name: Build
         run: npm run build
         env:

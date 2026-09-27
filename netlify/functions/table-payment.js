@@ -15,8 +15,10 @@ const Stripe = require('stripe')
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
 // versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
-// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
-// verzi (stripe-node 14.x → '2023-10-16').
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
+// tests/stripe-contract/ verzi (SDK-ul REAL; tests/functions/ îl înlocuiește cu
+// totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
+// ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {
@@ -152,10 +154,14 @@ exports.handler = async (event) => {
       const results = await Promise.all(
         staleIntents.map(async (stale) => {
           try {
-            await stripeS.paymentIntents.cancel(stale, { stripeAccount: bill.stripe_account_id })
+            await stripeS.paymentIntents.cancel(stale, undefined, { stripeAccount: bill.stripe_account_id })
           } catch (e) {
             if (!(e && e.payment_intent && e.payment_intent.status === 'canceled')) {
-              // Ne-anulabil (posibil mid-confirm/succeeded) — îl lăsăm în pace.
+              // Ne-anulabil (posibil mid-confirm/succeeded) — îl lăsăm în pace,
+              // dar lăsăm URMĂ: un eșec tăcut aici a ascuns o dată faptul că
+              // anularea nici măcar nu ajungea pe contul conectat (SDK v22).
+              console.warn('[table-payment] stale split cancel refuzat:', stale,
+                (e && e.payment_intent && e.payment_intent.status) || (e && (e.code || e.message)))
               return false
             }
           }
@@ -208,7 +214,7 @@ exports.handler = async (event) => {
     // reușit, Stripe refuză și clientul află că a plătit deja), apoi settle.
     const stripeC = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
     try {
-      await stripeC.paymentIntents.cancel(c.stripe_payment_intent_id, {
+      await stripeC.paymentIntents.cancel(c.stripe_payment_intent_id, undefined, {
         stripeAccount: c.stripe_account_id,
       })
     } catch (e) {
@@ -279,7 +285,7 @@ exports.handler = async (event) => {
     // încasa: a continua ar dubla nota (fereastra `processing` din review).
     let provablyDead = false
     try {
-      await stripe.paymentIntents.cancel(oldIntent, { stripeAccount: begin.stripe_account_id })
+      await stripe.paymentIntents.cancel(oldIntent, undefined, { stripeAccount: begin.stripe_account_id })
       provablyDead = true
       const { error: oldSettleErr } = await supabase.rpc('settle_table_payment', {
         p_intent_id: oldIntent,
@@ -370,7 +376,7 @@ exports.handler = async (event) => {
     // ca clientul să nu poată plăti într-un vid.
     console.error('[table-payment] attach failed:', attachErr.message)
     try {
-      await stripe.paymentIntents.cancel(intent.id, { stripeAccount: begin.stripe_account_id })
+      await stripe.paymentIntents.cancel(intent.id, undefined, { stripeAccount: begin.stripe_account_id })
     } catch (cancelErr) {
       console.error('[table-payment] cancel after attach-fail also failed:', cancelErr?.message)
     }
