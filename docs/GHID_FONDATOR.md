@@ -160,10 +160,33 @@ endpoint-ului, iar codul e fixat pe `2023-10-16`. Un cont Stripe nou pornește
 pe versiunea curentă (dahlia sau mai nouă), iar versiunea NU se mai poate
 schimba pe un endpoint existent — doar ștergi, recreezi și înlocuiești secretul.
 Codul citește acum ambele forme cunoscute, dar o nepotrivire apare în loguri ca
-`ALERT api_version mismatch` și înseamnă „recreează endpoint-ul".
+`ALERT api_version mismatch` și înseamnă „recreează endpoint-ul”.
 
 Rulezi o dată în **test mode** (cu cheia `sk_test_…`), apoi o dată în **live**
-(cu `sk_live_…`). Înlocuiește domeniul dacă nu e încă `menuvia.ro`:
+(cu `sk_live_…`). Înlocuiește domeniul dacă nu e încă `menuvia.ro`.
+
+**Întâi, ce există deja** — un endpoint mai vechi pe aceeași funcție rămâne activ
+lângă cel nou, cu ALT secret: după ce schimbi `STRIPE_WEBHOOK_SECRET`, livrările
+lui pică semnătura (400) și Stripe le reîncearcă zile la rând.
+
+```bash
+curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+  | jq '.data[] | {id, url, api_version, status}'
+```
+
+- Există deja unul pe `…/stripe-webhook` (sau `…/stripe-connect-webhook`) cu
+  `"api_version": "2023-10-16"` → îl PĂSTREZI; nu crea altul pentru acea funcție.
+- Există, dar pe altă versiune (sau `null` = versiunea contului) → creezi
+  înlocuitorul cu comenzile de mai jos, pui noul secret în env, redeployezi,
+  verifici că un eveniment de test ajunge cu 200 (Dashboard → Webhooks →
+  endpoint-ul nou → „Send test event”), și ABIA APOI ștergi vechiul:
+
+```bash
+curl -X DELETE https://api.stripe.com/v1/webhook_endpoints/$OLD_ENDPOINT_ID \
+  -u "$STRIPE_SECRET_KEY:"
+```
+
+Crearea (doar pentru funcțiile fără endpoint valid):
 
 ```bash
 curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
@@ -190,7 +213,7 @@ Din fiecare răspuns: câmpul `secret` → `STRIPE_WEBHOOK_SECRET` (primul, **NU
 producție (`/etc/menuvia/env` → `systemctl restart menuvia-functions`, sau
 Netlify → Environment variables → redeploy). Verifică în răspuns
 `"api_version": "2023-10-16"` și notează-l în `docs/RUNBOOK.md` §4.1.
-Payload-ul trebuie să fie „snapshot" (implicitul prin API), nu „thin".
+Payload-ul trebuie să fie „snapshot” (implicitul prin API), nu „thin”.
 
 ---
 
