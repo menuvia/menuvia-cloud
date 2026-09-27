@@ -1,0 +1,8 @@
+{
+  "name": "menuvia-stripe-contract-tests",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}

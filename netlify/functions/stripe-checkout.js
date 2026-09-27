@@ -8,8 +8,10 @@ const Stripe = require('stripe')
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
 // versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
-// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu tests/functions/
-// verzi (stripe-node 14.x → '2023-10-16').
+// și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
+// tests/stripe-contract/ verzi (SDK-ul REAL; tests/functions/ îl înlocuiește cu
+// totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
+// ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
 
 // Planurile care primesc trial (RES-11). Oglinda EXACTĂ a `TRIAL_PLAN_IDS` din

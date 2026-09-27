@@ -153,11 +153,67 @@ https://supabase.com/dashboard/project/swjcptdylfmpvopdepqf/auth/providers
 
 ---
 
-## PASUL 5 — Stripe webhook pe noul domeniu (~2 min, DUPĂ ce site-ul e live)
+## PASUL 5 — Endpoint-urile de webhook Stripe (~5 min, DUPĂ ce site-ul e live)
 
-https://dashboard.stripe.com/webhooks → endpoint-ul existent → **Update endpoint** →
-URL: `https://menuvia.ro/.netlify/functions/stripe-webhook`
-(dacă creezi endpoint NOU, copiază noul Signing secret în `/etc/menuvia/env` → `STRIPE_WEBHOOK_SECRET` (NU `WEBHOOK_SECRET`) → `systemctl restart menuvia-functions`).
+**De ce prin API, nu din Dashboard:** forma evenimentelor o decide VERSIUNEA
+endpoint-ului, iar codul e fixat pe `2023-10-16`. Un cont Stripe nou pornește
+pe versiunea curentă (dahlia sau mai nouă), iar versiunea NU se mai poate
+schimba pe un endpoint existent — doar ștergi, recreezi și înlocuiești secretul.
+Codul citește acum ambele forme cunoscute, dar o nepotrivire apare în loguri ca
+`ALERT api_version mismatch` și înseamnă „recreează endpoint-ul”.
+
+Rulezi o dată în **test mode** (cu cheia `sk_test_…`), apoi o dată în **live**
+(cu `sk_live_…`). Înlocuiește domeniul dacă nu e încă `menuvia.ro`.
+
+**Întâi, ce există deja** — un endpoint mai vechi pe aceeași funcție rămâne activ
+lângă cel nou, cu ALT secret: după ce schimbi `STRIPE_WEBHOOK_SECRET`, livrările
+lui pică semnătura (400) și Stripe le reîncearcă zile la rând.
+
+```bash
+curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+  | jq '.data[] | {id, url, api_version, status}'
+```
+
+- Există deja unul pe `…/stripe-webhook` (sau `…/stripe-connect-webhook`) cu
+  `"api_version": "2023-10-16"` → îl PĂSTREZI; nu crea altul pentru acea funcție.
+- Există, dar pe altă versiune (sau `null` = versiunea contului) → creezi
+  înlocuitorul cu comenzile de mai jos, pui noul secret în env, redeployezi,
+  verifici că un eveniment de test ajunge cu 200 (Dashboard → Webhooks →
+  endpoint-ul nou → „Send test event”), și ABIA APOI ștergi vechiul:
+
+```bash
+curl -X DELETE https://api.stripe.com/v1/webhook_endpoints/$OLD_ENDPOINT_ID \
+  -u "$STRIPE_SECRET_KEY:"
+```
+
+Crearea (doar pentru funcțiile fără endpoint valid):
+
+```bash
+curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+  -d url=https://menuvia.ro/.netlify/functions/stripe-webhook \
+  -d api_version=2023-10-16 \
+  -d "enabled_events[]=checkout.session.completed" \
+  -d "enabled_events[]=customer.subscription.updated" \
+  -d "enabled_events[]=customer.subscription.deleted" \
+  -d "enabled_events[]=customer.subscription.trial_will_end" \
+  -d "enabled_events[]=invoice.paid" -d "enabled_events[]=invoice.payment_failed" \
+  -d "enabled_events[]=charge.refunded" -d "enabled_events[]=charge.dispute.closed"
+
+curl https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_SECRET_KEY:" \
+  -d url=https://menuvia.ro/.netlify/functions/stripe-connect-webhook \
+  -d connect=true -d api_version=2023-10-16 \
+  -d "enabled_events[]=payment_intent.succeeded" \
+  -d "enabled_events[]=payment_intent.payment_failed" \
+  -d "enabled_events[]=payment_intent.canceled" \
+  -d "enabled_events[]=account.application.deauthorized"
+```
+
+Din fiecare răspuns: câmpul `secret` → `STRIPE_WEBHOOK_SECRET` (primul, **NU**
+`WEBHOOK_SECRET`) și `STRIPE_CONNECT_WEBHOOK_SECRET` (al doilea), în env-ul de
+producție (`/etc/menuvia/env` → `systemctl restart menuvia-functions`, sau
+Netlify → Environment variables → redeploy). Verifică în răspuns
+`"api_version": "2023-10-16"` și notează-l în `docs/RUNBOOK.md` §4.1.
+Payload-ul trebuie să fie „snapshot” (implicitul prin API), nu „thin”.
 
 ---
 

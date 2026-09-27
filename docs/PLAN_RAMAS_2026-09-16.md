@@ -63,7 +63,7 @@ Fiecare pas se termină cu o verificare care poate eșua. Nimic nu e „gata" f�
 | A6 | **Domeniu**: cumpără menuvia.ro (+ codvia.ro), Netlify primary, **Resend → Domains → verified** (DKIM/SPF/DMARC), OSIM/EUIPO 5 min (BLOC-1) | `https://menuvia.ro` încarcă; Resend `Verified`; o rezervare de test → email în inbox (BLOC-3.2) | QR-uri tipărite, emailuri cu identitate, reset parolă, SEO, Codvia |
 | A7 | **Escrow** pentru secretele nerecuperabile (`AI_CONFIG_SECRET`, `VAPID_PRIVATE_KEY`, `BACKUP_PASSPHRASE`) într-un manager de parole | poți enumera unde e fiecare | fără el, pierderea contului Netlify = pierderea permanentă a cheilor |
 | A8 | **Scriptul de recuperare TVA pe orfani** (`scripts/recover_orphan_vat_snapshots.sql`, RUNBOOK §3.6, DOC-15): previzualizare, apoi aplicare cu `set menuvia.recover_apply='on'` într-o fereastră fără trafic (ia SHARE ROW EXCLUSIVE pe `order_items`) | previzualizarea raportează 16 linii / 447 lei; aplicarea scrie exact atât | raportul TVA al singurului local enterprise raportează azi grupe greșite |
-| A9 | **Stripe Dashboard**: Customer Portal ON (OPS-7), verifică versiunea API a endpoint-urilor de webhook (OPS-8), activează Connect (DOC-20) | `stripe-portal` nu mai dă `portal_unavailable`; versiunea notată în RUNBOOK | dunning CTA, comisioane afiliați, plata la masă |
+| A9 | **Stripe Dashboard**: Customer Portal ON (OPS-7), creează endpoint-urile de webhook PRIN API cu `api_version=2023-10-16` (OPS-8, procedura în `GHID_FONDATOR.md` PASUL 5 — din Dashboard un cont nou primește versiunea curentă, care nu se mai poate schimba), activează Connect (DOC-20) | `stripe-portal` nu mai dă `portal_unavailable`; răspunsul API arată `"api_version": "2023-10-16"`, notat în tabelul din RUNBOOK §4.1 | dunning CTA, comisioane afiliați, plata la masă |
 | A10 | **BLOC 3 — testul uman** pe telefonul tău: QR → comandă → Bucătărie; rezervare → email; anulare cu cod; import AI din poză; `/founder` | fiecare rând bifat cu dovadă | poarta FAZA 0 |
 
 **În paralel, cu lead-time lung (BLOC 4)**: SRL la ONRC → cont bancar → Stripe pe firmă (**4 price ID-uri**, nu unul — `stripe-checkout.js:47` face fail-fast pe toate) → SPV/e-Factura + Oblio → avocat pe cele 5 draft-uri din `menuvia-pack/`. **Fără SRL nu se încasează legal primul leu.**
@@ -100,7 +100,7 @@ Tiparul pe care CLAUDE.md îl consemnează de trei ori; azi există în 12 locur
 ### B2 — Igienă PR-uri (S, ~2h)
 
 - Merge pe verde, re-citind review-urile înainte: #255, #254, #253, #83.
-- **#249 stripe 14→22**: NU se merge-uiește orb — PR propriu care combină bump-ul cu pin-ul de `apiVersion` din B1, rulat prin `tests/functions/` (stripe-webhook/table-payment) + review pe schimbările de tip (`subscriptions.list` e non-async etc.).
+- **stripe 14→22** (Dependabot #249 → #270): ✅ livrat ca PR propriu, cu poarta `tests/stripe-contract/` pe SDK-ul REAL (tests/functions/ înlocuiește modulul și era orb la bump). A prins un defect real: pe v22 cele 4 anulări `paymentIntents.cancel(id, { stripeAccount })` din `table-payment.js` plecau pe contul PLATFORMEI. Pin-ul rămâne `2023-10-16`; webhook-urile citesc ambele forme (2023 / dahlia).
 - Închide #14 (mort). **#11 onboarding banner**: nu se merge-uiește (bază din mai, `DashboardPage.tsx` are 1.797 linii acum) — se **re-implementează** ca item B4c dacă decizi (e singurul cod care atacă direct locul morții din PLAN §1).
 
 ### B3 — Retenție PII oaspeți, 12 luni (M, ~1 zi) — **LIVRAT** (mig 280)
