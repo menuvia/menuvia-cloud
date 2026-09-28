@@ -4,6 +4,8 @@
 // Ancora e aceeași ca la mig 269 / OM1: 2026-09-04T21:30Z = 00:30 EEST pe 5 sept.
 // DST 2026: ora de vară începe duminică 29 martie la 01:00Z și se termină
 // duminică 25 octombrie la 01:00Z (ultimele duminici din lună).
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { isoToRomaniaYMD, romaniaDayBoundaryISO, toRomaniaYMD } from '../dates'
 
@@ -56,15 +58,21 @@ describe('isoToRomaniaYMD', () => {
 })
 
 describe('romaniaDayBoundaryISO', () => {
-  // Helperul își calculează offset-ul parsând două șiruri în fusul GAZDEI:
-  // corect pe UTC (CI) și Europe/Bucharest (orice client real); pe o gazdă cu
-  // propria tranziție DST în fereastra 00:00–03:00 (Europe/London) cazurile de
-  // 29 mar / 25 oct pică — defect REAL al helperului, consemnat, nu flake.
+  // Helperul NU mai trece prin fusul GAZDEI (recenzie CodeRabbit pe #276):
+  // varianta cu `new Date(toLocaleString(...))` dădea pe Europe/London
+  // 29 mar → 23:00Z și 25 oct → 20:00Z. Un test „rulează pe London" nu se
+  // poate scrie aici — schimbarea lui process.env.TZ la runtime NU are efect
+  // într-un worker thread (verificat), deci ar trece vacuu; de aceea D11 e un
+  // clichet STRUCTURAL pe sursă, iar dovada pe 7 fusuri de gazdă e în PR.
   const cases: [string, string, string, number][] = [
     ['2026-09-05', '2026-09-04T21:00:00.000Z', '2026-09-05T20:59:59.999Z', 24],
     ['2026-01-16', '2026-01-15T22:00:00.000Z', '2026-01-16T21:59:59.999Z', 24],
     ['2026-03-29', '2026-03-28T22:00:00.000Z', '2026-03-29T20:59:59.999Z', 23],
     ['2026-10-25', '2026-10-24T21:00:00.000Z', '2026-10-25T21:59:59.999Z', 25],
+    // zilele de DUPĂ tranziții + DST 2027 (ultima duminică din martie = 28)
+    ['2026-03-30', '2026-03-29T21:00:00.000Z', '2026-03-30T20:59:59.999Z', 24],
+    ['2026-10-26', '2026-10-25T22:00:00.000Z', '2026-10-26T21:59:59.999Z', 24],
+    ['2027-03-28', '2027-03-27T22:00:00.000Z', '2027-03-28T20:59:59.999Z', 23],
   ]
   it.each(cases)('D9 %s: [%s, %s], %i ore', (day, start, end, hours) => {
     expect(romaniaDayBoundaryISO(day, false)).toBe(start)
@@ -76,5 +84,13 @@ describe('romaniaDayBoundaryISO', () => {
     expect(isoToRomaniaYMD(end)).toBe(day)
     expect(isoToRomaniaYMD(new Date(Date.parse(start) - 1).toISOString())).not.toBe(day)
     expect(isoToRomaniaYMD(new Date(Date.parse(end) + 1).toISOString())).not.toBe(day)
+  })
+  it('D11 granițele nu se calculează prin fusul gazdei (fără parsare de șir local)', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/dates.ts'), 'utf8')
+    const start = src.indexOf('export function romaniaDayBoundaryISO')
+    expect(start).toBeGreaterThan(-1)
+    const body = src.slice(start, src.indexOf('\n}\n', start))
+    expect(body).not.toMatch(/toLocale(String|DateString|TimeString)/)
+    expect(body).toMatch(/bucharestOffsetMs\(/)
   })
 })

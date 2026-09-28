@@ -8,7 +8,35 @@
 // consumatori să nu mai reimplementeze greșit.
 
 // Instantul ISO (UTC) al începutului/sfârșitului zilei calendaristice `ymd`
-// în fusul Europe/Bucharest, indiferent de sezon.
+// în fusul Europe/Bucharest, indiferent de sezon ȘI de fusul GAZDEI.
+//
+// Varianta veche parsa cu `new Date(toLocaleString(...))`, adică în fusul
+// gazdei: corectă pe UTC și pe Europe/Bucharest, dar pe o gazdă cu propria
+// tranziție DST aproape de a României (Europe/London) dădea 29 mar →
+// 23:00Z și 25 oct → 20:00Z, cu o oră greșit (recenzie CodeRabbit pe #276).
+// Acum offset-ul se citește din părțile formatate în Europe/Bucharest,
+// comparate cu instantul însuși — nimic nu mai trece prin fusul gazdei.
+// Al doilea pas re-evaluează offset-ul la instantul CORECTAT: la 25 oct,
+// 00:00 local e încă EEST (+3), dar „ghicitul" 00:00Z e deja după tranziție.
+const BUC_WALL_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Bucharest',
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+// Offset-ul Europe/Bucharest (ms, +7200000 iarna / +10800000 vara) la instantul t.
+function bucharestOffsetMs(t: number): number {
+  const parts = BUC_WALL_FMT.formatToParts(new Date(t))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  const wall = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  return wall - Math.floor(t / 1000) * 1000
+}
+
 export function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
   const [y, mo, d] = ymd.split('-').map(Number)
   const h = endOfDay ? 23 : 0
@@ -16,10 +44,7 @@ export function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
   const s = endOfDay ? 59 : 0
   const ms = endOfDay ? 999 : 0
   const guess = Date.UTC(y!, mo! - 1, d!, h, mi, s, ms)
-  const at = new Date(guess)
-  const asUtc = new Date(at.toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-  const asBuc = new Date(at.toLocaleString('en-US', { timeZone: 'Europe/Bucharest' })).getTime()
-  const offsetMs = asBuc - asUtc // +7200000 iarna, +10800000 vara
+  const offsetMs = bucharestOffsetMs(guess - bucharestOffsetMs(guess))
   return new Date(guess - offsetMs).toISOString()
 }
 

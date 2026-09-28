@@ -123,7 +123,12 @@ de TVA și prețurile includ TVA 21%, baza netă Menuvia/Webvia e 81,82 / 205,79
 (= preț / 1,21) și sumele Menuvia se înmulțesc cu 0,8264. La Codvia factorul NU e
 0,8264: baza e marja, iar scoaterea TVA-ului scade marja cu venit × (1 − 1/1,21),
 nu cu 17,36% din marjă (ex. 4 × plexiglas: venit 316, TVA 54,84, marja 171 → 116,16,
-adică ×0,68).
+adică ×0,68). **Asta presupune costuri FĂRĂ TVA** (net), iar `CODVIA_LANSARE.md` B.1–B.3
+nu spune pe ce bază sunt estimate. Dacă cele 145 lei de costuri (112 produs + 33 comandă)
+sunt CU TVA deductibil, în marjă intră suma netă (145 / 1,21 = 119,83) și marja devine
+261,16 − 119,83 = **141,32** (= 171 / 1,21, adică ×0,8264 ca la Menuvia). Pe un cost fără
+TVA de dedus (furnizor neplătitor, bunuri/servicii nedeductibile) rămâne 116,16. Baza se
+fixează pe facturile REALE de la furnizor și curier (0c), nu pe estimările din B.1.
 
 ### 3.2 Menuvia — abonament (PROPUNERE: gate-ul Plan 3 se RIDICĂ)
 
