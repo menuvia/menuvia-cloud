@@ -157,6 +157,15 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/guest_retention_assertions.sql
 
+      # Preset-ul TVA (mig 285, FR-07) pe stack-ul real: mig 285 creează o
+      # funcție NOUĂ (`vat_rate_defaults_ro`), iar default privileges ale
+      # Supabase acordă EXECUTE direct lui anon/authenticated — VP7 are muncă
+      # reală DOAR aici; sql-verify (postgres gol) e orb la clasa asta.
+      - name: Preset TVA == cotele implicite pe stack-ul Supabase real (mig 285, VP1–VP7)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |

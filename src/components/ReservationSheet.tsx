@@ -24,6 +24,8 @@ import {
   rotateReservationIdempotencyKey,
   isTerminalReservation,
 } from '../lib/reservations'
+import PhoneInput from './PhoneInput'
+import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 
 interface PubColors {
   bg: string
@@ -213,6 +215,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [timeSlot, setTimeSlot] = useState<string>('')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
+  // PH-4: prefixul VIZIBIL, implicit +40. `<string>` explicit (capcana `as const`).
+  const [phoneCc, setPhoneCc] = useState<string>(DEFAULT_CALLING_CODE)
   const [email, setEmail] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -435,6 +439,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       setError(lang === 'ro' ? 'Telefonul este obligatoriu' : 'Phone is required')
       return
     }
+    // PH-4: E.164 cu prefixul VIZIBIL ales. Forma națională a unui număr străin
+    // (SE/CH/FR „07…”) ar fi fost citită de server drept +407… — SMS la un străin.
+    const phoneE164 = toE164(phoneCc, phone)
+    if (!phoneE164) {
+      setError(T(lang, 'phone_invalid'))
+      return
+    }
     // Email opțional, dar dacă e completat trebuie să fie valid (altfel se stoca orice string).
     if (email.trim().length > 0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError(lang === 'ro' ? 'Email invalid' : 'Invalid email')
@@ -462,7 +473,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         {
           p_slug: slug,
           p_customer_name: name.trim(),
-          p_customer_phone: phone.trim(),
+          p_customer_phone: phoneE164,
           p_party_size: partySize,
           p_starts_at: startsAt,
           p_customer_email: email.trim().length > 0 ? email.trim() : null,
@@ -548,7 +559,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       return
     }
     setResult(row)
-  }, [settings, chosenDateYmd, timeSlot, name, phone, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
+  }, [settings, chosenDateYmd, timeSlot, name, phone, phoneCc, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20
 
@@ -1051,14 +1062,18 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           placeholder={T(lang, 'reserve_name')}
           style={{ ...inputStyle, marginBottom: 10 }}
         />
-        <input
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder={T(lang, 'reserve_phone')}
-          type="tel"
-          inputMode="tel"
-          style={{ ...inputStyle, marginBottom: 10 }}
-        />
+        <div style={{ marginBottom: 10 }}>
+          <PhoneInput
+            cc={phoneCc}
+            national={phone}
+            onCcChange={setPhoneCc}
+            onNationalChange={setPhone}
+            lang={lang}
+            placeholder={T(lang, 'reserve_phone')}
+            inputStyle={inputStyle}
+            hintColor={PUB.text3}
+          />
+        </div>
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}

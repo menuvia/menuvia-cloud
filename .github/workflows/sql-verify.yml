@@ -1154,6 +1154,16 @@ jobs:
           # Cotele TVA implicite pentru restaurantele noi: 11% redus / 21% standard.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_rates_2025_assertions.sql
 
+      # NECONDIȚIONAT (mig 285, FR-07): preset-ul TVA din Setup Asistent ==
+      # cotele implicite L.141/2025 (sursă unică `vat_rate_defaults_ro`); id-urile
+      # vechi (19/9/5%) retrase, maparea pe casă neatinsă.
+      - name: "VAT preset == defaults assertions (mig 285, VP1–VP7)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/vat_preset_assertions.sql
+
       - name: "Platform security assertions (mig 111/112)"
         if: ${{ hashFiles('supabase/migrations/20260627000000_migration_111_split_bill_gate.sql') != '' }}
         env:
@@ -1320,6 +1330,17 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/sms_queue_assertions.sql
+
+      # NECONDIȚIONAT (PH-4): contractul pe care se sprijină telefonul E.164 trimis
+      # de client — +40… ≡ 07… în SMS/loyalty/rate-limit, iar un E.164 străin NU
+      # se normalizează la +40 (o „simplificare” pe ultimele 9 cifre ar redeschide
+      # SMS-ul către un străin din România).
+      - name: "Phone E.164 contract assertions (PH-4, PE1–PE6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/phone_e164_contract_assertions.sql
 
       - name: "MFA platform assertions (mig 235)"
         if: ${{ hashFiles('supabase/migrations/20260717120000_migration_235_platform_admin_mfa.sql') != '' }}

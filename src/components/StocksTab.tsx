@@ -16,6 +16,7 @@ import { InlineSpinner } from './PageLoader'
 import { Icon, type IconName } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { fetchVatRates, getVatLabel, getVatRate, type VatRate } from '../lib/vat'
+import { toRomaniaYMD } from '../lib/dates'
 import {
   fetchIngredients,
   createIngredient,
@@ -1533,7 +1534,10 @@ function NirCreateModal({
   const [supplierId, setSupplierId] = useState<string>('')
   const [supplierName, setSupplierName] = useState<string>('') // pentru autocomplete
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().slice(0, 10))
+  // Ziua României, nu UTC: după miezul nopții (00:00–02:00 iarna / 03:00 vara)
+  // data UTC arată încă ziua de IERI, iar un NIR introdus după închidere se
+  // salva cu data precedentă (`invoice_date` e `date`, mig 026/066).
+  const [invoiceDate, setInvoiceDate] = useState<string>(() => toRomaniaYMD(new Date()))
   const [notes, setNotes] = useState('')
   const isMobile = useIsMobile()
   const [items, setItems] = useState<NirItem[]>([

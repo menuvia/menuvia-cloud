@@ -38,7 +38,7 @@ Ai două variante, alege una **înainte** de primul telefon:
 
 ### 0.2 Contractul
 
-Programul plătește exclusiv pe factură de la PFA/SRL. Contractul-cadru e încă brief pentru avocat (`docs/AFFILIATE_PROGRAM.md` §6) — nesemnat, nevalidat. Nu e blocant pentru recrutare (prima plată vine oricum la 60+ zile după primul abonament), dar **e blocant pentru prima plată**. Trimite brieful avocatului în aceeași săptămână în care suni primul candidat.
+Programul plătește exclusiv pe factură de la PFA/SRL. Contractul-cadru e încă brief pentru avocat (`docs/AFFILIATE_PROGRAM.md` §5.2; v1: `docs/archive/AFFILIATE_PROGRAM_v1_2026-06.md` §6) — nesemnat, nevalidat. Nu e blocant pentru recrutare (prima plată vine oricum la 60+ zile după primul abonament), dar **e blocant pentru prima plată**. Trimite brieful avocatului în aceeași săptămână în care suni primul candidat.
 
 Ce spui candidatului între timp: *„contractul îl semnăm înainte de primul comision plătibil; până atunci ai în scris procentele, holdul și regulile — nu-ți cer nimic în avans și nu-ți cer exclusivitate."*
 

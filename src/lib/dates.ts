@@ -23,14 +23,33 @@ export function romaniaDayBoundaryISO(ymd: string, endOfDay: boolean): string {
   return new Date(guess - offsetMs).toISOString()
 }
 
+// Un singur formatter la nivel de modul: `toRomaniaYMD` rulează acum PER RÂND
+// (BridgeTab: până la 100 de bonuri, la fiecare randare și la poll-ul de 15 s),
+// iar construcția unui Intl.DateTimeFormat e partea scumpă — același motiv ca
+// DAY_FMT din ReportsTab. Ieșirea e identică.
+const RO_YMD_FMT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Europe/Bucharest',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 // Data calendaristică (YYYY-MM-DD) a unui instant ÎN fusul României.
 export function toRomaniaYMD(d: Date): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Europe/Bucharest',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(d)
+  const parts = RO_YMD_FMT.formatToParts(d)
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
   return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+// Ziua României a unui timestamp venit de la server. PostgREST întoarce
+// `timestamptz` în UTC (`2026-09-04T21:30:00+00:00` — TimeZone-ul sesiunii pe
+// Supabase e UTC, mig 272), deci PREFIXUL șirului e ziua UTC: între 00:00 și
+// 02:00 (iarna) / 03:00 (vara), ora României, el arată încă ziua de IERI. O zi
+// românească se compară cu instantul CONVERTIT, niciodată cu prefixul șirului
+// (clichet: src/lib/__tests__/utcDayPrefix.test.ts). Șir neparsabil → null, nu
+// excepție: `formatToParts` pe un Invalid Date aruncă RangeError, iar apelantul
+// e o randare.
+export function isoToRomaniaYMD(iso: string): string | null {
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? null : toRomaniaYMD(new Date(t))
 }
