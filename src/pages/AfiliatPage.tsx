@@ -1100,7 +1100,7 @@ function GhidTab({
     },
     {
       t: 'Ajută-i să pornească (opțional, dar face diferența)',
-      d: 'După ce restaurantul se abonează prin linkul tău, primești automat acces de partener pe dashboard-ul lui — îl poți ajuta cu meniul și setările. Ownerul vede accesul și îl poate opri oricând.',
+      d: 'După ce restaurantul se abonează prin linkul tău, poți cere acces de partener la meniul și mesele/QR ale lui. Accesul se acordă doar dacă ownerul aprobă, nu include comenzi, rezervări sau date fiscale și poate fi revocat oricând.',
     },
     {
       t: 'Urmărește câștigurile și emite factura',
