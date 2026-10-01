@@ -6,7 +6,9 @@
 // ─────────────────────────────────────────────────────────────
 // Reguli de copy (impuse comercial):
 //   - NU scrie „nelimitat" dacă limita e finită.
-//   - NU scrie „Fără card" decât dacă Stripe permite trial fără card.
+//   - „Fără card" e ADEVĂRAT doar pe planurile din TRIAL_PLAN_IDS (RES-11:
+//     stripe-checkout.js trimite `payment_method_collection:'if_required'`
+//     DOAR pe ramura cu trial). Nu-l scrie pe un plan fără trial.
 //   - NU folosi „Pro" ca text vizibil clientului — e id intern.
 //   - Fără termeni tehnici (Modifiers, KDS, FiscalNet) — copy în română umană.
 //   - Mesaj central: Meniu Digital = QR. Meniu + Comenzi = comenzi QR.
@@ -235,10 +237,10 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
 ]
 
 // Trust signals afișate sub grila de planuri — adevărate, verificate.
-// „Fără card pentru trial" NU apare aici: până nu confirmăm că Stripe
-// Checkout poate fi configurat fără card, nu promitem.
+// „Fără card" e aici din RES-11 (trialul pornește fără metodă de plată); se
+// publică DOAR după sesiunea reală verificată în Stripe TEST mode (poarta PR-ului).
 export const TRUST_SIGNALS = [
-  { icon: '🎁', label: '30 zile gratuite', desc: 'Anulezi cu un click, fără penalizări.' },
+  { icon: '🎁', label: '30 zile gratuite', desc: 'Fără card. Anulezi cu un click, fără penalizări.' },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
   { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu Radu, fondatorul.' },
   {

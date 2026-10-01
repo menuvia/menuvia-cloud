@@ -2,8 +2,9 @@
 // checkout.ts — traducerea răspunsurilor lui `stripe-checkout` în mesaje
 // pentru om.
 //
-// De ce există: funcția întoarce NOUĂ forme de răspuns non-200 (405 text
-// simplu, 400 ×2, 401 ×2, 429, 503 ×3, 409, 500), iar clientul trata exact
+// De ce există: funcția întoarce ZECE forme de răspuns non-200 (405 text
+// simplu, 400 ×2, 401 ×2, 429, 503 ×3, 409, 500, iar din RES-11 și 502
+// `checkout_create_failed`), iar clientul trata exact
 // DOUĂ dintre ele — restul lăsau butonul mut, adică omul apăsa „Activează",
 // nu se întâmpla nimic vizibil și pleca. E cel mai scump click din produs.
 //
@@ -68,6 +69,15 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
       code,
       message: msg ?? 'Ai deja un abonament activ. Schimbi planul din Portalul de facturare.',
       action: 'billing',
+    }
+  }
+  if (code === 'checkout_create_failed') {
+    // Stripe a respins crearea sesiunii (RES-11: try/catch în stripe-checkout.js).
+    // Tranzitoriu cel mai adesea; mesajul serverului e românesc.
+    return {
+      code,
+      message: msg ?? 'Nu am putut porni plata. Reîncearcă în câteva momente.',
+      action: 'retry',
     }
   }
   if (code === 'subscription_lookup_failed') {
