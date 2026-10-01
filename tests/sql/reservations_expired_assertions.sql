@@ -64,6 +64,12 @@ insert into public.tables (id, restaurant_id, name, slug, seats, is_active) valu
   ('c8900000-0000-4000-8000-000000000001','b8900000-0000-4000-8000-000000000001','RX-1','rx-1',4,true),
   ('c8900000-0000-4000-8000-000000000002','b8900000-0000-4000-8000-000000000001','RX-2','rx-2',4,true);
 
+-- Rândurile de fixtură inserate direct sunt „de staff", nu publice: default-ul
+-- coloanei `source` e 'public' și plafonul anti-abuz (mig 115, 5/minut) le-ar
+-- număra. Se schimbă DOAR în această tranzacție (ROLLBACK la final); RPC-ul
+-- public își scrie singur source='public'.
+alter table public.reservations alter column source set default 'dashboard';
+
 -- ── RX1: CHECK-ul de status ──────────────────────────────────────────────────
 do $$
 begin
