@@ -6,6 +6,7 @@ import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import {
   useReservations,
+  useStaleReservations,
   useReservationSettings,
   useDateRange,
   dayRange,
@@ -20,6 +21,7 @@ import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
 import { useFeatures } from '../hooks/useFeatures'
 import { confirm as confirmDialog } from './ui/confirm'
+import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '../lib/reservations'
 
 // Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
 // get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
@@ -27,15 +29,6 @@ import { confirm as confirmDialog } from './ui/confirm'
 function phoneKey(phone: string): string | null {
   const digits = (phone || '').replace(/\D/g, '')
   return digits.length >= 9 ? digits.slice(-9) : null
-}
-
-const STATUS_LABEL: Record<ReservationStatus, string> = {
-  pending: 'În așteptare',
-  confirmed: 'Confirmată',
-  seated: 'La masă',
-  completed: 'Finalizată',
-  cancelled: 'Anulată',
-  no_show: 'No-show',
 }
 
 const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
@@ -46,6 +39,8 @@ const STATUS_COLOR: Record<ReservationStatus, { bg: string; fg: string }> = {
   completed: { bg: D.s3, fg: D.t3 },
   cancelled: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
   no_show: { bg: 'rgba(224,85,85,0.10)', fg: D.red },
+  // Neutră, ca „finalizată": nu e o greșeală a clientului și nu e o anulare.
+  expired: { bg: D.s3, fg: D.t3 },
 }
 
 function formatDay(iso: string): string {
@@ -105,6 +100,12 @@ export default function ReservationsTab({ restaurantId }: Props) {
     range,
   )
   const toast = useToast()
+  // Secțiunea „Neconfirmate / expirate" (mig 289) — FĂRĂ filtru de dată.
+  const { rows: staleRows, refetch: refetchStale } = useStaleReservations(
+    restaurantId,
+    reservations,
+  )
+  const [staleOpen, setStaleOpen] = useState(false)
 
   // Istoric no-show per telefon (mig 234) — badge de risc pe rezervările
   // viitoare. Eșecul RPC-ului (ex. migrația neaplicată încă, PGRST202) lasă
@@ -183,6 +184,16 @@ export default function ReservationsTab({ restaurantId }: Props) {
     [updateStatus, toast],
   )
 
+  // Același handler, dar și reîncărcarea secțiunii de nerezolvate (rândul
+  // tratat trebuie să iasă de acolo, indiferent de intervalul listei principale).
+  const handleStaleStatus = useCallback(
+    async (id: string, status: ReservationStatus, label: string) => {
+      await handleStatus(id, status, label)
+      void refetchStale()
+    },
+    [handleStatus, refetchStale],
+  )
+
   return (
     <div style={{ padding: 20, color: D.t1 }}>
       <div
@@ -212,6 +223,70 @@ export default function ReservationsTab({ restaurantId }: Props) {
       </div>
 
       <GoogleLinkCard restaurantId={restaurantId} />
+
+      {staleRows.length > 0 && (
+        <section
+          aria-label="Rezervări neconfirmate sau expirate"
+          style={{
+            marginBottom: 16,
+            border: `1px solid ${D.border}`,
+            borderRadius: 12,
+            background: D.s2,
+          }}
+        >
+          <button
+            onClick={() => setStaleOpen((o) => !o)}
+            aria-expanded={staleOpen}
+            style={{
+              width: '100%',
+              minHeight: 44,
+              padding: '10px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              background: 'transparent',
+              border: 'none',
+              color: D.t1,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+              textAlign: 'left',
+            }}
+          >
+            <span>
+              Neconfirmate / expirate:{' '}
+              {plural(staleRows.length, 'rezervare', 'rezervări')} din trecut
+            </span>
+            <span style={{ color: D.t3, fontWeight: 500 }}>{staleOpen ? 'Ascunde' : 'Arată'}</span>
+          </button>
+          {staleOpen && (
+            <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontSize: 12, color: D.t3 }}>
+                Rezervări rămase fără răspuns (expirate automat după 2 ore) și confirmate
+                nefinalizate de peste 48 de ore — nu depind de intervalul ales mai sus.
+              </div>
+              {staleRows.map((r) => (
+                <ReservationCard
+                  key={r.id}
+                  r={r}
+                  noShowCount={0}
+                  showDate
+                  onConfirm={() => handleStaleStatus(r.id, 'confirmed', 'Rezervare confirmată')}
+                  onSeated={() =>
+                    handleStaleStatus(r.id, 'seated', 'Clienții au fost așezați la masă')
+                  }
+                  onCancel={() => handleStaleStatus(r.id, 'cancelled', 'Rezervare anulată')}
+                  onNoShow={() =>
+                    handleStaleStatus(r.id, 'no_show', 'Rezervare marcată ca no-show')
+                  }
+                  onComplete={() => handleStaleStatus(r.id, 'completed', 'Rezervare finalizată')}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         <FilterChip onClick={setToday} active={activeRangeKey === 'today'}>
@@ -566,6 +641,8 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
 interface CardProps {
   r: Reservation
   noShowCount: number
+  /** Afișează și ziua (secțiunea de nerezolvate nu are antet pe zile). */
+  showDate?: boolean
   onConfirm: () => void
   onSeated: () => void
   onCancel: () => void
@@ -576,6 +653,7 @@ interface CardProps {
 function ReservationCard({
   r,
   noShowCount,
+  showDate = false,
   onConfirm,
   onSeated,
   onCancel,
@@ -612,6 +690,7 @@ function ReservationCard({
         >
           {formatTime(r.starts_at)}
         </div>
+        {showDate && <div style={{ fontSize: 12, color: D.t2 }}>{formatDay(r.starts_at)}</div>}
         <div style={{ fontSize: 14, color: D.t1, fontWeight: 500 }}>{r.customer_name}</div>
         {/* Badge de risc (mig 234): clientul are no-show-uri în istoric — staff-ul
             poate suna să reconfirme. Doar pe rezervările încă ne-terminale. */}
@@ -733,7 +812,10 @@ function ReservationCard({
             No-show
           </ActionButton>
         )}
-        {r.status !== 'cancelled' && r.status !== 'completed' && r.status !== 'no_show' && (
+        {r.status !== 'cancelled' &&
+          r.status !== 'completed' &&
+          r.status !== 'no_show' &&
+          r.status !== 'expired' && (
           <ActionButton onClick={onCancel} danger>
             Anulează
           </ActionButton>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { pickAllowed } from '../lib/sanitize'
 import { playSound } from '../lib/utils'
+import { buildStaleReservationsFilter } from '../lib/reservations'
 
 export type ReservationStatus =
   | 'pending'
@@ -10,6 +11,7 @@ export type ReservationStatus =
   | 'completed'
   | 'cancelled'
   | 'no_show'
+  | 'expired'
 
 export type ReservationSource = 'public' | 'phone' | 'google' | 'widget' | 'walk_in' | 'dashboard'
 
@@ -260,6 +262,49 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     assignTable,
     seat,
   }
+}
+
+/**
+ * Rezervările „nerezolvate din trecut" (mig 289), FĂRĂ filtru de dată: până la
+ * `expired`, un `pending` rămas în urmă era invizibil — lista filtrează pe
+ * interval. `reloadKey` reîncarcă la fiecare schimbare a listei principale
+ * (realtime), ca o rezervare tratată să iasă și de aici.
+ */
+export function useStaleReservations(restaurantId: string | null, reloadKey: unknown) {
+  const [rows, setRows] = useState<Reservation[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const seqRef = useRef(0)
+
+  const load = useCallback(async () => {
+    if (!restaurantId) {
+      setRows([])
+      return
+    }
+    const seq = ++seqRef.current
+    const { data, error: e } = await supabase
+      .from('reservations')
+      .select('*, table:tables(id,name,seats,zone)')
+      .eq('restaurant_id', restaurantId)
+      .or(buildStaleReservationsFilter(new Date()))
+      .order('starts_at', { ascending: false })
+      .limit(100)
+    if (seq !== seqRef.current) return
+    if (e) {
+      // Secțiunea e un plus: pe eroare nu golim UI-ul principal, doar ascundem secțiunea.
+      setError(e.message)
+      setRows([])
+      return
+    }
+    setError(null)
+    setRows((data ?? []) as Reservation[])
+  }, [restaurantId])
+
+  useEffect(() => {
+    void load()
+    // `reloadKey` e dependență intenționat (vezi docstring); nu e citit în corp.
+  }, [load, reloadKey])
+
+  return { rows, error, refetch: load }
 }
 
 export function useReservationSettings(restaurantId: string | null) {
