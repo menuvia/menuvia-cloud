@@ -400,11 +400,36 @@ export interface PartnerRestaurant {
   plan: string
 }
 
+// Starea accesului de partener (mig 286, calculată în DB de partner_access_state):
+// none → requested (cerere) → granted (owner a acordat) → revoked (revocat).
+export type PartnerAccessState = 'none' | 'requested' | 'granted' | 'revoked'
+
 export interface PartnerAccessRow {
   attribution_id: string
   affiliate_email: string
   affiliate_name: string | null
   revoked_at: string | null
+  requested_at: string | null
+  consented_at: string | null
+  state: PartnerAccessState
+}
+
+// Atribuirile afiliatului logat + starea accesului (list_partner_attributions).
+// `restaurants` (cu id) e ne-gol DOAR când accesul e acordat.
+export interface PartnerAttribution {
+  attribution_id: string
+  status: string
+  state: PartnerAccessState
+  requested_at: string | null
+  consented_at: string | null
+  revoked_at: string | null
+  restaurant_names: string[]
+  restaurants: {
+    restaurant_id: string
+    name: string
+    city: string | null
+    is_active: boolean
+  }[]
 }
 
 export function listPartnerRestaurants(): Promise<PartnerRestaurant[]> {
@@ -413,6 +438,25 @@ export function listPartnerRestaurants(): Promise<PartnerRestaurant[]> {
 
 export function getPartnerAccess(restaurantId: string): Promise<PartnerAccessRow[]> {
   return rpcJson<PartnerAccessRow[]>('get_partner_access', { p_restaurant_id: restaurantId })
+}
+
+export function listPartnerAttributions(): Promise<PartnerAttribution[]> {
+  return rpcJson<PartnerAttribution[]>('list_partner_attributions')
+}
+
+// Afiliatul cere accesul (nu îl primește singur — decide ownerul).
+export function requestPartnerAccess(attributionId: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('request_partner_access', { p_attribution_id: attributionId })
+}
+
+// Ownerul/managerul acordă accesul pe meniu + mese/QR.
+export function grantPartnerAccess(attributionId: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('grant_partner_access', { p_attribution_id: attributionId })
+}
+
+// Ownerul/managerul revocă un acces acordat sau refuză o cerere.
+export function revokePartnerAccess(attributionId: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('revoke_partner_access', { p_attribution_id: attributionId })
 }
 
 export function revokeAffiliateAccess(restaurantId: string): Promise<AdminActionResult> {

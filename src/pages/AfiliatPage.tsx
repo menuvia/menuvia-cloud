@@ -12,11 +12,7 @@ import { useToast } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
-import {
-  listPartnerRestaurants,
-  enterFounderView,
-  type PartnerRestaurant,
-} from '../lib/founder'
+import PartnerAccessList from '../components/PartnerAccessList'
 
 const card = {
   background: D.s2,
@@ -599,92 +595,7 @@ function AcasaTab({
   )
 }
 
-// „Intră pe dashboard" cu feedback: enterFounderView așteaptă audit-ul
-// vizitei (până la ~2s) înainte să navigheze — fără busy, butonul părea mort.
-function PartnerEnterButton({ restaurantId }: { restaurantId: string }) {
-  const [busy, setBusy] = useState(false)
-  return (
-    <button
-      onClick={() => {
-        setBusy(true)
-        void enterFounderView(restaurantId, 'afiliat')
-      }}
-      disabled={busy}
-      style={{ ...goldBtn, ...(busy ? disabledBtn : null) }}
-    >
-      {busy ? 'Se deschide…' : 'Intră pe dashboard'}
-    </button>
-  )
-}
-
 // ── Tab: Restaurante ─────────────────────────────────────────────────────────
-// Restaurantele partenere cu acces activ (mig 187): afiliatul poate intra
-// pe dashboardul lor (rol virtual de manager, revocabil de owner, cu banner
-// „Mod partener" + vizită logată în audit).
-function PartnerAccessList() {
-  const [partners, setPartners] = useState<PartnerRestaurant[]>([])
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    listPartnerRestaurants()
-      .then((rows) => {
-        if (!cancelled) setPartners(rows)
-      })
-      .catch((e: unknown) => {
-        // Secțiunea nu se afișează pe eroare (decizie deliberată), DAR lăsăm o
-        // urmă de diagnostic — altfel un blip de rețea e indistinguibil de o
-        // revocare reală de acces la debugging în prod.
-        console.error('[AfiliatPage] listPartnerRestaurants error:', e)
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  if (!loaded || partners.length === 0) return null
-
-  return (
-    <div style={{ ...card, marginBottom: 12 }}>
-      <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.95rem', marginBottom: 4 }}>
-        Acces de partener
-      </div>
-      <div style={{ color: D.t2, fontSize: '0.78rem', marginBottom: 12 }}>
-        Poți intra pe dashboardul restaurantelor aduse de tine ca să le ajuți cu configurarea.
-        Ownerul vede accesul tău și îl poate opri oricând.
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {partners.map((p) => (
-          <div
-            key={p.restaurant_id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 10,
-              flexWrap: 'wrap',
-              padding: '10px 12px',
-              background: D.s3,
-              borderRadius: 10,
-            }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.85rem' }}>{p.name}</div>
-              <div style={{ color: D.t2, fontSize: '0.72rem' }}>
-                {(p.city ?? '—') + ' · ' + (p.is_active ? 'activ' : 'inactiv')}
-              </div>
-            </div>
-            <PartnerEnterButton restaurantId={p.restaurant_id} />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function RestauranteTab({
   restaurants,
   currency,
