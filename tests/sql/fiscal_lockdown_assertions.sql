@@ -80,6 +80,40 @@ update public.pending_receipts
    set status = 'pending', payload = 'S^orig^1', error_code = null, error_info = null, completed_at = null
  where restaurant_id = '87b00000-0000-4000-8000-000000000001';
 
+-- ── FL4: catalog — PRIMUL, înainte de FL2 (care re-acordă și revocă UPDATE temporar:
+-- un catalog verificat DUPĂ el ar vedea starea restaurată, nu cea din migrație) ─────────────────────────────────────────────────────────────
+do $$
+declare v_role text; v_col text; v_tgtype int; v_def boolean; v_n int;
+begin
+  foreach v_role in array array['anon', 'authenticated'] loop
+    if has_table_privilege(v_role, 'public.pending_receipts', 'UPDATE') then
+      raise exception 'FL4 FAIL: % are UPDATE pe pending_receipts', v_role; end if;
+    for v_col in select attname::text from pg_attribute
+                  where attrelid = 'public.pending_receipts'::regclass and attnum > 0 and not attisdropped loop
+      if has_column_privilege(v_role, 'public.pending_receipts', v_col, 'UPDATE') then
+        raise exception 'FL4 FAIL: % are UPDATE pe pending_receipts.%', v_role, v_col; end if;
+    end loop;
+  end loop;
+  -- ancora anti-vacuitate: ce trebuie să rămână chiar rămâne
+  if not has_table_privilege('authenticated', 'public.pending_receipts', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.pending_receipts', 'INSERT') then
+    raise exception 'FL4 FAIL (anti-vacuitate): authenticated și-a pierdut SELECT/INSERT (BridgeTab / enqueue 259)'; end if;
+
+  select t.tgtype, p.prosecdef into v_tgtype, v_def
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where t.tgname = 'trg_pending_receipts_block_client_update'
+     and t.tgrelid = 'public.pending_receipts'::regclass and not t.tgisinternal
+     and p.proname = 'fn_pending_receipts_block_client_update';
+  if v_tgtype is distinct from 19 then
+    raise exception 'FL4 FAIL: trigger-ul trebuie BEFORE UPDATE FOR EACH ROW (tgtype 19), este %', v_tgtype; end if;
+  if v_def then raise exception 'FL4 FAIL: backstop-ul e DEFINER — ar ascunde rolul apelantului'; end if;
+  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
+    if has_function_privilege(v_role, 'public.fn_pending_receipts_block_client_update()', 'EXECUTE') then
+      raise exception 'FL4 FAIL: % poate executa funcția de trigger (revoke explicit per rol)', v_role; end if;
+  end loop;
+  raise notice 'FL4 OK: zero UPDATE client (tabel + toate coloanele), INSERT/SELECT intacte, trigger 19 ne-definer';
+end $$;
+
 -- ── FL1: PATCH direct, sub authenticated ─────────────────────────────────────
 -- Același test pentru owner și pentru manager (partenerul/fondatorul trec prin
 -- is_admin, deci sunt „manager" pentru RLS — zidul trebuie să-i țină pe toți).
@@ -249,39 +283,6 @@ begin
       raise exception 'FL3 FAIL: starea finală a rândului % e greșită (status=%, bon=%)', r.o, r.status, r.bon_number; end if;
   end loop;
   raise notice 'FL3 OK: claim/confirm/retry/cancel/force_resolve (client) + mark_stale (service_role) trec prin DEFINER';
-end $$;
-
--- ── FL4: catalog ─────────────────────────────────────────────────────────────
-do $$
-declare v_role text; v_col text; v_tgtype int; v_def boolean; v_n int;
-begin
-  foreach v_role in array array['anon', 'authenticated'] loop
-    if has_table_privilege(v_role, 'public.pending_receipts', 'UPDATE') then
-      raise exception 'FL4 FAIL: % are UPDATE pe pending_receipts', v_role; end if;
-    for v_col in select attname::text from pg_attribute
-                  where attrelid = 'public.pending_receipts'::regclass and attnum > 0 and not attisdropped loop
-      if has_column_privilege(v_role, 'public.pending_receipts', v_col, 'UPDATE') then
-        raise exception 'FL4 FAIL: % are UPDATE pe pending_receipts.%', v_role, v_col; end if;
-    end loop;
-  end loop;
-  -- ancora anti-vacuitate: ce trebuie să rămână chiar rămâne
-  if not has_table_privilege('authenticated', 'public.pending_receipts', 'SELECT')
-     or not has_table_privilege('authenticated', 'public.pending_receipts', 'INSERT') then
-    raise exception 'FL4 FAIL (anti-vacuitate): authenticated și-a pierdut SELECT/INSERT (BridgeTab / enqueue 259)'; end if;
-
-  select t.tgtype, p.prosecdef into v_tgtype, v_def
-    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
-   where t.tgname = 'trg_pending_receipts_block_client_update'
-     and t.tgrelid = 'public.pending_receipts'::regclass and not t.tgisinternal
-     and p.proname = 'fn_pending_receipts_block_client_update';
-  if v_tgtype is distinct from 19 then
-    raise exception 'FL4 FAIL: trigger-ul trebuie BEFORE UPDATE FOR EACH ROW (tgtype 19), este %', v_tgtype; end if;
-  if v_def then raise exception 'FL4 FAIL: backstop-ul e DEFINER — ar ascunde rolul apelantului'; end if;
-  foreach v_role in array array['anon', 'authenticated', 'service_role'] loop
-    if has_function_privilege(v_role, 'public.fn_pending_receipts_block_client_update()', 'EXECUTE') then
-      raise exception 'FL4 FAIL: % poate executa funcția de trigger (revoke explicit per rol)', v_role; end if;
-  end loop;
-  raise notice 'FL4 OK: zero UPDATE client (tabel + toate coloanele), INSERT/SELECT intacte, trigger 19 ne-definer';
 end $$;
 
 -- ── FL5: oblio_configs sub authenticated ─────────────────────────────────────
