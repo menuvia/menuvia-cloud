@@ -74,6 +74,12 @@ begin
   if v_n <> 4 then raise exception 'FL seed: enqueue 259 a produs % rânduri (așteptat 4)', v_n; end if;
 end $$;
 
+-- Enqueue-ul pe INSERT-direct-paid vine FĂRĂ itemi → rânduri `error`; le aducem
+-- în starea normală de coadă (postgres: backstop-ul nu se aplică).
+update public.pending_receipts
+   set status = 'pending', payload = 'S^orig^1', error_code = null, error_info = null, completed_at = null
+ where restaurant_id = '87b00000-0000-4000-8000-000000000001';
+
 -- ── FL1: PATCH direct, sub authenticated ─────────────────────────────────────
 -- Același test pentru owner și pentru manager (partenerul/fondatorul trec prin
 -- is_admin, deci sunt „manager" pentru RLS — zidul trebuie să-i țină pe toți).
@@ -123,7 +129,7 @@ declare v_p text; v_s text; v_b text;
 begin
   select payload, status, bon_number into v_p, v_s, v_b from public.pending_receipts
    where order_id = '87f00000-0000-4000-8000-000000000001';
-  if v_p is distinct from '' or v_s is distinct from 'pending' or v_b is not null then
+  if v_p is distinct from 'S^orig^1' or v_s is distinct from 'pending' or v_b is not null then
     raise exception 'FL1 FAIL: rândul a fost modificat (payload=%, status=%, bon=%)', v_p, v_s, v_b; end if;
   raise notice 'FL1 OK: owner și manager nu pot UPDATE pe pending_receipts (42501), rândul neschimbat';
 end $$;
@@ -317,15 +323,28 @@ begin
        where restaurant_id = '87b00000-0000-4000-8000-000000000001';
       get diagnostics v_n = row_count;
       if v_n <> 1 then raise exception 'FL5 FAIL (%): rolul nu mai poate SCRIE secretul', a.who; end if;
-      -- upsert-ul (calea veche a clientului) — EXCLUDED.api_secret nu cere SELECT pe coloană
+      -- Upsert-ul (calea VECHE a clientului): `excluded.api_secret` CITEȘTE coloana,
+      -- deci cere SELECT pe ea → 42501. De aceea clientul scrie prin INSERT (config
+      -- nou) / UPDATE (existent), niciodată upsert pe secret. Un upsert care NU
+      -- atinge secretul trece (control pozitiv).
+      v_state := null;
+      begin
+        insert into public.oblio_configs (restaurant_id, api_email, api_secret, company_cif, company_name)
+        values ('87b00000-0000-4000-8000-000000000001', 'fl@oblio.test', 'UP-' || a.who, 'RO123', 'FL SRL')
+        on conflict (restaurant_id) do update set api_secret = excluded.api_secret;
+      exception when others then
+        get stacked diagnostics v_state = returned_sqlstate;
+      end;
+      if v_state is distinct from '42501' then
+        raise exception 'FL5 FAIL (%): upsert pe api_secret (excluded.api_secret) a trecut/alt motiv (sqlstate=%)', a.who, v_state; end if;
       insert into public.oblio_configs (restaurant_id, api_email, api_secret, company_cif, company_name)
-      values ('87b00000-0000-4000-8000-000000000001', 'fl@oblio.test', 'UP-' || a.who, 'RO123', 'FL SRL')
-      on conflict (restaurant_id) do update set api_secret = excluded.api_secret, company_name = excluded.company_name;
+      values ('87b00000-0000-4000-8000-000000000001', 'fl@oblio.test', 'IGNORED', 'RO123', 'FL SRL')
+      on conflict (restaurant_id) do update set company_name = excluded.company_name;
     end;
     perform set_config('role', 'none', true);
     if (select api_secret from public.oblio_configs where restaurant_id = '87b00000-0000-4000-8000-000000000001')
-         is distinct from 'UP-' || a.who then
-      raise exception 'FL5 FAIL (%): secretul scris nu a ajuns în DB', a.who; end if;
+         is distinct from 'NEW-' || a.who then
+      raise exception 'FL5 FAIL (%): secretul scris prin UPDATE nu a ajuns în DB (sau upsert-ul fără secret l-a atins)', a.who; end if;
   end loop;
   raise notice 'FL5 OK: owner și manager citesc coloanele ne-secrete, api_secret → 42501 (SELECT/*/WHERE), SCRIEREA merge';
 end $$;

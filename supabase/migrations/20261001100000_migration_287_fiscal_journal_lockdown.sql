@@ -63,7 +63,13 @@ comment on function public.fn_pending_receipts_block_client_update() is
   'mig 287 (SC-1): backstop in DATE — anon/authenticated nu pot UPDATE pe pending_receipts (payload/status/bon_number); doar RPC-urile DEFINER bridge_*. NE-definer deliberat.';
 
 -- ── 3. oblio_configs: secretul nu mai e citibil de rolurile client ───────────
-revoke select on public.oblio_configs from anon, authenticated;
+-- Stare finala EXPLICITA (nu delta): pe Supabase tabela are grant la nivel de
+-- TABEL din default privileges (SELECT include api_secret), iar pe un Postgres
+-- gol (CI / replay) nu are niciun grant — in ambele cazuri se ajunge la acelasi
+-- rezultat: anon nimic; authenticated INSERT/UPDATE/DELETE + SELECT pe coloanele
+-- ne-secrete (un revoke pe coloana nu bate un grant pe tabel, deci se revoca tot).
+revoke all on public.oblio_configs from anon, authenticated;
+grant insert, update, delete on public.oblio_configs to authenticated;
 do $$
 declare v_cols text;
 begin
