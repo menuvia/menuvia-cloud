@@ -1664,6 +1664,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
+      # NECONDIȚIONAT (mig 286): accesul partenerului e opt-in + restrâns. Rulează
+      # SUB rolul real `authenticated`, cu descoperire automată a tabelelor cu
+      # restaurant_id — o tabelă viitoare pe care partenerul ar ajunge să o vadă
+      # face pasul roșu. PO9 e inversul asserției mig 187 (partenerul NU e în funel).
+      - name: "Partner opt-in access assertions (mig 286, PO1–PO10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/partner_optin_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
