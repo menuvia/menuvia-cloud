@@ -159,7 +159,13 @@ insert into jl_registry values
       end if;
       execute 'insert into cron.job_run_details (jobid, status, start_time, end_time) values (1, ''succeeded'', now() - interval ''30 days'', now() - interval ''30 days'')';
     end $d$;
-  $x$, $x$select public.cron_prune_run_details(7)::bigint$x$);
+  $x$, $x$select public.cron_prune_run_details(7)::bigint$x$),
+ (20, 'expire_stale_pending_reservations', true, 1, $x$
+    -- mig 289: pending ramas in trecut -> expired (control pozitiv).
+    insert into public.reservations (restaurant_id, customer_name, customer_phone, party_size, starts_at, ends_at, status)
+    values ('7ab00000-0000-4000-8000-000000000001', 'JL pending', '0700000020', 2,
+            now() - interval '5 hours', now() - interval '3 hours', 'pending');
+  $x$, $x$select public.expire_stale_pending_reservations(2)::bigint$x$);
 
 do $$
 declare v_extra text[]; v_missing text[];

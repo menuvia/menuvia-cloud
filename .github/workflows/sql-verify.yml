@@ -1664,6 +1664,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
+      # NECONDIȚIONAT (mig 289, D1): status `expired` pe rezervări + janitorul
+      # pg_cron. RX4 (expired eliberează masa) e clichet pe starea FINALĂ a
+      # lanțului — o migrație viitoare care recreează create_reservation_public
+      # din 273 (fără expired) face pasul roșu.
+      - name: "Reservations expired assertions (mig 289, RX1–RX8)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservations_expired_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
