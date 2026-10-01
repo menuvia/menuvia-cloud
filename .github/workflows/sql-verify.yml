@@ -1717,6 +1717,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
             "drop function if exists public.assert_security_audit_shape(text);"
 
+      # NECONDIȚIONAT (mig 288): janitorul de comenzi agățate pe Planul 2.
+      # Fixtura contrazice fiecare predicat (Plan 3, registru de plăți, pickup
+      # programat, vârsta din served_at/ready_at); OJ3 dovedește că `cancelled`
+      # nu produce puncte/stoc, iar `closed` da.
+      - name: "Order janitor assertions (mig 288, OJ1–OJ9)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/order_janitors_assertions.sql
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -159,7 +159,21 @@ insert into jl_registry values
       end if;
       execute 'insert into cron.job_run_details (jobid, status, start_time, end_time) values (1, ''succeeded'', now() - interval ''30 days'', now() - interval ''30 days'')';
     end $d$;
-  $x$, $x$select public.cron_prune_run_details(7)::bigint$x$);
+  $x$, $x$select public.cron_prune_run_details(7)::bigint$x$),
+ (20, 'expire_stale_orders', true, 1, $x$
+    -- mig 288: janitorul de comenzi agatate. Restaurantul de seed e pe Plan 3
+    -- (pro) si ar fi SARIT de design, deci fixtura isi aduce propriul
+    -- restaurant growth. `least(cancelled, closed)` cere AMBELE ramuri, iar
+    -- functia se cheama O SINGURA data.
+    insert into auth.users (id, email) values ('7a000000-0000-4000-8000-0000000000a2', 'jl-growth@jl.test');
+    update public.profiles set plan = 'growth' where id = '7a000000-0000-4000-8000-0000000000a2';
+    insert into public.restaurants (id, owner_id, name, slug, city, is_active)
+    values ('7ab00000-0000-4000-8000-0000000000a2', '7a000000-0000-4000-8000-0000000000a2', 'JL Growth', 'jl-growth', 'Cluj', true);
+    insert into public.orders (restaurant_id, source, status, total, created_at, served_at) values
+      ('7ab00000-0000-4000-8000-0000000000a2', 'waiter', 'new',    10, now() - interval '20 hours', null),
+      ('7ab00000-0000-4000-8000-0000000000a2', 'waiter', 'served', 10, now() - interval '30 hours', now() - interval '20 hours');
+  $x$, $x$select least((j->>'cancelled')::bigint, (j->>'closed')::bigint)
+             from (select public.expire_stale_orders(12) as j) t$x$);
 
 do $$
 declare v_extra text[]; v_missing text[];

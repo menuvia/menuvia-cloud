@@ -166,6 +166,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
 
+      # Janitorul de comenzi (mig 288) pe stack-ul Supabase real: funcție NOUĂ,
+      # deci default privileges pot re-acorda EXECUTE (OJ8 cere zero grant) —
+      # sql-verify (postgres gol) e orb la clasa asta.
+      - name: Janitor comenzi pe stack-ul Supabase real (mig 288, OJ1–OJ9)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/order_janitors_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
