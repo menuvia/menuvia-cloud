@@ -284,6 +284,7 @@
     "migration_282_gdpr_deletions_pgcron",
     "migration_283_scan_views_grant",
     "migration_284_gdpr_receipt_archive",
-    "migration_285_vat_presets_l141"
+    "migration_285_vat_presets_l141",
+    "migration_288_order_janitors"
   ]
 }
