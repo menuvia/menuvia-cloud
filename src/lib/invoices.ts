@@ -9,7 +9,6 @@ export type InvoiceStatus = 'queued' | 'generating' | 'issued' | 'cancelled' | '
 export interface OblioConfig {
   restaurant_id: string
   api_email: string
-  api_secret: string
   company_cif: string
   company_name: string
   company_address: string | null
@@ -22,6 +21,14 @@ export interface OblioConfig {
   is_active: boolean
   test_mode: boolean
 }
+
+// Ce SCRIE formularul: secretul e doar-scriere (mig 287 — coloana nu mai e
+// citibilă de rolurile client). `api_secret` gol/lipsă = nu-l schimba.
+export type OblioConfigInput = OblioConfig & { api_secret?: string }
+
+// Coloanele ne-secrete (lista explicită — un `select('*')` ar da 42501 pe api_secret).
+const OBLIO_CONFIG_COLUMNS =
+  'restaurant_id,api_email,company_cif,company_name,company_address,company_state,company_city,default_series,vat_included,send_email,language,is_active,test_mode'
 
 export interface Invoice {
   id: string
@@ -48,7 +55,7 @@ export interface Invoice {
 export async function fetchOblioConfig(restaurantId: string): Promise<OblioConfig | null> {
   const { data, error } = await supabase
     .from('oblio_configs')
-    .select('*')
+    .select(OBLIO_CONFIG_COLUMNS)
     .eq('restaurant_id', restaurantId)
     .maybeSingle()
 
@@ -60,23 +67,39 @@ export async function fetchOblioConfig(restaurantId: string): Promise<OblioConfi
 }
 
 export async function saveOblioConfig(
-  cfg: Omit<OblioConfig, 'restaurant_id'> & { restaurant_id: string },
+  cfg: OblioConfigInput,
+  // true = există deja un rând (configurat): UPDATE fără secret dacă a rămas gol.
+  isExisting = false,
 ): Promise<void> {
   // Validate CIF
   if (!cfg.company_cif || !/^(RO)?\d{2,12}$/i.test(cfg.company_cif.trim())) {
     throw new Error('CIF firmă invalid (format: RO12345678 sau 12345678)')
   }
 
-  const { error } = await supabase.from('oblio_configs').upsert(
-    {
-      ...cfg,
-      company_cif: cfg.company_cif.toUpperCase().startsWith('RO')
-        ? cfg.company_cif.toUpperCase()
-        : 'RO' + cfg.company_cif,
-    },
-    { onConflict: 'restaurant_id' },
-  )
+  const secret = (cfg.api_secret ?? '').trim()
+  const { api_secret: _omit, ...rest } = cfg
+  void _omit
+  const row = {
+    ...rest,
+    company_cif: cfg.company_cif.toUpperCase().startsWith('RO')
+      ? cfg.company_cif.toUpperCase()
+      : 'RO' + cfg.company_cif,
+  }
 
+  if (isExisting) {
+    // UPDATE, nu upsert: un INSERT fără api_secret ar pica pe NOT NULL înainte
+    // de ON CONFLICT, iar secretul existent nu se poate citi ca să fie re-trimis.
+    const { restaurant_id: rid, ...fields } = row
+    const { error } = await supabase
+      .from('oblio_configs')
+      .update(secret ? { ...fields, api_secret: secret } : fields)
+      .eq('restaurant_id', rid)
+    if (error) throw new Error(`Salvare config: ${error.message}`)
+    return
+  }
+
+  if (!secret) throw new Error('API secret este obligatoriu')
+  const { error } = await supabase.from('oblio_configs').insert({ ...row, api_secret: secret })
   if (error) throw new Error(`Salvare config: ${error.message}`)
 }
 
