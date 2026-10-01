@@ -1717,6 +1717,13 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
             "drop function if exists public.assert_security_audit_shape(text);"
 
+      - name: "Money exactness assertions (mig 291, MX1–MX7)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/money_exactness_assertions.sql
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

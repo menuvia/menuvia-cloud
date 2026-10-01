@@ -166,6 +166,13 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
 
+      # Egalitate exactă la încasare + gate-ul reducerii (mig 291): pe stack-ul
+      # real, ca să vadă și grant-urile/default privileges ale Supabase.
+      - name: Money exactness pe stack-ul Supabase real (mig 291, MX1–MX7)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/money_exactness_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
