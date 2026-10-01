@@ -185,6 +185,8 @@ revoke all on function public.list_partner_restaurants() from public, anon, serv
 grant execute on function public.list_partner_restaurants() to authenticated;
 
 -- ── 5. Starea accesului (sursă unică pentru ambele ecrane) ───────────
+-- Momentele se scriu cu clock_timestamp(), nu now(): ordinea cerere/revocare
+-- trebuie să fie strictă și când două acțiuni cad în aceeași tranzacție.
 -- granted   : consimțământ dat, nerevocat
 -- requested : cerere ulterioară ultimei revocări (sau fără revocare), fără acces
 -- revoked   : revocat (de owner/manager/fondator) și nicio cerere nouă după
@@ -354,7 +356,7 @@ begin
   end if;
 
   update public.affiliate_attributions
-     set partner_access_requested_at = now()
+     set partner_access_requested_at = clock_timestamp()
    where id = p_attribution_id;
 
   perform public.log_platform_action('affiliate', v_rid, 'request_partner_access',
@@ -411,7 +413,7 @@ begin
   end if;
 
   update public.affiliate_attributions
-     set owner_consented_at = now(),
+     set owner_consented_at = clock_timestamp(),
          partner_access_revoked_at = null
    where id = p_attribution_id;
 
@@ -447,7 +449,7 @@ begin
   end if;
 
   update public.affiliate_attributions
-     set partner_access_revoked_at = now()
+     set partner_access_revoked_at = clock_timestamp()
    where id = p_attribution_id;
 
   select r.id into v_rid from public.restaurants r
@@ -641,12 +643,16 @@ begin
     raise exception 'mig 286: politici de partener pe tabele NEPERMISE: %', v_bad;
   end if;
 
-  select string_agg(distinct c.relname, ', ' order by c.relname) into v_tables
-    from pg_policy pol join pg_class c on c.oid = pol.polrelid
-    join pg_namespace n on n.oid = c.relnamespace
-   where n.nspname = 'public'
-     and (coalesce(pg_get_expr(pol.polqual, pol.polrelid), '') ilike '%has_partner_access%'
-          or coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '') ilike '%has_partner_access%');
+  -- collate "C": ordinea șirului nu are voie să depindă de locale-ul bazei.
+  select string_agg(relname, ', ' order by relname collate "C") into v_tables
+    from (
+      select distinct c.relname::text as relname
+        from pg_policy pol join pg_class c on c.oid = pol.polrelid
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+         and (coalesce(pg_get_expr(pol.polqual, pol.polrelid), '') ilike '%has_partner_access%'
+              or coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '') ilike '%has_partner_access%')
+    ) s;
   if v_tables is distinct from
      'categories, modifier_groups, modifier_options, product_extras, product_modifier_groups, product_pairings, products, qr_tokens, restaurants, tables, vat_rates' then
     raise exception 'mig 286: setul tabelelor cu politică de partener s-a schimbat: %', v_tables;
