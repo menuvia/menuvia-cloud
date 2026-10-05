@@ -14,7 +14,7 @@ import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import { D } from './lib/constants'
-import { readPlanIntent, writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, writePlanIntent } from './lib/planIntent'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 
@@ -356,8 +356,9 @@ function AppRouter() {
       // rulează niciodată — singurul care vede sesiunea e efectul ăsta. Fără
       // ramura asta, restaurantul nou ateriza pe /dashboard în loc de
       // checkout. /pricing pornește singur plata (usePlanIntentAutoCheckout).
-      if (readPlanIntent()) {
-        replace('/pricing')
+      const intentDest = planIntentDestination()
+      if (intentDest) {
+        replace(intentDest)
         return
       }
       getUserRoles(user.id)
@@ -685,15 +686,15 @@ function AppRouter() {
             // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
             // înapoi la pricing — onCheckout va detecta că e logat și va sări
             // la Stripe. Fără intent, mergem la dashboard ca până acum.
-            const intent = readPlanIntent()
+            const intentDest = planIntentDestination()
             let afiliatIntent: string | null = null
             try {
               afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
             } catch {
               /* ignore (private mode) */
             }
-            if (intent) {
-              navigate('/pricing')
+            if (intentDest) {
+              navigate(intentDest)
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat

@@ -135,3 +135,13 @@ export function authRedirectUrl(origin: string, plan: PlanIntentId | null): stri
   const base = origin.replace(/\/+$/, '') + '/auth'
   return plan ? base + '?plan=' + encodeURIComponent(plan) : base
 }
+
+/**
+ * Unde duce o sesiune nou apărută pe /auth când există o intenție validă:
+ * pe /pricing, unde `usePlanIntentAutoCheckout` pornește plata. null = fără
+ * intenție, se aplică destinația obișnuită pe roluri. Folosit de
+ * auto-redirect-ul din `App.tsx` (confirmarea din alt tab) și de `onSuccess`.
+ */
+export function planIntentDestination(now: number = Date.now()): '/pricing' | null {
+  return readPlanIntent(now) ? '/pricing' : null
+}
