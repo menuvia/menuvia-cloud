@@ -17,9 +17,12 @@
 --   MX4  apply/remove_order_discount peste o plată parțială → `discount_over_payments`,
 --        totalul comenzii neatins.
 --   MX5  apply_order_discount pe o comandă `closed` → respins.
---   MX6  table_payments vii (created/processing/failed cu intent) blochează
+--   MX6  table_payments vii (created/processing/failed cu intent, proaspete) blochează
 --        reducerea (`discount_online_payment`); canceled/succeeded/failed fără
 --        intent NU (control pozitiv: fără plăți reducerea trece și se scoate).
+--   MX8  TTL de 15 min (pe `updated_at`) pentru created/failed-cu-intent: un
+--        „Plătește online” abandonat NU blochează reducerea pe veci; proaspăt
+--        blochează (control pozitiv), `processing` blochează la orice vârstă.
 --   MX7  clichet structural: `for update`, `closed`, `pg_temp` în search_path,
 --        fără `0.01` în advance_order/add_partial_payment.
 -- =============================================================================
@@ -291,6 +294,94 @@ begin
   raise notice 'MX6 OK: created/processing/failed-cu-intent blochează; canceled/succeeded/failed-fără-intent nu';
 end $$;
 
+-- ── MX8: plata online ABANDONATĂ nu blochează reducerea pe veci (TTL 15 min) ─
+-- Oaspetele apasă „Plătește online”, renunță și plătește cash: rândul rămâne
+-- `created` (sau `failed` cu intent după un card refuzat) și nimic nu-l expiră
+-- în afară de un begin_* ulterior. Fără TTL, reducerea devenea imposibilă.
+-- `processing` rămâne blocant indiferent de vârstă (banii sunt în zbor).
+do $$
+declare v_o uuid := '91f00000-0000-4000-8000-000000000008'; v_hint text; v_st text;
+        v_tp uuid := '91aa0000-0000-4000-8000-000000000008';
+        v_total numeric;
+begin
+  insert into public.orders (id, restaurant_id, source, status, total, session_id)
+    values (v_o, '91b00000-0000-4000-8000-000000000001', 'waiter', 'served', 100,
+            '91e00000-0000-4000-8000-000000000001');
+  insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total)
+    values (v_o, '91d00000-0000-4000-8000-000000000001', 'MX Cafea', 1, 100, 100);
+  insert into public.table_payments (id, restaurant_id, session_id, order_ids, amount, status, stripe_payment_intent_id)
+    values (v_tp, '91b00000-0000-4000-8000-000000000001', '91e00000-0000-4000-8000-000000000001',
+            array[v_o], 100, 'created', null);
+
+  -- control pozitiv: aceleași stări, PROASPETE (2 min) → blochează
+  for v_st in select unnest(array['created', 'failed', 'processing']) loop
+    update public.table_payments
+       set status = v_st,
+           stripe_payment_intent_id = case when v_st = 'created' then null else 'pi_mx8_' || v_st end,
+           created_at = now() - interval '2 minutes',
+           updated_at = now() - interval '2 minutes'
+     where id = v_tp;
+    v_hint := null;
+    begin perform public.apply_order_discount(v_o, 'percent', 10, 'mx8');
+    exception when others then get stacked diagnostics v_hint = pg_exception_hint; end;
+    if v_hint is distinct from 'discount_online_payment' then
+      raise exception 'MX8 FAIL: % proaspăt nu blochează reducerea (hint=%)', v_st, v_hint; end if;
+  end loop;
+
+  -- processing VECHI (20 min) → tot blochează
+  update public.table_payments
+     set status = 'processing', stripe_payment_intent_id = 'pi_mx8_proc_old',
+         created_at = now() - interval '20 minutes',
+         updated_at = now() - interval '20 minutes'
+   where id = v_tp;
+  v_hint := null;
+  begin perform public.apply_order_discount(v_o, 'percent', 10, 'mx8');
+  exception when others then get stacked diagnostics v_hint = pg_exception_hint; end;
+  if v_hint is distinct from 'discount_online_payment' then
+    raise exception 'MX8 FAIL: processing vechi nu mai blochează reducerea (hint=%)', v_hint; end if;
+
+  -- created / failed-cu-intent ABANDONATE (20 min) → reducerea trece
+  for v_st in select unnest(array['created', 'failed']) loop
+    update public.table_payments
+       set status = v_st,
+           stripe_payment_intent_id = case when v_st = 'created' then null else 'pi_mx8_old_' || v_st end,
+           created_at = now() - interval '20 minutes',
+           updated_at = now() - interval '20 minutes'
+     where id = v_tp;
+    begin
+      perform public.apply_order_discount(v_o, 'percent', 10, 'mx8');
+    exception when others then
+      raise exception 'MX8 FAIL: % abandonat (20 min) blochează apply: %', v_st, sqlerrm;
+    end;
+    select total into v_total from public.orders where id = v_o;
+    if v_total is distinct from 90.00 then
+      raise exception 'MX8 FAIL: după apply pe % abandonat totalul e % (așteptat 90)', v_st, v_total; end if;
+    begin
+      perform public.remove_order_discount(v_o);
+    exception when others then
+      raise exception 'MX8 FAIL: % abandonat (20 min) blochează remove: %', v_st, sqlerrm;
+    end;
+  end loop;
+
+  -- created CU intent atașat recent pe un rând creat demult: activitatea e
+  -- updated_at (attach intent îl bumpează), deci blochează.
+  update public.table_payments
+     set status = 'created', stripe_payment_intent_id = 'pi_mx8_attached',
+         created_at = now() - interval '20 minutes',
+         updated_at = now() - interval '1 minute'
+   where id = v_tp;
+  v_hint := null;
+  begin perform public.remove_order_discount(v_o);
+  exception when others then get stacked diagnostics v_hint = pg_exception_hint; end;
+  if v_hint is distinct from 'discount_online_payment' then
+    raise exception 'MX8 FAIL: created cu activitate recentă (updated_at) nu blochează (hint=%)', v_hint; end if;
+
+  select total into v_total from public.orders where id = v_o;
+  if v_total is distinct from 100.00 then
+    raise exception 'MX8 FAIL: totalul final %, așteptat 100', v_total; end if;
+  raise notice 'MX8 OK: created/failed abandonate >15 min nu mai blochează; proaspete și processing (orice vârstă) blochează';
+end $$;
+
 -- ── MX7: clichet structural ──────────────────────────────────────────────────
 do $$
 declare v_src text; v_cfg text[]; v_sig text;
@@ -333,7 +424,8 @@ begin
       'public.remove_order_discount(uuid)']) loop
     select prosrc into v_src from pg_proc where oid = v_sig::regprocedure;
     if v_src not like '%for update%' or v_src not like '%''closed''%'
-       or v_src not like '%discount_over_payments%' or v_src not like '%discount_online_payment%' then
+       or v_src not like '%discount_over_payments%' or v_src not like '%discount_online_payment%'
+       or v_src not like '%interval ''15 minutes''%' then
       raise exception 'MX7 FAIL: % fără for update / closed / gate-uri', v_sig; end if;
   end loop;
   raise notice 'MX7 OK: clichet structural (search_path, grant-uri, invarianți 270, fără 0.01, gate-uri discount)';

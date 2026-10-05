@@ -22,7 +22,9 @@
 -- sub o comandă cu plăți în registru sau cu o plată online în curs: restul de
 -- plată devenea nepotrivit cu banii deja luați. Acum: refuz cu hint
 -- `discount_over_payments` (order_payments > 0) / `discount_online_payment`
--- (table_payments vii: created/processing sau failed cu intent), statusul
+-- (table_payments vii: `processing` mereu; `created` sau `failed` cu intent
+-- doar cu ultima activitate (`updated_at`) sub 15 minute — TTL-ul split-urilor
+-- din 229; altfel o plată online abandonată ar bloca reducerea pe veci), statusul
 -- `closed` respins ca terminal, `for update` pe comandă, `search_path` explicit
 -- cu pg_temp (create or replace îl rescrie).
 -- =============================================================================
@@ -507,8 +509,16 @@ begin
   if exists (
     select 1 from public.table_payments tp
      where p_order_id = any (tp.order_ids)
-       and (tp.status in ('created', 'processing')
-            or (tp.status = 'failed' and tp.stripe_payment_intent_id is not null))
+       and (tp.status = 'processing'
+            -- created / failed-cu-intent blochează DOAR cât sunt proaspete
+            -- (ultima activitate < 15 min, același TTL ca eliberarea split-urilor
+            -- din 229): un „Plătește online” abandonat nu are alt expirator decât
+            -- un begin_* ulterior, iar cancel_table_payment cere token-ul
+            -- oaspetelui — fără TTL reducerea ar rămâne blocată PE VECI. Un rând
+            -- vechi reînviat e prins la settle de snapshot-ul order_totals (211).
+            or (tp.updated_at > now() - interval '15 minutes'
+                and (tp.status = 'created'
+                     or (tp.status = 'failed' and tp.stripe_payment_intent_id is not null))))
   ) then
     raise exception 'Comanda are o plată online în curs — reducerea nu se mai poate modifica până la finalizarea/anularea ei'
       using errcode = 'P0001', hint = 'discount_online_payment';
@@ -583,8 +593,16 @@ begin
   if exists (
     select 1 from public.table_payments tp
      where p_order_id = any (tp.order_ids)
-       and (tp.status in ('created', 'processing')
-            or (tp.status = 'failed' and tp.stripe_payment_intent_id is not null))
+       and (tp.status = 'processing'
+            -- created / failed-cu-intent blochează DOAR cât sunt proaspete
+            -- (ultima activitate < 15 min, același TTL ca eliberarea split-urilor
+            -- din 229): un „Plătește online” abandonat nu are alt expirator decât
+            -- un begin_* ulterior, iar cancel_table_payment cere token-ul
+            -- oaspetelui — fără TTL reducerea ar rămâne blocată PE VECI. Un rând
+            -- vechi reînviat e prins la settle de snapshot-ul order_totals (211).
+            or (tp.updated_at > now() - interval '15 minutes'
+                and (tp.status = 'created'
+                     or (tp.status = 'failed' and tp.stripe_payment_intent_id is not null))))
   ) then
     raise exception 'Comanda are o plată online în curs — reducerea nu se mai poate modifica până la finalizarea/anularea ei'
       using errcode = 'P0001', hint = 'discount_online_payment';
@@ -646,6 +664,7 @@ begin
     from pg_proc p
    where p.oid = 'public.apply_order_discount(uuid, text, numeric, text)'::regprocedure;
   if v_src not like '%discount_over_payments%' or v_src not like '%''closed''%'
+     or v_src not like '%interval ''15 minutes''%'
      or v_src not like '%for update%' or not ('search_path=public, pg_temp' = any (v_cfg)) then
     raise exception 'mig 291: apply_order_discount incorect';
   end if;
@@ -653,6 +672,7 @@ begin
     from pg_proc p
    where p.oid = 'public.remove_order_discount(uuid)'::regprocedure;
   if v_src not like '%discount_over_payments%' or v_src not like '%''closed''%'
+     or v_src not like '%interval ''15 minutes''%'
      or v_src not like '%for update%' or not ('search_path=public, pg_temp' = any (v_cfg)) then
     raise exception 'mig 291: remove_order_discount incorect';
   end if;
