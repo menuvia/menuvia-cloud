@@ -1474,7 +1474,10 @@ export default function DashboardPage({
               )}
               {tab === 'categories' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă categoriile..." />}>
-                  <CategoriesTab restaurantId={restaurant.id} />
+                  <CategoriesTab
+                    restaurantId={restaurant.id}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                  />
                 </Suspense>
               )}
               {tab === 'modificatori' && (

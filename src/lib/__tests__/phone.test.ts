@@ -71,8 +71,12 @@ describe('toE164 (PH-4)', () => {
     expect(isInternationalInput(' 0046 70')).toBe(true)
     expect(isInternationalInput('0722')).toBe(false)
   })
-  it('PH15 cheile noi au toate cele 7 limbi, ne-goale', () => {
-    for (const k of ['phone_cc_aria', 'phone_cc_other', 'phone_cc_hint', 'phone_invalid'] as const)
+  it('PH15 cheile au toate cele 7 limbi, ne-goale (TOATĂ tabela, inclusiv guestStrings)', () => {
+    // Extins de la cele 4 chei de telefon la toată tabela (PR 3, i18n oaspete):
+    // o cheie nouă fără o limbă face T() să întoarcă undefined la runtime.
+    const keys = Object.keys(PUBLIC_MENU_STRINGS) as Array<keyof typeof PUBLIC_MENU_STRINGS>
+    expect(keys).toContain('phone_invalid')
+    for (const k of keys)
       for (const l of ['ro', 'en', 'de', 'fr', 'it', 'hu', 'es'] as const) expect(PUBLIC_MENU_STRINGS[k][l].trim().length).toBeGreaterThan(0)
   })
 })

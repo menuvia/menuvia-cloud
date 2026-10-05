@@ -8,6 +8,8 @@ import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '..
 import { BlurImage } from '../ui/BlurImage'
 import { thumbUrlFor } from '../../lib/images'
 import { DIETARY_TAGS } from '../../lib/constants'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf, dietaryLabel } from '../../lib/guestI18n'
 
 // ─────────────────────────────────────────────────────────────
 // ProductCard — card de produs editorial UNIFICAT, folosit identic pe
@@ -51,6 +53,8 @@ interface ProductCardProps {
   theme: MenuTheme
   /** Moneda meniului (mig 205/206) — default 'RON' păstrează afișarea istorică. */
   currency?: MenuCurrency
+  /** Limba aleasă de oaspete — default 'ro' (call-site-urile istorice). */
+  lang?: string
 }
 
 const THUMB = 88
@@ -72,6 +76,7 @@ function ProductCard({
   PUB,
   theme,
   currency = 'RON',
+  lang = 'ro',
 }: ProductCardProps) {
   const t = menuType(theme.fonts)
 
@@ -110,8 +115,11 @@ function ProductCard({
   // Etichetă completă pentru screen-reader: descrie prețul (și reducerea) într-o
   // singură frază, în loc de cifre lipite citite separat.
   const priceLabel = hasDiscount
-    ? `Preț redus ${fmtPrice(effectivePrice, currency)}, de la ${fmtPrice(basePrice, currency)}`
-    : `${hasRequiredMods ? 'De la ' : ''}${fmtPrice(effectivePrice, currency)}`
+    ? Tf(lang, 'price_discounted_aria', {
+        price: fmtPrice(effectivePrice, currency),
+        base: fmtPrice(basePrice, currency),
+      })
+    : `${hasRequiredMods ? `${T(lang, 'price_from')} ` : ''}${fmtPrice(effectivePrice, currency)}`
 
   return (
     <div
@@ -199,7 +207,7 @@ function ProductCard({
                   marginRight: 4,
                 }}
               >
-                de la
+                {T(lang, 'price_from_lc')}
               </span>
             )}
             {hasDiscount && (
@@ -296,7 +304,7 @@ function ProductCard({
               />
             )}
             {shownTags.map((tagId) => (
-              <TagBadge key={tagId} tagId={tagId} fonts={theme.fonts} />
+              <TagBadge key={tagId} tagId={tagId} fonts={theme.fonts} lang={lang} />
             ))}
             {extraTags > 0 && (
               <Badge label={`+${extraTags}`} color={metaColor} fonts={theme.fonts} />
@@ -311,11 +319,11 @@ function ProductCard({
                   letterSpacing: '0.02em',
                 }}
               >
-                opțiuni
+                {T(lang, 'options_hint')}
               </span>
             )}
             {isSoldOut && (
-              <Badge label="Epuizat" color={theme.colors.error} fonts={theme.fonts} />
+              <Badge label={T(lang, 'sold_out')} color={theme.colors.error} fonts={theme.fonts} />
             )}
           </span>
         )}
@@ -332,7 +340,7 @@ function ProductCard({
             if (hasRequiredMods) onOpen(product)
             else onQuickAdd(product)
           }}
-          aria-label={`Adaugă ${product.name}`}
+          aria-label={Tf(lang, 'add_named', { name: product.name })}
           style={{
             alignSelf: 'center',
             flexShrink: 0,
@@ -461,7 +469,15 @@ function Badge({
 }
 
 // ── Badge dietetic (emoji + label din DIETARY_TAGS) ────────────────────
-function TagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['fonts'] }) {
+function TagBadge({
+  tagId,
+  fonts,
+  lang,
+}: {
+  tagId: string
+  fonts: MenuTheme['fonts']
+  lang: string
+}) {
   const tag = DIETARY_TAGS.find((d) => d.id === tagId)
   if (!tag) return null
   return (
@@ -485,7 +501,7 @@ function TagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['fonts'] }
       <span aria-hidden style={{ fontSize: 10 }}>
         {tag.emoji}
       </span>
-      {tag.label}
+      {dietaryLabel(lang, tag.id, tag.label)}
     </span>
   )
 }

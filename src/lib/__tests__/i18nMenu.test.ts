@@ -7,6 +7,8 @@ import {
   trName,
   trDesc,
   availableMenuLangs,
+  activeTranslationLangs,
+  mergeTranslations,
   type Translations,
 } from '../i18nMenu'
 
@@ -86,5 +88,60 @@ describe('availableMenuLangs — derivare din conținut + intersecție', () => {
   it('limbile necunoscute din translations sunt ignorate', () => {
     const cats = [{ translations: { xx: { name: 'ceva' } } as Translations }]
     expect(availableMenuLangs(cats)).toEqual([])
+  })
+})
+
+// Editorul manual de traduceri pe categorii (CategoriesTab).
+describe('activeTranslationLangs', () => {
+  it('fără limbi configurate → nicio limbă de tradus', () => {
+    expect(activeTranslationLangs(null)).toEqual([])
+    expect(activeTranslationLangs(undefined)).toEqual([])
+    expect(activeTranslationLangs([])).toEqual([])
+  })
+
+  it('scoate ro, codurile necunoscute și duplicatele; ordinea e cea din MENU_LANGS', () => {
+    expect(activeTranslationLangs(['de', 'ro', 'en', 'xx', 'en'])).toEqual(['en', 'de'])
+  })
+})
+
+describe('mergeTranslations (editor manual categorii)', () => {
+  const existing: Translations = {
+    en: { name: 'Mains', description: 'păstrată' },
+    de: { name: 'Hauptgerichte' },
+    fr: { name: 'Plats' }, // limbă NEactivă — trebuie să supraviețuiască
+  }
+
+  it('scrie numele limbilor active și păstrează limbile neactive', () => {
+    const out = mergeTranslations(existing, { en: ' Main courses ', de: 'Hauptspeisen' }, [
+      'en',
+      'de',
+    ])
+    expect(out).toEqual({
+      en: { name: 'Main courses', description: 'păstrată' },
+      de: { name: 'Hauptspeisen' },
+      fr: { name: 'Plats' },
+    })
+  })
+
+  it('un nume gol șterge doar `name`; intrarea goală dispare', () => {
+    const out = mergeTranslations(existing, { en: '   ', de: '' }, ['en', 'de'])
+    expect(out).toEqual({ en: { description: 'păstrată' }, fr: { name: 'Plats' } })
+  })
+
+  it('ignoră numele pentru limbi neactive și pe ro', () => {
+    const out = mergeTranslations({}, { it: 'Secondi', ro: 'X', en: 'Mains' }, ['ro', 'en'])
+    expect(out).toEqual({ en: { name: 'Mains' } })
+  })
+
+  it('nu mută obiectul existent', () => {
+    const snap = JSON.stringify(existing)
+    mergeTranslations(existing, { en: 'Altceva' }, ['en'])
+    expect(JSON.stringify(existing)).toBe(snap)
+  })
+
+  it('pornește de la null/gunoi fără să arunce', () => {
+    expect(mergeTranslations(null, { en: 'A' }, ['en'])).toEqual({ en: { name: 'A' } })
+    const broken = { en: 'gunoi' } as unknown as Translations
+    expect(mergeTranslations(broken, { en: 'B' }, ['en'])).toEqual({ en: { name: 'B' } })
   })
 })
