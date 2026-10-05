@@ -78,3 +78,11 @@ export function isoToRomaniaYMD(iso: string): string | null {
   const t = Date.parse(iso)
   return Number.isNaN(t) ? null : toRomaniaYMD(new Date(t))
 }
+
+// Intervalul [00:00:00.000, 23:59:59.999] al zilei românești `ymd`, ca instante
+// ISO (UTC) — pentru interogări „azi" (`.gte(from).lte(to)`). Aceeași
+// convenție ca ReportsTab/HomeTab: capetele vin din `romaniaDayBoundaryISO`,
+// deci sunt corecte pe DST și independente de fusul gazdei.
+export function romaniaDayRange(ymd: string): { from: string; to: string } {
+  return { from: romaniaDayBoundaryISO(ymd, false), to: romaniaDayBoundaryISO(ymd, true) }
+}

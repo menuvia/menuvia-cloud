@@ -13,6 +13,7 @@ import CookieBanner from './components/CookieBanner'
 import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
+import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
 import { planIntentDestination, writePlanIntent } from './lib/planIntent'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
@@ -233,7 +234,9 @@ function ProtectedRoute({
   children,
   navigate,
 }: {
-  roles: MemberRole[]
+  // activeRole poate fi și „partner" (mig 286) — nu e în niciuna din listele de
+  // roluri ale rutelor protejate, deci partenerul nu intră pe Bucătărie/Ospătar.
+  roles: UiRole[]
   children: React.ReactNode
   navigate: (p: string) => void
 }) {

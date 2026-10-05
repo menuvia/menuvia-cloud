@@ -152,6 +152,9 @@ export interface Order {
   pickup_time: string | null
   customer_name: string | null
   customer_phone: string | null
+  // Sesiunea de masă (QR, mig 084) — `select('*')` o aduce deja; opțional ca
+  // payload-urile vechi/mock-urile să rămână type-safe. Comenzile de ospătar n-o au.
+  session_id?: string | null
   // Discount fields (migration 031)
   discount_type: 'percent' | 'amount' | null
   discount_value: number | null
@@ -889,8 +892,21 @@ export function orderSubtotal(order: Order): number {
 
 export async function closeSessionOrders(
   sessionId: string,
-): Promise<{ closed_count: number; already_closed?: boolean }> {
+): Promise<{ closed_count: number; cancelled_count?: number; already_closed?: boolean }> {
   const { data, error } = await supabase.rpc('close_session_orders', { p_session_id: sessionId })
-  if (error) throw error
-  return data as { closed_count: number; already_closed?: boolean }
+  if (error) {
+    // Error REAL cu hint/code (ca advanceOrderStatus/createOrder): obiectul
+    // PostgREST brut nu e `instanceof Error`, deci apelantul ar afișa un text
+    // generic în loc de motivul serverului (ex. fiscal_plan_requires_payment).
+    const err = new Error(error.message || 'Masa nu a putut fi închisă') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
+  // `cancelled_count` (mig 288): rundele neservite anulate la închiderea mesei;
+  // lipsește pe o bază fără 288 (deploy înaintea migrației) → opțional.
+  return data as { closed_count: number; cancelled_count?: number; already_closed?: boolean }
 }
