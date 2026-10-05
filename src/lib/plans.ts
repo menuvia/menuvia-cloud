@@ -11,6 +11,12 @@
 //   - Fără termeni tehnici (Modifiers, KDS, FiscalNet) — copy în română umană.
 //   - Mesaj central: Meniu Digital = QR. Meniu + Comenzi = comenzi QR.
 //     Fiscalizare = bon fiscal, TVA, casă.
+//   - Pe Planurile 1–2 se promite DOAR ce merge cap-coadă AZI. Importul AI,
+//     SMS-urile, Happy Hour (nu se aplică pe comenzile de ospătar) și
+//     rapoartele pe email (numără doar comenzi `paid`, deci goale pe growth)
+//     rămân în produs, dar NU se vând până nu merg în producție. Fiecare rând
+//     e legat de un feature real din DB de `planCopy.test.ts` (fixtura
+//     înghețată din plan_features/plan_limits).
 // ─────────────────────────────────────────────────────────────
 
 export type PlanId = 'starter' | 'growth' | 'pro'
@@ -19,6 +25,9 @@ export interface PlanLimits {
   maxProducts: number
   maxTables: number
   maxTeamMembers: number
+  // `plan_limits.max_restaurants` — planul e pe CONT (owner), nu pe
+  // restaurant: un cont Fiscalizare are 2 locații sub același abonament.
+  maxRestaurants: number
 }
 
 export interface Plan {
@@ -64,14 +73,12 @@ export const PLANS: Plan[] = [
       'Până la 120 mese / QR-uri',
       'Imagini la produse',
       'Alergeni + valori nutriționale',
-      'Meniu în 7 limbi (RO, EN, DE, FR, IT, HU, ES)',
+      'Meniul public în 7 limbi (RO, EN, DE, FR, IT, HU, ES)',
       'Teme premium + stil flipbook',
-      'Import meniu din poze, cu AI',
       'Rezervări online + link pentru butonul Google',
-      'Confirmări și remindere pe SMS (100/lună)',
     ],
     notIncluded: ['Comenzi prin QR', 'Dashboard bucătărie'],
-    limits: { maxProducts: 300, maxTables: 120, maxTeamMembers: 1 },
+    limits: { maxProducts: 300, maxTables: 120, maxTeamMembers: 1, maxRestaurants: 1 },
     ctaLabel: 'Activează Meniu Digital',
     highlight: false,
   },
@@ -89,18 +96,17 @@ export const PLANS: Plan[] = [
       'Comenzi prin QR (identificare automată a mesei)',
       'Dashboard bucătărie + flux ospătar',
       'Pre-comandă pentru ridicare (pickup)',
-      'Promoții Happy Hour automate',
-      'Program de fidelizare (puncte + recompense)',
+      'Fidelizare pe comenzile prin QR (puncte + recompense)',
       '„Cere nota" cu bacșiș, din telefonul clientului',
-      'Recenzii Google după comandă',
+      'Cerere de recenzie Google după comanda prin QR',
       'Gestiune stocuri + rețete',
-      'Rapoarte zilnice + săptămânale',
+      'Evidența comenzilor și a produselor vândute',
       'Echipă până la 10 membri',
       'Mod offline pentru ospătari',
-      'Fără branding Menuvia',
+      'Fără badge-ul Menuvia pe meniul public',
     ],
     notIncluded: ['Plăți și bon fiscal în aplicație', 'TVA, casă, facturi'],
-    limits: { maxProducts: 1000, maxTables: 300, maxTeamMembers: 10 },
+    limits: { maxProducts: 1000, maxTables: 300, maxTeamMembers: 10, maxRestaurants: 1 },
     ctaLabel: 'Activează Meniu + Comenzi',
     highlight: true,
   },
@@ -124,9 +130,10 @@ export const PLANS: Plan[] = [
       'Rezervări cu alegerea mesei pe hartă',
       'Program echipă (alocare mese, ture)',
       'Suport prioritar (răspuns în 4 ore)',
+      '2 locații în același abonament',
     ],
     notIncluded: [],
-    limits: { maxProducts: 2000, maxTables: 500, maxTeamMembers: 1000 },
+    limits: { maxProducts: 2000, maxTables: 500, maxTeamMembers: 1000, maxRestaurants: 2 },
     ctaLabel: 'Discută cu noi (pilot)',
     highlight: false,
   },
@@ -159,9 +166,14 @@ export function getPlanByInternalId(internal: string): Plan {
 // fără branding = growth+ (remove_branding), plăți online la masă = pro
 // (online_payments, mig 203), hartă sală = pro (floor_plan), rezervări =
 // modul pe orice plan (mig 086; tier 1 capacitate, tier 2+ complet, harta
-// publică cere floor_layout → efectiv pro). Cotele AI = plan_limits
-// .ai_imports_month (2/20/50). boolean → bifă/liniuță în UI, string → text
-// scurt. Ține rândurile sincronizate cu PLANS și cu DB la orice schimbare.
+// publică cere floor_layout → efectiv pro). boolean → bifă/liniuță în UI,
+// string → text scurt. Ține rândurile sincronizate cu PLANS și cu DB la orice
+// schimbare — `planCopy.test.ts` cere ca FIECARE rând cu valoare pozitivă pe
+// starter/growth să fie legat de un feature/limită reală din fixtura DB.
+// SCOASE deliberat (oct 2026, decizii D3/D4): „Import meniu din poze (AI)"
+// (cota reală e `ai_quota.included_tokens`, egală pe toate planurile, nu
+// 2/20/50 importuri), „Promoții Happy Hour" (nu se aplică pe comenzile de
+// ospătar pe Plan 2) și „Rezervări simple vs complete" (nu diferă în cod).
 export interface PlanComparisonRow {
   label: string
   starter: string | boolean
@@ -177,28 +189,28 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
     pro: 'Până la 2.000',
   },
   { label: 'Mese / QR-uri', starter: 'Până la 120', growth: 'Până la 300', pro: 'Până la 500' },
-  { label: 'Meniu în 7 limbi', starter: true, growth: true, pro: true },
+  { label: 'Locații în abonament', starter: '1', growth: '1', pro: '2' },
+  { label: 'Meniul public în 7 limbi', starter: true, growth: true, pro: true },
   { label: 'Teme premium + flipbook', starter: true, growth: true, pro: true },
-  {
-    label: 'Import meniu din poze (AI)',
-    starter: '2 / lună',
-    growth: '20 / lună',
-    pro: '50 / lună',
-  },
+  { label: 'Rezervări online', starter: true, growth: true, pro: 'Cu alegerea mesei pe hartă' },
   { label: 'Comenzi prin QR', starter: false, growth: true, pro: true },
   { label: 'Dashboard bucătărie', starter: false, growth: true, pro: true },
   { label: 'Flux ospătar', starter: false, growth: true, pro: true },
   { label: 'Pre-comandă pentru ridicare (pickup)', starter: false, growth: true, pro: true },
-  { label: 'Promoții Happy Hour automate', starter: false, growth: true, pro: true },
-  { label: 'Fidelizare (puncte + recompense)', starter: false, growth: true, pro: true },
-  { label: 'Recenzii Google după comandă', starter: false, growth: true, pro: true },
-  { label: 'Fără branding Menuvia', starter: false, growth: true, pro: true },
+  { label: 'Fidelizare pe comenzile prin QR', starter: false, growth: true, pro: true },
+  {
+    label: 'Cerere de recenzie Google după comanda prin QR',
+    starter: false,
+    growth: true,
+    pro: true,
+  },
+  { label: 'Fără badge-ul Menuvia pe meniul public', starter: false, growth: true, pro: true },
   { label: 'Stocuri', starter: false, growth: 'Stocuri + rețete', pro: 'Stocuri + rețete' },
   {
-    label: 'Rapoarte',
+    label: 'Rapoarte în aplicație',
     starter: false,
-    growth: 'Zilnice + săptămânale',
-    pro: 'Zilnice + săptămânale + TVA/tură',
+    growth: 'Comenzi + produse vândute',
+    pro: '+ încasări, TVA, ture',
   },
   { label: 'Membri echipă', starter: '1', growth: 'Până la 10', pro: 'Până la 1.000' },
   {
@@ -226,24 +238,47 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
     growth: false,
     pro: true,
   },
-  {
-    label: 'Rezervări',
-    starter: 'Agendă simplă',
-    growth: 'Complete',
-    pro: 'Complete + alegerea mesei pe hartă',
-  },
 ]
+
+// Câte locații intră într-un abonament, în limbaj de patron — derivat din
+// `limits.maxRestaurants` (oglinda plan_limits.max_restaurants), ca semnalul
+// de încredere și FAQ-ul să nu poată minți după o schimbare de limită.
+// Planul e pe CONT (owner, `profiles.plan`), NU pe restaurant: înainte pagina
+// spunea „Plătești per restaurant — nu per cont", exact pe dos.
+function locationsPhrase(n: number): string {
+  return n === 1 ? 'o locație' : n === 2 ? 'două locații' : `${n} locații`
+}
+
+export function locationsPerAccountText(): string {
+  const byCount = new Map<number, string[]>()
+  for (const p of PLANS) {
+    const n = p.limits.maxRestaurants
+    byCount.set(n, [...(byCount.get(n) ?? []), p.name])
+  }
+  return [...byCount.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([n, names]) => {
+      const verb = names.length > 1 ? 'includ' : 'include'
+      return `${names.join(' și ')} ${verb} ${locationsPhrase(n)}`
+    })
+    .join(', ')
+}
 
 // Trust signals afișate sub grila de planuri — adevărate, verificate.
 // „Fără card pentru trial" NU apare aici: până nu confirmăm că Stripe
-// Checkout poate fi configurat fără card, nu promitem.
+// Checkout poate fi configurat fără card, nu promitem. Anularea urmează
+// Termenii §4.4: oricând, din aplicație, cu efect la finalul perioadei plătite.
 export const TRUST_SIGNALS = [
-  { icon: '🎁', label: '30 zile gratuite', desc: 'Anulezi cu un click, fără penalizări.' },
+  {
+    icon: '🎁',
+    label: '30 zile gratuite',
+    desc: 'Prima plată abia după perioada de probă. Anulezi oricând, fără penalizări.',
+  },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
-  { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu Radu, fondatorul.' },
+  { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu echipa Menuvia.' },
   {
     icon: '🏪',
-    label: 'Plătești per restaurant',
-    desc: 'Nu per cont. Lanțurile au ofertă custom.',
+    label: 'Abonament per cont',
+    desc: `${locationsPerAccountText()}. Lanțurile au ofertă custom.`,
   },
 ]

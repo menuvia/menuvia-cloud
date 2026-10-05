@@ -7,7 +7,6 @@ import { PLAN_LABELS } from './constants'
 export type FeatureName =
   | 'menu_qr'
   | 'order_qr'
-  | 'kitchen_dashboard'
   | 'waiter_manual'
   | 'pickup_orders'
   | 'extras_pairings'
@@ -15,7 +14,6 @@ export type FeatureName =
   | 'stocks'
   | 'recipes'
   | 'profitability'
-  | 'ai_import'
   | 'analytics_advanced'
   | 'reports_pdf'
   | 'reports_vat'
@@ -154,6 +152,15 @@ const PLAN_EMOJI: Record<string, string> = {
 export const PLAN_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(PLAN_LABELS).map(([plan, label]) => [plan, (PLAN_EMOJI[plan] ?? '') + label]),
 )
+
+// Mesajul de limită de produse, pe planul REAL al restaurantului. Înainte
+// DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe starter
+// (300) — o limită și un nume de plan pe care clientul plătitor nu le avea.
+// Numele vine din PLAN_LABELS (sursa unică), limita din plan_limits.
+export function productLimitReason(plan: string, maxProducts: number): string {
+  const name = PLAN_LABELS[plan] ?? plan
+  return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
+}
 
 // Suggest upgrade path: from current plan, what's next.
 // Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru
