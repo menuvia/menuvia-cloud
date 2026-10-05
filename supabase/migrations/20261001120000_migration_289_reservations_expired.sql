@@ -46,7 +46,8 @@
 --      trigger-ul SMS (228: reacționează doar la `confirmed`).
 --   C. Janitorul `expire_stale_pending_reservations(p_grace_hours)`: `pending` cu
 --      `starts_at` mai vechi de grație (2h, ca grația no-show-ului) → `expired`.
---      Programat pe pg_cron prin manifestul mig 274 (minut 43, orar).
+--      Programat pe pg_cron prin manifestul mig 274 (minut 47, orar — minutul
+--      43 e al janitorului de comenzi din mig 288).
 --        * AUTO-CONSUMAT: după rulare rândul nu mai e `pending` → a doua rulare
 --          prinde 0 rânduri;
 --        * FĂRĂ ceas de perete: fereastra e o VÂRSTĂ (CJ7);
