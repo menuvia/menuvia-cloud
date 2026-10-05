@@ -9,15 +9,19 @@ import {
   isCustomDomain,
   type AgencyBranding,
 } from '../../lib/whiteLabel'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf } from '../../lib/guestI18n'
 
 interface Props {
   utmSource: 'menu' | 'qr'
   color: string
   fontFamily: string
   padding: string
+  /** Limba aleasă de oaspete — default 'ro'. */
+  lang?: string
 }
 
-export function MenuBrandBadge({ utmSource, color, fontFamily, padding }: Props) {
+export function MenuBrandBadge({ utmSource, color, fontFamily, padding, lang = 'ro' }: Props) {
   const custom = isCustomDomain()
   const [agency, setAgency] = useState<AgencyBranding | null>(null)
   // Pe domeniu custom nu randăm NIMIC până nu știm brandingul — altfel
@@ -61,7 +65,7 @@ export function MenuBrandBadge({ utmSource, color, fontFamily, padding }: Props)
               style={{ maxWidth: 120, objectFit: 'contain', display: 'block' }}
             />
           )}
-          Meniu digital de {agency.name}
+          {Tf(lang, 'brand_agency', { name: agency.name })}
         </span>
       </div>
     )
@@ -82,7 +86,7 @@ export function MenuBrandBadge({ utmSource, color, fontFamily, padding }: Props)
           padding: '12px 16px',
         }}
       >
-        Meniu digital creat cu Menuvia
+        {T(lang, 'brand_menuvia')}
       </a>
     </div>
   )

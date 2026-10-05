@@ -79,6 +79,110 @@ export function isoToRomaniaYMD(iso: string): string | null {
   return Number.isNaN(t) ? null : toRomaniaYMD(new Date(t))
 }
 
+// ─────────────────────────────────────────────────────────────
+// Ora de PERETE într-un fus arbitrar (pickup: sloturi + afișare).
+// ─────────────────────────────────────────────────────────────
+// Fusul implicit al restaurantelor. Coloana `restaurants.timezone` există și e
+// expusă pe proiecția publică (mig 219/281), dar pe staff nu e încă citită —
+// de aici default-ul, aceeași valoare ca în `lib/qr.ts` (isOpenNow).
+export const DEFAULT_RESTAURANT_TZ = 'Europe/Bucharest'
+
+// Formatter-ele Intl sunt scumpe — unul per fus, refolosit.
+const WALL_FMT_CACHE = new Map<string, Intl.DateTimeFormat>()
+
+function wallFormatter(timeZone: string): Intl.DateTimeFormat {
+  let f = WALL_FMT_CACHE.get(timeZone)
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+    WALL_FMT_CACHE.set(timeZone, f)
+  }
+  return f
+}
+
+// Un fus invalid (coloană editată greșit, gunoi) face ca Intl să ARUNCE
+// RangeError — iar apelantul e o randare (meniul public, cardul din Bucătărie).
+// Fail-safe pe fusul implicit, nu ecran de eroare.
+export function safeTimeZone(tz: string | null | undefined): string {
+  if (!tz) return DEFAULT_RESTAURANT_TZ
+  try {
+    wallFormatter(tz)
+    return tz
+  } catch {
+    return DEFAULT_RESTAURANT_TZ
+  }
+}
+
+export interface WallTime {
+  year: number
+  month: number // 1–12
+  day: number
+  hour: number
+  minute: number
+  second: number
+}
+
+// Părțile de perete ale instantului `t` (ms) în fusul `timeZone`.
+export function wallTimeInZone(t: number, timeZone: string): WallTime {
+  const parts = wallFormatter(timeZone).formatToParts(new Date(t))
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+    hour: get('hour'),
+    minute: get('minute'),
+    second: get('second'),
+  }
+}
+
+// Offset-ul fusului (ms) la instantul t — generalizarea lui bucharestOffsetMs.
+function zoneOffsetMs(t: number, timeZone: string): number {
+  const w = wallTimeInZone(t, timeZone)
+  const wall = Date.UTC(w.year, w.month - 1, w.day, w.hour, w.minute, w.second)
+  return wall - Math.floor(t / 1000) * 1000
+}
+
+// Instantul (ms) al orei de perete (y, m, d, h, mi) în `timeZone`. Valorile
+// în afara intervalului se normalizează ca la Date.UTC (ziua 0, ora 24 etc.).
+// Doi pași, ca romaniaDayBoundaryISO: offset-ul se re-evaluează la instantul
+// corectat, altfel lângă o tranziție DST rezultatul ar fi cu o oră greșit.
+export function zonedWallToInstant(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string,
+): number {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, 0, 0)
+  const offset = zoneOffsetMs(guess - zoneOffsetMs(guess, timeZone), timeZone)
+  return guess - offset
+}
+
+// „HH:mm" (24h) al unui instant ÎN fusul restaurantului — nu al telefonului.
+// `toLocaleTimeString` fără `timeZone` afișa ora în fusul BROWSERULUI: un turist
+// cu telefonul pe alt fus vedea alt „Vino la" decât ora reală a localului.
+// Șir neparsabil → '' (apelantul e o randare).
+export function formatTimeInZone(
+  iso: string | null | undefined,
+  timeZone: string = DEFAULT_RESTAURANT_TZ,
+): string {
+  if (!iso) return ''
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ''
+  const w = wallTimeInZone(t, safeTimeZone(timeZone))
+  return `${String(w.hour).padStart(2, '0')}:${String(w.minute).padStart(2, '0')}`
+}
+
 // Intervalul [00:00:00.000, 23:59:59.999] al zilei românești `ymd`, ca instante
 // ISO (UTC) — pentru interogări „azi" (`.gte(from).lte(to)`). Aceeași
 // convenție ca ReportsTab/HomeTab: capetele vin din `romaniaDayBoundaryISO`,
