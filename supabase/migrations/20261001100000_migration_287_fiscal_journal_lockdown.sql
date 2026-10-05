@@ -69,6 +69,9 @@ comment on function public.fn_pending_receipts_block_client_update() is
 -- rezultat: anon nimic; authenticated INSERT/UPDATE/DELETE + SELECT pe coloanele
 -- ne-secrete (un revoke pe coloana nu bate un grant pe tabel, deci se revoca tot).
 revoke all on public.oblio_configs from anon, authenticated;
+-- ATENTIE: grantul de SELECT e pe COLOANE; o migratie care adauga o coloana pe
+-- oblio_configs trebuie sa faca si `grant select (col) ... to authenticated`
+-- (default privileges nu acopera coloane noi). Clichet: RP14.
 grant insert, update, delete on public.oblio_configs to authenticated;
 do $$
 declare v_cols text;

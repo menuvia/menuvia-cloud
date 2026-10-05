@@ -500,12 +500,30 @@ begin
       from public.affiliate_attributions where id = 'a1000000-0000-4000-8000-0000000000ca') x;
   if v_s <> 'requested' then raise exception 'PO5 FAIL: starea după re-cerere = %', v_s; end if;
 
-  -- Managerul membru (a7) poate ACORDA (re-acordare).
+  -- Managerul membru (a7) NU poate ACORDA: deschiderea contului unui terț e
+  -- decizia ownerului (recenzie CodeRabbit pe #282). Respins, starea neatinsă.
   perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a7', true);
+  set local role authenticated;
+  begin
+    v := public.grant_partner_access('a1000000-0000-4000-8000-0000000000ca');
+    reset role;
+    raise exception 'PO5 FAIL: managerul a putut acorda accesul: %', v;
+  exception when raise_exception then
+    if sqlerrm like 'PO5 FAIL%' then raise; end if;
+    if sqlerrm is distinct from 'Acces interzis' then
+      raise exception 'PO5 FAIL: refuzul managerului are alt mesaj: %', sqlerrm; end if;
+  end;
+  reset role;
+  if (select owner_consented_at is not null and partner_access_revoked_at is null
+        from public.affiliate_attributions where id = 'a1000000-0000-4000-8000-0000000000ca') then
+    raise exception 'PO5 FAIL: refuzul managerului a lăsat accesul acordat'; end if;
+
+  -- Ownerul (a1) re-acordă (control pozitiv).
+  perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a1', true);
   set local role authenticated;
   v := public.grant_partner_access('a1000000-0000-4000-8000-0000000000ca');
   reset role;
-  if v->>'ok' is distinct from 'true' then raise exception 'PO5 FAIL: managerul nu poate acorda: %', v; end if;
+  if v->>'ok' is distinct from 'true' then raise exception 'PO5 FAIL: ownerul nu poate re-acorda: %', v; end if;
 
   perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a3', true);
   set local role authenticated;
@@ -514,12 +532,30 @@ begin
   if (v->>'categories')::bigint < 1 or (v->>'orders')::bigint <> 0 then
     raise exception 'PO5 FAIL: după re-acordare: %', v; end if;
 
-  -- Managerul poate și REVOCA.
+  -- Managerul NU poate nici REVOCA: consimțământul e pe tot contul, deci un
+  -- manager al unui restaurant ar decide și pentru celelalte (CodeRabbit #282).
   perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a7', true);
+  set local role authenticated;
+  begin
+    v := public.revoke_partner_access('a1000000-0000-4000-8000-0000000000ca');
+    reset role;
+    raise exception 'PO5 FAIL: managerul a putut revoca accesul: %', v;
+  exception when raise_exception then
+    if sqlerrm like 'PO5 FAIL%' then raise; end if;
+    if sqlerrm is distinct from 'Acces interzis' then
+      raise exception 'PO5 FAIL: refuzul revocării managerului are alt mesaj: %', sqlerrm; end if;
+  end;
+  reset role;
+  if not (select owner_consented_at is not null and partner_access_revoked_at is null
+            from public.affiliate_attributions where id = 'a1000000-0000-4000-8000-0000000000ca') then
+    raise exception 'PO5 FAIL: refuzul managerului a revocat totuși accesul'; end if;
+
+  -- Ownerul (a1) revocă (control pozitiv).
+  perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a1', true);
   set local role authenticated;
   v := public.revoke_partner_access('a1000000-0000-4000-8000-0000000000ca');
   reset role;
-  if v->>'ok' is distinct from 'true' then raise exception 'PO5 FAIL: managerul nu poate revoca: %', v; end if;
+  if v->>'ok' is distinct from 'true' then raise exception 'PO5 FAIL: ownerul nu poate revoca: %', v; end if;
   -- A doua revocare consecutivă: respinsă curat.
   perform set_config('request.jwt.claim.sub','a1000000-0000-4000-8000-0000000000a1', true);
   set local role authenticated;
@@ -532,8 +568,8 @@ begin
   v := public.po_vis('a1000000-0000-4000-8000-000000000001');
   reset role;
   if (select coalesce(sum(value::bigint),0) from jsonb_each_text(v)) <> 0 then
-    raise exception 'PO5 FAIL: după revocarea managerului: %', v; end if;
-  raise notice 'PO5 OK: revocare=0; re-cerere nu dă acces; re-acordare dă; manager acordă/revocă';
+    raise exception 'PO5 FAIL: după revocarea ownerului: %', v; end if;
+  raise notice 'PO5 OK: revocare=0; re-cerere nu dă acces; re-acordare (owner) dă; managerul NU acordă și NU revocă';
 end $$;
 
 -- ═══════ PO6: filtrele păstrate (atribuire terminală, afiliat ne-activ) ═════

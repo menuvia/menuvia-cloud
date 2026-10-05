@@ -61,6 +61,7 @@ describe('oblio config — mig 287', () => {
   })
 
   it('OC2 config existent + secret gol → UPDATE fără api_secret', async () => {
+    result.data = [{ restaurant_id: 'r1' }]
     await saveOblioConfig({ ...base, api_secret: '' }, true)
     const upd = find('update')
     expect(upd).toBeDefined()
@@ -71,6 +72,7 @@ describe('oblio config — mig 287', () => {
   })
 
   it('OC3 config existent + secret nou → UPDATE cu secretul', async () => {
+    result.data = [{ restaurant_id: 'r1' }]
     await saveOblioConfig({ ...base, api_secret: ' nou ' }, true)
     expect(find('update')?.args[0]).toHaveProperty('api_secret', 'nou')
   })
@@ -83,5 +85,11 @@ describe('oblio config — mig 287', () => {
   it('OC5 config nou cu secret → INSERT', async () => {
     await saveOblioConfig({ ...base, api_secret: 's3' }, false)
     expect(find('insert')?.args[0]).toHaveProperty('api_secret', 's3')
+  })
+
+  it('OC6 UPDATE care nu atinge niciun rând (RLS / config ștearsă) → eroare, nu „salvat"', async () => {
+    result.data = []
+    await expect(saveOblioConfig({ ...base, api_secret: '' }, true)).rejects.toThrow(/nu mai există/)
+    expect(find('select')?.args[0]).toBe('restaurant_id')
   })
 })

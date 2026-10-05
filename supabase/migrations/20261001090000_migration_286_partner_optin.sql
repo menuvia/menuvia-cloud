@@ -49,7 +49,7 @@ alter table public.affiliate_attributions
   add column if not exists partner_access_requested_at timestamptz;
 
 comment on column public.affiliate_attributions.owner_consented_at is
-  'Ownerul (sau un manager al lui) a ACORDAT accesul de partener (mig 286). NULL = fără consimțământ = fără acces. Rămâne setat și după revocare (urmă); revocarea e partner_access_revoked_at.';
+  'Ownerul (DOAR el, nu un manager) a ACORDAT accesul de partener (mig 286). NULL = fără consimțământ = fără acces. Rămâne setat și după revocare (urmă); revocarea e partner_access_revoked_at.';
 comment on column public.affiliate_attributions.partner_access_requested_at is
   'Afiliatul a cerut accesul (request_partner_access, mig 286). Ownerul vede cererea în tab-ul Echipă.';
 
@@ -189,7 +189,7 @@ grant execute on function public.list_partner_restaurants() to authenticated;
 -- trebuie să fie strictă și când două acțiuni cad în aceeași tranzacție.
 -- granted   : consimțământ dat, nerevocat
 -- requested : cerere ulterioară ultimei revocări (sau fără revocare), fără acces
--- revoked   : revocat (de owner/manager/fondator) și nicio cerere nouă după
+-- revoked   : revocat (de owner/fondator) și nicio cerere nouă după
 -- none      : nicio cerere, niciun acces
 create or replace function public.partner_access_state(
   p_requested timestamptz,
@@ -365,27 +365,21 @@ begin
 end;
 $$;
 
--- ── 9. grant_partner_access — ownerul/managerul ACORDĂ ───────────────
--- Consimțământul îl dau doar principalii REALI ai contului (owner sau manager
--- membru), NU is_admin: acela include fondatorul, iar un consimțământ pus de
--- fondator în numele ownerului nu e consimțământ.
+-- ── 9. grant_partner_access — DOAR ownerul ACORDĂ ────────────────────
+-- partner_consent_principal = cine ACORDĂ și cine REVOCĂ: DOAR ownerul contului
+-- (recenzie CodeRabbit pe #282). Consimțământul stă pe ATRIBUIRE (tot contul),
+-- nu pe un restaurant, iar has_partner_access se potrivește pe toate
+-- restaurantele ownerului — deci un manager al lui A ar fi decis și pentru B,
+-- unde nu e membru. Nici is_admin: acela include fondatorul, iar o decizie pusă
+-- de fondator în numele ownerului nu e consimțământ. UI-ul (PartnerAccessSection)
+-- e oricum randat doar ownerului.
 create or replace function public.partner_consent_principal(p_referred_profile_id uuid)
 returns boolean
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
   select auth.uid() is not null
-     and (
-       auth.uid() = p_referred_profile_id
-       or exists (
-         select 1
-           from public.restaurants r
-           join public.restaurant_memberships rm on rm.restaurant_id = r.id
-          where r.owner_id = p_referred_profile_id
-            and rm.user_id = auth.uid()
-            and rm.role = 'manager'::public.member_role
-       )
-     )
+     and auth.uid() = p_referred_profile_id
 $$;
 
 revoke all on function public.partner_consent_principal(uuid)
@@ -425,7 +419,7 @@ begin
 end;
 $$;
 
--- ── 10. revoke_partner_access — ownerul/managerul REVOCĂ / REFUZĂ ────
+-- ── 10. revoke_partner_access — DOAR ownerul REVOCĂ / REFUZĂ ────────
 create or replace function public.revoke_partner_access(p_attribution_id uuid)
 returns jsonb
 language plpgsql security definer
@@ -476,11 +470,19 @@ begin
 end $$;
 
 -- ── 11. Politici DEDICATE de partener (meniu + mese/QR) ──────────────
--- ALTER POLICY, nu politici noi: aceleași nume, aceleași roluri, aceeași
--- logică + `or has_partner_access(...)`. Fără politici permisive duplicate.
+-- ALTER POLICY, nu politici noi: aceleași nume, aceeași logică
+-- + `or has_partner_access(...)`. Fără politici permisive duplicate.
+-- Politicile de pe restaurants/tables/qr_tokens erau pe rolul PUBLIC (fără
+-- `to`) și se mută pe `authenticated` (recenzie CodeRabbit pe #282): helperii
+-- funelului NU sunt executabili de anon, deci o politică PUBLIC care îi cheamă
+-- ar da `permission denied for function` dacă anon ar primi vreodată SELECT pe
+-- tabel (clasa mig 264). Azi anon n-are SELECT pe niciuna dintre cele trei
+-- (verificat pe producție) — e capcană LATENTĂ, închisă aici; citirile anon
+-- trec prin politicile `anon …` și RPC-urile DEFINER, neatinse.
 
 -- restaurants: DOAR citire (nu UPDATE — setările rămân ale ownerului).
 alter policy "restaurants: member read" on public.restaurants
+  to authenticated
   using (public.is_member(id) or public.has_partner_access(id));
 
 -- categories
@@ -555,22 +557,30 @@ alter policy "pmg: admin write" on public.product_modifier_groups
 
 -- tables
 alter policy "tables: admin delete" on public.tables
+  to authenticated
   using (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "tables: admin insert" on public.tables
+  to authenticated
   with check (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "tables: admin update" on public.tables
+  to authenticated
   using (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "tables: members read" on public.tables
+  to authenticated
   using (public.is_member(restaurant_id) or public.has_partner_access(restaurant_id));
 
 -- qr_tokens
 alter policy "qr_tokens: admin delete" on public.qr_tokens
+  to authenticated
   using (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "qr_tokens: admin insert" on public.qr_tokens
+  to authenticated
   with check (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "qr_tokens: admin update" on public.qr_tokens
+  to authenticated
   using (public.is_admin(restaurant_id) or public.has_partner_access(restaurant_id));
 alter policy "qr_tokens: members read" on public.qr_tokens
+  to authenticated
   using (public.is_member(restaurant_id) or public.has_partner_access(restaurant_id));
 
 -- vat_rates: DOAR citire (formularul de produs cere grupele de TVA).

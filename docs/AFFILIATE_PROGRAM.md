@@ -48,7 +48,7 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 | Profil payout | `legal_form` ∈ (`pfa`,`srl`,**`other`**); UI oferă „Altă formă” | m098:51; m190:77; `src/pages/AfiliatPage.tsx:1105-1107` |
 | Aprobare | `register_affiliate` (telefon obligatoriu) inserează `pending`; fondatorul decide cu `admin_review_affiliate`. Toate căile de bani/acces filtrează `status='active'` | m243:263-359; m224:161-197; CLAUDE.md „Afilierea e cu CERERE” |
 | Suspendare | Enum `suspended`/`closed` există, **niciun RPC** nu le setează; batch-ul ignoră non-activii → sold înghețat, nu anulat | m097:35-53; m190:136 |
-| Acces partener | OPT-IN (mig 286): afiliatul CERE accesul, ownerul/managerul îl APROBĂ (`owner_consented_at`), îl poate revoca oricând; acoperă DOAR meniul + mese/QR (politici dedicate, nu funelul `is_admin`) — fără comenzi, rezervări, date fiscale, setări sau echipă | m286 |
+| Acces partener | OPT-IN (mig 286): afiliatul CERE accesul, DOAR ownerul îl APROBĂ (`owner_consented_at`), îl poate revoca oricând; acoperă DOAR meniul + mese/QR (politici dedicate, nu funelul `is_admin`) — fără comenzi, rezervări, date fiscale, setări sau echipă | m286 |
 | Monede | Enum RON/EUR, batch multi-monedă; dashboard-ul însumează doar RON; moneda prețurilor Stripe nu se poate verifica din repo (price ID-urile există doar în env, `stripe-checkout.js:32-33`) | m107:20-24; m188:431-505 |
 
 ### 1.2 Ce spunea documentația veche și nu e adevărat

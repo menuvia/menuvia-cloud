@@ -90,11 +90,18 @@ export async function saveOblioConfig(
     // UPDATE, nu upsert: un INSERT fără api_secret ar pica pe NOT NULL înainte
     // de ON CONFLICT, iar secretul existent nu se poate citi ca să fie re-trimis.
     const { restaurant_id: rid, ...fields } = row
-    const { error } = await supabase
+    // `.select` ca să aflăm câte rânduri a atins: un UPDATE filtrat de RLS sau
+    // pe o configurație ștearsă între timp întoarce SUCCES cu 0 rânduri, iar
+    // formularul ar spune „salvat" fără să fi salvat nimic.
+    const { data, error } = await supabase
       .from('oblio_configs')
       .update(secret ? { ...fields, api_secret: secret } : fields)
       .eq('restaurant_id', rid)
+      .select('restaurant_id')
     if (error) throw new Error(`Salvare config: ${error.message}`)
+    if (!data || data.length === 0) {
+      throw new Error('Salvare config: configurația nu mai există — reîncarcă pagina')
+    }
     return
   }
 
