@@ -1,6 +1,8 @@
 // Teste pe întoarcerea din Stripe (PR 5). Formele exacte ale URL-urilor vin din
-// `netlify/functions/stripe-checkout.js`: success → /dashboard?checkout=success,
-// cancel → /pricing?checkout=cancelled. Până la acest hook niciun cod din
+// `netlify/functions/stripe-checkout.js` (SR1 le îngheață acolo): success →
+// /dashboard?checkout=success&checkout_plan=<plan>, cancel → /pricing?checkout=cancelled.
+// CR13/CR14 (recenzie pe #284): „activ" = profilul are planul CUMPĂRAT, nu
+// „orice plan ≠ free" — un cont cu plan manual îl are pe cel vechi înaintea webhook-ului. Până la acest hook niciun cod din
 // `src/` nu citea parametrul.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
@@ -11,7 +13,12 @@ import {
   useCheckoutReturn,
   type CheckoutReturnInput,
 } from '../useCheckoutReturn'
-import { readCheckoutReturnParam, stripCheckoutParam } from '../../lib/checkoutReturn'
+import {
+  checkoutActivated,
+  readCheckoutPlanParam,
+  readCheckoutReturnParam,
+  stripCheckoutParam,
+} from '../../lib/checkoutReturn'
 import { readPlanIntent, writePlanIntent } from '../../lib/planIntent'
 
 function at(path: string): void {
@@ -92,8 +99,8 @@ describe('useCheckoutReturn', () => {
     expect(refreshProfile).toHaveBeenCalledTimes(settled)
   })
 
-  it('CR3 planul plătit e DEJA vizibil la întoarcere (webhook-ul a câștigat cursa) → „activ" imediat', () => {
-    at('/dashboard?checkout=success')
+  it('CR3 planul CUMPĂRAT e DEJA vizibil la întoarcere (webhook-ul a câștigat cursa) → „activ" imediat', () => {
+    at('/dashboard?checkout=success&checkout_plan=starter')
     const refreshProfile = vi.fn(() => Promise.resolve())
     const { result } = setup({ hasUser: true, plan: 'starter', refreshProfile })
     expect(result.current.status).toBe('active')
@@ -101,6 +108,43 @@ describe('useCheckoutReturn', () => {
       vi.advanceTimersByTime(CHECKOUT_POLL_MAX_MS)
     })
     expect(refreshProfile).not.toHaveBeenCalled()
+  })
+
+  it('CR13 plan MANUAL vechi vizibil la întoarcere ≠ planul cumpărat → NU „activ" până scrie webhook-ul', () => {
+    // Cont pe Meniu + Comenzi dat manual (fără abonament Stripe) cumpără Fiscalizare.
+    at('/dashboard?checkout=success&checkout_plan=pro')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result, rerender } = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('activating')
+    act(() => {
+      vi.advanceTimersByTime(CHECKOUT_POLL_INTERVAL_MS)
+    })
+    expect(refreshProfile).toHaveBeenCalledTimes(1)
+    // Un alt plan decât cel cumpărat tot nu e dovada.
+    rerender({ hasUser: true, plan: 'starter', refreshProfile })
+    expect(result.current.status).toBe('activating')
+    // Control pozitiv: webhook-ul scrie planul cumpărat → activ.
+    rerender({ hasUser: true, plan: 'pro', refreshProfile })
+    expect(result.current.status).toBe('active')
+  })
+
+  it('CR14 plan manual, webhook-ul nu ajunge în 30 s → „slow", nu un fals „activ"', () => {
+    at('/dashboard?checkout=success&checkout_plan=growth')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result } = setup({ hasUser: true, plan: 'starter', refreshProfile })
+    act(() => {
+      vi.advanceTimersByTime(CHECKOUT_POLL_MAX_MS)
+    })
+    expect(result.current.status).toBe('slow')
+  })
+
+  it('CR15 fără `checkout_plan` (funcție veche): un plan plătit deja vizibil NU e dovada, doar o schimbare', () => {
+    at('/dashboard?checkout=success')
+    const refreshProfile = vi.fn(() => Promise.resolve())
+    const { result, rerender } = setup({ hasUser: true, plan: 'growth', refreshProfile })
+    expect(result.current.status).toBe('activating')
+    rerender({ hasUser: true, plan: 'pro', refreshProfile })
+    expect(result.current.status).toBe('active')
   })
 
   it('CR4 fără sesiune nu se reîmprospătează nimic, dar plafonul de 30 s tot dă un mesaj', () => {
@@ -199,8 +243,30 @@ describe('checkoutReturn — helperi puri', () => {
 
   it('CR12 stripCheckoutParam păstrează calea, ceilalți parametri și hash-ul', () => {
     expect(stripCheckoutParam('https://x.ro/dashboard?checkout=success')).toBe('/dashboard')
+    expect(
+      stripCheckoutParam('https://x.ro/dashboard?checkout=success&checkout_plan=growth&tab=home'),
+    ).toBe('/dashboard?tab=home')
     expect(stripCheckoutParam('https://x.ro/pricing?checkout=cancelled&lang=en#top')).toBe(
       '/pricing?lang=en#top',
     )
+  })
+})
+
+describe('checkoutReturn — planul cumpărat', () => {
+  it('CR16 checkout_plan: doar planurile cumpărabile; `plan=` (intenția de pe /auth) NU contează', () => {
+    expect(readCheckoutPlanParam('?checkout=success&checkout_plan=growth')).toBe('growth')
+    expect(readCheckoutPlanParam('?checkout_plan=enterprise')).toBe('enterprise')
+    expect(readCheckoutPlanParam('?checkout_plan=free')).toBeNull()
+    expect(readCheckoutPlanParam('?checkout=success&plan=growth')).toBeNull()
+  })
+
+  it('CR17 checkoutActivated: cu plan cumpărat, DOAR egalitatea; fără, doar schimbarea', () => {
+    expect(checkoutActivated('pro', 'growth', 'growth')).toBe(false)
+    expect(checkoutActivated('pro', 'growth', 'starter')).toBe(false)
+    expect(checkoutActivated('pro', 'growth', 'pro')).toBe(true)
+    expect(checkoutActivated('growth', 'growth', 'growth')).toBe(true)
+    expect(checkoutActivated(null, 'growth', 'growth')).toBe(false)
+    expect(checkoutActivated(null, 'free', 'growth')).toBe(true)
+    expect(checkoutActivated(null, null, 'growth')).toBe(false)
   })
 })

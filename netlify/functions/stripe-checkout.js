@@ -262,7 +262,10 @@ exports.handler = async (event) => {
       client_reference_id: user.id,
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${appUrl}/dashboard?checkout=success`,
+      // `checkout_plan`: clientul (useCheckoutReturn) anunță „planul e activ"
+      // DOAR când profilul are EXACT planul cumpărat — un cont cu plan manual
+      // are deja un plan ≠ free înainte să ajungă webhook-ul.
+      success_url: `${appUrl}/dashboard?checkout=success&checkout_plan=${encodeURIComponent(requestedPlan)}`,
       cancel_url: `${appUrl}/pricing?checkout=cancelled`,
       subscription_data: {
         // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
@@ -283,7 +286,9 @@ exports.handler = async (event) => {
       // sesiune (dedup); orice diferență → cheie nouă.
       // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
       // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
-      idempotencyKey: `checkout_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+      // Prefixul `v3`: corpul s-a schimbat (success_url poartă `checkout_plan`) —
+      // o cerere repetată peste deploy, cu cheia veche, ar primi idempotency_error.
+      idempotencyKey: `checkout_v3_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
     },
   )
 

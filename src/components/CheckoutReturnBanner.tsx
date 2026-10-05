@@ -8,10 +8,15 @@ import { useAuth } from '../contexts/AuthContext'
 import { useCheckoutReturn, type CheckoutReturnStatus } from '../hooks/useCheckoutReturn'
 import { D } from '../lib/constants'
 
+// Copy NEUTRU pe bani: pe Meniu Digital / Meniu + Comenzi primele 30 de zile
+// sunt GRATUITE (trial), deci la întoarcerea din Stripe nu s-a încasat nimic —
+// „Plata a fost primită" ar fi fost fals exact pe planurile cu trial. Testul
+// CB1 păzește clasa (orice formulare care pretinde o încasare).
+
 const COPY: Record<Exclude<CheckoutReturnStatus, 'idle'>, { title: string; body: string }> = {
   activating: {
     title: 'Activăm planul…',
-    body: 'Plata a fost primită. Actualizăm contul tău — durează câteva secunde.',
+    body: 'Abonamentul a fost înregistrat — activăm planul în contul tău, durează câteva secunde.',
   },
   active: {
     title: 'Planul tău e activ',
@@ -19,7 +24,7 @@ const COPY: Record<Exclude<CheckoutReturnStatus, 'idle'>, { title: string; body:
   },
   slow: {
     title: 'Activarea durează mai mult decât de obicei',
-    body: 'Plata a fost primită, dar planul nu apare încă în cont. Reîncarcă pagina peste un minut; dacă nu se schimbă, scrie-ne.',
+    body: 'Abonamentul a fost înregistrat, dar planul nu apare încă în cont. Reîncarcă pagina peste un minut; dacă nu se schimbă, scrie-ne.',
   },
   cancelled: {
     title: 'Plata a fost anulată',
