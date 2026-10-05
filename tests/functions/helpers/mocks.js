@@ -205,6 +205,7 @@ function FakeStripe(key, opts) {
       create: stripeMethod('customers.create'),
       del: stripeMethod('customers.del'),
     },
+    checkout: { sessions: { create: stripeMethod('checkout.sessions.create') } },
     refunds: { list: stripeMethod('refunds.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {
