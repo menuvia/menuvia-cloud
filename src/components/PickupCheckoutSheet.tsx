@@ -12,6 +12,7 @@ import type { MenuTheme } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
+import { describeGuestError } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -34,8 +35,8 @@ export interface PickupCheckoutProps {
   onSuccess: (short_id: string, pickup_time: string | null, total: number) => void
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
-  // Limba meniului, folosită DOAR de câmpul de telefon (restul sheet-ului e
-  // încă doar în română). NU decide prefixul implicit (PH-4, lib/phone.ts).
+  // Limba aleasă de oaspete — toate textele sheet-ului. NU decide prefixul
+  // implicit al telefonului (PH-4, lib/phone.ts).
   lang?: string
 }
 
@@ -93,11 +94,11 @@ export default function PickupCheckoutSheet({
 
   async function submitOrder() {
     if (slots.length === 0) {
-      setError('Restaurantul este închis acum. Revino în programul de funcționare.')
+      setError(T(lang, 'pk_closed_now'))
       return
     }
     if (name.trim().length === 0) {
-      setError('Te rog completează numele')
+      setError(T(lang, 'err_name_required'))
       return
     }
     // Telefonul e OBLIGATORIU pentru pickup: create_order respinge comenzile
@@ -110,7 +111,7 @@ export default function PickupCheckoutSheet({
       return
     }
     if (!pickupTime) {
-      setError('Te rog alege un interval')
+      setError(T(lang, 'err_pickup_time_missing'))
       return
     }
 
@@ -136,21 +137,14 @@ export default function PickupCheckoutSheet({
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
-      // Mapăm hint-urile cunoscute din create_order (mig 145) la mesaje clare,
-      // în loc să afișăm același text generic pentru orice eșec.
-      const msg = err instanceof Error ? err.message : ''
-      const friendly = /invalid_customer_phone|valid customer_phone/i.test(msg)
-        ? 'Număr de telefon invalid. Verifică-l și încearcă din nou.'
-        : /pickup_disabled|dezactivate/i.test(msg)
-          ? 'Comenzile pickup nu sunt disponibile momentan.'
-          : /pickup_time_too_soon|min.?lead|too soon/i.test(msg)
-            ? 'Intervalul ales e prea aproape. Alege unul mai târziu.'
-            : /missing_pickup_time/i.test(msg)
-              ? 'Te rog alege un interval de ridicare.'
-              : /rate.?limit|too many|prea multe/i.test(msg)
-                ? 'Prea multe comenzi într-un timp scurt. Reîncearcă în câteva minute.'
-                : 'Comanda nu s-a trimis. Încearcă din nou.'
-      setError(friendly)
+      // Hint-urile din create_order (mig 191) + mesajele brute → text în limba
+      // oaspetelui (lib/guestErrors); niciodată textul serverului.
+      setError(
+        describeGuestError(lang, err, {
+          fallback: 'err_order_not_sent',
+          network: 'err_order_not_sent_network',
+        }),
+      )
       setSubmitting(false)
     }
   }
@@ -173,7 +167,7 @@ export default function PickupCheckoutSheet({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Detalii ridicare"
+        aria-label={T(lang, 'pk_title')}
         tabIndex={-1}
         style={{
           background: PUB.bg,
@@ -207,10 +201,10 @@ export default function PickupCheckoutSheet({
               letterSpacing: '-0.01em',
             }}
           >
-            Detalii ridicare
+            {T(lang, 'pk_title')}
           </div>
           <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 20 }}>
-            Plata se face cash la ridicare.
+            {T(lang, 'pk_pay_note')}
           </div>
 
           <div style={{ marginBottom: 16 }}>
@@ -223,12 +217,12 @@ export default function PickupCheckoutSheet({
                 marginBottom: 6,
               }}
             >
-              Nume *
+              {T(lang, 'pk_name')} *
             </label>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ion Popescu"
+              placeholder={T(lang, 'pk_name_ph')}
               style={{
                 width: '100%',
                 padding: '12px 14px',
@@ -254,7 +248,7 @@ export default function PickupCheckoutSheet({
                 marginBottom: 6,
               }}
             >
-              Telefon
+              {T(lang, 'reserve_phone')}
             </label>
             <PhoneInput
               cc={phoneCc}
@@ -277,7 +271,7 @@ export default function PickupCheckoutSheet({
               hintColor={PUB.text3}
             />
             <div style={{ fontSize: 11, color: PUB.text3, marginTop: 5 }}>
-              Obligatoriu — pentru a putea fi sunat dacă întârzii
+              {T(lang, 'pk_phone_hint')}
             </div>
           </div>
 
@@ -292,7 +286,7 @@ export default function PickupCheckoutSheet({
                   marginBottom: 8,
                 }}
               >
-                Vino la *
+                {T(lang, 'pk_come_at')} *
               </label>
               <div
                 style={{
@@ -343,7 +337,7 @@ export default function PickupCheckoutSheet({
                 lineHeight: 1.5,
               }}
             >
-              ⚠️ Restaurantul este închis acum. Vino mâine în orele de program.
+              ⚠️ {T(lang, 'pk_closed_banner')}
             </div>
           )}
 
@@ -406,7 +400,9 @@ export default function PickupCheckoutSheet({
               boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
             }}
           >
-            {submitting ? 'Se trimite...' : `Trimite comanda · ${fmtPrice(cartTotal, currency)}`}
+            {submitting
+              ? T(lang, 'sending')
+              : `${T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
           </button>
         </div>
       </div>
