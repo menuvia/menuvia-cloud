@@ -43,6 +43,29 @@
 --     același refund reluat DUPĂ scrierea setup-ului nu se mai stornează o
 --     dată (e deja în bază).
 --
+-- (4b) Refund-ul ia lacătele per atribuire ÎNAINTE să citească registrul
+--     (recenzie pe #286). Varianta inițială decidea „există rânduri de comision
+--     pe factură?" FĂRĂ lacăt și abia apoi bloca: un invoice_paid concurent pe a
+--     DOUA factură scria setup-ul (stripe_invoice_id = PRIMA factură) între
+--     citire și ramura pre-setup, care vedea „setup există" și sărea → refund-ul
+--     nu era NICI stornat, NICI consemnat în first_paid_refunds. Acum se
+--     blochează, în ordine `collate "C"` (anti-deadlock între două refund-uri),
+--     toate atribuirile legate de factură (prima factură consemnată + rânduri
+--     setup/recurring pe ea), cu cheia lui process_affiliate_invoice_paid.
+--     Lacătul e RE-ENTRANT pe aceeași sesiune, deci un test in-process e VACUU;
+--     AF11 + asserția 7c' verifică doar ORDINEA în corp. Concurența s-a
+--     verificat MANUAL, cu două sesiuni psql pe replay (precedentul mig 282):
+--     atribuire growth, prima factură 249,00 lei consemnată; sesiunea A
+--     (begin) rulează a doua factură → setup 74,70 + recurring 24,90, ține
+--     tranzacția 4 s; sesiunea B pornește la 1,5 s refund TOTAL pe prima factură.
+--       • cod VECHI: B așteaptă 2,53 s, apoi {clawed_back: 0,
+--         pre_setup_recorded: 0} — registrul rămâne setup +74,70 FĂRĂ storno,
+--         first_paid_refunds = {} (banii returnați, comisionul păstrat);
+--       • cod NOU:   B așteaptă 2,54 s, apoi {clawed_back: 1} — clawback
+--         −74,70 pe setup (restul comisionului = 0).
+--     Mutații: lacătul înapoi în buclă → AF11 + 7c' pică; fără atribuirile cu
+--     prima factură consemnată în setul blocat → AF11 pică.
+--
 -- (5) Două facturi în aceeași period_month (ciclu + prorata la upgrade):
 --     `on conflict (stripe_event_id, leg)` nu acoperea
 --     `uq_affiliate_ledger_recurring_period` (097) → excepție → webhook 500 →
