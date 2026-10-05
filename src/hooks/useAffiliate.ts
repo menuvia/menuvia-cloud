@@ -44,6 +44,13 @@ export interface AffiliateEarnings {
   pending_cents: number
   paid_cents: number
   clawed_back_cents: number
+  // mig 295 — cifre NETE calculate pe server. Opționale: lipsesc pe o DB
+  // fără 295, iar panoul cade pe calculul vechi.
+  net_earned_cents?: number
+  pending_net_cents?: number
+  in_progress_cents?: number
+  available_cents?: number
+  min_payout_cents?: number
 }
 
 export interface AffiliateDashboard {
@@ -54,6 +61,8 @@ export interface AffiliateDashboard {
   sub_affiliates?: AffiliateSubAffiliate[]
   earnings?: AffiliateEarnings
   next_payout_at?: string | null
+  // mig 295: ziua (YYYY-MM-DD) următoarei rulări a batch-ului de plăți.
+  next_batch_date?: string | null
   // Doar pe ramura ne-afiliat (mig 188): comisioanele implicite ale platformei,
   // ca onboarding-ul să afișeze procentele reale. Opțional — poate lipsi până
   // rulează migrația.

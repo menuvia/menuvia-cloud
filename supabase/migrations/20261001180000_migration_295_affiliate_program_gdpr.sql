@@ -373,4 +373,234 @@ begin
   end if;
 end $$;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- §2. get_affiliate_dashboard — copie VERBATIM din 188 + chei NOI la final
+--     (earnings.*net*/available/in_progress/min_payout, next_batch_date,
+--     program_open pe ramura ne-afiliat). Tipul de retur rămâne jsonb.
+-- ═══════════════════════════════════════════════════════════════════════════
+create or replace function public.get_affiliate_dashboard()
+returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_aff     public.affiliates;
+  v_result  jsonb;
+  v_defaults jsonb;
+  -- mig 295: cifrele nete
+  v_confirmed   bigint;
+  v_pending_net bigint;
+  v_committed   bigint;
+  v_in_progress bigint;
+  v_now_ro      timestamp;
+  v_period      date;
+  v_next_batch  date;
+begin
+  if v_uid is null then
+    raise exception using errcode = 'insufficient_privilege',
+      message = 'get_affiliate_dashboard requires authentication';
+  end if;
+
+  select * into v_aff from public.affiliates where profile_id = v_uid;
+  if not found then
+    -- Ne-afiliat: includem defaulturile de comision (mig 188) ca onboarding-ul
+    -- să afișeze procentele REALE pe care le-ar primi, nu text generic.
+    select value into v_defaults from public.platform_settings
+     where key = 'affiliate_commission_defaults';
+    return jsonb_build_object('ok', true, 'is_affiliate', false,
+      'defaults', jsonb_build_object(
+        'setup_bps',            coalesce((v_defaults->>'setup_bps')::int, 3000),
+        'recurring_bps',        coalesce((v_defaults->>'recurring_bps')::int, 1000),
+        'recurring_cap_months', coalesce((v_defaults->>'recurring_cap_months')::int, 12)
+      ),
+      -- mig 295: /afiliat nu afișează formularul când programul e închis.
+      'program_open', public.affiliate_program_is_open());
+  end if;
+
+  -- ── mig 295: cifre NETE (RON, ca restul panoului) ──────────────────────
+  -- Confirmat = sursa batch-ului (v_affiliate_payable, 099: net per credit,
+  -- trecut de hold, net > 0).
+  select coalesce(sum(amount_cents), 0) into v_confirmed
+    from public.v_affiliate_payable
+   where affiliate_id = v_aff.id and currency = 'RON';
+
+  -- În așteptare NET: creditele încă în hold, fiecare MINUS stornările lui
+  -- (clawback-ul poate veni înainte de expirarea hold-ului), plafonat la 0 ca
+  -- în v_affiliate_payable.
+  select coalesce(sum(greatest(
+           l.amount_cents + coalesce((
+             select sum(r.amount_cents) from public.affiliate_ledger r
+              where r.reverses_ledger_id = l.id
+           ), 0), 0)), 0)
+    into v_pending_net
+    from public.affiliate_ledger l
+   where l.affiliate_id = v_aff.id
+     and l.leg in ('setup', 'recurring', 'cascade')
+     and l.amount_cents > 0
+     and l.hold_until > now()
+     and l.currency = 'RON';
+
+  -- Angajat = EXACT predicatul din run_affiliate_payout_batch (190): în zbor
+  -- sau decontat; eliberate doar canceled și failed FĂRĂ transfer.
+  select coalesce(sum(gross_cents), 0) into v_committed
+    from public.affiliate_payouts
+   where affiliate_id = v_aff.id and currency = 'RON'
+     and (status in ('draft','awaiting_invoice','invoice_matched','processing','paid','on_hold')
+          or (status = 'failed' and wise_transfer_id is not null));
+
+  select coalesce(sum(gross_cents), 0) into v_in_progress
+    from public.affiliate_payouts
+   where affiliate_id = v_aff.id and currency = 'RON'
+     and (status in ('draft','awaiting_invoice','invoice_matched','processing','on_hold')
+          or (status = 'failed' and wise_transfer_id is not null));
+
+  -- Următoarea rulare REALĂ a batch-ului: oglinda Job 3b din automation-cron.js
+  -- (zilele 1–2 ale lunii, ora < 06:00 București, o singură rulare pe perioadă
+  -- — existența oricărui rând pentru perioadă o oprește).
+  v_now_ro := now() at time zone 'Europe/Bucharest';
+  v_period := date_trunc('month', v_now_ro)::date;
+  if extract(day from v_now_ro) <= 2 and extract(hour from v_now_ro) < 6
+     and not exists (select 1 from public.affiliate_payouts where period_month = v_period) then
+    v_next_batch := v_now_ro::date;
+  else
+    v_next_batch := (v_period + interval '1 month')::date;
+  end if;
+
+  v_result := jsonb_build_object(
+    'ok', true,
+    'is_affiliate', true,
+    'affiliate', jsonb_build_object(
+      'id', v_aff.id,
+      'referral_code', v_aff.referral_code,
+      'vanity_slug', v_aff.vanity_slug,
+      'status', v_aff.status,
+      'setup_bps', v_aff.setup_bps,
+      'recurring_bps', v_aff.recurring_bps,
+      'cascade_bps', v_aff.cascade_bps,
+      'recurring_cap_months', v_aff.recurring_cap_months,
+      'created_at', v_aff.created_at
+    ),
+
+    -- Restaurantele aduse: nume + oraș (din restaurants pe owner_id = profil
+    -- referit), status atribuire, comision cumulat. Fără date PII ale owner-ului.
+    'restaurants', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'attribution_id', aa.id,
+        'status', aa.status,
+        'captured_at', aa.captured_at,
+        'restaurant_names', coalesce((
+          select jsonb_agg(r.name order by r.name)
+            from public.restaurants r where r.owner_id = aa.referred_profile_id
+        ), '[]'::jsonb),
+        'city', (
+          select r.city from public.restaurants r
+           where r.owner_id = aa.referred_profile_id order by r.name limit 1
+        ),
+        -- Doar comisionul RON: eticheta e RON și batch-ul de payout e RON,
+        -- deci un rând EUR (mig 107) NU trebuie adunat aici (fix cross-currency).
+        'commission_cents', coalesce((
+          select sum(l.amount_cents) from public.affiliate_ledger l
+           where l.attribution_id = aa.id and l.amount_cents > 0
+             and l.currency = 'RON'
+        ), 0)
+      ) order by aa.captured_at desc)
+        from public.affiliate_attributions aa
+       where aa.affiliate_id = v_aff.id
+    ), '[]'::jsonb),
+
+    -- Sub-afiliații direcți: cod, status, câte conturi au adus, cota mea cascade.
+    'sub_affiliates', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'referral_code', sa.referral_code,
+        'status', sa.status,
+        'joined_at', sa.created_at,
+        'attributions_count', (
+          select count(*) from public.affiliate_attributions x where x.affiliate_id = sa.id
+        )
+      ) order by sa.created_at desc)
+        from public.affiliates sa
+       where sa.parent_affiliate_id = v_aff.id
+    ), '[]'::jsonb),
+
+    -- Câștiguri (doar ledger-ul propriu; cota de cascade e deja un rând pe
+    -- affiliate_id = self). Toate în RON (MVP) — vezi filtrul currency='RON'
+    -- de mai jos: eticheta și batch-ul de payout sunt RON, deci sumele NU
+    -- trebuie să amestece EUR (fix AFF-E2E-2).
+    'earnings', jsonb_build_object(
+      'currency', 'RON',
+      -- total brut câștigat (pozitive setup/recurring/cascade)
+      'total_cents', coalesce((
+        select sum(amount_cents) from public.affiliate_ledger
+         where affiliate_id = v_aff.id and amount_cents > 0
+           and leg in ('setup','recurring','cascade')
+           and currency = 'RON'
+      ), 0),
+      -- confirmat (payable acum): trecut de hold, ne-stornat
+      'confirmed_cents', v_confirmed,
+      -- în așteptare (hold încă activ) — BRUT, păstrat pentru clientul vechi
+      'pending_cents', coalesce((
+        select sum(amount_cents) from public.affiliate_ledger
+         where affiliate_id = v_aff.id and amount_cents > 0
+           and leg in ('setup','recurring','cascade') and hold_until > now()
+           and currency = 'RON'
+      ), 0),
+      -- plătit (rânduri de payout, negative)
+      'paid_cents', coalesce((
+        select -sum(amount_cents) from public.affiliate_ledger
+         where affiliate_id = v_aff.id and leg = 'payout'
+           and currency = 'RON'
+      ), 0),
+      -- stornat (clawback)
+      'clawed_back_cents', coalesce((
+        select -sum(amount_cents) from public.affiliate_ledger
+         where affiliate_id = v_aff.id and leg = 'clawback'
+           and currency = 'RON'
+      ), 0),
+      -- ── mig 295: cifrele NETE (chei noi, la final) ─────────────────────
+      -- net câștigat = confirmat + în așteptare net (identitate, AP6)
+      'net_earned_cents',  v_confirmed + v_pending_net,
+      'pending_net_cents', v_pending_net,
+      -- payout-uri create dar încă neplătite (draft → on_hold)
+      'in_progress_cents', v_in_progress,
+      -- disponibil pentru următorul batch = confirmat − angajat (190)
+      'available_cents',   greatest(v_confirmed - v_committed, 0),
+      'min_payout_cents',  5000
+    ),
+
+    -- Următoarea plată estimată: cel mai apropiat hold care expiră.
+    -- Doar holdurile RON: batch-ul de payout rulează în RON, deci un hold EUR
+    -- (mig 107) nu trebuie prezentat ca „următoarea plată" RON (fix cross-currency).
+    'next_payout_at', (
+      select min(hold_until) from public.affiliate_ledger
+       where affiliate_id = v_aff.id and amount_cents > 0
+         and leg in ('setup','recurring','cascade') and hold_until > now()
+         and currency = 'RON'
+    ),
+    -- mig 295: ziua reală a următoarei rulări a batch-ului de plăți.
+    'next_batch_date', v_next_batch
+  );
+
+  return v_result;
+end$$;
+
+revoke all on function public.get_affiliate_dashboard() from public, anon, service_role;
+grant execute on function public.get_affiliate_dashboard() to authenticated;
+
+do $$
+declare v_src text;
+begin
+  v_src := pg_get_functiondef('public.get_affiliate_dashboard()'::regprocedure);
+  if position('l.currency = ''RON''' in v_src) = 0 or position('''defaults''' in v_src) = 0 then
+    raise exception 'mig 295: get_affiliate_dashboard a pierdut fixul RON (174) sau defaults (188)';
+  end if;
+  if position('net_earned_cents' in v_src) = 0 or position('available_cents' in v_src) = 0
+     or position('next_batch_date' in v_src) = 0 or position('reverses_ledger_id' in v_src) = 0 then
+    raise exception 'mig 295: get_affiliate_dashboard fără cifrele nete';
+  end if;
+  if has_function_privilege('anon', 'public.get_affiliate_dashboard()', 'EXECUTE') then
+    raise exception 'mig 295: anon poate citi panoul de afiliat';
+  end if;
+end $$;
+
 commit;
