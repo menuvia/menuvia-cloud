@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { isoToRomaniaYMD, romaniaDayBoundaryISO, toRomaniaYMD } from '../dates'
+import { isoToRomaniaYMD, romaniaDayBoundaryISO, romaniaDayRange, toRomaniaYMD } from '../dates'
 
 const ymd = (iso: string) => toRomaniaYMD(new Date(iso))
 
@@ -92,5 +92,35 @@ describe('romaniaDayBoundaryISO', () => {
     const body = src.slice(start, src.indexOf('\n}\n', start))
     expect(body).not.toMatch(/toLocale(String|DateString|TimeString)/)
     expect(body).toMatch(/bucharestOffsetMs\(/)
+  })
+})
+
+describe('romaniaDayRange', () => {
+  it('D12 vara (UTC+3): ziua 4 sept = [3 sept 21:00Z, 4 sept 20:59:59.999Z]', () => {
+    expect(romaniaDayRange('2026-09-04')).toEqual({
+      from: '2026-09-03T21:00:00.000Z',
+      to: '2026-09-04T20:59:59.999Z',
+    })
+  })
+  it('D13 iarna (UTC+2) și zilele cu schimbarea orei (23 h / 25 h) au capete corecte', () => {
+    expect(romaniaDayRange('2026-01-15')).toEqual({
+      from: '2026-01-14T22:00:00.000Z',
+      to: '2026-01-15T21:59:59.999Z',
+    })
+    // 29 martie: ziua are 23 de ore (EET → EEST la 01:00Z)
+    expect(romaniaDayRange('2026-03-29')).toEqual({
+      from: '2026-03-28T22:00:00.000Z',
+      to: '2026-03-29T20:59:59.999Z',
+    })
+    // 25 octombrie: ziua are 25 de ore (EEST → EET la 01:00Z)
+    expect(romaniaDayRange('2026-10-25')).toEqual({
+      from: '2026-10-24T21:00:00.000Z',
+      to: '2026-10-25T21:59:59.999Z',
+    })
+  })
+  it('D14 zile consecutive nu se suprapun și nu lasă gol (to + 1 ms = from-ul zilei următoare)', () => {
+    const a = romaniaDayRange('2026-09-04')
+    const b = romaniaDayRange('2026-09-05')
+    expect(Date.parse(a.to) + 1).toBe(Date.parse(b.from))
   })
 })

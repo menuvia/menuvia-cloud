@@ -166,6 +166,22 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
 
+      # Janitorul de comenzi (mig 288) pe stack-ul Supabase real: funcție NOUĂ,
+      # deci default privileges pot re-acorda EXECUTE (OJ8 cere zero grant) —
+      # sql-verify (postgres gol) e orb la clasa asta.
+      - name: Janitor comenzi pe stack-ul Supabase real (mig 288, OJ1–OJ9)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/order_janitors_assertions.sql
+
+      # Rezervări expirate (mig 289) pe stack-ul real: default privileges ale
+      # Supabase re-acordă EXECUTE pe funcții NOI (janitorul) — RX8 are muncă
+      # reală DOAR aici; sql-verify (postgres gol) e orb la clasa asta.
+      - name: Rezervări expirate pe stack-ul Supabase real (mig 289, RX1–RX8)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/reservations_expired_assertions.sql
+
       # Accesul partenerului (mig 286) pe stack-ul real: default privileges ale
       # Supabase pot acorda grant-uri pe funcții/tabele NOI; PO1–PO10 rulează sub
       # rolul `authenticated` și prind orice drum prin care partenerul vede mai mult

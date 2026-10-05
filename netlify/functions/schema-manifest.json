@@ -286,6 +286,8 @@
     "migration_284_gdpr_receipt_archive",
     "migration_285_vat_presets_l141",
     "migration_286_partner_optin",
-    "migration_287_fiscal_journal_lockdown"
+    "migration_287_fiscal_journal_lockdown",
+    "migration_288_order_janitors",
+    "migration_289_reservations_expired"
   ]
 }
