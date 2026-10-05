@@ -3,10 +3,12 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from './AuthContext'
 import { getFounderView, clearFounderView } from '../lib/founder'
 import type { MemberRole } from '../lib/constants'
+import { resolveVisitRole, type UiRole } from '../lib/partnerAccess'
 
 export interface RestaurantMembership {
   restaurant_id: string
-  role: MemberRole
+  // MemberRole din DB + „partner" (vizită de afiliat, mig 286 — doar în UI).
+  role: UiRole
   restaurant: {
     id: string
     name: string
@@ -18,7 +20,7 @@ interface RestaurantCtxValue {
   memberships: RestaurantMembership[]
   activeId: string | null
   activeName: string
-  activeRole: MemberRole | null
+  activeRole: UiRole | null
   setActive: (id: string) => void
   loading: boolean
   // true când încărcarea membership-urilor a eșuat tranzient (blip de rețea /
@@ -141,8 +143,8 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         // Mod fondator/partener: FounderPage sau AffiliatePanel a cerut
         // vizitarea unui restaurant pe care userul NU are membership. RLS-ul
         // (is_member, extins în mig 186) decide accesul: dacă SELECT-ul pe
-        // restaurants întoarce rândul, injectăm un membership sintetic de
-        // manager; dacă nu (user fără drepturi / cheie stale), curățăm cheia.
+        // restaurants întoarce rândul, injectăm un membership sintetic (manager
+        // pentru fondator, „partner" pentru afiliat); dacă nu (user fără drepturi / cheie stale), curățăm cheia.
         const fv = getFounderView()
         let fvActive: string | null = null
         if (fv && !rows.some((m) => m.restaurant_id === fv)) {
@@ -153,9 +155,20 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
             .maybeSingle()
           if (cancelled) return
           if (fvRest) {
+            // Rolul vizitei: fondatorul (is_platform_admin) = manager virtual,
+            // partenerul (mig 286) = „partner" — SELECT-ul pe restaurants a trecut
+            // pentru el prin politica dedicată, dar my_role() întoarce null, iar
+            // dashboard-ul îi arată doar meniul + mesele/QR.
+            const { data: visitRole, error: roleErr } = await supabase.rpc('my_role', {
+              p_restaurant_id: fvRest.id,
+            })
+            if (cancelled) return
             rows.push({
               restaurant_id: fvRest.id,
-              role: 'manager' as MemberRole,
+              role: resolveVisitRole(
+                typeof visitRole === 'string' ? visitRole : null,
+                roleErr != null,
+              ),
               restaurant: fvRest,
             })
             fvActive = fvRest.id

@@ -48,7 +48,7 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 | Profil payout | `legal_form` ∈ (`pfa`,`srl`,**`other`**); UI oferă „Altă formă” | m098:51; m190:77; `src/pages/AfiliatPage.tsx:1105-1107` |
 | Aprobare | `register_affiliate` (telefon obligatoriu) inserează `pending`; fondatorul decide cu `admin_review_affiliate`. Toate căile de bani/acces filtrează `status='active'` | m243:263-359; m224:161-197; CLAUDE.md „Afilierea e cu CERERE” |
 | Suspendare | Enum `suspended`/`closed` există, **niciun RPC** nu le setează; batch-ul ignoră non-activii → sold înghețat, nu anulat | m097:35-53; m190:136 |
-| Acces partener | Afiliatul primește automat rol virtual `manager` pe TOATE restaurantele owner-ului atribuit, de la captură, pe orice plan; se încheie doar prin revocare | m187:56-118, :197-254; m193:39-55 |
+| Acces partener | OPT-IN (mig 286): afiliatul CERE accesul, DOAR ownerul îl APROBĂ (`owner_consented_at`), îl poate revoca oricând; acoperă DOAR meniul + mese/QR (politici dedicate, nu funelul `is_admin`) — fără comenzi, rezervări, date fiscale, setări sau echipă | m286 |
 | Monede | Enum RON/EUR, batch multi-monedă; dashboard-ul însumează doar RON; moneda prețurilor Stripe nu se poate verifica din repo (price ID-urile există doar în env, `stripe-checkout.js:32-33`) | m107:20-24; m188:431-505 |
 
 ### 1.2 Ce spunea documentația veche și nu e adevărat
@@ -302,11 +302,7 @@ Până la răspuns: rămâne 1 nivel; se ascunde recrutarea pentru subafiliați.
    varianta „coordonator” din §4.
 6. Cross-border: doar rezidenți fiscali RO până la fluxul de taxare inversă?
 7. GDPR cu afiliații (DPA, registru, temei art. 6(1)(b)/(c), retenție fiscală).
-8. **Nou — acces partener:** afiliatul primește automat drepturi de manager pe toate
-   restaurantele clientului, inclusiv PII oaspeți, comenzi, rezervări (m187:56-118,
-   m193:39-55). DPA-ul (`menuvia-pack/05-DRAFT-DPA.md:18-20`) nu-i menționează.
-   Ce calitate au (persoană autorizată a operatorului? sub-împuternicit?), ce clauză?
-   Alternativa tehnică: acces doar la cererea explicită a owner-ului.
+8. **Acces partener (revizuit, mig 286):** accesul e opt-in (consimțământul ownerului) și restrâns la meniu + mese/QR; afiliatul NU mai vede PII oaspeți, comenzi sau rezervări. Rămâne de clarificat cu avocatul calitatea lui față de operator pentru ce vede (meniu/mese).
 9. **Nou — Codvia:** comision pe vânzări unice de bunuri către consumatori
    (OUG 34/2014; drept de retragere 14 zile, excepția bunurilor personalizate):
    baza (fără TVA și transport?), clawback la retragere. Dacă agentul ia comanda sau

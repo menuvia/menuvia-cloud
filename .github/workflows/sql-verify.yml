@@ -1664,6 +1664,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
+      # NECONDIȚIONAT (mig 286): accesul partenerului e opt-in + restrâns. Rulează
+      # SUB rolul real `authenticated`, cu descoperire automată a tabelelor cu
+      # restaurant_id — o tabelă viitoare pe care partenerul ar ajunge să o vadă
+      # face pasul roșu. PO9 e inversul asserției mig 187 (partenerul NU e în funel).
+      - name: "Partner opt-in access assertions (mig 286, PO1–PO10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/partner_optin_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
@@ -1671,6 +1682,16 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/plan_whitelist_sync_assertions.sql
+
+      # NECONDIȚIONAT (mig 287): jurnalul fiscal (pending_receipts) nu mai are
+      # UPDATE pentru rolurile client + secretul Oblio nu mai e citibil. Rulează
+      # SUB rolul real `authenticated` (ca postgres RLS/privilegiile sunt ocolite).
+      - name: "Fiscal journal + Oblio secret lockdown (mig 287, FL1–FL6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_lockdown_assertions.sql
 
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
