@@ -82,14 +82,17 @@ const primaryBtn = (disabled: boolean): React.CSSProperties => ({
 
 // Helperii readPlanIntent/clearPlanIntent/writePlanIntent + cheia au fost
 // mutați în ../lib/planIntent ca să respecte react-refresh/only-export-components.
-import { readPlanIntent, writePlanIntent } from '../lib/planIntent'
+import {
+  authRedirectUrl,
+  initialAuthMode,
+  planFromSearch,
+  readPlanIntent,
+  writePlanIntent,
+  type PlanIntentId,
+} from '../lib/planIntent'
 
-function readIntentFromUrlOrSession(): 'starter' | 'growth' | 'pro' | null {
-  const m = window.location.search.match(/[?&]plan=(starter|growth|pro)\b/)
-  if (m) return m[1] as 'starter' | 'growth' | 'pro'
-  const s = readPlanIntent()
-  if (s === 'starter' || s === 'growth' || s === 'pro') return s
-  return null
+function readIntentFromUrlOrSession(): PlanIntentId | null {
+  return planFromSearch(window.location.search) ?? readPlanIntent()
 }
 
 const UI_LANG_KEY = 'menuvia_ui_lang'
@@ -323,11 +326,13 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
   // Persistăm planul-țintă dacă /auth a fost deschisă din /pricing cu ?plan=...
   // Citim direct URL-ul (nu folosim router) ca să nu adăugăm dependență.
   useEffect(() => {
-    const m = window.location.search.match(/[?&]plan=(starter|growth|pro)\b/)
-    if (m) writePlanIntent(m[1])
+    const p = planFromSearch(window.location.search)
+    if (p) writePlanIntent(p)
   }, [])
 
-  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  const [mode, setMode] = useState<'login' | 'signup'>(() =>
+    initialAuthMode(window.location.search),
+  )
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -391,7 +396,13 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
           // deja creată de GoTrue la click) — înainte, textul îi cerea să
           // „revină să se autentifice" și funelul se rupea exact aici.
           // Același pattern de URL ca resetPasswordForEmail de mai jos.
-          emailRedirectTo: (import.meta.env.VITE_APP_URL || window.location.origin) + '/auth',
+          // `?plan=` în link: confirmarea se deschide în ALT tab (sau pe alt
+          // dispozitiv), iar intenția trebuie să ajungă și acolo — altfel
+          // contul nou ateriza pe /dashboard în loc de checkout.
+          emailRedirectTo: authRedirectUrl(
+            import.meta.env.VITE_APP_URL || window.location.origin,
+            planIntent,
+          ),
         },
       })
       if (signUpErr) {
