@@ -85,7 +85,7 @@ export default function SplitBillSheet({
     } finally {
       setLoading(false)
     }
-  }, [token, sessionId])
+  }, [token, sessionId, lang])
 
   useEffect(() => {
     void load()
