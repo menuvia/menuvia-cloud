@@ -16,6 +16,8 @@
 //   SC6  token invalid → 401;
 //   SC7  limiterul căzut → 503 fail-closed; peste plafon → 429;
 //   SC8  interogarea de profil picată → 503 (nu creează un customer duplicat).
+//   SR1  success_url poartă planul CUMPĂRAT (`checkout_plan=`) — clientul
+//        anunță „planul e activ" doar când profilul îl are exact pe acela.
 
 'use strict'
 
@@ -188,5 +190,32 @@ describe('stripe-checkout — suprafața de eroare', () => {
     const res = await post({ plan: 'growth' })
     const body = parseBody(res)
     assert.ok(typeof body.error === 'string' && body.error.length > 0)
+  })
+
+  it('SR1: success_url poartă `checkout_plan=<plan cumpărat>`, cancel_url neschimbat', async () => {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => []
+    state.stripeImpls['checkout.sessions.create'] = async () => ({
+      url: 'https://checkout.stripe.com/c/pay/cs_test',
+    })
+
+    const res = await post({ plan: 'growth' })
+    assert.equal(res.statusCode, 200)
+    const calls = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+    assert.equal(calls.length, 1)
+    const params = calls[0].args[0]
+    const success = new URL(params.success_url)
+    assert.equal(success.pathname, '/dashboard')
+    assert.equal(success.searchParams.get('checkout'), 'success')
+    assert.equal(success.searchParams.get('checkout_plan'), 'growth')
+    // `plan=` e intenția de pe /auth — nu are voie să apară în URL-ul de întoarcere.
+    assert.equal(success.searchParams.get('plan'), null)
+    assert.equal(new URL(params.cancel_url).search, '?checkout=cancelled')
   })
 })

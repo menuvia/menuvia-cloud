@@ -198,6 +198,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/fiscal_lockdown_assertions.sql
 
+      # Mig 290 pe stack-ul real: PD2 verifică ACL-ul gate-urilor recreate
+      # (`create or replace` păstrează ACL-ul, dar default privileges ale
+      # Supabase sunt exact clasa la care sql-verify e orb).
+      - name: Mesaje de plan neutre + date moarte pe stack-ul Supabase real (mig 290, PD1–PD4)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/plan_dead_data_assertions.sql
+
       # Egalitate exactă la încasare + gate-ul reducerii (mig 291): pe stack-ul
       # real, ca să vadă și grant-urile/default privileges ale Supabase.
       - name: Money exactness pe stack-ul Supabase real (mig 291, MX1–MX7)
