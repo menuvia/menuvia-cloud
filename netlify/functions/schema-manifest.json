@@ -285,6 +285,7 @@
     "migration_283_scan_views_grant",
     "migration_284_gdpr_receipt_archive",
     "migration_285_vat_presets_l141",
-    "migration_293_affiliate_commission_v2"
+    "migration_293_affiliate_commission_v2",
+    "migration_294_affiliate_payout_flow"
   ]
 }

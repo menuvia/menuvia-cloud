@@ -316,6 +316,19 @@ exports.handler = async () => {
         })
         if (error) throw error
         results.affiliate_payouts = data
+        // Eșec PARȚIAL (mig 190/294): RPC-ul nu aruncă, întoarce ok:false cu
+        // `errors`. Fără alertă, afiliații săriți rămâneau neplătiți TĂCUT —
+        // iar pre-check-ul de mai sus (count > 0) oprește reîncercarea pe
+        // perioada asta. Reluarea: butonul „Rulează batch-ul" din FounderPage
+        // (admin_run_payout_batch, idempotent). `batch_in_progress` = altă
+        // rulare (fondatorul) ține lacătul — nu e o eroare.
+        const batchErrors = data && Array.isArray(data.errors) ? data.errors.length : 0
+        if (batchErrors > 0) {
+          await postCronAlert(
+            'affiliate-payout',
+            `${batchErrors} afiliat(i) săriți de batch-ul ${period} — reia din FounderPage după remediere`,
+          )
+        }
         // Reminder founder: dacă batch-ul a creat draft-uri (data.created > 0),
         // ele stau în status 'draft' și necesită procesare manuală (factură + Wise).
         // Fără această notificare, payout-urile pot rămâne tăcut neprocesate.

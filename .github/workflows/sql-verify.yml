@@ -1664,6 +1664,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
+      # NECONDIȚIONAT (mig 294): fluxul de payout cap-coadă. Fiecare tranziție
+      # trece prin RPC-ul de fondator SUB rolul REAL `authenticated` (ca TP24) —
+      # suitele PO/PP scriu direct ca postgres și sunt oarbe la ACL/gate.
+      - name: "Affiliate payout flow assertions (mig 294, PF1–PF12)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_payout_flow_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:

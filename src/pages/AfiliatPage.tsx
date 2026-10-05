@@ -1033,7 +1033,10 @@ function PayoutProfileForm({
           setSaving(false)
           const res = data as { ok: boolean; reason?: string } | null
           if (error || !res?.ok) {
-            if (res?.reason === 'invalid_iban') toast.error('IBAN invalid.')
+            if (res?.reason === 'invalid_iban') toast.error('IBAN invalid (verifică cifrele — cifra de control nu se potrivește).')
+            // mig 294: datele de plată sunt înghețate cât o plată e în curs.
+            else if (res?.reason === 'payout_in_progress')
+              toast.error('Ai o plată în curs — datele de plată se pot schimba după ce se încheie. Scrie-ne dacă IBAN-ul e greșit.')
             else if (res?.reason === 'invalid_legal_form') toast.error('Formă juridică invalidă.')
             else toast.error('Nu am putut salva datele de plată.')
             return

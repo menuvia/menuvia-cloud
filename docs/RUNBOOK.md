@@ -97,10 +97,18 @@ order by created_at desc;
 ```
 
 **⚠️ Transferul efectiv e MANUAL** (nu există automatizare Wise în cod). Fluxul de stări:
-`draft → awaiting_invoice → invoice_matched → processing (wise_transfer_id setat) → paid`.
-Tranzițiile sunt gate-uite de trigger (nu poți sări stări; nu poți reveni sub `processing`
-odată ce există `wise_transfer_id`). Emiterea facturii afiliatului + transferul Wise le faci
-manual, apoi actualizezi statusul. **Nu forța `session_replication_role`.**
+`draft → awaiting_invoice → invoice_matched → processing (referință setată) → paid`.
+Din mig 294 fiecare pas e un buton în FounderPage → Afiliați → Payout-uri (RPC-urile
+`admin_payout_*` + `admin_mark_payout_paid`, cu audit), NU un UPDATE în SQL. Referința e
+generică: id-ul transferului Wise SAU numărul OP-ului de virament (`bank_transfer`) SAU alt
+document (`other`) — Wise nu mai e obligatoriu. Ordinea sigură: (1) „Cere factura”;
+(2) „Confirmă factura” cu numărul ei; (3) plătești din bancă/Wise către IBAN-ul afișat pe
+rând, apoi „Am inițiat transferul” cu referința; (4) după ce vezi banii plecați în extras,
+„Marchează plătit”. Rezultat ambiguu → „Pune în verificare”; eșec → „Marchează eșuat”, apoi
+„Anulează” DOAR după ce confirmi că banii NU au plecat (abia anularea eliberează suma pentru
+batch-ul următor). Trigger-ul nu lasă sărirea stărilor, revenirea sub `processing` după o
+referință, nici rescrierea referinței. Batch-ul se poate rula manual cu „Rulează batch-ul
+lunii” (idempotent). **Nu forța `session_replication_role`.**
 
 ### 3.2 Email dead-letter (reia emailurile eșuate)
 
