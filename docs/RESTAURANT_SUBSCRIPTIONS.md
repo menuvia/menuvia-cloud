@@ -34,8 +34,8 @@ restaurant→owner→`profiles.plan`:
 | `get_restaurant_features` | mig 068:13-44 | TOT frontend-ul (`features.ts:43` → `useFeatures`) |
 | `enforce_feature_for_restaurant` | mig 087:22-52 | gate-urile fiscale/lifecycle (regula de aur) |
 
-(+ `enforce_ordering_enabled` mig 083 și `reserve_ai_import_slot` mig 141:44,
-care fac join-ul direct — se aliniază la pâlnie în Faza 0.)
+(+ `enforce_ordering_enabled` mig 083 → 290, care face join-ul direct — se aliniază
+la pâlnie în Faza 0. `reserve_ai_import_slot` a fost ȘTEARSĂ în mig 290: zero apelanți.)
 
 **Frontend-ul e DEJA per-restaurant** (`useFeatures(restaurantId)`, CLAUDE.md
 regula 3) — zero schimbări UI la citire. Singurele scrieri de plan sunt
@@ -73,7 +73,7 @@ comportamentul e byte-identic cu azi.**
 
 ### Faza 0 — fundația, zero schimbare de comportament
 - mig nouă: tabela + `restaurant_plan()` + rescrierea celor 3 pâlnii
-  (+ `enforce_ordering_enabled`, `reserve_ai_import_slot`) să cheme
+  (+ `enforce_ordering_enabled`) să cheme
   `restaurant_plan()` în loc de join-ul direct. Asserții: pe DB fără rânduri
   în tabelă, rezultatele sunt identice cu owner-plan (test A/B în migrație).
 - `stripe-checkout.js`: primește `restaurant_id` din body (UI-ul de checkout
