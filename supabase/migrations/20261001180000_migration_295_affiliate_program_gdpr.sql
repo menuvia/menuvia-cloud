@@ -663,4 +663,351 @@ begin
   end if;
 end $$;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- §4. GDPR: detașarea afilierii înaintea `delete from auth.users`
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 4a. Coloanele de tombstone + NULL permis DOAR prin ștergere.
+alter table public.affiliates
+  add column if not exists erased_at timestamptz;
+alter table public.affiliate_attributions
+  add column if not exists referred_erased_at timestamptz;
+
+alter table public.affiliates alter column profile_id drop not null;
+alter table public.affiliate_attributions alter column referred_profile_id drop not null;
+
+-- 097 avea și un CHECK de tabelă `referred_profile_id is not null` (nume
+-- generat) — îl găsim pe DEFINIȚIE, nu pe nume.
+do $$
+declare r record;
+begin
+  for r in
+    select conname from pg_constraint
+     where conrelid = 'public.affiliate_attributions'::regclass and contype = 'c'
+       and pg_get_constraintdef(oid) ilike '%referred_profile_id IS NOT NULL%'
+       and pg_get_constraintdef(oid) not ilike '%referred_erased_at%'
+  loop
+    execute format('alter table public.affiliate_attributions drop constraint %I', r.conname);
+  end loop;
+end $$;
+
+alter table public.affiliates drop constraint if exists affiliates_profile_or_erased;
+alter table public.affiliates add constraint affiliates_profile_or_erased
+  check (profile_id is not null or erased_at is not null);
+
+alter table public.affiliate_attributions drop constraint if exists affiliate_attributions_referred_or_erased;
+alter table public.affiliate_attributions add constraint affiliate_attributions_referred_or_erased
+  check (referred_profile_id is not null or referred_erased_at is not null);
+
+-- 4b. Detașarea (intern; chemată doar din process_account_deletions).
+create or replace function public.erase_affiliate_identity_for_user(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_aff_id    uuid;
+  v_attr_cnt  integer := 0;
+begin
+  -- (1) Userul e AFILIAT: rândul rămâne (ledger WORM + payout-uri îl
+  -- referențiază, retenție fiscală), identitatea pleacă. Lacăt pe rând ca o
+  -- aprobare/tranziție concurentă să nu scrie peste.
+  select id into v_aff_id from public.affiliates
+   where profile_id = p_user_id
+   for update;
+
+  if v_aff_id is not null then
+    update public.affiliates
+       set profile_id       = null,
+           status           = 'closed',
+           phone            = null,
+           application_note = null,
+           vanity_slug      = null,
+           brand_domain     = null,
+           brand_name       = null,
+           brand_logo_url   = null,
+           erased_at        = now()
+     where id = v_aff_id;
+
+    -- Datele bancare/fiscale ale persoanei. `legal_form` (pfa/srl/other) nu
+    -- identifică pe nimeni și e NOT NULL → rămâne.
+    update public.affiliate_payout_profile
+       set cui = null, iban = null, beneficiary_name = null, updated_at = now()
+     where affiliate_id = v_aff_id;
+  end if;
+
+  -- (2) Userul e un cont ATRIBUIT: atribuirea rămâne (ledger-ul o referă prin
+  -- attribution_id), legătura cu persoana pleacă. O atribuire ne-terminală
+  -- devine `canceled` → comisionul se oprește (099 caută pending/active).
+  update public.affiliate_attributions
+     set referred_profile_id = null,
+         referred_erased_at  = now(),
+         status = case when status in ('pending', 'active', 'paused')
+                       then 'canceled'::public.attribution_status
+                       else status end
+   where referred_profile_id = p_user_id;
+  get diagnostics v_attr_cnt = row_count;
+
+  return jsonb_build_object(
+    'affiliate_erased', v_aff_id is not null,
+    'attributions_detached', v_attr_cnt);
+end;
+$$;
+
+revoke all on function public.erase_affiliate_identity_for_user(uuid)
+  from public, anon, authenticated, service_role;
+
+comment on function public.erase_affiliate_identity_for_user(uuid) is
+  'mig 295: detașează un profil șters (GDPR) de afiliere — afiliatul devine closed cu PII golite, atribuirea pierde referred_profile_id (tombstone). Ledger-ul și payout-urile rămân. Doar intern.';
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 4c. process_account_deletions — lanț 042→179→183→282→284→295.
+--    Copie VERBATIM din 284 + UN apel (erase_affiliate_identity_for_user)
+--    imediat înaintea ștergerii. Orice recreare pornește de AICI și păstrează
+--    TOT: lacătul, ordinea, claim-ul, cele 3 politici, arhivarea facturilor ȘI
+--    a bonurilor, gate-ul `block` pe ambele, detașarea afilierii, `limit 100`
+--    și izolarea per-user.
+-- ─────────────────────────────────────────────────────────────────────────────
+create or replace function public.process_account_deletions()
+returns table(deleted_user_id uuid, deleted_at timestamptz)
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_user      record;
+  v_policy    text;
+  v_has_invoices boolean;
+  v_has_receipts boolean;  -- mig 284
+  v_archived  integer;
+  v_archived_receipts integer;  -- mig 284
+  v_affiliate jsonb;            -- mig 295
+begin
+  -- mig 282: SINGLE-FLIGHT. A doua rulare (alt planificator, tick suprapus,
+  -- declanșare manuală) iese imediat cu zero rânduri în loc să itereze peste
+  -- aceleași conturi. Lacătul e pe TRANZACȚIE: se eliberează la commit/rollback,
+  -- deci un proces ucis nu-l lasă agățat.
+  if not pg_try_advisory_xact_lock(hashtext('gdpr_account_deletions')) then
+    raise notice 'process_account_deletions: alta rulare e in curs — ies fara sa sterg nimic';
+    return;
+  end if;
+
+  -- Citește politica activă (fallback la default recomandat dacă lipsește rândul)
+  select coalesce(
+           (select policy from public.gdpr_deletion_config where id = true),
+           'archive_anonymize'
+         )
+    into v_policy;
+
+  for v_user in
+    select id from public.profiles
+    where deletion_requested_at is not null
+      and deletion_requested_at < now() - interval '30 days'
+      -- Sari peste conturile deja marcate blocate (așteaptă remediere manuală)
+      and deletion_blocked_reason is null
+    -- mig 282: ordine DETERMINISTĂ. Fără ea, două bucle concurente parcurg
+    -- aceleași rânduri în ordini diferite → deadlock pe cascada auth.users.
+    order by deletion_requested_at, id
+    limit 100 -- batch pentru a nu bloca cron-ul
+    -- mig 282: claim per rând. Ce e revendicat de altă rulare se SARE, deci
+    -- nu se mai face `return next` pentru conturi pe care nu le-am șters noi.
+    for update skip locked
+  loop
+    -- Izolare eroare per-user (mig 183): o eroare neașteptată (ex. constraint
+    -- violation) la UN user NU oprește restul batch-ului de ștergeri GDPR.
+    begin
+      -- Are owner-ul facturi fiscale EMISE pe vreun restaurant deținut?
+      select exists(
+        select 1
+          from public.invoices i
+          join public.restaurants r on r.id = i.restaurant_id
+         where r.owner_id = v_user.id
+           and i.status in ('issued', 'cancelled')
+      ) into v_has_invoices;
+
+      -- mig 284: SERIALIZARE cu bridge-ul, ÎNAINTEA oricărei verificări pe bonuri
+      -- (recenzie CodeRabbit pe #271). Fără lacăte, sub READ COMMITTED: un bon
+      -- `sent` confirmat de bridge DUPĂ citirea arhivei ar fi arhivat în starea
+      -- veche (fără bon_number), iar un rând inserat între arhivare și cascadă
+      -- s-ar șterge fără arhivă. `for update` pe restaurante blochează inserările
+      -- noi (FK-ul ia KEY SHARE pe părinte); lacătul pe rândurile de jurnal
+      -- blochează confirmările și claim-urile pe rândurile existente.
+      perform 1 from public.restaurants where owner_id = v_user.id for update;
+      perform 1
+        from public.pending_receipts pr
+        join public.restaurants r on r.id = pr.restaurant_id
+       where r.owner_id = v_user.id
+       for update of pr;
+
+      -- Un bon `sent` e în TIPĂRIRE: nu ștergem contul sub el. Se SARE pentru
+      -- tick-ul ăsta, FĂRĂ deletion_blocked_reason — rămâne eligibil, iar
+      -- janitorul orar `bridge_mark_stale_as_error` (pg_cron, mig 274) mută un
+      -- `sent` agățat în `error`, deci amânarea e MĂRGINITĂ. `pending` NU se
+      -- așteaptă: un bridge offline pe termen nedefinit ar bloca Art. 17 pentru
+      -- totdeauna, tăcut; rândul `pending` se arhivează ca atare (nimic tipărit).
+      if exists (
+        select 1
+          from public.pending_receipts pr
+          join public.restaurants r on r.id = pr.restaurant_id
+         where r.owner_id = v_user.id
+           and pr.status = 'sent'
+      ) then
+        raise notice 'process_account_deletions: user % sărit — bon în tipărire (sent), reîncercat la tick-ul următor', v_user.id;
+        continue;
+      end if;
+
+      -- mig 284: are owner-ul bonuri fiscale TIPĂRITE (`success`, cu bon_number)?
+      -- `pending_receipts` e singura legătură comandă↔bon din bază (mig 275), iar
+      -- cascada auth.users → profiles → restaurants → orders → pending_receipts
+      -- o șterge. Sub `block`, un bon tipărit blochează ca o factură emisă.
+      select exists(
+        select 1
+          from public.pending_receipts pr
+          join public.restaurants r on r.id = pr.restaurant_id
+         where r.owner_id = v_user.id
+           and pr.status = 'success'
+      ) into v_has_receipts;
+
+      -- ── Politica BLOCK ──────────────────────────────────────────
+      -- Nu șterge. Marchează motivul; owner-ul rezolvă manual (transfer/închidere).
+      if v_policy = 'block' and (v_has_invoices or v_has_receipts) then
+        update public.profiles
+           set deletion_blocked_reason =
+                 'Blocat: contul are documente fiscale (facturi sau bonuri) care trebuie '
+                 'păstrate 10 ani (Legea 82/1991). Contactați privacy@menuvia.ro pentru '
+                 'transfer sau închiderea restaurantului înainte de ștergere.'
+         where id = v_user.id;
+        raise notice 'process_account_deletions: user % blocat (are documente fiscale)', v_user.id;
+        continue; -- NU avansează ștergerea, NU returnează next
+      end if;
+
+      -- ── Politica TRANSFER_TOMBSTONE ────────────────────────────
+      -- Snapshot fiscal + marchează restaurantele ca orfane. Transferul REAL de
+      -- owner NU se face aici (owner_id imuabil, lockdown). raise notice pentru
+      -- remediere manuală via scripts/apply_ownership_remediation.sql.
+      if v_policy = 'transfer_tombstone' and v_has_invoices then
+        perform public.archive_fiscal_invoices_for_user(v_user.id);
+        update public.restaurants
+           set is_tombstoned    = true,
+               tombstoned_at     = now(),
+               tombstoned_reason =
+                 'Owner șters (GDPR). Necesită remediere manuală de owner: '
+                 'scripts/apply_ownership_remediation.sql'
+         where owner_id = v_user.id;
+        raise notice
+          'process_account_deletions: user % — restaurante tombstoned; transfer '
+          'owner necesită remediere manuală (owner_id imuabil)', v_user.id;
+        -- Continuă ștergerea contului: datele personale se șterg (GDPR), snapshot-ul
+        -- fiscal supraviețuiește. Cascada VA șterge restaurantele tombstoned și
+        -- invoices — acceptat, fiindcă am salvat deja snapshot-ul fiscal.
+      end if;
+
+      -- ── Politica ARCHIVE_ANONYMIZE (DEFAULT) ───────────────────
+      -- Snapshot fiscal ÎNAINTE de ștergere, apoi lasă cascada să șteargă originalele.
+      -- Se aplică și ca ramură comună pentru archive_anonymize + fallback
+      -- transfer_tombstone (snapshot deja făcut mai sus e idempotent).
+      if v_has_invoices then
+        v_archived := public.archive_fiscal_invoices_for_user(v_user.id);
+        raise notice 'process_account_deletions: user % — % facturi arhivate fiscal',
+          v_user.id, v_archived;
+      end if;
+
+      -- mig 284: JURNALUL fiscal al restaurantelor owner-ului (toate rândurile din
+      -- pending_receipts: bonuri, Z/X, marcaje POSIBIL DUPLICAT) se arhivează
+      -- ÎNAINTEA cascadei, pe ORICE politică — mig 179 arhiva doar `invoices`, iar
+      -- politica activă pe prod e `archive_anonymize`. Idempotent (on conflict).
+      -- O eroare aici cade în handler-ul per-user de mai jos: userul NU se șterge
+      -- și se reîncearcă la tick-ul următor — niciodată ștergere fără arhivă.
+      v_archived_receipts := public.archive_fiscal_receipts_for_user(v_user.id);
+      if v_archived_receipts > 0 then
+        raise notice 'process_account_deletions: user % — % rânduri din jurnalul de bonuri arhivate',
+          v_user.id, v_archived_receipts;
+      end if;
+
+      -- mig 295: afilierea are FK-uri RESTRICT pe profil (097:62-63, :90-91) —
+      -- fără detașare, ștergerea de mai jos pica pe ORICE afiliat sau cont
+      -- atribuit, iar handler-ul per-user o reîncerca la infinit. Afiliatul
+      -- devine `closed` cu PII golite, atribuirea pierde referred_profile_id
+      -- (tombstone); ledger-ul și payout-urile rămân (retenție fiscală). În
+      -- aceeași subtranzacție: dacă ștergerea pică, se derulează și detașarea.
+      v_affiliate := public.erase_affiliate_identity_for_user(v_user.id);
+      if (v_affiliate->>'affiliate_erased')::boolean
+         or (v_affiliate->>'attributions_detached')::int > 0 then
+        raise notice 'process_account_deletions: user % — afiliere detașată (%)',
+          v_user.id, v_affiliate;
+      end if;
+
+      -- Ștergerea propriu-zisă. Cascada (auth.users → profiles → restaurants →
+      -- invoices) șterge datele personale. retained_invoices NU e cascadat →
+      -- supraviețuiește. Datele personale reziduale (audit columns) sunt deja
+      -- SET NULL prin FK-urile din mig 055.
+      delete from auth.users where id = v_user.id;
+
+      deleted_user_id := v_user.id;
+      deleted_at := now();
+      return next;
+    exception when others then
+      -- Izolare (mig 183): un singur user eșuat NU oprește restul batch-ului.
+      -- Userul rămâne eligibil și va fi reîncercat la următorul tick al cron-ului.
+      raise warning
+        'process_account_deletions: eroare la ștergerea user % — sărit, se reîncearcă '
+        'la următorul tick (%: %)', v_user.id, sqlstate, sqlerrm;
+      continue;
+    end;
+  end loop;
+end;
+$$;
+revoke all on function public.process_account_deletions() from public, anon, authenticated;
+grant execute on function public.process_account_deletions() to service_role;
+
+comment on function public.process_account_deletions() is
+  'Sterge conturile marcate GDPR dupa D+30 (Art. 17). mig 282: single-flight (pg_try_advisory_xact_lock), ordine determinista, for update skip locked. mig 284: arhiveaza jurnalul de bonuri (retained_receipts) inaintea cascadei, pe orice politica; politica block blocheaza si pe bonuri success. mig 295: detaseaza afilierea (FK RESTRICT pe profil) inaintea stergerii. Ruleaza pe pg_cron (menuvia_janitor_gdpr_deletions) si din automation-cron.js.';
+
+-- 4d. Asserții fail-closed: invariantele lanțului + detașarea ÎNAINTEA ștergerii.
+do $$
+declare
+  v_src text;
+  v_er int; v_del int; v_arch int;
+begin
+  select p.prosrc into v_src from pg_proc p
+   where p.oid = 'public.process_account_deletions()'::regprocedure;
+  if position('pg_try_advisory_xact_lock' in v_src) = 0
+     or position('order by deletion_requested_at, id' in v_src) = 0
+     or position('for update skip locked' in v_src) = 0
+     or position('archive_fiscal_invoices_for_user' in v_src) = 0
+     or position('deletion_blocked_reason is null' in v_src) = 0
+     or position('exception when others then' in v_src) = 0
+     or position('limit 100' in v_src) = 0
+     or position('for update of pr' in v_src) = 0
+     or position('and pr.status = ''sent''' in v_src) = 0
+     or position('v_policy = ''block'' and (v_has_invoices or v_has_receipts)' in v_src) = 0
+     or position('transfer_tombstone' in v_src) = 0 then
+    raise exception 'mig 295: process_account_deletions a pierdut un invariant din 179/183/282/284';
+  end if;
+  v_arch := position('v_archived_receipts := public.archive_fiscal_receipts_for_user(v_user.id)' in v_src);
+  v_er   := position('public.erase_affiliate_identity_for_user(v_user.id)' in v_src);
+  v_del  := position('delete from auth.users where id = v_user.id' in v_src);
+  if v_arch = 0 or v_er = 0 or v_del = 0 or v_er > v_del or v_arch > v_del then
+    raise exception 'mig 295: detașarea afilierii / arhivarea nu sunt ÎNAINTEA ștergerii (arch=%, erase=%, del=%)', v_arch, v_er, v_del;
+  end if;
+
+  if has_function_privilege('anon', 'public.erase_affiliate_identity_for_user(uuid)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.erase_affiliate_identity_for_user(uuid)', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.erase_affiliate_identity_for_user(uuid)', 'EXECUTE') then
+    raise exception 'mig 295: erase_affiliate_identity_for_user e executabilă din afară';
+  end if;
+  if has_function_privilege('anon', 'public.process_account_deletions()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.process_account_deletions()', 'EXECUTE')
+     or not has_function_privilege('service_role', 'public.process_account_deletions()', 'EXECUTE') then
+    raise exception 'mig 295: suprafața process_account_deletions s-a schimbat';
+  end if;
+
+  -- NULL pe profil e posibil DOAR cu tombstone.
+  if not exists (select 1 from pg_constraint where conname = 'affiliates_profile_or_erased')
+     or not exists (select 1 from pg_constraint where conname = 'affiliate_attributions_referred_or_erased') then
+    raise exception 'mig 295: lipsesc CHECK-urile profil-sau-tombstone';
+  end if;
+end $$;
+
 commit;
