@@ -824,8 +824,11 @@ language plpgsql stable security definer
 set search_path = public, pg_temp
 as $$
 begin
+  -- mig 294: același contract de refuz ca RPC-urile de tranziție (42501 +
+  -- hint stabil), nu P0001 generic — lista poartă acum IBAN-uri.
   if not public.is_platform_admin() then
-    raise exception 'Acces interzis';
+    raise exception using errcode = 'insufficient_privilege',
+      message = 'Acces interzis', hint = 'not_platform_admin';
   end if;
 
   return coalesce((
