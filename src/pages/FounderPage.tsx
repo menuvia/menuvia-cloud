@@ -34,6 +34,8 @@ import {
   setAffiliateCommission,
   applyDefaultsToAllAffiliates,
   setAffiliateBranding,
+  getAffiliateProgramStatus,
+  setAffiliateProgramOpen,
   getMonthlyBenchmark,
   type MonthlyBenchmark,
   type AffiliateCommissionDefaults,
@@ -1105,7 +1107,17 @@ function AffiliatesSection() {
     }
     setBusyId(a.affiliate_id)
     try {
-      const res = await reviewAffiliate(a.affiliate_id, approve)
+      let res = await reviewAffiliate(a.affiliate_id, approve)
+      // mig 295: programul e închis → aprobarea cere override EXPLICIT.
+      if (!res.ok && res.reason === 'program_closed' && approve) {
+        const force = await confirm({
+          title: 'Programul de afiliere e închis',
+          description: `Aprobi totuși cererea lui ${a.full_name || a.email}? Excepția se consemnează în jurnalul de audit.`,
+          confirmLabel: 'Aprobă ca excepție',
+        })
+        if (!force) return
+        res = await reviewAffiliate(a.affiliate_id, approve, true)
+      }
       if (!res.ok) {
         // RPC-ul refuză cu `reason`, nu cu `error` — mapăm la mesaje clare.
         const msg =
@@ -1143,6 +1155,7 @@ function AffiliatesSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <AffiliateProgramToggleCard />
       <CommissionDefaultsCard onApplied={() => void affiliates.reload()} />
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1470,6 +1483,65 @@ function CommissionFields({
           style={fieldStyle}
         />
       </label>
+    </div>
+  )
+}
+
+// mig 295: comutatorul programului (cereri noi + aprobări). Închis implicit.
+function AffiliateProgramToggleCard() {
+  const toast = useToast()
+  const status = useAdminData<{ open: boolean }>(getAffiliateProgramStatus)
+  const [busy, setBusy] = useState(false)
+  const open = status.data?.open
+
+  async function toggle(next: boolean) {
+    const ok = await confirm({
+      title: next ? 'Deschizi programul de afiliere?' : 'Închizi programul de afiliere?',
+      description: next
+        ? 'Pagina /afiliat va primi cereri noi, iar aprobările nu mai cer excepție.'
+        : 'Cererile noi vor fi refuzate, iar pagina /afiliat va afișa că programul se redeschide. Afiliații existenți nu sunt afectați.',
+      confirmLabel: next ? 'Deschide' : 'Închide',
+      destructive: !next,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await setAffiliateProgramOpen(next)
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast.success(next ? 'Programul e deschis' : 'Programul e închis')
+      await status.reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Icon name="users" size={16} color={D.t2} />
+        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Programul de afiliere</span>
+      </div>
+      {status.error ? (
+        <SectionError message={status.error} onRetry={() => void status.reload()} />
+      ) : status.loading || open === undefined ? (
+        <InlineSpinner label="Se încarcă..." />
+      ) : (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.8rem', color: open ? D.green : D.t2 }}>
+            {open ? 'Deschis — primește cereri noi' : 'Închis — cererile noi sunt refuzate'}
+          </span>
+          <button
+            onClick={() => void toggle(!open)}
+            disabled={busy}
+            className="pressable"
+            style={withBusy(open ? ghostBtn : primaryBtn, busy)}
+          >
+            {open ? 'Închide programul' : 'Deschide programul'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

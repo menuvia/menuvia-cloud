@@ -258,11 +258,27 @@ export function listAffiliates(): Promise<AdminAffiliateRow[]> {
 // Decizia pe o cerere de afiliere (mig 224): aprobă (→active) sau respinge
 // (→rejected). Doar cererile pending/rejected sunt „reviewable" — suspendarea
 // și închiderea sunt mecanisme separate.
-export function reviewAffiliate(affiliateId: string, approve: boolean): Promise<AdminActionResult> {
+// mig 295: cu programul ÎNCHIS aprobarea întoarce `program_closed`, iar
+// fondatorul poate forța explicit cu `override` (consemnat în audit).
+export function reviewAffiliate(
+  affiliateId: string,
+  approve: boolean,
+  override = false,
+): Promise<AdminActionResult> {
   return rpcJson<AdminActionResult>('admin_review_affiliate', {
     p_affiliate_id: affiliateId,
     p_approve: approve,
+    p_override: override,
   })
+}
+
+// ── Programul de afiliere deschis/închis (mig 295) ───────────────────────
+export function getAffiliateProgramStatus(): Promise<{ open: boolean }> {
+  return rpcJson<{ open: boolean }>('get_affiliate_program_status')
+}
+
+export function setAffiliateProgramOpen(open: boolean): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_set_affiliate_program_open', { p_open: open })
 }
 
 export function setRestaurantPlan(restaurantId: string, plan: string): Promise<AdminActionResult> {

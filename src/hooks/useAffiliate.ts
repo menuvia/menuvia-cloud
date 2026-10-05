@@ -62,6 +62,9 @@ export interface AffiliateDashboard {
     recurring_bps: number
     recurring_cap_months: number
   }
+  // Doar pe ramura ne-afiliat (mig 295): programul primește cereri noi?
+  // TRISTATE: `undefined` = DB fără 295 → formularul rămâne, serverul decide.
+  program_open?: boolean
 }
 
 export interface RegisterResult {

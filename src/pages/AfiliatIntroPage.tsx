@@ -95,8 +95,25 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
   // Calculatorul de câștig: câte restaurante recomandă vizitatorul.
   const [count, setCount] = useState(5)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  // mig 295: programul primește cereri noi? TRISTATE — `null` = necunoscut
+  // (RPC lipsă / rețea) → nu afișăm nimic, serverul decide la înscriere.
+  const [programOpen, setProgramOpen] = useState<boolean | null>(null)
   const reduced = useReducedMotion()
   const stacked = useIsMobile(860)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadStatus = async () => {
+      const { data, error } = await supabase.rpc('get_affiliate_program_status')
+      if (cancelled || error || !data) return
+      const open = (data as { open?: unknown }).open
+      if (typeof open === 'boolean') setProgramOpen(open)
+    }
+    void loadStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -222,6 +239,26 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
               <div style={{ color: DARK.text3, fontSize: 13, marginTop: 16 }}>
                 Fără costuri · Fără target · Plată lunară pe factură
               </div>
+              {programOpen === false ? (
+                <div
+                  role="status"
+                  style={{
+                    marginTop: 18,
+                    background: DARK.surface,
+                    border: `1px solid ${DARK.border}`,
+                    borderRadius: 12,
+                    padding: '12px 16px',
+                    color: DARK.text,
+                    fontSize: 14,
+                    lineHeight: 1.55,
+                    maxWidth: 500,
+                    marginLeft: stacked ? 'auto' : 0,
+                    marginRight: stacked ? 'auto' : 0,
+                  }}
+                >
+                  Programul se redeschide în curând: momentan nu primim cereri noi de parteneriat.
+                </div>
+              ) : null}
             </div>
           </RevealItem>
 

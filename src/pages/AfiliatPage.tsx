@@ -133,6 +133,10 @@ export default function AfiliatPage() {
   // Fluxul e cu APROBARE: candidatul trimite telefon + cum va recomanda,
   // fondatorul îl sună pentru o discuție scurtă, apoi aprobă/respinge.
   if (!dashboard || !dashboard.is_affiliate) {
+    // mig 295: programul nu primește cereri noi. TRISTATE — doar `false`
+    // CUNOSCUT ascunde formularul; `undefined` (DB fără 295) îl lasă, iar
+    // serverul decide (răspunde `program_closed`).
+    if (dashboard?.program_open === false) return <ProgramClosedNotice />
     const phoneOk = phone.trim().length >= 5 && phone.trim().length <= 32
     const join = async () => {
       if (!phoneOk) {
@@ -145,6 +149,8 @@ export default function AfiliatPage() {
       if (res.ok) toast.success('Cererea a fost trimisă! Te contactăm telefonic.')
       else if (res.reason === 'parent_not_found') toast.error('Codul celui care te-a invitat nu e valid.')
       else if (res.reason === 'phone_required') toast.error('Numărul de telefon nu pare valid.')
+      else if (res.reason === 'program_closed')
+        toast.error('Programul de parteneriat nu primește cereri noi acum. Se redeschide în curând.')
       else toast.error('Nu am putut trimite cererea. Încearcă din nou.')
     }
     const inputStyle = {
@@ -274,9 +280,10 @@ export default function AfiliatPage() {
             Cererea ta e în analiză
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 16px' }}>
-            Mulțumim! Te sunăm în 1–2 zile lucrătoare pentru o discuție scurtă de
-            cunoaștere. Imediat după aprobare primești aici panoul de partener,
-            linkul tău de recomandare și ghidul de start.
+            Mulțumim! Cererea ta a ajuns la noi. Te sunăm pentru o discuție scurtă
+            de cunoaștere când deschidem programul pentru parteneri noi — nu îți
+            putem promite încă o dată. După aprobare primești aici panoul de
+            partener, linkul tău de recomandare și ghidul de start.
           </p>
           <div style={{ background: D.s3, borderRadius: 10, padding: '10px 14px', fontSize: '0.8rem', color: D.t2 }}>
             Ai o întrebare între timp? Scrie-ne la{' '}
@@ -405,6 +412,28 @@ export default function AfiliatPage() {
           toast={toast}
         />
       ) : null}
+      </div>
+    </div>
+  )
+}
+
+// ── Programul închis pentru cereri noi (mig 295) ───────────────────────────
+// Fără formular și fără promisiunea unui apel: nu cerem cuiva să completeze un
+// formular pe care serverul îl va refuza.
+function ProgramClosedNotice() {
+  return (
+    <div style={{ maxWidth: 560, margin: '80px auto', padding: 24 }}>
+      <div style={{ ...card, textAlign: 'center', padding: '40px 28px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <Icon name="users" size={40} color={D.gold} />
+        </div>
+        <h1 style={{ fontFamily: 'Fraunces,serif', color: D.t1, fontSize: '1.5rem', margin: '0 0 10px' }}>
+          Programul de parteneriat se redeschide
+        </h1>
+        <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
+          Momentan nu primim cereri noi de parteneriat. Pregătim programul pentru
+          lansare și îl redeschidem în curând — revino pe această pagină.
+        </p>
       </div>
     </div>
   )
