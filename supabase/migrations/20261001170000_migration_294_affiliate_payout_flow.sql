@@ -132,7 +132,7 @@ comment on table public.affiliate_payouts is
   '--admin_payout_start_transfer(metodă, referință)--> processing --admin_mark_payout_paid--> paid (TERMINAL). '
   'processing --admin_payout_hold--> on_hold; processing|on_hold --admin_payout_mark_failed--> failed; '
   'failed FĂRĂ referință --admin_payout_match_invoice--> invoice_matched (reîncercare); '
-  'draft|awaiting_invoice|invoice_matched|failed --admin_payout_cancel(motiv)--> canceled (TERMINAL, eliberează gross-ul). '
+  'draft|awaiting_invoice|invoice_matched|failed --admin_payout_cancel(motiv[, banii întorși])--> canceled (TERMINAL, eliberează gross-ul; pe failed CU referință cere confirmarea întoarcerii banilor). '
   'Gross-ul rămâne ANGAJAT (batch-ul nu-l re-oferă) în toate stările în afară de canceled și failed FĂRĂ referință. '
   'Odată ce există o referință (wise_transfer_id sau payment_reference), payout-ul nu mai poate reveni într-o stare pre-transfer, iar referința nu se mai poate schimba.';
 
@@ -691,14 +691,34 @@ begin
 end$$;
 
 -- D6. draft | awaiting_invoice | invoice_matched | failed → canceled
-create or replace function public.admin_payout_cancel(p_id uuid, p_reason text)
+--
+-- Un `failed` CU referință bancară (wise_transfer_id / payment_reference) e
+-- un transfer care A PLECAT și a fost declarat eșuat — banii pot fi ajuns
+-- totuși la afiliat, sau pot fi încă în drum înapoi. Anularea ELIBEREAZĂ
+-- gross-ul (batch-ul nu mai socotește angajat un `canceled`), deci o anulare
+-- „pe încredere" urmată de batch = PLATĂ DUBLĂ. Pe ramura asta anularea cere
+-- confirmarea EXPLICITĂ `p_money_returned = true` (fondatorul a verificat în
+-- extras că banii NU au ajuns / s-au întors), altfel `money_return_unconfirmed`.
+-- Confirmarea se consemnează în audit. Pe celelalte stări parametrul e ignorat
+-- (nimic n-a plecat). Parametrul e ULTIMUL, cu default → un client vechi care
+-- trimite doar (p_id, p_reason) rămâne valid pe stările fără referință.
+-- O SINGURĂ semnătură (anti PGRST203): DROP pe forma cu 2 argumente, dacă a
+-- apucat să existe pe o bază de lucru.
+drop function if exists public.admin_payout_cancel(uuid, text);
+
+create or replace function public.admin_payout_cancel(
+  p_id             uuid,
+  p_reason         text,
+  p_money_returned boolean default false
+)
 returns jsonb
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_p      public.affiliate_payouts%rowtype;
-  v_reason text := nullif(btrim(p_reason), '');
+  v_p       public.affiliate_payouts%rowtype;
+  v_reason  text := nullif(btrim(p_reason), '');
+  v_has_ref boolean;
 begin
   if not public.is_platform_admin() then
     raise exception using errcode = 'insufficient_privilege',
@@ -716,11 +736,18 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'invalid_transition', 'status', v_p.status,
       'error', format('Payout-ul nu se mai poate anula (acum: %s).', v_p.status));
   end if;
+  v_has_ref := (v_p.wise_transfer_id is not null or v_p.payment_reference is not null);
+  -- Banii au plecat cândva: anularea îi eliberează pentru batch → plata dublă
+  -- dacă au ajuns totuși. Doar cu confirmarea explicită a întoarcerii lor.
+  if v_p.status = 'failed' and v_has_ref and p_money_returned is not true then
+    return jsonb_build_object('ok', false, 'reason', 'money_return_unconfirmed', 'status', v_p.status,
+      'error', 'Transferul acestui payout a plecat (are referință bancară). Anularea eliberează suma pentru o plată nouă — confirmă întâi în extras că banii NU au ajuns la afiliat sau s-au întors în cont.');
+  end if;
   update public.affiliate_payouts set status = 'canceled', failure_reason = v_reason where id = p_id;
   perform public.log_platform_action('founder', null, 'payout_cancel',
     jsonb_build_object('payout_id', p_id, 'from', v_p.status, 'to', 'canceled', 'reason', v_reason,
-                       'had_payment_reference',
-                       (v_p.wise_transfer_id is not null or v_p.payment_reference is not null)));
+                       'had_payment_reference', v_has_ref,
+                       'money_returned_confirmed', coalesce(p_money_returned, false)));
   return jsonb_build_object('ok', true, 'status', 'canceled');
 end$$;
 
@@ -887,7 +914,7 @@ begin
     'admin_payout_start_transfer(uuid, text, text)',
     'admin_payout_hold(uuid, text)',
     'admin_payout_mark_failed(uuid, text)',
-    'admin_payout_cancel(uuid, text)',
+    'admin_payout_cancel(uuid, text, boolean)',
     'admin_mark_payout_paid(uuid, text)',
     'admin_run_payout_batch(date)',
     'admin_list_payouts()'
@@ -919,7 +946,7 @@ begin
     'admin_payout_start_transfer(uuid, text, text)',
     'admin_payout_hold(uuid, text)',
     'admin_payout_mark_failed(uuid, text)',
-    'admin_payout_cancel(uuid, text)',
+    'admin_payout_cancel(uuid, text, boolean)',
     'admin_mark_payout_paid(uuid, text)',
     'admin_run_payout_batch(date)',
     'admin_list_payouts()'
@@ -946,6 +973,18 @@ begin
    where p.oid = 'public.admin_mark_payout_paid(uuid, text)'::regprocedure;
   if v_src ~ 'coalesce\(p_' then
     raise exception 'mig 294: admin_mark_payout_paid conține coalesce pe un parametru text (clasa bug-ului din 193)'; end if;
+
+  -- O SINGURĂ semnătură pentru admin_payout_cancel (anti PGRST203) + garda
+  -- anti plată-dublă pe failed-cu-referință.
+  select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'admin_payout_cancel';
+  if v_n <> 1 then
+    raise exception 'mig 294: admin_payout_cancel are % semnături (se aștepta 1)', v_n; end if;
+  select p.prosrc into v_src from pg_proc p
+   where p.oid = 'public.admin_payout_cancel(uuid, text, boolean)'::regprocedure;
+  if position('money_return_unconfirmed' in v_src) = 0
+     or position('p_money_returned is not true' in v_src) = 0 then
+    raise exception 'mig 294: admin_payout_cancel a pierdut garda money_return_unconfirmed'; end if;
 
   -- Trigger-ul: referința generică + imuabilitatea.
   select p.prosrc into v_src from pg_proc p

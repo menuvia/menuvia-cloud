@@ -52,6 +52,17 @@ export function payoutActionNeedsInput(action: PayoutAction): boolean {
     || action === 'mark_failed' || action === 'cancel'
 }
 
+// Anularea unui `failed` CU referință (transferul a plecat) eliberează suma
+// pentru un batch nou — dacă banii au ajuns totuși, ar fi PLATĂ DUBLĂ. Serverul
+// cere atunci `p_money_returned = true` (mig 294, `money_return_unconfirmed`),
+// iar UI-ul o trimite DOAR după o confirmare explicită a fondatorului. Pe orice
+// altă stare nimic n-a plecat, deci nu se cere nimic în plus.
+export function cancelNeedsMoneyReturnConfirm(status: string, hasReference: boolean): boolean {
+  return status === 'failed' && hasReference
+}
+
+export const MONEY_RETURN_CONFIRM_TITLE = 'Confirm că banii NU au ajuns / s-au întors în cont'
+
 export const PAYMENT_METHOD_LABELS: Record<'wise' | 'bank_transfer' | 'other', string> = {
   bank_transfer: 'Virament bancar',
   wise: 'Wise',
@@ -84,6 +95,8 @@ const REFUSAL_OVERRIDES: Record<string, string> = {
   payout_exceeds_eligible:
     'Suma depășește ce i se datorează acum afiliatului (comision stornat după ciornă). Marchează eșuat, anulează și rulează din nou batch-ul.',
   batch_in_progress: 'Alt batch rulează chiar acum — încearcă din nou peste un minut.',
+  money_return_unconfirmed:
+    'Transferul a plecat (are referință bancară). Anularea se face doar după ce confirmi în extras că banii NU au ajuns la afiliat sau s-au întors în cont.',
 }
 
 export function describePayoutRefusal(res: { reason?: string; error?: string }): string {

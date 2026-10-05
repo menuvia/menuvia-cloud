@@ -1072,7 +1072,7 @@ function AffiliatesSection() {
     if (!approve) {
       const ok = await confirm({
         title: 'Respingi cererea?',
-        description: `${a.full_name || a.email} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
+        description: `${a.full_name || a.email || 'Afiliatul'} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
         confirmLabel: 'Respinge',
         destructive: true,
       })
@@ -1085,7 +1085,7 @@ function AffiliatesSection() {
       if (!res.ok && res.reason === 'program_closed' && approve) {
         const force = await confirm({
           title: 'Programul de afiliere e închis',
-          description: `Aprobi totuși cererea lui ${a.full_name || a.email}? Excepția se consemnează în jurnalul de audit.`,
+          description: `Aprobi totuși cererea${a.full_name || a.email ? ` lui ${a.full_name || a.email}` : ''}? Excepția se consemnează în jurnalul de audit.`,
           confirmLabel: 'Aprobă ca excepție',
         })
         if (!force) return
@@ -1163,7 +1163,7 @@ function AffiliatesSection() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
                       {depth > 0 && <span style={{ color: D.t3 }}>↳ </span>}
-                      {a.full_name || a.email}
+                      {a.full_name || a.email || (a.erased_at ? 'Afiliat șters (GDPR)' : 'Fără email')}
                       <span style={{ color: D.t3, fontWeight: 400 }}> · cod {a.referral_code}</span>
                       {a.status === 'pending' && (
                         <span
@@ -1184,7 +1184,8 @@ function AffiliatesSection() {
                       )}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
-                      {a.email} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
+                      {a.email ?? 'cont șters'} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
+                      {a.erased_at ? ` · șters (GDPR) ${new Date(a.erased_at).toLocaleDateString('ro-RO')}` : ''}
                     </div>
                   </div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: a.balance_ron_cents > 0 ? D.green : D.t2 }}>

@@ -23,9 +23,11 @@ import {
 } from '../lib/founder'
 import {
   availablePayoutActions,
+  cancelNeedsMoneyReturnConfirm,
   currentPayoutPeriod,
   describePayoutRefusal,
   formatIban,
+  MONEY_RETURN_CONFIRM_TITLE,
   payoutActionNeedsInput,
   PAYMENT_METHOD_LABELS,
   PAYOUT_ACTION_LABELS,
@@ -103,8 +105,10 @@ export default function FounderPayoutRow({
   const p = payout
   const hasReference = Boolean(p.payment_reference || p.wise_transfer_id)
   const actions = availablePayoutActions(p.status, hasReference)
+  // Afiliat șters (GDPR, mig 295): fără email, dar payout-ul rămâne (evidență).
+  const payeeLabel = p.affiliate_email ?? (p.affiliate_erased ? 'Afiliat șters (GDPR)' : 'Afiliat fără email')
 
-  function call(action: PayoutAction, value: string): Promise<AdminActionResult> {
+  function call(action: PayoutAction, value: string, moneyReturned: boolean): Promise<AdminActionResult> {
     switch (action) {
       case 'request_invoice':
         return requestPayoutInvoice(p.id)
@@ -119,7 +123,7 @@ export default function FounderPayoutRow({
       case 'mark_failed':
         return failPayout(p.id, value)
       case 'cancel':
-        return cancelPayout(p.id, value)
+        return cancelPayout(p.id, value, moneyReturned)
     }
   }
 
@@ -127,14 +131,28 @@ export default function FounderPayoutRow({
     if (action === 'mark_paid') {
       const ok = await confirm({
         title: 'Marchezi payout-ul ca plătit?',
-        description: `${p.affiliate_email} · ${formatMoney(p.gross_cents, p.currency)}. Debitul se înscrie în ledger — acțiune ireversibilă. Confirmă întâi în extrasul băncii că banii au plecat.`,
+        description: `${payeeLabel} · ${formatMoney(p.gross_cents, p.currency)}. Debitul se înscrie în ledger — acțiune ireversibilă. Confirmă întâi în extrasul băncii că banii au plecat.`,
         confirmLabel: 'Marchează plătit',
       })
       if (!ok) return
     }
+    // Failed CU referință: transferul a plecat. Anularea eliberează suma pentru
+    // o plată nouă, deci cere confirmarea EXPLICITĂ că banii nu au ajuns
+    // (serverul refuză altfel cu `money_return_unconfirmed`, mig 294).
+    let moneyReturned = false
+    if (action === 'cancel' && cancelNeedsMoneyReturnConfirm(p.status, hasReference)) {
+      const ok = await confirm({
+        title: MONEY_RETURN_CONFIRM_TITLE,
+        description: `${payeeLabel} · ${formatMoney(p.gross_cents, p.currency)}${p.payment_reference ? ` · ref. ${p.payment_reference}` : ''}. Transferul acesta a plecat. Anularea eliberează suma pentru o plată nouă — dacă banii au ajuns totuși la afiliat, ar fi plătiți DE DOUĂ ORI. Confirmă doar după ce ai verificat în extrasul băncii.`,
+        confirmLabel: 'Confirm, banii nu au ajuns',
+        destructive: true,
+      })
+      if (!ok) return
+      moneyReturned = true
+    }
     setBusy(true)
     try {
-      const res = await call(action, value.trim())
+      const res = await call(action, value.trim(), moneyReturned)
       if (!res.ok) throw new Error(describePayoutRefusal(res))
       toast.success(`${PAYOUT_ACTION_LABELS[action]}: gata`)
       setPending(null)
@@ -169,7 +187,7 @@ export default function FounderPayoutRow({
     >
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: '0.82rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
-          {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
+          {payeeLabel} · {formatMoney(p.gross_cents, p.currency)}
           {p.period_month ? ` · ${p.period_month.slice(0, 7)}` : ''}
         </div>
         <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>

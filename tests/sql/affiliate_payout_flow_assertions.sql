@@ -1,6 +1,6 @@
 -- tests/sql/affiliate_payout_flow_assertions.sql
 -- =============================================================================
--- PF1–PF12 — fluxul de payout CAP-COADĂ (mig 294).
+-- PF1–PF13 — fluxul de payout CAP-COADĂ (mig 294).
 --
 -- Suitele vechi (affiliate_payout_assertions PO1–PO10, _profile PP1–PP7) rulează
 -- ca `postgres` și scriu DIRECT în `affiliate_payouts` — testează trigger-ul,
@@ -33,6 +33,9 @@
 --        single-flight prezent în corp (concurența reală: verificată manual
 --        cu două sesiuni, vezi raportul — re-entrant pe aceeași sesiune)
 --   PF12 batch-ul rămâne în denylist-ul pg_cron (mutarea a fost refuzată)
+--   PF13 anularea unui failed CU referință cere `p_money_returned = true`
+--        (altfel `money_return_unconfirmed`, rând neatins, batch-ul nu re-oferă
+--        suma); confirmarea e în audit; o singură semnătură (PF1)
 --
 -- Self-contained, ROLLBACK la final.
 -- =============================================================================
@@ -120,7 +123,7 @@ begin
   foreach fn in array array[
     'admin_payout_request_invoice(uuid)', 'admin_payout_match_invoice(uuid, text)',
     'admin_payout_start_transfer(uuid, text, text)', 'admin_payout_hold(uuid, text)',
-    'admin_payout_mark_failed(uuid, text)', 'admin_payout_cancel(uuid, text)',
+    'admin_payout_mark_failed(uuid, text)', 'admin_payout_cancel(uuid, text, boolean)',
     'admin_mark_payout_paid(uuid, text)', 'admin_run_payout_batch(date)', 'admin_list_payouts()'
   ] loop
     if to_regprocedure('public.' || fn) is null then
@@ -138,6 +141,9 @@ begin
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'admin_mark_payout_paid';
   if v_n <> 1 then raise exception 'PF1 FAIL: admin_mark_payout_paid are % semnături (PGRST203)', v_n; end if;
+  select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'admin_payout_cancel';
+  if v_n <> 1 then raise exception 'PF1 FAIL: admin_payout_cancel are % semnături (PGRST203)', v_n; end if;
   if has_function_privilege('authenticated', 'public.iban_is_valid(text)', 'EXECUTE')
      or has_function_privilege('anon', 'public.iban_is_valid(text)', 'EXECUTE') then
     raise exception 'PF1 FAIL: helper-ul iban_is_valid e apelabil de un client'; end if;
@@ -466,10 +472,32 @@ begin
   select count(*) into v_n from public.affiliate_payouts
    where period_month = v_prev and affiliate_id::text like '9fa00000-%';
   if v_n <> 0 then raise exception 'PF10 FAIL: % draft-uri pe bani deja angajați (failed CU referință bancară trebuie să rămână angajat)', v_n; end if;
-  -- Anularea (operatorul confirmă că banii NU au plecat) eliberează gross-ul.
+  -- PF13: anularea unui failed CU referință FĂRĂ confirmarea întoarcerii
+  -- banilor e refuzată — altfel gross-ul eliberat ar fi re-oferit de batch-ul
+  -- de mai jos și plătit A DOUA oară dacă primul transfer a ajuns totuși.
   select id into v4 from public.affiliate_payouts where affiliate_id = '9fa00000-0000-4000-8000-000000000004';
-  v := pg_temp.pf_call(v_f, format('public.admin_payout_cancel(%L, %L)', v4, 'banca a returnat suma, verificat extras'));
+  v := pg_temp.pf_call(v_f, format('public.admin_payout_cancel(%L, %L)', v4, 'cred ca n-a plecat'));
+  if v->>'reason' is distinct from 'money_return_unconfirmed' then
+    raise exception 'PF13 FAIL: cancel pe failed cu referinta FARA confirmare acceptat (%)', v; end if;
+  v := pg_temp.pf_call(v_f, format('public.admin_payout_cancel(%L, %L, false)', v4, 'cred ca n-a plecat'));
+  if v->>'reason' is distinct from 'money_return_unconfirmed' then
+    raise exception 'PF13 FAIL: cancel cu p_money_returned=false acceptat (%)', v; end if;
+  if (select status::text from public.affiliate_payouts where id = v4) is distinct from 'failed' then
+    raise exception 'PF13 FAIL: refuzul a mutat payout-ul'; end if;
+  v := pg_temp.pf_call(v_f, format('public.admin_run_payout_batch(%L::date)', v_prev));
+  if exists (select 1 from public.affiliate_payouts
+              where period_month = v_prev and affiliate_id = '9fa00000-0000-4000-8000-000000000004') then
+    raise exception 'PF13 FAIL: dupa refuz, batch-ul a re-oferit suma lui A4'; end if;
+  -- Anularea CU confirmare (operatorul a verificat extrasul) eliberează gross-ul.
+  v := pg_temp.pf_call(v_f, format('public.admin_payout_cancel(%L, %L, true)', v4, 'banca a returnat suma, verificat extras'));
   if v->>'status' is distinct from 'canceled' then raise exception 'PF10 FAIL: cancel pe failed %', v; end if;
+  if not exists (select 1 from public.platform_audit_log
+                  where actor_user_id = v_f and action = 'payout_cancel'
+                    and details->>'payout_id' = v4::text
+                    and details->>'money_returned_confirmed' = 'true'
+                    and details->>'had_payment_reference' = 'true') then
+    raise exception 'PF13 FAIL: confirmarea intoarcerii banilor nu e in audit'; end if;
+  raise notice 'PF13 OK: failed cu referinta se anuleaza doar cu confirmarea intoarcerii banilor (consemnata in audit)';
   v := pg_temp.pf_call(v_f, format('public.admin_run_payout_batch(%L::date)', v_prev));
   if not exists (select 1 from public.affiliate_payouts
                   where period_month = v_prev and affiliate_id = '9fa00000-0000-4000-8000-000000000004'
@@ -508,6 +536,6 @@ begin
   raise notice 'PF12 OK: batch-ul rămâne în denylist, calea manuală e butonul fondatorului';
 end $$;
 
-do $$ begin raise notice '════ affiliate payout flow assertions (PF1–PF12): ALL PASS ════'; end $$;
+do $$ begin raise notice '════ affiliate payout flow assertions (PF1–PF13): ALL PASS ════'; end $$;
 
 rollback;

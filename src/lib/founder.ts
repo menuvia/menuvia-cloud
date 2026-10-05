@@ -137,7 +137,9 @@ export interface AdminInvoiceFailure {
 export interface AdminPayoutRow {
   id: string
   affiliate_id: string
-  affiliate_email: string
+  // mig 295: NULL după ștergerea GDPR a afiliatului (profilul a plecat,
+  // payout-ul rămâne — evidență fiscală).
+  affiliate_email: string | null
   status: string
   gross_cents: number
   currency: string
@@ -158,6 +160,9 @@ export interface AdminPayoutRow {
   payee_cui?: string | null
   payee_iban?: string | null
   payee_profile_updated_at?: string | null
+  // mig 295: afiliatul și-a șters contul (GDPR) — email/IBAN golite.
+  affiliate_erased?: boolean
+  affiliate_erased_at?: string | null
 }
 
 // mig 294: referința bancară generică (Wise e doar una dintre metode).
@@ -182,7 +187,9 @@ export interface AdminAffiliateRestaurant {
 
 export interface AdminAffiliateRow {
   affiliate_id: string
-  email: string
+  // mig 295: NULL după ștergerea GDPR (rândul de afiliat rămâne — ledger,
+  // payout-uri); `erased_at` spune de ce.
+  email: string | null
   full_name: string | null
   referral_code: string
   status: string
@@ -205,6 +212,8 @@ export interface AdminAffiliateRow {
   brand_domain?: string | null
   brand_name?: string | null
   brand_logo_url?: string | null
+  // mig 295: tombstone GDPR. Opțional (FE înaintea migrației).
+  erased_at?: string | null
 }
 
 export interface AdminAuditRow {
@@ -309,8 +318,19 @@ export function failPayout(id: string, reason: string): Promise<AdminActionResul
   return rpcJson<AdminActionResult>('admin_payout_mark_failed', { p_id: id, p_reason: reason })
 }
 
-export function cancelPayout(id: string, reason: string): Promise<AdminActionResult> {
-  return rpcJson<AdminActionResult>('admin_payout_cancel', { p_id: id, p_reason: reason })
+// `moneyReturned` = fondatorul a confirmat EXPLICIT (după extras) că banii unui
+// transfer eșuat CU referință NU au ajuns / s-au întors în cont. Serverul o
+// cere pe `failed` cu referință (`money_return_unconfirmed`, mig 294) — fără
+// ea, anularea ar elibera suma pentru o plată nouă (plată dublă). Pe celelalte
+// stări parametrul NU se trimite deloc.
+export function cancelPayout(
+  id: string,
+  reason: string,
+  moneyReturned = false,
+): Promise<AdminActionResult> {
+  const args: Record<string, unknown> = { p_id: id, p_reason: reason }
+  if (moneyReturned) args.p_money_returned = true
+  return rpcJson<AdminActionResult>('admin_payout_cancel', args)
 }
 
 // periodMonth = 'YYYY-MM-01' (prima zi a lunii, ora României).

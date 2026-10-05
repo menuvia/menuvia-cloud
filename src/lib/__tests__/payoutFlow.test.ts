@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   availablePayoutActions,
+  cancelNeedsMoneyReturnConfirm,
   currentPayoutPeriod,
   describePayoutRefusal,
   formatIban,
@@ -54,5 +55,20 @@ describe('formatIban / describePayoutRefusal', () => {
     expect(describePayoutRefusal({ reason: 'payout_exceeds_eligible', error: 'payout: gross 1 …' })).toMatch(/stornat/)
     expect(describePayoutRefusal({ reason: 'batch_in_progress' })).toMatch(/Alt batch/)
     expect(describePayoutRefusal({})).toMatch(/nu a putut/)
+  })
+})
+
+describe('cancelNeedsMoneyReturnConfirm — anti plată dublă (mig 294, money_return_unconfirmed)', () => {
+  it('PFU9: DOAR failed CU referință cere confirmarea întoarcerii banilor', () => {
+    expect(cancelNeedsMoneyReturnConfirm('failed', true)).toBe(true)
+    // Control: aceeași stare fără referință (nimic n-a plecat) și celelalte
+    // stări anulabile nu trimit nimic în plus.
+    expect(cancelNeedsMoneyReturnConfirm('failed', false)).toBe(false)
+    expect(cancelNeedsMoneyReturnConfirm('draft', false)).toBe(false)
+    expect(cancelNeedsMoneyReturnConfirm('awaiting_invoice', false)).toBe(false)
+    expect(cancelNeedsMoneyReturnConfirm('invoice_matched', false)).toBe(false)
+  })
+  it('PFU10: refuzul serverului pe lipsa confirmării se explică (nu codul brut)', () => {
+    expect(describePayoutRefusal({ reason: 'money_return_unconfirmed' })).toMatch(/extras/)
   })
 })
