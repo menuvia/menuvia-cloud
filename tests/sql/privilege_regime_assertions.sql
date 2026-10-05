@@ -392,8 +392,9 @@ do $$
 declare
   v_helperi text[] := array[
     'public._refresh_order_totals(uuid)','public.build_fiscalnet_payload(uuid)',
-    'public.owner_plan(uuid)','public.log_ai_import(uuid, uuid, integer)',
-    'public.reserve_ai_import_slot(uuid, uuid)','public.check_ai_import_quota(uuid)'];
+    'public.owner_plan(uuid)','public.log_ai_import(uuid, uuid, integer)'];
+  -- mig 290: reserve_ai_import_slot / check_ai_import_quota au fost ȘTERSE
+  -- (zero apelanți); absența lor e asertată de plan_dead_data_assertions.sql (PD4).
   v_sig text; v_expus text := null; v_lipsa text := null;
 begin
   foreach v_sig in array v_helperi loop

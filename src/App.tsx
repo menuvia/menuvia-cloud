@@ -15,7 +15,8 @@ import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, writePlanIntent } from './lib/planIntent'
+import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
@@ -353,6 +354,19 @@ function AppRouter() {
         replace('/afiliat')
         return
       }
+      // Intenția de plan (localStorage, TTL 24 h): contul confirmat din linkul
+      // de email se deschide în ALT tab, unde `onSuccess` din AuthPage nu
+      // rulează niciodată — singurul care vede sesiunea e efectul ăsta. Fără
+      // ramura asta, restaurantul nou ateriza pe /dashboard în loc de
+      // checkout. /pricing pornește singur plata (usePlanIntentAutoCheckout).
+      // Doar intenția ACESTUI cont (sau aleasă în acest tab / `?plan=` din
+      // URL): pe un dispozitiv partajat, ospătarul care se loghează nu are voie
+      // să moștenească planul ales de altcineva (planIntent.ts).
+      const intentDest = planIntentDestination(user.email ?? null, window.location.search)
+      if (intentDest) {
+        replace(intentDest)
+        return
+      }
       getUserRoles(user.id)
         .then((roles) => {
           if (roles.length === 0) {
@@ -540,14 +554,10 @@ function AppRouter() {
           onLogin={() => navigate('/auth?lang=ro')}
           onCheckout={async (plan) => {
             if (!user) {
-              // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
-              // recuperăm după login (vezi AuthPage onSuccess). URL-ul primește
-              // și el ?plan= pentru cazurile cu sessionStorage blocat.
-              try {
-                sessionStorage.setItem('menuvia.plan_intent', plan)
-              } catch {
-                /* ignore */
-              }
+              // Păstrăm planul ÎNAINTE de navigate (localStorage, TTL 24 h), ca
+              // să-l recuperăm după login sau după confirmarea emailului în alt
+              // tab. URL-ul primește și el ?plan= pentru storage blocat.
+              writePlanIntent(plan)
               navigate('/auth?plan=' + encodeURIComponent(plan) + '&lang=ro')
               return
             }
@@ -678,20 +688,19 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <AuthPage
-          onSuccess={() => {
+          onSuccess={(email) => {
             // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
             // înapoi la pricing — onCheckout va detecta că e logat și va sări
             // la Stripe. Fără intent, mergem la dashboard ca până acum.
-            let intent: string | null = null
+            const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
-              intent = sessionStorage.getItem('menuvia.plan_intent')
               afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
             } catch {
               /* ignore (private mode) */
             }
-            if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
-              navigate('/pricing')
+            if (intentDest) {
+              navigate(intentDest)
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
@@ -783,6 +792,10 @@ export default function App() {
                 conturile fără el primesc ecranul o singură dată. Randează null
                 pentru vizitatorii anonimi (meniul QR nu e atins). */}
             <TermsAcceptanceGate />
+            {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
+                NE-dialog, global, ca să apară și pe Onboarding (contul nou
+                plătește înainte să-și creeze restaurantul). */}
+            <CheckoutReturnBanner />
             <Suspense fallback={null}>
               <PWAPrompt />
             </Suspense>

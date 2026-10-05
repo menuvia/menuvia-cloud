@@ -8,17 +8,57 @@ import { btn, useToast, Toast, Modal, Inp } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
+import { MENU_LANGS, activeTranslationLangs, mergeTranslations } from '../lib/i18nMenu'
 
 function CategoryModal({
   category,
+  menuLanguages,
   onSave,
   onClose,
 }: {
   category: Category | null
-  onSave: (f: Partial<Category>) => void
+  menuLanguages: readonly string[]
+  // Întoarce mesajul de eroare (afișat în modal) sau null la succes.
+  onSave: (f: Partial<Category>) => Promise<string | null>
   onClose: () => void
 }) {
   const [form, setForm] = useState<Partial<Category>>(category || { name: '', emoji: '🍽️' })
+  // Traduceri MANUALE ale numelui, doar pentru limbile ACTIVE din setări.
+  // Limbile neactive deja scrise în `translations` (de mână sau de AI) nu se
+  // afișează și nu se pierd: mergeTranslations le păstrează la salvare.
+  const langs = activeTranslationLangs(menuLanguages)
+  const [names, setNames] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {}
+    for (const code of langs) {
+      const v = category?.translations?.[code]?.name
+      init[code] = typeof v === 'string' ? v : ''
+    }
+    return init
+  })
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const nameMissing = !(form.name ?? '').trim()
+
+  const submit = async () => {
+    // Numele categoriei e obligatoriu — fără guard se crea o categorie
+    // cu nume gol tăcut (invizibilă/inutilă pe meniu).
+    if (nameMissing || saving) return
+    setSaving(true)
+    setSaveError(null)
+    // Fără limbi active NU trimitem `translations` deloc: nimic de schimbat.
+    const payload: Partial<Category> =
+      langs.length > 0
+        ? { ...form, translations: mergeTranslations(form.translations, names, langs) }
+        : form
+    const err = await onSave(payload)
+    // La succes părintele închide modalul; la eșec rămânem deschiși, cu
+    // textul editat intact și eroarea serverului vizibilă.
+    if (err) {
+      setSaveError(err)
+      setSaving(false)
+    }
+  }
+
   return (
     <Modal
       title={category ? 'Editează categorie' : 'Adaugă categorie'}
@@ -73,6 +113,66 @@ function CategoryModal({
             Afișat pe meniul public sub numele categoriei.
           </div>
         </div>
+        {langs.length > 0 && (
+          <div
+            style={{
+              borderTop: `1px solid ${D.border}`,
+              paddingTop: 13,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: D.t2 }}>
+                Traduceri <span style={{ fontWeight: 400, color: D.t3 }}>(opțional)</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: D.t3, lineHeight: 1.5, marginTop: 4 }}>
+                Numele categoriei în limbile active ale meniului. Câmpurile lăsate goale afișează
+                automat numele în română.
+              </div>
+            </div>
+            {langs.map((code) => {
+              const meta = MENU_LANGS.find((l) => l.code === code)
+              const label = meta?.label ?? code.toUpperCase()
+              return (
+                <label key={code} style={{ display: 'block' }}>
+                  <span
+                    style={{
+                      display: 'block',
+                      fontSize: '0.78rem',
+                      color: D.t2,
+                      marginBottom: 5,
+                    }}
+                  >
+                    {meta?.flag} Nume ({label})
+                  </span>
+                  <Inp
+                    value={names[code] ?? ''}
+                    onChange={(v) => setNames((n) => ({ ...n, [code]: v }))}
+                    placeholder={form.name || 'Nume categorie'}
+                  />
+                </label>
+              )
+            })}
+          </div>
+        )}
+        {saveError && (
+          <div
+            role="alert"
+            style={{
+              background: D.redA,
+              border: `1px solid ${D.red}`,
+              color: D.red,
+              borderRadius: 8,
+              padding: '9px 12px',
+              fontSize: '0.8rem',
+              lineHeight: 1.45,
+            }}
+          >
+            Nu s-a putut salva categoria: {saveError}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
           <button
             onClick={onClose}
@@ -81,27 +181,29 @@ function CategoryModal({
             Anulează
           </button>
           <button
-            onClick={() => {
-              // Numele categoriei e obligatoriu — fără guard se crea o categorie
-              // cu nume gol tăcut (invizibilă/inutilă pe meniu).
-              if (!(form.name ?? '').trim()) return
-              onSave(form)
-            }}
-            disabled={!(form.name ?? '').trim()}
+            onClick={() => void submit()}
+            disabled={nameMissing || saving}
             style={btn({
               background: D.gold,
               color: '#000',
-              opacity: !(form.name ?? '').trim() ? 0.5 : 1,
+              opacity: nameMissing || saving ? 0.5 : 1,
             })}
           >
-            Salvează
+            {saving ? 'Se salvează…' : 'Salvează'}
           </button>
         </div>
       </div>
     </Modal>
   )
 }
-export default function CategoriesTab({ restaurantId }: { restaurantId: string }) {
+export default function CategoriesTab({
+  restaurantId,
+  menuLanguages = [],
+}: {
+  restaurantId: string
+  // `restaurant.menu_languages` — limbile active ale meniului (mig 197).
+  menuLanguages?: readonly string[]
+}) {
   const {
     categories,
     loading,
@@ -148,22 +250,21 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
       />
     )
 
-  const handleSave = async (form: Partial<Category>) => {
-    if (modal === 'add') {
-      const { error: e } = await create(form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Categorie adăugată')
-        setModal(null)
-      }
-    } else if (modal) {
-      const { error: e } = await update((modal as Category).id, form)
-      if (e) toast(e.message, 'error')
-      else {
-        toast('Actualizat')
-        setModal(null)
-      }
+  // Eroarea Supabase vine în `{error}` (supabase-js NU aruncă) — o întoarcem
+  // modalului, care o afișează și rămâne deschis. Toast de succes DOAR pe succes.
+  const handleSave = async (form: Partial<Category>): Promise<string | null> => {
+    if (!modal) return null
+    try {
+      const { error: e } =
+        modal === 'add' ? await create(form) : await update((modal as Category).id, form)
+      if (e) return e.message || 'Eroare necunoscută'
+    } catch (err) {
+      // Respingere de transport (rețea căzută) — nu trebuie să rămână nevăzută.
+      return err instanceof Error ? err.message : 'Eroare de rețea'
     }
+    toast(modal === 'add' ? 'Categorie adăugată' : 'Actualizat')
+    setModal(null)
+    return null
   }
   const handleDelete = async () => {
     if (!delId) return
@@ -369,6 +470,7 @@ export default function CategoriesTab({ restaurantId }: { restaurantId: string }
       {modal && (
         <CategoryModal
           category={modal === 'add' ? null : (modal as Category)}
+          menuLanguages={menuLanguages}
           onSave={handleSave}
           onClose={() => setModal(null)}
         />

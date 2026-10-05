@@ -50,7 +50,9 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
       { label: 'Cookies', href: '/cookies' },
       { label: 'DPA', href: '/dpa' },
       { label: 'ANPC', href: 'https://anpc.ro', external: true },
-      { label: 'SOL', href: 'https://ec.europa.eu/consumers/odr', external: true },
+      // SOL/ODR (ec.europa.eu/consumers/odr) a fost desființată în iulie 2025 —
+      // paritate cu LegalFooter: soluționarea alternativă a litigiilor = SAL (ANPC).
+      { label: 'SAL', href: 'https://anpc.ro/ce-este-sal/', external: true },
     ],
   },
 ]

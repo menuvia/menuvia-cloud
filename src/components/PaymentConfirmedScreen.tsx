@@ -7,7 +7,8 @@
 //   3. Google Review CTA (apare după feedback pozitiv)
 //   4. Sumar plată (subtotal, tips, total)
 //   5. Buton "Am nevoie de bonul fiscal"
-//   6. LanguageSwitcher RO/EN în colț
+//   6. Limba = cea aleasă de oaspete în meniu (prop `lang`, T() pe cele 7
+//      limbi — decizia C4; înainte avea propriul comutator RO/EN din lib/i18n)
 //
 // Folosit din OrderTracker când status === 'paid'.
 // ─────────────────────────────────────────────────────────────────
@@ -15,8 +16,8 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import type { OrderConfirmationPayload } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
-import { t, useLanguage } from '../lib/i18n'
-import LanguageSwitcher from './LanguageSwitcher'
+import { T } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
 
 const PUB = { bg: '#F8F3EB', text: '#1A1208', muted: '#6B5A3F' } as const
 
@@ -48,6 +49,11 @@ interface PaymentConfirmedScreenProps {
   sessionId?: string | null
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
+  // Limba aleasă de oaspete în meniu — default 'ro'.
+  lang?: string
+  // „Fără branding" (theme_settings.hide_branding, gate-uit la citire în mig
+  // 281): ascunde „Powered by Menuvia", ca pe restul meniului.
+  hideBranding?: boolean
 }
 
 export default function PaymentConfirmedScreen({
@@ -61,8 +67,9 @@ export default function PaymentConfirmedScreen({
   fiscalReceiptRequested = false,
   sessionId = null,
   currency = 'RON',
+  lang = 'ro',
+  hideBranding = false,
 }: PaymentConfirmedScreenProps) {
-  const { lang } = useLanguage()
   const total = Number(confirmation.total) || 0
   const subtotal = total - tipsAmount - fastPayFee
 
@@ -77,8 +84,6 @@ export default function PaymentConfirmedScreen({
         padding: '24px 16px 48px',
       }}
     >
-      <LanguageSwitcher variant="light" position="top-right" />
-
       <div style={{ maxWidth: 480, margin: '0 auto' }}>
         {/* Animație checkmark */}
         <CheckmarkAnimation accent={accent} />
@@ -94,7 +99,7 @@ export default function PaymentConfirmedScreen({
             margin: '8px 0 12px',
           }}
         >
-          {t('paid.title', lang)}
+          {T(lang, 'paid_title')}
         </h1>
         <p
           style={{
@@ -106,7 +111,7 @@ export default function PaymentConfirmedScreen({
             whiteSpace: 'pre-line',
           }}
         >
-          {t('paid.subtitle', lang)}
+          {T(lang, 'paid_subtitle')}
         </p>
 
         {/* Feedback widget */}
@@ -116,6 +121,7 @@ export default function PaymentConfirmedScreen({
           googleReviewUrl={googleReviewUrl}
           accent={accent}
           sessionId={sessionId}
+          lang={lang}
         />
 
         {/* Sumar plată */}
@@ -128,13 +134,13 @@ export default function PaymentConfirmedScreen({
             marginTop: 24,
           }}
         >
-          <SummaryRow label={t('paid.subtotal', lang)} value={fmtPrice(subtotal, currency)} />
+          <SummaryRow label={T(lang, 'subtotal')} value={fmtPrice(subtotal, currency)} />
           {tipsAmount > 0 && (
-            <SummaryRow label={t('paid.tips', lang)} value={fmtPrice(tipsAmount, currency)} muted />
+            <SummaryRow label={T(lang, 'tip')} value={fmtPrice(tipsAmount, currency)} muted />
           )}
           {fastPayFee > 0 && (
             <SummaryRow
-              label={t('paid.fastPayFee', lang)}
+              label={T(lang, 'fast_pay_fee')}
               value={fmtPrice(fastPayFee, currency)}
               muted
             />
@@ -148,7 +154,7 @@ export default function PaymentConfirmedScreen({
               opacity: 0.6,
             }}
           />
-          <SummaryRow label={t('paid.total', lang)} value={fmtPrice(total, currency)} bold />
+          <SummaryRow label={T(lang, 'total')} value={fmtPrice(total, currency)} bold />
 
           {/* Buton bon fiscal */}
           {onRequestFiscalReceipt && (
@@ -177,24 +183,26 @@ export default function PaymentConfirmedScreen({
             >
               <span style={{ fontSize: 16 }}>{fiscalReceiptRequested ? '✓' : '🧾'}</span>
               {fiscalReceiptRequested
-                ? t('paid.fiscalRequested', lang)
-                : t('paid.needFiscalReceipt', lang)}
+                ? T(lang, 'fiscal_requested')
+                : T(lang, 'need_fiscal_receipt')}
             </button>
           )}
         </div>
 
-        {/* Powered by */}
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: 32,
-            fontSize: 12,
-            color: PUB.muted,
-            opacity: 0.6,
-          }}
-        >
-          {t('common.poweredBy', lang)} <strong style={{ color: accent }}>Menuvia</strong>
-        </div>
+        {/* Powered by — ascuns pe „Fără branding" */}
+        {!hideBranding && (
+          <div
+            style={{
+              textAlign: 'center',
+              marginTop: 32,
+              fontSize: 12,
+              color: PUB.muted,
+              opacity: 0.6,
+            }}
+          >
+            {T(lang, 'powered_by')} <strong style={{ color: accent }}>Menuvia</strong>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -349,17 +357,22 @@ interface FeedbackWidgetProps {
   googleReviewUrl: string | null
   accent: string
   sessionId?: string | null
+  lang: string
+  // Pe o comandă `closed` (Plan 2) plata NU a trecut prin aplicație — întrebarea
+  // „cum a fost plata?" n-are obiect, deci OrderClosedScreen pornește de la servire.
+  initialStep?: 'payment' | 'service'
 }
 
-function FeedbackWidget({
+export function FeedbackWidget({
   orderId,
   restaurantName,
   googleReviewUrl,
   accent,
   sessionId = null,
+  lang,
+  initialStep = 'payment',
 }: FeedbackWidgetProps) {
-  const { lang } = useLanguage()
-  const [step, setStep] = useState<FeedbackStep>('payment')
+  const [step, setStep] = useState<FeedbackStep>(initialStep)
   const [paymentRating, setPaymentRating] = useState<'up' | 'down' | null>(null)
   const [serviceRating, setServiceRating] = useState<number | null>(null)
   const [foodRating, setFoodRating] = useState<number | null>(null)
@@ -461,25 +474,27 @@ function FeedbackWidget({
           marginBottom: 14,
         }}
       >
-        {step === 'complete' ? t('feedback.thanks', lang) : t('feedback.title', lang)}
+        {step === 'complete' ? T(lang, 'fb_thanks') : T(lang, 'fb_title')}
       </div>
 
       {/* Step: Payment */}
       {step === 'payment' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
-            {t('feedback.askPayment', lang)}
+            {T(lang, 'fb_ask_payment')}
           </div>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center' }}>
             <ThumbButton
               direction="down"
               active={paymentRating === 'down'}
               onClick={() => handlePayment('down')}
+              lang={lang}
             />
             <ThumbButton
               direction="up"
               active={paymentRating === 'up'}
               onClick={() => handlePayment('up')}
+              lang={lang}
             />
           </div>
         </>
@@ -489,12 +504,12 @@ function FeedbackWidget({
       {negativeFor !== null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 14 }}>
-            {t('feedback.negative', lang)}
+            {T(lang, 'fb_negative')}
           </div>
           <textarea
             value={negativeFeedback}
             onChange={(e) => setNegativeFeedback(e.target.value)}
-            placeholder={t('feedback.negativePlaceholder', lang)}
+            placeholder={T(lang, 'fb_negative_placeholder')}
             rows={3}
             maxLength={500}
             style={{
@@ -524,7 +539,7 @@ function FeedbackWidget({
               fontFamily: 'DM Sans, sans-serif',
             }}
           >
-            {t('feedback.send', lang)}
+            {T(lang, 'send')}
           </button>
         </>
       )}
@@ -533,9 +548,9 @@ function FeedbackWidget({
       {step === 'service' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
-            {t('feedback.askService', lang)}
+            {T(lang, 'fb_ask_service')}
           </div>
-          <StarRating value={serviceRating} onChange={handleService} accent={accent} />
+          <StarRating value={serviceRating} onChange={handleService} accent={accent} lang={lang} />
         </>
       )}
 
@@ -543,9 +558,9 @@ function FeedbackWidget({
       {step === 'food' && negativeFor === null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 18 }}>
-            {t('feedback.askFood', lang)}
+            {T(lang, 'fb_ask_food')}
           </div>
-          <StarRating value={foodRating} onChange={handleFood} accent={accent} />
+          <StarRating value={foodRating} onChange={handleFood} accent={accent} lang={lang} />
         </>
       )}
 
@@ -555,7 +570,7 @@ function FeedbackWidget({
           {showGoogleCTA && safeReviewUrl ? (
             <>
               <div style={{ fontSize: 13, color: PUB.muted, marginBottom: 16, lineHeight: 1.5 }}>
-                {t('feedback.googleCTAText', lang)} <strong>{restaurantName}</strong>.
+                {T(lang, 'fb_google_text')} <strong>{restaurantName}</strong>.
               </div>
               <a
                 href={safeReviewUrl}
@@ -579,11 +594,11 @@ function FeedbackWidget({
                 }}
               >
                 <GoogleLogo />
-                {t('feedback.googleCTAButton', lang)}
+                {T(lang, 'fb_google_button')}
               </a>
             </>
           ) : (
-            <div style={{ fontSize: 13, color: PUB.muted }}>{t('feedback.thanks', lang)}.</div>
+            <div style={{ fontSize: 13, color: PUB.muted }}>{T(lang, 'fb_thanks')}.</div>
           )}
         </>
       )}
@@ -598,10 +613,12 @@ function ThumbButton({
   direction,
   active,
   onClick,
+  lang,
 }: {
   direction: 'up' | 'down'
   active: boolean
   onClick: () => void
+  lang: string
 }) {
   const color = direction === 'up' ? '#4CAF6E' : '#E25555'
   return (
@@ -621,7 +638,7 @@ function ThumbButton({
         transition: 'all 0.2s',
         transform: active ? 'scale(1.1)' : 'scale(1)',
       }}
-      aria-label={direction === 'up' ? 'Bine' : 'Nu prea bine'}
+      aria-label={direction === 'up' ? T(lang, 'fb_thumb_up') : T(lang, 'fb_thumb_down')}
     >
       {direction === 'up' ? '👍' : '👎'}
     </button>
@@ -635,10 +652,12 @@ function StarRating({
   value,
   onChange,
   accent,
+  lang,
 }: {
   value: number | null
   onChange: (v: number) => void
   accent: string
+  lang: string
 }) {
   const [hovered, setHovered] = useState<number | null>(null)
   return (
@@ -652,7 +671,7 @@ function StarRating({
             onClick={() => onChange(n)}
             onMouseEnter={() => setHovered(n)}
             onMouseLeave={() => setHovered(null)}
-            aria-label={`${n} stele`}
+            aria-label={Tf(lang, 'fb_stars', { n })}
             style={{
               background: 'none',
               border: 'none',

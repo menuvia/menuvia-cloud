@@ -5,6 +5,8 @@ import { menuType } from '../../lib/menuType'
 import type { MenuTheme } from '../../lib/themes'
 import { readableTextOn } from '../../lib/themes'
 import { MENU_LANGS } from '../../lib/i18nMenu'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf } from '../../lib/guestI18n'
 
 // ─────────────────────────────────────────────────────────────
 // MenuHeader — header de meniu reutilizabil pe ambele suprafețe
@@ -84,6 +86,9 @@ export interface MenuHeaderProps {
   activeLang?: string
   /** Callback la schimbarea limbii din switcher. */
   onLangChange?: (code: string) => void
+  /** Limba textelor de interfață (pastila de status, etichete a11y). Implicit
+      = `activeLang` (pe QR chrome-ul urmează limba aleasă). */
+  uiLang?: string
 }
 
 // ── LangSwitcher — pastile compacte flag+cod pentru schimbarea limbii ──
@@ -98,6 +103,7 @@ export function LangSwitcher({
   accent,
   PUB,
   labelStyle,
+  uiLang,
 }: {
   languages: string[]
   activeLang: string
@@ -105,6 +111,8 @@ export function LangSwitcher({
   accent: string
   PUB: PublicPalette
   labelStyle: CSSProperties
+  /** Limba etichetei a11y — implicit limba activă. */
+  uiLang?: string
 }) {
   // ro + limbile alese, deduplicat, doar cele cunoscute în MENU_LANGS.
   const codes = ['ro', ...languages.filter((c) => c !== 'ro')]
@@ -115,7 +123,7 @@ export function LangSwitcher({
   return (
     <div
       role="group"
-      aria-label="Alege limba meniului"
+      aria-label={T(uiLang ?? activeLang, 'lang_switch_aria')}
       style={{ display: 'flex', flexWrap: 'wrap', gap: SPACE_2 }}
     >
       {langs.map((l) => {
@@ -164,16 +172,18 @@ function StatusPill({
   onSurface,
   PUB,
   labelStyle,
+  lang,
 }: {
   isOpen: boolean
   onSurface: boolean
   PUB: PublicPalette
   labelStyle: CSSProperties
+  lang: string
 }) {
   // Verde/roșu de status preluate din tokens (success/error per temă), nu
   // hardcodate — singura mențiune e culoarea punctului decorativ.
   const dot = isOpen ? STATUS_OK : STATUS_OFF
-  const label = isOpen ? 'Deschis acum' : 'Închis'
+  const label = isOpen ? T(lang, 'open_now_short') : T(lang, 'closed_badge')
   // Pornim de la t.label (același eyebrow ca restul UI) și suprascriem doar
   // ce diferă pentru o pastilă — fără tracking magic divergent.
   const base: CSSProperties = {
@@ -205,7 +215,7 @@ function StatusPill({
         color: '#FFFFFF',
       }
   return (
-    <span role="status" aria-label={`Status: ${label}`} style={{ ...base, ...skin }}>
+    <span role="status" aria-label={Tf(lang, 'status_aria', { label })} style={{ ...base, ...skin }}>
       <span
         aria-hidden
         style={{
@@ -237,7 +247,9 @@ function MenuHeader({
   languages,
   activeLang = 'ro',
   onLangChange,
+  uiLang,
 }: MenuHeaderProps) {
+  const ui = uiLang ?? activeLang
   const t = menuType(theme.fonts)
   const showStatus = isOpen != null
   const hasLogo = typeof logoUrl === 'string' && logoUrl.length > 0
@@ -251,6 +263,7 @@ function MenuHeader({
         accent={accent}
         PUB={PUB}
         labelStyle={t.label}
+        uiLang={ui}
       />
     ) : null
 
@@ -315,6 +328,7 @@ function MenuHeader({
           <div style={{ marginTop: SPACE_2 }}>
             <StatusPill
               isOpen={isOpen as boolean}
+              lang={ui}
               onSurface
               PUB={PUB}
               labelStyle={t.label}
@@ -391,6 +405,7 @@ function MenuHeader({
           <div style={{ marginTop: SPACE_3 }}>
             <StatusPill
               isOpen={isOpen as boolean}
+              lang={ui}
               onSurface
               PUB={PUB}
               labelStyle={t.label}
@@ -425,7 +440,7 @@ function MenuHeader({
       {hasCover ? (
         <BlurImage
           src={coverUrl as string}
-          alt={`Imagine de copertă — ${restaurantName}`}
+          alt={Tf(ui, 'cover_alt', { name: restaurantName })}
           aspectRatio="16 / 9"
           loading="eager"
           style={{
@@ -472,6 +487,7 @@ function MenuHeader({
           <div style={{ marginBottom: SPACE_3 }}>
             <StatusPill
               isOpen={isOpen as boolean}
+              lang={ui}
               onSurface={false}
               PUB={PUB}
               labelStyle={t.label}

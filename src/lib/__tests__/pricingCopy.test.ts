@@ -12,12 +12,25 @@
 //   PC4  oferta pilot spune EXPLICIT că înlocuiește trialul, nu se adună;
 //   PC5  un card nu poate spune „în curând" despre o funcție pe care tabelul
 //        comparativ o listează ca livrată.
+//   PC7  copy contractual fals interzis ca CLASĂ (oct 2026): „garanție",
+//        schimbare de plan „instant", „per restaurant … nu per cont",
+//        „modificările de preț … doar la noi clienți" — contrazise de
+//        Termenii §4.4/§4.6/§15.2 sau de plan_limits.max_restaurants;
+//   PC8  FAQ-ul de facturare spune „per cont" și numără locațiile din limite;
+//   PC9  sursa PricingPage nu mai conține FAQ-urile contractuale ca literal
+//        (altfel o copie în JSX ar ocoli PC7);
+//   PC10 MarketingFooter nu mai trimite la SOL/ODR (desființat), ci la SAL.
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
+  BILLING_SCOPE_FAQ,
   EXTRA_FEATURES,
   INCLUDED_EVERYWHERE,
   PILOT_BANNER,
   PILOT_DAYS,
+  PLAN_CHANGE_FAQ,
+  PRICE_GUARANTEE_FAQ,
   TRIAL_DAYS,
   TRIAL_FAQ,
   TRIAL_HEADLINE,
@@ -38,7 +51,12 @@ const ALL_COPY = [
   // Semnalele de încredere sunt pe ACEEAȘI pagină, deci intră în aceleași
   // invariante — altfel promisiunea scoasă din headline supraviețuia acolo.
   ...TRUST_SIGNALS.flatMap((t) => [t.label, t.desc]),
+  ...[PLAN_CHANGE_FAQ, BILLING_SCOPE_FAQ, PRICE_GUARANTEE_FAQ].flatMap((f) => [f.q, f.a]),
 ]
+
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+const ROOT = process.cwd()
+const readSrc = (f: string) => readFileSync(resolve(ROOT, f), 'utf8')
 
 describe('copy-ul de pe pagina de prețuri', () => {
   it('PC1: nu promite backup — nu avem cum să-l dovedim', () => {
@@ -101,5 +119,51 @@ describe('copy-ul de pe pagina de prețuri', () => {
         )
       }
     }
+  })
+
+  it('PC7: niciun text contractual fals (garanție, instant, per restaurant)', () => {
+    const FALSE_CLAIMS: ReadonlyArray<{ re: RegExp; why: string }> = [
+      { re: /garanți[ae]/i, why: 'Termenii §4.4: sumele achitate nu se rambursează' },
+      { re: /instant/i, why: 'Termenii §4.6: downgrade de la următoarea perioadă' },
+      { re: /per restaurant/i, why: 'planul e pe cont (profiles.plan, max_restaurants)' },
+      { re: /nu per cont/i, why: 'planul e pe cont' },
+      { re: /doar la noi clienți/i, why: 'Termenii §15.2: preaviz, se aplică și actualilor' },
+    ]
+    // Control pozitiv: copy-ul chiar conține FAQ-urile contractuale.
+    expect(ALL_COPY).toContain(PLAN_CHANGE_FAQ.a)
+    for (const text of ALL_COPY) {
+      // Întrebarea „per restaurant sau per cont?" e legitimă; contează răspunsul.
+      if (text === BILLING_SCOPE_FAQ.q) continue
+      for (const { re, why } of FALSE_CLAIMS) {
+        expect(text, `„${text}" — ${why}`).not.toMatch(re)
+      }
+    }
+  })
+
+  it('PC8: facturarea e per cont, cu locațiile din limitele reale', () => {
+    expect(BILLING_SCOPE_FAQ.a).toMatch(/^Per cont/)
+    expect(getPlan('pro').limits.maxRestaurants).toBe(2)
+    expect(BILLING_SCOPE_FAQ.a).toContain(`${getPlan('pro').name} include două locații`)
+    expect(PLAN_CHANGE_FAQ.a).toMatch(/următoarea perioadă de facturare/)
+    expect(PRICE_GUARANTEE_FAQ.a).toMatch(/30 de zile înainte/)
+  })
+
+  it('PC9: PricingPage nu ține copy contractual ca literal în JSX', () => {
+    const src = readSrc('src/pages/PricingPage.tsx')
+    // Control pozitiv: pagina chiar folosește datele.
+    for (const name of ['PLAN_CHANGE_FAQ', 'BILLING_SCOPE_FAQ', 'PRICE_GUARANTEE_FAQ']) {
+      expect(src).toContain(name)
+    }
+    const LITERALS = [/downgrade instant/i, /'Per restaurant\./, /doar la noi clienți/i, /zile garanție/i]
+    for (const re of LITERALS) {
+      expect(src, `copy contractual fals în PricingPage: ${re}`).not.toMatch(re)
+    }
+  })
+
+  it('PC10: MarketingFooter trimite la SAL, nu la SOL/ODR (desființat)', () => {
+    const src = readSrc('src/components/marketing/MarketingFooter.tsx')
+    expect(src).toContain("href: 'https://anpc.ro/ce-este-sal/'")
+    expect(src).not.toMatch(/href:\s*['"][^'"]*consumers\/odr/)
+    expect(src).not.toMatch(/label:\s*['"]SOL['"]/)
   })
 })

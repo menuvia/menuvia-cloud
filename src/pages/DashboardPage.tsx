@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { planTier, type PlanTier } from '../lib/features'
+import { planTier, productLimitReason, type PlanTier } from '../lib/features'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -80,7 +80,9 @@ function UpgradeModal({
     { label: 'Comenzi prin QR', free: '—', pro: '✓' },
     { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
     { label: 'Comenzi ospătar', free: '—', pro: '✓' },
-    { label: 'Rapoarte', free: 'De bază', pro: 'Zilnic + săptămânal' },
+    // Tab-ul Rapoarte e minTier 2; pe growth = evidența comenzilor (fără
+    // rapoarte pe email — acelea numără doar comenzi `paid`).
+    { label: 'Rapoarte', free: '—', pro: 'Comenzi + produse vândute' },
   ]
   return (
     <div
@@ -1006,9 +1008,7 @@ export default function DashboardPage({
         productCount={productCount}
         maxProducts={planLimits.max_products}
         onUpgrade={() =>
-          setUpgradeReason(
-            `Ai atins limita de produse pe planul Gratuit (${planLimits.max_products} produse).`,
-          )
+          setUpgradeReason(productLimitReason(plan, planLimits.max_products))
         }
       />
       <div
@@ -1465,7 +1465,7 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     plan={plan}
                     onUpgrade={() =>
-                      setUpgradeReason('Ai atins limita de produse pe planul Gratuit (15 produse).')
+                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
                     }
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1474,7 +1474,10 @@ export default function DashboardPage({
               )}
               {tab === 'categories' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă categoriile..." />}>
-                  <CategoriesTab restaurantId={restaurant.id} />
+                  <CategoriesTab
+                    restaurantId={restaurant.id}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                  />
                 </Suspense>
               )}
               {tab === 'modificatori' && (

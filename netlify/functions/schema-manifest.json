@@ -289,6 +289,7 @@
     "migration_287_fiscal_journal_lockdown",
     "migration_288_order_janitors",
     "migration_289_reservations_expired",
+    "migration_290_plan_dead_data",
     "migration_293_affiliate_commission_v2",
     "migration_294_affiliate_payout_flow",
     "migration_295_affiliate_program_gdpr"

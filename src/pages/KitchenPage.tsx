@@ -16,6 +16,8 @@ import { useInView, revealStyle } from '../lib/motion'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
+import PickupDetails from '../components/PickupDetails'
+import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
 
 // D imported from constants
 
@@ -123,7 +125,11 @@ const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) 
     const id = setInterval(() => setUrgencyTick((t) => t + 1), 10_000)
     return () => clearInterval(id)
   }, [])
-  const level = urgencyLevel(order.created_at)
+  // Pickup programat în viitor: încă nu întârzie → fără escaladare. După ora
+  // de ridicare, urgența se măsoară față de ora PROMISĂ, nu față de plasare.
+  const pickupAhead = isScheduledPickupAhead(order)
+  const anchor = urgencyAnchor(order)
+  const level: UrgencyLevel = pickupAhead ? 'calm' : urgencyLevel(anchor)
   const urgColor = urgencyLevelColor(level)
   const isNew = order.status === 'new'
   // Urgența îmbracă TOT cardul (border + tentă de fundal), nu o dungă laterală.
@@ -186,8 +192,9 @@ const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) 
             </span>
           </div>
         </div>
-        <ElapsedTimer createdAt={order.created_at} />
+        {!pickupAhead && <ElapsedTimer createdAt={anchor} />}
       </div>
+      <PickupDetails order={order} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {order.order_items.map((item) => (
           <div key={item.id}>
@@ -256,6 +263,9 @@ const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) 
     </div>
   )
 })
+
+// Exportat pentru teste (cardul pickup: ora, clientul, fără timer roșu înainte).
+export { OrderCard as KitchenOrderCard }
 
 // ── Restaurant selector — shown only when user has access to multiple restaurants ──
 function RestaurantSelector({
@@ -608,7 +618,8 @@ export default function KitchenPage() {
         }}
       >
         {COLUMNS.map((col) => {
-          const colOrders = byStatus(col.statuses)
+          // „Când trebuie să fie gata": pickup după ora de ridicare, restul FIFO.
+          const colOrders = sortByDue(byStatus(col.statuses))
           return (
             <div
               key={col.label}

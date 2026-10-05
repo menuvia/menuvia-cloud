@@ -7,12 +7,16 @@ import {
   getPlanByInternalId,
 } from '../lib/plans'
 import { MKT, whatsappUrl } from '../lib/marketing'
-import { writePlanIntent } from '../lib/planIntent'
+import { clearPlanIntent, readPlanIntent, writePlanIntent } from '../lib/planIntent'
+import { readCheckoutReturnParam } from '../lib/checkoutReturn'
 import { CheckoutError, type CheckoutAction } from '../lib/checkout'
 import {
+  BILLING_SCOPE_FAQ,
   EXTRA_FEATURES,
   INCLUDED_EVERYWHERE,
   PILOT_BANNER,
+  PLAN_CHANGE_FAQ,
+  PRICE_GUARANTEE_FAQ,
   TRIAL_FAQ,
   TRIAL_HEADLINE,
 } from '../lib/pricingCopy'
@@ -62,26 +66,28 @@ const errorActionBtn: React.CSSProperties = {
 // state-ului (înaintea primului paint), nu într-un effect — de-asta nu
 // există flash. 'pro' (Fiscalizare) e pilot → niciodată auto-checkout.
 function usePlanIntentAutoCheckout(
-  user: { id: string } | null,
+  user: { id: string; email?: string | null } | null,
   onCheckout: (plan: string) => void | Promise<void>,
   onError: (err: unknown) => void,
 ): string | null {
   const [pendingPlan, setPendingPlan] = React.useState<string | null>(() => {
-    try {
-      const i = sessionStorage.getItem('menuvia.plan_intent')
-      return i === 'starter' || i === 'growth' ? i : null
-    } catch {
-      return null
-    }
+    // Întors din Stripe cu „Anulează": NU repornim plata pe care omul tocmai
+    // a refuzat-o (intenția din localStorage l-ar fi trimis înapoi în Stripe).
+    if (readCheckoutReturnParam(window.location.search) === 'cancelled') return null
+    // Doar intenția ACESTUI cont (sau aleasă în acest tab): pe un dispozitiv
+    // partajat, contul altcuiva nu pornește checkout-ul nostru (planIntent.ts).
+    const i = readPlanIntent(user?.email ?? null)
+    return i === 'starter' || i === 'growth' ? i : null
   })
 
   React.useEffect(() => {
-    if (!user || pendingPlan == null) return
-    try {
-      sessionStorage.removeItem('menuvia.plan_intent')
-    } catch {
-      /* ignore */
-    }
+    if (!user) return
+    // Logat pe /pricing = intenția e CONSUMATĂ, oricum ar fi: pornim checkout-ul
+    // (starter/growth) sau nu e nimic de pornit (Fiscalizare = pilot, anulare).
+    // Altfel, cu TTL de 24 h, fiecare login ar re-trimite omul pe /pricing.
+    // Doar a NOASTRĂ: intenția legată de alt cont rămâne pentru acel cont.
+    clearPlanIntent(user.email ?? null)
+    if (pendingPlan == null) return
     let alive = true
     // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul
     // nu mai contează. Dacă eșuează, curățăm guard-ul ȘI arătăm motivul —
@@ -207,14 +213,16 @@ export default function PricingPage({
     ctaFn: () => {
       if (p.id === 'pro') {
         // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
-        const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
+        const url = whatsappUrl('Salut, mă interesează planul Fiscalizare (pilot)')
         if (url) {
           window.open(url, '_blank', 'noopener')
           return
         }
         return onCheckout('pro')
       }
-      writePlanIntent(p.id)
+      // Doar pentru anonimi: un user logat merge direct la Stripe, iar o
+      // intenție rămasă în urmă l-ar re-trimite în checkout la următorul login.
+      if (!user) writePlanIntent(p.id)
       // Tier 1+2: dacă userul nu e logat, mergem la auth (cu ?plan=) — App
       // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
       // ÎNTOARCEM promisiunea: altfel butonul nu poate aștepta și nici nu
@@ -229,7 +237,7 @@ export default function PricingPage({
       icon: <Icon name="settings" size={26} color={MKT.accent} />,
       title: 'Setup Concierge',
       price: '300 lei',
-      desc: 'Vine Radu personal: configurare restaurant, meniu, QR, training echipă. O zi.',
+      desc: 'Vine cineva din echipă la tine: configurare restaurant, meniu, QR, training echipă. O zi.',
     },
     {
       icon: <Icon name="camera" size={26} color={MKT.accent} />,
@@ -273,27 +281,20 @@ export default function PricingPage({
       q: 'Care plan e potrivit pentru mine?',
       a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — disponibil în pilot.',
     },
-    {
-      q: 'Pot schimba planul oricând?',
-      a: 'Da. Upgrade sau downgrade instant. Diferența se calculează proporțional pe factura următoare.',
-    },
-    {
-      q: 'Plătesc per restaurant sau cont?',
-      a: 'Per restaurant. Fiecare locație are abonamentul propriu. Pentru lanțuri cu 3+ locații, scrie-ne — facem ofertă custom.',
-    },
+    // Întrebările contractuale vin din `lib/pricingCopy` (aliniate cu Termenii,
+    // păzite de PC7–PC9).
+    PLAN_CHANGE_FAQ,
+    BILLING_SCOPE_FAQ,
     {
       // Comasat: fostele „Este necesar hardware special?" și „Aveți integrare
       // cu casă de marcat?" — un singur răspuns, cu partea fiscală completă.
       q: 'E nevoie de hardware special sau de casă de marcat?',
       a: 'Nu e nevoie de hardware special — funcționează pe orice telefon sau tabletă, iar pentru bucătărie merge orice ecran. Integrarea cu casa de marcat e inclusă în planul Fiscalizare, fără cost suplimentar: suportăm Datecs, Activa și Tremol, iar în pilot instalarea o facem împreună — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
-    {
-      q: 'Garantați prețul?',
-      a: 'Pentru clienții actuali, prețul rămâne fix pe perioada planului. Modificările de preț se aplică doar la noi clienți.',
-    },
+    PRICE_GUARANTEE_FAQ,
     {
       q: 'Sunteți pe piață de mult?',
-      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct WhatsApp cu Radu, fondatorul.',
+      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct pe WhatsApp cu echipa Menuvia.',
     },
   ]
 
@@ -433,7 +434,7 @@ export default function PricingPage({
             </div>
           </div>
           {(() => {
-            const url = whatsappUrl('Salut Radu, m-ar interesa programul pilot Menuvia')
+            const url = whatsappUrl('Salut, m-ar interesa programul pilot Menuvia')
             if (!url) return null
             return (
               <button
@@ -452,7 +453,7 @@ export default function PricingPage({
                   whiteSpace: 'nowrap',
                 }}
               >
-                Vorbește cu Radu →
+                Vorbește cu noi →
               </button>
             )
           })()}
@@ -502,7 +503,7 @@ export default function PricingPage({
             )}
             {checkoutError.action === 'contact' &&
               (() => {
-                const url = whatsappUrl('Salut Radu, vreau să activez un plan Menuvia')
+                const url = whatsappUrl('Salut, vreau să activez un plan Menuvia')
                 if (!url) return null
                 return (
                   <button
@@ -935,7 +936,7 @@ export default function PricingPage({
 
         {/* Custom / Enterprise inquiry */}
         {(() => {
-          const url = whatsappUrl('Salut Radu, avem 3+ locații și am vrea o ofertă custom')
+          const url = whatsappUrl('Salut, avem 3+ locații și am vrea o ofertă custom')
           if (!url) return null
           return (
             <div
@@ -1316,7 +1317,7 @@ export default function PricingPage({
           <button
             disabled={loadingPlan !== null}
             onClick={() => {
-              writePlanIntent('growth')
+              if (!user) writePlanIntent('growth')
               void runCheckout('growth', () => onCheckout('growth'))
             }}
             className="pressable"

@@ -24,6 +24,8 @@ import {
 import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
+import { describeGuestError } from '../lib/guestErrors'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -51,6 +53,8 @@ import {
 } from '../lib/themes'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
+import { useToast } from '../components/ui/useToast'
+import { qrPayTableLabel } from '../lib/qrPayLabel'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
@@ -91,6 +95,7 @@ function PairingPopupScrollLock(): null {
 
 export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
+  const toast = useToast()
   const [categories, setCategories] = useState<Category[]>([])
   // Limba activă a meniului ('ro' = originalul din name/description).
   const [lang, setLang] = useState('ro')
@@ -354,10 +359,9 @@ export default function QrMenuPage({ token }: Props) {
       }
     }
 
-    const msg = lastError instanceof Error ? lastError.message : 'Eroare la trimiterea comenzii'
-    const isOffline =
-      msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')
-    setSubmitError(isOffline ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg)
+    // Hint-ul/mesajul serverului → text în limba oaspetelui; niciodată brut
+    // (mesajele create_order sunt amestecate RO/EN — mig 191).
+    setSubmitError(describeGuestError(lang, lastError, { fallback: 'err_order_not_sent' }))
     setSubmitting(false)
   }
 
@@ -370,7 +374,8 @@ export default function QrMenuPage({ token }: Props) {
       setTimeout(() => setWaiterCalled(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] callWaiter failed:', err)
-      // Nu afișăm eroare vizibilă — butonul se resetează și clientul poate reîncerca
+      // Vizibil: altfel clientul credea că a chemat pe cineva (eroarea era înghițită).
+      toast.error(T(lang, 'waiter_call_failed'))
     }
     setCallingWaiter(false)
   }
@@ -425,6 +430,7 @@ export default function QrMenuPage({ token }: Props) {
       setTimeout(() => setBillRequested(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] requestBill failed:', err)
+      toast.error(T(lang, 'bill_request_failed'))
     }
     setRequestingBill(false)
   }
@@ -603,7 +609,7 @@ export default function QrMenuPage({ token }: Props) {
   )
 
   // Încărcare: schelet de listă premium (componentă comună), nu text gol.
-  if (resolving) return <MenuLoading PUB={PUB} />
+  if (resolving) return <MenuLoading PUB={PUB} lang={lang} />
 
   // QR invalid: ecran de eroare premium fără reîncercare (QR-ul nu se „repară").
   if (invalid)
@@ -612,8 +618,9 @@ export default function QrMenuPage({ token }: Props) {
         PUB={PUB}
         accent={accent}
         fonts={theme.fonts}
-        title="Acest QR nu mai este activ"
-        message="Te rugăm să ceri personalului un QR nou."
+        lang={lang}
+        title={T(lang, 'qr_invalid_title')}
+        message={T(lang, 'qr_invalid_msg')}
       />
     )
 
@@ -625,8 +632,9 @@ export default function QrMenuPage({ token }: Props) {
         accent={accent}
         fonts={theme.fonts}
         onRetry={loadQr}
-        title="Conexiune slabă"
-        message="Nu s-a putut încărca meniul. Verifică internetul și încearcă din nou."
+        lang={lang}
+        title={T(lang, 'net_weak_title')}
+        message={T(lang, 'net_menu_msg')}
       />
     )
 
@@ -639,6 +647,8 @@ export default function QrMenuPage({ token }: Props) {
         previousOrders={previousOrders}
         sessionId={sessionId}
         currency={menuCurrency}
+        lang={lang}
+        hideBranding={resolveHideBranding(ctx?.restaurant.theme_settings)}
       />
     )
   }
@@ -662,7 +672,7 @@ export default function QrMenuPage({ token }: Props) {
         chrome="plain"
         restaurantName={ctx?.restaurant.name ?? ''}
         logoUrl={ctx?.restaurant.logo_url}
-        badge={ctx?.table.name ?? 'Masă'}
+        badge={ctx?.table.name ?? T(lang, 'table_word')}
         accent={accent}
         PUB={PUB}
         theme={theme}
@@ -679,6 +689,7 @@ export default function QrMenuPage({ token }: Props) {
             accent={accent}
             sessionId={sessionId}
             currency={menuCurrency}
+            lang={lang}
             onAddMore={() => {
               /* user is already in menu */
             }}
@@ -736,6 +747,7 @@ export default function QrMenuPage({ token }: Props) {
           accent={accent}
           PUB={PUB}
           theme={theme}
+          lang={lang}
         />
       )}
 
@@ -777,7 +789,7 @@ export default function QrMenuPage({ token }: Props) {
       <div style={{ flex: 1, padding: '14px 16px 120px' }}>
         {isFlipbook && (
           <Suspense fallback={null}>
-            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />
+            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} lang={lang} />
           </Suspense>
         )}
         {/* Empty states: catalog gol (nimic publicat) vs. căutare/categorie fără rezultate */}
@@ -786,7 +798,7 @@ export default function QrMenuPage({ token }: Props) {
           (totalProducts === 0 ? (
             // Restaurantul n-a publicat încă produse — stare dedicată, comună
             // cu meniul digital (fără buton de golire: nu există filtre).
-            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} />
+            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} lang={lang} />
           ) : (
             <div style={{ textAlign: 'center', padding: '48px 16px', color: PUB.text2 }}>
               <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'center' }}>
@@ -795,10 +807,10 @@ export default function QrMenuPage({ token }: Props) {
               <div style={{ fontSize: 15, fontWeight: 600, color: PUB.text, marginBottom: 6 }}>
                 {searchQuery
                   ? `${T(lang, 'no_results')} · „${search.trim()}”`
-                  : 'Momentan meniul nu este disponibil.'}
+                  : T(lang, 'menu_unavailable')}
               </div>
               <div style={{ fontSize: 13 }}>
-                {searchQuery ? 'Încearcă alt cuvânt.' : 'Te rugăm să întrebi personalul.'}
+                {searchQuery ? T(lang, 'try_other_word') : T(lang, 'ask_staff')}
               </div>
             </div>
           ))}
@@ -819,6 +831,7 @@ export default function QrMenuPage({ token }: Props) {
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
                 currency={menuCurrency}
+                lang={lang}
               />
             ))}
           </div>
@@ -838,6 +851,7 @@ export default function QrMenuPage({ token }: Props) {
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
                 currency={menuCurrency}
+                lang={lang}
               />
             ))}
           </div>
@@ -856,6 +870,7 @@ export default function QrMenuPage({ token }: Props) {
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
                 currency={menuCurrency}
+                lang={lang}
               />
             ))}
           </div>
@@ -874,6 +889,7 @@ export default function QrMenuPage({ token }: Props) {
                 onOpen={openProductQr}
                 onQuickAdd={quickAddProductQr}
                 currency={menuCurrency}
+                lang={lang}
               />
             ))}
           </div>
@@ -1014,6 +1030,7 @@ export default function QrMenuPage({ token }: Props) {
             color={PUB.text3}
             fontFamily={theme.fonts.body}
             padding="4px 0 96px"
+            lang={lang}
           />
         )}
       </div>
@@ -1349,6 +1366,7 @@ export default function QrMenuPage({ token }: Props) {
             onAdd={addToCart}
             currency={menuCurrency}
             happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
+            lang={lang}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
@@ -1405,7 +1423,7 @@ export default function QrMenuPage({ token }: Props) {
                   fontFamily: theme.fonts.body,
                 }}
               >
-                {pairingPopup.sourceProduct.name} adăugat
+                {Tf(lang, 'pairing_added', { name: pairingPopup.sourceProduct.name })}
               </span>
             </div>
 
@@ -1423,7 +1441,7 @@ export default function QrMenuPage({ token }: Props) {
               }}
             >
               <Icon name="sparkle" size={18} color={accent} />
-              Merge perfect cu...
+              {T(lang, 'pairing_title')}
             </div>
 
             <div
@@ -1548,7 +1566,7 @@ export default function QrMenuPage({ token }: Props) {
                           setCart((prev) => [...prev, newItem])
                         }
                       }}
-                      aria-label={`Adaugă ${p.name}`}
+                      aria-label={Tf(lang, 'add_named', { name: p.name })}
                       style={{
                         // 44x44 = țintă de atingere minimă (a11y).
                         width: 44,
@@ -1590,7 +1608,7 @@ export default function QrMenuPage({ token }: Props) {
                 marginTop: 4,
               }}
             >
-              Continuă cu meniul
+              {T(lang, 'continue_menu')}
             </button>
           </div>
         </div>
@@ -1616,6 +1634,7 @@ export default function QrMenuPage({ token }: Props) {
             onRemove={removeFromCart}
             onLineTotal={lineTotal}
             currency={menuCurrency}
+            lang={lang}
             onSubmit={(v) => {
               // Sursa de adevăr rămâne părintele (nota supraviețuiește
               // re-deschiderii sheet-ului); submit-ul primește valoarea ca
@@ -1650,15 +1669,14 @@ export default function QrMenuPage({ token }: Props) {
                 ? () => setShowSplitSheet(true)
                 : undefined
             }
-            payLabel={
-              tablePaid
-                ? 'Plătit online ✓'
-                : onlinePayEnabled && sessionId != null
-                  ? 'Plătește online'
-                  : billRequested
-                    ? 'Nota a fost cerută ✓'
-                    : 'Plătește masa'
-            }
+            // Fără plată online butonul DOAR cere nota → „Cere nota", nu
+            // „Plătește masa" (lib/qrPayLabel).
+            payLabel={qrPayTableLabel({
+              tablePaid,
+              onlinePay: onlinePayEnabled && sessionId != null,
+              billRequested,
+              lang,
+            })}
           />
         </Suspense>
       )}
@@ -1671,6 +1689,7 @@ export default function QrMenuPage({ token }: Props) {
             sessionId={sessionId}
             PUB={PUB}
             accent={accent}
+            lang={lang}
             onClose={() => setShowPaySheet(false)}
             onPaid={() => {
               setTablePaid(true)
@@ -1701,6 +1720,7 @@ export default function QrMenuPage({ token }: Props) {
             sessionId={sessionId}
             PUB={PUB}
             accent={accent}
+            lang={lang}
             onClose={() => setShowSplitSheet(false)}
             onPaid={() => {
               // Plată PARȚIALĂ a mesei: NU setăm tablePaid/paidOrderIds —

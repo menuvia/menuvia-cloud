@@ -198,6 +198,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/fiscal_lockdown_assertions.sql
 
+      # Mig 290 pe stack-ul real: PD2 verifică ACL-ul gate-urilor recreate
+      # (`create or replace` păstrează ACL-ul, dar default privileges ale
+      # Supabase sunt exact clasa la care sql-verify e orb).
+      - name: Mesaje de plan neutre + date moarte pe stack-ul Supabase real (mig 290, PD1–PD4)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/plan_dead_data_assertions.sql
+
       # Afiliere v2 (mig 293) pe stack-ul real: funcții NOI (set_affiliate_
       # attribution_status + trigger-ul de instantaneu), iar default privileges
       # ale Supabase re-acordă EXECUTE — AF10 are muncă reală aici.

@@ -13,6 +13,8 @@ import {
   type WallType,
   type DecoType,
 } from '../../lib/floorPlan'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf } from '../../lib/guestI18n'
 
 interface PubColors {
   bg: string
@@ -109,7 +111,7 @@ export default function FloorPlanViewer({
         height="100%"
         preserveAspectRatio="xMidYMid meet"
         role="group"
-        aria-label={lang === 'ro' ? 'Harta sălii' : 'Floor plan'}
+        aria-label={T(lang, 'floor_map_aria')}
         style={{ display: 'block' }}
       >
         {/* Zone: dreptunghiuri cu fundal subtil + etichetă */}
@@ -206,16 +208,10 @@ export default function FloorPlanViewer({
 
           const label =
             state === 'available'
-              ? lang === 'ro'
-                ? `Masa ${t.label} — liberă`
-                : `Table ${t.label} — available`
+              ? Tf(lang, 'floor_table_free', { name: t.label })
               : state === 'occupied'
-                ? lang === 'ro'
-                  ? `Masa ${t.label} — ocupată`
-                  : `Table ${t.label} — occupied`
-                : lang === 'ro'
-                  ? `Masa ${t.label}`
-                  : `Table ${t.label}`
+                ? Tf(lang, 'floor_table_busy', { name: t.label })
+                : Tf(lang, 'floor_table', { name: t.label })
 
           const onActivate = () => {
             if (isSelectable && realId != null) onSelectTable(realId)
