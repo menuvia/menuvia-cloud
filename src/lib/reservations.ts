@@ -126,17 +126,30 @@ export const RESERVATION_STATUS_LABEL: Record<ReservationStatus, string> = {
 export const STALE_CONFIRMED_HOURS = 48
 
 /**
+ * Câte zile rămân vizibile rezervările `expired` în secțiunea „Neconfirmate /
+ * expirate". `expired` nu are nicio acțiune (e terminal), deci fără plafon
+ * secțiunea ar crește la nesfârșit; o săptămână ajunge ca owner-ul să vadă ce
+ * a ratat. `pending`/`confirmed` vechi NU au plafon — acelea cer o decizie.
+ */
+export const STALE_EXPIRED_DAYS = 7
+
+/**
  * Filtrul PostgREST `or` pentru secțiunea „Neconfirmate / expirate" din
- * dashboard, FĂRĂ filtru de dată: `pending`/`expired` din trecut (janitorul
+ * dashboard: `pending` din trecut FĂRĂ limită inferioară de dată (janitorul
  * orar le mută pe cele vechi în `expired`, dar între ticuri `pending` încă
- * există) + `confirmed` mai vechi de 48h, pe care fereastra no-show (mig 234)
- * nu le mai atinge și care trebuie rezolvate de mână.
+ * există) + `expired` doar din ultimele `STALE_EXPIRED_DAYS` zile (informativ,
+ * fără acțiuni) + `confirmed` mai vechi de 48h, pe care fereastra no-show
+ * (mig 234) nu le mai atinge și care trebuie rezolvate de mână.
  */
 export function buildStaleReservationsFilter(now: Date): string {
   const nowIso = now.toISOString()
   const staleIso = new Date(now.getTime() - STALE_CONFIRMED_HOURS * 3600 * 1000).toISOString()
+  const expiredFloorIso = new Date(
+    now.getTime() - STALE_EXPIRED_DAYS * 24 * 3600 * 1000,
+  ).toISOString()
   return (
-    `and(status.in.(pending,expired),starts_at.lt.${nowIso}),` +
+    `and(status.eq.pending,starts_at.lt.${nowIso}),` +
+    `and(status.eq.expired,starts_at.gte.${expiredFloorIso},starts_at.lt.${nowIso}),` +
     `and(status.eq.confirmed,starts_at.lt.${staleIso})`
   )
 }

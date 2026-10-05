@@ -100,7 +100,8 @@ export default function ReservationsTab({ restaurantId }: Props) {
     range,
   )
   const toast = useToast()
-  // Secțiunea „Neconfirmate / expirate" (mig 289) — FĂRĂ filtru de dată.
+  // Secțiunea „Neconfirmate / expirate" (mig 289) — independentă de intervalul
+  // listei; `expired` limitat la ultimele 7 zile (buildStaleReservationsFilter).
   const { rows: staleRows, refetch: refetchStale } = useStaleReservations(
     restaurantId,
     reservations,

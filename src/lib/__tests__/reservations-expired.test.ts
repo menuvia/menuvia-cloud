@@ -6,9 +6,11 @@
 //   E2  fiecare status are etichetă românească, iar `expired` nu se confundă
 //       cu „Anulată" sau „No-show" (decizia D1: nu amestecăm „nu s-a confirmat
 //       niciodată" cu „a anulat clientul").
-//   E3  filtrul secțiunii „Neconfirmate / expirate" NU are filtru de dată
-//       inferior (rândurile vechi de luni trebuie să apară) și lasă în pace
-//       `confirmed` recent / `seated` / `completed`.
+//   E3  filtrul secțiunii „Neconfirmate / expirate": `pending` din trecut FĂRĂ
+//       limită inferioară (cer o decizie, oricât de vechi), `expired` DOAR din
+//       ultimele 7 zile (terminal, fără acțiuni — altfel secțiunea crește la
+//       nesfârșit), `confirmed` mai vechi de 48h; lasă în pace `seated` /
+//       `completed`.
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../supabase', () => ({ supabase: { rpc: vi.fn() } }))
@@ -16,6 +18,7 @@ vi.mock('../supabase', () => ({ supabase: { rpc: vi.fn() } }))
 import {
   RESERVATION_STATUS_LABEL,
   STALE_CONFIRMED_HOURS,
+  STALE_EXPIRED_DAYS,
   TERMINAL_RESERVATION_STATUSES,
   buildStaleReservationsFilter,
   isTerminalReservation,
@@ -40,17 +43,27 @@ describe('rezervări expirate (mig 289)', () => {
     }
   })
 
-  it('E3: filtrul stale e fără limită inferioară și respectă pragul de 48h pe confirmed', () => {
+  it('E3: pending fără limită inferioară, expired doar ultimele 7 zile, confirmed > 48h', () => {
     const now = new Date('2026-10-01T12:00:00.000Z')
     const f = buildStaleReservationsFilter(now)
-    // pending + expired din trecut, până la ACUM
-    expect(f).toContain('and(status.in.(pending,expired),starts_at.lt.2026-10-01T12:00:00.000Z)')
+    const clauses = f.split(/,(?=and\()/)
+    expect(clauses).toHaveLength(3)
+    // pending din trecut, până la ACUM — fără limită inferioară
+    expect(clauses).toContain('and(status.eq.pending,starts_at.lt.2026-10-01T12:00:00.000Z)')
+    // expired: fereastră de 7 zile (terminal, fără acțiuni — nu crește la nesfârșit)
+    expect(STALE_EXPIRED_DAYS).toBe(7)
+    expect(clauses).toContain(
+      'and(status.eq.expired,starts_at.gte.2026-09-24T12:00:00.000Z,starts_at.lt.2026-10-01T12:00:00.000Z)',
+    )
     // confirmed: doar mai vechi de 48h
     expect(STALE_CONFIRMED_HOURS).toBe(48)
-    expect(f).toContain('and(status.eq.confirmed,starts_at.lt.2026-09-29T12:00:00.000Z)')
-    // fără limită inferioară de dată și fără alte statusuri
-    expect(f).not.toContain('starts_at.gt')
-    expect(f).not.toContain('starts_at.gte')
+    expect(clauses).toContain('and(status.eq.confirmed,starts_at.lt.2026-09-29T12:00:00.000Z)')
+    // limita inferioară există DOAR pe expired; expired nu mai e grupat cu pending
+    for (const c of clauses) {
+      if (!c.includes('status.eq.expired')) expect(c).not.toContain('starts_at.gte')
+    }
+    expect(f).not.toContain('status.in.(pending,expired)')
+    expect(f).not.toContain('starts_at.gt.')
     expect(f).not.toContain('seated')
     expect(f).not.toContain('completed')
   })

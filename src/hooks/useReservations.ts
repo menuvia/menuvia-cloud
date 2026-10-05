@@ -265,7 +265,9 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
 }
 
 /**
- * Rezervările „nerezolvate din trecut" (mig 289), FĂRĂ filtru de dată: până la
+ * Rezervările „nerezolvate din trecut" (mig 289), fără filtru pe intervalul
+ * listei principale (`pending` fără limită inferioară; `expired` doar ultimele
+ * 7 zile — vezi `buildStaleReservationsFilter`): până la
  * `expired`, un `pending` rămas în urmă era invizibil — lista filtrează pe
  * interval. `reloadKey` reîncarcă la fiecare schimbare a listei principale
  * (realtime), ca o rezervare tratată să iasă și de aici.
