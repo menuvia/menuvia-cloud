@@ -906,5 +906,7 @@ export async function closeSessionOrders(
     err.code = error.code ?? undefined
     throw err
   }
-  return data as { closed_count: number; already_closed?: boolean }
+  // `cancelled_count` (mig 288): rundele neservite anulate la închiderea mesei;
+  // lipsește pe o bază fără 288 (deploy înaintea migrației) → opțional.
+  return data as { closed_count: number; cancelled_count?: number; already_closed?: boolean }
 }

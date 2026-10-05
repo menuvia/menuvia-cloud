@@ -168,7 +168,11 @@ describe('OrderCard — „Închide comanda" din orice stare deschisă (Plan 1/2
 })
 
 describe('OrderCard — „Închide masa" (închide sesiunea)', () => {
-  function renderWithTable(order: Order, paymentsEnabled: boolean | null) {
+  function renderWithTable(
+    order: Order,
+    paymentsEnabled: boolean | null,
+    sessionUnservedCount?: number | null,
+  ) {
     const onCloseTable = vi.fn()
     render(
       <OrderCard
@@ -178,6 +182,7 @@ describe('OrderCard — „Închide masa" (închide sesiunea)', () => {
         onCloseOrder={vi.fn()}
         onCloseTable={onCloseTable}
         paymentsEnabled={paymentsEnabled}
+        sessionUnservedCount={sessionUnservedCount}
       />,
     )
     return { onCloseTable }
@@ -190,6 +195,35 @@ describe('OrderCard — „Închide masa" (închide sesiunea)', () => {
     await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
     expect(confirmMock.mock.calls[0]![0].title).toMatch(/închizi masa/i)
     await waitFor(() => expect(onCloseTable).toHaveBeenCalledWith(order))
+  })
+
+  it('T14 dialogul spune că rundele NEservite se anulează (mig 288), cu numărul când e cunoscut', async () => {
+    const cases: [number | null, RegExp, RegExp | null][] = [
+      [2, /2 runde neservite.*ANULATE/, null],
+      [1, /1 rundă neservită.*ANULATĂ/, null],
+      [null, /neservite.*se anulează/, null],
+      [0, /închid toate comenzile/i, /anul/i],
+    ]
+    for (const [count, expected, forbidden] of cases) {
+      confirmMock.mockClear()
+      const { unmount } = render(
+        <OrderCard
+          order={makeOrder({ status: 'served', session_id: 'sess-1' })}
+          onPayOpen={vi.fn()}
+          onSplitOpen={vi.fn()}
+          onCloseOrder={vi.fn()}
+          onCloseTable={vi.fn()}
+          paymentsEnabled={false}
+          sessionUnservedCount={count}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: /^închide masa$/i }))
+      await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+      const description = String(confirmMock.mock.calls[0]![0].description)
+      expect(description).toMatch(expected)
+      if (forbidden) expect(description).not.toMatch(forbidden)
+      unmount()
+    }
   })
 
   it('T12 confirmare refuzată → sesiunea NU se închide', async () => {

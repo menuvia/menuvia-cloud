@@ -582,6 +582,10 @@ interface OrderCardProps {
   // (close_session_orders). Apare doar când comanda are `session_id` (QR);
   // comenzile de ospătar n-au sesiune.
   onCloseTable?: (order: Order) => void
+  // Câte runde NEservite (new/confirmed/preparing) are sesiunea mesei: la
+  // „Închide masa" serverul le ANULEAZĂ (mig 288), nu le închide. null /
+  // omis = necunoscut → dialogul folosește textul generic.
+  sessionUnservedCount?: number | null
 }
 
 function OrderCardInner({
@@ -594,6 +598,7 @@ function OrderCardInner({
   paymentsEnabled = null,
   onCloseOrder,
   onCloseTable,
+  sessionUnservedCount = null,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
@@ -624,10 +629,20 @@ function OrderCardInner({
 
   async function handleCloseTableClick(): Promise<void> {
     if (!onCloseTable) return
+    // Serverul (mig 288) închide rundele servite și ANULEAZĂ rundele neservite
+    // (fără puncte de loialitate, fără scădere de stoc) — dialogul o spune.
+    const unserved = sessionUnservedCount
+    const cancelNote =
+      unserved == null
+        ? 'Comenzile servite se închid; cele încă neservite (noi sau în preparare) se anulează.'
+        : unserved === 0
+          ? 'Se închid toate comenzile deschise ale acestei mese și sesiunea ei.'
+          : unserved === 1
+            ? 'Comenzile servite se închid; 1 rundă neservită (nouă sau în preparare) va fi ANULATĂ.'
+            : `Comenzile servite se închid; ${unserved} runde neservite (noi sau în preparare) vor fi ANULATE.`
     const ok = await confirmDialog({
       title: 'Închizi masa?',
-      description:
-        'Se închid TOATE comenzile deschise ale acestei mese și sesiunea ei. Plata și bonul se fac pe casa de marcat a localului.',
+      description: `${cancelNote} Plata și bonul se fac pe casa de marcat a localului.`,
       confirmLabel: 'Închide masa',
     })
     if (ok) onCloseTable(order)

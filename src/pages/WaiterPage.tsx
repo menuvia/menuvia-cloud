@@ -622,10 +622,15 @@ export default function WaiterPage() {
       void (async () => {
         try {
           const r = await closeSessionOrders(sessionId)
+          const cancelled = r.cancelled_count ?? 0
           toast.success(
             r.already_closed === true
               ? 'Masa era deja închisă.'
-              : `Masa a fost închisă (${r.closed_count} ${r.closed_count === 1 ? 'comandă' : 'comenzi'}).`,
+              : `Masa a fost închisă (${r.closed_count} ${r.closed_count === 1 ? 'comandă' : 'comenzi'}${
+                  cancelled > 0
+                    ? `, ${cancelled} ${cancelled === 1 ? 'rundă neservită anulată' : 'runde neservite anulate'}`
+                    : ''
+                }).`,
           )
         } catch (e: unknown) {
           toast.error(e instanceof Error ? e.message : 'Masa nu a putut fi închisă. Reîncearcă.')
@@ -641,6 +646,26 @@ export default function WaiterPage() {
   const openOrders = useMemo(
     () => byStatus(['new', 'confirmed', 'preparing', 'ready', 'served']),
     [byStatus],
+  )
+
+  // „Închide masa" anulează rundele NEservite ale sesiunii (mig 288) — dialogul
+  // de confirmare le numără. Lista trunchiată (STAFF_ORDERS_FETCH_LIMIT) nu dă
+  // un număr sigur → null (necunoscut), iar dialogul folosește textul generic.
+  const unservedBySession = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const o of orders) {
+      if (o.session_id == null) continue
+      if (o.status !== 'new' && o.status !== 'confirmed' && o.status !== 'preparing') continue
+      m.set(o.session_id, (m.get(o.session_id) ?? 0) + 1)
+    }
+    return m
+  }, [orders])
+  const sessionUnservedCount = useCallback(
+    (order: Order): number | null => {
+      if (ordersTruncated || order.session_id == null) return null
+      return unservedBySession.get(order.session_id) ?? 0
+    },
+    [ordersTruncated, unservedBySession],
   )
 
   // Mesele afișate în panoul „Stadiu mese": dacă ospătarul are mese alocate,
@@ -1571,6 +1596,7 @@ export default function WaiterPage() {
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
                       onCloseTable={handleCloseTable}
+                      sessionUnservedCount={sessionUnservedCount(order)}
                     />
                   ))}
                 </div>
@@ -1601,6 +1627,7 @@ export default function WaiterPage() {
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}
                 onCloseTable={handleCloseTable}
+                sessionUnservedCount={sessionUnservedCount(order)}
               />
             )}
           />
