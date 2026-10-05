@@ -9,6 +9,7 @@ import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
+import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
 import { planTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
@@ -36,6 +37,7 @@ import {
   describeCancelRejection,
   voidPaymentsAndCancel,
   describePayRejection,
+  closeSessionOrders,
   STAFF_ORDERS_FETCH_LIMIT,
 } from '../lib/orders'
 import type { OrderPaymentRow } from '../lib/orders'
@@ -395,14 +397,9 @@ export default function WaiterPage() {
     connectionStatus,
   } = useOrders(restaurantId, 'waiter')
 
-  // Rezervări azi — start/end calculat o singură dată pe zi
-  const todayRange = useMemo(() => {
-    const start = new Date()
-    start.setHours(0, 0, 0, 0)
-    const end = new Date(start)
-    end.setDate(end.getDate() + 1)
-    return { from: start.toISOString(), to: end.toISOString() }
-  }, [])
+  // Rezervări azi — ziua ROMÂNEASCĂ, recalculată la trecerea miezului nopții
+  // (tableta lăsată deschisă peste noapte rămânea pe ziua de ieri).
+  const todayRange = useRomaniaTodayRange()
   const {
     reservations,
     updateStatus: updateReservationStatus,
@@ -411,7 +408,11 @@ export default function WaiterPage() {
   const activeReservations = useMemo(
     () =>
       reservations.filter(
-        (r) => r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed',
+        (r) =>
+          r.status !== 'cancelled' &&
+          r.status !== 'no_show' &&
+          r.status !== 'completed' &&
+          r.status !== 'expired',
       ),
     [reservations],
   )
@@ -605,9 +606,40 @@ export default function WaiterPage() {
   const handleCloseOrder = useCallback(
     (order: Order): void => {
       if (user == null) return
-      void advance(order.id, 'served', { status: 'closed' })
+      // Statusul REAL al comenzii (nu `served` hardcodat): închiderea e acum
+      // posibilă din orice stare deschisă, iar serverul alege acțiunea
+      // `close_order` din status-țintă.
+      void advance(order.id, order.status, { status: 'closed' })
     },
     [user, advance],
+  )
+
+  // „Închide masa": toate comenzile deschise ale sesiunii + sesiunea (QR).
+  // Comenzile ies din listă prin realtime/poll; eroarea serverului (plan fiscal,
+  // sesiune străină) se arată ca toast, nu se înghite.
+  const handleCloseTable = useCallback(
+    (order: Order): void => {
+      const sessionId = order.session_id
+      if (user == null || sessionId == null) return
+      void (async () => {
+        try {
+          const r = await closeSessionOrders(sessionId)
+          const cancelled = r.cancelled_count ?? 0
+          toast.success(
+            r.already_closed === true
+              ? 'Masa era deja închisă.'
+              : `Masa a fost închisă (${r.closed_count} ${r.closed_count === 1 ? 'comandă' : 'comenzi'}${
+                  cancelled > 0
+                    ? `, ${cancelled} ${cancelled === 1 ? 'rundă neservită anulată' : 'runde neservite anulate'}`
+                    : ''
+                }).`,
+          )
+        } catch (e: unknown) {
+          toast.error(e instanceof Error ? e.message : 'Masa nu a putut fi închisă. Reîncearcă.')
+        }
+      })()
+    },
+    [user, toast],
   )
 
   // OPT-8: memoizate — byStatus e stabil (useCallback pe [orders]) și listele
@@ -616,6 +648,26 @@ export default function WaiterPage() {
   const openOrders = useMemo(
     () => byStatus(['new', 'confirmed', 'preparing', 'ready', 'served']),
     [byStatus],
+  )
+
+  // „Închide masa" anulează rundele NEservite ale sesiunii (mig 288) — dialogul
+  // de confirmare le numără. Lista trunchiată (STAFF_ORDERS_FETCH_LIMIT) nu dă
+  // un număr sigur → null (necunoscut), iar dialogul folosește textul generic.
+  const unservedBySession = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const o of orders) {
+      if (o.session_id == null) continue
+      if (o.status !== 'new' && o.status !== 'confirmed' && o.status !== 'preparing') continue
+      m.set(o.session_id, (m.get(o.session_id) ?? 0) + 1)
+    }
+    return m
+  }, [orders])
+  const sessionUnservedCount = useCallback(
+    (order: Order): number | null => {
+      if (ordersTruncated || order.session_id == null) return null
+      return unservedBySession.get(order.session_id) ?? 0
+    },
+    [ordersTruncated, unservedBySession],
   )
 
   // Mesele afișate în panoul „Stadiu mese": dacă ospătarul are mese alocate,
@@ -1545,6 +1597,8 @@ export default function WaiterPage() {
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
+                      onCloseTable={handleCloseTable}
+                      sessionUnservedCount={sessionUnservedCount(order)}
                     />
                   ))}
                 </div>
@@ -1574,6 +1628,8 @@ export default function WaiterPage() {
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}
+                onCloseTable={handleCloseTable}
+                sessionUnservedCount={sessionUnservedCount(order)}
               />
             )}
           />

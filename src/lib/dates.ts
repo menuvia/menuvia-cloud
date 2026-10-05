@@ -182,3 +182,11 @@ export function formatTimeInZone(
   const w = wallTimeInZone(t, safeTimeZone(timeZone))
   return `${String(w.hour).padStart(2, '0')}:${String(w.minute).padStart(2, '0')}`
 }
+
+// Intervalul [00:00:00.000, 23:59:59.999] al zilei românești `ymd`, ca instante
+// ISO (UTC) — pentru interogări „azi" (`.gte(from).lte(to)`). Aceeași
+// convenție ca ReportsTab/HomeTab: capetele vin din `romaniaDayBoundaryISO`,
+// deci sunt corecte pe DST și independente de fusul gazdei.
+export function romaniaDayRange(ymd: string): { from: string; to: string } {
+  return { from: romaniaDayBoundaryISO(ymd, false), to: romaniaDayBoundaryISO(ymd, true) }
+}

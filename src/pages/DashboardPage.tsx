@@ -45,6 +45,7 @@ const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
+import { isPartnerTab } from '../lib/partnerAccess'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 
@@ -664,7 +665,9 @@ export default function DashboardPage({
   // deosebire de isPlatAdmin (RPC async care pornește false): eticheta
   // bannerului și ținta „Ieși din cont" nu depind de o cursă de rețea.
   const founderViewOrigin = getFounderViewOrigin()
-  const [tab, setTab] = useState<Tab>('home')
+  // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
+  const isPartner = activeRole === 'partner'
+  const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
   // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
@@ -740,8 +743,10 @@ export default function DashboardPage({
   // sub-tab vizibil dispare complet din sidebar.
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter((st) =>
-      isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly),
+    subTabs: g.subTabs.filter(
+      (st) =>
+        isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly) &&
+        (!isPartner || isPartnerTab(st.id)),
     ),
   })).filter(
     (g) =>
@@ -754,8 +759,8 @@ export default function DashboardPage({
   // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) →
   // înapoi Acasă.
   useEffect(() => {
-    if (activeGroup == null) setTab('home')
-  }, [activeGroup])
+    if (activeGroup == null) setTab(isPartner ? 'products' : 'home')
+  }, [activeGroup, isPartner])
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
