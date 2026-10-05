@@ -175,6 +175,13 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/partner_optin_assertions.sql
 
+      # Mig 287 pe stack-ul real: default privileges ale Supabase pot re-acorda
+      # privilegii pe tabele/funcții NOI; FL1–FL6 rulează sub `authenticated`.
+      - name: Jurnal fiscal + secret Oblio pe stack-ul Supabase real (mig 287, FL1–FL6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/fiscal_lockdown_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |

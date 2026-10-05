@@ -1683,6 +1683,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/plan_whitelist_sync_assertions.sql
 
+      # NECONDIȚIONAT (mig 287): jurnalul fiscal (pending_receipts) nu mai are
+      # UPDATE pentru rolurile client + secretul Oblio nu mai e citibil. Rulează
+      # SUB rolul real `authenticated` (ca postgres RLS/privilegiile sunt ocolite).
+      - name: "Fiscal journal + Oblio secret lockdown (mig 287, FL1–FL6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_lockdown_assertions.sql
+
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
       # erau referite de niciun workflow (finding-ul auditului din aug 2026).
