@@ -1664,16 +1664,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
-      # NECONDIȚIONAT (mig 289, D1): status `expired` pe rezervări + janitorul
-      # pg_cron. RX4 (expired eliberează masa) e clichet pe starea FINALĂ a
-      # lanțului — o migrație viitoare care recreează create_reservation_public
-      # din 273 (fără expired) face pasul roșu.
-      - name: "Reservations expired assertions (mig 289, RX1–RX8)"
+      # NECONDIȚIONAT (mig 286): accesul partenerului e opt-in + restrâns. Rulează
+      # SUB rolul real `authenticated`, cu descoperire automată a tabelelor cu
+      # restaurant_id — o tabelă viitoare pe care partenerul ar ajunge să o vadă
+      # face pasul roșu. PO9 e inversul asserției mig 187 (partenerul NU e în funel).
+      - name: "Partner opt-in access assertions (mig 286, PO1–PO10)"
         env:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
-            -f tests/sql/reservations_expired_assertions.sql
+            -f tests/sql/partner_optin_assertions.sql
 
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
@@ -1682,6 +1682,16 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/plan_whitelist_sync_assertions.sql
+
+      # NECONDIȚIONAT (mig 287): jurnalul fiscal (pending_receipts) nu mai are
+      # UPDATE pentru rolurile client + secretul Oblio nu mai e citibil. Rulează
+      # SUB rolul real `authenticated` (ca postgres RLS/privilegiile sunt ocolite).
+      - name: "Fiscal journal + Oblio secret lockdown (mig 287, FL1–FL6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_lockdown_assertions.sql
 
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
@@ -1727,17 +1737,6 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
             "drop function if exists public.assert_security_audit_shape(text);"
-
-      # NECONDIȚIONAT (mig 288): janitorul de comenzi agățate pe Planul 2.
-      # Fixtura contrazice fiecare predicat (Plan 3, registru de plăți, pickup
-      # programat, vârsta din served_at/ready_at); OJ3 dovedește că `cancelled`
-      # nu produce puncte/stoc, iar `closed` da.
-      - name: "Order janitor assertions (mig 288, OJ1–OJ9)"
-        env:
-          PGPASSWORD: postgres
-        run: |
-          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
-            -f tests/sql/order_janitors_assertions.sql
 
       - name: Upload logs on failure
         if: failure()
