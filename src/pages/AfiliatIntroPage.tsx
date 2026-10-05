@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react'
 import { MKT } from '../lib/marketing'
 import { supabase } from '../lib/supabase'
 import { getPlan } from '../lib/plans'
+import { estimateAffiliateEarnings } from '../lib/affiliateEarnings'
 import { MOTION, useReducedMotion } from '../lib/motion'
 import { useIsMobile } from '../hooks/useIsMobile'
 import MarketingHeader from '../components/marketing/MarketingHeader'
@@ -48,7 +49,7 @@ const STEPS: { title: string; text: string }[] = [
   },
   {
     title: 'Încasezi comision, lunar',
-    text: 'Primești bani din prima factură și apoi din fiecare abonament lunar. Plata se face pe bază de factură, direct în contul tău.',
+    text: 'Primești comision din prima factură a restaurantului și apoi din următoarele facturi lunare, până la plafon, pe orice plan plătit. Plata se face pe bază de factură, direct în contul tău.',
   },
 ]
 
@@ -58,7 +59,7 @@ const TRUST_ITEMS: { icon: IconName; text: string }[] = [
   { icon: 'receipt', text: 'Plată pe factură, direct în contul firmei sau PFA-ului tău' },
   {
     icon: 'lock',
-    text: 'Contract clar: comisioanele au perioadă de siguranță 60/14 zile, apoi sunt garantate',
+    text: 'Reguli clare: comisioanele devin plătibile după 60/14 zile; un refund sau o dispută a clientului le stornează și ulterior',
   },
   { icon: 'users', text: 'Recrutezi sub-parteneri și câștigi și din echipa ta' },
 ]
@@ -74,7 +75,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Când primesc banii?',
-    a: 'Comisionul de activare are o perioadă de siguranță de 60 de zile, cel lunar de 14 zile (protecție anti-fraudă). După aceea devin plătibile — emiți factura și primești banii în cont.',
+    a: 'Comisionul de activare se calculează din prima factură și devine plătibil după ce restaurantul achită și a doua; are o perioadă de siguranță de 60 de zile, cel lunar de 14 zile (protecție anti-fraudă). Lista de plată se generează la începutul fiecărei luni, de la 50 lei în sus (sub prag se reportează). Emiți factura și primești banii în cont. Dacă restaurantul primește un refund sau deschide o dispută, comisionul aferent se stornează, chiar și după perioada de siguranță.',
   },
   {
     q: 'Ce trebuie să fac după înscriere?',
@@ -95,8 +96,25 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
   // Calculatorul de câștig: câte restaurante recomandă vizitatorul.
   const [count, setCount] = useState(5)
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  // mig 295: programul primește cereri noi? TRISTATE — `null` = necunoscut
+  // (RPC lipsă / rețea) → nu afișăm nimic, serverul decide la înscriere.
+  const [programOpen, setProgramOpen] = useState<boolean | null>(null)
   const reduced = useReducedMotion()
   const stacked = useIsMobile(860)
+
+  useEffect(() => {
+    let cancelled = false
+    const loadStatus = async () => {
+      const { data, error } = await supabase.rpc('get_affiliate_program_status')
+      if (cancelled || error || !data) return
+      const open = (data as { open?: unknown }).open
+      if (typeof open === 'boolean') setProgramOpen(open)
+    }
+    void loadStatus()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -120,15 +138,22 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
   const lei = (v: number) => Math.round(v).toLocaleString('ro-RO')
 
   // ── Formula calculatorului — pe planul recomandat (Meniu + Comenzi) ──
-  // bonus activare = n × setup% × preț (o singură dată, per restaurant)
-  // venit lunar    = n × recurring% × preț
-  // total primul an = bonus + min(12, cap) × venit lunar
+  // Modelul comunicat (lib/affiliateEarnings): activarea = setup% din PRIMA
+  // factură; recurentul = recurring% din fiecare dintre următoarele `cap`
+  // facturi lunare. În primele 12 luni sunt 12 facturi → activare + 11
+  // recurente (nu 12: prima factură e cea de activare). Fără facturare anuală.
   const growth = getPlan('growth')
   const price = growth.priceMonthly
-  const setupBonus = count * (defaults.setup_bps / 10000) * price
-  const monthly = count * (defaults.recurring_bps / 10000) * price
-  const paidMonths = Math.min(12, defaults.recurring_cap_months)
-  const firstYear = setupBonus + paidMonths * monthly
+  const est = estimateAffiliateEarnings({
+    count,
+    priceMonthly: price,
+    setupBps: defaults.setup_bps,
+    recurringBps: defaults.recurring_bps,
+    capInvoices: defaults.recurring_cap_months,
+  })
+  const setupBonus = est.setupBonus
+  const monthly = est.monthly
+  const firstYear = est.firstYear
 
   // Umplerea track-ului sliderului (auriu până la valoarea curentă).
   const fillPct = ((count - 1) / 19) * 100
@@ -222,6 +247,26 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
               <div style={{ color: DARK.text3, fontSize: 13, marginTop: 16 }}>
                 Fără costuri · Fără target · Plată lunară pe factură
               </div>
+              {programOpen === false ? (
+                <div
+                  role="status"
+                  style={{
+                    marginTop: 18,
+                    background: DARK.surface,
+                    border: `1px solid ${DARK.border}`,
+                    borderRadius: 12,
+                    padding: '12px 16px',
+                    color: DARK.text,
+                    fontSize: 14,
+                    lineHeight: 1.55,
+                    maxWidth: 500,
+                    marginLeft: stacked ? 'auto' : 0,
+                    marginRight: stacked ? 'auto' : 0,
+                  }}
+                >
+                  Programul se redeschide în curând: momentan nu primim cereri noi de parteneriat.
+                </div>
+              ) : null}
             </div>
           </RevealItem>
 
@@ -254,10 +299,10 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 din prima factură a fiecărui restaurant adus
                 <br />
                 <span style={{ color: MKT.accent, fontWeight: 700 }}>
-                  + {pct(defaults.recurring_bps)} lunar
+                  + {pct(defaults.recurring_bps)} din facturile lunare
                 </span>{' '}
                 <span style={{ color: DARK.text3 }}>
-                  timp de {defaults.recurring_cap_months} luni
+                  următoarele {defaults.recurring_cap_months}
                 </span>
               </div>
             </div>
@@ -396,13 +441,11 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
               </div>
             </div>
             <div style={{ color: MKT.text3, fontSize: 12.5, textAlign: 'center', marginTop: 14, lineHeight: 1.55 }}>
-              Calcul pe planul {growth.name}, {price.toLocaleString('ro-RO')} lei/lună — cu
-              Fiscalizare câștigi mai mult. Comisionul lunar se plătește{' '}
-              {defaults.recurring_cap_months.toLocaleString('ro-RO')} luni per restaurant
-              {defaults.recurring_cap_months > 12
-                ? ' (în totalul de mai sus intră doar primele 12, cât încape în primul an)'
-                : ''}
-              .
+              Calcul pe planul {growth.name}, {price.toLocaleString('ro-RO')} lei/lună, abonament
+              lunar (nu există facturare anuală). Activarea vine din prima factură; comisionul
+              recurent, din următoarele{' '}
+              {defaults.recurring_cap_months.toLocaleString('ro-RO')} facturi per restaurant — în
+              primul an intră {est.recurringInFirstYear.toLocaleString('ro-RO')} dintre ele.
             </div>
           </div>
         </RevealItem>

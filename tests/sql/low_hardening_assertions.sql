@@ -98,6 +98,10 @@ begin
 end $$;
 
 -- ── LH3: register_affiliate — fluxul de cerere funcționează ──────────────────
+-- mig 295: cererile se primesc DOAR cu programul deschis (default închis);
+-- LH3 testează fluxul de cerere, deci îl deschide în tranzacția suitei.
+insert into public.platform_settings (key, value) values ('affiliate_program_open', 'true'::jsonb)
+on conflict (key) do update set value = 'true'::jsonb;
 set local role authenticated;
 set local request.jwt.claim.sub = 'a1b40000-0000-4000-8000-0000000000f2';
 

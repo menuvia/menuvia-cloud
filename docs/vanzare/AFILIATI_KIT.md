@@ -19,22 +19,18 @@ Cinci piese, în ordinea în care le folosești:
 
 Trei lucruri. Primul e blocant pe bani, celelalte două sunt de igienă.
 
-### 0.1 🔴 BLOCANT — comisionul curge azi DOAR pe planul de 499 lei
+### 0.1 Modelul de comision (aliniat la cod, oct 2026)
 
-În cod (`migration_099`, „regula de aur"), funcția care înregistrează comisionul are gate-ul:
+Modelul comunicat în toate materialele de mai jos, pe **toate planurile plătite** (Meniu Digital, Meniu + Comenzi, Fiscalizare):
 
-```
-if p_plan not in ('pro', 'enterprise') → skip 'not_plan3'
-```
+- **Activare: 30% din PRIMA factură** a restaurantului, plătibil după ce restaurantul achită și **a doua** factură (anti-churn: un cont care plătește o lună și pleacă nu generează comision de activare).
+- **Recurent: 10% din fiecare dintre următoarele 12 facturi lunare** — 12 FACTURI, nu „12 luni de la ceva"; nu există facturare anuală.
+- **Sub-parteneri: 2%** din comisioanele partenerilor aduși, un singur nivel.
+- **Stornare (clawback):** un refund sau o dispută a clientului stornează comisionul aferent, inclusiv după perioada de siguranță. Comisioanele NU sunt „garantate".
 
-Adică: un restaurant care se abonează prin linkul unui afiliat pe **starter (99 lei)** sau **growth (249 lei)** generează **zero lei comision**. Atribuirea rămâne înregistrată (`pending`) și afiliatul primește acces de partener, dar ledgerul rămâne gol. Dacă restaurantul urcă mai târziu pe planul de 499, prima factură pe acel plan devine „factura de activare" și comisionul pornește retroactiv de acolo.
+Lărgirea gate-ului de la Plan 3 la toate planurile plătite și plata activării după a doua factură sunt implementate de migrația de comision a valului de afiliere (mig 293). **Până când aceasta e aplicată pe producție, comisionul automat curge doar pe Fiscalizare** — nu trimite materialele înainte.
 
-Ai două variante, alege una **înainte** de primul telefon:
-
-- **Varianta 1 (recomandată).** Lărgești gate-ul la `starter`/`growth` printr-un fișier nou de migrație și abia apoi recrutezi. Planul de 499 e în pilot și nedemonstrat — un program de afiliere care plătește exclusiv pe el înseamnă, practic, un program care nu plătește nimic în septembrie. Motorul de vânzare realist al toamnei e planul de 99 și cel de 249.
-- **Varianta 2.** Recrutezi acum și spui verbatim: *„comisionul automat curge azi pe planul de Fiscalizare; pentru Meniu Digital și Meniu + Comenzi îl plătesc manual, pe aceleași procente, până urc regula în sistem."* Onest, dar îți creează muncă manuală și o promisiune fără suport în cod — nu o face pentru mai mult de 2–3 afiliați.
-
-**Până alegi: în toate materialele de mai jos, tabelele de comision au marcate cu `*` rândurile care depind de această decizie. Șterge-le sau lasă-le, conștient.**
+Programul are și un **comutator** (`affiliate_program_open`, mig 295, din FounderPage → Afiliați): închis implicit; cât e închis, `/afiliat` nu primește cereri, iar aprobarea cere excepție explicită (consemnată în audit). Îl deschizi abia când 0.2–0.3 sunt rezolvate.
 
 ### 0.2 Contractul
 
@@ -60,13 +56,13 @@ Un afiliat care fuge de aceste trei propoziții ți-ar fi făcut oricum probleme
 
 # A. Pagina de recrutare — „Devino partener Menuvia"
 
-> Text gata de folosit pe `/afiliat`, ca PDF de 2 pagini sau ca mesaj lung. Rândurile marcate `*` depind de decizia din 0.1.
+> Text gata de folosit pe `/afiliat`, ca PDF de 2 pagini sau ca mesaj lung. Modelul de comision e cel din 0.1.
 
 ## Ce e Menuvia
 
 Un sistem românesc pentru restaurante: meniu digital pe QR, comenzi de la masă, rezervări online cu buton pe Google, ecran de bucătărie, fidelizare, rapoarte. Rulează în producție, se configurează în minute, fără hardware nou și fără comision pe comenzi sau pe cuverturi.
 
-Prețuri publice, plătite lunar sau anual (~17% reducere la anual):
+Prețuri publice, plătite lunar (nu există facturare anuală):
 
 | Plan | Preț | Ce include, pe scurt |
 |---|---|---|
@@ -92,21 +88,21 @@ Trei componente. Toate se calculează pe **abonamentul real plătit**, niciodat�
 
 | Componentă | Cât | Detalii |
 |---|---|---|
-| **Activare** | **30%** din prima factură a restaurantului | o singură dată, per restaurant |
-| **Recurent** | **10%** din fiecare factură lunară | timp de **12 luni** de la primul abonament |
+| **Activare** | **30%** din prima factură a restaurantului | o singură dată, per restaurant; plătibil după ce restaurantul achită și **a doua** factură |
+| **Recurent** | **10%** din fiecare factură lunară | următoarele **12 facturi** după prima |
 | **Sub-parteneri** | **2%** din comisioanele partenerilor pe care îi aduci tu | un singur nivel |
 
-Concret, per restaurant adus, la abonament lunar:
+Concret, per restaurant adus (13 facturi lunare: prima = activarea, următoarele 12 = recurent):
 
-| Planul ales de restaurant | Activare (30%) | Recurent (10%/lună) | **Total, primul an** |
-|---|---|---|---|
-| Meniu Digital + Rezervări — 99 lei * | 29,70 lei | 9,90 lei × 12 = 118,80 lei | **148,50 lei** |
-| Meniu + Comenzi — 249 lei * | 74,70 lei | 24,90 lei × 12 = 298,80 lei | **373,50 lei** |
-| Fiscalizare — 499 lei | 149,70 lei | 49,90 lei × 12 = 598,80 lei | **748,50 lei** |
+| Planul ales de restaurant | Activare (30%) | Recurent (10% × 12 facturi) | **Total per restaurant** | din care în primele 12 luni |
+|---|---|---|---|---|
+| Meniu Digital + Rezervări — 99 lei | 29,70 lei | 9,90 lei × 12 = 118,80 lei | **148,50 lei** | 138,60 lei |
+| Meniu + Comenzi — 249 lei | 74,70 lei | 24,90 lei × 12 = 298,80 lei | **373,50 lei** | 348,60 lei |
+| Fiscalizare — 499 lei | 149,70 lei | 49,90 lei × 12 = 598,80 lei | **748,50 lei** | 698,60 lei |
 
-Dacă restaurantul alege plata anuală, comisionul de activare se calculează pe factura anuală integrală (ex.: Meniu + Comenzi anual = 2.496 lei factură → 748,80 lei comision de activare, plătit o dată).
+Nu există abonament anual: fiecare factură e lunară.
 
-Zece restaurante pe Meniu + Comenzi, aduse în toamnă, înseamnă ~3.700 lei în primul an. Nu e un salariu. E un venit lateral serios pentru cineva care oricum trece pe la 40 de localuri pe lună.
+Zece restaurante pe Meniu + Comenzi, aduse în toamnă, înseamnă ~3.500 lei în primele 12 luni (~3.700 lei pe toată durata). Nu e un salariu. E un venit lateral serios pentru cineva care oricum trece pe la 40 de localuri pe lună.
 
 Sumele sunt bază fără TVA. Dacă ești plătitor de TVA, o adaugi pe factura ta.
 
@@ -118,13 +114,13 @@ Sumele sunt bază fără TVA. Dacă ești plătitor de TVA, o adaugi pe factura 
 
 **3. Primești acces.** Contul devine activ, primești linkul tău unic (`menuvia.ro/r/CODUL-TĂU`), codul QR aferent și panoul de partener.
 
-**4. Recomanzi.** Trimiți linkul restaurantelor pe care le cunoști. Cine își face cont venind de pe linkul tău rămâne recomandarea ta **90 de zile**, chiar dacă se abonează abia peste câteva săptămâni.
+**4. Recomanzi.** Trimiți linkul restaurantelor pe care le cunoști. Un cont NOU creat venind de pe linkul tău rămâne recomandarea ta dacă se abonează în **90 de zile**, din același browser. Pe Safari/iPhone marcajul poate expira după **7 zile** (limită a browserului, ITP) — dacă restaurantul amână, retrimite-i linkul. Linkul merge și ca `menuvia.ro/pricing?ref=COD` (păstrează pagina).
 
-**5. Se abonează → apare comisionul.** Automat, în panoul tău, la prima factură plătită.
+**5. Se abonează → apare comisionul.** Automat, în panoul tău, la prima factură plătită. Comisionul de activare devine plătibil după ce restaurantul achită și a doua factură.
 
-**6. Perioada de siguranță.** Comisionul de activare devine plătibil după **60 de zile**, cel lunar după **14 zile**. E protecția anti-fraudă și anti-retur: dacă restaurantul cere banii înapoi în fereastra asta, comisionul se stornează. După ce trece holdul, banii sunt ai tăi.
+**6. Perioada de siguranță.** Comisionul de activare devine plătibil după **60 de zile**, cel lunar după **14 zile**. E protecția anti-fraudă și anti-retur: dacă restaurantul cere banii înapoi, comisionul se stornează. Un refund sau o dispută ulterioară îl poate storna și după hold — comisioanele nu sunt garantate.
 
-**7. Plata.** În prima zi a lunii, sistemul generează automat lista de plată din soldul devenit plătibil. Emiți factura către Menuvia (de pe PFA sau SRL) și primești transferul. Prag minim **50 lei** — sub el, suma se reportează în luna următoare, nu se pierde.
+**7. Plata.** În prima zi a lunii, sistemul generează automat lista de plată din soldul devenit plătibil. Emiți factura către Menuvia (de pe PFA sau SRL) și primești transferul. Prag minim **50 lei** — sub el, suma se reportează în luna următoare, nu se pierde. În panou vezi „Disponibil pentru plată" (net, după stornări și după plățile deja în curs) și data următoarei liste de plată.
 
 ## Panoul de partener
 
@@ -178,7 +174,7 @@ patronilor. Un contabil de HoReCa vorbește cu 30 de patroni pe lună; o
 recomandare de la dvs. valorează mai mult decât orice reclamă pe care aș
 plăti-o.
 
-Cum arată: 30% din prima factură + 10% lunar timp de 12 luni, plătit pe
+Cum arată: 30% din prima factură + 10% din următoarele 12 facturi, plătit pe
 factura dvs. de PFA/SRL. Fără target, fără costuri, fără exclusivitate.
 
 Ce nu vă ascund: Menuvia nu are încă clienți plătitori — programul
@@ -207,7 +203,7 @@ parteneri și pentru agenții funcționează diferit față de restul:
     brandingul vostru în subsol, nu al meu — clientul vede agenția;
   • primiți acces de partener pe dashboardul fiecărui client adus, deci
     puteți vinde și configurarea/mentenanța ca serviciu al vostru;
-  • 30% din prima factură + 10% lunar, 12 luni, pe factura voastră.
+  • 30% din prima factură + 10% din următoarele 12 facturi, pe factura voastră.
 
 Onest: sunt pre-lansare, zero clienți plătitori, iar partea de fiscalizare
 e pilot. Meniul, comenzile și rezervările merg azi și le puteți vedea live.
@@ -231,7 +227,7 @@ Sunt Radu, fondatorul Menuvia — meniu QR, comenzi de la masă și rezervări
 online pentru restaurante. 99–499 lei/lună, fără hardware nou.
 
 Propunerea: recomandați Menuvia localurilor pe care le aveți deja în
-portofoliu și primiți 30% din prima factură + 10% lunar timp de 12 luni,
+portofoliu și primiți 30% din prima factură + 10% din următoarele 12 facturi,
 pe factura firmei. Nu aveți de livrat, instalat sau stocat nimic.
 
 Două lucruri pe care vi le spun din start, ca să nu pierdem timp: sunt
@@ -253,7 +249,7 @@ Subiect: Re: [subiectul inițial]
 
 Bună, [Nume] — revin scurt, poate a picat în alt folder.
 
-Pe scurt: 30% din prima factură + 10% lunar timp de 12 luni, pentru
+Pe scurt: 30% din prima factură + 10% din următoarele 12 facturi, pentru
 restaurantele pe care le recomandați. Fără costuri, fără target.
 
 Dacă nu e pentru dvs., spuneți-mi doar „nu" și nu vă mai scriu.
@@ -276,7 +272,7 @@ Un singur follow-up. Al doilea te scoate din agendă permanent.
 > „Nu vă sun ca să vă vând mie ceva. Vă sun pentru că dvs. [țineți contabilitatea la / faceți site-urile pentru / serviceați casele de la] restaurante și vorbiți cu patronii ăia oricum. Eu pot să dau reclamă și să mă bată la ușă cu Facebook Ads, sau pot să lucrez cu trei oameni care sunt deja crezuți în piață. A doua variantă e mai ieftină pentru mine și mai profitabilă pentru dvs."
 
 **Minutul 5–8 — banii, exact.**
-> „30% din prima factură a fiecărui restaurant, o dată. Plus 10% din fiecare factură lunară, timp de 12 luni. La planul de 249, asta înseamnă vreo 373 de lei pe an per local. Aduceți zece în toamnă, sunt 3.700 de lei. Comisionul de activare e blocat 60 de zile, cel lunar 14, ca să nu plătesc pe cineva care cere banii înapoi în prima lună. După hold, se plătesc lunar, pe factura dvs. Fără target, fără costuri, fără exclusivitate."
+> „30% din prima factură a fiecărui restaurant, o dată. Plătit după ce restaurantul achită și a doua factură. Plus 10% din fiecare dintre următoarele 12 facturi lunare. La planul de 249, asta înseamnă vreo 373 de lei per local, pe 13 facturi. Aduceți zece în toamnă, sunt cam 3.500 de lei în primul an. Comisionul de activare e blocat 60 de zile, cel lunar 14, ca să nu plătesc pe cineva care cere banii înapoi în prima lună; un refund ulterior îl stornează. După hold, se plătesc lunar, pe factura dvs. Fără target, fără costuri, fără exclusivitate."
 
 **Minutul 8–11 — adevărul, spus înainte să întrebe.**
 > „Trei lucruri pe care trebuie să le știți înainte să spuneți da. Unu: n-am încă niciun client plătitor. Produsul e live și îl puteți testa în cinci minute pe telefon, dar comercial pornesc acum — sunteți printre primii, cu tot ce înseamnă asta. Doi: partea de fiscalizare, planul de 499, e în pilot; puntea către casele de marcat există în cod, dar n-a tipărit încă un bon pe o casă reală la un client. Nu vreau să o vindeți ca fiind gata. Trei: nu avem delivery gen Glovo, nu avem aplicație nativă. Dacă un local vrea neapărat asta, îi spuneți sincer că nu suntem noi."
@@ -299,7 +295,7 @@ Bună, [Nume]. Sunt Radu, am făcut Menuvia — meniu digital cu comenzi la
 masă și rezervări online pentru restaurante, sistem românesc.
 
 Caut 3 parteneri care lucrează deja cu localuri și vor un venit recurent
-din recomandări: 30% din prima factură + 10% lunar, 12 luni. Fără costuri
+din recomandări: 30% din prima factură + 10% din următoarele 12 facturi. Fără costuri
 și fără target.
 
 Sunt pre-lansare, fără clienți plătitori încă — v-o spun din start.
@@ -444,7 +440,7 @@ Nu arăți dashboardul, rapoartele, stocurile sau setările. Patronul nu cumpăr
 
 ## D.1 Cum se atribuie un client
 
-1. **Linkul.** Fiecare partener are un link unic: `menuvia.ro/r/COD`. Vizitatorul care intră pe el primește un marcaj în browser, valabil **90 de zile**. Dacă își face cont și se abonează în fereastra asta, atribuirea e a partenerului — automat, fără formular.
+1. **Linkul.** Fiecare partener are un link unic: `menuvia.ro/r/COD`. Merge și ca parametru pe orice pagină publică: `menuvia.ro/pricing?ref=COD` (destinația se păstrează). Vizitatorul care intră pe el primește un marcaj în browser, valabil **90 de zile** (pe Safari/iPhone poate expira după **7 zile** — limită ITP a browserului, nu a noastră). Dacă își face cont și se abonează în fereastra asta, din același browser, atribuirea e a partenerului — automat, fără formular.
 2. **Ce contează e contul care plătește**, nu restaurantul. Comisionul se leagă de contul (profilul) care ține abonamentul. Dacă un patron cu trei localuri plătește dintr-un singur cont, comisionul curge din acel abonament.
 3. **Prima atribuire câștigă.** Dacă un client atinge două linkuri diferite, comisionul merge la primul partener înregistrat.
 4. **Conturile deja existente sunt organice.** Dacă restaurantul avea deja cont Menuvia înainte să treacă prin linkul tău, atribuirea nu se face. Nu se rezolvă „prin discuție" — sistemul compară datele și decide singur.
@@ -455,18 +451,19 @@ Nu arăți dashboardul, rapoartele, stocurile sau setările. Patronul nu cumpăr
 
 | | |
 |---|---|
-| **Activare** | 30% din prima factură plătită, o dată per restaurant |
-| **Recurent** | 10% din fiecare factură lunară, maximum 12 luni per restaurant |
+| **Activare** | 30% din prima factură plătită, o dată per restaurant; plătibil după ce restaurantul achită și a doua factură |
+| **Recurent** | 10% din fiecare dintre următoarele 12 facturi lunare per restaurant (nu există facturare anuală) |
+| **Planuri** | toate planurile plătite |
 | **Sub-parteneri** | 2% din comisioanele efectiv plătite ale partenerilor aduși de tine, **un singur nivel** |
 | **Bază de calcul** | factura efectiv **plătită**. Nu pe abonamente în trial, neplătite sau restante |
 | **Monedă** | RON |
 | **TVA** | sumele sunt bază fără TVA; dacă ești plătitor, o adaugi pe factura ta |
 
-Notă onestă: comisionul automat curge azi pe planul de Fiscalizare (499 lei). *[Șterge propoziția asta după ce lărgești gate-ul — vezi secțiunea 0.1.]*
+Notă onestă: până la aplicarea migrației de comision (vezi 0.1), comisionul automat curge doar pe planul de Fiscalizare. *[Șterge propoziția asta după aplicare.]*
 
 ## D.3 Când se plătește
 
-1. **Hold.** Comisionul de activare devine plătibil după **60 de zile**, cel recurent după **14 zile**. În fereastra asta, un retur sau o contestație la plată stornează comisionul integral.
+1. **Hold.** Comisionul de activare devine plătibil după **60 de zile**, cel recurent după **14 zile**. Un retur sau o contestație la plată stornează comisionul aferent — și în fereastra asta, și după.
 2. **Draft lunar.** În prima zi a fiecărei luni, sistemul calculează automat soldul devenit plătibil și creează o propunere de plată.
 3. **Factura.** Emiți factură către Menuvia (PFA sau SRL, e-Factura conform regulilor în vigoare) pe suma din propunere. Fără factură nu se face plata — nu e birocrație, e singura formă în care pot deconta legal cheltuiala.
 4. **Transferul.** După confirmarea facturii, banii pleacă prin transfer bancar.
@@ -531,7 +528,7 @@ Nu vrei 30 de afiliați. Vrei **3 care lucrează**. Un program de afiliere cu 30
 - **Seminarele de e-Factura / SAF-T** din orașul tău, organizate de CECCAR sau de firme de software fiscal. Sala e plină exact de profilul ăsta.
 - **Furnizorii de software de contabilitate** (SmartBill, Saga) au liste publice de parteneri contabili pe județe.
 
-**Ce îi spui specific:** „Nu-ți cer să vinzi. Îți cer să nu taci când un client se plânge de meniuri retipărite sau de rezervări pierdute. Primești 10% lunar timp de un an, pe factura ta, fără să faci nimic în plus."
+**Ce îi spui specific:** „Nu-ți cer să vinzi. Îți cer să nu taci când un client se plânge de meniuri retipărite sau de rezervări pierdute. Primești 10% din următoarele 12 facturi lunare ale fiecărui restaurant, pe factura ta, fără să faci nimic în plus."
 
 **Semnal roșu:** contabilul care revinde deja 4 softuri diferite. E colecționar de comisioane, nu partener.
 
@@ -598,22 +595,12 @@ După aprobarea în panoul de fondator:
 
 # Anexa 2 — Tabelul complet de comisioane
 
-Plan lunar, per restaurant adus:
+Abonament lunar (singurul care există), per restaurant adus:
 
-| Plan | Preț/lună | Activare 30% | Recurent 10%/lună | 12 luni recurent | **Total an 1** |
-|---|---|---|---|---|---|
-| Meniu Digital + Rezervări * | 99 lei | 29,70 | 9,90 | 118,80 | **148,50 lei** |
-| Meniu + Comenzi * | 249 lei | 74,70 | 24,90 | 298,80 | **373,50 lei** |
-| Fiscalizare | 499 lei | 149,70 | 49,90 | 598,80 | **748,50 lei** |
+| Plan | Preț/lună | Activare 30% (factura 1) | Recurent 10% | 12 facturi recurente (2–13) | **Total per restaurant** | Primele 12 luni |
+|---|---|---|---|---|---|---|
+| Meniu Digital + Rezervări | 99 lei | 29,70 | 9,90 | 118,80 | **148,50 lei** | 138,60 lei |
+| Meniu + Comenzi | 249 lei | 74,70 | 24,90 | 298,80 | **373,50 lei** | 348,60 lei |
+| Fiscalizare | 499 lei | 149,70 | 49,90 | 598,80 | **748,50 lei** | 698,60 lei |
 
-Plan anual (prima factură = anul întreg, cu ~17% reducere):
-
-| Plan | Factură anuală | Activare 30% |
-|---|---|---|
-| Meniu Digital + Rezervări * | 996 lei | **298,80 lei** |
-| Meniu + Comenzi * | 2.496 lei | **748,80 lei** |
-| Fiscalizare | 4.980 lei | **1.494 lei** |
-
-`*` — depinde de decizia din secțiunea 0.1. Sumele sunt bază fără TVA. Sub-partenerii aduc 2% din comisioanele efectiv plătite ale partenerului recrutat, pe un singur nivel.
-
-**Notă doar pentru fondator:** la abonamentele anuale, comisionul de activare de 30% se aplică pe factura anuală integrală, cu hold de doar 60 de zile. La planul de 499 anual asta înseamnă 1.494 lei plătiți dintr-o dată. Decide dacă vrei un plafon per restaurant înainte să lansezi oferta anuală prin afiliați — parametrul de comision e editabil din panoul de fondator și se aplică imediat, dar nu retroactiv.
+Sumele sunt bază fără TVA. Activarea devine plătibilă după ce restaurantul achită a doua factură. Sub-partenerii aduc 2% din comisioanele efectiv plătite ale partenerului recrutat, pe un singur nivel. Orice comision poate fi stornat de un refund sau de o dispută a clientului.

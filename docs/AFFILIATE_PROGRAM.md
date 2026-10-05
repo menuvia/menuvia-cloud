@@ -64,6 +64,15 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 
 ### 1.3 Contradicții vii în UI (de rezolvat la decizia E9)
 
+> **Stare după mig 295 (oct 2026):** închise — `/afiliat` nu mai primește cereri cât timp
+> `platform_settings.affiliate_program_open` e `false` (implicit; poarta e în
+> `register_affiliate`/`admin_review_affiliate`, nu doar în UI), calculatorul public numără
+> activare + 11 recurente în primele 12 luni (`src/lib/affiliateEarnings.ts`), „garantate” și
+> facturarea anuală sunt scoase din `AfiliatIntroPage` și din `AFILIATI_KIT.md`, iar panoul
+> afișează cifre NETE calculate pe server. Rămân deschise: exemplul din `LandingPage.tsx`
+> și recrutarea subafiliaților (§4, D8). Textele descriu modelul aprobat (D2/D3) — devin
+> adevărate în cod odată cu migrația de comision (mig 293).
+
 - Calculatorul public (`src/pages/AfiliatIntroPage.tsx:122-131, :399-401`) și exemplul de pe `src/pages/LandingPage.tsx:153-158, :945` calculează comisionul pe **growth 249 lei** — un plan care azi plătește 0 (m099:107).
 - `/afiliat` încă primește cereri (`AfiliatIntroPage.tsx:219-221`, `AfiliatPage.tsx:241-253`), deși E9 recomandă închiderea lor (`docs/ECOSISTEM.md:147`).
 - `AfiliatPage.tsx:1215` („PFA, SRL sau altă formă”) vs `AfiliatIntroPage.tsx:69` („de pe PFA sau SRL”).
@@ -319,6 +328,11 @@ Până la răspuns: rămâne 1 nivel; se ascunde recrutarea pentru subafiliați.
     iar `process_account_deletions` înghite eroarea per user (m284:311, :317-323) →
     un owner atribuit sau un afiliat **nu poate fi șters**. Ce se păstrează (retenție
     fiscală 10 ani pentru ledger/payout) și ce se pseudonimizează?
+    **Implementat în mig 295** (de validat juridic): afiliatul devine `closed`, `profile_id`
+    NULL, telefon/notă/vanity/branding și CUI/IBAN/beneficiar golite; atribuirea pierde
+    `referred_profile_id` (tombstone `referred_erased_at`) și devine `canceled`; ledger-ul și
+    payout-urile (cu `invoice_number`) se păstrează. Întrebare rămasă: soldul datorat unui
+    afiliat care a cerut ștergerea (draft-urile nu se mai pot plăti fără IBAN).
 
 ### 5.3 Întrebări pentru contabil (păstrate + noi)
 
@@ -348,8 +362,7 @@ același PR (`ECOSISTEM.md:110`). Filtrele `status='active'` NU se slăbesc (CLA
 - RPC `admin_set_affiliate_status` (suspended/closed) + decizia ce se întâmplă cu soldul.
 - `v_affiliate_payable` (m099:38-58) ignoră leg-ul `adjustment` → un ajustament pozitiv
   nu se plătește niciodată; se decide semantica înainte de a-l folosi.
-- Ștergerea GDPR (§5.2 q11): lanțul `process_account_deletions` (…→282→284) primește
-  tratarea tabelelor de afiliere.
+- ~~Ștergerea GDPR (§5.2 q11)~~ — făcut în mig 295 (lanț …→282→284→295).
 - Pre-check de adâncime în `register_affiliate` (lanț 097d→188→224→243) + ascunderea
   recrutării pentru subafiliați.
 
@@ -428,6 +441,6 @@ același PR (`ECOSISTEM.md:110`). Filtrele `status='active'` NU se slăbesc (CLA
 | D8 | Subafiliați pe mai multe niveluri | Doar după avizul avocatului (§4, §5.2 q5); până atunci 1 nivel + recrutare ascunsă pentru subafiliați | după 0c |
 | D9 | `legal_form = 'other'` | Scos (doar PFA/SRL) sau flux de reținere 10% cu D100/D205 | înainte de primul payout |
 | D10 | Accesul partener automat la datele restaurantului | Opt-in de către owner, după avizul avocatului (§5.2 q8) | înainte de prima aprobare |
-| D11 | Ștergerea GDPR blocată de `ON DELETE RESTRICT` | Tratare în lanțul `process_account_deletions`, cu retenție fiscală pe ledger | înainte de prima aprobare |
+| D11 | Ștergerea GDPR blocată de `ON DELETE RESTRICT` | **Făcut (mig 295):** detașare + pseudonimizare înaintea ștergerii, ledger păstrat | — |
 | D12 | Calculatoarele publice pe growth (§1.3) | Corectate odată cu D1/D2 (devin adevărate dacă D2 = DA) | cu D1 |
 | D13 | Suspendare: sold înghețat sau anulat | Anulat doar pentru comisioanele în hold, cu motiv în `audit_log`; RPC nou | înainte de prima aprobare |

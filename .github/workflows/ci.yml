@@ -182,6 +182,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_flow_assertions.sql
 
+      # Programul de afiliere + GDPR (mig 295) pe stack-ul real: funcțiile NOI
+      # (helper de flag, detașarea GDPR) primesc EXECUTE din default privileges
+      # ale Supabase — AP11 are muncă reală DOAR aici.
+      - name: Programul de afiliere + GDPR pe stack-ul Supabase real (mig 295, AP1–AP12)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_program_gdpr_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
