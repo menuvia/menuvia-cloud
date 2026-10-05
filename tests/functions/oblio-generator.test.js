@@ -355,7 +355,7 @@ describe('oblio-generator: emitere reușită', () => {
     assert.equal(sumCents, 2000)
   })
 
-  it('BF-8: reziduul de rotunjire dintre linii se absoarbe pe ULTIMA linie (3 linii × 1/3)', async () => {
+  it('BF-8: reziduul de rotunjire dintre linii egale se absoarbe pe ultima dintre ele (3 linii × 1/3)', async () => {
     queued(makeInvoice())
     scriptOrderData({
       items: [
@@ -373,6 +373,55 @@ describe('oblio-generator: emitere reușită', () => {
     const payload = postedPayload()
     const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
     assert.deepEqual(payload.products.map((p) => cents(p.price)), [667, 667, 666])
+  })
+
+  it('BF-8r1: ultima linie de 0 lei NU primește reziduul negativ (fără preț negativ), totalul rămâne exact', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'A', vat_group: 1 } },
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'B', vat_group: 1 } },
+        { quantity: 1, unit_price_snapshot: 0, item_total: 0, products: { name: 'Garnitură gratuită', vat_group: 1 } },
+      ],
+      // factor 13,33/20: 6,665 → 667 + 667 + 0 = 1334 ≠ 1333 → reziduu −1 ban.
+      // Pe ultima linie oarbă: garnitura ar fi ieșit la −0,01 lei.
+      order: { restaurant_id: 'r1', total: 13.33, discount_amount: 6.67 },
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
+    for (const p of payload.products) {
+      assert.ok(p.price >= 0, `preț NEGATIV pe factură: ${p.name} = ${p.price}`)
+    }
+    assert.deepEqual(payload.products.map((p) => cents(p.price)), [667, 666, 0])
+    const sumCents = payload.products.reduce((s, p) => s + cents(p.price) * p.quantity, 0)
+    assert.equal(sumCents, 1333)
+  })
+
+  it('BF-8r2: reziduul merge pe linia CEA MAI MARE, nu pe ultima', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [
+        { quantity: 1, unit_price_snapshot: 50, item_total: 50, products: { name: 'Mare', vat_group: 1 } },
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'Mică 1', vat_group: 2 } },
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'Mică 2', vat_group: 2 } },
+      ],
+      // factor 46,67/70: 3334 + 667 + 667 = 4668 ≠ 4667 → −1 ban pe linia de 50 lei
+      order: { restaurant_id: 'r1', total: 46.67, discount_amount: 23.33 },
+      vatRates: [{ vat_group: 1, rate_percent: '21' }, { vat_group: 2, rate_percent: '11' }],
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
+    assert.deepEqual(payload.products.map((p) => cents(p.price)), [3333, 667, 667])
+    const sumCents = payload.products.reduce((s, p) => s + cents(p.price) * p.quantity, 0)
+    assert.equal(sumCents, 4667)
   })
 
   it('vat_included=false: prețul trimis e NET (gross/(1+cota)), Oblio adaugă TVA la loc', async () => {

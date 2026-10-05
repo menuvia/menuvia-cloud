@@ -291,18 +291,30 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       ? orderTotal / subtotalGross
       : 1
 
-  // ── Rotunjire la BANI + restul pe ULTIMA linie (BF-8) ───────────────────────
+  // ── Rotunjire la BANI + restul pe linia CEA MAI MARE (BF-8) ─────────────────
   // Un factor zecimal infinit (3 × 10 lei, discount 10 → 0,9 e exact, dar 20/30 sau
   // 1/3 nu) dădea un preț unitar cu zecimale pe care Oblio îl rotunjește la 2: 6,67 × 3
   // = 20,01 ≠ 20,00 plătit. Lucrăm în bani întregi: totalul liniei se rotunjește o
   // dată, iar pe discount reziduul față de order.total (rotunjiri independente per
-  // linie) se absoarbe pe ULTIMA linie — ca begin_split_payment (mig 229). O linie cu
-  // cantitate > 1 al cărei preț unitar nu se împarte exact în bani se desparte în
-  // (qty-1) × preț rotunjit + 1 × restul, deci Σ(preț × cantitate) == totalul liniei.
+  // linie) se absoarbe pe linia cu suma CEA MAI MARE (la egalitate, ultima dintre
+  // ele). NU pe ultima linie oarbă: o ultimă linie de 0 lei (garnitură gratuită) ar
+  // fi primit −1 ban, adică un preț NEGATIV pe o factură fiscală. Dacă reziduul
+  // negativ depășește linia cea mai mare (practic imposibil — reziduul e de ordinul
+  // a câțiva bani), restul trece pe următoarea, fără să coboare vreo linie sub 0.
+  // O linie cu cantitate > 1 al cărei preț unitar nu se împarte exact în bani se
+  // desparte în (qty-1) × preț rotunjit + 1 × restul, deci Σ(preț × cantitate) ==
+  // totalul liniei.
   const lineCents = rows.map((r) => Math.round(Number((r.grossUnit * r.qty * factor * 100).toFixed(6))))
   if (factor !== 1 && Number.isFinite(orderTotal) && lineCents.length > 0) {
-    const residual = Math.round(orderTotal * 100) - lineCents.reduce((s, c) => s + c, 0)
-    lineCents[lineCents.length - 1] += residual
+    let residual = Math.round(orderTotal * 100) - lineCents.reduce((s, c) => s + c, 0)
+    // indicii ordonați descrescător după sumă; la egalitate, indicele MAI MARE întâi
+    const byAmount = lineCents.map((_, i) => i).sort((a, b) => lineCents[b] - lineCents[a] || b - a)
+    for (const i of byAmount) {
+      if (residual === 0) break
+      const delta = residual > 0 ? residual : Math.max(residual, -lineCents[i])
+      lineCents[i] += delta
+      residual -= delta
+    }
   }
 
   const out = []
