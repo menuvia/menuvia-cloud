@@ -576,7 +576,14 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     // Mesaj diferit ca să nu sugerăm clientului că rezervarea poate fi refuzată.
     const isPendingNoTable = !isConfirmed && !result.table_name
     return (
-      <SheetShell onClose={onClose} PUB={PUB} theme={theme} accent={accent} title={restaurant.name}>
+      <SheetShell
+        onClose={onClose}
+        PUB={PUB}
+        theme={theme}
+        accent={accent}
+        title={restaurant.name}
+        lang={lang}
+      >
         <div style={{ padding: '32px 22px', textAlign: 'center' }}>
           <div
             style={{
@@ -722,7 +729,14 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
 
   // ── FORM state ────────────────────────────────────────────────
   return (
-    <SheetShell onClose={onClose} PUB={PUB} theme={theme} accent={accent} title={restaurant.name}>
+    <SheetShell
+      onClose={onClose}
+      PUB={PUB}
+      theme={theme}
+      accent={accent}
+      title={restaurant.name}
+      lang={lang}
+    >
       <div
         style={{
           padding: '10px 18px 12px',
@@ -1121,10 +1135,11 @@ interface ShellProps {
   theme: MenuTheme
   accent: string
   title: string
+  lang: string
   children: React.ReactNode
 }
 
-function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps) {
+function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: ShellProps) {
   // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
   // deschidere, restaurare la închidere + Escape → onClose. Ref-ul pe onClose
   // ține varianta curentă fără să re-monteze efectul la fiecare re-randare.
