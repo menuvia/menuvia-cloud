@@ -96,3 +96,11 @@ const LOCALES: Readonly<Record<string, string>> = {
 export function guestLocale(lang: string): string {
   return LOCALES[lang] ?? 'en-GB'
 }
+
+/** Limba browserului dintre cele 7 ale meniului — pentru paginile publice fără
+ *  selector (ex. /rezervare/:slug, deschisă dintr-un link). Nesuportată → 'en'. */
+export function browserGuestLang(): string {
+  if (typeof navigator === 'undefined') return 'en'
+  const code = (navigator.language ?? '').toLowerCase().split('-')[0] ?? ''
+  return Object.prototype.hasOwnProperty.call(LOCALES, code) ? code : 'en'
+}
