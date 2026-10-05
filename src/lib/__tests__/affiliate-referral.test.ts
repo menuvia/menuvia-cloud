@@ -10,6 +10,15 @@
 //   RF6  RPC indisponibil (DB fără 295) + cod clasic → contractul vechi: cookie
 //        imediat, touch cu codul brut
 //   RF7  valoare malformată → URL curățat, NIMIC stocat, niciun RPC
+//   RF8  vanity + RPC picat → rămâne ÎN AȘTEPTARE; încărcarea următoare (fără
+//        referral în URL) îl rezolvă → cookie canonic, așteptarea ștearsă
+//   RF9  vanity + plafon global → înainte de checkout resolvePendingReferral
+//        îl rezolvă (recenzie #286: înainte, atribuirea se pierdea tăcut)
+//   RF10 RPC agățat → resolvePendingReferral iese la timeout, nu blochează
+//        checkout-ul; vanity-ul rămâne pentru data viitoare
+//   RF11 serverul spune „necunoscut" → așteptarea se șterge, nimic stocat
+//   RF12 ultimul link câștigă: un cod clasic nou șterge vanity-ul vechi
+//   RF13 cookie de așteptare malformat → ignorat, niciun RPC
 //   AE1  rezumatul panoului preferă cifrele NETE ale serverului
 //   AE2  fără mig 295 → calculul vechi (confirmat − plătit)
 //   AE3  calculatorul: în primele 12 luni intră activarea + 11 recurente
@@ -22,13 +31,26 @@ import {
   parseReferralFromLocation,
   captureReferralFromUrl,
   getStoredReferral,
+  resolvePendingReferral,
 } from '../affiliate'
 import { summarizeEarnings, estimateAffiliateEarnings } from '../affiliateEarnings'
 
 function clearCookies() {
-  for (const name of ['mv_ref', 'mv_vid']) {
+  for (const name of ['mv_ref', 'mv_vid', 'mv_ref_pending']) {
     document.cookie = `${name}=; Max-Age=0; Path=/`
   }
+}
+
+function readPendingCookie(): string | null {
+  const hit = document.cookie.split('; ').find((p) => p.startsWith('mv_ref_pending='))
+  return hit ? decodeURIComponent(hit.slice('mv_ref_pending='.length)) : null
+}
+
+type RpcResult = { data: unknown; error: unknown }
+
+function rpcWith(resolve: () => RpcResult) {
+  return (fn: string) =>
+    Promise.resolve(fn === 'resolve_referral_code' ? resolve() : { data: { ok: true }, error: null })
 }
 
 async function flush() {
@@ -104,6 +126,102 @@ describe('captureReferralFromUrl', () => {
     window.history.replaceState(null, '', '/pricing?ref=nu%20e%20bun!&plan=pro')
     expect(captureReferralFromUrl()).toBeNull()
     expect(window.location.search).toBe('?plan=pro')
+    await flush()
+    expect(rpcMock).not.toHaveBeenCalled()
+    expect(getStoredReferral()).toBeNull()
+  })
+})
+
+describe('vanity în așteptare (recenzie #286)', () => {
+  beforeEach(() => {
+    rpcMock.mockReset()
+    clearCookies()
+  })
+
+  it('RF8: RPC picat → în așteptare; încărcarea următoare îl rezolvă', async () => {
+    rpcMock.mockImplementation(rpcWith(() => ({ data: null, error: { code: '500', message: 'down' } })))
+    window.history.replaceState(null, '', '/r/ion-pop')
+    expect(captureReferralFromUrl()).toBe('ion-pop')
+    await flush()
+    expect(getStoredReferral()).toBeNull()
+    expect(readPendingCookie()).toBe('ion-pop')
+    expect(rpcMock.mock.calls.some((c) => c[0] === 'record_affiliate_touch')).toBe(false)
+
+    rpcMock.mockReset()
+    rpcMock.mockImplementation(rpcWith(() => ({ data: { referral_code: 'a1b2c3d4' }, error: null })))
+    window.history.replaceState(null, '', '/pricing')
+    expect(captureReferralFromUrl()).toBeNull()
+    await flush()
+    expect(rpcMock).toHaveBeenCalledWith('resolve_referral_code', { p_code: 'ion-pop' })
+    expect(getStoredReferral()).toBe('a1b2c3d4')
+    expect(readPendingCookie()).toBeNull()
+    const touch = rpcMock.mock.calls.find((c) => c[0] === 'record_affiliate_touch')
+    expect(touch?.[1]).toMatchObject({ p_referral_code: 'a1b2c3d4' })
+  })
+
+  it('RF9: plafon global → rezolvat înainte de checkout', async () => {
+    rpcMock.mockImplementation(rpcWith(() => ({ data: { rate_limited: true }, error: null })))
+    window.history.replaceState(null, '', '/pricing?ref=ion-pop')
+    captureReferralFromUrl()
+    await flush()
+    expect(getStoredReferral()).toBeNull()
+    expect(readPendingCookie()).toBe('ion-pop')
+
+    rpcMock.mockImplementation(rpcWith(() => ({ data: { referral_code: 'a1b2c3d4' }, error: null })))
+    await resolvePendingReferral(1000)
+    expect(getStoredReferral()).toBe('a1b2c3d4')
+    expect(readPendingCookie()).toBeNull()
+  })
+
+  it('RF10: RPC agățat → resolvePendingReferral iese la timeout', async () => {
+    let release: (r: RpcResult) => void = () => undefined
+    rpcMock.mockImplementation((fn: string) =>
+      fn === 'resolve_referral_code'
+        ? new Promise<RpcResult>((resolve) => {
+            release = resolve
+          })
+        : Promise.resolve({ data: { ok: true }, error: null }),
+    )
+    window.history.replaceState(null, '', '/r/ion-pop')
+    captureReferralFromUrl()
+    const started = Date.now()
+    await resolvePendingReferral(30)
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(getStoredReferral()).toBeNull()
+    expect(readPendingCookie()).toBe('ion-pop')
+    // eliberăm rezolvarea agățată (eșec) ca să nu rămână în zbor pentru testele următoare
+    release({ data: null, error: { code: '500', message: 'down' } })
+    await flush()
+    expect(readPendingCookie()).toBe('ion-pop')
+  })
+
+  it('RF11: serverul spune „necunoscut" → așteptarea se șterge', async () => {
+    rpcMock.mockImplementation(rpcWith(() => ({ data: { referral_code: null }, error: null })))
+    window.history.replaceState(null, '', '/r/nu-exista')
+    captureReferralFromUrl()
+    await flush()
+    expect(getStoredReferral()).toBeNull()
+    expect(readPendingCookie()).toBeNull()
+  })
+
+  it('RF12: un cod clasic nou șterge vanity-ul vechi în așteptare', async () => {
+    rpcMock.mockImplementation(rpcWith(() => ({ data: null, error: { code: '500', message: 'down' } })))
+    window.history.replaceState(null, '', '/r/ion-pop')
+    captureReferralFromUrl()
+    await flush()
+    expect(readPendingCookie()).toBe('ion-pop')
+    window.history.replaceState(null, '', '/r/abc12345')
+    captureReferralFromUrl()
+    await flush()
+    expect(readPendingCookie()).toBeNull()
+    expect(getStoredReferral()).toBe('abc12345')
+  })
+
+  it('RF13: cookie de așteptare malformat → ignorat, niciun RPC', async () => {
+    document.cookie = `mv_ref_pending=${encodeURIComponent('nu e bun!')}; Path=/`
+    window.history.replaceState(null, '', '/pricing')
+    captureReferralFromUrl()
+    await resolvePendingReferral(30)
     await flush()
     expect(rpcMock).not.toHaveBeenCalled()
     expect(getStoredReferral()).toBeNull()

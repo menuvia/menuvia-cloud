@@ -13,6 +13,9 @@
 import { supabase } from './supabase'
 
 const REFERRAL_COOKIE = 'mv_ref'
+// Vanity capturat dar NErezolvat încă (RPC picat / plafon global / rețea /
+// checkout înaintea răspunsului). Vezi „Vanity în așteptare" mai jos.
+const PENDING_VANITY_COOKIE = 'mv_ref_pending'
 const VISITOR_COOKIE = 'mv_vid'
 const MAX_AGE_DAYS = 90
 
@@ -170,16 +173,113 @@ async function resolveCanonical(candidate: string): Promise<{ code: string | nul
   }
 }
 
+// ── Vanity în așteptare (recenzie #286) ──────────────────────────────────
+// Un vanity (cu cratimă) NU trece de `isValidCode`, deci, spre deosebire de un
+// cod clasic, nu poate fi scris direct în `mv_ref`: are nevoie de răspunsul lui
+// `resolve_referral_code`. Dacă acel răspuns nu vine (eroare RPC, plafonul
+// global 600/15 min, rețea) sau vine DUPĂ checkout, atribuirea se pierdea
+// TĂCUT. Acum valoarea brută (validată, max 40 de caractere) stă într-un cookie
+// separat cu ACELAȘI Max-Age de 90 de zile și se reîncearcă: la orice
+// încărcare ulterioară (captureReferralFromUrl fără referral în URL) și înainte
+// de checkout (resolvePendingReferral, cu timeout — nu blochează plata).
+// Rezolvat → `mv_ref` primește codul canonic și cookie-ul în așteptare se
+// șterge; serverul spune „necunoscut/inactiv" → se șterge (nu mai are rost);
+// necunoscut (eșec) → rămâne pentru încercarea următoare.
+
+function readPendingVanity(): string | null {
+  try {
+    const raw = readCookie(PENDING_VANITY_COOKIE)
+    if (!raw) return null
+    const value = normalizeReferralInput(raw)
+    return isReferralCandidate(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function writePendingVanity(value: string): void {
+  try {
+    writeCookie(PENDING_VANITY_COOKIE, value)
+  } catch {
+    // cookie blocat → nimic de persistat; rămâne doar încercarea curentă
+  }
+}
+
+function clearPendingVanity(): void {
+  try {
+    document.cookie = `${PENDING_VANITY_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`
+  } catch {
+    // ignorat
+  }
+}
+
+/**
+ * Aplică rezultatul rezolvării unui vanity aflat în așteptare. Șterge
+ * cookie-ul în așteptare DOAR dacă el conține încă exact valoarea rezolvată —
+ * o captură mai nouă (alt link) între timp nu are voie să fie ștearsă.
+ */
+function applyPendingResolution(value: string, res: { code: string | null; known: boolean }): void {
+  if (res.code) {
+    writeCookie(REFERRAL_COOKIE, res.code)
+    if (readPendingVanity() === value) clearPendingVanity()
+    recordTouch(res.code)
+  } else if (res.known) {
+    if (readPendingVanity() === value) clearPendingVanity()
+  }
+}
+
+let pendingInFlight: Promise<void> | null = null
+
+// O singură rezolvare în zbor: captura și pre-checkout-ul împart aceeași
+// promisiune (altfel două touch-uri pentru aceeași vizită).
+function resolvePendingNow(fresh?: string): Promise<void> {
+  if (pendingInFlight && fresh === undefined) return pendingInFlight
+  const value = fresh ?? readPendingVanity()
+  if (!value) return Promise.resolve()
+  const run: Promise<void> = resolveCanonical(value)
+    .then((res) => applyPendingResolution(value, res))
+    .catch(() => undefined)
+    .finally(() => {
+      if (pendingInFlight === run) pendingInFlight = null
+    })
+  pendingInFlight = run
+  return run
+}
+
+/**
+ * Înainte de checkout: dacă există un vanity nerezolvat, încearcă rezolvarea,
+ * dar NU așteaptă mai mult de `timeoutMs`. Nu aruncă niciodată; un eșec lasă
+ * checkout-ul să plece fără referral (și vanity-ul rămâne pentru data viitoare).
+ */
+export async function resolvePendingReferral(timeoutMs = 1500): Promise<void> {
+  if (!readPendingVanity()) return
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs)
+  })
+  try {
+    await Promise.race([resolvePendingNow(), timeout])
+  } catch {
+    // resolvePendingNow nu respinge; garda e pentru orice surpriză
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 /**
  * Dacă URL-ul curent conține un referral (`/r/:cod` sau `?ref=`), îl capturează
  * și curăță URL-ul (păstrând destinația). Apelat o singură dată la bootstrap,
  * ÎNAINTEA randării router-ului. Returnează valoarea capturată (normalizată)
- * sau null. Codul canonic ajunge în cookie asincron, după rezolvare.
+ * sau null. Codul canonic ajunge în cookie asincron, după rezolvare. Fără
+ * referral în URL, reîncearcă un vanity rămas în așteptare.
  */
 export function captureReferralFromUrl(): string | null {
   const { pathname, search, hash } = window.location
   const cap = parseReferralFromLocation(pathname, search, hash)
-  if (!cap) return null
+  if (!cap) {
+    void resolvePendingNow()
+    return null
+  }
 
   // URL-ul se curăță ÎNTOTDEAUNA (și pe valori malformate).
   window.history.replaceState(window.history.state, '', cap.cleanUrl)
@@ -188,13 +288,28 @@ export function captureReferralFromUrl(): string | null {
   // Un cod clasic (fără cratimă) se scrie IMEDIAT — comportamentul de până
   // acum, ca un checkout rapid să nu piardă atribuirea dacă rezolvarea întârzie.
   const looksLikeCode = isValidCode(cap.raw)
-  if (looksLikeCode) writeCookie(REFERRAL_COOKIE, cap.raw)
+  if (looksLikeCode) {
+    writeCookie(REFERRAL_COOKIE, cap.raw)
+    // Ultimul link câștigă: un vanity vechi în așteptare nu are voie să
+    // suprascrie mai târziu codul tocmai capturat.
+    clearPendingVanity()
+  } else {
+    // Vanity: persistat ÎNAINTEA rezolvării, ca un checkout rapid sau un RPC
+    // picat să nu-l piardă.
+    writePendingVanity(cap.raw)
+  }
 
-  void resolveCanonical(cap.raw).then(({ code, known }) => {
+  if (!looksLikeCode) {
+    void resolvePendingNow(cap.raw)
+    return cap.raw
+  }
+
+  void resolveCanonical(cap.raw).then((res) => {
+    const { code, known } = res
     if (code) {
-      if (code !== cap.raw || !looksLikeCode) writeCookie(REFERRAL_COOKIE, code)
+      if (code !== cap.raw) writeCookie(REFERRAL_COOKIE, code)
       recordTouch(code)
-    } else if (!known && looksLikeCode) {
+    } else if (!known) {
       // RPC indisponibil (DB fără 295 / rețea / plafon) → contractul vechi:
       // codul brut, validat de server la touch și la checkout.
       recordTouch(cap.raw)

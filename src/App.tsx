@@ -6,7 +6,7 @@ import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantConte
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
 import TermsAcceptanceGate, { ROUTE_CHANGE_EVENT } from './components/TermsAcceptanceGate'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
-import { getStoredReferral, getVisitorId } from './lib/affiliate'
+import { getStoredReferral, getVisitorId, resolvePendingReferral } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
@@ -566,6 +566,9 @@ function AppRouter() {
             } = await supabase.auth.getSession()
             // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
             // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
+            // Un vanity încă nerezolvat (RPC picat / răspuns întârziat) are o
+            // ultimă șansă aici, plafonată la 1,5 s — nu blochează plata.
+            await resolvePendingReferral(1500)
             const referralCode = getStoredReferral()
             const visitorId = getVisitorId()
 
