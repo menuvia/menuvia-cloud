@@ -10,13 +10,14 @@ import type { OrderConfirmationPayload } from '../lib/orders'
 import { getOrderPublicStatus, requestFiscalReceipt } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import PaymentConfirmedScreen from './PaymentConfirmedScreen'
+import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
 
-const ORDER_STEPS = [
-  { status: 'new', label: 'Trimisă', n: '1' },
-  { status: 'confirmed', label: 'Confirmată', n: '2' },
-  { status: 'preparing', label: 'În preparare', n: '3' },
-  { status: 'ready', label: 'Gata de servit', n: '4' },
-  { status: 'served', label: 'Servită', n: '5' },
+const ORDER_STEPS: ReadonlyArray<{ status: string; labelKey: PublicMenuStringKey; n: string }> = [
+  { status: 'new', labelKey: 'ot_step_new', n: '1' },
+  { status: 'confirmed', labelKey: 'ot_step_confirmed', n: '2' },
+  { status: 'preparing', labelKey: 'ot_step_preparing', n: '3' },
+  { status: 'ready', labelKey: 'ot_step_ready', n: '4' },
+  { status: 'served', labelKey: 'ot_step_served', n: '5' },
 ]
 
 interface OrderTrackerProps {
@@ -29,6 +30,8 @@ interface OrderTrackerProps {
   sessionId?: string | null
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
+  // Limba aleasă de oaspete în meniu — default 'ro' (call-site-urile istorice).
+  lang?: string
 }
 
 function OrderTracker({
@@ -38,6 +41,7 @@ function OrderTracker({
   previousOrders,
   sessionId = null,
   currency = 'RON',
+  lang = 'ro',
 }: OrderTrackerProps) {
   const [status, setStatus] = useState<string>(confirmation.status ?? 'new')
   const [tipsAmount, setTipsAmount] = useState<number>(0)
@@ -159,6 +163,7 @@ function OrderTracker({
         // (session-gate mig 094) — funnel-ul de recenzii ar fi mort silențios.
         sessionId={sessionId}
         currency={currency}
+        lang={lang}
       />
     )
   }
@@ -188,10 +193,10 @@ function OrderTracker({
           textAlign: 'center',
         }}
       >
-        Comanda a fost trimisă
+        {T(lang, 'ot_sent_title')}
       </div>
       <div style={{ fontSize: 13, color: '#5C4A2A', marginBottom: 10 }}>
-        Bucătăria a primit comanda. · #{confirmation.short_id}
+        {T(lang, 'ot_kitchen_received')} · #{confirmation.short_id}
       </div>
       {limitedTracking && (
         <div
@@ -208,9 +213,9 @@ function OrderTracker({
             maxWidth: 320,
           }}
         >
-          Urmărirea comenzii nu mai este disponibilă complet.
+          {T(lang, 'ot_limited')}
           <br />
-          Te rugăm să întrebi personalul.
+          {T(lang, 'ask_staff')}
         </div>
       )}
       <div
@@ -229,7 +234,7 @@ function OrderTracker({
         <div style={{ textAlign: 'center', padding: '24px 0' }}>
           <div style={{ fontSize: 48, color: '#c0392b' }}>✕</div>
           <div style={{ color: '#c0392b', fontSize: 16, fontWeight: 600, marginTop: 12 }}>
-            Comanda a fost anulată
+            {T(lang, 'ot_cancelled')}
           </div>
         </div>
       ) : (
@@ -285,10 +290,10 @@ function OrderTracker({
                       fontFamily: 'DM Sans, sans-serif',
                     }}
                   >
-                    {step.label}
+                    {T(lang, step.labelKey)}
                   </div>
                   {isActive && !isDone && (
-                    <div style={{ fontSize: 12, color: '#5C4A2A', marginTop: 2 }}>Acum</div>
+                    <div style={{ fontSize: 12, color: '#5C4A2A', marginTop: 2 }}>{T(lang, 'ot_now')}</div>
                   )}
                 </div>
               </div>
@@ -324,7 +329,7 @@ function OrderTracker({
               width: '100%',
             }}
           >
-            + Adaugă produse
+            {T(lang, 'add_more_items')}
           </button>
         )}
         {/* Full reset — clears everything */}
@@ -342,18 +347,18 @@ function OrderTracker({
             width: '100%',
           }}
         >
-          {isCancelled ? 'Comandă nouă' : 'Închide sesiunea'}
+          {isCancelled ? T(lang, 'ot_new_order') : T(lang, 'ot_close_session')}
         </button>
       </div>
       {/* Show session total if there are previous orders */}
       {previousOrders.length > 0 && !isCancelled && (
         <div style={{ marginTop: 16, fontSize: '0.8rem', color: '#6B5A3F', textAlign: 'center' }}>
-          Total sesiune:{' '}
+          {T(lang, 'ot_session_total')}{' '}
           {fmtPrice(
             previousOrders.reduce((s, o) => s + Number(o.total), 0) + Number(confirmation.total),
             currency,
           )}{' '}
-          ({previousOrders.length + 1} comenzi)
+          ({previousOrders.length + 1} {T(lang, 'order_many')})
         </div>
       )}
     </div>
@@ -366,17 +371,17 @@ const PUB = { bg: '#F8F3EB', text: '#1A1208' } as const
 // Shows live status of all orders placed in this QR session.
 // Collapses to a single line, expands to show each order's status.
 
-const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  new: { label: 'Primit', color: '#5C4A2A' },
-  confirmed: { label: 'Confirmat', color: '#E8A020' },
-  preparing: { label: 'Se prepară', color: '#C8963C' },
-  ready: { label: 'Gata de servit', color: '#4CAF6E' },
-  served: { label: 'Servit', color: '#7EB8F7' },
-  paid: { label: 'Plătit', color: '#9A9590' },
+const STATUS_LABEL: Record<string, { labelKey: PublicMenuStringKey; color: string }> = {
+  new: { labelKey: 'st_new', color: '#5C4A2A' },
+  confirmed: { labelKey: 'st_confirmed', color: '#E8A020' },
+  preparing: { labelKey: 'st_preparing', color: '#C8963C' },
+  ready: { labelKey: 'ot_step_ready', color: '#4CAF6E' },
+  served: { labelKey: 'st_served', color: '#7EB8F7' },
+  paid: { labelKey: 'st_paid', color: '#9A9590' },
   // Plan 2 (fără fiscalizare): comanda se termină în `closed`, nu în `paid`
   // (audit v3 FC-06 — înainte apărea „closed" brut și rămânea „activă" + poll-uită).
-  closed: { label: 'Închisă', color: '#9A9590' },
-  cancelled: { label: 'Anulat', color: '#c0392b' },
+  closed: { labelKey: 'st_closed', color: '#9A9590' },
+  cancelled: { labelKey: 'st_cancelled', color: '#c0392b' },
 }
 
 interface ActiveOrdersBannerProps {
@@ -386,6 +391,8 @@ interface ActiveOrdersBannerProps {
   onAddMore: () => void
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
+  // Limba aleasă de oaspete în meniu — default 'ro'.
+  lang?: string
 }
 
 function ActiveOrdersBanner({
@@ -394,6 +401,7 @@ function ActiveOrdersBanner({
   onAddMore,
   sessionId = null,
   currency = 'RON',
+  lang = 'ro',
 }: ActiveOrdersBannerProps) {
   const [expanded, setExpanded] = useState(false)
   const [statuses, setStatuses] = useState<Record<string, string>>(() =>
@@ -490,8 +498,8 @@ function ActiveOrdersBanner({
                 fontFamily: 'DM Sans, sans-serif',
               }}
             >
-              {orders.length} {orders.length === 1 ? 'comandă' : 'comenzi'} ·{' '}
-              {fmtPrice(totalSpent, currency)} total
+              {orders.length} {orders.length === 1 ? T(lang, 'order_one') : T(lang, 'order_many')} ·{' '}
+              {fmtPrice(totalSpent, currency)} {T(lang, 'total_suffix')}
             </span>
             {activeCount > 0 && (
               <span
@@ -506,7 +514,7 @@ function ActiveOrdersBanner({
                   border: `1px solid ${accent}44`,
                 }}
               >
-                {activeCount} activ{activeCount !== 1 ? 'e' : 'ă'}
+                {activeCount} {activeCount === 1 ? T(lang, 'active_one') : T(lang, 'active_many')}
               </span>
             )}
           </div>
@@ -536,7 +544,11 @@ function ActiveOrdersBanner({
         >
           {orders.map((order) => {
             const st = statuses[order.id] || order.status
-            const meta = STATUS_LABEL[st] || { label: st, color: '#5C4A2A' }
+            const known = STATUS_LABEL[st]
+            // Status necunoscut (server mai nou) → afișat brut, nu ascuns.
+            const meta = known
+              ? { label: T(lang, known.labelKey), color: known.color }
+              : { label: st, color: '#5C4A2A' }
             return (
               <div
                 key={order.id}
@@ -568,7 +580,8 @@ function ActiveOrdersBanner({
                       fontWeight: 500,
                     }}
                   >
-                    Comanda #{order.short_id}
+                    {T(lang, 'order_hash')}
+                    {order.short_id}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -598,7 +611,7 @@ function ActiveOrdersBanner({
               width: '100%',
             }}
           >
-            + Adaugă produse
+            {T(lang, 'add_more_items')}
           </button>
         </div>
       )}

@@ -13,9 +13,14 @@
 // ── Mini i18n (doar pentru strings vizibile pe meniul public) ─
 // Restaurantele cu language ∈ {ro, en, de, fr, it, hu, es} primesc textul lor;
 // orice altă limbă primește fallback EN.
+// Textele fluxului oaspetelui (coș, tracker, plată, erori) stau în
+// guestStrings.ts — modul fără importuri, intrat aici prin spread.
+import { GUEST_STRINGS } from './guestStrings'
+
 type PublicMenuLang = 'ro' | 'en' | 'de' | 'fr' | 'it' | 'hu' | 'es'
 
 export const PUBLIC_MENU_STRINGS = {
+  ...GUEST_STRINGS,
   open_now: {
     ro: 'DESCHIS ACUM',
     en: 'OPEN NOW',
