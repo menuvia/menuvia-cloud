@@ -10,9 +10,12 @@ import { MKT, whatsappUrl } from '../lib/marketing'
 import { writePlanIntent } from '../lib/planIntent'
 import { CheckoutError, type CheckoutAction } from '../lib/checkout'
 import {
+  BILLING_SCOPE_FAQ,
   EXTRA_FEATURES,
   INCLUDED_EVERYWHERE,
   PILOT_BANNER,
+  PLAN_CHANGE_FAQ,
+  PRICE_GUARANTEE_FAQ,
   TRIAL_FAQ,
   TRIAL_HEADLINE,
 } from '../lib/pricingCopy'
@@ -273,24 +276,17 @@ export default function PricingPage({
       q: 'Care plan e potrivit pentru mine?',
       a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — disponibil în pilot.',
     },
-    {
-      q: 'Pot schimba planul oricând?',
-      a: 'Da. Upgrade sau downgrade instant. Diferența se calculează proporțional pe factura următoare.',
-    },
-    {
-      q: 'Plătesc per restaurant sau cont?',
-      a: 'Per restaurant. Fiecare locație are abonamentul propriu. Pentru lanțuri cu 3+ locații, scrie-ne — facem ofertă custom.',
-    },
+    // Întrebările contractuale vin din `lib/pricingCopy` (aliniate cu Termenii,
+    // păzite de PC7–PC9).
+    PLAN_CHANGE_FAQ,
+    BILLING_SCOPE_FAQ,
     {
       // Comasat: fostele „Este necesar hardware special?" și „Aveți integrare
       // cu casă de marcat?" — un singur răspuns, cu partea fiscală completă.
       q: 'E nevoie de hardware special sau de casă de marcat?',
       a: 'Nu e nevoie de hardware special — funcționează pe orice telefon sau tabletă, iar pentru bucătărie merge orice ecran. Integrarea cu casa de marcat e inclusă în planul Fiscalizare, fără cost suplimentar: suportăm Datecs, Activa și Tremol, iar în pilot instalarea o facem împreună — ne asigurăm împreună că emiterea bonurilor funcționează corect pe casa ta înainte de activare.',
     },
-    {
-      q: 'Garantați prețul?',
-      a: 'Pentru clienții actuali, prețul rămâne fix pe perioada planului. Modificările de preț se aplică doar la noi clienți.',
-    },
+    PRICE_GUARANTEE_FAQ,
     {
       q: 'Sunteți pe piață de mult?',
       a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct pe WhatsApp cu echipa Menuvia.',
