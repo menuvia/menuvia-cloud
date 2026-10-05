@@ -404,7 +404,9 @@ describe('describeGuestError — niciodată text brut de server', () => {
     new Set(Object.values(PUBLIC_MENU_STRINGS as Record<string, Record<string, string>>).map((v) => v[lang]))
 
   it('GE1 hint-urile create_order (mig 191) → cheia lor, în limba cerută', () => {
-    const e = Object.assign(new Error('Product "Ciorbă" is not available'), { hint: 'product_inactive' })
+    // Mesaj NEUTRU: hint-ul singur trebuie să decidă (altfel tiparul pe mesaj
+    // din GE2 ar masca un hint scos din hartă).
+    const e = Object.assign(new Error('P0001'), { hint: 'product_inactive' })
     expect(guestErrorKey(e)).toBe('err_product_unavailable')
     expect(describeGuestError('it', e)).toBe(T('it', 'err_product_unavailable'))
     expect(guestErrorKey({ hint: 'missing_required_group' })).toBe('err_missing_required_group')
