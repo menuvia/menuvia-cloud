@@ -401,6 +401,30 @@ describe('oblio-generator: emitere reușită', () => {
     assert.equal(sumCents, 1333)
   })
 
+  it('BF-8r3: linie cu cantitate mare și total mic → rândul-rest NU e negativ', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [
+        { quantity: 10, unit_price_snapshot: 1, item_total: 10, products: { name: 'Apă', vat_group: 1 } },
+      ],
+      // factor 0,07/10 → linia are 7 bani pe 10 bucăți. Cu Math.round unitarul
+      // ieșea 1 ban, iar rândul-rest 7 − 9 = −2 bani (preț negativ pe factură).
+      order: { restaurant_id: 'r1', total: 0.07, discount_amount: 9.93 },
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
+    for (const p of payload.products) {
+      assert.ok(p.price >= 0, `preț NEGATIV pe factură: ${p.name} = ${p.price}`)
+    }
+    const sumCents = payload.products.reduce((s, p) => s + cents(p.price) * p.quantity, 0)
+    assert.equal(sumCents, 7)
+    assert.equal(payload.products.reduce((s, p) => s + p.quantity, 0), 10)
+  })
+
   it('BF-8r2: reziduul merge pe linia CEA MAI MARE, nu pe ultima', async () => {
     queued(makeInvoice())
     scriptOrderData({

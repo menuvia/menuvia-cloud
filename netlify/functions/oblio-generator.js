@@ -329,7 +329,10 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       out.push({ name: r.name, quantity: qty, price, vatPercentage: r.vatPercent, vatIncluded })
     }
     if (Number.isInteger(r.qty) && r.qty > 1) {
-      const unit = Math.round(total / r.qty)
+      // floor, NU round (recenzie CodeRabbit pe #285): un unitar rotunjit în SUS
+      // face ca `unit*(qty-1) > total` și rândul-rest să iasă NEGATIV (7 bani pe
+      // 10 bucăți: round → 1, rest = 7 − 9 = −2). Cu floor restul e ≥ unit ≥ 0.
+      const unit = Math.floor(total / r.qty)
       if (unit * r.qty === total) {
         push(r.qty, unit)
       } else {
