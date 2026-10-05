@@ -149,9 +149,24 @@ begin
   if (v->>'replay')::boolean is distinct from true then raise exception 'AF3 FAIL: reluare inv1 nu e replay (%)', v; end if;
   v := pg_temp.inv(5, 'evt_af3_b', 'in_af3_b', 24900, 'growth', '2026-10-01');
   v := pg_temp.inv(5, 'evt_af3_b2', 'in_af3_b', 24900, 'growth', '2026-10-01'); -- alt event, aceeași factură
+  -- PRIMA factură re-livrată sub alt event DUPĂ scrierea setup-ului: luna ei
+  -- (septembrie) n-are recurring, deci fără idempotența pe FACTURĂ ar intra pe
+  -- ramura recurring și ar comisiona a doua oară banii deja baza setup-ului.
+  v := pg_temp.inv(5, 'evt_af3_a2', 'in_af3_a', 24900, 'growth', '2026-09-01');
   if (select count(*) from public.affiliate_ledger where attribution_id = pg_temp.attr(5)) <> v_n then
     raise exception 'AF3 FAIL: reluarea a dublat rânduri (% → %)', v_n,
       (select count(*) from public.affiliate_ledger where attribution_id = pg_temp.attr(5)); end if;
+  -- Atribuire de DINAINTEA lui 293: setup-ul scris la prima factură (fără
+  -- first_paid_*). Factura lui re-livrată sub alt event → replay, nu recurring.
+  insert into public.affiliate_ledger
+    (affiliate_id, attribution_id, leg, base_cents, commission_bps, amount_cents,
+     hold_until, stripe_event_id, stripe_invoice_id)
+  values ('a2931000-0000-4000-8000-000000000002', pg_temp.attr(14), 'setup', 9900, 3000, 2970,
+          now() + interval '60 days', 'evt_af3_legacy', 'in_af3_legacy');
+  v := pg_temp.inv(14, 'evt_af3_legacy2', 'in_af3_legacy', 9900, 'starter', '2026-08-01');
+  if (v->>'replay')::boolean is distinct from true
+     or exists (select 1 from public.affiliate_ledger where attribution_id = pg_temp.attr(14) and leg = 'recurring') then
+    raise exception 'AF3 FAIL: factura setup-ului vechi re-livrată a fost comisionată ca recurring (%)', v; end if;
   raise notice 'AF3 OK: setup la a doua factură (bază+factura primei, hold 60z), reluări fără efect';
 end $$;
 
