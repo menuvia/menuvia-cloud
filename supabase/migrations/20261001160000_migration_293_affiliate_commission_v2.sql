@@ -53,8 +53,14 @@
 --
 -- (6) `set_affiliate_attribution_status(uuid, text, text)` — DEFINER, doar
 --     service_role: o atribuire NE-terminală → canceled/refunded/expired, motiv
---     obligatoriu, rând în audit_log. Webhook-ul îl cheamă la refund total,
---     dispută pierdută și plată eșuată terminal. Poarta din 193
+--     obligatoriu, rând în audit_log. Webhook-ul îl cheamă DOAR la sfârșitul
+--     abonamentului (`customer.subscription.deleted` → `canceled`). NU la
+--     refund total / dispută pierdută / plată eșuată terminal pe UNA dintre
+--     facturi: terminal nu se mai poate reactiva, deci un refund de bunăvoință
+--     pe o lună ar fi stins TOATE comisioanele viitoare ale unui client care
+--     rămâne abonat (recenzie pe #286) — banii acelei facturi se recuperează
+--     prin clawback, iar abonamentul care chiar se încheie ajunge oricum în
+--     `subscription.deleted` (inclusiv după dunning-ul eșuat). Poarta din 193
 --     (`has_partner_access` exclude stările terminale) devine VIE: până acum
 --     nicio atribuire nu ieșea vreodată din `active`.
 --
@@ -601,7 +607,7 @@ grant execute on function public.set_affiliate_attribution_status(uuid, text, te
   to service_role;
 
 comment on function public.set_affiliate_attribution_status(uuid, text, text) is
-  'mig 293: atribuire ne-terminală → canceled/refunded/expired (doar service_role, motiv obligatoriu, audit_log). Apelat din stripe-webhook la refund total / dispută pierdută / plată eșuată terminal. Face vie poarta din has_partner_access (193).';
+  'mig 293: atribuire ne-terminală → canceled/refunded/expired (doar service_role, motiv obligatoriu, audit_log). Apelat din stripe-webhook DOAR la customer.subscription.deleted (canceled) — NU la refund/dispută/plată eșuată pe o singură factură (terminal e ireversibil; acolo lucrează clawback-ul). Face vie poarta din has_partner_access (193).';
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- 6. Comentarii pe RPC-urile de fondator (188, NErecreate)

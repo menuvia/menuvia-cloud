@@ -388,12 +388,24 @@ exports.handler = async (event) => {
 
         if (error) throw new Error(`Downgrade failed: ${error.message}`)
 
+        // Afiliere (mig 293): abonamentul S-A ÎNCHEIAT → atribuirea `canceled`
+        // (fără comisioane noi, fără acces de partener — poarta 193). Acesta e
+        // SINGURUL loc care stinge o atribuire: refund-ul / disputa / plata
+        // eșuată pe O factură se recuperează prin clawback, nu prin terminal
+        // (ireversibil). DUPĂ downgrade, ÎNAINTEA evenimentului de lifecycle:
+        // un eșec al RPC-ului → 500 → Stripe retrimite; reluarea e sigură
+        // (downgrade idempotent, RPC idempotent pe terminal) și emailul de
+        // anulare nu se dublează, fiindcă încă nu fusese pus în coadă.
+        try {
+          await setAttributionTerminal(supabase, { profileId: profile.id }, 'canceled',
+            `customer.subscription.deleted ${subscription.id}`)
+        } catch (e) {
+          processingError = `affiliate attribution status failed: ${e?.message || String(e)}`
+          console.error(`[stripe-webhook] ${processingError}`)
+          break
+        }
+
         await safeInsertLifecycleEvent(supabase, profile.id, 'subscription_cancelled', {})
-        // TODO(afiliere, mig 293): atribuirea clientului ar trebui trecută aici în
-        // `canceled` prin set_affiliate_attribution_status(profile.id, 'canceled', …)
-        // — fără asta afiliatul păstrează accesul de partener (poarta 193) după
-        // anulare. Nelegat deliberat: ramura e modificată de PR-ul #273 (trial
-        // fără card); se leagă la integrare, DUPĂ downgrade-ul de mai sus.
 
         console.log(`[stripe-webhook] User ${profile.id} downgraded to free`)
         break
@@ -461,21 +473,10 @@ exports.handler = async (event) => {
             amount: invoice.amount_due,
             attempt: invoice.attempt_count,
           })
-          // Afiliere (mig 293): eșec TERMINAL (Stripe nu mai reîncearcă —
-          // `next_payment_attempt` PREZENT și null) pe o factură de abonament →
-          // atribuirea iese din `active` (fără comision, fără acces de partener).
-          // Câmp absent = formă necunoscută → nimic (fail-closed: o atribuire
-          // stinsă greșit e permanentă). Eșecul RPC-ului → 500, Stripe retrimite.
-          if ('next_payment_attempt' in invoice && invoice.next_payment_attempt === null &&
-              invoiceSubscriptionId(invoice)) {
-            try {
-              await setAttributionTerminal(supabase, { profileId: profile.id }, 'expired',
-                `invoice.payment_failed terminal ${invoice.id}`)
-            } catch (e) {
-              processingError = `affiliate attribution status failed: ${e?.message || String(e)}`
-              console.error(`[stripe-webhook] ${processingError}`)
-            }
-          }
+          // Afiliere: un eșec de plată, chiar TERMINAL, NU stinge atribuirea —
+          // terminal e ireversibil, iar clientul poate plăti ulterior. Dacă
+          // dunning-ul eșuează definitiv, Stripe anulează abonamentul și
+          // `customer.subscription.deleted` face tranziția (`canceled`).
         }
         break
       }
@@ -672,14 +673,11 @@ exports.handler = async (event) => {
               processingError = `affiliate clawback failed: ${clawErr.message}`
             }
           }
-          // Afiliere (mig 293): refund TOTAL pe o factură → atribuirea `refunded`.
-          // Doar charge-uri de factură (o plată unică refundată, ex. credite AI,
-          // nu atinge abonamentul).
-          if (charge.invoice && (charge.refunded === true ||
-              (charge.amount > 0 && charge.amount_refunded >= charge.amount))) {
-            await setAttributionTerminal(supabase, { customerId: charge.customer }, 'refunded',
-              `charge.refunded total ${charge.id}`)
-          }
+          // Afiliere: un refund TOTAL pe o factură NU stinge atribuirea (un
+          // refund de bunăvoință pe o lună ar fi oprit pe veci comisioanele unui
+          // client care rămâne abonat). Banii facturii se recuperează prin
+          // clawback-ul de mai sus; sfârșitul abonamentului vine prin
+          // `customer.subscription.deleted`.
         } catch (e) {
           console.error('[stripe-webhook] affiliate clawback threw:', e?.message)
           processingError = `affiliate clawback threw: ${e?.message || String(e)}`
@@ -739,11 +737,8 @@ exports.handler = async (event) => {
               console.error('[stripe-webhook] dispute clawback failed:', clawErr.message)
               processingError = `dispute clawback failed: ${clawErr.message}`
             }
-            // Dispută pierdută pe o factură → atribuirea `refunded` (mig 293).
-            if (charge.invoice) {
-              await setAttributionTerminal(supabase, { customerId: charge.customer }, 'refunded',
-                `charge.dispute.closed lost ${dispute.id}`)
-            }
+            // Dispută pierdută: clawback-ul de mai sus recuperează comisionul;
+            // atribuirea NU devine terminală (vezi refund-ul total).
           } catch (e) {
             console.error('[stripe-webhook] dispute clawback threw:', e?.message)
             processingError = `dispute clawback threw: ${e?.message || String(e)}`
