@@ -16,6 +16,9 @@ import {
   type StripePaymentElement,
 } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currency'
+import { T } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
+import { describeGuestError } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -39,30 +42,35 @@ interface Props {
   onPayOtherwise: () => void
   /** Split pe itemi (mig 229): plătește DOAR produsele selectate. */
   claims?: readonly SplitClaimInput[]
+  /** Limba aleasă de oaspete în meniu — default 'ro'. */
+  lang?: string
 }
 
 type Phase = 'loading' | 'ready' | 'confirming' | 'paid' | 'error'
 
-// Hint-urile de business → mesaj prietenos (restul afișează mesajul serverului).
-const HINT_COPY: Record<string, string> = {
-  module_disabled: 'Plata online nu este activată la acest local. Cere nota ospătarului.',
-  not_connected: 'Localul nu a terminat configurarea plăților online. Cere nota ospătarului.',
-  feature_disabled: 'Plata online nu este disponibilă la acest local. Cere nota ospătarului.',
-  nothing_to_pay: 'Nu există comenzi de plătit — probabil nota a fost deja încasată.',
-  invalid_session: 'Sesiunea mesei a expirat. Scanează din nou codul QR.',
-  currency_not_supported:
-    'Plata online e disponibilă doar pentru meniuri în lei. Cere nota ospătarului.',
-  items_already_claimed:
-    'Cineva de la masă plătește deja o parte din aceste produse. Alege altele sau reîncearcă.',
-  invalid_items: 'Nota s-a schimbat între timp — redeschide împărțirea notei.',
-}
+// Hint-urile de business → text în limba oaspetelui prin describeGuestError
+// (lib/guestErrors) — niciodată mesajul brut al serverului.
+const PAY_ERROR_OPTS = {
+  fallback: 'err_payment_failed',
+  overrides: { err_module_disabled: 'err_online_pay_off', err_feature_disabled: 'err_online_pay_off' },
+} as const
 
 // Cheia sessionStorage cu ultimul intent split al ACESTUI telefon: dacă
 // sheet-ul a murit mid-flow (refresh/crash), claims-urile lui ar rămâne
 // blocate — la redeschidere anulăm best-effort plata veche înainte de una nouă.
 const splitPidKey = (sessionId: string): string => `menuvia_split_pid_${sessionId}`
 
-export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, onPaid, onPayOtherwise, claims }: Props) {
+export default function PayTableSheet({
+  token,
+  sessionId,
+  PUB,
+  accent,
+  onClose,
+  onPaid,
+  onPayOtherwise,
+  claims,
+  lang = 'ro',
+}: Props) {
   const [phase, setPhase] = useState<Phase>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [amount, setAmount] = useState<number | null>(null)
@@ -132,6 +140,8 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         const elements = stripe.elements({
           clientSecret: intent.client_secret,
           appearance: { theme: 'stripe' },
+          // Formularul și mesajele de card ale Stripe în limba oaspetelui.
+          locale: lang,
         })
         const paymentEl = elements.create('payment')
         stripeRef.current = stripe
@@ -141,11 +151,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         setPhase('ready')
       } catch (e) {
         if (cancelled) return
-        const hint = (e as Error & { hint?: string }).hint
-        setErrorMsg(
-          (hint && HINT_COPY[hint]) ||
-            (e instanceof Error ? e.message : 'Plata nu a putut fi inițiată.'),
-        )
+        setErrorMsg(describeGuestError(lang, e, PAY_ERROR_OPTS))
         setPhase('error')
       }
     }
@@ -177,7 +183,8 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         redirect: 'if_required',
       })
       if (result.error) {
-        setErrorMsg(result.error.message || 'Plata a fost refuzată. Încearcă alt card.')
+        // Mesajul vine de la Stripe, localizat prin `locale` (nu e text de-al nostru).
+        setErrorMsg(result.error.message || T(lang, 'pt_declined'))
         setPhase('ready')
         return
       }
@@ -185,7 +192,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
       // 'processing' (pot încă eșua) — confirmarea reală vine prin webhook.
       const piStatus = result.paymentIntent?.status
       if (piStatus && piStatus !== 'succeeded') {
-        setErrorMsg('Plata se procesează — confirmarea apare în scurt timp. Nu mai încerca o dată.')
+        setErrorMsg(T(lang, 'pt_processing'))
         setPhase('ready')
         return
       }
@@ -193,7 +200,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
       setPhase('paid')
       onPaid()
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Eroare la confirmare. Reîncearcă.')
+      setErrorMsg(describeGuestError(lang, e, { fallback: 'pt_confirm_failed' }))
       setPhase('ready')
     }
   }
@@ -275,7 +282,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Plătește masa"
+        aria-label={T(lang, 'pay_table')}
         tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         style={{
@@ -305,7 +312,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
               color: PUB.text,
             }}
           >
-            {claims && claims.length > 0 ? 'Plătește partea ta' : 'Plătește masa'}
+            {claims && claims.length > 0 ? T(lang, 'pay_your_share') : T(lang, 'pay_table')}
           </span>
           {amount != null && (
             <span
@@ -327,7 +334,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
             aria-busy="true"
             style={{ color: PUB.text2, fontSize: 14, padding: '28px 0', textAlign: 'center' }}
           >
-            Se pregătește plata…
+            {T(lang, 'pt_preparing')}
           </div>
         )}
 
@@ -361,9 +368,9 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
             }}
           >
             <div style={{ fontSize: 28, marginBottom: 6 }}>✓</div>
-            <strong>Plata a fost efectuată.</strong>
+            <strong>{T(lang, 'pt_done')}</strong>
             <br />
-            Bonul fiscal se emite la casa restaurantului. Mulțumim!
+            {T(lang, 'pt_done_receipt')}
           </div>
         )}
 
@@ -375,7 +382,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
               <div style={{ color: '#c0392b', fontSize: 13, lineHeight: 1.5 }}>{errorMsg}</div>
             )}
             <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'center' }}>
-              Plată securizată prin Stripe. Banii ajung direct la restaurant.
+              {T(lang, 'pt_secure')}
             </div>
           </>
         )}
@@ -406,14 +413,14 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
           }}
         >
           {phase === 'confirming'
-            ? 'Se procesează…'
+            ? T(lang, 'pt_processing_short')
             : phase === 'paid'
-              ? 'Închide'
+              ? T(lang, 'close')
               : phase === 'error'
-                ? 'Închide'
+                ? T(lang, 'close')
                 : amount != null
-                  ? `Plătește ${fmtPrice(amount, currency)}`
-                  : 'Plătește'}
+                  ? Tf(lang, 'pt_pay_amount', { amount: fmtPrice(amount, currency) })
+                  : T(lang, 'pt_pay')}
         </button>
 
         {(phase === 'ready' || phase === 'error') && (
@@ -434,7 +441,7 @@ export default function PayTableSheet({ token, sessionId, PUB, accent, onClose, 
               minHeight: 44,
             }}
           >
-            Renunț — plătesc la ospătar
+            {T(lang, 'pt_pay_waiter')}
           </button>
         )}
       </div>

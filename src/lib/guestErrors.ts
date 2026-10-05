@@ -55,7 +55,7 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   invalid_code: 'err_invalid_code',
   // modul oprit (rezervări / plată online)
   module_disabled: 'err_module_disabled',
-  feature_disabled: 'err_module_disabled',
+  feature_disabled: 'err_feature_disabled',
   // plata online / împărțirea notei (mig 202–231)
   not_connected: 'err_payments_not_ready',
   nothing_to_pay: 'err_nothing_to_pay',

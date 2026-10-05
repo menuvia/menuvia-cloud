@@ -11,6 +11,9 @@ import {
   type TableBill,
 } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currency'
+import { T } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
+import { describeGuestError } from '../lib/guestErrors'
 
 const PayTableSheet = lazy(() => import('./PayTableSheet'))
 
@@ -32,16 +35,19 @@ interface Props {
   onClose: () => void
   /** Chemat DOAR după o plată split confirmată (parțială sau completă). */
   onPaid: () => void
+  /** Limba aleasă de oaspete în meniu — default 'ro'. */
+  lang?: string
 }
 
-const HINT_COPY: Record<string, string> = {
-  module_disabled: 'Plata online nu este activată la acest local. Cere nota ospătarului.',
-  feature_disabled: 'Împărțirea notei nu este disponibilă la acest local.',
-  invalid_session: 'Sesiunea mesei a expirat. Scanează din nou codul QR.',
-  invalid_token: 'Cod QR invalid pentru această masă.',
-}
-
-export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose, onPaid }: Props) {
+export default function SplitBillSheet({
+  token,
+  sessionId,
+  PUB,
+  accent,
+  onClose,
+  onPaid,
+  lang = 'ro',
+}: Props) {
   const [bill, setBill] = useState<TableBill | null>(null)
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -70,10 +76,11 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
         return next
       })
     } catch (e) {
-      const hint = (e as Error & { hint?: string }).hint
       setErrorMsg(
-        (hint && HINT_COPY[hint]) ||
-          (e instanceof Error ? e.message : 'Nota nu a putut fi încărcată.'),
+        describeGuestError(lang, e, {
+          fallback: 'err_bill_load_failed',
+          overrides: { err_module_disabled: 'err_online_pay_off', err_feature_disabled: 'err_split_off' },
+        }),
       )
     } finally {
       setLoading(false)
@@ -174,10 +181,10 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
             color: PUB.text,
           }}
         >
-          Împarte nota
+          {T(lang, 'sb_title')}
         </span>
         <div style={{ fontSize: 13, color: PUB.text2, lineHeight: 1.5, marginTop: -8 }}>
-          Alege produsele tale — plătești doar partea ta, cu cardul.
+          {T(lang, 'sb_subtitle')}
         </div>
 
         {loading && (
@@ -186,7 +193,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
             aria-busy="true"
             style={{ color: PUB.text2, fontSize: 14, padding: '24px 0', textAlign: 'center' }}
           >
-            Se încarcă nota mesei…
+            {T(lang, 'sb_loading')}
           </div>
         )}
 
@@ -208,7 +215,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
 
         {!loading && !errorMsg && bill && bill.orders.length === 0 && (
           <div style={{ color: PUB.text2, fontSize: 14, padding: '18px 0', textAlign: 'center' }}>
-            Nu există comenzi de plătit — probabil nota a fost deja încasată.
+            {T(lang, 'err_nothing_to_pay')}
           </div>
         )}
 
@@ -236,12 +243,15 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
                   letterSpacing: '0.06em',
                 }}
               >
-                <span>Comanda #{o.short_id}</span>
+                <span>
+                  {T(lang, 'order_hash')}
+                  {o.short_id}
+                </span>
                 <span>{fmtPrice(o.total, currency)}</span>
               </div>
               {o.locked && (
                 <div style={{ fontSize: 12.5, color: PUB.text2, lineHeight: 1.45 }}>
-                  Această comandă se încheie la ospătar (are o plată parțială în desfășurare).
+                  {T(lang, 'sb_partial_order')}
                 </div>
               )}
               {o.items.map((it) => {
@@ -271,7 +281,8 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
                       </div>
                       <div style={{ fontSize: 12, color: PUB.text3 }}>
                         {it.quantity} × {fmtPrice(it.item_total / Math.max(1, it.quantity), currency)}
-                        {it.claimed_qty > 0 && ` · ${it.claimed_qty} deja în plată`}
+                        {it.claimed_qty > 0 &&
+                          ` · ${Tf(lang, 'sb_claimed_qty', { n: it.claimed_qty })}`}
                       </div>
                     </div>
                     {selectable ? (
@@ -280,7 +291,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
                           type="button"
                           onClick={() => setQty(it.id, q - 1, it.remaining_qty)}
                           disabled={q === 0}
-                          aria-label={`Scade cantitatea pentru ${it.name}`}
+                          aria-label={Tf(lang, 'sb_qty_dec_named', { name: it.name })}
                           className={q === 0 ? '' : 'pressable'}
                           style={{
                             width: 36,
@@ -310,7 +321,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
                           type="button"
                           onClick={() => setQty(it.id, q + 1, it.remaining_qty)}
                           disabled={q >= it.remaining_qty}
-                          aria-label={`Crește cantitatea pentru ${it.name}`}
+                          aria-label={Tf(lang, 'sb_qty_inc_named', { name: it.name })}
                           className={q >= it.remaining_qty ? '' : 'pressable'}
                           style={{
                             width: 36,
@@ -328,7 +339,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
                       </div>
                     ) : (
                       !o.locked && (
-                        <span style={{ fontSize: 12, color: PUB.text3 }}>în plată ✓</span>
+                        <span style={{ fontSize: 12, color: PUB.text3 }}>{T(lang, 'sb_in_payment')}</span>
                       )
                     )}
                   </div>
@@ -339,8 +350,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
 
         {!loading && selectedUnits > 0 && (
           <div style={{ fontSize: 12, color: PUB.text3, textAlign: 'center' }}>
-            Estimare: {fmtPrice(estimate, currency)} — suma finală o confirmă serverul înainte de
-            plată.
+            {Tf(lang, 'sb_estimate', { amount: fmtPrice(estimate, currency) })}
           </div>
         )}
 
@@ -362,8 +372,8 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
           }}
         >
           {selectedUnits > 0
-            ? `Continuă la plată · ~${fmtPrice(estimate, currency)}`
-            : 'Alege produsele tale'}
+            ? Tf(lang, 'sb_continue', { amount: fmtPrice(estimate, currency) })
+            : T(lang, 'sb_pick')}
         </button>
 
         <button
@@ -383,7 +393,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
             minHeight: 44,
           }}
         >
-          Înapoi
+          {T(lang, 'back')}
         </button>
 
         {claims && (
@@ -394,6 +404,7 @@ export default function SplitBillSheet({ token, sessionId, PUB, accent, onClose,
               PUB={PUB}
               accent={accent}
               claims={claims}
+              lang={lang}
               onClose={handlePayClose}
               onPaid={() => {
                 setPaid(true)
