@@ -52,6 +52,7 @@ import {
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { useToast } from '../components/ui/useToast'
+import { qrPayTableLabel } from '../lib/qrPayLabel'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
@@ -1656,18 +1657,14 @@ export default function QrMenuPage({ token }: Props) {
                 ? () => setShowSplitSheet(true)
                 : undefined
             }
-            payLabel={
-              tablePaid
-                ? 'Plătit online ✓'
-                : onlinePayEnabled && sessionId != null
-                  ? 'Plătește online'
-                  : billRequested
-                    ? 'Nota a fost cerută ✓'
-                    : // Fără plată online butonul DOAR cheamă ospătarul cu nota
-                      // (handleRequestBill) — „Plătește masa" promitea o plată
-                      // care nu există (growth; Plan 3 fără modul online).
-                      T(lang, 'request_bill')
-            }
+            // Fără plată online butonul DOAR cere nota → „Cere nota", nu
+            // „Plătește masa" (lib/qrPayLabel).
+            payLabel={qrPayTableLabel({
+              tablePaid,
+              onlinePay: onlinePayEnabled && sessionId != null,
+              billRequested,
+              lang,
+            })}
           />
         </Suspense>
       )}
