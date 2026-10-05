@@ -10,14 +10,21 @@
 --   `cash_collected_for_shift` și `v_order_payment_methods` scădeau pentru o
 --   comandă deja bonată. Aceeași cale rescria `paid_amount`, `payment_method`,
 --   `total`, `discount_*`, `tips_amount`, `paid_at` pe o comandă fiscalizată.
---   Fix în DATE: trigger BEFORE UPDATE ROW pe `orders` — cât timp
+--   Aceeași politică permite și DELETE: ștergerea unei comenzi `paid`
+--   cascada `order_payments` → banii dispăreau din rapoarte și din sertar.
+--   Fix în DATE: trigger BEFORE UPDATE OR DELETE ROW pe `orders` — cât timp
 --   `old.status = 'paid'`, `anon`/`authenticated` nu pot schimba niciuna din
---   coloanele de BANI. Funcția e NE-definer DELIBERAT (trebuie să vadă rolul
---   apelantului — ca `fn_pending_receipts_block_client_repend`, 270): din
+--   coloanele de BANI și nu pot ȘTERGE rândul. Funcția e NE-definer DELIBERAT
+--   (trebuie să vadă rolul apelantului — ca
+--   `fn_pending_receipts_block_client_repend`, 270): din
 --   `advance_order`/`settle_table_payment`/triggerele DEFINER `current_user`
---   e owner-ul funcției (postgres), deci fluxurile legitime trec (paid →
---   closed pe Plan 3, anonimizarea GDPR pe `customer_name/phone`, loyalty,
---   stoc, `request_fiscal_receipt`). Coloanele de identitate și
+--   e owner-ul funcției (postgres), deci fluxurile legitime trec (anonimizarea
+--   GDPR pe `customer_name/phone`, loyalty, stoc, `request_fiscal_receipt`;
+--   NU și paid → closed pe Plan 3 — acolo respinge deja
+--   `trg_orders_closed_fiscal_gate`, mig 264, pe ORICE rol). Ștergerea GDPR a
+--   contului (`process_account_deletions`, cascada din `auth.users`) rulează
+--   ca postgres — acțiunile RI se execută cu identitatea proprietarului
+--   tabelei — deci nu e atinsă. Coloanele de identitate și
 --   `fiscal_receipt_requested_at` NU sunt protejate.
 --
 -- BF-1. `begin_table_payment` (211) și `begin_split_payment` (229) puneau în
@@ -50,6 +57,14 @@ as $$
 declare
   v_col text;
 begin
+  if tg_op = 'DELETE' then
+    if old.status = 'paid' and current_user in ('anon', 'authenticated') then
+      raise exception 'Comanda este plătită și bonată — nu se poate șterge prin DELETE direct (registrul de plăți ar dispărea din rapoarte și din sertar)'
+        using errcode = 'P0001', hint = 'paid_order_immutable';
+    end if;
+    return old;
+  end if;
+
   if old.status = 'paid' and current_user in ('anon', 'authenticated') then
     v_col := case
       when new.status          is distinct from old.status          then 'status'
@@ -76,12 +91,12 @@ revoke all on function public.fn_orders_paid_immutable() from public, anon, auth
 
 drop trigger if exists trg_orders_paid_immutable on public.orders;
 create trigger trg_orders_paid_immutable
-  before update on public.orders
+  before update or delete on public.orders
   for each row
   execute function public.fn_orders_paid_immutable();
 
 comment on function public.fn_orders_paid_immutable() is
-  'mig 292 (BF-4): backstop in DATE — anon/authenticated nu pot rescrie campurile de bani ale unei comenzi paid prin UPDATE direct (orders: admin all). NE-definer deliberat: current_user din RPC-urile DEFINER e owner-ul, deci advance_order/settle/loyalty/GDPR trec.';
+  'mig 292 (BF-4): backstop in DATE — anon/authenticated nu pot rescrie campurile de bani ale unei comenzi paid prin UPDATE direct si nici nu o pot sterge (orders: admin all). NE-definer deliberat: current_user din RPC-urile DEFINER e owner-ul, deci advance_order/settle/loyalty/GDPR trec.';
 
 -- ── 2. BF-1: begin_table_payment (corp = mig 211 + failed în supersede) ───
 create or replace function public.begin_table_payment(
@@ -537,13 +552,14 @@ claim-ul care completează comanda), conflict = items_already_claimed; supersede
 do $$
 declare v_tgtype smallint; v_src text;
 begin
-  -- BF-4: trigger BEFORE UPDATE ROW (tgtype 19 = ROW 1 + BEFORE 2 + UPDATE 16),
+  -- BF-4: trigger BEFORE UPDATE OR DELETE ROW
+  -- (tgtype 27 = ROW 1 + BEFORE 2 + DELETE 8 + UPDATE 16),
   -- NU `update of` (nu are cum să ghicească ce coloană atinge un PATCH).
   select tgtype into v_tgtype from pg_trigger
    where tgname = 'trg_orders_paid_immutable'
      and tgrelid = 'public.orders'::regclass and not tgisinternal;
-  if v_tgtype is distinct from 19 then
-    raise exception 'mig 292: trg_orders_paid_immutable trebuie sa fie BEFORE UPDATE FOR EACH ROW (tgtype=19), gasit %', v_tgtype;
+  if v_tgtype is distinct from 27 then
+    raise exception 'mig 292: trg_orders_paid_immutable trebuie sa fie BEFORE UPDATE OR DELETE FOR EACH ROW (tgtype=27), gasit %', v_tgtype;
   end if;
   if exists (select 1 from pg_trigger t where t.tgname = 'trg_orders_paid_immutable'
               and t.tgattr::text <> '') then

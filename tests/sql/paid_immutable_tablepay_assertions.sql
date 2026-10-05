@@ -19,9 +19,13 @@
 --              `authenticated` (DEFINER → current_user = owner-ul funcției),
 --              `request_fiscal_receipt` ca `anon`, `anonymize_guest_pii` pe o
 --              comandă pickup paid veche; plăți parțiale → paid.
---         PI4  clichet structural: tgtype = 19 EXACT (BEFORE UPDATE ROW, fără
---              `UPDATE OF`), funcția NE-definer, fără EXECUTE pentru roluri
---              client (RP13).
+--         PI4  clichet structural: tgtype = 27 EXACT (BEFORE UPDATE OR DELETE
+--              ROW, fără `UPDATE OF`), funcția NE-definer, fără EXECUTE pentru
+--              roluri client (RP13).
+--         PI5  DELETE direct (aceeași politică `orders: admin all`) pe o comandă
+--              paid sub `authenticated` → respins (hint paid_order_immutable),
+--              rândul ȘI registrul `order_payments` rămân; control pozitiv:
+--              o comandă NE-paid se poate șterge de același admin.
 --
 -- BF-1  Dublă încasare la „toată masa": un intent `failed` rămâne CONFIRMABIL
 --       (mig 207), dar `begin_table_payment`/`begin_split_payment` puneau în
@@ -65,7 +69,9 @@ insert into public.orders (id, restaurant_id, source, status, total, customer_na
   ('92f00000-0000-4000-8000-000000000001', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served', 100, null, null),
   ('92f00000-0000-4000-8000-000000000002', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served', 100, null, null),
   ('92f00000-0000-4000-8000-000000000003', '92b00000-0000-4000-8000-000000000001', 'pickup', 'served',  50, 'Pickup Vechi', '0755111222'),
-  ('92f00000-0000-4000-8000-000000000004', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served',  80, null, null);
+  ('92f00000-0000-4000-8000-000000000004', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served',  80, null, null),
+  ('92f00000-0000-4000-8000-000000000005', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served',  40, null, null),
+  ('92f00000-0000-4000-8000-000000000006', '92b00000-0000-4000-8000-000000000001', 'waiter', 'served', 100, null, null);
 
 select set_config('request.jwt.claim.sub', '92000000-0000-4000-8000-000000000001', true);
 select set_config('request.jwt.claim.role', 'authenticated', true);
@@ -202,8 +208,8 @@ begin
      and tgrelid = 'public.orders'::regclass and not tgisinternal;
   if v_tgtype is null then
     raise exception 'PI4 FAIL: trg_orders_paid_immutable lipsește de pe orders'; end if;
-  if v_tgtype <> 19 then
-    raise exception 'PI4 FAIL: trigger-ul trebuie să fie BEFORE UPDATE FOR EACH ROW (tgtype=19), găsit %', v_tgtype; end if;
+  if v_tgtype <> 27 then
+    raise exception 'PI4 FAIL: trigger-ul trebuie să fie BEFORE UPDATE OR DELETE FOR EACH ROW (tgtype=27), găsit %', v_tgtype; end if;
   if v_attr <> '' then
     raise exception 'PI4 FAIL: trigger-ul nu are voie să aibă listă UPDATE OF (tgattr=%)', v_attr; end if;
   if (select prosecdef from pg_proc where oid = 'public.fn_orders_paid_immutable()'::regprocedure) then
@@ -211,7 +217,55 @@ begin
   if has_function_privilege('anon', 'public.fn_orders_paid_immutable()', 'execute')
      or has_function_privilege('authenticated', 'public.fn_orders_paid_immutable()', 'execute') then
     raise exception 'PI4 FAIL: funcția de trigger e executabilă de roluri client (RP13)'; end if;
-  raise notice 'PI4 OK: tgtype=19, NE-definer, fără EXECUTE client';
+  raise notice 'PI4 OK: tgtype=27, NE-definer, fără EXECUTE client';
+end $$;
+
+-- ── PI5: DELETE direct pe o comandă paid (cu registru) → respins sub
+--        authenticated; NE-paid se poate șterge (control pozitiv) ────────────
+do $$
+declare
+  v_paid uuid := '92f00000-0000-4000-8000-000000000006';
+  v_open uuid := '92f00000-0000-4000-8000-000000000005';
+  v_hint text; v_n int; v_st text; v_sum numeric;
+begin
+  -- fixtură: 60 parțial + rest 40 → paid, registrul NE-gol (100 lei)
+  perform set_config('role', 'authenticated', true);
+  perform public.add_partial_payment(v_paid, 60, 'cash');
+  perform public.advance_order(v_paid, 'mark_paid', 40, 'card_pos', null, null);
+  perform set_config('role', 'none', true);
+  select status into v_st from public.orders where id = v_paid;
+  select coalesce(sum(amount), 0) into v_sum from public.order_payments where order_id = v_paid;
+  if v_st is distinct from 'paid' or v_sum is distinct from 100.00 then
+    raise exception 'PI5: precondiție — comanda trebuia paid cu 100 lei în registru (status=%, sum=%)', v_st, v_sum; end if;
+
+  perform set_config('role', 'authenticated', true);
+  v_hint := null;
+  begin
+    delete from public.orders where id = v_paid;
+    get diagnostics v_n = row_count;
+    v_hint := 'NU A FOST RESPINS (rows=' || v_n || ')';
+    raise exception 'rollback-sub' using errcode = 'P0002';
+  exception when others then
+    if sqlstate <> 'P0002' then
+      get stacked diagnostics v_hint = pg_exception_hint;
+    end if;
+  end;
+  if v_hint is distinct from 'paid_order_immutable' then
+    perform set_config('role', 'none', true);
+    raise exception 'PI5 FAIL: DELETE direct pe o comandă PAID nu a fost respins (hint=%)', v_hint; end if;
+
+  -- control pozitiv: aceeași identitate, comandă NE-paid → ștearsă (RLS o vede)
+  delete from public.orders where id = v_open;
+  get diagnostics v_n = row_count;
+  perform set_config('role', 'none', true);
+  if v_n is distinct from 1 then
+    raise exception 'PI5 FAIL: control pozitiv — adminul nu a putut șterge comanda NE-paid (rows=%), testul ar fi vacuu', v_n; end if;
+
+  select count(*) into v_n from public.orders where id = v_paid;
+  select coalesce(sum(amount), 0) into v_sum from public.order_payments where order_id = v_paid;
+  if v_n is distinct from 1 or v_sum is distinct from 100.00 then
+    raise exception 'PI5 FAIL: comanda paid / registrul au dispărut (n=%, sum=%)', v_n, v_sum; end if;
+  raise notice 'PI5 OK: DELETE pe paid respins sub authenticated (registrul de 100 lei intact); NE-paid ștearsă';
 end $$;
 
 -- ═════════════════════════════════════════════════════════════════════════════
