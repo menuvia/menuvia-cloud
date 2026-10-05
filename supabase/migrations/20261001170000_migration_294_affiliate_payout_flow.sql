@@ -36,6 +36,16 @@
 --      lock`, convenția mig 282) — acum are DOI apelanți (cron + butonul
 --      fondatorului) — și eliberează gross-ul doar pentru failed FĂRĂ nicio
 --      referință (oglinda generalizată a regulii PAYOUT-2 din 106).
+--      MĂSURAT cu două sesiuni psql concurente pe replay (un afiliat cu 87000
+--      plătibili; A ține tranzacția 3 s, B pornește la 1 s, perioade diferite):
+--        CU lacăt:   A → created 1; B → {ok:false, reason:batch_in_progress},
+--                    instant. Un singur draft de 87000.
+--        FĂRĂ lacăt: A → created 1; B → created 1. DOUĂ draft-uri de 87000
+--                    (2026-01 și 2026-02) pentru ACEIAȘI bani — 174000 angajați
+--                    pe 87000 datorați (invariantul 106 ar opri abia a doua
+--                    plată, la →paid, după ce factura a fost cerută).
+--      Lacătul e RE-ENTRANT pe aceeași sesiune, deci suita PF nu-l poate proba
+--      comportamental (PF11 îl verifică structural).
 --   D. RPC-uri de FONDATOR pentru fiecare tranziție + rularea manuală a
 --      batch-ului, toate DEFINER `public, pg_temp`, jsonb, grant DOAR
 --      authenticated, gate `is_platform_admin()`, audit în `platform_audit_log`.
