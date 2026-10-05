@@ -291,20 +291,44 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       ? orderTotal / subtotalGross
       : 1
 
-  return rows.map((r) => {
-    const grossUnit = r.grossUnit * factor
-    // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
-    // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
-    // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
-    const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
-    return {
-      name: r.name,
-      quantity: r.qty,
-      price,
-      vatPercentage: r.vatPercent,
-      vatIncluded,
+  // ── Rotunjire la BANI + restul pe ULTIMA linie (BF-8) ───────────────────────
+  // Un factor zecimal infinit (3 × 10 lei, discount 10 → 0,9 e exact, dar 20/30 sau
+  // 1/3 nu) dădea un preț unitar cu zecimale pe care Oblio îl rotunjește la 2: 6,67 × 3
+  // = 20,01 ≠ 20,00 plătit. Lucrăm în bani întregi: totalul liniei se rotunjește o
+  // dată, iar pe discount reziduul față de order.total (rotunjiri independente per
+  // linie) se absoarbe pe ULTIMA linie — ca begin_split_payment (mig 229). O linie cu
+  // cantitate > 1 al cărei preț unitar nu se împarte exact în bani se desparte în
+  // (qty-1) × preț rotunjit + 1 × restul, deci Σ(preț × cantitate) == totalul liniei.
+  const lineCents = rows.map((r) => Math.round(Number((r.grossUnit * r.qty * factor * 100).toFixed(6))))
+  if (factor !== 1 && Number.isFinite(orderTotal) && lineCents.length > 0) {
+    const residual = Math.round(orderTotal * 100) - lineCents.reduce((s, c) => s + c, 0)
+    lineCents[lineCents.length - 1] += residual
+  }
+
+  const out = []
+  rows.forEach((r, i) => {
+    const total = lineCents[i]
+    const push = (qty, grossCentsPerUnit) => {
+      const grossUnit = grossCentsPerUnit / 100
+      // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
+      // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
+      // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
+      const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
+      out.push({ name: r.name, quantity: qty, price, vatPercentage: r.vatPercent, vatIncluded })
+    }
+    if (Number.isInteger(r.qty) && r.qty > 1) {
+      const unit = Math.round(total / r.qty)
+      if (unit * r.qty === total) {
+        push(r.qty, unit)
+      } else {
+        push(r.qty - 1, unit)
+        push(1, total - unit * (r.qty - 1))
+      }
+    } else {
+      push(r.qty, total / r.qty)
     }
   })
+  return out
 }
 
 // ── Derivă denumirea cotei TVA (vatName) din procentul real ──

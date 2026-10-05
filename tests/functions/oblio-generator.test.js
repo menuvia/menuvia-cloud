@@ -334,6 +334,47 @@ describe('oblio-generator: emitere reușită', () => {
     assert.ok(Math.abs(sum - 27) < 1e-9)
   })
 
+  it('BF-8: discount cu factor PERIODIC (2/3) — Σ preț×cantitate == order.total, prețuri la 2 zecimale', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [{ quantity: 3, unit_price_snapshot: 10, item_total: 30, products: { name: 'Pizza', vat_group: 1 } }],
+      // subtotal 30, discount 10 → total 20 → factor 0.6666…: 6,6667 × 3 → Oblio vede 6,67 × 3 = 20,01
+      order: { restaurant_id: 'r1', total: 20, discount_amount: 10 },
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
+    for (const p of payload.products) {
+      assert.equal(cents(p.price) / 100, p.price, `preț cu mai mult de 2 zecimale: ${p.price}`)
+    }
+    // Σ în bani ÎNTREGI (nu cu toleranță): exact 20,00
+    const sumCents = payload.products.reduce((s, p) => s + cents(p.price) * p.quantity, 0)
+    assert.equal(sumCents, 2000)
+  })
+
+  it('BF-8: reziduul de rotunjire dintre linii se absoarbe pe ULTIMA linie (3 linii × 1/3)', async () => {
+    queued(makeInvoice())
+    scriptOrderData({
+      items: [
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'A', vat_group: 1 } },
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'B', vat_group: 1 } },
+        { quantity: 1, unit_price_snapshot: 10, item_total: 10, products: { name: 'C', vat_group: 1 } },
+      ],
+      // factor 20/30: fiecare linie 6,67 → Σ 20,01; ultima trebuie să fie 6,66
+      order: { restaurant_id: 'r1', total: 20, discount_amount: 10 },
+    })
+    scriptFetch()
+    state.rpcHandlers.bridge_oblio_mark_issued = () => ({ data: null, error: null })
+
+    await handler()
+    const payload = postedPayload()
+    const cents = (x) => Math.round(Number((x * 100).toFixed(6)))
+    assert.deepEqual(payload.products.map((p) => cents(p.price)), [667, 667, 666])
+  })
+
   it('vat_included=false: prețul trimis e NET (gross/(1+cota)), Oblio adaugă TVA la loc', async () => {
     queued(makeInvoice({ vat_included: false }))
     scriptOrderData({
