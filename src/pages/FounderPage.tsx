@@ -22,7 +22,6 @@ import {
   listInvoiceFailures,
   retryInvoice,
   listPayouts,
-  markPayoutPaid,
   listAffiliates,
   reviewAffiliate,
   setRestaurantPlan,
@@ -48,6 +47,7 @@ import {
 } from '../lib/founder'
 
 import FounderActivationCard from '../components/FounderActivationCard'
+import FounderPayoutRow, { RunPayoutBatchButton } from '../components/FounderPayoutRow'
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 
@@ -106,17 +106,6 @@ const AFFILIATE_STATUS_LABELS: Record<string, string> = {
   suspended: 'suspendat',
   closed: 'închis',
   rejected: 'respins',
-}
-
-const PAYOUT_STATUS_LABELS: Record<string, string> = {
-  draft: 'ciornă',
-  awaiting_invoice: 'așteaptă factura',
-  invoice_matched: 'factură confirmată',
-  processing: 'în procesare',
-  paid: 'plătit',
-  failed: 'eșuat',
-  on_hold: 'în verificare',
-  canceled: 'anulat',
 }
 
 const ACTOR_KIND_LABELS: Record<string, string> = {
@@ -1068,27 +1057,11 @@ function AffiliatesSection() {
   const payouts = useAdminData<AdminPayoutRow[]>(listPayouts)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  async function doMarkPaid(p: AdminPayoutRow) {
-    const ok = await confirm({
-      title: `Marchezi payout-ul ca plătit?`,
-      description: `${p.affiliate_email} · ${formatMoney(p.gross_cents, p.currency)}. Debitul se înscrie în ledger — acțiune ireversibilă.`,
-      confirmLabel: 'Marchează plătit',
-    })
-    if (!ok) return
-    setBusyId(p.id)
-    try {
-      const res = await markPayoutPaid(p.id)
-      if (!res.ok) throw new Error(res.error ?? 'Eroare')
-      toast.success('Payout marcat plătit')
-      // Plata scrie un rând negativ în ledger (trg_affiliate_payout_settle,
-      // mig 098) → soldul din cardul „Afiliați" trebuie și el reîncărcat,
-      // altfel arată o valoare bănească veche imediat după acțiune.
-      await Promise.all([payouts.reload(), affiliates.reload()])
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Eroare')
-    } finally {
-      setBusyId(null)
-    }
+  // Orice tranziție de payout (mig 294) poate scrie în ledger (plata) sau
+  // elibera sold (anularea) → soldul din cardul „Afiliați" se reîncarcă și el,
+  // altfel arată o valoare bănească veche imediat după acțiune.
+  async function reloadPayouts() {
+    await Promise.all([payouts.reload(), affiliates.reload()])
   }
 
   // Decizia pe o cerere (mig 224). Respingerea cere confirmare — e ce vede
@@ -1309,6 +1282,9 @@ function AffiliatesSection() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Icon name="chart" size={16} color={D.t2} />
           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Payout-uri</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <RunPayoutBatchButton onDone={reloadPayouts} />
+          </span>
         </div>
         {payouts.loading ? (
           <InlineSpinner label="Se încarcă payout-urile..." />
@@ -1319,41 +1295,7 @@ function AffiliatesSection() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(payouts.data ?? []).map((p) => (
-              <div
-                key={p.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                  padding: '10px 12px',
-                  background: D.s3,
-                  borderRadius: 10,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
-                    {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    {PAYOUT_STATUS_LABELS[p.status] ?? p.status}
-                    {p.invoice_number ? ` · factura ${p.invoice_number}` : ''}
-                    {p.paid_at ? ` · plătit ${formatDate(p.paid_at)}` : ''}
-                    {p.failure_reason ? ` · ${p.failure_reason}` : ''}
-                  </div>
-                </div>
-                {(p.status === 'processing' || p.status === 'on_hold') && (
-                  <button
-                    onClick={() => void doMarkPaid(p)}
-                    disabled={busyId === p.id}
-                    className="pressable"
-                    style={withBusy(primaryBtn, busyId === p.id)}
-                  >
-                    {busyId === p.id ? 'Se marchează...' : 'Marchează plătit'}
-                  </button>
-                )}
-              </div>
+              <FounderPayoutRow key={p.id} payout={p} onChanged={reloadPayouts} />
             ))}
           </div>
         )}
