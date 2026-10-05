@@ -31,6 +31,7 @@ import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSea
 import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
+import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import { useMenuSeo } from '../hooks/useMenuSeo'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
@@ -1204,10 +1205,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {' '}
                   {T(lang, 'pickup_come_at_pre')}{' '}
                   <strong>
-                    {new Date(confirmation.pickup_time).toLocaleTimeString('ro-RO', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {/* Ora în fusul LOCALULUI, nu al telefonului clientului. */}
+                    {formatTimeInZone(confirmation.pickup_time, safeTimeZone(restaurant?.timezone))}
                   </strong>{' '}
                   {T(lang, 'pickup_come_at_post')}
                 </>
