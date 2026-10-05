@@ -389,6 +389,11 @@ exports.handler = async (event) => {
         if (error) throw new Error(`Downgrade failed: ${error.message}`)
 
         await safeInsertLifecycleEvent(supabase, profile.id, 'subscription_cancelled', {})
+        // TODO(afiliere, mig 293): atribuirea clientului ar trebui trecută aici în
+        // `canceled` prin set_affiliate_attribution_status(profile.id, 'canceled', …)
+        // — fără asta afiliatul păstrează accesul de partener (poarta 193) după
+        // anulare. Nelegat deliberat: ramura e modificată de PR-ul #273 (trial
+        // fără card); se leagă la integrare, DUPĂ downgrade-ul de mai sus.
 
         console.log(`[stripe-webhook] User ${profile.id} downgraded to free`)
         break
@@ -456,6 +461,21 @@ exports.handler = async (event) => {
             amount: invoice.amount_due,
             attempt: invoice.attempt_count,
           })
+          // Afiliere (mig 293): eșec TERMINAL (Stripe nu mai reîncearcă —
+          // `next_payment_attempt` PREZENT și null) pe o factură de abonament →
+          // atribuirea iese din `active` (fără comision, fără acces de partener).
+          // Câmp absent = formă necunoscută → nimic (fail-closed: o atribuire
+          // stinsă greșit e permanentă). Eșecul RPC-ului → 500, Stripe retrimite.
+          if ('next_payment_attempt' in invoice && invoice.next_payment_attempt === null &&
+              invoiceSubscriptionId(invoice)) {
+            try {
+              await setAttributionTerminal(supabase, { profileId: profile.id }, 'expired',
+                `invoice.payment_failed terminal ${invoice.id}`)
+            } catch (e) {
+              processingError = `affiliate attribution status failed: ${e?.message || String(e)}`
+              console.error(`[stripe-webhook] ${processingError}`)
+            }
+          }
         }
         break
       }
@@ -652,6 +672,14 @@ exports.handler = async (event) => {
               processingError = `affiliate clawback failed: ${clawErr.message}`
             }
           }
+          // Afiliere (mig 293): refund TOTAL pe o factură → atribuirea `refunded`.
+          // Doar charge-uri de factură (o plată unică refundată, ex. credite AI,
+          // nu atinge abonamentul).
+          if (charge.invoice && (charge.refunded === true ||
+              (charge.amount > 0 && charge.amount_refunded >= charge.amount))) {
+            await setAttributionTerminal(supabase, { customerId: charge.customer }, 'refunded',
+              `charge.refunded total ${charge.id}`)
+          }
         } catch (e) {
           console.error('[stripe-webhook] affiliate clawback threw:', e?.message)
           processingError = `affiliate clawback threw: ${e?.message || String(e)}`
@@ -689,18 +717,32 @@ exports.handler = async (event) => {
             }
             break
           }
+          // Baza storno-ului = SUMA DISPUTATĂ (mig 293), nu tot charge-ul: o
+          // dispută pe rest după un refund parțial nu are voie să storneze iar
+          // partea deja refundată (RPC-ul plafonează oricum la restul comisionului).
+          // Sumă lipsă/invalidă = formă necunoscută → 500, nu ghicim.
+          if (!Number.isInteger(dispute.amount) || dispute.amount <= 0) {
+            processingError = `dispute clawback: dispute.amount invalid (${dispute.amount}) pe ${dispute.id}`
+            console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+            break
+          }
           try {
             const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
               p_event_id:            stripeEvent.id,
               p_stripe_invoice_id:   charge.invoice || null,
               p_charge_amount_cents: charge.amount,
               p_refund_id:           `dispute_${dispute.id}`, // cheie idempotentă stabilă
-              p_refund_amount_cents: charge.amount,            // dispute pierdută = total
+              p_refund_amount_cents: dispute.amount,           // suma disputată (pierdută)
               p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
             })
             if (clawErr) {
               console.error('[stripe-webhook] dispute clawback failed:', clawErr.message)
               processingError = `dispute clawback failed: ${clawErr.message}`
+            }
+            // Dispută pierdută pe o factură → atribuirea `refunded` (mig 293).
+            if (charge.invoice) {
+              await setAttributionTerminal(supabase, { customerId: charge.customer }, 'refunded',
+                `charge.dispute.closed lost ${dispute.id}`)
             }
           } catch (e) {
             console.error('[stripe-webhook] dispute clawback threw:', e?.message)
@@ -745,6 +787,36 @@ exports.handler = async (event) => {
     .eq('event_id', stripeEvent.id)
 
   return jsonResponse(200, { received: true })
+}
+
+// ── Helper: atribuirea de afiliere iese din `active` (mig 293) ─────
+// set_affiliate_attribution_status e idempotent (terminal rămâne terminal) și
+// întoarce `no_attribution` pentru clienții neatribuiți. Lookup-ul de profil pe
+// customer: PGRST116 (fără profil) = nimic de făcut; ORICE altă eroare ARUNCĂ —
+// apelantul o face 500, iar Stripe retrimite (o atribuire rămasă `active` ține
+// accesul de partener viu, poarta din mig 193).
+async function setAttributionTerminal(supabase, { profileId, customerId }, status, reason) {
+  let pid = profileId || null
+  if (!pid) {
+    if (typeof customerId !== 'string' || !customerId) return null
+    const { data: profile, error: lookupErr } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .single()
+    if (lookupErr && lookupErr.code !== 'PGRST116') {
+      throw new Error(`lookup profil eșuat pentru customer ${customerId}: ${lookupErr.message}`)
+    }
+    if (!profile) return null
+    pid = profile.id
+  }
+  const { data, error } = await supabase.rpc('set_affiliate_attribution_status', {
+    p_referred_profile_id: pid,
+    p_status:              status,
+    p_reason:              reason,
+  })
+  if (error) throw new Error(`set_affiliate_attribution_status: ${error.message}`)
+  return data
 }
 
 // ── Helper: normalize plan string to canonical paid tier ──────────

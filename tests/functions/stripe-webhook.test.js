@@ -356,6 +356,37 @@ describe('stripe-webhook: invoice.payment_failed (dunning)', () => {
     const res = await fire('invoice.payment_failed', { customer: 'cus_1' })
     assert.equal(res.statusCode, 200)
   })
+
+  // AW6 (mig 293): eșec TERMINAL (next_payment_attempt PREZENT și null) pe o
+  // factură de abonament → atribuirea `expired`. Încă o reîncercare programată
+  // sau câmp absent → nimic (o atribuire stinsă greșit e permanentă).
+  it('AW6: eșec terminal → atribuirea `expired`; retry programat / câmp absent → nimic', async () => {
+    scriptProfile({ id: 'u1' })
+    let res = await fire('invoice.payment_failed', {
+      id: 'in_f', customer: 'cus_1', subscription: 'sub_1', attempt_count: 4, next_payment_attempt: null,
+    })
+    assert.equal(res.statusCode, 200)
+    const st = rpcCallsFor('set_affiliate_attribution_status')
+    assert.equal(st.length, 1)
+    assert.deepEqual([st[0].args.p_referred_profile_id, st[0].args.p_status], ['u1', 'expired'])
+
+    for (const extra of [{ next_payment_attempt: 1_700_100_000 }, {}]) {
+      resetMocks(); setEnv()
+      scriptProfile({ id: 'u1' })
+      res = await fire('invoice.payment_failed', { id: 'in_f', customer: 'cus_1', subscription: 'sub_1', attempt_count: 1, ...extra })
+      assert.equal(res.statusCode, 200)
+      assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+    }
+  })
+
+  it('AW7: eșec terminal + status RPC eșuat → 500 (retry)', async () => {
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.set_affiliate_attribution_status = () => ({ data: null, error: { message: 'down' } })
+    const res = await fire('invoice.payment_failed', {
+      id: 'in_f', customer: 'cus_1', subscription: 'sub_1', attempt_count: 4, next_payment_attempt: null,
+    })
+    assert.equal(res.statusCode, 500)
+  })
 })
 
 describe('stripe-webhook: invoice.paid (comisioane afiliere)', () => {
@@ -457,11 +488,82 @@ describe('stripe-webhook: clawback (refund + dispute)', () => {
   it('dispute pierdută → clawback TOTAL cu cheie idempotentă dispute_<id>', async () => {
     state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
     state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
-    const res = await fire('charge.dispute.closed', { id: 'dp_1', status: 'lost', charge: 'ch_1' })
+    const res = await fire('charge.dispute.closed', { id: 'dp_1', status: 'lost', charge: 'ch_1', amount: 9900 })
     assert.equal(res.statusCode, 200)
     const call = rpcCallsFor('process_affiliate_refund')[0]
     assert.equal(call.args.p_refund_id, 'dispute_dp_1')
     assert.equal(call.args.p_refund_amount_cents, 9900)
+  })
+
+  // AW1 (mig 293): baza disputei e SUMA DISPUTATĂ, nu tot charge-ul — după un
+  // refund parțial, disputa pe rest nu are voie să storneze iar partea refundată.
+  it('AW1: dispută pierdută pe o parte → baza = dispute.amount, nu charge.amount', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    const res = await fire('charge.dispute.closed', { id: 'dp_2', status: 'lost', charge: 'ch_1', amount: 4000 })
+    assert.equal(res.statusCode, 200)
+    const call = rpcCallsFor('process_affiliate_refund')[0]
+    assert.equal(call.args.p_refund_amount_cents, 4000)
+    assert.equal(call.args.p_charge_amount_cents, 9900)
+  })
+
+  it('AW2: dispută fără sumă lizibilă → 500 fără clawback (formă necunoscută, nu ghicim)', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    const res = await fire('charge.dispute.closed', { id: 'dp_3', status: 'lost', charge: 'ch_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(rpcCallsFor('process_affiliate_refund').length, 0)
+  })
+
+  it('AW3: dispută pierdută pe factură → atribuirea `refunded` (poarta 193 vie)', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900, customer: 'cus_1' })
+    scriptProfile({ id: 'u1' })
+    const res = await fire('charge.dispute.closed', { id: 'dp_4', status: 'lost', charge: 'ch_1', amount: 9900 })
+    assert.equal(res.statusCode, 200)
+    const st = rpcCallsFor('set_affiliate_attribution_status')
+    assert.equal(st.length, 1)
+    assert.deepEqual([st[0].args.p_referred_profile_id, st[0].args.p_status], ['u1', 'refunded'])
+    assert.ok(st[0].args.p_reason.includes('dp_4'))
+  })
+
+  it('AW4: refund TOTAL pe factură → `refunded`; parțial / plată unică → nimic', async () => {
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 9900 }] })
+    scriptProfile({ id: 'u1' })
+    let res = await fire('charge.refunded', { id: 'ch_1', invoice: 'in_1', amount: 9900, amount_refunded: 9900, refunded: true, customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    let st = rpcCallsFor('set_affiliate_attribution_status')
+    assert.equal(st.length, 1)
+    assert.equal(st[0].args.p_status, 'refunded')
+
+    resetMocks(); setEnv()
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 3000 }] })
+    scriptProfile({ id: 'u1' })
+    res = await fire('charge.refunded', { id: 'ch_1', invoice: 'in_1', amount: 9900, amount_refunded: 3000, refunded: false, customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+
+    resetMocks(); setEnv()
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 500 }] })
+    scriptProfile({ id: 'u1' })
+    res = await fire('charge.refunded', { id: 'ch_2', invoice: null, amount: 500, amount_refunded: 500, refunded: true, customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+  })
+
+  it('AW5: schimbarea de status eșuată (RPC sau lookup blip) → 500, Stripe retrimite', async () => {
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 9900 }] })
+    scriptProfile({ id: 'u1' })
+    state.rpcHandlers.set_affiliate_attribution_status = () => ({ data: null, error: { message: 'rpc down' } })
+    let res = await fire('charge.refunded', { id: 'ch_1', invoice: 'in_1', amount: 9900, refunded: true, customer: 'cus_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(finalizeStatus(), 'failed')
+
+    resetMocks(); setEnv()
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 9900 }] })
+    scriptProfile(null, { code: '08000', message: 'conn reset' })
+    res = await fire('charge.refunded', { id: 'ch_1', invoice: 'in_1', amount: 9900, refunded: true, customer: 'cus_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
   })
 
   it('dispute câștigată → no-op (comisionul rămâne)', async () => {
