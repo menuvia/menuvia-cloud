@@ -29,7 +29,8 @@
 --        (puncte + stoc), neservită → cancelled cu motiv (ZERO puncte, ZERO stoc)
 --   OJ11 rundă neservită cu bani în registru → TOT apelul respins
 --        (cancel_over_payments), nimic scris, sesiunea rămâne deschisă
---   OJ12 Plan 3: închiderea mesei cu comenzi deschise rămâne respinsă
+--   OJ12 Plan 3: închiderea mesei cu comenzi deschise rămâne respinsă (pe o
+--        rundă NEservită — singura pe care n-o prinde și trigger-ul din 264)
 --
 -- Rulează DUPĂ migrații, ca postgres (janitorul rulează ca postgres pe pg_cron).
 -- Self-contained, ROLLBACK la final.
@@ -311,8 +312,12 @@ insert into public.orders (id, restaurant_id, source, status, table_id, session_
   -- sesiunea 2: o rundă servită + una în preparare CU bani în registru
   ('8b000000-0000-4000-8000-0000000004b1', '8b000000-0000-4000-8000-000000000001', 'qr', 'served',    '8b000000-0000-4000-8000-0000000004d2', '8b000000-0000-4000-8000-0000000004e2', now() - interval '10 minutes', null),
   ('8b000000-0000-4000-8000-0000000004b2', '8b000000-0000-4000-8000-000000000001', 'qr', 'preparing', '8b000000-0000-4000-8000-0000000004d2', '8b000000-0000-4000-8000-0000000004e2', null, null),
-  -- sesiunea 3 (Plan 3): o rundă servită neîncasată
-  ('8b000000-0000-4000-8000-0000000004c1', '8b000000-0000-4000-8000-000000000002', 'qr', 'served', '8b000000-0000-4000-8000-0000000004d3', '8b000000-0000-4000-8000-0000000004e3', now() - interval '10 minutes', null);
+  -- sesiunea 3 (Plan 3): o rundă NEservită, neîncasată. Deliberat `new`, nu
+  -- `served`: o rundă servită ar fi respinsă oricum de trigger-ul din DATE
+  -- (`trg_orders_closed_fiscal_gate`, 264, același hint) — testul ar trece și
+  -- fără gate-ul din RPC. Pe `new`, singurul care o oprește e gate-ul din RPC
+  -- (altfel ar fi anulată și masa închisă, fără nicio eroare).
+  ('8b000000-0000-4000-8000-0000000004c1', '8b000000-0000-4000-8000-000000000002', 'qr', 'new', '8b000000-0000-4000-8000-0000000004d3', '8b000000-0000-4000-8000-0000000004e3', null, null);
 -- Servită: 1 × 15 → 15 puncte + 1 kg; neservită: 4 × 15 → ar fi 60 puncte + 4 kg.
 insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total) values
   ('8b000000-0000-4000-8000-0000000004a1', '8b000000-0000-4000-8000-0000000000b1', 'Produs OJ', 1, 15, 15),
@@ -395,8 +400,9 @@ begin
   end;
   if v_hint is distinct from 'fiscal_plan_requires_payment' then
     raise exception 'OJ12 FAIL: pe Plan 3 inchiderea mesei cu nota neincasata nu a fost respinsa (hint=%)', v_hint; end if;
-  if (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004c1') is distinct from 'served' then
-    raise exception 'OJ12 FAIL: comanda Plan 3 a fost atinsa'; end if;
+  if (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004c1') is distinct from 'new'
+     or (select status from public.table_sessions where id = '8b000000-0000-4000-8000-0000000004e3') is distinct from 'open' then
+    raise exception 'OJ12 FAIL: comanda / sesiunea Plan 3 a fost atinsa'; end if;
   raise notice 'OJ12 OK: Plan 3 — Închide masa rămâne respinsă (fiscal_plan_requires_payment)';
 end $$;
 select set_config('request.jwt.claim.sub', '', true);
