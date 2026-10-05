@@ -7,7 +7,8 @@ import {
   getPlanByInternalId,
 } from '../lib/plans'
 import { MKT, whatsappUrl } from '../lib/marketing'
-import { writePlanIntent } from '../lib/planIntent'
+import { clearPlanIntent, readPlanIntent, writePlanIntent } from '../lib/planIntent'
+import { readCheckoutReturnParam } from '../lib/checkoutReturn'
 import { CheckoutError, type CheckoutAction } from '../lib/checkout'
 import {
   BILLING_SCOPE_FAQ,
@@ -70,21 +71,20 @@ function usePlanIntentAutoCheckout(
   onError: (err: unknown) => void,
 ): string | null {
   const [pendingPlan, setPendingPlan] = React.useState<string | null>(() => {
-    try {
-      const i = sessionStorage.getItem('menuvia.plan_intent')
-      return i === 'starter' || i === 'growth' ? i : null
-    } catch {
-      return null
-    }
+    // Întors din Stripe cu „Anulează": NU repornim plata pe care omul tocmai
+    // a refuzat-o (intenția din localStorage l-ar fi trimis înapoi în Stripe).
+    if (readCheckoutReturnParam(window.location.search) === 'cancelled') return null
+    const i = readPlanIntent()
+    return i === 'starter' || i === 'growth' ? i : null
   })
 
   React.useEffect(() => {
-    if (!user || pendingPlan == null) return
-    try {
-      sessionStorage.removeItem('menuvia.plan_intent')
-    } catch {
-      /* ignore */
-    }
+    if (!user) return
+    // Logat pe /pricing = intenția e CONSUMATĂ, oricum ar fi: pornim checkout-ul
+    // (starter/growth) sau nu e nimic de pornit (Fiscalizare = pilot, anulare).
+    // Altfel, cu TTL de 24 h, fiecare login ar re-trimite omul pe /pricing.
+    clearPlanIntent()
+    if (pendingPlan == null) return
     let alive = true
     // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul
     // nu mai contează. Dacă eșuează, curățăm guard-ul ȘI arătăm motivul —
@@ -217,7 +217,9 @@ export default function PricingPage({
         }
         return onCheckout('pro')
       }
-      writePlanIntent(p.id)
+      // Doar pentru anonimi: un user logat merge direct la Stripe, iar o
+      // intenție rămasă în urmă l-ar re-trimite în checkout la următorul login.
+      if (!user) writePlanIntent(p.id)
       // Tier 1+2: dacă userul nu e logat, mergem la auth (cu ?plan=) — App
       // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
       // ÎNTOARCEM promisiunea: altfel butonul nu poate aștepta și nici nu
@@ -1312,7 +1314,7 @@ export default function PricingPage({
           <button
             disabled={loadingPlan !== null}
             onClick={() => {
-              writePlanIntent('growth')
+              if (!user) writePlanIntent('growth')
               void runCheckout('growth', () => onCheckout('growth'))
             }}
             className="pressable"
