@@ -116,7 +116,7 @@ Sumele sunt bază fără TVA. Dacă ești plătitor de TVA, o adaugi pe factura 
 
 **4. Recomanzi.** Trimiți linkul restaurantelor pe care le cunoști. Un cont NOU creat venind de pe linkul tău rămâne recomandarea ta dacă se abonează în **90 de zile**, din același browser. Pe Safari/iPhone marcajul poate expira după **7 zile** (limită a browserului, ITP) — dacă restaurantul amână, retrimite-i linkul. Linkul merge și ca `menuvia.ro/pricing?ref=COD` (păstrează pagina).
 
-**5. Se abonează → apare comisionul.** Automat, în panoul tău, la prima factură plătită. Comisionul de activare devine plătibil după ce restaurantul achită și a doua factură.
+**5. Se abonează → apare comisionul.** Prima factură plătită doar se **consemnează** pe recomandarea ta (în panou nu apare încă nicio sumă). Comisioanele apar automat abia când restaurantul achită și **a doua factură**: atunci se scriu deodată comisionul de activare (calculat pe prima factură) și primul comision lunar. Dacă restaurantul renunță după prima lună, nu se naște niciun comision.
 
 **6. Perioada de siguranță.** Comisionul de activare devine plătibil după **60 de zile**, cel lunar după **14 zile**. E protecția anti-fraudă și anti-retur: dacă restaurantul cere banii înapoi, comisionul se stornează. Un refund sau o dispută ulterioară îl poate storna și după hold — comisioanele nu sunt garantate.
 
