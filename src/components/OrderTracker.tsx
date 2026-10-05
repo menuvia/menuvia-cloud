@@ -11,6 +11,7 @@ import { getOrderPublicStatus, requestFiscalReceipt } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import PaymentConfirmedScreen from './PaymentConfirmedScreen'
 import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
+import OrderClosedScreen from './OrderClosedScreen'
 
 const ORDER_STEPS: ReadonlyArray<{ status: string; labelKey: PublicMenuStringKey; n: string }> = [
   { status: 'new', labelKey: 'ot_step_new', n: '1' },
@@ -30,8 +31,10 @@ interface OrderTrackerProps {
   sessionId?: string | null
   // Moneda meniului (mig 205) — default RON, ca la call-site-urile istorice.
   currency?: MenuCurrency
-  // Limba aleasă de oaspete în meniu — default 'ro' (call-site-urile istorice).
+  // Limba aleasă în meniu (T() din publicMenuStrings) — pentru ecranul `closed`.
   lang?: string
+  // „Fără branding" (resolveHideBranding) — ecranele terminale îl respectă.
+  hideBranding?: boolean
 }
 
 function OrderTracker({
@@ -42,6 +45,7 @@ function OrderTracker({
   sessionId = null,
   currency = 'RON',
   lang = 'ro',
+  hideBranding = false,
 }: OrderTrackerProps) {
   const [status, setStatus] = useState<string>(confirmation.status ?? 'new')
   const [tipsAmount, setTipsAmount] = useState<number>(0)
@@ -147,8 +151,26 @@ function OrderTracker({
   const isDone = status === 'served' || status === 'paid' || status === 'closed'
   const isCancelled = status === 'cancelled'
 
-  // ── Plată confirmată → afișează ecranul dedicat cu feedback + Google review
-  if ((isPaid || isClosed) && restaurantInfo) {
+  // ── Plan 2 (`closed`): nota închisă de ospătar, plata e la casa localului —
+  // NU „Plată confirmată" (Menuvia n-a încasat nimic). Randat și fără
+  // restaurantInfo (urmărire limitată): starea e terminală, nu mai vine nimic.
+  if (isClosed) {
+    return (
+      <OrderClosedScreen
+        confirmation={confirmation}
+        lang={lang}
+        accent={accent}
+        restaurantName={restaurantInfo?.name ?? null}
+        googleReviewUrl={restaurantInfo?.google_review_url ?? null}
+        sessionId={sessionId}
+        currency={currency}
+        hideBranding={hideBranding}
+      />
+    )
+  }
+
+  // ── Plată confirmată (Plan 3, `paid`) → ecranul dedicat cu feedback + Google review
+  if (isPaid && restaurantInfo) {
     return (
       <PaymentConfirmedScreen
         confirmation={{ ...confirmation, total: paidAmount } as OrderConfirmationPayload}
@@ -156,9 +178,9 @@ function OrderTracker({
         googleReviewUrl={restaurantInfo.google_review_url}
         accent={accent}
         tipsAmount={tipsAmount}
-        // Plan 2 (closed): masa închisă fără bon fiscal — ascunde CTA-ul de bon.
-        onRequestFiscalReceipt={isClosed ? undefined : handleRequestFiscalReceipt}
-        fiscalReceiptRequested={isClosed ? true : !!fiscalRequestedAt}
+        onRequestFiscalReceipt={handleRequestFiscalReceipt}
+        fiscalReceiptRequested={!!fiscalRequestedAt}
+        hideBranding={hideBranding}
         // Fără sesiune, submit_order_feedback respinge comenzile de la masă
         // (session-gate mig 094) — funnel-ul de recenzii ar fi mort silențios.
         sessionId={sessionId}

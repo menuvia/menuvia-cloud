@@ -51,6 +51,7 @@ import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { sortByDue } from '../lib/pickupOrders'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -544,7 +545,8 @@ export default function WaiterPage() {
 
   const byStatus = useCallback(
     (statuses: import('../lib/orders').OrderStatus[]) =>
-      orders.filter((o) => statuses.includes(o.status)),
+      // Pickup după ora de ridicare, restul FIFO (lib/pickupOrders).
+      sortByDue(orders.filter((o) => statuses.includes(o.status))),
     [orders],
   )
 

@@ -7,6 +7,7 @@ import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
 import { Icon } from './ui/Icon'
+import PickupDetails from './PickupDetails'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -673,6 +674,9 @@ function OrderCardInner({
           {meta.label}
         </div>
       </div>
+
+      {/* Pickup: ora de ridicare + clientul (null pe celelalte surse). */}
+      <PickupDetails order={order} />
 
       <div style={{ fontSize: 13, color: D.t2 }}>
         {order.order_items.map((item, i) => (

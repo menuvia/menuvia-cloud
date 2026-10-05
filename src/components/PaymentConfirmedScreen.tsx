@@ -51,6 +51,9 @@ interface PaymentConfirmedScreenProps {
   currency?: MenuCurrency
   // Limba aleasă de oaspete în meniu — default 'ro'.
   lang?: string
+  // „Fără branding" (theme_settings.hide_branding, gate-uit la citire în mig
+  // 281): ascunde „Powered by Menuvia", ca pe restul meniului.
+  hideBranding?: boolean
 }
 
 export default function PaymentConfirmedScreen({
@@ -65,6 +68,7 @@ export default function PaymentConfirmedScreen({
   sessionId = null,
   currency = 'RON',
   lang = 'ro',
+  hideBranding = false,
 }: PaymentConfirmedScreenProps) {
   const total = Number(confirmation.total) || 0
   const subtotal = total - tipsAmount - fastPayFee
@@ -185,18 +189,20 @@ export default function PaymentConfirmedScreen({
           )}
         </div>
 
-        {/* Powered by */}
-        <div
-          style={{
-            textAlign: 'center',
-            marginTop: 32,
-            fontSize: 12,
-            color: PUB.muted,
-            opacity: 0.6,
-          }}
-        >
-          {T(lang, 'powered_by')} <strong style={{ color: accent }}>Menuvia</strong>
-        </div>
+        {/* Powered by — ascuns pe „Fără branding" */}
+        {!hideBranding && (
+          <div
+            style={{
+              textAlign: 'center',
+              marginTop: 32,
+              fontSize: 12,
+              color: PUB.muted,
+              opacity: 0.6,
+            }}
+          >
+            {T(lang, 'powered_by')} <strong style={{ color: accent }}>Menuvia</strong>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -352,17 +358,21 @@ interface FeedbackWidgetProps {
   accent: string
   sessionId?: string | null
   lang: string
+  // Pe o comandă `closed` (Plan 2) plata NU a trecut prin aplicație — întrebarea
+  // „cum a fost plata?" n-are obiect, deci OrderClosedScreen pornește de la servire.
+  initialStep?: 'payment' | 'service'
 }
 
-function FeedbackWidget({
+export function FeedbackWidget({
   orderId,
   restaurantName,
   googleReviewUrl,
   accent,
   sessionId = null,
   lang,
+  initialStep = 'payment',
 }: FeedbackWidgetProps) {
-  const [step, setStep] = useState<FeedbackStep>('payment')
+  const [step, setStep] = useState<FeedbackStep>(initialStep)
   const [paymentRating, setPaymentRating] = useState<'up' | 'down' | null>(null)
   const [serviceRating, setServiceRating] = useState<number | null>(null)
   const [foodRating, setFoodRating] = useState<number | null>(null)

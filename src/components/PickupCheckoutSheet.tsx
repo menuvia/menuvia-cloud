@@ -5,6 +5,7 @@ import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder, getPickupIdempotencyKey, rotatePickupIdempotencyKey } from '../lib/orders'
 import { buildPickupSlots } from '../lib/pickupSlots'
+import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
@@ -87,9 +88,12 @@ export default function PickupCheckoutSheet({
 
   // Helper pur (lib/pickupSlots) — suportă și programul peste miezul nopții
   // (ex. food truck 18:00–02:00), cu aceeași doctrină ca rezervările (mig 201).
+  // Fusul LOCALULUI (proiecția publică îl expune, mig 219/281), nu al
+  // telefonului — sloturile și eticheta lor se citesc în același fus.
+  const tz = safeTimeZone(restaurant.timezone)
   const slots = useMemo(
-    () => buildPickupSlots(restaurant.pickup_settings),
-    [restaurant.pickup_settings],
+    () => buildPickupSlots(restaurant.pickup_settings, new Date(), tz),
+    [restaurant.pickup_settings, tz],
   )
 
   async function submitOrder() {
@@ -296,11 +300,7 @@ export default function PickupCheckoutSheet({
                 }}
               >
                 {slots.map((iso) => {
-                  const t = new Date(iso)
-                  const label = t.toLocaleTimeString('ro-RO', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })
+                  const label = formatTimeInZone(iso, tz)
                   const isSel = pickupTime === iso
                   return (
                     <button
