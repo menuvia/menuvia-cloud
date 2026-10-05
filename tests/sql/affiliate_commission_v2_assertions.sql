@@ -19,6 +19,11 @@
 --   AF9  set_affiliate_attribution_status: tranziție + audit, idempotent, validări,
 --        atribuirea terminală nu mai produce comision
 --   AF10 suprafața: set_status / RPC-urile de comision doar service_role
+--   AF11 process_affiliate_refund ia lacătele per atribuire (inclusiv pe cele
+--        cu prima factură consemnată) ÎNAINTEA citirii registrului — cursa
+--        refund ↔ setup-ul scris de a doua factură (recenzie #286). Concurența
+--        în sine NU se poate dovedi in-process (lacătul e re-entrant pe aceeași
+--        sesiune); dovada cu două sesiuni e în antetul mig 293.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -362,6 +367,28 @@ begin
   if (select status from public.affiliate_attributions where id = pg_temp.attr(13)) is distinct from 'pending' then
     raise exception 'AF10 FAIL: statusul s-a schimbat sub authenticated'; end if;
   raise notice 'AF10 OK: RPC-urile de comision/status doar service_role';
+end $$;
+
+-- ── AF11: lacătul înaintea deciziei (clichet structural pe starea FINALĂ) ──
+do $$
+declare v_src text; v_loop int; v_lock int; v_first int;
+begin
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'process_affiliate_refund' and p.pronargs = 6;
+  if v_src is null then raise exception 'AF11 FAIL: process_affiliate_refund(6) lipsește'; end if;
+  -- Ancore pe COD (nu pe identificatori pomeniți în comentarii).
+  v_loop  := position('for v_orig in' in v_src);
+  v_lock  := position('perform pg_advisory_xact_lock' in v_src);
+  v_first := position('where a.first_paid_invoice_id = p_stripe_invoice_id' in v_src);
+  if v_loop = 0 or v_lock = 0 then
+    raise exception 'AF11 FAIL: ancorele lipsesc (bucla=%, lacăt=%)', v_loop, v_lock; end if;
+  if v_lock > v_loop then
+    raise exception 'AF11 FAIL: primul lacăt (%) e DUPĂ citirea registrului (%) — cursa refund ↔ setup', v_lock, v_loop; end if;
+  if v_first = 0 or v_first > v_loop then
+    raise exception 'AF11 FAIL: atribuirile cu prima factură consemnată nu sunt blocate înaintea deciziei'; end if;
+  if v_src not like '%order by k collate "C"%' then
+    raise exception 'AF11 FAIL: lacătele multiple nu se iau în ordine deterministă (deadlock)'; end if;
+  raise notice 'AF11 OK: lacătele per atribuire precedă decizia pe registru';
 end $$;
 
 do $$ begin raise notice '════ affiliate commission v2 assertions (mig 293): ALL PASS ════'; end $$;

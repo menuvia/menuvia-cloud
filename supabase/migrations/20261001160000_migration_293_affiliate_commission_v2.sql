@@ -442,12 +442,40 @@ declare
   v_count     int := 0;
   v_any       boolean := false;
   v_pre       int := 0;
+  v_lock_key  text;
 begin
   if p_charge_amount_cents is null or p_charge_amount_cents <= 0
      or p_refund_amount_cents is null or p_refund_amount_cents <= 0
      or p_stripe_invoice_id is null or p_refund_id is null then
     return jsonb_build_object('ok', true, 'skipped', 'bad_input');
   end if;
+
+  -- (4b) Lacătele per atribuire se iau ÎNAINTE de orice decizie (recenzie
+  -- #286). Varianta inițială citea registrul (→ v_any) FĂRĂ lacăt și abia apoi
+  -- îl lua: un invoice_paid concurent pe a DOUA factură scria setup-ul între
+  -- citire și ramura pre-setup, care vedea „setup există" și sărea → refund-ul
+  -- NICI stornat, NICI consemnat (dovada manuală, cu cifre, în antet). Toate
+  -- atribuirile legate de factură — prima-factură consemnată + cele cu rânduri
+  -- de comision pe ea — în ordine DETERMINISTĂ (collate "C", anti-deadlock între
+  -- două refund-uri), cu ACEEAȘI cheie ca process_affiliate_invoice_paid.
+  -- Sub READ COMMITTED fiecare instrucțiune de mai jos ia un snapshot nou, deci
+  -- vede tot ce a comis cine ținea lacătul înaintea noastră.
+  for v_lock_key in
+    select k from (
+      select 'menuvia.affiliate_attribution:' || a.id::text as k
+        from public.affiliate_attributions a
+       where a.first_paid_invoice_id = p_stripe_invoice_id
+      union
+      select 'menuvia.affiliate_attribution:' || coalesce(l.attribution_id, l.id)::text
+        from public.affiliate_ledger l
+       where l.stripe_invoice_id = p_stripe_invoice_id
+         and l.leg in ('setup', 'recurring')
+         and l.amount_cents > 0
+    ) s
+    order by k collate "C"
+  loop
+    perform pg_advisory_xact_lock(hashtextextended(v_lock_key, 0));
+  end loop;
 
   for v_orig in
     select * from public.affiliate_ledger
@@ -458,6 +486,8 @@ begin
   loop
     v_any := true;
     v_claw_id := null;
+    -- Re-entrant (no-op) pentru atribuirile deja blocate mai sus; plasă pentru
+    -- un rând de comision apărut între colectarea cheilor și blocare.
     perform pg_advisory_xact_lock(hashtextextended(
       'menuvia.affiliate_attribution:' || coalesce(v_orig.attribution_id, v_orig.id)::text, 0));
 
@@ -641,6 +671,15 @@ begin
    where n.nspname = 'public' and p.proname = 'process_affiliate_refund';
   if v_src not like '%least(v_remaining%' then
     raise exception 'mig 293: clawback-ul nu e limitat la rest'; end if;
+  -- 7c'. Refund-ul ia lacătul per atribuire ÎNAINTEA citirii registrului
+  -- (recenzie #286): primul pg_advisory_xact_lock din corp precede bucla pe
+  -- ledger. Pe varianta inițială lacătul era ÎN buclă → pică.
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'process_affiliate_refund' and p.pronargs = 6;
+  if v_src is null or position('for v_orig in' in v_src) = 0
+     or position('pg_advisory_xact_lock' in v_src) = 0
+     or position('pg_advisory_xact_lock' in v_src) > position('for v_orig in' in v_src) then
+    raise exception 'mig 293: process_affiliate_refund decide pe registru ÎNAINTE de lacătul per atribuire (cursa refund ↔ setup)'; end if;
   -- 7d. Doar o semnătură per RPC (anti PGRST203).
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public'
