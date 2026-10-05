@@ -44,7 +44,7 @@ import {
 } from '../lib/themes'
 
 import { DIETARY_TAGS } from '../lib/constants'
-import { T } from '../lib/publicMenuStrings'
+import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
 import { dietaryLabel } from '../lib/guestI18n'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme, MenuElements } from '../lib/themes'
@@ -91,7 +91,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [categories, setCategories] = useState<Category[]>([])
   const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // CHEIA erorii, nu textul: `loadMenu` rulează înainte ca limba aleasă/a
+  // localului să fie cunoscută (lang e încă 'ro'), deci traducem la randare.
+  const [error, setError] = useState<PublicMenuStringKey | null>(null)
   const [activeCat, setActiveCat] = useState<string>('all')
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -241,7 +243,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       // în doi pași e în fetchMenuBySlug (qr.ts).
       const combined = await fetchMenuBySlug(slug)
       if (!combined) {
-        setError(T(lang, 'rest_not_found_title'))
+        setError('rest_not_found_title')
         setLoading(false)
         return
       }
@@ -277,7 +279,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         .catch(() => {})
     } catch (err) {
       console.error('[PublicMenuPage] load error:', err)
-      setError(T(lang, 'err_menu_conn'))
+      setError('err_menu_conn')
       setLoading(false)
     }
   }
@@ -489,7 +491,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         onRetry={() => void loadMenu()}
         lang={lang}
         title={error ? T(lang, 'menu_load_error_title') : T(lang, 'rest_not_found_title')}
-        message={error ?? T(lang, 'rest_not_found_msg')}
+        message={T(lang, error ?? 'rest_not_found_msg')}
       />
     )
 

@@ -69,6 +69,10 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
 // Tipare pe MESAJ — pentru căile fără hint (servere vechi, excepții brute).
 // Ordinea contează: primul tipar potrivit câștigă.
 const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> = [
+  // Gate-ul de plan (`Featurea % nu e disponibilă pe planul curent`, raise-urile
+  // de plan din SQL) vine FĂRĂ hint — table-payment.js îl pasează cu 403 și hint null.
+  // Cheia generică; contextele plății o înlocuiesc prin overrides.
+  { re: /^Featurea\b/i, key: 'err_feature_disabled' },
   { re: /masa a fost închisă|sesiunea (mesei )?(a expirat|lipsește)/i, key: 'err_session_closed' },
   { re: /cere cel puțin|required group/i, key: 'err_missing_required_group' },
   { re: /product .* (is not available|not found|does not belong)|product not found/i, key: 'err_product_unavailable' },
@@ -150,4 +154,30 @@ export function describeGuestError(
   opts: GuestErrorOptions = {},
 ): string {
   return T(lang ?? 'ro', guestErrorKey(err, opts))
+}
+
+// ── Opțiunile per context ale plății online a mesei ──
+// Exportate ca să fie testabile fără React (GE8/GE9). Plafonul de încercări
+// din table-payment.js (429, fără hint) cade pe tiparul generic „prea multe"
+// → `err_rate_limit_order` („Prea multe comenzi"), fals pentru cine plătește
+// nota; gate-ul de plan („Featurea…") → textul plății online.
+
+/** PayTableSheet — inițierea plății întregii mese. */
+export const PAY_TABLE_ERROR_OPTS: GuestErrorOptions = {
+  fallback: 'err_payment_failed',
+  overrides: {
+    err_module_disabled: 'err_online_pay_off',
+    err_feature_disabled: 'err_online_pay_off',
+    err_rate_limit_order: 'err_rate_limit_payment',
+  },
+}
+
+/** SplitBillSheet — încărcarea notei pentru împărțire. */
+export const SPLIT_BILL_ERROR_OPTS: GuestErrorOptions = {
+  fallback: 'err_bill_load_failed',
+  overrides: {
+    err_module_disabled: 'err_online_pay_off',
+    err_feature_disabled: 'err_split_off',
+    err_rate_limit_order: 'err_rate_limit_payment',
+  },
 }

@@ -8,8 +8,9 @@
 //            putrezește) și scanerul are control POZITIV pe un eșantion.
 //   GK1–GK4  tabela: toate cheile au cele 7 limbi, aceleași substituții `{x}`,
 //            și acoperă toți alergenii/etichetele dietetice din constants.
-//   GE1–GE7  describeGuestError: hint → cheie, mesaje brute mig 191 → cheie,
-//            rețea, fallback — NICIODATĂ textul serverului.
+//   GE1–GE9  describeGuestError: hint → cheie, mesaje brute mig 191 → cheie,
+//            rețea, fallback — NICIODATĂ textul serverului; contextele plății
+//            online (plafon 429 și gate-ul de plan „Featurea…", fără hint).
 // ATENȚIE: scanerul ignoră comentariile, dar nu și șirurile — nu scrie aici
 // tipare care să arate a text de UI în afara eșantionului de control.
 import { readFileSync } from 'node:fs'
@@ -17,7 +18,7 @@ import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { PUBLIC_MENU_STRINGS, T } from '../publicMenuStrings'
 import { GUEST_STRINGS } from '../guestStrings'
-import { describeGuestError, guestErrorKey } from '../guestErrors'
+import { describeGuestError, guestErrorKey, PAY_TABLE_ERROR_OPTS, SPLIT_BILL_ERROR_OPTS } from '../guestErrors'
 import {
   Tf,
   modifierGroupHintT,
@@ -473,5 +474,32 @@ describe('describeGuestError — niciodată text brut de server', () => {
 
   it('GE7 limbă nesuportată → EN (aceeași regulă ca T)', () => {
     expect(describeGuestError('pl', { hint: 'no_items' })).toBe(T('en', 'err_no_items'))
+  })
+
+  // Forma EXACTĂ pe care o aruncă lib/payments.ts din răspunsul table-payment.js:
+  // Error(body.error) cu `hint` = body.hint ?? undefined.
+  const paymentError = (message: string, hint?: string): Error & { hint?: string } =>
+    Object.assign(new Error(message), { hint })
+
+  it('GE8 plafonul de încercări al plății (429, fără hint) NU spune „prea multe comenzi"', () => {
+    const e = paymentError('Prea multe încercări. Reîncearcă în câteva minute.')
+    // Control pozitiv: fără contextul plății, tiparul generic dă cheia comenzii.
+    expect(guestErrorKey(e)).toBe('err_rate_limit_order')
+    expect(guestErrorKey(e, PAY_TABLE_ERROR_OPTS)).toBe('err_rate_limit_payment')
+    expect(guestErrorKey(e, SPLIT_BILL_ERROR_OPTS)).toBe('err_rate_limit_payment')
+    expect(describeGuestError('en', e, PAY_TABLE_ERROR_OPTS)).toBe(T('en', 'err_rate_limit_payment'))
+    expect(T('en', 'err_rate_limit_payment') === T('en', 'err_rate_limit_order')).toBe(false)
+  })
+
+  it('GE9 gate-ul de plan („Featurea…", hint null) → funcție indisponibilă, nu eroare generică', () => {
+    const e = paymentError(
+      'Featurea online_payments nu e disponibilă pe planul curent (growth). Upgrade la Growth sau mai sus.',
+    )
+    expect(guestErrorKey(e)).toBe('err_feature_disabled')
+    expect(guestErrorKey(e, PAY_TABLE_ERROR_OPTS)).toBe('err_online_pay_off')
+    expect(guestErrorKey(e, SPLIT_BILL_ERROR_OPTS)).toBe('err_split_off')
+    expect(describeGuestError('de', e, SPLIT_BILL_ERROR_OPTS)).toBe(T('de', 'err_split_off'))
+    // Ancorat la început: „Featurea" în mijlocul unui mesaj nu e gate-ul de plan.
+    expect(guestErrorKey(new Error('eroare internă: Featurea'), PAY_TABLE_ERROR_OPTS)).toBe('err_payment_failed')
   })
 })

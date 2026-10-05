@@ -18,7 +18,7 @@ import {
 import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError } from '../lib/guestErrors'
+import { describeGuestError, PAY_TABLE_ERROR_OPTS } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -47,13 +47,6 @@ interface Props {
 }
 
 type Phase = 'loading' | 'ready' | 'confirming' | 'paid' | 'error'
-
-// Hint-urile de business → text în limba oaspetelui prin describeGuestError
-// (lib/guestErrors) — niciodată mesajul brut al serverului.
-const PAY_ERROR_OPTS = {
-  fallback: 'err_payment_failed',
-  overrides: { err_module_disabled: 'err_online_pay_off', err_feature_disabled: 'err_online_pay_off' },
-} as const
 
 // Cheia sessionStorage cu ultimul intent split al ACESTUI telefon: dacă
 // sheet-ul a murit mid-flow (refresh/crash), claims-urile lui ar rămâne
@@ -151,7 +144,7 @@ export default function PayTableSheet({
         setPhase('ready')
       } catch (e) {
         if (cancelled) return
-        setErrorMsg(describeGuestError(lang, e, PAY_ERROR_OPTS))
+        setErrorMsg(describeGuestError(lang, e, PAY_TABLE_ERROR_OPTS))
         setPhase('error')
       }
     }

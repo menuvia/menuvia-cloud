@@ -13,7 +13,7 @@ import {
 import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError } from '../lib/guestErrors'
+import { describeGuestError, SPLIT_BILL_ERROR_OPTS } from '../lib/guestErrors'
 
 const PayTableSheet = lazy(() => import('./PayTableSheet'))
 
@@ -76,12 +76,7 @@ export default function SplitBillSheet({
         return next
       })
     } catch (e) {
-      setErrorMsg(
-        describeGuestError(lang, e, {
-          fallback: 'err_bill_load_failed',
-          overrides: { err_module_disabled: 'err_online_pay_off', err_feature_disabled: 'err_split_off' },
-        }),
-      )
+      setErrorMsg(describeGuestError(lang, e, SPLIT_BILL_ERROR_OPTS))
     } finally {
       setLoading(false)
     }

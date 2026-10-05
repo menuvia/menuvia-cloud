@@ -623,6 +623,17 @@ export const GUEST_STRINGS = {
     hu: 'Túl sok rendelés rövid idő alatt. Próbáld újra néhány perc múlva.',
     es: 'Demasiados pedidos en poco tiempo. Inténtalo de nuevo en unos minutos.',
   },
+  // 429 din table-payment.js (rate-limit pe sesiune, FĂRĂ hint): oaspetele
+  // plătește nota, nu comandă — „Prea multe comenzi" ar fi fals aici.
+  err_rate_limit_payment: {
+    ro: 'Prea multe încercări într-un timp scurt. Reîncearcă în câteva minute.',
+    en: 'Too many attempts in a short time. Try again in a few minutes.',
+    de: 'Zu viele Versuche in kurzer Zeit. Versuche es in ein paar Minuten erneut.',
+    fr: 'Trop de tentatives en peu de temps. Réessayez dans quelques minutes.',
+    it: 'Troppi tentativi in poco tempo. Riprova tra qualche minuto.',
+    hu: 'Túl sok próbálkozás rövid idő alatt. Próbáld újra néhány perc múlva.',
+    es: 'Demasiados intentos en poco tiempo. Inténtalo de nuevo en unos minutos.',
+  },
   err_table_unavailable: {
     ro: 'Masa tocmai a fost rezervată. Alege altă masă liberă.',
     en: 'That table was just booked. Please pick another free table.',
