@@ -1686,6 +1686,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/reservations_expired_assertions.sql
 
+      # NECONDIȚIONAT (mig 292): comanda `paid` e imuabilă pentru rolurile client
+      # (BF-4, sub rolul REAL authenticated) + supersede pe intent-uri `failed`
+      # la plata online a mesei (BF-1).
+      - name: "Paid-order immutability + table-payment supersede (mig 292, PI1–PI4, PT1–PT4)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/paid_immutable_tablepay_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
@@ -1770,6 +1780,13 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/plan_dead_data_assertions.sql
+
+      - name: "Money exactness assertions (mig 291, MX1–MX7)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/money_exactness_assertions.sql
 
       - name: Upload logs on failure
         if: failure()

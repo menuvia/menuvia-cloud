@@ -206,6 +206,20 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/plan_dead_data_assertions.sql
 
+      # Egalitate exactă la încasare + gate-ul reducerii (mig 291): pe stack-ul
+      # real, ca să vadă și grant-urile/default privileges ale Supabase.
+      - name: Money exactness pe stack-ul Supabase real (mig 291, MX1–MX7)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/money_exactness_assertions.sql
+
+      # Mig 292 pe stack-ul real: default privileges Supabase + rolurile REALE
+      # authenticated/anon (PI1–PI4 comanda paid imuabilă, PT1–PT4 supersede failed).
+      - name: Comanda paid imuabilă + supersede failed pe stack-ul real (mig 292, PI/PT)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/paid_immutable_tablepay_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
