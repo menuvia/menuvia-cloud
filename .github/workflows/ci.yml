@@ -166,6 +166,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
 
+      # Afiliere v2 (mig 293) pe stack-ul real: funcții NOI (set_affiliate_
+      # attribution_status + trigger-ul de instantaneu), iar default privileges
+      # ale Supabase re-acordă EXECUTE — AF10 are muncă reală aici.
+      - name: Comision afiliere v2 pe stack-ul Supabase real (mig 293, AF1–AF10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_commission_v2_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |

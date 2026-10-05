@@ -1709,6 +1709,17 @@ jobs:
             psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f "$f"
           done
 
+      # NECONDIȚIONAT (mig 293): afiliere v2 — comision pe toate planurile
+      # plătite, setup la a DOUA factură, instantaneu de procente pe atribuire,
+      # clawback limitat la rest, două facturi/lună fără excepție, plafon 12,
+      # set_affiliate_attribution_status (poarta 193 vie).
+      - name: "Affiliate commission v2 assertions (mig 293, AF1–AF10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_commission_v2_assertions.sql
+
       - name: "Authorization PR 1A: drop CI-only audit helper"
         if: ${{ always() && hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
