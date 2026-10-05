@@ -59,8 +59,31 @@
 -- `process_account_deletions` (lanț 042→179→183→282→284→295): copie VERBATIM
 -- din 284 + UN apel, imediat înaintea ștergerii, în aceeași subtranzacție
 -- per-user (un eșec al ștergerii derulează și detașarea).
+-- AMÂNARE cât BANII SUNT ÎN MIȘCARE (recenzie pe #286): ștergerea golește
+-- IBAN-ul, deci un payout `processing` / `on_hold` / `failed` CU referință
+-- bancară (transfer plecat, rezultat neconfirmat sau în retur) ar rămâne fără
+-- datele contului în care banii pot reveni sau trebuie re-trimiși. Userul se
+-- SARE pentru tick-ul ăsta (fără deletion_blocked_reason — ca bonul `sent`
+-- din 284), după lacătul pe rândul de afiliat (aceeași serializare ca
+-- `admin_payout_start_transfer`, singura tranziție care intră în mișcare) și
+-- ÎNAINTEA arhivărilor. NU se amână pe draft / awaiting_invoice /
+-- invoice_matched / failed FĂRĂ referință: nimic n-a plecat, iar fără IBAN
+-- transferul nici nu se mai poate iniția (`payout_profile_missing`) — a le
+-- aștepta ar bloca Art. 17 pe o decizie care poate să nu vină niciodată
+-- (tiparul `pending` din 284). Amânarea e mărginită de fondator, care vede
+-- payout-ul în listă (paid / failed → anulat CU confirmarea întoarcerii
+-- banilor, 294). Sursa UNICĂ a predicatului: `affiliate_payouts_in_flight`.
+-- Detașarea însăși REFUZĂ (excepție) pe un payout în mișcare — centură pentru
+-- orice alt apelant.
 --
--- Teste: AP1–AP12 `tests/sql/affiliate_program_gdpr_assertions.sql`.
+-- ── §5. Vederea fondatorului supraviețuiește ștergerii ───────────────────
+-- `admin_list_affiliates` (186→188→224→236→295) și `admin_list_payouts`
+-- (186→294→295) făceau INNER JOIN pe `profiles` prin `affiliates.profile_id`
+-- — exact coloana pe care §4 o golește. Afiliatul șters și payout-urile lui
+-- DISPĂREAU din FounderPage, deși rândurile rămân tocmai pentru evidență.
+-- Acum LEFT JOIN, email NULL, plus `erased_at` / `affiliate_erased`.
+--
+-- Teste: AP1–AP14 `tests/sql/affiliate_program_gdpr_assertions.sql`.
 -- =============================================================================
 
 begin;
@@ -700,6 +723,26 @@ alter table public.affiliate_attributions drop constraint if exists affiliate_at
 alter table public.affiliate_attributions add constraint affiliate_attributions_referred_or_erased
   check (referred_profile_id is not null or referred_erased_at is not null);
 
+-- 4b'. Payout-uri cu BANI ÎN MIȘCARE — sursa UNICĂ a predicatului de amânare.
+-- `processing` (transfer inițiat, cu referință — trigger-ul 294 o cere),
+-- `on_hold` (rezultat ambiguu) și `failed` CU referință (a plecat; poate fi
+-- ajuns sau în retur — anularea lui cere confirmarea întoarcerii banilor, 294).
+create or replace function public.affiliate_payouts_in_flight(p_affiliate_id uuid)
+returns integer
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select count(*)::integer
+    from public.affiliate_payouts ap
+   where ap.affiliate_id = p_affiliate_id
+     and (ap.status in ('processing', 'on_hold')
+          or (ap.status = 'failed'
+              and (ap.wise_transfer_id is not null or ap.payment_reference is not null)))
+$$;
+
+revoke all on function public.affiliate_payouts_in_flight(uuid)
+  from public, anon, authenticated, service_role;
+
 -- 4b. Detașarea (intern; chemată doar din process_account_deletions).
 create or replace function public.erase_affiliate_identity_for_user(p_user_id uuid)
 returns jsonb
@@ -717,6 +760,15 @@ begin
   select id into v_aff_id from public.affiliates
    where profile_id = p_user_id
    for update;
+
+  -- Centură (recenzie #286): IBAN-ul NU se golește cât un transfer e în
+  -- mișcare. process_account_deletions amână userul ÎNAINTE de a ajunge aici;
+  -- orice alt apelant primește excepție, nu o ștergere tăcută a contului bancar.
+  if v_aff_id is not null and public.affiliate_payouts_in_flight(v_aff_id) > 0 then
+    raise exception using errcode = 'check_violation',
+      message = 'afiliatul are un payout cu bani în mișcare — ștergerea se amână',
+      hint    = 'affiliate_payout_in_flight';
+  end if;
 
   if v_aff_id is not null then
     update public.affiliates
@@ -784,6 +836,7 @@ declare
   v_archived  integer;
   v_archived_receipts integer;  -- mig 284
   v_affiliate jsonb;            -- mig 295
+  v_aff_id    uuid;             -- mig 295 (amânarea pe payout în mișcare)
 begin
   -- mig 282: SINGLE-FLIGHT. A doua rulare (alt planificator, tick suprapus,
   -- declanșare manuală) iese imediat cu zero rânduri în loc să itereze peste
@@ -855,6 +908,19 @@ begin
            and pr.status = 'sent'
       ) then
         raise notice 'process_account_deletions: user % sărit — bon în tipărire (sent), reîncercat la tick-ul următor', v_user.id;
+        continue;
+      end if;
+
+      -- mig 295: un payout de afiliat cu BANI ÎN MIȘCARE (processing / on_hold /
+      -- failed CU referință) AMÂNĂ userul, ca bonul `sent`: detașarea golește
+      -- IBAN-ul, iar banii pot reveni sau trebuie re-trimiși. Lacătul pe rândul
+      -- de afiliat serializează cu `admin_payout_start_transfer` (singura
+      -- intrare în mișcare, ia același lacăt); verificat ÎNAINTEA arhivărilor.
+      select id into v_aff_id from public.affiliates
+       where profile_id = v_user.id
+       for update;
+      if v_aff_id is not null and public.affiliate_payouts_in_flight(v_aff_id) > 0 then
+        raise notice 'process_account_deletions: user % sărit — payout de afiliat cu bani în mișcare, reîncercat la tick-ul următor', v_user.id;
         continue;
       end if;
 
@@ -992,6 +1058,20 @@ begin
   if v_arch = 0 or v_er = 0 or v_del = 0 or v_er > v_del or v_arch > v_del then
     raise exception 'mig 295: detașarea afilierii / arhivarea nu sunt ÎNAINTEA ștergerii (arch=%, erase=%, del=%)', v_arch, v_er, v_del;
   end if;
+  -- Amânarea pe payout în mișcare stă ÎNAINTEA arhivărilor și a detașării.
+  if position('public.affiliate_payouts_in_flight(v_aff_id) > 0' in v_src) = 0
+     or position('public.affiliate_payouts_in_flight(v_aff_id) > 0' in v_src) > v_arch then
+    raise exception 'mig 295: process_account_deletions nu amână userul pe un payout în mișcare înaintea arhivării';
+  end if;
+  select p.prosrc into v_src from pg_proc p
+   where p.oid = 'public.erase_affiliate_identity_for_user(uuid)'::regprocedure;
+  if position('affiliate_payout_in_flight' in v_src) = 0 then
+    raise exception 'mig 295: erase_affiliate_identity_for_user golește IBAN-ul fără garda de payout în mișcare';
+  end if;
+  if has_function_privilege('anon', 'public.affiliate_payouts_in_flight(uuid)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.affiliate_payouts_in_flight(uuid)', 'EXECUTE') then
+    raise exception 'mig 295: affiliate_payouts_in_flight e apelabil din afară';
+  end if;
 
   if has_function_privilege('anon', 'public.erase_affiliate_identity_for_user(uuid)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.erase_affiliate_identity_for_user(uuid)', 'EXECUTE')
@@ -1008,6 +1088,165 @@ begin
   if not exists (select 1 from pg_constraint where conname = 'affiliates_profile_or_erased')
      or not exists (select 1 from pg_constraint where conname = 'affiliate_attributions_referred_or_erased') then
     raise exception 'mig 295: lipsesc CHECK-urile profil-sau-tombstone';
+  end if;
+end $$;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- §5. Vederea fondatorului supraviețuiește ștergerii GDPR
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- 5a. admin_list_affiliates — lanț 186→188→224→236→295. Copie a lui 236 (TOATE
+-- câmpurile: cererea 224, comisioanele 188, brandingul 236) + LEFT JOIN pe
+-- profil + `erased_at` (la final). Tipul de retur rămâne jsonb.
+create or replace function public.admin_list_affiliates()
+returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.is_platform_admin() then
+    raise exception 'Acces interzis';
+  end if;
+
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'affiliate_id',        a.id,
+             -- mig 295: NULL după ștergerea GDPR (profilul a plecat).
+             'email',               p.email,
+             'full_name',           p.full_name,
+             'referral_code',       a.referral_code,
+             'status',              a.status,
+             'parent_affiliate_id', a.parent_affiliate_id,
+             -- Datele cererii (mig 224) — pentru interviul telefonic.
+             'phone',               a.phone,
+             'application_note',    a.application_note,
+             'reviewed_at',         a.reviewed_at,
+             -- Comisioanele curente (mig 188) — editabile din FounderPage.
+             'setup_bps',            a.setup_bps,
+             'recurring_bps',        a.recurring_bps,
+             'cascade_bps',          a.cascade_bps,
+             'recurring_cap_months', a.recurring_cap_months,
+             -- White-label (mig 236) — editabil din FounderPage.
+             'brand_domain',        a.brand_domain,
+             'brand_name',          a.brand_name,
+             'brand_logo_url',      a.brand_logo_url,
+             'balance_ron_cents', (
+               select coalesce(sum(l.amount_cents), 0)
+                 from public.affiliate_ledger l
+                where l.affiliate_id = a.id and l.currency = 'RON'
+             ),
+             'restaurants', (
+               select coalesce(jsonb_agg(jsonb_build_object(
+                        'restaurant_id', r.id,
+                        'name',          r.name,
+                        'slug',          r.slug,
+                        'plan',          op.plan,
+                        'is_active',     r.is_active
+                      ) order by r.name), '[]'::jsonb)
+                 from public.affiliate_attributions aa
+                 join public.restaurants r on r.owner_id = aa.referred_profile_id
+                 join public.profiles op on op.id = r.owner_id
+                where aa.affiliate_id = a.id
+             ),
+             'created_at',          a.created_at,
+             -- mig 295 (la FINAL): tombstone-ul ștergerii GDPR.
+             'erased_at',           a.erased_at
+           ) order by (a.status = 'pending') desc, a.created_at)
+      from public.affiliates a
+      -- LEFT (mig 295): profile_id e NULL după ștergere; rândul rămâne
+      -- (ledger, payout-uri) și fondatorul trebuie să-l vadă.
+      left join public.profiles p on p.id = a.profile_id
+  ), '[]'::jsonb);
+end;
+$$;
+
+revoke all on function public.admin_list_affiliates() from public, anon, authenticated, service_role;
+grant execute on function public.admin_list_affiliates() to authenticated;
+
+-- 5b. admin_list_payouts — lanț 186→294→295. Copie a lui 294 + LEFT JOIN pe
+-- profil + marcajul de ștergere (la final). jsonb → create or replace.
+create or replace function public.admin_list_payouts()
+returns jsonb
+language plpgsql stable security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if not public.is_platform_admin() then
+    raise exception using errcode = 'insufficient_privilege',
+      message = 'Acces interzis', hint = 'not_platform_admin';
+  end if;
+
+  return coalesce((
+    select jsonb_agg(jsonb_build_object(
+             'id',                 ap.id,
+             'affiliate_id',       ap.affiliate_id,
+             -- mig 295: NULL după ștergerea GDPR a afiliatului.
+             'affiliate_email',    p.email,
+             'status',             ap.status,
+             'gross_cents',        ap.gross_cents,
+             'currency',           ap.currency,
+             'invoice_number',     ap.invoice_number,
+             'wise_transfer_id',   ap.wise_transfer_id,
+             'failure_reason',     ap.failure_reason,
+             'paid_at',            ap.paid_at,
+             'created_at',         ap.created_at,
+             -- mig 294: ciclul de plată + profilul de plată.
+             'period_month',       ap.period_month,
+             'invoice_matched_at', ap.invoice_matched_at,
+             'payment_method',     ap.payment_method,
+             'payment_reference',  coalesce(ap.payment_reference, ap.wise_transfer_id::text),
+             'updated_at',         ap.updated_at,
+             'payee_name',         pp.beneficiary_name,
+             'payee_legal_form',   pp.legal_form,
+             'payee_cui',          pp.cui,
+             'payee_iban',         pp.iban,
+             'payee_profile_updated_at', pp.updated_at,
+             -- mig 295 (la FINAL): afiliatul și-a șters contul (GDPR).
+             'affiliate_erased',    a.erased_at is not null,
+             'affiliate_erased_at', a.erased_at
+           ) order by ap.created_at desc)
+      from public.affiliate_payouts ap
+      join public.affiliates a on a.id = ap.affiliate_id
+      left join public.profiles  p on p.id = a.profile_id
+      left join public.affiliate_payout_profile pp on pp.affiliate_id = ap.affiliate_id
+  ), '[]'::jsonb);
+end;
+$$;
+
+revoke all on function public.admin_list_payouts() from public, anon, authenticated, service_role;
+grant execute on function public.admin_list_payouts() to authenticated;
+
+do $$
+declare v_src text; fn text;
+begin
+  foreach fn in array array['admin_list_affiliates()', 'admin_list_payouts()'] loop
+    select p.prosrc into v_src from pg_proc p
+     where p.oid = to_regprocedure('public.' || fn) and p.prosecdef
+       and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%pg_temp%');
+    if v_src is null then
+      raise exception 'mig 295: % lipsește / nu e DEFINER cu pg_temp', fn; end if;
+    if position('is_platform_admin()' in v_src) = 0 then
+      raise exception 'mig 295: % fără gate-ul is_platform_admin', fn; end if;
+    -- Nicio legătură INNER pe profilul afiliatului (ștergerea GDPR l-ar ascunde).
+    if v_src ~* '(^|[^t])\s+join\s+public\.profiles\s+p\s+on\s+p\.id\s*=\s*a\.profile_id'
+       or position('left join public.profiles' in v_src) = 0 then
+      raise exception 'mig 295: % face inner join pe profilul afiliatului', fn; end if;
+    if position('erased_at' in v_src) = 0 then
+      raise exception 'mig 295: % fără marcajul de ștergere', fn; end if;
+    if has_function_privilege('anon', 'public.' || fn, 'EXECUTE')
+       or has_function_privilege('service_role', 'public.' || fn, 'EXECUTE')
+       or not has_function_privilege('authenticated', 'public.' || fn, 'EXECUTE') then
+      raise exception 'mig 295: grant-uri greșite pe %', fn; end if;
+  end loop;
+  -- Câmpurile moștenite (224 + 188 + 236) au rămas.
+  v_src := pg_get_functiondef('public.admin_list_affiliates()'::regprocedure);
+  if position('''application_note''' in v_src) = 0 or position('''cascade_bps''' in v_src) = 0
+     or position('''brand_logo_url''' in v_src) = 0 or position('''restaurants''' in v_src) = 0 then
+    raise exception 'mig 295: admin_list_affiliates a pierdut câmpuri din lanțul 188/224/236';
+  end if;
+  v_src := pg_get_functiondef('public.admin_list_payouts()'::regprocedure);
+  if position('''payee_iban''' in v_src) = 0 or position('''payment_reference''' in v_src) = 0 then
+    raise exception 'mig 295: admin_list_payouts a pierdut câmpurile din 294';
   end if;
 end $$;
 

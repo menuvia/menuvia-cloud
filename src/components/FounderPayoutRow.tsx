@@ -208,6 +208,8 @@ export default function FounderPayoutRow({
               {' · IBAN '}
               <span style={{ fontFamily: 'monospace', color: D.t1 }}>{formatIban(p.payee_iban)}</span>
             </>
+          ) : p.affiliate_erased ? (
+            <span style={{ color: D.t3 }}>Datele de plată au fost șterse odată cu contul afiliatului (GDPR).</span>
           ) : (
             <span style={{ color: D.amber }}>Afiliatul nu și-a completat datele de plată (IBAN).</span>
           )}

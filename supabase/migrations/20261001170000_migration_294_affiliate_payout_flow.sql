@@ -895,7 +895,10 @@ begin
            ) order by ap.created_at desc)
       from public.affiliate_payouts ap
       join public.affiliates a on a.id = ap.affiliate_id
-      join public.profiles  p on p.id = a.profile_id
+      -- LEFT: mig 295 golește `affiliates.profile_id` la ștergerea GDPR, iar
+      -- payout-urile rămân (evidență fiscală) — un inner join le-ar ascunde
+      -- fondatorului. 295 recreează funcția cu marcajul de ștergere.
+      left join public.profiles  p on p.id = a.profile_id
       left join public.affiliate_payout_profile pp on pp.affiliate_id = ap.affiliate_id
   ), '[]'::jsonb);
 end;

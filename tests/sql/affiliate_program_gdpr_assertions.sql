@@ -1,6 +1,6 @@
 -- tests/sql/affiliate_program_gdpr_assertions.sql
 -- =============================================================================
--- AP1–AP12 — clichetul PERMANENT al mig 295 (programul de afiliere: poartă de
+-- AP1–AP14 — clichetul PERMANENT al mig 295 (programul de afiliere: poartă de
 -- deschidere, panou net, vanity, ștergere GDPR).
 --
 --   AP1  program ÎNCHIS (seed implicit): register_affiliate → program_closed,
@@ -27,6 +27,11 @@
 --        rămas; helperul nu e apelabil din afară
 --   AP12 FK-urile rămân RESTRICT: o ștergere pe altă cale (fără detașare)
 --        e tot refuzată — NULL vine DOAR prin procesul GDPR
+--   AP13 ștergerea unui afiliat se AMÂNĂ (user eligibil, IBAN intact) cât are
+--        un payout `processing` sau `failed` CU referință; detașarea directă
+--        refuză (`affiliate_payout_in_flight`); după stări terminale → AP8
+--   AP14 fondatorul vede afiliatul șters și payout-urile lui (inclusiv cele
+--        terminale) — email NULL + marcaj; control pe un afiliat ne-șters
 --
 -- Rulează ca `postgres`, într-o tranzacție derulată la final; secțiunile care
 -- contează pentru privilegii coboară în rolul REAL `authenticated`/`anon`.
@@ -366,8 +371,95 @@ begin
     raise exception 'AP9 FAIL: afiliatul (care NU a cerut stergerea) a fost atins';
   end if;
   raise notice 'AP9 OK: owner atribuit sters, atribuire cu tombstone, afiliatul neatins';
+end $$;
 
-  -- AP8: acum contul AFILIATULUI.
+-- ── AP13: ștergerea afiliatului se AMÂNĂ cât banii sunt în mișcare ─────────
+-- a2 are deja un draft (400, nimic plecat) și un `failed` CU referință bancară
+-- (AP6b — transfer plecat, rezultat neconfirmat). Adăugăm și un `processing`.
+-- Cât unul dintre ele e în mișcare, detașarea (care golește IBAN-ul) nu rulează;
+-- după ce fondatorul le duce în stări terminale, ștergerea trece (AP8).
+insert into public.affiliate_payouts (affiliate_id, period_month, currency, gross_cents, status, payment_method, payment_reference)
+values ('9a100000-0000-4000-8000-0000000000a2'::uuid, date_trunc('month', now() - interval '5 months')::date,
+        'RON', 200, 'processing', 'bank_transfer', 'RF-AP13-P');
+do $$
+declare
+  v_ids uuid[];
+  v jsonb;
+  v_failed uuid; v_proc uuid;
+  v_raised boolean := false; v_hint text;
+  r record; pp record;
+  -- Rulează process_account_deletions și verifică AMÂNAREA lui a2.
+begin
+  select id into v_failed from public.affiliate_payouts where payment_reference = 'RF-AP6B-1';
+  select id into v_proc   from public.affiliate_payouts where payment_reference = 'RF-AP13-P';
+
+  update public.profiles set deletion_requested_at = now() - interval '40 days'
+   where id = '9a000000-0000-4000-8000-0000000000a2'::uuid;
+
+  -- (1) processing + failed cu referință → amânat.
+  select array_agg(deleted_user_id) into v_ids from public.process_account_deletions();
+  if '9a000000-0000-4000-8000-0000000000a2'::uuid = any(coalesce(v_ids, '{}')) then
+    raise exception 'AP13 FAIL: afiliatul s-a sters cu un payout in procesare / failed cu referinta (IBAN golit cu banii in miscare)';
+  end if;
+  select * into r from public.affiliates where id = '9a100000-0000-4000-8000-0000000000a2'::uuid;
+  select * into pp from public.affiliate_payout_profile where affiliate_id = '9a100000-0000-4000-8000-0000000000a2'::uuid;
+  if r.profile_id is distinct from '9a000000-0000-4000-8000-0000000000a2'::uuid or r.erased_at is not null
+     or pp.iban is distinct from 'RO49AAAA1B31007593840000' then
+    raise exception 'AP13 FAIL: amanarea a atins totusi afiliatul (profil=%, erased=%, iban=%)', r.profile_id, r.erased_at, pp.iban;
+  end if;
+  if (select deletion_blocked_reason from public.profiles where id = '9a000000-0000-4000-8000-0000000000a2'::uuid) is not null
+     or not exists (select 1 from auth.users where id = '9a000000-0000-4000-8000-0000000000a2'::uuid) then
+    raise exception 'AP13 FAIL: amanarea trebuie sa lase userul ELIGIBIL (fara deletion_blocked_reason) si contul intact';
+  end if;
+
+  -- Centura: detașarea apelată direct REFUZĂ, nu golește tăcut IBAN-ul.
+  begin
+    perform public.erase_affiliate_identity_for_user('9a000000-0000-4000-8000-0000000000a2'::uuid);
+  exception when check_violation then
+    v_raised := true; get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if not v_raised or v_hint is distinct from 'affiliate_payout_in_flight' then
+    raise exception 'AP13 FAIL: detasarea directa nu a refuzat payout-ul in miscare (hint=%)', v_hint;
+  end if;
+
+  -- (2) Fondatorul anulează failed-ul (cu confirmarea întoarcerii banilor) →
+  -- rămâne `processing` → tot amânat (fiecare stare amână singură).
+  perform set_config('request.jwt.claim.sub', '9a000000-0000-4000-8000-0000000000f0', true);
+  perform set_config('role', 'authenticated', true);
+  v := public.admin_payout_cancel(v_failed, 'banii s-au intors, verificat extras', true);
+  perform set_config('role', 'none', true);
+  if v->>'status' is distinct from 'canceled' then raise exception 'AP13 FAIL: anularea failed-ului (%)', v; end if;
+  select array_agg(deleted_user_id) into v_ids from public.process_account_deletions();
+  if '9a000000-0000-4000-8000-0000000000a2'::uuid = any(coalesce(v_ids, '{}')) then
+    raise exception 'AP13 FAIL: afiliatul s-a sters cu un payout in procesare';
+  end if;
+
+  -- (3) processing → failed → canceled (confirmat). Rămâne doar draft-ul
+  -- (nimic plecat) → AP8 de mai jos TREBUIE să șteargă.
+  perform set_config('request.jwt.claim.sub', '9a000000-0000-4000-8000-0000000000f0', true);
+  perform set_config('role', 'authenticated', true);
+  v := public.admin_payout_mark_failed(v_proc, 'banca a respins transferul');
+  if v->>'status' is distinct from 'failed' then
+    perform set_config('role', 'none', true);
+    raise exception 'AP13 FAIL: mark_failed (%)', v; end if;
+  v := public.admin_payout_cancel(v_proc, 'suma returnata, verificat extras', true);
+  perform set_config('role', 'none', true);
+  if v->>'status' is distinct from 'canceled' then raise exception 'AP13 FAIL: anularea processing-ului esuat (%)', v; end if;
+  raise notice 'AP13 OK: stergerea amanata pe processing si pe failed cu referinta (IBAN intact, user eligibil), detasarea directa refuza';
+end $$;
+
+do $$
+declare
+  v_ids uuid[];
+  v_ledger_before int;
+  v_ledger_after int;
+  r record;
+  pp record;
+begin
+  select count(*) into v_ledger_before from public.affiliate_ledger
+   where affiliate_id = '9a100000-0000-4000-8000-0000000000a2'::uuid;
+
+  -- AP8: acum contul AFILIATULUI (doar draft + anulate → nimic în mișcare).
   update public.profiles set deletion_requested_at = now() - interval '40 days'
    where id = '9a000000-0000-4000-8000-0000000000a2'::uuid;
   select array_agg(deleted_user_id) into v_ids from public.process_account_deletions();
@@ -398,6 +490,47 @@ begin
     raise exception 'AP8 FAIL: payout-urile au disparut';
   end if;
   raise notice 'AP8 OK: afiliat sters — rand closed fara PII, ledger + payout pastrate';
+end $$;
+
+-- ── AP14: fondatorul vede în continuare afiliatul șters și payout-urile lui ─
+do $$
+declare v_aff jsonb; v_pay jsonb; v_row jsonb; v_n int; v_ctrl jsonb;
+begin
+  perform set_config('request.jwt.claim.sub', '9a000000-0000-4000-8000-0000000000f0', true);
+  perform set_config('role', 'authenticated', true);
+  v_aff := public.admin_list_affiliates();
+  v_pay := public.admin_list_payouts();
+  perform set_config('role', 'none', true);
+
+  select e into v_row from jsonb_array_elements(v_aff) e
+   where e->>'affiliate_id' = '9a100000-0000-4000-8000-0000000000a2';
+  if v_row is null then
+    raise exception 'AP14 FAIL: afiliatul sters a disparut din admin_list_affiliates (inner join pe profil)';
+  end if;
+  if v_row ? 'email' is not true or v_row->>'email' is not null or v_row->>'erased_at' is null
+     or v_row->>'status' is distinct from 'closed' or v_row->>'referral_code' is distinct from 'apaff001' then
+    raise exception 'AP14 FAIL: randul afiliatului sters e gresit: %', v_row;
+  end if;
+  -- Control pozitiv: afiliatul NE-șters își păstrează emailul, fără tombstone.
+  select e into v_ctrl from jsonb_array_elements(v_aff) e
+   where e->>'affiliate_id' = '9a100000-0000-4000-8000-0000000000a4';
+  if v_ctrl->>'email' is distinct from 'ap-gone@ap.test' or v_ctrl->>'erased_at' is not null then
+    raise exception 'AP14 FAIL: control — afiliatul ne-sters: %', v_ctrl;
+  end if;
+
+  select count(*) into v_n from jsonb_array_elements(v_pay) e
+   where e->>'affiliate_id' = '9a100000-0000-4000-8000-0000000000a2'
+     and e->>'affiliate_email' is null
+     and (e->>'affiliate_erased')::boolean is true
+     and e->>'payee_iban' is null;
+  if v_n is distinct from 3 then
+    raise exception 'AP14 FAIL: % payout-uri ale afiliatului sters vizibile fondatorului (asteptat 3: draft + 2 anulate)', v_n;
+  end if;
+  if not exists (select 1 from jsonb_array_elements(v_pay) e
+                  where e->>'payment_reference' = 'RF-AP6B-1' and e->>'status' = 'canceled') then
+    raise exception 'AP14 FAIL: payout-ul terminal (anulat, cu referinta) nu mai e in lista fondatorului';
+  end if;
+  raise notice 'AP14 OK: afiliatul sters si payout-urile lui (inclusiv terminale) raman vizibile fondatorului, cu email NULL + marcaj';
 end $$;
 
 -- ── AP11: structură + suprafață ────────────────────────────────────────────
