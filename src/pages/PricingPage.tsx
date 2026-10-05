@@ -66,7 +66,7 @@ const errorActionBtn: React.CSSProperties = {
 // state-ului (înaintea primului paint), nu într-un effect — de-asta nu
 // există flash. 'pro' (Fiscalizare) e pilot → niciodată auto-checkout.
 function usePlanIntentAutoCheckout(
-  user: { id: string } | null,
+  user: { id: string; email?: string | null } | null,
   onCheckout: (plan: string) => void | Promise<void>,
   onError: (err: unknown) => void,
 ): string | null {
@@ -74,7 +74,9 @@ function usePlanIntentAutoCheckout(
     // Întors din Stripe cu „Anulează": NU repornim plata pe care omul tocmai
     // a refuzat-o (intenția din localStorage l-ar fi trimis înapoi în Stripe).
     if (readCheckoutReturnParam(window.location.search) === 'cancelled') return null
-    const i = readPlanIntent()
+    // Doar intenția ACESTUI cont (sau aleasă în acest tab): pe un dispozitiv
+    // partajat, contul altcuiva nu pornește checkout-ul nostru (planIntent.ts).
+    const i = readPlanIntent(user?.email ?? null)
     return i === 'starter' || i === 'growth' ? i : null
   })
 
@@ -83,7 +85,8 @@ function usePlanIntentAutoCheckout(
     // Logat pe /pricing = intenția e CONSUMATĂ, oricum ar fi: pornim checkout-ul
     // (starter/growth) sau nu e nimic de pornit (Fiscalizare = pilot, anulare).
     // Altfel, cu TTL de 24 h, fiecare login ar re-trimite omul pe /pricing.
-    clearPlanIntent()
+    // Doar a NOASTRĂ: intenția legată de alt cont rămâne pentru acel cont.
+    clearPlanIntent(user.email ?? null)
     if (pendingPlan == null) return
     let alive = true
     // Dacă checkout-ul reușește, pagina navighează la Stripe și cleanup-ul

@@ -356,7 +356,10 @@ function AppRouter() {
       // rulează niciodată — singurul care vede sesiunea e efectul ăsta. Fără
       // ramura asta, restaurantul nou ateriza pe /dashboard în loc de
       // checkout. /pricing pornește singur plata (usePlanIntentAutoCheckout).
-      const intentDest = planIntentDestination()
+      // Doar intenția ACESTUI cont (sau aleasă în acest tab / `?plan=` din
+      // URL): pe un dispozitiv partajat, ospătarul care se loghează nu are voie
+      // să moștenească planul ales de altcineva (planIntent.ts).
+      const intentDest = planIntentDestination(user.email ?? null, window.location.search)
       if (intentDest) {
         replace(intentDest)
         return
@@ -682,11 +685,11 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <AuthPage
-          onSuccess={() => {
+          onSuccess={(email) => {
             // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
             // înapoi la pricing — onCheckout va detecta că e logat și va sări
             // la Stripe. Fără intent, mergem la dashboard ca până acum.
-            const intentDest = planIntentDestination()
+            const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
               afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')

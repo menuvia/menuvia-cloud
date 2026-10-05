@@ -86,13 +86,16 @@ import {
   authRedirectUrl,
   initialAuthMode,
   planFromSearch,
+  bindPlanIntentToEmail,
   readPlanIntent,
   writePlanIntent,
   type PlanIntentId,
 } from '../lib/planIntent'
 
 function readIntentFromUrlOrSession(): PlanIntentId | null {
-  return planFromSearch(window.location.search) ?? readPlanIntent()
+  // Vizitator neautentificat: doar intenția aleasă în ACEST tab (null = fără
+  // cont) — una legată de contul altcuiva nu are ce căuta în pill/link.
+  return planFromSearch(window.location.search) ?? readPlanIntent(null)
 }
 
 const UI_LANG_KEY = 'menuvia_ui_lang'
@@ -299,7 +302,12 @@ function CenteredCard({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
+export default function AuthPage({
+  onSuccess,
+}: {
+  /** `email` = contul tocmai autentificat; App îl folosește ca să onoreze doar intenția LUI. */
+  onSuccess: (email: string) => void
+}) {
   // Limba activă e citită SINCRON la mount (URL > localStorage) ca formularul
   // să apară din primul render în limba corectă, fără flash.
   const [lang] = useState<UiLang>(detectLang)
@@ -424,6 +432,10 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
       // profilul ar rămâne cu `terms_accepted_at` null, intenția ar fi deja
       // consumată, și i-am cere acceptarea unui om care tocmai a bifat.
       storePendingTermsConsent(email, TERMS_VERSION)
+      // Intenția de plan aleasă în acest tab devine a CONTULUI NOU: doar așa o
+      // poate onora tab-ul de confirmare a emailului, și doar pentru el
+      // (dispozitiv partajat — vezi `planIntent.ts`).
+      bindPlanIntentToEmail(email)
       // Telemetria funelului — zero PII (fără email/nume în properties).
       track('signup_completed', {
         email_confirmation_required: !data.session,
@@ -436,7 +448,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         setLoading(false)
         return
       }
-      onSuccess()
+      onSuccess(email)
       return
     }
 
@@ -446,6 +458,8 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
       setLoading(false)
       return
     }
+    // Leagă DOAR o intenție aleasă în acest tab (una a altui cont rămâne a lui).
+    bindPlanIntentToEmail(email)
 
     // MFA (mig 235): dacă contul are un factor TOTP verificat, sesiunea de
     // după parolă e doar aal1 — cerem codul înainte de onSuccess. Orice eroare
@@ -466,7 +480,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
     } catch {
       /* fallback: continuăm fără pasul MFA din UI */
     }
-    onSuccess()
+    onSuccess(email)
   }
 
   const handleMfaVerify = async (evt: React.FormEvent) => {
@@ -489,7 +503,7 @@ export default function AuthPage({ onSuccess }: { onSuccess: () => void }) {
         setLoading(false)
         return
       }
-      onSuccess()
+      onSuccess(email)
     } catch {
       setError(t.mfaInvalidCode)
       setLoading(false)

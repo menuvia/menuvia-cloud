@@ -134,7 +134,7 @@ describe('useCheckoutReturn', () => {
     expect(window.location.search).toBe('?lang=ro')
     expect(window.location.hash).toBe('#faq')
     // O intenție rămasă ar fi trimis omul înapoi în Stripe la următorul login.
-    expect(readPlanIntent()).toBeNull()
+    expect(readPlanIntent(null)).toBeNull()
   })
 
   it('CR7 fără parametru → idle, URL-ul și intenția NEATINSE (control pozitiv)', () => {
@@ -144,7 +144,7 @@ describe('useCheckoutReturn', () => {
     const { result } = setup({ hasUser: true, plan: 'free', refreshProfile })
     expect(result.current.status).toBe('idle')
     expect(window.location.search).toBe('?tab=home')
-    expect(readPlanIntent()).toBe('growth')
+    expect(readPlanIntent(null)).toBe('growth')
     act(() => {
       vi.advanceTimersByTime(CHECKOUT_POLL_MAX_MS)
     })
