@@ -457,7 +457,8 @@ declare
     'public.restaurants|trg_restaurants_owner_id_immutable',  -- mig 096b
     'public.profiles|trg_profiles_block_client_write',        -- mig 262
     'public.pending_receipts|trg_pending_receipts_block_client_repend', -- mig 270
-    'public.pending_receipts|trg_pending_receipts_block_delete'         -- mig 275
+    'public.pending_receipts|trg_pending_receipts_block_delete',        -- mig 275
+    'public.pending_receipts|trg_pending_receipts_block_client_update'  -- mig 287
   ];
 begin
   select count(*), string_agg(n.nspname || '.' || c.relname || '.' || t.tgname, ', ')
@@ -766,4 +767,46 @@ begin
   raise notice 'RP13 OK: % funcții de trigger, niciuna executabilă de roluri client', v_cnt;
 end$$;
 
-\echo '✅ REGIM DE PRIVILEGII INTACT (RP1-RP13 + RW1)'
+-- ═══════ RP14. Jurnalul fiscal + secretul Oblio (mig 287) ═══════════════════
+-- Clichet pe PRIVILEGII EFECTIVE: rolurile client nu scriu în jurnalul fiscal și
+-- nu citesc `oblio_configs.api_secret`. Ancora anti-vacuitate (RP3): privilegiile
+-- legitime EXISTĂ (SELECT+INSERT pe pending_receipts — BridgeTab/enqueue 259;
+-- SELECT pe coloanele ne-secrete + UPDATE pe api_secret), altfel o bază cu
+-- privilegiile șterse ar face verificările „X nu are drepturi" trivial adevărate.
+do $$
+declare v_role text; v_col text;
+begin
+  if not has_table_privilege('authenticated', 'public.pending_receipts', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.pending_receipts', 'INSERT')
+     or not has_column_privilege('authenticated', 'public.oblio_configs', 'company_name', 'SELECT')
+     or not has_column_privilege('authenticated', 'public.oblio_configs', 'api_secret', 'UPDATE') then
+    raise exception 'RP14 FAIL (ancoră anti-vacuitate): privilegiile legitime lipsesc (SELECT/INSERT pending_receipts, SELECT ne-secret + UPDATE api_secret pe oblio_configs)';
+  end if;
+  foreach v_role in array array['anon', 'authenticated'] loop
+    if has_table_privilege(v_role, 'public.pending_receipts', 'UPDATE') then
+      raise exception 'RP14 FAIL: % are UPDATE la nivel de tabel pe pending_receipts (SC-1)', v_role; end if;
+    foreach v_col in array array['payload', 'status', 'bon_number', 'error_info', 'claimed_at'] loop
+      if has_column_privilege(v_role, 'public.pending_receipts', v_col, 'UPDATE') then
+        raise exception 'RP14 FAIL: % are UPDATE pe pending_receipts.% (SC-1)', v_role, v_col; end if;
+    end loop;
+    if has_column_privilege(v_role, 'public.oblio_configs', 'api_secret', 'SELECT') then
+      raise exception 'RP14 FAIL: % poate citi oblio_configs.api_secret', v_role; end if;
+  end loop;
+  -- Grantul de SELECT e pe COLOANE (mig 287), iar default privileges la nivel de
+  -- tabel NU se aplică unei coloane adăugate ulterior pe o tabelă existentă: o
+  -- migrație care adaugă o coloană fără `grant select (col)` o face necitibilă,
+  -- iar select-ul cu listă explicită din client (OBLIO_CONFIG_COLUMNS) pică
+  -- ÎNTREG cu 42501 → configurația pare lipsă. Clichet: orice coloană în afară
+  -- de api_secret e citibilă de authenticated (recenzie CodeRabbit pe #282).
+  for v_col in
+    select a.attname from pg_attribute a
+     where a.attrelid = 'public.oblio_configs'::regclass
+       and a.attnum > 0 and not a.attisdropped and a.attname <> 'api_secret'
+  loop
+    if not has_column_privilege('authenticated', 'public.oblio_configs', v_col, 'SELECT') then
+      raise exception 'RP14 FAIL: oblio_configs.% nu e citibilă de authenticated — o coloană nouă cere `grant select (%) on public.oblio_configs to authenticated`', v_col, v_col; end if;
+  end loop;
+  raise notice 'RP14 OK: zero UPDATE client pe jurnalul fiscal, api_secret necitibil, privilegii legitime intacte';
+end$$;
+
+\echo '✅ REGIM DE PRIVILEGII INTACT (RP1-RP14 + RW1)'

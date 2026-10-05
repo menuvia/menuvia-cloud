@@ -166,6 +166,38 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
 
+      # Janitorul de comenzi (mig 288) pe stack-ul Supabase real: funcție NOUĂ,
+      # deci default privileges pot re-acorda EXECUTE (OJ8 cere zero grant) —
+      # sql-verify (postgres gol) e orb la clasa asta.
+      - name: Janitor comenzi pe stack-ul Supabase real (mig 288, OJ1–OJ9)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/order_janitors_assertions.sql
+
+      # Rezervări expirate (mig 289) pe stack-ul real: default privileges ale
+      # Supabase re-acordă EXECUTE pe funcții NOI (janitorul) — RX8 are muncă
+      # reală DOAR aici; sql-verify (postgres gol) e orb la clasa asta.
+      - name: Rezervări expirate pe stack-ul Supabase real (mig 289, RX1–RX8)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/reservations_expired_assertions.sql
+
+      # Accesul partenerului (mig 286) pe stack-ul real: default privileges ale
+      # Supabase pot acorda grant-uri pe funcții/tabele NOI; PO1–PO10 rulează sub
+      # rolul `authenticated` și prind orice drum prin care partenerul vede mai mult
+      # decât meniul + mesele/QR.
+      - name: Acces partener opt-in pe stack-ul Supabase real (mig 286, PO1–PO10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/partner_optin_assertions.sql
+
+      # Mig 287 pe stack-ul real: default privileges ale Supabase pot re-acorda
+      # privilegii pe tabele/funcții NOI; FL1–FL6 rulează sub `authenticated`.
+      - name: Jurnal fiscal + secret Oblio pe stack-ul Supabase real (mig 287, FL1–FL6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/fiscal_lockdown_assertions.sql
+
       # Egalitate exactă la încasare + gate-ul reducerii (mig 291): pe stack-ul
       # real, ca să vadă și grant-urile/default privileges ale Supabase.
       - name: Money exactness pe stack-ul Supabase real (mig 291, MX1–MX7)

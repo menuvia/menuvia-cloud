@@ -7,6 +7,7 @@ import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
 import { Icon } from './ui/Icon'
+import { confirm as confirmDialog } from './ui/confirm'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -18,6 +19,10 @@ function useElapsed(createdAt: string): string {
   }, [createdAt])
   return val
 }
+
+// Stările în care o comandă e încă deschisă (ne-terminală) — aceleași ca în
+// `advance_order` close_order (mig 270: new/confirmed/preparing/ready/served).
+const OPEN_STATUSES: readonly string[] = ['new', 'confirmed', 'preparing', 'ready', 'served']
 
 // STATUS_META — local display metadata for order status badges
 const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -589,6 +594,14 @@ interface OrderCardProps {
   // să arate „Plată integrală" pe growth sau „Închide comanda" pe Plan 3.
   paymentsEnabled?: boolean | null
   onCloseOrder?: (order: Order) => void
+  // „Închide masa": închide TOATE comenzile deschise ale sesiunii de masă
+  // (close_session_orders). Apare doar când comanda are `session_id` (QR);
+  // comenzile de ospătar n-au sesiune.
+  onCloseTable?: (order: Order) => void
+  // Câte runde NEservite (new/confirmed/preparing) are sesiunea mesei: la
+  // „Închide masa" serverul le ANULEAZĂ (mig 288), nu le închide. null /
+  // omis = necunoscut → dialogul folosește textul generic.
+  sessionUnservedCount?: number | null
 }
 
 function OrderCardInner({
@@ -600,9 +613,56 @@ function OrderCardInner({
   onAudit,
   paymentsEnabled = null,
   onCloseOrder,
+  onCloseTable,
+  sessionUnservedCount = null,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
+  // Plan 1/2: comanda se poate închide din ORICE stare ne-terminală (serverul
+  // acceptă close_order din new/confirmed/preparing/ready/served). Înainte
+  // exista doar din `served`, deci o comandă uitată în `new` rămânea agățată.
+  const isOpen = OPEN_STATUSES.includes(order.status)
+  const canCloseNonFiscal = paymentsEnabled === false && isOpen
+  const isServed = order.status === 'served'
+
+  async function handleCloseClick(): Promise<void> {
+    if (!onCloseOrder) return
+    // Din `served` comanda e livrată — închiderea e pasul normal, fără întrebare.
+    // Din celelalte stări comanda NU a fost servită, iar `closed` acordă puncte
+    // de loialitate și scade stocul: cerem confirmare și arătăm ieșirea corectă
+    // pentru o comandă care n-a mai fost onorată (Anulează).
+    if (!isServed) {
+      const ok = await confirmDialog({
+        title: 'Închizi comanda înainte să fie servită?',
+        description:
+          'Comanda se marchează ca finalizată (se scade stocul și se acordă puncte de loialitate). Dacă n-a mai fost onorată, folosește „Anulează".',
+        confirmLabel: 'Închide comanda',
+      })
+      if (!ok) return
+    }
+    onCloseOrder(order)
+  }
+
+  async function handleCloseTableClick(): Promise<void> {
+    if (!onCloseTable) return
+    // Serverul (mig 288) închide rundele servite și ANULEAZĂ rundele neservite
+    // (fără puncte de loialitate, fără scădere de stoc) — dialogul o spune.
+    const unserved = sessionUnservedCount
+    const cancelNote =
+      unserved == null
+        ? 'Comenzile servite se închid; cele încă neservite (noi sau în preparare) se anulează.'
+        : unserved === 0
+          ? 'Se închid toate comenzile deschise ale acestei mese și sesiunea ei.'
+          : unserved === 1
+            ? 'Comenzile servite se închid; 1 rundă neservită (nouă sau în preparare) va fi ANULATĂ.'
+            : `Comenzile servite se închid; ${unserved} runde neservite (noi sau în preparare) vor fi ANULATE.`
+    const ok = await confirmDialog({
+      title: 'Închizi masa?',
+      description: `${cancelNote} Plata și bonul se fac pe casa de marcat a localului.`,
+      confirmLabel: 'Închide masa',
+    })
+    if (ok) onCloseTable(order)
+  }
 
   return (
     <div
@@ -840,30 +900,58 @@ function OrderCardInner({
           </button>
         </div>
       )}
-      {order.status === 'served' && paymentsEnabled === false && onCloseOrder && (
+      {canCloseNonFiscal && onCloseOrder && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
-            onClick={() => onCloseOrder(order)}
+            onClick={() => void handleCloseClick()}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,
-              background: D.green,
-              color: '#fff',
-              border: 'none',
+              // `served` = pasul normal (verde, plin); celelalte stări = ieșire
+              // de avarie, contur discret ca să nu concureze cu fluxul de bucătărie.
+              background: isServed ? D.green : 'transparent',
+              color: isServed ? '#fff' : D.t2,
+              border: isServed ? 'none' : `1px solid ${D.border}`,
               borderRadius: 8,
-              padding: '12px 0',
+              padding: isServed ? '12px 0' : '10px 0',
+              minHeight: 44,
               fontFamily: 'DM Sans, sans-serif',
               fontSize: 14,
-              fontWeight: 700,
+              fontWeight: isServed ? 700 : 600,
               cursor: 'pointer',
               width: '100%',
             }}
           >
-            <Icon name="check" size={15} color="#fff" />
+            <Icon name="check" size={15} color={isServed ? '#fff' : D.t2} />
             Închide comanda
           </button>
+          {onCloseTable && order.session_id != null && (
+            <button
+              onClick={() => void handleCloseTableClick()}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                background: 'transparent',
+                color: D.t2,
+                border: `1px solid ${D.border}`,
+                borderRadius: 8,
+                padding: '10px 0',
+                minHeight: 44,
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                width: '100%',
+              }}
+            >
+              <Icon name="table" size={14} color={D.t2} />
+              Închide masa
+            </button>
+          )}
           <div style={{ color: D.t3, fontSize: 11, textAlign: 'center' }}>
             Plata și bonul se fac pe casa de marcat existentă
           </div>
