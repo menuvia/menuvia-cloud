@@ -441,19 +441,20 @@ begin
      and l.hold_until > now()
      and l.currency = 'RON';
 
-  -- Angajat = EXACT predicatul din run_affiliate_payout_batch (190): în zbor
-  -- sau decontat; eliberate doar canceled și failed FĂRĂ transfer.
+  -- Angajat = EXACT predicatul din run_affiliate_payout_batch (190→294): în zbor
+  -- sau decontat; eliberate doar canceled și failed FĂRĂ referință (Wise SAU
+  -- bancară, mig 294 — altfel un virament eșuat ar apărea „disponibil”).
   select coalesce(sum(gross_cents), 0) into v_committed
     from public.affiliate_payouts
    where affiliate_id = v_aff.id and currency = 'RON'
      and (status in ('draft','awaiting_invoice','invoice_matched','processing','paid','on_hold')
-          or (status = 'failed' and wise_transfer_id is not null));
+          or (status = 'failed' and (wise_transfer_id is not null or payment_reference is not null)));
 
   select coalesce(sum(gross_cents), 0) into v_in_progress
     from public.affiliate_payouts
    where affiliate_id = v_aff.id and currency = 'RON'
      and (status in ('draft','awaiting_invoice','invoice_matched','processing','on_hold')
-          or (status = 'failed' and wise_transfer_id is not null));
+          or (status = 'failed' and (wise_transfer_id is not null or payment_reference is not null)));
 
   -- Următoarea rulare REALĂ a batch-ului: oglinda Job 3b din automation-cron.js
   -- (zilele 1–2 ale lunii, ora < 06:00 București, o singură rulare pe perioadă

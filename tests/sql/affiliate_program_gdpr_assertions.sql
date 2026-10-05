@@ -256,6 +256,27 @@ begin
   raise notice 'AP6 OK: panou net (clawback in hold scazut, stornat integral exclus, draft scazut din disponibil)';
 end $$;
 
+-- ── AP6b: un payout `failed` cu referință BANCARĂ (fără Wise) rămâne angajat ──
+-- Paritate cu run_affiliate_payout_batch din mig 294: banii unui virament eșuat
+-- pot fi deja plecați, deci nu au voie să reapară ca „disponibili”.
+insert into public.affiliate_payouts (affiliate_id, period_month, currency, gross_cents, status, payment_method, payment_reference)
+values ('9a100000-0000-4000-8000-0000000000a2'::uuid, date_trunc('month', now() - interval '4 months')::date,
+        'RON', 300, 'failed', 'bank_transfer', 'RF-AP6B-1');
+do $$
+declare e jsonb;
+begin
+  perform set_config('request.jwt.claim.sub', '9a000000-0000-4000-8000-0000000000a2', true);
+  perform set_config('role', 'authenticated', true);
+  e := public.get_affiliate_dashboard()->'earnings';
+  perform set_config('role', 'none', true);
+  if (e->>'in_progress_cents')::bigint is distinct from 700
+     or (e->>'available_cents')::bigint is distinct from 300 then
+    raise exception 'AP6b FAIL: in curs=% disponibil=% (asteptat 700 / 1000-700=300: failed cu referinta bancara e angajat, ca in batch-ul 294)',
+      e->>'in_progress_cents', e->>'available_cents';
+  end if;
+  raise notice 'AP6b OK: failed cu referinta bancara ramane angajat (paritate cu batch-ul 294)';
+end $$;
+
 -- ── AP7: resolve_referral_code (anon) ──────────────────────────────────────
 do $$
 declare v1 jsonb; v2 jsonb; v3 jsonb; v4 jsonb;
