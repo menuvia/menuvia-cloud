@@ -237,6 +237,38 @@ describe('table-payment: supersede (un singur intent live per sesiune, mig 211)'
     assert.equal(res.statusCode, 200)
   })
 
+  it('BF-1: intent FAILED al altui telefon (încă confirmabil) → cancel pe contul conectat, settle canceled, apoi intent nou', async () => {
+    // begin (mig 292) îl întoarce acum în superseded_intents; la Stripe PaymentIntent-ul
+    // unei încercări eșuate e `requires_payment_method` — deci anulabil.
+    scriptBegin({ superseded_intents: [INTENT_OLD] })
+    state.rpcHandlers.settle_table_payment = () => ({ data: null, error: null })
+    state.rpcHandlers.attach_payment_intent = () => ({ data: null, error: null })
+    state.stripeImpls['paymentIntents.cancel'] = async () => ({ id: INTENT_OLD, status: 'canceled' })
+    state.stripeImpls['paymentIntents.create'] = async () => ({ id: 'pi_new_bf1', client_secret: 'cs_bf1' })
+    const res = await handler(post({ token: 't', session_id: SESSION }))
+    assert.equal(res.statusCode, 200)
+    const cancel = stripeCallsFor('paymentIntents.cancel')[0]
+    assert.equal(cancel.args[0], INTENT_OLD)
+    // stripe-node ≥ 22: stripeAccount în slotul de OPTIONS (al treilea), nu în params.
+    assert.equal(cancel.args[1], undefined)
+    assert.equal(cancel.args[2].stripeAccount, 'acct_1')
+    assert.equal(rpcCallsFor('settle_table_payment')[0].args.p_outcome, 'canceled')
+    assert.equal(stripeCallsFor('paymentIntents.create').length, 1)
+  })
+
+  it('BF-1: intentul FAILED al lui A a REUȘIT între timp la Stripe (cancel refuzat, succeeded) → 409, fără intent nou', async () => {
+    scriptBegin({ superseded_intents: [INTENT_OLD] })
+    state.stripeImpls['paymentIntents.cancel'] = async () => {
+      const e = new Error('cannot cancel a succeeded intent')
+      e.payment_intent = { status: 'succeeded' }
+      throw e
+    }
+    state.rpcHandlers.cancel_table_payment = () => ({ data: { canceled: true }, error: null })
+    const res = await handler(post({ token: 't', session_id: SESSION }))
+    assert.equal(res.statusCode, 409)
+    assert.equal(stripeCallsFor('paymentIntents.create').length, 0)
+  })
+
   it('intent vechi NE-dovedit mort (processing / eroare rețea) → 409 nothing_to_pay, fără intent nou', async () => {
     scriptBegin({ superseded_intents: [INTENT_OLD] })
     state.stripeImpls['paymentIntents.cancel'] = async () => {

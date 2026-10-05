@@ -103,6 +103,44 @@ describe('PayModal — hint-urile serverului și pre-flight-ul de sumă', () => 
     expect(onConfirm).toHaveBeenCalledWith('cash', 100, 0)
   })
 
+  it('mig 291: egalitate EXACTĂ pe cenți — 99.99 și 100.01 pe un rest de 100 declanșează preflight-ul (înainte: toleranța ±0,01 tăcea)', () => {
+    renderModal(vi.fn().mockResolvedValue({ ok: true }))
+    const input = screen.getByRole('spinbutton')
+    fireEvent.change(input, { target: { value: '99.99' } })
+    expect(screen.getByRole('status')).toHaveTextContent(/sub restul de plată/i)
+    fireEvent.change(input, { target: { value: '100.01' } })
+    expect(screen.getByRole('status')).toHaveTextContent(/depășește restul/i)
+    // Control pozitiv: suma exactă nu avertizează.
+    fireEvent.change(input, { target: { value: '100.00' } })
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('mig 291 (BF-7): cu plăți parțiale NU există buton de reducere (serverul o refuză), ci un mesaj; fără plăți butonul apare', () => {
+    const { unmount } = render(
+      <PayModal
+        order={makeOrder({ status: 'served', total: 100 })}
+        alreadyPaid={40}
+        onConfirm={vi.fn() as never}
+        onClose={() => {}}
+        onDiscountClick={() => {}}
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /aplică reducere/i })).toBeNull()
+    expect(screen.getByRole('note')).toHaveTextContent(/plăți înregistrate/i)
+    unmount()
+    render(
+      <PayModal
+        order={makeOrder({ status: 'served', total: 100 })}
+        alreadyPaid={0}
+        onConfirm={vi.fn() as never}
+        onClose={() => {}}
+        onDiscountClick={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /aplică reducere/i })).toBeEnabled()
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
   it('succes → fără alertă (părintele demontează modalul)', async () => {
     renderModal(vi.fn().mockResolvedValue({ ok: true }))
     await userEvent.click(screen.getByRole('button', { name: /confirmă plata/i }))

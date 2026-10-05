@@ -108,18 +108,24 @@ function PayModal({
   const parsedAmount = parseFloat(amount)
   const amountValid = amountBlank || (Number.isFinite(parsedAmount) && parsedAmount > 0)
   const handed = amountBlank || !amountValid ? grandTotal : parsedAmount
-  const netOnBill = Math.round((handed - tipsAmount) * 100) / 100
-  const overBy = Math.round((netOnBill - orderTotal) * 100) / 100
+  // Egalitate EXACTĂ pe cenți (mig 291, BF-3): serverul a renunțat la toleranța
+  // ±0,01 — 49,99 peste un parțial de 50,00 ar lăsa comanda `paid` cu 99,99 și
+  // bon imposibil de emis. Comparăm în cenți întregi, ca preflight-ul să nu
+  // tacă pe o diferență de 0,01 pe care serverul o refuză.
+  const netCents = Math.round((handed - tipsAmount) * 100)
+  const restCents = Math.round(orderTotal * 100)
+  const netOnBill = netCents / 100
+  const overBy = (netCents - restCents) / 100
   // Supra-încasarea NU se transformă singură în bacșiș (advance_order o respinge
   // cu `overpayment`); textul spune exact asta și oferă mutarea explicită.
   const preflight: string | null = !amountValid
     ? 'Suma încasată nu e un număr valid (trebuie să fie mai mare ca 0).'
-    : netOnBill < orderTotal - 0.01
+    : netCents < restCents
       ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) e sub restul de plată (${orderTotal.toFixed(2)}). Pentru încasare în tranșe folosește „Plată parțială".`
-      : overBy > 0.01
+      : netCents > restCents
         ? `Suma pe notă (${netOnBill.toFixed(2)} fără bacșiș) depășește restul (${orderTotal.toFixed(2)}) — serverul va respinge plata. Dacă diferența e bacșiș, trece-o la Bacșiș.`
         : null
-  const canMoveOverToTips = amountValid && overBy > 0.01
+  const canMoveOverToTips = amountValid && netCents > restCents
   /** Mută diferența peste rest în bacșiș: suma înmânată rămâne, nota ajunge exact la rest. */
   function moveOverToTips(): void {
     setTipsMode('custom')
@@ -275,7 +281,17 @@ function PayModal({
             </div>
           )}
 
-          {onDiscountClick && (
+          {/* mig 291 (BF-7): cu bani deja încasați, serverul refuză orice reducere
+              (`discount_over_payments`) — nu oferim un buton care știm că pică. */}
+          {onDiscountClick && alreadyPaid > 0 && (
+            <div
+              role="note"
+              style={{ marginTop: 8, fontSize: 12, color: D.t2, fontFamily: 'DM Sans, sans-serif' }}
+            >
+              Reducerea nu se mai poate modifica: comanda are deja plăți înregistrate.
+            </div>
+          )}
+          {onDiscountClick && alreadyPaid <= 0 && (
             <button
               onClick={onDiscountClick}
               style={{
@@ -304,7 +320,7 @@ function PayModal({
         </div>
 
         {/* Happy Hour suggestion (only shown if no discount already applied) */}
-        {happyHourSuggestion != null && !hasDiscount && onApplyHappyHour && (
+        {happyHourSuggestion != null && !hasDiscount && alreadyPaid <= 0 && onApplyHappyHour && (
           <div
             style={{
               background: 'linear-gradient(135deg, rgba(200,150,60,0.15), rgba(200,150,60,0.08))',
