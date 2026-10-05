@@ -39,6 +39,12 @@ insert into public.profiles (id, email) values
   ('00000000-0000-0000-0000-0000000000e4','00e4@aff.test')
   on conflict (id) do nothing;
 
+-- mig 295: programul e ÎNCHIS implicit (affiliate_program_open = false);
+-- suita testează fluxul de cerere + aprobare, deci îl deschide aici (poarta
+-- însăși e acoperită de AP1–AP4 în affiliate_program_gdpr_assertions.sql).
+insert into public.platform_settings (key, value) values ('affiliate_program_open', 'true'::jsonb)
+on conflict (key) do update set value = 'true'::jsonb;
+
 -- ── RD1: register_affiliate fără auth → insufficient_privilege ───────────────
 do $$
 declare v_raised boolean := false;
