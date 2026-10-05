@@ -240,7 +240,7 @@ export const PLAN_COMPARISON: PlanComparisonRow[] = [
 export const TRUST_SIGNALS = [
   { icon: '🎁', label: '30 zile gratuite', desc: 'Anulezi cu un click, fără penalizări.' },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
-  { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu Radu, fondatorul.' },
+  { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu echipa Menuvia.' },
   {
     icon: '🏪',
     label: 'Plătești per restaurant',

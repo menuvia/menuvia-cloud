@@ -56,7 +56,7 @@ export const TRIAL_FAQ = {
 export const PILOT_BANNER = {
   title: `Program Pilot — ${PILOT_DAYS} de zile gratis, în loc de ${TRIAL_DAYS}`,
   body:
-    `Primii 10 patroni primesc setup personal cu Radu și ${PILOT_DAYS} de zile gratuite pe ` +
+    `Primii 10 patroni primesc setup personal și ${PILOT_DAYS} de zile gratuite pe ` +
     'Meniu + Comenzi, în locul trialului obișnuit. Locurile sunt limitate.',
 }
 

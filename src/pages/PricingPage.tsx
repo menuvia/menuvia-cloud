@@ -207,7 +207,7 @@ export default function PricingPage({
     ctaFn: () => {
       if (p.id === 'pro') {
         // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
-        const url = whatsappUrl('Salut Radu, mă interesează planul Fiscalizare (pilot)')
+        const url = whatsappUrl('Salut, mă interesează planul Fiscalizare (pilot)')
         if (url) {
           window.open(url, '_blank', 'noopener')
           return
@@ -229,7 +229,7 @@ export default function PricingPage({
       icon: <Icon name="settings" size={26} color={MKT.accent} />,
       title: 'Setup Concierge',
       price: '300 lei',
-      desc: 'Vine Radu personal: configurare restaurant, meniu, QR, training echipă. O zi.',
+      desc: 'Vine cineva din echipă la tine: configurare restaurant, meniu, QR, training echipă. O zi.',
     },
     {
       icon: <Icon name="camera" size={26} color={MKT.accent} />,
@@ -293,7 +293,7 @@ export default function PricingPage({
     },
     {
       q: 'Sunteți pe piață de mult?',
-      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct WhatsApp cu Radu, fondatorul.',
+      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct pe WhatsApp cu echipa Menuvia.',
     },
   ]
 
@@ -433,7 +433,7 @@ export default function PricingPage({
             </div>
           </div>
           {(() => {
-            const url = whatsappUrl('Salut Radu, m-ar interesa programul pilot Menuvia')
+            const url = whatsappUrl('Salut, m-ar interesa programul pilot Menuvia')
             if (!url) return null
             return (
               <button
@@ -452,7 +452,7 @@ export default function PricingPage({
                   whiteSpace: 'nowrap',
                 }}
               >
-                Vorbește cu Radu →
+                Vorbește cu noi →
               </button>
             )
           })()}
@@ -502,7 +502,7 @@ export default function PricingPage({
             )}
             {checkoutError.action === 'contact' &&
               (() => {
-                const url = whatsappUrl('Salut Radu, vreau să activez un plan Menuvia')
+                const url = whatsappUrl('Salut, vreau să activez un plan Menuvia')
                 if (!url) return null
                 return (
                   <button
@@ -935,7 +935,7 @@ export default function PricingPage({
 
         {/* Custom / Enterprise inquiry */}
         {(() => {
-          const url = whatsappUrl('Salut Radu, avem 3+ locații și am vrea o ofertă custom')
+          const url = whatsappUrl('Salut, avem 3+ locații și am vrea o ofertă custom')
           if (!url) return null
           return (
             <div
