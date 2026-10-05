@@ -603,4 +603,64 @@ begin
   end if;
 end $$;
 
+-- ═══════════════════════════════════════════════════════════════════════════
+-- §3. resolve_referral_code — cod canonic din cod SAU vanity_slug
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Clientul (src/lib/affiliate.ts) îl cheamă la captura `/r/:x` sau `?ref=x` și
+-- stochează în cookie codul CANONIC întors; touch-ul și atribuirea primesc
+-- apoi codul canonic, deci 097c/100/108 rămân neatinse.
+create or replace function public.resolve_referral_code(p_code text)
+returns jsonb
+language plpgsql security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_in   text := lower(btrim(coalesce(p_code, '')));
+  v_code text;
+begin
+  -- Forma cea mai largă acceptată (vanity 097: ^[a-z0-9-]{2,40}$); orice
+  -- altceva nu poate potrivi nimic → răspuns fără căutare.
+  if v_in !~ '^[a-z0-9-]{2,40}$' then
+    return jsonb_build_object('referral_code', null);
+  end if;
+
+  -- Plafon GLOBAL anti-enumerare (fără IP în RPC), ca preview_referral 261.
+  -- Peste plafon: „necunoscut" + marker, nu eroare (clientul cade pe codul brut).
+  if not public.check_rate_limit('resolve_referral_code', 'all', 600, 15) then
+    return jsonb_build_object('referral_code', null, 'rate_limited', true);
+  end if;
+
+  -- Doar afiliați ACTIVI (filtrele status='active' nu se slăbesc). Codul exact
+  -- are prioritate față de un vanity cu aceeași formă.
+  select a.referral_code into v_code
+    from public.affiliates a
+   where a.status = 'active'
+     and (a.referral_code = v_in or a.vanity_slug = v_in)
+   order by (a.referral_code = v_in) desc
+   limit 1;
+
+  return jsonb_build_object('referral_code', v_code);
+end;
+$$;
+
+revoke all on function public.resolve_referral_code(text)
+  from public, anon, authenticated, service_role;
+grant execute on function public.resolve_referral_code(text) to anon, authenticated;
+
+comment on function public.resolve_referral_code(text) is
+  'mig 295: cod de referral CANONIC dintr-un cod sau vanity_slug, doar afiliați activi. Anon, plafon global 600/15 min.';
+
+do $$
+declare v_src text;
+begin
+  v_src := pg_get_functiondef('public.resolve_referral_code(text)'::regprocedure);
+  if position('status = ''active''' in v_src) = 0 or position('check_rate_limit' in v_src) = 0
+     or position('vanity_slug' in v_src) = 0 then
+    raise exception 'mig 295: resolve_referral_code fără filtru active / rate-limit / vanity';
+  end if;
+  if not has_function_privilege('anon', 'public.resolve_referral_code(text)', 'EXECUTE') then
+    raise exception 'mig 295: anon nu poate rezolva codul de referral';
+  end if;
+end $$;
+
 commit;

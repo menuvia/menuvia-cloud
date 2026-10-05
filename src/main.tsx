@@ -9,8 +9,8 @@ import './styles/tokens.css'
 import './styles/global.css'
 import './styles/animations.css'
 
-// Captură referral DE AFILIERE înainte de orice randare: dacă URL-ul e
-// `/r/:cod`, salvăm codul în cookie și rescriem la `/`. Trebuie să ruleze
+// Captură referral DE AFILIERE înainte de orice randare: `/r/:cod` (rescris la
+// `/`) sau `?ref=cod` pe orice rută (destinația se păstrează). Trebuie să ruleze
 // înaintea router-ului (parsePath) ca să nu cadă pe ruta `notfound`.
 captureReferralFromUrl()
 
