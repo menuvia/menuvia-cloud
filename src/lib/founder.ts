@@ -146,6 +146,30 @@ export interface AdminPayoutRow {
   failure_reason: string | null
   paid_at: string | null
   created_at: string
+  // mig 294: ciclul de plată + profilul de plată (doar fondatorul îl primește).
+  // Opționale: o bază fără 294 nu le întoarce (deploy înaintea migrației).
+  period_month?: string
+  invoice_matched_at?: string | null
+  payment_method?: PayoutPaymentMethod | null
+  payment_reference?: string | null
+  updated_at?: string
+  payee_name?: string | null
+  payee_legal_form?: string | null
+  payee_cui?: string | null
+  payee_iban?: string | null
+  payee_profile_updated_at?: string | null
+}
+
+// mig 294: referința bancară generică (Wise e doar una dintre metode).
+export type PayoutPaymentMethod = 'wise' | 'bank_transfer' | 'other'
+
+export interface AdminPayoutBatchResult {
+  ok: boolean
+  reason?: string
+  error?: string
+  created?: number
+  skipped?: number
+  errors?: unknown[]
 }
 
 export interface AdminAffiliateRestaurant {
@@ -244,11 +268,54 @@ export function listPayouts(): Promise<AdminPayoutRow[]> {
   return rpcJson<AdminPayoutRow[]>('admin_list_payouts')
 }
 
-export function markPayoutPaid(id: string, wiseTransferId?: string): Promise<AdminActionResult> {
+// ── Tranzițiile payout-ului (mig 294) ──────────────────────────
+// Fiecare întoarce {ok:false, reason, error} pe refuz de business; un
+// non-fondator primește excepție (42501) → rpcJson aruncă.
+export function markPayoutPaid(id: string, paymentReference?: string): Promise<AdminActionResult> {
   return rpcJson<AdminActionResult>('admin_mark_payout_paid', {
     p_id: id,
-    p_wise_transfer_id: wiseTransferId ?? null,
+    p_payment_reference: paymentReference ?? null,
   })
+}
+
+export function requestPayoutInvoice(id: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_request_invoice', { p_id: id })
+}
+
+export function matchPayoutInvoice(id: string, invoiceNumber: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_match_invoice', {
+    p_id: id,
+    p_invoice_number: invoiceNumber,
+  })
+}
+
+export function startPayoutTransfer(
+  id: string,
+  method: PayoutPaymentMethod,
+  reference: string,
+): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_start_transfer', {
+    p_id: id,
+    p_payment_method: method,
+    p_payment_reference: reference,
+  })
+}
+
+export function holdPayout(id: string, reason: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_hold', { p_id: id, p_reason: reason })
+}
+
+export function failPayout(id: string, reason: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_mark_failed', { p_id: id, p_reason: reason })
+}
+
+export function cancelPayout(id: string, reason: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_cancel', { p_id: id, p_reason: reason })
+}
+
+// periodMonth = 'YYYY-MM-01' (prima zi a lunii, ora României).
+export function runPayoutBatch(periodMonth: string): Promise<AdminPayoutBatchResult> {
+  return rpcJson<AdminPayoutBatchResult>('admin_run_payout_batch', { p_period_month: periodMonth })
 }
 
 export function listAffiliates(): Promise<AdminAffiliateRow[]> {
