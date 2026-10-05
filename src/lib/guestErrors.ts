@@ -82,7 +82,14 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /pickup time too far/i, key: 'err_pickup_too_far' },
   { re: /valid customer_phone/i, key: 'phone_invalid' },
   { re: /overlap|exclusion|se suprapune/i, key: 'err_reservation_overlap' },
+  // create_reservation_public (mig 273) — mesaje fără hint
   { re: /nu acceptă rezervări|open_days/i, key: 'err_reservation_day_closed' },
+  { re: /rezervările nu sunt activate/i, key: 'err_reservations_off' },
+  { re: /în afara programului/i, key: 'err_reservation_outside_hours' },
+  { re: /numărul maxim de persoane/i, key: 'err_party_too_large' },
+  { re: /cu minim .* ore înainte/i, key: 'err_reservation_too_soon' },
+  { re: /cu maxim .* zile înainte/i, key: 'err_reservation_too_far' },
+  { re: /restaurantul nu a fost găsit/i, key: 'err_restaurant_not_found' },
   { re: /rate.?limit|too many|prea multe/i, key: 'err_rate_limit_order' },
 ]
 

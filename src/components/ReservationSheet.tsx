@@ -7,6 +7,8 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
 import { supabase } from '../lib/supabase'
 import { T } from '../lib/publicMenuStrings'
+import { Tf, guestLocale } from '../lib/guestI18n'
+import { describeGuestError, guestErrorKey } from '../lib/guestErrors'
 import type { Restaurant } from '../lib/qr'
 import {
   fetchPublicFloorPlan,
@@ -194,7 +196,7 @@ function instantParts(iso: string, timeZone: string): { ymd: string; hm: string 
 function formatDateRo(dateYmd: string, lang: string): string {
   const [y, mo, d] = dateYmd.split('-').map(Number)
   const dt = new Date(y!, mo! - 1, d!)
-  return dt.toLocaleDateString(lang === 'ro' ? 'ro-RO' : 'en-GB', {
+  return dt.toLocaleDateString(guestLocale(lang), {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
@@ -291,7 +293,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         new Set(
           ((tz ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
         ),
-      ).sort((a, b) => a.localeCompare(b, lang === 'ro' ? 'ro' : 'en'))
+      ).sort((a, b) => a.localeCompare(b, guestLocale(lang)))
       setZones(uniq)
     }
     void load()
@@ -423,20 +425,20 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const submit = useCallback(async () => {
     setError(null)
     if (!chosenDateYmd) {
-      setError(lang === 'ro' ? 'Alege data' : 'Choose date')
+      setError(T(lang, 'rs_choose_date'))
       return
     }
     if (!timeSlot) {
-      setError(lang === 'ro' ? 'Alege ora' : 'Choose time')
+      setError(T(lang, 'rs_choose_time'))
       return
     }
     if (!settings) return
     if (name.trim().length === 0) {
-      setError(lang === 'ro' ? 'Numele este obligatoriu' : 'Name is required')
+      setError(T(lang, 'rs_name_required'))
       return
     }
     if (phone.trim().length === 0) {
-      setError(lang === 'ro' ? 'Telefonul este obligatoriu' : 'Phone is required')
+      setError(T(lang, 'rs_phone_required'))
       return
     }
     // PH-4: E.164 cu prefixul VIZIBIL ales. Forma națională a unui număr străin
@@ -448,13 +450,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     }
     // Email opțional, dar dacă e completat trebuie să fie valid (altfel se stoca orice string).
     if (email.trim().length > 0 && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
-      setError(lang === 'ro' ? 'Email invalid' : 'Invalid email')
+      setError(T(lang, 'rs_email_invalid'))
       return
     }
     // `slug` e opțional pe tipul Restaurant; fără el nu există RPC de rezervare.
     const slug = restaurant.slug
     if (!slug) {
-      setError(lang === 'ro' ? 'Rezervările nu sunt disponibile aici.' : 'Reservations are unavailable here.')
+      setError(T(lang, 'rs_unavailable_here'))
       return
     }
     setSubmitting(true)
@@ -493,50 +495,21 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       // mesajele sunt în română, se pot reformula sau traduce, iar o potrivire
       // care depinde doar de ele se rupe tăcut și cade pe mesajul generic.
       // `createReservationPublic` păstrează `hint`/`code` pe Error tocmai pentru asta.
-      const e = err as Error & { hint?: string; code?: string }
-      const m = [e.message || '', e.hint || ''].join(' ')
+      // Contextul rezervării: plafonul anti-abuz și modulul oprit au textul lor.
+      const opts = {
+        fallback: 'err_reservation_failed',
+        overrides: {
+          err_rate_limit_order: 'err_rate_limit_reservation',
+          err_module_disabled: 'err_reservations_off',
+        },
+      } as const
       // Masa aleasă tocmai a fost luată de altcineva (hint `table_unavailable`).
       // Reîncărcăm disponibilitatea și deselectăm, ca clientul să aleagă alta.
-      if (/table_unavailable/i.test(m)) {
+      if (guestErrorKey(err, opts) === 'err_table_unavailable') {
         setSelectedTableId(null)
         void reloadAvailability()
-        setError(
-          lang === 'ro'
-            ? 'Masa tocmai a fost rezervată. Alege altă masă liberă.'
-            : 'That table was just booked. Please pick another free table.',
-        )
-        return
       }
-      // Precedență fixă: overlap → rate-limit → modul dezactivat → fallback.
-      let friendly: string
-      if (/overlap|exclusion/i.test(m)) {
-        friendly =
-          lang === 'ro'
-            ? 'Intervalul ales se suprapune cu altă rezervare. Alege altă oră.'
-            : 'That time overlaps another reservation. Pick another slot.'
-      } else if (/rate.?limit|prea multe|too many/i.test(m)) {
-        friendly =
-          lang === 'ro'
-            ? 'Prea multe rezervări într-un interval scurt. Reîncearcă mai târziu.'
-            : 'Too many reservations in a short time. Try again later.'
-      } else if (/module|not activ|dezactiv|disabled/i.test(m)) {
-        friendly =
-          lang === 'ro'
-            ? 'Rezervările nu sunt active pentru acest restaurant.'
-            : 'Reservations are not enabled for this restaurant.'
-      } else if (/nu acceptă rezervări|această zi|closed|închis|open_days/i.test(m)) {
-        // Ziua aleasă e închisă (RPC mig 201) — mesaj clar, nu fallback-ul generic.
-        friendly =
-          lang === 'ro'
-            ? 'Restaurantul e închis în ziua aleasă. Alege altă zi.'
-            : 'The restaurant is closed on the selected day. Pick another day.'
-      } else {
-        friendly =
-          lang === 'ro'
-            ? 'Nu am putut salva rezervarea. Verifică datele și reîncearcă.'
-            : 'Could not save the reservation. Check the details and try again.'
-      }
-      setError(friendly)
+      setError(describeGuestError(lang, err, opts))
       return
     }
     setSubmitting(false)
@@ -551,11 +524,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     // rezervare primită. Cheia tocmai s-a rotit, deci o retrimitere chiar creează
     // una nouă — fără rotire, clientul ar rămâne blocat pe rândul mort.
     if (isTerminalReservation(row.status)) {
-      setError(
-        lang === 'ro'
-          ? 'Rezervarea făcută anterior din această cerere a fost anulată. Trimite din nou pentru a face una nouă.'
-          : 'The reservation from this request was cancelled. Submit again to make a new one.',
-      )
+      setError(T(lang, 'rs_previous_cancelled'))
       return
     }
     setResult(row)
@@ -675,13 +644,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             </div>
             <div style={{ fontSize: 13, color: PUB.text2 }}>
               {result.party_size}{' '}
-              {lang === 'ro'
-                ? result.party_size === 1
-                  ? 'persoană'
-                  : 'persoane'
-                : result.party_size === 1
-                  ? 'person'
-                  : 'people'}
+              {result.party_size === 1 ? T(lang, 'rs_person_one') : T(lang, 'rs_person_many')}
               {result.table_name ? ' · ' + result.table_name : ''}
             </div>
           </div>
@@ -702,12 +665,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               clientul să anuleze în 2 tap-uri (anti no-show din audit). */}
           {restaurant.slug && (
             <div style={{ fontSize: 12, color: PUB.text3, marginBottom: 22 }}>
-              {lang === 'ro' ? 'Nu mai poți ajunge? ' : 'Cannot make it? '}
+              {T(lang, 'rs_cannot_make_it')}{' '}
               <a
                 href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
                 style={{ color: accent, textDecoration: 'underline' }}
               >
-                {lang === 'ro' ? 'Anulează online cu acest cod' : 'Cancel online with this code'}
+                {T(lang, 'rs_cancel_online')}
               </a>
             </div>
           )}
@@ -982,7 +945,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                     cursor: 'default',
                   }}
                 >
-                  {`Masa ${selectedTable.name}`}
+                  {Tf(lang, 'floor_table', { name: selectedTable.name })}
                   {selectedTable.seats != null
                     ? ` · ${selectedTable.seats} ${T(lang, 'reserve_seats_word')}`
                     : ''}
@@ -1021,9 +984,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 onSelectTable={(id) => setSelectedTableId(id)}
                 onOccupiedTap={(tblLabel) =>
                   setOccupiedMsg(
-                    lang === 'ro'
-                      ? `Masa ${tblLabel} e deja rezervată la ora aleasă.`
-                      : `Table ${tblLabel} is already booked at the selected time.`,
+                    Tf(lang, 'rs_table_taken', { name: tblLabel }),
                   )
                 }
                 accent={accent}
@@ -1116,19 +1077,17 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       >
         {/* Informare Art. 13 GDPR la punctul de colectare (audit aug 2026):
             nume+telefon(+email) se cer obligatoriu, dar clientul final nu avea
-            NICIO informare. Bilingv inline (pattern-ul existent al fișierului),
-            nu cheie nouă în PUBLIC_MENU_STRINGS (ar cere toate cele 7 limbi). */}
+            NICIO informare. Acum în toate cele 7 limbi (guestStrings), nu doar
+            RO/EN cum era inline. */}
         <p style={{ fontSize: 11, color: PUB.text2, margin: '0 0 10px', lineHeight: 1.5 }}>
-          {lang === 'ro'
-            ? 'Datele tale (nume, telefon, email) sunt folosite doar pentru gestionarea acestei rezervări. '
-            : 'Your details (name, phone, email) are used only to manage this reservation. '}
+          {T(lang, 'rs_gdpr_note')}{' '}
           <a
             href="/confidentialitate"
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: accent, textDecoration: 'underline' }}
           >
-            {lang === 'ro' ? 'Politica de confidențialitate' : 'Privacy policy'}
+            {T(lang, 'rs_privacy_policy')}
           </a>
         </p>
         <button
@@ -1230,7 +1189,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, children }: ShellProps
         >
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={T(lang, 'close')}
             style={{
               width: 32,
               height: 32,

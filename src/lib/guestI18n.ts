@@ -80,3 +80,19 @@ export function modifierGroupHintT(
   if (max != null) return Tf(lang, 'mod_choose_max', { n: max })
   return null
 }
+
+const LOCALES: Readonly<Record<string, string>> = {
+  ro: 'ro-RO',
+  en: 'en-GB',
+  de: 'de-DE',
+  fr: 'fr-FR',
+  it: 'it-IT',
+  hu: 'hu-HU',
+  es: 'es-ES',
+}
+
+/** Locale BCP 47 pentru Intl (date, sortare) în limba oaspetelui; limbă
+ *  nesuportată → en-GB, aceeași regulă de fallback ca T(). */
+export function guestLocale(lang: string): string {
+  return LOCALES[lang] ?? 'en-GB'
+}
