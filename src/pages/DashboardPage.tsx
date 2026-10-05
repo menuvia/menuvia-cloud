@@ -79,7 +79,9 @@ function UpgradeModal({
     { label: 'Comenzi prin QR', free: '—', pro: '✓' },
     { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
     { label: 'Comenzi ospătar', free: '—', pro: '✓' },
-    { label: 'Rapoarte', free: 'De bază', pro: 'Zilnic + săptămânal' },
+    // Tab-ul Rapoarte e minTier 2; pe growth = evidența comenzilor (fără
+    // rapoarte pe email — acelea numără doar comenzi `paid`).
+    { label: 'Rapoarte', free: '—', pro: 'Comenzi + produse vândute' },
   ]
   return (
     <div

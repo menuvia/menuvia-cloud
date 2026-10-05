@@ -5,8 +5,33 @@
 // numele comercial văzut pe AuthPage pill, Pricing, Upgrade.
 
 import { describe, it, expect } from 'vitest'
-import { planTier, planNameForTier, PLAN_NAMES, suggestUpgrade } from '../features'
+import {
+  planTier,
+  planNameForTier,
+  PLAN_NAMES,
+  productLimitReason,
+  suggestUpgrade,
+} from '../features'
+import { PLAN_LABELS } from '../constants'
 import { getPlanByInternalId, getPlan } from '../plans'
+
+// DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe starter.
+describe('productLimitReason — mesajul de limită pe planul REAL', () => {
+  it('starter: numele comercial și 300, nu „Gratuit (15)"', () => {
+    const msg = productLimitReason('starter', 300)
+    expect(msg).toContain(PLAN_LABELS.starter)
+    expect(msg).toContain('(300 produse)')
+    expect(msg).not.toMatch(/Gratuit|15 produse/)
+  })
+
+  it('growth: limita formatată românește', () => {
+    expect(productLimitReason('growth', 1000)).toContain('(1.000 produse)')
+  })
+
+  it('plan necunoscut: id-ul brut, fără să arunce', () => {
+    expect(productLimitReason('xyz', 5)).toContain('planul xyz (5 produse)')
+  })
+})
 
 describe('planTier — regula de aur (bani + bon = Plan 3)', () => {
   it('free → tier 1 (Meniu Digital — demo/trial)', () => {
