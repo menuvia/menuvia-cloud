@@ -6,8 +6,6 @@ export interface PlanLimits {
   max_products: number
   max_restaurants: number
   max_tables: number
-  ai_imports_month: number
-  features: string[]
 }
 
 // Fallback offline — valori identice cu rândurile din migration 062
@@ -18,8 +16,6 @@ const DEFAULTS: Record<string, PlanLimits> = {
     max_products: 15,
     max_restaurants: 1,
     max_tables: 3,
-    ai_imports_month: 1,
-    features: ['qr_static'],
   },
   // Limitele de mai jos sunt sincronizate cu plans.ts + migrația 089.
   // Dacă schimbi într-un loc, schimbă în toate trei (TS config, DB migrate,
@@ -29,53 +25,24 @@ const DEFAULTS: Record<string, PlanLimits> = {
     max_products: 300,
     max_restaurants: 1,
     max_tables: 120,
-    ai_imports_month: 2,
-    features: ['qr_static', 'qr_dynamic'],
   },
   growth: {
     plan: 'growth',
     max_products: 1000,
     max_restaurants: 1,
     max_tables: 300,
-    ai_imports_month: 20,
-    features: ['qr_dynamic', 'ordering', 'analytics', 'team', 'kitchen', 'waiter'],
   },
   pro: {
     plan: 'pro',
     max_products: 2000,
     max_restaurants: 2,
     max_tables: 500,
-    ai_imports_month: 50,
-    features: [
-      'qr_dynamic',
-      'ordering',
-      'analytics',
-      'ai_import',
-      'team',
-      'kitchen',
-      'waiter',
-      'floor_plan',
-      'split_bill',
-    ],
   },
   enterprise: {
     plan: 'enterprise',
     max_products: 1_000_000_000,
     max_restaurants: 1_000_000_000,
     max_tables: 1_000_000_000,
-    ai_imports_month: 5000,
-    features: [
-      'qr_dynamic',
-      'ordering',
-      'analytics',
-      'ai_import',
-      'team',
-      'kitchen',
-      'waiter',
-      'floor_plan',
-      'split_bill',
-      'multi_location',
-    ],
   },
 }
 
@@ -94,7 +61,11 @@ export function usePlanLimits(plan: string) {
       return
     }
     try {
-      const { data, error } = await supabase.from('plan_limits').select('*')
+      // Listă EXPLICITĂ (mig 290 a șters ai_imports_month + features — zero cititori);
+      // coloanele de mai jos există și înainte, și după migrație → deploy în orice ordine.
+      const { data, error } = await supabase
+        .from('plan_limits')
+        .select('plan, max_products, max_restaurants, max_tables')
       if (error) throw error
       const map: Record<string, PlanLimits> = {}
       for (const row of data ?? []) {
@@ -104,8 +75,6 @@ export function usePlanLimits(plan: string) {
           max_products: r.max_products as number,
           max_restaurants: r.max_restaurants as number,
           max_tables: r.max_tables as number,
-          ai_imports_month: r.ai_imports_month as number,
-          features: (r.features as string[]) ?? [],
         }
       }
       _cache = map
@@ -122,7 +91,5 @@ export function usePlanLimits(plan: string) {
 
   const canAddProduct = (currentCount: number): boolean => currentCount < limits.max_products
 
-  const hasFeature = (feature: string): boolean => limits.features.includes(feature)
-
-  return { limits, loading, canAddProduct, hasFeature }
+  return { limits, loading, canAddProduct }
 }
