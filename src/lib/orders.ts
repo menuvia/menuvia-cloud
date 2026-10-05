@@ -892,7 +892,7 @@ export function orderSubtotal(order: Order): number {
 
 export async function closeSessionOrders(
   sessionId: string,
-): Promise<{ closed_count: number; already_closed?: boolean }> {
+): Promise<{ closed_count: number; cancelled_count?: number; already_closed?: boolean }> {
   const { data, error } = await supabase.rpc('close_session_orders', { p_session_id: sessionId })
   if (error) {
     // Error REAL cu hint/code (ca advanceOrderStatus/createOrder): obiectul
