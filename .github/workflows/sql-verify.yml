@@ -1717,6 +1717,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
             "drop function if exists public.assert_security_audit_shape(text);"
 
+      # NECONDIȚIONAT (mig 290): PD1 e clichet de CLASĂ prin descoperire pe
+      # `prosrc` — orice `raise exception` viitor care pomenește un nume intern
+      # de plan (growth/starter/pro/…) sau interpolează `v_plan` face pasul roșu
+      # (regula 4: numele comerciale doar în UI; contractul stă în HINT).
+      - name: "Plan dead data + neutral plan messages assertions (mig 290, PD1–PD4)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/plan_dead_data_assertions.sql
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -140,6 +140,15 @@ describe('table-payment: create (nota întreagă)', () => {
     assert.equal(parseBody(res).hint, 'feature_disabled')
   })
 
+  it('gate de plan FĂRĂ hint, cu mesajul neutru din mig 290 → tot 403 (nu 500)', async () => {
+    state.rpcHandlers.begin_table_payment = () => ({
+      data: null,
+      error: { message: 'Funcția „online_payments” nu e disponibilă pe planul curent al restaurantului. Funcția cere un plan superior.' },
+    })
+    const res = await handler(post({ token: 't', session_id: SESSION }))
+    assert.equal(res.statusCode, 403)
+  })
+
   it('sumă invalidă din RPC → 500 și NICIUN apel Stripe', async () => {
     scriptBegin({ amount: 0 })
     const res = await handler(post({ token: 't', session_id: SESSION }))
