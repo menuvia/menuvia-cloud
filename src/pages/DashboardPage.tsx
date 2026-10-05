@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { planTier, type PlanTier } from '../lib/features'
+import { planTier, productLimitReason, type PlanTier } from '../lib/features'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -1001,9 +1001,7 @@ export default function DashboardPage({
         productCount={productCount}
         maxProducts={planLimits.max_products}
         onUpgrade={() =>
-          setUpgradeReason(
-            `Ai atins limita de produse pe planul Gratuit (${planLimits.max_products} produse).`,
-          )
+          setUpgradeReason(productLimitReason(plan, planLimits.max_products))
         }
       />
       <div
@@ -1460,7 +1458,7 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     plan={plan}
                     onUpgrade={() =>
-                      setUpgradeReason('Ai atins limita de produse pe planul Gratuit (15 produse).')
+                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
                     }
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
