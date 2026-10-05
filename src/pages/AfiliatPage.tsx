@@ -8,6 +8,7 @@ import QRCode from 'qrcode'
 import { D } from '../lib/constants'
 import { useAffiliate } from '../hooks/useAffiliate'
 import { formatRON, referralUrl } from '../lib/affiliate'
+import { summarizeEarnings, type EarningsInput } from '../lib/affiliateEarnings'
 import { useToast } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
@@ -129,6 +130,10 @@ export default function AfiliatPage() {
   // Fluxul e cu APROBARE: candidatul trimite telefon + cum va recomanda,
   // fondatorul îl sună pentru o discuție scurtă, apoi aprobă/respinge.
   if (!dashboard || !dashboard.is_affiliate) {
+    // mig 295: programul nu primește cereri noi. TRISTATE — doar `false`
+    // CUNOSCUT ascunde formularul; `undefined` (DB fără 295) îl lasă, iar
+    // serverul decide (răspunde `program_closed`).
+    if (dashboard?.program_open === false) return <ProgramClosedNotice />
     const phoneOk = phone.trim().length >= 5 && phone.trim().length <= 32
     const join = async () => {
       if (!phoneOk) {
@@ -141,6 +146,8 @@ export default function AfiliatPage() {
       if (res.ok) toast.success('Cererea a fost trimisă! Te contactăm telefonic.')
       else if (res.reason === 'parent_not_found') toast.error('Codul celui care te-a invitat nu e valid.')
       else if (res.reason === 'phone_required') toast.error('Numărul de telefon nu pare valid.')
+      else if (res.reason === 'program_closed')
+        toast.error('Programul de parteneriat nu primește cereri noi acum. Se redeschide în curând.')
       else toast.error('Nu am putut trimite cererea. Încearcă din nou.')
     }
     const inputStyle = {
@@ -178,16 +185,17 @@ export default function AfiliatPage() {
                 <strong style={{ color: D.t1 }}>
                   {bpsToPct(dashboard.defaults.setup_bps)}%
                 </strong>{' '}
-                din prima factură a fiecărui restaurant adus, apoi{' '}
+                din prima factură a fiecărui restaurant adus (plătit după ce restaurantul
+                achită și a doua factură), apoi{' '}
                 <strong style={{ color: D.t1 }}>
                   {bpsToPct(dashboard.defaults.recurring_bps)}%
                 </strong>{' '}
-                din abonament, lunar, timp de {dashboard.defaults.recurring_cap_months} luni.
+                din fiecare dintre următoarele {dashboard.defaults.recurring_cap_months} facturi lunare.
               </>
             ) : (
               <>
-                Recomanzi Menuvia restaurantelor și câștigi comision din fiecare abonament adus —
-                o singură dată la activare și apoi lunar, cât timp restaurantul rămâne client.
+                Recomanzi Menuvia restaurantelor și câștigi comision din abonamentele aduse —
+                o dată la activare și apoi din facturile lunare, pe un număr limitat de luni.
               </>
             )}
           </p>
@@ -270,9 +278,10 @@ export default function AfiliatPage() {
             Cererea ta e în analiză
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 16px' }}>
-            Mulțumim! Te sunăm în 1–2 zile lucrătoare pentru o discuție scurtă de
-            cunoaștere. Imediat după aprobare primești aici panoul de partener,
-            linkul tău de recomandare și ghidul de start.
+            Mulțumim! Cererea ta a ajuns la noi. Te sunăm pentru o discuție scurtă
+            de cunoaștere când deschidem programul pentru parteneri noi — nu îți
+            putem promite încă o dată. După aprobare primești aici panoul de
+            partener, linkul tău de recomandare și ghidul de start.
           </p>
           <div style={{ background: D.s3, borderRadius: 10, padding: '10px 14px', fontSize: '0.8rem', color: D.t2 }}>
             Ai o întrebare între timp? Scrie-ne la{' '}
@@ -371,6 +380,7 @@ export default function AfiliatPage() {
           subsCount={subs.length}
           earnings={earnings}
           nextPayoutAt={dashboard.next_payout_at}
+          nextBatchDate={dashboard.next_batch_date}
           commission={{
             setupBps: aff.setup_bps,
             recurringBps: aff.recurring_bps,
@@ -406,6 +416,28 @@ export default function AfiliatPage() {
   )
 }
 
+// ── Programul închis pentru cereri noi (mig 295) ───────────────────────────
+// Fără formular și fără promisiunea unui apel: nu cerem cuiva să completeze un
+// formular pe care serverul îl va refuza.
+function ProgramClosedNotice() {
+  return (
+    <div style={{ maxWidth: 560, margin: '80px auto', padding: 24 }}>
+      <div style={{ ...card, textAlign: 'center', padding: '40px 28px' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+          <Icon name="users" size={40} color={D.gold} />
+        </div>
+        <h1 style={{ fontFamily: 'Fraunces,serif', color: D.t1, fontSize: '1.5rem', margin: '0 0 10px' }}>
+          Programul de parteneriat se redeschide
+        </h1>
+        <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
+          Momentan nu primim cereri noi de parteneriat. Pregătim programul pentru
+          lansare și îl redeschidem în curând — revino pe această pagină.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab: Acasă ───────────────────────────────────────────────────────────────
 function AcasaTab({
   activeCount,
@@ -413,21 +445,16 @@ function AcasaTab({
   subsCount,
   earnings,
   nextPayoutAt,
+  nextBatchDate,
   commission,
   onGoTo,
 }: {
   activeCount: number
   totalCount: number
   subsCount: number
-  earnings?: {
-    currency: string
-    total_cents: number
-    confirmed_cents: number
-    pending_cents: number
-    paid_cents: number
-    clawed_back_cents: number
-  }
+  earnings?: EarningsInput & { currency: string; clawed_back_cents: number }
   nextPayoutAt?: string | null
+  nextBatchDate?: string | null
   commission: {
     setupBps: number
     recurringBps: number
@@ -439,6 +466,9 @@ function AcasaTab({
   const e = earnings
   // Moneda câștigurilor (default 'RON' dacă lipsește) — o pasăm la formatRON.
   const cur = e?.currency || 'RON'
+  // mig 295: cifrele NETE vin de la server (disponibil = confirmat − angajat,
+  // aceeași formulă ca batch-ul); pe o DB veche, calculul vechi.
+  const sum = summarizeEarnings(e)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* Primii pași — doar cât timp partenerul n-a adus încă niciun restaurant.
@@ -464,7 +494,7 @@ function AcasaTab({
                 {
                   n: '2',
                   t: 'Ia-ți linkul și codul QR',
-                  d: 'Linkul tău unic de recomandare — orice cont creat prin el e al tău.',
+                  d: 'Linkul tău unic de recomandare: conturile NOI care se abonează după ce l-au deschis îți sunt atribuite.',
                   cta: 'Vezi uneltele',
                   tab: 'unelte' as Tab,
                 },
@@ -530,14 +560,16 @@ function AcasaTab({
             <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
               {bpsToPct(commission.setupBps)}%
             </div>
-            <div style={{ fontSize: '0.74rem', color: D.t2 }}>din prima factură (activare)</div>
+            <div style={{ fontSize: '0.74rem', color: D.t2 }}>
+              din prima factură, plătit după a doua factură achitată
+            </div>
           </div>
           <div>
             <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
               {bpsToPct(commission.recurringBps)}%
             </div>
             <div style={{ fontSize: '0.74rem', color: D.t2 }}>
-              lunar, max {commission.capMonths} luni
+              din fiecare dintre următoarele {commission.capMonths} facturi lunare
             </div>
           </div>
           <div>
@@ -556,15 +588,32 @@ function AcasaTab({
         }}
       >
         <MetricCard label="Restaurante active" value={String(activeCount)} hint={`${totalCount} aduse în total`} accent />
-        {/* „De plată" = confirmat − deja plătit (nu brutul confirmat, care ar
-            arăta bani deja trimiși). Clamp la 0; „Plătit" apare separat mai jos. */}
+        {/* „Disponibil" = confirmat net − ce e deja angajat în plăți (draft-uri
+            în curs + plătite), calculat pe server (mig 295). Sub prag, suma se
+            reportează — o spunem explicit, nu lăsăm cifra să pară „de primit". */}
         <MetricCard
-          label="De plată"
-          value={formatRON(Math.max(0, (e?.confirmed_cents ?? 0) - (e?.paid_cents ?? 0)), cur)}
+          label="Disponibil pentru plată"
+          value={formatRON(sum.availableCents, cur)}
+          hint={
+            sum.belowMinimum
+              ? `sub pragul de ${formatRON(sum.minPayoutCents, cur)} — se reportează`
+              : `peste pragul de ${formatRON(sum.minPayoutCents, cur)}`
+          }
           accent
         />
-        <MetricCard label="În așteptare" value={formatRON(e?.pending_cents, cur)} hint="trece de hold în curând" />
-        <MetricCard label="Total câștigat" value={formatRON(e?.total_cents, cur)} />
+        {sum.inProgressCents > 0 ? (
+          <MetricCard label="Plată în curs" value={formatRON(sum.inProgressCents, cur)} hint="factură / transfer în lucru" />
+        ) : null}
+        <MetricCard
+          label="În așteptare"
+          value={formatRON(sum.pendingCents, cur)}
+          hint="în perioada de siguranță, net de stornări"
+        />
+        <MetricCard
+          label={sum.serverNet ? 'Câștigat (net)' : 'Total câștigat'}
+          value={formatRON(sum.netEarnedCents, cur)}
+          hint={sum.serverNet ? 'după stornări (clawback)' : undefined}
+        />
         <MetricCard label="Plătit" value={formatRON(e?.paid_cents, cur)} />
         {/* Stornat (clawback): afișat doar când e > 0, ca să nu apară 0 inutil. */}
         {e && e.clawed_back_cents > 0 ? (
@@ -577,6 +626,15 @@ function AcasaTab({
         <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
           Următoarea plată estimată
         </div>
+        {nextBatchDate ? (
+          <div style={{ fontSize: '0.85rem', color: D.t1, marginTop: 6, lineHeight: 1.5 }}>
+            Următoarea listă de plată se generează pe{' '}
+            <strong>{formatDateRo(`${nextBatchDate}T12:00:00`)}</strong>
+            {sum.belowMinimum
+              ? ` — disponibilul tău e sub pragul de ${formatRON(sum.minPayoutCents, cur)}, deci se reportează.`
+              : ' și include disponibilul de mai sus.'}
+          </div>
+        ) : null}
         {nextPayoutAt ? (
           <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.t1, marginTop: 6 }}>
             {formatDateRo(nextPayoutAt)}
@@ -588,6 +646,7 @@ function AcasaTab({
         )}
         <div style={{ fontSize: '0.78rem', color: D.t2, marginTop: 8, lineHeight: 1.5 }}>
           Comisioanele de activare au un hold de 60 de zile (protecție anti-fraudă); cele lunare, 14 zile.
+          Un refund sau o dispută a clientului stornează (clawback) comisionul aferent, și după hold.
           Plata se face după ce emiți factura către Menuvia.
         </div>
       </div>
@@ -944,7 +1003,10 @@ function PayoutProfileForm({
           setSaving(false)
           const res = data as { ok: boolean; reason?: string } | null
           if (error || !res?.ok) {
-            if (res?.reason === 'invalid_iban') toast.error('IBAN invalid.')
+            if (res?.reason === 'invalid_iban') toast.error('IBAN invalid (verifică cifrele — cifra de control nu se potrivește).')
+            // mig 294: datele de plată sunt înghețate cât o plată e în curs.
+            else if (res?.reason === 'payout_in_progress')
+              toast.error('Ai o plată în curs — datele de plată se pot schimba după ce se încheie. Scrie-ne dacă IBAN-ul e greșit.')
             else if (res?.reason === 'invalid_legal_form') toast.error('Formă juridică invalidă.')
             else toast.error('Nu am putut salva datele de plată.')
             return
@@ -1092,7 +1154,7 @@ function GhidTab({
   const steps: { t: string; d: string }[] = [
     {
       t: 'Ia-ți linkul din tab-ul „Unelte”',
-      d: 'Linkul și codul QR sunt ale tale. Oricine își face cont prin ele rămâne recomandarea ta — chiar dacă plătește abia peste câteva săptămâni.',
+      d: 'Linkul și codul QR sunt ale tale. Un cont NOU creat după ce a deschis linkul rămâne recomandarea ta dacă se abonează în 90 de zile de pe același browser (pe Safari/iPhone marcajul poate expira după 7 zile). Conturile care existau deja înainte de click nu se atribuie, iar primul link deschis câștigă.',
     },
     {
       t: 'Recomandă localurilor pe care le cunoști',
@@ -1111,7 +1173,7 @@ function GhidTab({
   const faq: { q: string; a: string }[] = [
     {
       q: 'Cât câștig, concret?',
-      a: `Primești ${bpsToPct(commission.setupBps)}% din prima factură a fiecărui restaurant adus, apoi ${bpsToPct(commission.recurringBps)}% din abonamentul lui, lunar, timp de ${commission.capMonths} luni. Dacă aduci alți parteneri (sub-afiliați), primești și ${bpsToPct(commission.cascadeBps)}% din comisioanele lor.`,
+      a: `Primești ${bpsToPct(commission.setupBps)}% din prima factură a fiecărui restaurant adus (plătit după ce restaurantul achită și a doua factură), apoi ${bpsToPct(commission.recurringBps)}% din fiecare dintre următoarele ${commission.capMonths} facturi lunare — pe orice plan plătit. Dacă aduci alți parteneri (sub-afiliați), primești și ${bpsToPct(commission.cascadeBps)}% din comisioanele lor. Un refund sau o dispută stornează comisionul aferent.`,
     },
     {
       q: 'Ce spun dacă mă întreabă de bonul fiscal?',

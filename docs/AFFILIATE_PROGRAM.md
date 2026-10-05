@@ -44,7 +44,7 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 | Atribuire | Cookie `mv_ref` 90 zile + `mv_vid` → `record_affiliate_touch` (anon, rate-limit) → la **checkout Stripe** `capture_affiliate_attribution` (service_role, fail-closed pe touch, marjă 5 min, first-wins, **UNIC per profil**), cheie de legătură `stripe_customer_id` | `src/lib/affiliate.ts:15-17, :74-103`; m108:28-79; `stripe-checkout.js:179-204`; m100:75-140; m097:90 |
 | Fără cale de atribuire | Comenzile Codvia nu trec prin Stripe → **niciun comision**. Un plan manual (`admin_set_restaurant_plan`, pilotul Fiscalizare) nu produce factură cât timp e manual; la conversie („un checkout normal”, `docs/ECOSISTEM.md:87`) atribuirea se poate captura dacă există cookie-ul `mv_ref` (90 zile) și touch-ul | m186:499-532; `stripe-checkout.js:183-203`; `src/lib/affiliate.ts:15-17` |
 | Payout | Batch lunar (cron `day <= 2 && hour < 6` București) doar pe afiliați `active`; prag 5000 bani = **50 RON**, carry-forward; draft-uri + notificare Slack; plata manuală Wise. **Nu rulează azi în producție:** batch-ul e doar pe Netlify (denylist pg_cron, m274:218-219), unde env-ul are doar cele 3 variabile `VITE_*` și `/health` dă 503 (`docs/ECOSISTEM.md:29-30`); notificarea Slack e no-op fără `SLACK_WEBHOOK_URL` (`automation-cron.js:79-80`) | m190:115-189; `netlify/functions/automation-cron.js:300-328` |
-| Stări payout | Mașina de stări e în trigger (draft→awaiting_invoice→invoice_matched→processing→paid …), dar **nu există RPC/UI** pentru draft→…→processing; singurul buton e „Marchează plătit” (`admin_mark_payout_paid`, processing/on_hold→paid). **Blocant pentru prima plată:** un draft din batch nu poate ajunge la „plătit” fără un UPDATE manual de status în SQL (RPC-ul acceptă doar processing/on_hold, m193:126-129, iar processing cere `wise_transfer_id`, m106:69-73). Fără potrivire Oblio a facturii afiliatului, fără API Wise | m106:37-125; m193:96-141; `docs/RUNBOOK.md:98-103` |
+| Stări payout | **mig 294:** fiecare tranziție are RPC de fondator (`admin_payout_request_invoice` → `admin_payout_match_invoice` → `admin_payout_start_transfer` → `admin_mark_payout_paid`; plus `admin_payout_hold` / `admin_payout_mark_failed` / `admin_payout_cancel`), cu butoane în FounderPage și audit în `platform_audit_log`. Referință bancară GENERICĂ (`payment_method` ∈ wise/bank_transfer/other + `payment_reference`), deci un virament obișnuit, fără Wise, duce payout-ul până la „plătit”. FounderPage vede beneficiarul, forma juridică, CUI-ul și IBAN-ul; batch-ul se poate rula manual (`admin_run_payout_batch`). IBAN validat mod-97 și înghețat cât un payout e deschis. Fără potrivire Oblio a facturii afiliatului, fără API Wise | m294; `tests/sql/affiliate_payout_flow_assertions.sql` (PF1–PF12) |
 | Profil payout | `legal_form` ∈ (`pfa`,`srl`,**`other`**); UI oferă „Altă formă” | m098:51; m190:77; `src/pages/AfiliatPage.tsx:1105-1107` |
 | Aprobare | `register_affiliate` (telefon obligatoriu) inserează `pending`; fondatorul decide cu `admin_review_affiliate`. Toate căile de bani/acces filtrează `status='active'` | m243:263-359; m224:161-197; CLAUDE.md „Afilierea e cu CERERE” |
 | Suspendare | Enum `suspended`/`closed` există, **niciun RPC** nu le setează; batch-ul ignoră non-activii → sold înghețat, nu anulat | m097:35-53; m190:136 |
@@ -63,6 +63,15 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 - §7.6 (CN 2202/zahăr) nu ține de afiliere → se mută în documentația TVA.
 
 ### 1.3 Contradicții vii în UI (de rezolvat la decizia E9)
+
+> **Stare după mig 295 (oct 2026):** închise — `/afiliat` nu mai primește cereri cât timp
+> `platform_settings.affiliate_program_open` e `false` (implicit; poarta e în
+> `register_affiliate`/`admin_review_affiliate`, nu doar în UI), calculatorul public numără
+> activare + 11 recurente în primele 12 luni (`src/lib/affiliateEarnings.ts`), „garantate” și
+> facturarea anuală sunt scoase din `AfiliatIntroPage` și din `AFILIATI_KIT.md`, iar panoul
+> afișează cifre NETE calculate pe server. Rămân deschise: exemplul din `LandingPage.tsx`
+> și recrutarea subafiliaților (§4, D8). Textele descriu modelul aprobat (D2/D3) — devin
+> adevărate în cod odată cu migrația de comision (mig 293).
 
 - Calculatorul public (`src/pages/AfiliatIntroPage.tsx:122-131, :399-401`) și exemplul de pe `src/pages/LandingPage.tsx:153-158, :945` calculează comisionul pe **growth 249 lei** — un plan care azi plătește 0 (m099:107).
 - `/afiliat` încă primește cereri (`AfiliatIntroPage.tsx:219-221`, `AfiliatPage.tsx:241-253`), deși E9 recomandă închiderea lor (`docs/ECOSISTEM.md:147`).
@@ -315,6 +324,11 @@ Până la răspuns: rămâne 1 nivel; se ascunde recrutarea pentru subafiliați.
     iar `process_account_deletions` înghite eroarea per user (m284:311, :317-323) →
     un owner atribuit sau un afiliat **nu poate fi șters**. Ce se păstrează (retenție
     fiscală 10 ani pentru ledger/payout) și ce se pseudonimizează?
+    **Implementat în mig 295** (de validat juridic): afiliatul devine `closed`, `profile_id`
+    NULL, telefon/notă/vanity/branding și CUI/IBAN/beneficiar golite; atribuirea pierde
+    `referred_profile_id` (tombstone `referred_erased_at`) și devine `canceled`; ledger-ul și
+    payout-urile (cu `invoice_number`) se păstrează. Întrebare rămasă: soldul datorat unui
+    afiliat care a cerut ștergerea (draft-urile nu se mai pot plăti fără IBAN).
 
 ### 5.3 Întrebări pentru contabil (păstrate + noi)
 
@@ -340,13 +354,11 @@ revoke explicit per rol (`public, anon, authenticated, service_role`), consumato
 același PR (`ECOSISTEM.md:110`). Filtrele `status='active'` NU se slăbesc (CLAUDE.md).
 
 ### 6.1 Precondiții (datorie existentă, independentă de multi-produs)
-- RPC-uri founder pentru tranzițiile payout draft→awaiting_invoice→invoice_matched→processing
-  (azi doar trigger, m106:37-87; singurul RPC e `admin_mark_payout_paid`, m193:96-141).
+- ~~RPC-uri founder pentru tranzițiile payout~~ — livrat în mig 294 (vezi §1, „Stări payout”).
 - RPC `admin_set_affiliate_status` (suspended/closed) + decizia ce se întâmplă cu soldul.
 - `v_affiliate_payable` (m099:38-58) ignoră leg-ul `adjustment` → un ajustament pozitiv
   nu se plătește niciodată; se decide semantica înainte de a-l folosi.
-- Ștergerea GDPR (§5.2 q11): lanțul `process_account_deletions` (…→282→284) primește
-  tratarea tabelelor de afiliere.
+- ~~Ștergerea GDPR (§5.2 q11)~~ — făcut în mig 295 (lanț …→282→284→295).
 - Pre-check de adâncime în `register_affiliate` (lanț 097d→188→224→243) + ascunderea
   recrutării pentru subafiliați.
 
@@ -425,6 +437,6 @@ același PR (`ECOSISTEM.md:110`). Filtrele `status='active'` NU se slăbesc (CLA
 | D8 | Subafiliați pe mai multe niveluri | Doar după avizul avocatului (§4, §5.2 q5); până atunci 1 nivel + recrutare ascunsă pentru subafiliați | după 0c |
 | D9 | `legal_form = 'other'` | Scos (doar PFA/SRL) sau flux de reținere 10% cu D100/D205 | înainte de primul payout |
 | D10 | Accesul partener automat la datele restaurantului | Opt-in de către owner, după avizul avocatului (§5.2 q8) | înainte de prima aprobare |
-| D11 | Ștergerea GDPR blocată de `ON DELETE RESTRICT` | Tratare în lanțul `process_account_deletions`, cu retenție fiscală pe ledger | înainte de prima aprobare |
+| D11 | Ștergerea GDPR blocată de `ON DELETE RESTRICT` | **Făcut (mig 295):** detașare + pseudonimizare înaintea ștergerii, ledger păstrat | — |
 | D12 | Calculatoarele publice pe growth (§1.3) | Corectate odată cu D1/D2 (devin adevărate dacă D2 = DA) | cu D1 |
 | D13 | Suspendare: sold înghețat sau anulat | Anulat doar pentru comisioanele în hold, cu motiv în `audit_log`; RPC nou | înainte de prima aprobare |

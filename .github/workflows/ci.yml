@@ -220,6 +220,30 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/paid_immutable_tablepay_assertions.sql
 
+      # Afiliere v2 (mig 293) pe stack-ul real: funcții NOI (set_affiliate_
+      # attribution_status + trigger-ul de instantaneu), iar default privileges
+      # ale Supabase re-acordă EXECUTE — AF10 are muncă reală aici.
+      - name: Comision afiliere v2 pe stack-ul Supabase real (mig 293, AF1–AF10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_commission_v2_assertions.sql
+
+      # Fluxul de payout (mig 294) pe stack-ul real: mig 294 creează funcții
+      # NOI, iar default privileges ale Supabase le acordă EXECUTE direct lui
+      # anon/service_role — PF1 are muncă reală DOAR aici.
+      - name: Fluxul de payout al afiliaților pe stack-ul Supabase real (mig 294, PF1–PF12)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_flow_assertions.sql
+
+      # Programul de afiliere + GDPR (mig 295) pe stack-ul real: funcțiile NOI
+      # (helper de flag, detașarea GDPR) primesc EXECUTE din default privileges
+      # ale Supabase — AP11 are muncă reală DOAR aici.
+      - name: Programul de afiliere + GDPR pe stack-ul Supabase real (mig 295, AP1–AP12)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_program_gdpr_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |

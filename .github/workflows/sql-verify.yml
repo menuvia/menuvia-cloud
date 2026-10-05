@@ -1696,6 +1696,16 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/paid_immutable_tablepay_assertions.sql
 
+      # NECONDIȚIONAT (mig 294): fluxul de payout cap-coadă. Fiecare tranziție
+      # trece prin RPC-ul de fondator SUB rolul REAL `authenticated` (ca TP24) —
+      # suitele PO/PP scriu direct ca postgres și sunt oarbe la ACL/gate.
+      - name: "Affiliate payout flow assertions (mig 294, PF1–PF12)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_payout_flow_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
@@ -1725,6 +1735,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f supabase/tests/build_fiscalnet_payload_test.sql
 
+      # NECONDIȚIONAT (mig 295): programul de afiliere — flag-ul de deschidere
+      # în DATE (register/review), panoul NET, vanity → cod canonic și ștergerea
+      # GDPR a afiliaților / conturilor atribuite (FK RESTRICT pe profil blocau
+      # Art. 17 tăcut). AP1–AP4 rulează sub rolul REAL `authenticated`/`anon`.
+      - name: "Affiliate program + GDPR assertions (mig 295, AP1–AP12)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_program_gdpr_assertions.sql
+
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
@@ -1750,6 +1771,17 @@ jobs:
             echo "── drift case: $f"
             psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f "$f"
           done
+
+      # NECONDIȚIONAT (mig 293): afiliere v2 — comision pe toate planurile
+      # plătite, setup la a DOUA factură, instantaneu de procente pe atribuire,
+      # clawback limitat la rest, două facturi/lună fără excepție, plafon 12,
+      # set_affiliate_attribution_status (poarta 193 vie).
+      - name: "Affiliate commission v2 assertions (mig 293, AF1–AF10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_commission_v2_assertions.sql
 
       - name: "Authorization PR 1A: drop CI-only audit helper"
         if: ${{ always() && hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}

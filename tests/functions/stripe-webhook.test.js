@@ -329,6 +329,33 @@ describe('stripe-webhook: customer.subscription.deleted', () => {
     scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_current' })
     await fire('customer.subscription.deleted', { id: 'sub_old', customer: 'cus_1' })
     assert.equal(profileUpdates().length, 0)
+    // …și nici atribuirea de afiliere nu se stinge (abonamentul curent trăiește).
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+  })
+
+  // AW8 (recenzie pe #286): sfârșitul abonamentului e SINGURUL loc care stinge
+  // atribuirea (`canceled`), DUPĂ downgrade.
+  it('AW8: abonamentul curent șters → atribuirea `canceled`, după downgrade', async () => {
+    scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_1' })
+    const res = await fire('customer.subscription.deleted', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 200)
+    const st = rpcCallsFor('set_affiliate_attribution_status')
+    assert.equal(st.length, 1)
+    assert.deepEqual([st[0].args.p_referred_profile_id, st[0].args.p_status], ['u1', 'canceled'])
+    assert.ok(st[0].args.p_reason.includes('sub_1'))
+    assert.equal(profileUpdates()[0].plan, 'free')
+  })
+
+  it('AW9: status RPC eșuat → 500 + rând failed (Stripe retrimite), emailul de anulare NU e încă în coadă', async () => {
+    scriptProfile({ id: 'u1', stripe_subscription_id: 'sub_1' })
+    state.rpcHandlers.set_affiliate_attribution_status = () => ({ data: null, error: { message: 'rpc down' } })
+    const res = await fire('customer.subscription.deleted', { id: 'sub_1', customer: 'cus_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(finalizeStatus(), 'failed')
+    // Downgrade-ul s-a scris (idempotent la reluare); lifecycle-ul vine abia
+    // după atribuire, deci reluarea nu dublează emailul.
+    assert.equal(profileUpdates()[0].plan, 'free')
+    assert.equal(lifecycleInserts().length, 0)
   })
 })
 
@@ -355,6 +382,22 @@ describe('stripe-webhook: invoice.payment_failed (dunning)', () => {
     scriptProfile(null, { code: 'PGRST116', message: 'no rows' })
     const res = await fire('invoice.payment_failed', { customer: 'cus_1' })
     assert.equal(res.statusCode, 200)
+  })
+
+  // AW6 (recenzie pe #286): nici un eșec TERMINAL pe o factură nu stinge
+  // atribuirea — terminal e ireversibil, iar clientul poate plăti ulterior.
+  // Abonamentul anulat de dunning ajunge în subscription.deleted (AW8).
+  it('AW6: eșec de plată (inclusiv terminal) → atribuirea NEATINSĂ, lifecycle normal', async () => {
+    for (const extra of [{ next_payment_attempt: null }, { next_payment_attempt: 1_700_100_000 }, {}]) {
+      resetMocks(); setEnv()
+      scriptProfile({ id: 'u1' })
+      const res = await fire('invoice.payment_failed', {
+        id: 'in_f', customer: 'cus_1', subscription: 'sub_1', attempt_count: 4, ...extra,
+      })
+      assert.equal(res.statusCode, 200)
+      assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+      assert.equal(lifecycleInserts()[0].event_type, 'payment_failed')
+    }
   })
 })
 
@@ -457,11 +500,62 @@ describe('stripe-webhook: clawback (refund + dispute)', () => {
   it('dispute pierdută → clawback TOTAL cu cheie idempotentă dispute_<id>', async () => {
     state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
     state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
-    const res = await fire('charge.dispute.closed', { id: 'dp_1', status: 'lost', charge: 'ch_1' })
+    const res = await fire('charge.dispute.closed', { id: 'dp_1', status: 'lost', charge: 'ch_1', amount: 9900 })
     assert.equal(res.statusCode, 200)
     const call = rpcCallsFor('process_affiliate_refund')[0]
     assert.equal(call.args.p_refund_id, 'dispute_dp_1')
     assert.equal(call.args.p_refund_amount_cents, 9900)
+  })
+
+  // AW1 (mig 293): baza disputei e SUMA DISPUTATĂ, nu tot charge-ul — după un
+  // refund parțial, disputa pe rest nu are voie să storneze iar partea refundată.
+  it('AW1: dispută pierdută pe o parte → baza = dispute.amount, nu charge.amount', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    const res = await fire('charge.dispute.closed', { id: 'dp_2', status: 'lost', charge: 'ch_1', amount: 4000 })
+    assert.equal(res.statusCode, 200)
+    const call = rpcCallsFor('process_affiliate_refund')[0]
+    assert.equal(call.args.p_refund_amount_cents, 4000)
+    assert.equal(call.args.p_charge_amount_cents, 9900)
+  })
+
+  it('AW2: dispută fără sumă lizibilă → 500 fără clawback (formă necunoscută, nu ghicim)', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900 })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    const res = await fire('charge.dispute.closed', { id: 'dp_3', status: 'lost', charge: 'ch_1' })
+    assert.equal(res.statusCode, 500)
+    assert.equal(rpcCallsFor('process_affiliate_refund').length, 0)
+  })
+
+  // AW3/AW4 (recenzie pe #286): disputa pierdută și refund-ul TOTAL pe o
+  // factură recuperează comisionul prin clawback, dar NU fac atribuirea
+  // terminală — un refund de bunăvoință pe o lună ar fi oprit pe veci
+  // comisioanele unui client care rămâne abonat.
+  it('AW3: dispută pierdută pe factură → clawback, atribuirea NEATINSĂ', async () => {
+    state.stripeImpls['charges.retrieve'] = async () => ({ id: 'ch_1', invoice: 'in_1', amount: 9900, customer: 'cus_1' })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    scriptProfile({ id: 'u1' })
+    const res = await fire('charge.dispute.closed', { id: 'dp_4', status: 'lost', charge: 'ch_1', amount: 9900 })
+    assert.equal(res.statusCode, 200)
+    assert.equal(rpcCallsFor('process_affiliate_refund').length, 1)
+    assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+  })
+
+  it('AW4: refund TOTAL / parțial / plată unică → clawback, atribuirea NEATINSĂ', async () => {
+    for (const [refund, charge] of [
+      [9900, { id: 'ch_1', invoice: 'in_1', amount: 9900, amount_refunded: 9900, refunded: true, customer: 'cus_1' }],
+      [3000, { id: 'ch_1', invoice: 'in_1', amount: 9900, amount_refunded: 3000, refunded: false, customer: 'cus_1' }],
+      [500,  { id: 'ch_2', invoice: null, amount: 500, amount_refunded: 500, refunded: true, customer: 'cus_1' }],
+    ]) {
+      resetMocks(); setEnv()
+      state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: refund }] })
+      state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+      scriptProfile({ id: 'u1' })
+      const res = await fire('charge.refunded', charge)
+      assert.equal(res.statusCode, 200)
+      assert.equal(rpcCallsFor('process_affiliate_refund').length, 1)
+      assert.equal(rpcCallsFor('set_affiliate_attribution_status').length, 0)
+    }
   })
 
   it('dispute câștigată → no-op (comisionul rămâne)', async () => {

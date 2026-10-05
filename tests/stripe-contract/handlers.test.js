@@ -149,7 +149,11 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
 
   it('semnătură greșită → 400, nimic scris', async () => {
     const req = signed({ id: 'evt_x', object: 'event', type: 'invoice.paid', data: { object: {} } })
-    req.headers['stripe-signature'] = req.headers['stripe-signature'].replace(/v1=./, 'v1=0')
+    // Caracterul se INVERSEAZĂ, nu se fixează pe „0”: dacă HMAC-ul începea deja cu
+    // „0” (1 din 16, după timestamp), înlocuirea era no-op → semnătură VALIDĂ → 200.
+    const original = req.headers['stripe-signature']
+    req.headers['stripe-signature'] = original.replace(/v1=(.)/, (_, c) => `v1=${c === '0' ? '1' : '0'}`)
+    assert.notEqual(req.headers['stripe-signature'], original)
     const res = await webhook(req)
     assert.equal(res.statusCode, 400)
     assert.equal(state.fromCalls.length, 0)

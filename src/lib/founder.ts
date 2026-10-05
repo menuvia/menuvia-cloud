@@ -137,7 +137,9 @@ export interface AdminInvoiceFailure {
 export interface AdminPayoutRow {
   id: string
   affiliate_id: string
-  affiliate_email: string
+  // mig 295: NULL după ștergerea GDPR a afiliatului (profilul a plecat,
+  // payout-ul rămâne — evidență fiscală).
+  affiliate_email: string | null
   status: string
   gross_cents: number
   currency: string
@@ -146,6 +148,33 @@ export interface AdminPayoutRow {
   failure_reason: string | null
   paid_at: string | null
   created_at: string
+  // mig 294: ciclul de plată + profilul de plată (doar fondatorul îl primește).
+  // Opționale: o bază fără 294 nu le întoarce (deploy înaintea migrației).
+  period_month?: string
+  invoice_matched_at?: string | null
+  payment_method?: PayoutPaymentMethod | null
+  payment_reference?: string | null
+  updated_at?: string
+  payee_name?: string | null
+  payee_legal_form?: string | null
+  payee_cui?: string | null
+  payee_iban?: string | null
+  payee_profile_updated_at?: string | null
+  // mig 295: afiliatul și-a șters contul (GDPR) — email/IBAN golite.
+  affiliate_erased?: boolean
+  affiliate_erased_at?: string | null
+}
+
+// mig 294: referința bancară generică (Wise e doar una dintre metode).
+export type PayoutPaymentMethod = 'wise' | 'bank_transfer' | 'other'
+
+export interface AdminPayoutBatchResult {
+  ok: boolean
+  reason?: string
+  error?: string
+  created?: number
+  skipped?: number
+  errors?: unknown[]
 }
 
 export interface AdminAffiliateRestaurant {
@@ -158,7 +187,9 @@ export interface AdminAffiliateRestaurant {
 
 export interface AdminAffiliateRow {
   affiliate_id: string
-  email: string
+  // mig 295: NULL după ștergerea GDPR (rândul de afiliat rămâne — ledger,
+  // payout-uri); `erased_at` spune de ce.
+  email: string | null
   full_name: string | null
   referral_code: string
   status: string
@@ -181,6 +212,8 @@ export interface AdminAffiliateRow {
   brand_domain?: string | null
   brand_name?: string | null
   brand_logo_url?: string | null
+  // mig 295: tombstone GDPR. Opțional (FE înaintea migrației).
+  erased_at?: string | null
 }
 
 export interface AdminAuditRow {
@@ -244,11 +277,65 @@ export function listPayouts(): Promise<AdminPayoutRow[]> {
   return rpcJson<AdminPayoutRow[]>('admin_list_payouts')
 }
 
-export function markPayoutPaid(id: string, wiseTransferId?: string): Promise<AdminActionResult> {
+// ── Tranzițiile payout-ului (mig 294) ──────────────────────────
+// Fiecare întoarce {ok:false, reason, error} pe refuz de business; un
+// non-fondator primește excepție (42501) → rpcJson aruncă.
+export function markPayoutPaid(id: string, paymentReference?: string): Promise<AdminActionResult> {
   return rpcJson<AdminActionResult>('admin_mark_payout_paid', {
     p_id: id,
-    p_wise_transfer_id: wiseTransferId ?? null,
+    p_payment_reference: paymentReference ?? null,
   })
+}
+
+export function requestPayoutInvoice(id: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_request_invoice', { p_id: id })
+}
+
+export function matchPayoutInvoice(id: string, invoiceNumber: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_match_invoice', {
+    p_id: id,
+    p_invoice_number: invoiceNumber,
+  })
+}
+
+export function startPayoutTransfer(
+  id: string,
+  method: PayoutPaymentMethod,
+  reference: string,
+): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_start_transfer', {
+    p_id: id,
+    p_payment_method: method,
+    p_payment_reference: reference,
+  })
+}
+
+export function holdPayout(id: string, reason: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_hold', { p_id: id, p_reason: reason })
+}
+
+export function failPayout(id: string, reason: string): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_payout_mark_failed', { p_id: id, p_reason: reason })
+}
+
+// `moneyReturned` = fondatorul a confirmat EXPLICIT (după extras) că banii unui
+// transfer eșuat CU referință NU au ajuns / s-au întors în cont. Serverul o
+// cere pe `failed` cu referință (`money_return_unconfirmed`, mig 294) — fără
+// ea, anularea ar elibera suma pentru o plată nouă (plată dublă). Pe celelalte
+// stări parametrul NU se trimite deloc.
+export function cancelPayout(
+  id: string,
+  reason: string,
+  moneyReturned = false,
+): Promise<AdminActionResult> {
+  const args: Record<string, unknown> = { p_id: id, p_reason: reason }
+  if (moneyReturned) args.p_money_returned = true
+  return rpcJson<AdminActionResult>('admin_payout_cancel', args)
+}
+
+// periodMonth = 'YYYY-MM-01' (prima zi a lunii, ora României).
+export function runPayoutBatch(periodMonth: string): Promise<AdminPayoutBatchResult> {
+  return rpcJson<AdminPayoutBatchResult>('admin_run_payout_batch', { p_period_month: periodMonth })
 }
 
 export function listAffiliates(): Promise<AdminAffiliateRow[]> {
@@ -258,11 +345,27 @@ export function listAffiliates(): Promise<AdminAffiliateRow[]> {
 // Decizia pe o cerere de afiliere (mig 224): aprobă (→active) sau respinge
 // (→rejected). Doar cererile pending/rejected sunt „reviewable" — suspendarea
 // și închiderea sunt mecanisme separate.
-export function reviewAffiliate(affiliateId: string, approve: boolean): Promise<AdminActionResult> {
+// mig 295: cu programul ÎNCHIS aprobarea întoarce `program_closed`, iar
+// fondatorul poate forța explicit cu `override` (consemnat în audit).
+export function reviewAffiliate(
+  affiliateId: string,
+  approve: boolean,
+  override = false,
+): Promise<AdminActionResult> {
   return rpcJson<AdminActionResult>('admin_review_affiliate', {
     p_affiliate_id: affiliateId,
     p_approve: approve,
+    p_override: override,
   })
+}
+
+// ── Programul de afiliere deschis/închis (mig 295) ───────────────────────
+export function getAffiliateProgramStatus(): Promise<{ open: boolean }> {
+  return rpcJson<{ open: boolean }>('get_affiliate_program_status')
+}
+
+export function setAffiliateProgramOpen(open: boolean): Promise<AdminActionResult> {
+  return rpcJson<AdminActionResult>('admin_set_affiliate_program_open', { p_open: open })
 }
 
 export function setRestaurantPlan(restaurantId: string, plan: string): Promise<AdminActionResult> {
