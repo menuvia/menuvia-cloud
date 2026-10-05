@@ -6,8 +6,10 @@
 -- Usage:
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/affiliate_p0_assertions.sql
 --
---   P0a  gate Plan 3: plan growth → skipped not_plan3
---   P0b  setup pe trial: primul event (subscription_cycle, bani) → leg=setup
+--   P0a  gate pe planuri PLĂTITE (mig 293 a ridicat gate-ul Plan 3 din 099 — decizia
+--        fondatorului): free / NULL → skipped not_paid_plan
+--   P0b  setup pe trial: primul event cu bani (subscription_cycle) e baza setup-ului,
+--        câștigat la a DOUA factură plătită (mig 293)
 --   P0c  refund full → clawback -comision; balanță 0
 --   P0d  refund parțial → clawback proporțional; net payable corect
 --   P0e  refund idempotent (același refund_id) → fără dublare
@@ -37,40 +39,36 @@ insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id
   ('0b000000-0000-0000-0000-000000000001','0a000000-0000-0000-0000-000000000002',
    '00000000-0000-0000-0000-000000000003','cus_X','pending');
 
--- ── P0a: gate Plan 3 ─────────────────────────────────────────────────────────
+-- ── P0a: gate pe planuri plătite (mig 293) ───────────────────────────────────
 do $$
 declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_growth','cus_X','s','i','subscription_cycle',2900,'RON','2026-07-01',now(),'growth');
-  if v->>'skipped' is distinct from 'not_plan3' then raise exception 'P0a FAIL: growth nu a fost gate-uit (%)', v; end if;
+  v := public.process_affiliate_invoice_paid('evt_free','cus_X','s','i','subscription_cycle',2900,'RON','2026-07-01',now(),'free');
+  if v->>'skipped' is distinct from 'not_paid_plan' then raise exception 'P0a FAIL: free nu a fost gate-uit (%)', v; end if;
   -- null plan → tot skip
   if (public.process_affiliate_invoice_paid('evt_null','cus_X','s','i','subscription_cycle',2900,'RON','2026-07-01',now(),null))->>'skipped'
-       is distinct from 'not_plan3' then raise exception 'P0a FAIL: null plan neגate-uit'; end if;
-  raise notice 'P0a OK: gate Plan 3 (growth+null respinse)';
+       is distinct from 'not_paid_plan' then raise exception 'P0a FAIL: null plan negate-uit'; end if;
+  raise notice 'P0a OK: gate planuri plătite (free+null respinse)';
 end $$;
 
--- ── T4: gate Plan 3 EXHAUSTIV — toate non-Plan-3 skip, Plan 3 produce comision ─
--- Findings T4: gate-ul era testat doar pe 'growth'+null. Extindem peste TOATE
--- planurile non-Plan-3 {'free','starter','growth',null} → skipped='not_plan3',
--- și complementar verificăm că 'pro' și 'enterprise' NU sunt skip-uite.
--- Negative: folosesc 'cus_X' (gate-ul returnează ÎNAINTE de a atinge atribuirea,
--- deci nu poluează ledgerul). Pozitive: atribuiri/customer DEDICATE (cus_PRO/cus_ENT)
--- ca să nu coliziune cu setup-ul 'cus_X' din P0b (mig 105: un singur setup/atribuire).
+-- ── T4: gate EXHAUSTIV — tot ce nu e plan plătit e skip; pro/enterprise produc comision ─
+-- mig 293: starter/growth NU mai sunt skip-uite (acoperite pozitiv în
+-- affiliate_commission_v2_assertions.sql AF1). Negativele rămân pe 'cus_X'
+-- (gate-ul returnează ÎNAINTE de atribuire, deci nu consumă „prima factură").
 do $$
 declare v jsonb; v_plan text;
 begin
-  foreach v_plan in array array['free','starter','growth'] loop
+  foreach v_plan in array array['free','business','plan3'] loop
     v := public.process_affiliate_invoice_paid('evt_gate_'||v_plan,'cus_X','s','i_'||v_plan,
            'subscription_cycle',2900,'RON','2026-07-01',now(),v_plan);
-    if v->>'skipped' is distinct from 'not_plan3' then
+    if v->>'skipped' is distinct from 'not_paid_plan' then
       raise exception 'T4 FAIL: plan % negate-uit (%)', v_plan, v; end if;
   end loop;
-  -- null tratat separat (nu intră în array text non-null).
   v := public.process_affiliate_invoice_paid('evt_gate_null','cus_X','s','i_null',
          'subscription_cycle',2900,'RON','2026-07-01',now(),null);
-  if v->>'skipped' is distinct from 'not_plan3' then
+  if v->>'skipped' is distinct from 'not_paid_plan' then
     raise exception 'T4 FAIL: null negate-uit (%)', v; end if;
-  raise notice 'T4 OK: {free,starter,growth,null} → not_plan3';
+  raise notice 'T4 OK: {free,business,plan3,null} → not_paid_plan';
 end $$;
 
 -- Afiliat + atribuiri DEDICATE pentru cazurile POZITIVE (pro/enterprise → comision).
@@ -96,18 +94,22 @@ insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id
 do $$
 declare v jsonb;
 begin
-  -- 'pro' → NU skip; produce comision setup (30% din 2900 = 870).
+  -- 'pro' → NU skip; prima factură consemnată, a doua scrie setup 30% din 2900 = 870.
   v := public.process_affiliate_invoice_paid('evt_pro','cus_PRO','s','in_pro',
          'subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
   if v ? 'skipped' then raise exception 'T4 FAIL: pro a fost skip-uit (%)', v; end if;
-  if (v->>'commission_cents')::bigint <> 870 then
-    raise exception 'T4 FAIL: pro comision % (așteptat 870)', v->>'commission_cents'; end if;
+  v := public.process_affiliate_invoice_paid('evt_pro2','cus_PRO','s','in_pro2',
+         'subscription_cycle',2900,'RON','2026-08-01',now(),'pro');
+  if (v->>'setup_commission_cents')::bigint is distinct from 870::bigint then
+    raise exception 'T4 FAIL: pro setup % (așteptat 870)', v->>'setup_commission_cents'; end if;
   -- 'enterprise' → NU skip; produce comision.
   v := public.process_affiliate_invoice_paid('evt_ent','cus_ENT','s','in_ent',
          'subscription_cycle',2900,'RON','2026-07-01',now(),'enterprise');
   if v ? 'skipped' then raise exception 'T4 FAIL: enterprise a fost skip-uit (%)', v; end if;
-  if (v->>'commission_cents')::bigint <> 870 then
-    raise exception 'T4 FAIL: enterprise comision % (așteptat 870)', v->>'commission_cents'; end if;
+  v := public.process_affiliate_invoice_paid('evt_ent2','cus_ENT','s','in_ent2',
+         'subscription_cycle',2900,'RON','2026-08-01',now(),'enterprise');
+  if (v->>'setup_commission_cents')::bigint is distinct from 870::bigint then
+    raise exception 'T4 FAIL: enterprise setup % (așteptat 870)', v->>'setup_commission_cents'; end if;
   raise notice 'T4 OK: pro+enterprise → comision (NU skip)';
 end $$;
 
@@ -115,37 +117,43 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  -- Scenariu trial: prima factură cu bani vine ca subscription_cycle. Trebuie SETUP.
+  -- Scenariu trial: prima factură cu bani vine ca subscription_cycle → baza SETUP-ului.
   v := public.process_affiliate_invoice_paid('evt_trial1','cus_X','sub_X','in_t1','subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
-  if v->>'leg' is distinct from 'setup' then
-    raise exception 'P0b FAIL: prima factură (cycle) ar trebui setup, e % ', v->>'leg'; end if;
-  if (v->>'commission_cents')::bigint <> 870 then
-    raise exception 'P0b FAIL: setup 30%% = 870, e %', v->>'commission_cents'; end if;
-  raise notice 'P0b OK: setup pe trial (cycle → setup 870)';
+  if v->>'deferred' is distinct from 'setup_awaits_second_invoice' then
+    raise exception 'P0b FAIL: prima factură (cycle) trebuie consemnată ca bază de setup (%)', v; end if;
+  -- mig 293: setup-ul se scrie la A DOUA factură, cu factura PRIMEI (in_t1).
+  v := public.process_affiliate_invoice_paid('evt_trial2','cus_X','sub_X','in_t2','subscription_cycle',2900,'RON','2026-08-01',now(),'pro');
+  if (select amount_cents from public.affiliate_ledger where leg='setup' and stripe_invoice_id='in_t1')
+       is distinct from 870::bigint then
+    raise exception 'P0b FAIL: setup 30%% = 870 pe in_t1, e %',
+      (select amount_cents from public.affiliate_ledger where leg='setup' and stripe_invoice_id='in_t1'); end if;
+  if (v->>'commission_cents')::bigint is distinct from 290::bigint then
+    raise exception 'P0b FAIL: recurring pe in_t2 = 290, e %', v->>'commission_cents'; end if;
+  raise notice 'P0b OK: setup pe trial (cycle → bază setup 870, scris la a doua factură)';
 end $$;
 
--- ── P0c: refund full → clawback total, balanță 0 ─────────────────────────────
+-- ── P0c: refund full pe prima factură → setup stornat total ──────────────────
 do $$
 declare v_bal bigint;
 begin
   -- Refund integral al facturii in_t1 (charge 2900, refund 2900).
   perform public.process_affiliate_refund('evt_ref1','in_t1',2900,'re_1',2900,now());
-  -- child: setup 870 + cascade-ul e pe parent; clawback child -870 → child 0
-  select coalesce(balance_cents,0) into v_bal from public.v_affiliate_balance
+  -- child: setup 870 − 870 + recurring 290 (in_t2, nerefundat) = 290
+  select balance_cents into v_bal from public.v_affiliate_balance
    where affiliate_id='0a000000-0000-0000-0000-000000000002' and currency='RON';
-  if v_bal <> 0 then raise exception 'P0c FAIL: balanță child % (așteptat 0)', v_bal; end if;
-  raise notice 'P0c OK: refund full → balanță child 0';
+  if v_bal is distinct from 290::bigint then raise exception 'P0c FAIL: balanță child % (așteptat 290)', v_bal; end if;
+  raise notice 'P0c OK: refund full in_t1 → setup stornat, rămâne recurring-ul in_t2';
 end $$;
 
 -- ── P0f: cascade reverse (parent a fost stornat la P0c) ──────────────────────
 do $$
 declare v_pbal bigint;
 begin
-  select coalesce(balance_cents,0) into v_pbal from public.v_affiliate_balance
+  select balance_cents into v_pbal from public.v_affiliate_balance
    where affiliate_id='0a000000-0000-0000-0000-000000000001' and currency='RON';
-  -- parent: cascade 17 − clawback 17 = 0
-  if v_pbal <> 0 then raise exception 'P0f FAIL: cascade parent nestornat (balanță %)', v_pbal; end if;
-  raise notice 'P0f OK: cascade reverse (parent 0)';
+  -- parent: cascade setup 17 − clawback 17 + cascade recurring 5 = 5
+  if v_pbal is distinct from 5::bigint then raise exception 'P0f FAIL: cascade parent nestornat (balanță %)', v_pbal; end if;
+  raise notice 'P0f OK: cascade reverse (parent 5 = doar cascada recurring)';
 end $$;
 
 -- ── P0e: refund idempotent (același refund_id) → fără dublare ─────────────────
