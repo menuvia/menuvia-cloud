@@ -93,7 +93,7 @@ export function formatIban(iban: string): string {
 // (batch-ul ocupat întoarce doar `reason`).
 const REFUSAL_OVERRIDES: Record<string, string> = {
   payout_exceeds_eligible:
-    'Suma depășește ce i se datorează acum afiliatului (comision stornat după ciornă). Marchează eșuat, anulează și rulează din nou batch-ul.',
+    'Suma depășește ce i se datorează acum afiliatului (comision stornat după ciornă). Marchează eșuat și anulează; suma corectă intră în batch-ul lunii următoare.',
   batch_in_progress: 'Alt batch rulează chiar acum — încearcă din nou peste un minut.',
   money_return_unconfirmed:
     'Transferul a plecat (are referință bancară). Anularea se face doar după ce confirmi în extras că banii NU au ajuns la afiliat sau s-au întors în cont.',

@@ -53,6 +53,10 @@ describe('formatIban / describePayoutRefusal', () => {
   it('PFU8: mesajul românesc al serverului se păstrează; codurile tehnice se traduc', () => {
     expect(describePayoutRefusal({ reason: 'invalid_transition', error: 'Mesaj server' })).toBe('Mesaj server')
     expect(describePayoutRefusal({ reason: 'payout_exceeds_eligible', error: 'payout: gross 1 …' })).toMatch(/stornat/)
+    // Re-rularea în aceeași lună lovește rândul anulat (on conflict do nothing) → nimic;
+    // mesajul nu are voie s-o promită (recenzie #286).
+    expect(describePayoutRefusal({ reason: 'payout_exceeds_eligible' })).toMatch(/lunii următoare/)
+    expect(describePayoutRefusal({ reason: 'payout_exceeds_eligible' })).not.toMatch(/rulează din nou/)
     expect(describePayoutRefusal({ reason: 'batch_in_progress' })).toMatch(/Alt batch/)
     expect(describePayoutRefusal({})).toMatch(/nu a putut/)
   })
