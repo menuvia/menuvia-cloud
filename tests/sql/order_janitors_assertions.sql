@@ -25,6 +25,11 @@
 --   OJ7  izolare per rând: o comandă respinsă de un trigger nu blochează lotul
 --   OJ8  forma: DEFINER + pg_temp, zero grant, fără ocolirea triggerelor
 --   OJ9  manifest: rând prezent, minut etalat, marker de siguranță în corp
+--   OJ10 „Închide masa" (close_session_orders, mig 288 E): servită → closed
+--        (puncte + stoc), neservită → cancelled cu motiv (ZERO puncte, ZERO stoc)
+--   OJ11 rundă neservită cu bani în registru → TOT apelul respins
+--        (cancel_over_payments), nimic scris, sesiunea rămâne deschisă
+--   OJ12 Plan 3: închiderea mesei cu comenzi deschise rămâne respinsă
 --
 -- Rulează DUPĂ migrații, ca postgres (janitorul rulează ca postgres pe pg_cron).
 -- Self-contained, ROLLBACK la final.
@@ -286,5 +291,114 @@ begin
     raise exception 'OJ9 FAIL: markerul de siguranta lipseste din corp'; end if;
   raise notice 'OJ9 OK: manifest (minut %, comanda cu 12h, marker prezent)', v_min;
 end $$;
+
+-- ── OJ10–OJ12: „Închide masa" nu mai închide rundele neservite ──────────────
+-- Recenzia pe #283: close_session_orders (263) trecea TOATE comenzile deschise
+-- în `closed` → puncte + stoc pentru mâncare niciodată făcută.
+select set_config('request.jwt.claim.sub', '8b000000-0000-4000-8000-0000000000a1', true);
+insert into public.tables (id, restaurant_id, name, slug, seats, is_active) values
+  ('8b000000-0000-4000-8000-0000000004d1', '8b000000-0000-4000-8000-000000000001', 'OJ Masa 1', 'oj-masa-1', 4, true),
+  ('8b000000-0000-4000-8000-0000000004d2', '8b000000-0000-4000-8000-000000000001', 'OJ Masa 2', 'oj-masa-2', 4, true),
+  ('8b000000-0000-4000-8000-0000000004d3', '8b000000-0000-4000-8000-000000000002', 'OJ Masa P', 'oj-masa-p', 4, true);
+insert into public.table_sessions (id, restaurant_id, table_id, status) values
+  ('8b000000-0000-4000-8000-0000000004e1', '8b000000-0000-4000-8000-000000000001', '8b000000-0000-4000-8000-0000000004d1', 'open'),
+  ('8b000000-0000-4000-8000-0000000004e2', '8b000000-0000-4000-8000-000000000001', '8b000000-0000-4000-8000-0000000004d2', 'open'),
+  ('8b000000-0000-4000-8000-0000000004e3', '8b000000-0000-4000-8000-000000000002', '8b000000-0000-4000-8000-0000000004d3', 'open');
+insert into public.orders (id, restaurant_id, source, status, table_id, session_id, served_at, loyalty_wallet_id) values
+  -- sesiunea 1: o rundă servită + una niciodată servită, ambele pe wallet
+  ('8b000000-0000-4000-8000-0000000004a1', '8b000000-0000-4000-8000-000000000001', 'qr', 'served', '8b000000-0000-4000-8000-0000000004d1', '8b000000-0000-4000-8000-0000000004e1', now() - interval '10 minutes', '8b000000-0000-4000-8000-0000000000e1'),
+  ('8b000000-0000-4000-8000-0000000004a2', '8b000000-0000-4000-8000-000000000001', 'qr', 'new',    '8b000000-0000-4000-8000-0000000004d1', '8b000000-0000-4000-8000-0000000004e1', null, '8b000000-0000-4000-8000-0000000000e1'),
+  -- sesiunea 2: o rundă servită + una în preparare CU bani în registru
+  ('8b000000-0000-4000-8000-0000000004b1', '8b000000-0000-4000-8000-000000000001', 'qr', 'served',    '8b000000-0000-4000-8000-0000000004d2', '8b000000-0000-4000-8000-0000000004e2', now() - interval '10 minutes', null),
+  ('8b000000-0000-4000-8000-0000000004b2', '8b000000-0000-4000-8000-000000000001', 'qr', 'preparing', '8b000000-0000-4000-8000-0000000004d2', '8b000000-0000-4000-8000-0000000004e2', null, null),
+  -- sesiunea 3 (Plan 3): o rundă servită neîncasată
+  ('8b000000-0000-4000-8000-0000000004c1', '8b000000-0000-4000-8000-000000000002', 'qr', 'served', '8b000000-0000-4000-8000-0000000004d3', '8b000000-0000-4000-8000-0000000004e3', now() - interval '10 minutes', null);
+-- Servită: 1 × 15 → 15 puncte + 1 kg; neservită: 4 × 15 → ar fi 60 puncte + 4 kg.
+insert into public.order_items (order_id, product_id, product_name_snapshot, quantity, unit_price_snapshot, item_total) values
+  ('8b000000-0000-4000-8000-0000000004a1', '8b000000-0000-4000-8000-0000000000b1', 'Produs OJ', 1, 15, 15),
+  ('8b000000-0000-4000-8000-0000000004a2', '8b000000-0000-4000-8000-0000000000b1', 'Produs OJ', 4, 15, 60),
+  ('8b000000-0000-4000-8000-0000000004b1', '8b000000-0000-4000-8000-0000000000b1', 'Produs OJ', 1, 15, 15),
+  ('8b000000-0000-4000-8000-0000000004b2', '8b000000-0000-4000-8000-0000000000b1', 'Produs OJ', 1, 15, 15);
+insert into public.order_payments (order_id, amount, method) values
+  ('8b000000-0000-4000-8000-0000000004b2', 7, 'cash');
+
+-- ── OJ10: servită → closed (puncte + stoc), neservită → cancelled (nimic) ────
+do $$
+declare v jsonb; v_pts0 int; v_pts1 int; v_stock0 numeric; v_stock1 numeric; v_o record;
+begin
+  select points into v_pts0 from public.loyalty_wallets where id = '8b000000-0000-4000-8000-0000000000e1';
+  select current_stock into v_stock0 from public.ingredients where id = '8b000000-0000-4000-8000-0000000000c1';
+
+  v := public.close_session_orders('8b000000-0000-4000-8000-0000000004e1');
+  if (v->>'closed_count')::int is distinct from 1 or (v->>'cancelled_count')::int is distinct from 1 then
+    raise exception 'OJ10 FAIL: raspuns % (asteptat closed_count=1, cancelled_count=1)', v; end if;
+
+  select status, cancel_reason, cancelled_at into v_o from public.orders where id = '8b000000-0000-4000-8000-0000000004a2';
+  if v_o.status is distinct from 'cancelled'
+     or v_o.cancel_reason is distinct from 'Masă închisă — comandă neservită'
+     or v_o.cancelled_at is null then
+    raise exception 'OJ10 FAIL: runda NEservita nu e anulata cu motiv (status=%, motiv=%)', v_o.status, v_o.cancel_reason; end if;
+  -- control pozitiv: runda servită s-a închis
+  if (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004a1') is distinct from 'closed' then
+    raise exception 'OJ10 FAIL: runda servita nu e closed'; end if;
+  if (select status from public.table_sessions where id = '8b000000-0000-4000-8000-0000000004e1') is distinct from 'closed' then
+    raise exception 'OJ10 FAIL: sesiunea nu s-a inchis'; end if;
+
+  -- loialitate: earn DOAR pe cea servită (15), zero pe cea anulată (ar fi fost 60)
+  select points into v_pts1 from public.loyalty_wallets where id = '8b000000-0000-4000-8000-0000000000e1';
+  if v_pts1 - v_pts0 is distinct from 15 then
+    raise exception 'OJ10 FAIL: puncte acordate % (asteptat 15 = doar runda servita)', v_pts1 - v_pts0; end if;
+  if (select count(*) from public.loyalty_events where order_id = '8b000000-0000-4000-8000-0000000004a1' and kind = 'earn') <> 1 then
+    raise exception 'OJ10 FAIL: runda servita nu are exact un earn'; end if;
+  if exists (select 1 from public.loyalty_events where order_id = '8b000000-0000-4000-8000-0000000004a2') then
+    raise exception 'OJ10 FAIL: runda NEservita a produs puncte de loialitate'; end if;
+
+  -- stoc: −1 kg (servită), nu −5
+  select current_stock into v_stock1 from public.ingredients where id = '8b000000-0000-4000-8000-0000000000c1';
+  if v_stock0 - v_stock1 is distinct from 1::numeric then
+    raise exception 'OJ10 FAIL: stoc scazut cu % (asteptat 1 = doar runda servita)', v_stock0 - v_stock1; end if;
+  if not exists (select 1 from public.order_stock_deductions where order_id = '8b000000-0000-4000-8000-0000000004a1')
+     or exists (select 1 from public.order_stock_deductions where order_id = '8b000000-0000-4000-8000-0000000004a2') then
+    raise exception 'OJ10 FAIL: claim-ul de stoc nu reflecta servita=da / neservita=nu'; end if;
+  raise notice 'OJ10 OK: Închide masa → servită closed (+15 puncte, −1 kg), neservită cancelled cu motiv (0 puncte, 0 stoc)';
+end $$;
+
+-- ── OJ11: rundă neservită cu bani în registru → tot apelul respins ─────────
+do $$
+declare v_hint text; v_msg text;
+begin
+  begin
+    perform public.close_session_orders('8b000000-0000-4000-8000-0000000004e2');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint, v_msg = message_text;
+  end;
+  if v_hint is distinct from 'cancel_over_payments' then
+    raise exception 'OJ11 FAIL: inchiderea mesei peste o runda neservita incasata nu a fost respinsa (hint=%)', v_hint; end if;
+  -- nimic scris: nici runda servită, nici sesiunea, nici registrul
+  if (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004b1') is distinct from 'served'
+     or (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004b2') is distinct from 'preparing'
+     or (select status from public.table_sessions where id = '8b000000-0000-4000-8000-0000000004e2') is distinct from 'open'
+     or (select count(*) from public.order_payments where order_id = '8b000000-0000-4000-8000-0000000004b2') <> 1 then
+    raise exception 'OJ11 FAIL: apelul respins a lasat scrieri partiale'; end if;
+  raise notice 'OJ11 OK: rundă neservită cu bani → respins (%), nimic scris', v_msg;
+end $$;
+
+-- ── OJ12: Plan 3 rămâne respins ─────────────────────────────────────────────
+select set_config('request.jwt.claim.sub', '8b000000-0000-4000-8000-0000000000a2', true);
+do $$
+declare v_hint text;
+begin
+  begin
+    perform public.close_session_orders('8b000000-0000-4000-8000-0000000004e3');
+  exception when others then
+    get stacked diagnostics v_hint = pg_exception_hint;
+  end;
+  if v_hint is distinct from 'fiscal_plan_requires_payment' then
+    raise exception 'OJ12 FAIL: pe Plan 3 inchiderea mesei cu nota neincasata nu a fost respinsa (hint=%)', v_hint; end if;
+  if (select status from public.orders where id = '8b000000-0000-4000-8000-0000000004c1') is distinct from 'served' then
+    raise exception 'OJ12 FAIL: comanda Plan 3 a fost atinsa'; end if;
+  raise notice 'OJ12 OK: Plan 3 — Închide masa rămâne respinsă (fiscal_plan_requires_payment)';
+end $$;
+select set_config('request.jwt.claim.sub', '', true);
 
 rollback;
