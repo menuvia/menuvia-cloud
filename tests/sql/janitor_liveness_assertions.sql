@@ -173,7 +173,13 @@ insert into jl_registry values
       ('7ab00000-0000-4000-8000-0000000000a2', 'waiter', 'new',    10, now() - interval '20 hours', null),
       ('7ab00000-0000-4000-8000-0000000000a2', 'waiter', 'served', 10, now() - interval '30 hours', now() - interval '20 hours');
   $x$, $x$select least((j->>'cancelled')::bigint, (j->>'closed')::bigint)
-             from (select public.expire_stale_orders(12) as j) t$x$);
+             from (select public.expire_stale_orders(12) as j) t$x$),
+ (21, 'expire_stale_pending_reservations', true, 1, $x$
+    -- mig 289: pending ramas in trecut -> expired (control pozitiv).
+    insert into public.reservations (restaurant_id, customer_name, customer_phone, party_size, starts_at, ends_at, status)
+    values ('7ab00000-0000-4000-8000-000000000001', 'JL pending', '0700000020', 2,
+            now() - interval '5 hours', now() - interval '3 hours', 'pending');
+  $x$, $x$select public.expire_stale_pending_reservations(2)::bigint$x$);
 
 do $$
 declare v_extra text[]; v_missing text[];

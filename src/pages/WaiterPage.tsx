@@ -407,7 +407,11 @@ export default function WaiterPage() {
   const activeReservations = useMemo(
     () =>
       reservations.filter(
-        (r) => r.status !== 'cancelled' && r.status !== 'no_show' && r.status !== 'completed',
+        (r) =>
+          r.status !== 'cancelled' &&
+          r.status !== 'no_show' &&
+          r.status !== 'completed' &&
+          r.status !== 'expired',
       ),
     [reservations],
   )
