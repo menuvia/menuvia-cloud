@@ -51,6 +51,7 @@ import {
 } from '../lib/themes'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
+import { useToast } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
@@ -91,6 +92,7 @@ function PairingPopupScrollLock(): null {
 
 export default function QrMenuPage({ token }: Props) {
   const [ctx, setCtx] = useState<ResolvedQrToken | null>(null)
+  const toast = useToast()
   const [categories, setCategories] = useState<Category[]>([])
   // Limba activă a meniului ('ro' = originalul din name/description).
   const [lang, setLang] = useState('ro')
@@ -370,7 +372,8 @@ export default function QrMenuPage({ token }: Props) {
       setTimeout(() => setWaiterCalled(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] callWaiter failed:', err)
-      // Nu afișăm eroare vizibilă — butonul se resetează și clientul poate reîncerca
+      // Vizibil: altfel clientul credea că a chemat pe cineva (eroarea era înghițită).
+      toast.error(T(lang, 'waiter_call_failed'))
     }
     setCallingWaiter(false)
   }
@@ -425,6 +428,7 @@ export default function QrMenuPage({ token }: Props) {
       setTimeout(() => setBillRequested(false), 60000)
     } catch (err) {
       console.error('[QrMenuPage] requestBill failed:', err)
+      toast.error(T(lang, 'bill_request_failed'))
     }
     setRequestingBill(false)
   }
@@ -639,6 +643,8 @@ export default function QrMenuPage({ token }: Props) {
         previousOrders={previousOrders}
         sessionId={sessionId}
         currency={menuCurrency}
+        lang={lang}
+        hideBranding={resolveHideBranding(ctx?.restaurant.theme_settings)}
       />
     )
   }
@@ -1657,7 +1663,10 @@ export default function QrMenuPage({ token }: Props) {
                   ? 'Plătește online'
                   : billRequested
                     ? 'Nota a fost cerută ✓'
-                    : 'Plătește masa'
+                    : // Fără plată online butonul DOAR cheamă ospătarul cu nota
+                      // (handleRequestBill) — „Plătește masa" promitea o plată
+                      // care nu există (growth; Plan 3 fără modul online).
+                      T(lang, 'request_bill')
             }
           />
         </Suspense>

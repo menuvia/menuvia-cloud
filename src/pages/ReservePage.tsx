@@ -17,7 +17,7 @@ import { useEffect, useMemo, useState, Suspense, lazy } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchRestaurantBySlug } from '../lib/qr'
 import type { Restaurant } from '../lib/qr'
-import { resolveTheme } from '../lib/themes'
+import { resolveHideBranding, resolveTheme } from '../lib/themes'
 import { PageSpinner } from '../components/PageLoader'
 
 const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
@@ -352,12 +352,16 @@ export default function ReservePage({
         </button>
       )}
 
-      <div style={{ marginTop: 40, fontSize: 12, color: PUB.text3 }}>
-        Powered by{' '}
-        <a href="/" style={{ color: accent, textDecoration: 'none', fontWeight: 600 }}>
-          Menuvia
-        </a>
-      </div>
+      {/* „Fără branding" (mig 281 — gate-ul de plan e la CITIRE, în proiecția
+          publică): aceeași regulă ca badge-ul de pe /m/:slug și QR. */}
+      {!resolveHideBranding(restaurant.theme_settings) && (
+        <div style={{ marginTop: 40, fontSize: 12, color: PUB.text3 }}>
+          Powered by{' '}
+          <a href="/" style={{ color: accent, textDecoration: 'none', fontWeight: 600 }}>
+            Menuvia
+          </a>
+        </div>
+      )}
 
       {sheetOpen && (
         <Suspense fallback={null}>
