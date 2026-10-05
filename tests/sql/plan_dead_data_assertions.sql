@@ -22,6 +22,8 @@
 --        re-citite de nicio funcție vie; datele VII de lângă ele au rămas
 --        (control pozitiv: limitele max_* pe 5 planuri, get_restaurant_features
 --        întoarce în continuare feature-urile vii).
+--   PD5  Matricea `plan_features` (enabled, 5 planuri, fără `max_*`) == blocul
+--        FIXTURE, oglinda fixturii TS a paginii de prețuri (PL6 leagă capătul TS).
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -250,6 +252,72 @@ begin
   raise notice 'PD4 OK: 2 funcții + 2 coloane + 2 feature-uri moarte absente; limitele și feature-urile vii intacte';
 end $$;
 
-do $$ begin raise notice '════ plan dead data assertions (PD1–PD4): ALL PASS ════'; end $$;
+-- ── PD5: matricea plan_features == fixtura înghețată a paginii de prețuri ────
+-- Blocul dintre markerii FIXTURE e OGLINDA lui
+-- src/lib/__tests__/planFeatureMatrix.fixture.ts (PL6 din planCopy.test.ts îl
+-- parsează și cere egalitate cu obiectul TS). Aici se cere egalitate cu DB-ul
+-- REAL (doar rândurile `enabled`, cele 5 planuri canonice, fără limitele
+-- `max_*`). Fără PD5, fixtura putea păstra rânduri șterse de o migrație (exact
+-- `kitchen_dashboard`/`ai_import` după mig 290), iar PL1/PL2 „verificau"
+-- promisiuni de preț pe date care nu mai existau.
+do $$
+declare v_bad text; v_n int;
+begin
+  with real as (
+    select feature,
+           string_agg(plan, ',' order by array_position(
+             array['free','starter','growth','pro','enterprise'], plan)) as plans
+      from public.plan_features
+     where enabled
+       and plan in ('free','starter','growth','pro','enterprise')
+       and feature not like 'max\_%'
+     group by feature
+  ), frozen(feature, plans) as (values
+    -- FIXTURE-BEGIN
+    ('menu_qr',              'free,starter,growth,pro,enterprise'),
+    ('themes',               'starter,growth,pro,enterprise'),
+    ('order_qr',             'growth,pro,enterprise'),
+    ('kitchen_tickets',      'growth,pro,enterprise'),
+    ('waiter_manual',        'growth,pro,enterprise'),
+    ('pickup_orders',        'growth,pro,enterprise'),
+    ('table_lifecycle',      'growth,pro,enterprise'),
+    ('loyalty',              'growth,pro,enterprise'),
+    ('extras_pairings',      'growth,pro,enterprise'),
+    ('modifiers',            'growth,pro,enterprise'),
+    ('stocks',               'growth,pro,enterprise'),
+    ('recipes',              'growth,pro,enterprise'),
+    ('profitability',        'growth,pro,enterprise'),
+    ('remove_branding',      'growth,pro,enterprise'),
+    ('reports_pdf',          'growth,pro,enterprise'),
+    ('reservations_revenue', 'growth,pro,enterprise'),
+    ('sms_notifications',    'starter,growth,pro,enterprise'),
+    ('analytics_advanced',   'pro,enterprise'),
+    ('fiscal_receipt',       'pro,enterprise'),
+    ('floor_plan',           'pro,enterprise'),
+    ('online_payments',      'pro,enterprise'),
+    ('reports_vat',          'pro,enterprise'),
+    ('shifts',               'pro,enterprise'),
+    ('split_bill',           'pro,enterprise')
+    -- FIXTURE-END
+  )
+  select string_agg(coalesce(r.feature, f.feature) || ': db=' || coalesce(r.plans, '∅')
+                    || ' fixtură=' || coalesce(f.plans, '∅'), '; '
+                    order by coalesce(r.feature, f.feature) collate "C")
+    into v_bad
+    from real r full join frozen f on f.feature = r.feature
+   where r.plans is distinct from f.plans;
+  if v_bad is not null then
+    raise exception 'PD5 FAIL: plan_features diferă de fixtura paginii de prețuri (actualizează planFeatureMatrix.fixture.ts ȘI blocul FIXTURE din PD5 în același PR): %', v_bad;
+  end if;
+  -- anti-vacuitate: DB-ul chiar are matricea (un restore gol ar da „egal" pe ∅)
+  select count(distinct feature) into v_n from public.plan_features
+   where enabled and feature not like 'max\_%';
+  if v_n < 20 then
+    raise exception 'PD5 FAIL (control +): doar % feature-uri active în plan_features', v_n;
+  end if;
+  raise notice 'PD5 OK: % feature-uri, matricea == fixtura', v_n;
+end $$;
+
+do $$ begin raise notice '════ plan dead data assertions (PD1–PD5): ALL PASS ════'; end $$;
 
 rollback;

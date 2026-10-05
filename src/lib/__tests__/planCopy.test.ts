@@ -12,10 +12,23 @@
 //   PL3  limitele din `PLANS.limits` == fixtura DB (inclusiv maxRestaurants);
 //   PL4  promisiunile scoase deliberat (AI, SMS, Happy Hour, rapoarte pe email,
 //        rezervări „simple/complete") nu reapar pe starter/growth;
-//   PL5  registrul nu putrezește: fiecare intrare e încă folosită.
+//   PL5  registrul nu putrezește: fiecare intrare e încă folosită;
+//   PL6  fixtura TS == blocul FIXTURE din PD5 (tests/sql/plan_dead_data_assertions.sql),
+//        care la rândul lui e comparat în CI cu `plan_features` REAL — deci
+//        fixtura nu poate păstra rânduri șterse de o migrație (mig 290).
+//
+// „Dashboard bucătărie" NU are feature propriu: rândul `kitchen_dashboard` era
+// date moarte (zero cititori, șters în mig 290), iar KitchenPage nu are gate de
+// plan — afișează comenzile, care pe Planul 2 există DOAR prin `order_qr`
+// (comenzi QR, mig 083) și `waiter_manual` (comenzi de ospătar); grupul
+// „Comenzi" din dashboard e `minTier: 2`. Promisiunea se leagă deci de ce chiar
+// produce conținutul ecranului.
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { PLANS, PLAN_COMPARISON, getPlan, type PlanId } from '../plans'
 import {
+  DB_PLANS,
   PLAN_FEATURE_MATRIX,
   PLAN_LIMIT_MATRIX,
   type DbFeature,
@@ -44,12 +57,12 @@ const CARD_BINDINGS: Record<string, Basis> = {
     universal: 'modulul reservations e permis pe orice plan (mig 086, set_restaurant_module)',
   },
   'Comenzi prin QR': { features: ['order_qr'] },
-  'Dashboard bucătărie': { features: ['kitchen_dashboard'] },
+  'Dashboard bucătărie': { features: ['order_qr', 'waiter_manual'] },
   'Tot din Meniu Digital +': { header: true },
   'Până la 1.000 de produse': { limit: 'max_products' },
   'Până la 300 mese / QR-uri': { limit: 'max_tables' },
   'Comenzi prin QR (identificare automată a mesei)': { features: ['order_qr'] },
-  'Dashboard bucătărie + flux ospătar': { features: ['kitchen_dashboard', 'waiter_manual'] },
+  'Dashboard bucătărie + flux ospătar': { features: ['order_qr', 'waiter_manual'] },
   'Pre-comandă pentru ridicare (pickup)': { features: ['pickup_orders'] },
   'Fidelizare pe comenzile prin QR (puncte + recompense)': { features: ['loyalty', 'order_qr'] },
   '„Cere nota" cu bacșiș, din telefonul clientului': { features: ['order_qr', 'table_lifecycle'] },
@@ -73,7 +86,7 @@ const ROW_BINDINGS: Record<string, Basis> = {
   'Teme premium + flipbook': { features: ['themes'] },
   'Rezervări online': { universal: 'modul permis pe orice plan (mig 086)' },
   'Comenzi prin QR': { features: ['order_qr'] },
-  'Dashboard bucătărie': { features: ['kitchen_dashboard'] },
+  'Dashboard bucătărie': { features: ['order_qr', 'waiter_manual'] },
   'Flux ospătar': { features: ['waiter_manual'] },
   'Pre-comandă pentru ridicare (pickup)': { features: ['pickup_orders'] },
   'Fidelizare pe comenzile prin QR': { features: ['loyalty'] },
@@ -202,6 +215,31 @@ describe('pagina de prețuri e legată de matricea reală din DB', () => {
     const labels = new Set(PLAN_COMPARISON.map((r) => r.label))
     for (const k of Object.keys(ROW_BINDINGS)) {
       expect(labels.has(k), `intrare moartă în ROW_BINDINGS: „${k}"`).toBe(true)
+    }
+  })
+
+  it('PL6: fixtura TS == blocul FIXTURE din PD5 (oglinda plan_features din DB)', () => {
+    // Din process.cwd(), NU din import.meta.url/__dirname (capcana din qr-scan.test.ts, #269).
+    const sql = readFileSync(
+      resolve(process.cwd(), 'tests/sql/plan_dead_data_assertions.sql'),
+      'utf8',
+    )
+    const block = /-- FIXTURE-BEGIN([\s\S]*?)-- FIXTURE-END/.exec(sql)
+    expect(block, 'blocul FIXTURE lipsește din PD5').not.toBeNull()
+    const frozen = new Map<string, string>()
+    for (const m of (block?.[1] ?? '').matchAll(/\('([a-z_]+)',\s*'([a-z,]*)'\)/g)) {
+      frozen.set(m[1], m[2])
+    }
+    // control pozitiv: parserul chiar a citit matricea
+    expect(frozen.size).toBeGreaterThan(20)
+    const fromTs = new Map<string, string>()
+    for (const [feature, byPlan] of Object.entries(PLAN_FEATURE_MATRIX)) {
+      fromTs.set(feature, DB_PLANS.filter((p) => byPlan[p]).join(','))
+    }
+    expect(Object.fromEntries(fromTs)).toEqual(Object.fromEntries(frozen))
+    // rândurile șterse de mig 290 nu au voie să reapară în fixtură
+    for (const dead of ['kitchen_dashboard', 'ai_import']) {
+      expect(dead in PLAN_FEATURE_MATRIX, `fixtura are rândul șters ${dead}`).toBe(false)
     }
   })
 })
