@@ -126,3 +126,52 @@ export function detectBrowserLang(available: string[]): string | null {
   }
   return null
 }
+
+// Limbile pentru care dashboard-ul oferă câmpuri de traducere: cele ACTIVE din
+// `restaurant.menu_languages`, fără `ro` (originalul stă în coloana `name`),
+// fără coduri necunoscute și fără duplicate, în ordinea din MENU_LANGS.
+// Listă vidă/null → zero câmpuri (restaurantul n-a configurat limbi).
+export function activeTranslationLangs(
+  menuLanguages: readonly string[] | null | undefined,
+): string[] {
+  if (!menuLanguages || menuLanguages.length === 0) return []
+  const wanted = new Set(menuLanguages)
+  return MENU_LANGS.filter((l) => l.code !== 'ro' && wanted.has(l.code)).map((l) => l.code)
+}
+
+// Editorul MANUAL de traduceri pentru categorii (CategoriesTab): aplică numele
+// tastate pentru limbile ACTIVE peste `translations` existent, fără să piardă
+// nimic din rest:
+// - limbile care NU sunt active (deselectate din setări, dar cu traduceri deja
+//   scrise — de mână sau de AI) rămân NEATINSE: o deselectare temporară a unei
+//   limbi nu are voie să șteargă munca de traducere;
+// - celelalte câmpuri ale unei intrări active (ex. `description`) se păstrează —
+//   editorul scrie doar `name`;
+// - un nume gol (după trim) șterge DOAR `name` din intrare; intrarea rămasă
+//   goală dispare (clientul face fallback pe română, ca la produse);
+// - numele trimise pentru limbi NEactive sunt ignorate (nu se scrie ce omul
+//   n-a văzut pe ecran).
+// Pură: nu mută `existing`. Diferită de merge-ul fill-only-gaps din
+// AiBulkGenerate (acolo existentul câștigă; aici câștigă ce a tastat omul).
+export function mergeTranslations(
+  existing: Translations | null | undefined,
+  names: Readonly<Record<string, string>>,
+  activeLangs: readonly string[],
+): Translations {
+  const out: Translations = {}
+  if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
+    for (const [code, entry] of Object.entries(existing)) out[code] = entry
+  }
+  for (const code of activeLangs) {
+    if (code === 'ro') continue
+    const prev = out[code]
+    const entry: { name?: string; description?: string } =
+      prev && typeof prev === 'object' && !Array.isArray(prev) ? { ...prev } : {}
+    const name = (names[code] ?? '').trim()
+    if (name.length > 0) entry.name = name
+    else delete entry.name
+    if (Object.keys(entry).length === 0) delete out[code]
+    else out[code] = entry
+  }
+  return out
+}
