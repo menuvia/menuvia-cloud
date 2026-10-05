@@ -443,10 +443,10 @@ begin
       jsonb_build_object('affiliate_id', v_aff_id, 'legal_form', p_legal_form,
                          'iban_last4', right(v_iban, 4)));
   else
-    if v_old.iban is distinct from v_iban then v_changed := v_changed || 'iban'; end if;
-    if v_old.cui is distinct from v_cui then v_changed := v_changed || 'cui'; end if;
-    if v_old.legal_form is distinct from p_legal_form then v_changed := v_changed || 'legal_form'; end if;
-    if v_old.beneficiary_name is distinct from v_name then v_changed := v_changed || 'beneficiary_name'; end if;
+    if v_old.iban is distinct from v_iban then v_changed := array_append(v_changed, 'iban'); end if;
+    if v_old.cui is distinct from v_cui then v_changed := array_append(v_changed, 'cui'); end if;
+    if v_old.legal_form is distinct from p_legal_form then v_changed := array_append(v_changed, 'legal_form'); end if;
+    if v_old.beneficiary_name is distinct from v_name then v_changed := array_append(v_changed, 'beneficiary_name'); end if;
     if cardinality(v_changed) > 0 then
       perform public.log_platform_action('affiliate', null, 'payout_profile_updated',
         jsonb_build_object('affiliate_id', v_aff_id, 'changed', to_jsonb(v_changed),
