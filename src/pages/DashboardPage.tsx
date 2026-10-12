@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { planTier, productLimitReason, type PlanTier } from '../lib/features'
+import { moneyTier, productLimitReason, type PlanTier } from '../lib/features'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -732,8 +732,9 @@ export default function DashboardPage({
   // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv).
   const plan = features.features?.plan ?? 'free'
 
-  // Tier comercial derivat din planul restaurantului.
-  const tier: PlanTier = planTier(plan)
+  // Tier comercial derivat din planul restaurantului (coborât sub 3 pentru un
+  // restaurant din afara României — moneyTier, mig 296; identic pe RO).
+  const tier: PlanTier = moneyTier(features.features)
 
   // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
   // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.

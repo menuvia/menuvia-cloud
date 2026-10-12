@@ -138,6 +138,22 @@ export function planTier(plan: string | null | undefined): PlanTier {
   }
 }
 
+/**
+ * Tier-ul RESTAURANTULUI pentru gating-ul de bani/fiscal: planul owner-ului,
+ * coborât la 2 când serverul raportează `fiscal_receipt` DEZACTIVAT pe un plan
+ * de tier 3 — singurul caz e un restaurant din afara României (mig 296:
+ * feature-urile românești sunt false pentru `country <> 'RO'`). Pe orice
+ * restaurant RO (și pe un server fără mig 296) rezultatul e IDENTIC cu
+ * `planTier(features.plan)`. Fără el, UI-ul unui local DE pe Plan 3 ar arăta
+ * butoane de plată pe care serverul le respinge și ar ascunde „Închide comanda",
+ * singura ieșire validă acolo.
+ */
+export function moneyTier(features: RestaurantFeatures | null): PlanTier {
+  const tier = planTier(features?.plan)
+  if (tier === 3 && features?.features?.fiscal_receipt?.enabled === false) return 2
+  return tier
+}
+
 // User-friendly plan names — numele COMERCIALE (cele 3 concepte publice).
 // DERIVATE din PLAN_LABELS (sursa unică, lib/constants.ts) + prefixul emoji —
 // capcana „ține PLAN_LABELS și PLAN_NAMES sincronizate manual" (CLAUDE.md,

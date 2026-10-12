@@ -25,6 +25,13 @@ import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 import { Icon } from '../components/ui/Icon'
+import { browserSite, siteHost } from '../lib/domain'
+import {
+  SITE_PLAN_IDS,
+  checkoutOpenOnSite,
+  comparisonRowsForSite,
+  plansForSite,
+} from '../lib/siteMarket'
 
 // Celulă din tabelul comparativ: boolean → bifă verde / liniuță gri,
 // string → text scurt. Extras din render ca să rămână lizibil JSX-ul.
@@ -120,6 +127,15 @@ export default function PricingPage({
   onCheckout: (plan: string) => void
 }) {
   const { user } = useAuth()
+  // Site-ul (lib/domain.ts): pe menuvia.ro TOT ce urmează e identic cu înainte
+  // (toate planurile, prețuri RON, checkout deschis). Pe menuvia.com: doar
+  // Planurile 1–2, fără prețuri (nu există încă prețuri EUR în Stripe) și
+  // checkout închis cu mesaj explicit — vezi lib/siteMarket.ts.
+  const site = browserSite()
+  const checkoutOpen = checkoutOpenOnSite(site)
+  const sitePlanIds = SITE_PLAN_IDS[site]
+  const visiblePlans = plansForSite(site, COMMERCIAL_PLANS)
+  const comparisonRows = comparisonRowsForSite(site, PLAN_COMPARISON)
   const [loadingPlan, setLoadingPlan] = React.useState<string | null>(null)
   // Eșecul de checkout se AFIȘEAZĂ. Funcția întoarce nouă forme de răspuns
   // non-200; clientul trata două, restul lăsau butonul mut (audit v3).
@@ -198,18 +214,19 @@ export default function PricingPage({
     cta: string
     ctaFn: () => void | Promise<void>
     highlight: boolean
-  }> = COMMERCIAL_PLANS.map((p) => ({
+  }> = visiblePlans.map((p) => ({
     id: p.id,
     name: p.name,
     emoji: p.emoji,
-    price: p.priceMonthly,
+    // Fără prețuri inventate: pe un site cu checkout închis nu afișăm suma RON.
+    price: checkoutOpen ? p.priceMonthly : null,
     badge: p.badge,
     desc: p.tagline,
     features: [
       ...p.included.map((t) => ({ t, ok: true })),
       ...p.notIncluded.map((t) => ({ t, ok: false })),
     ],
-    cta: p.ctaLabel,
+    cta: checkoutOpen ? p.ctaLabel : 'Coming soon',
     ctaFn: () => {
       if (p.id === 'pro') {
         // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
@@ -267,7 +284,9 @@ export default function PricingPage({
     online_payments: '💳',
     fiscal_bridge: <Icon name="link" size={26} color={MKT.accent} />,
   }
-  const EXTRAS_MONTHLY = EXTRA_FEATURES.map((f) => ({
+  // Ambele extra-uri lunare sunt incluse DOAR în Fiscalizare (Plan 3) — pe un
+  // site care nu vinde Plan 3 secțiunea dispare.
+  const EXTRAS_MONTHLY = (sitePlanIds.includes('pro') ? EXTRA_FEATURES : []).map((f) => ({
     icon: EXTRA_ICONS[f.id] ?? <Icon name="sparkle" size={26} color={MKT.accent} />,
     title: f.title,
     price: f.price,
@@ -518,6 +537,28 @@ export default function PricingPage({
           </div>
         )}
 
+        {/* menuvia.com: checkout-ul nu e încă deschis — spus SUS, nu doar la click. */}
+        {!checkoutOpen && (
+          <div
+            role="note"
+            style={{
+              maxWidth: 720,
+              margin: '0 auto 24px',
+              padding: '14px 18px',
+              background: MKT.surface,
+              border: `1.5px solid ${MKT.border}`,
+              borderRadius: 12,
+              color: MKT.text,
+              fontSize: '0.9rem',
+              lineHeight: 1.5,
+              textAlign: 'center',
+            }}
+          >
+            Online sign-up with EUR pricing is coming soon on {siteHost(site)}. Contact us and we
+            will set up your restaurant.
+          </div>
+        )}
+
         {/* Plans grid */}
         <RevealItem
           style={{
@@ -613,7 +654,7 @@ export default function PricingPage({
                         letterSpacing: '-0.02em',
                       }}
                     >
-                      Contact
+                      {checkoutOpen ? 'Contact' : 'Soon'}
                     </span>
                   ) : (
                     <>
@@ -795,7 +836,7 @@ export default function PricingPage({
                       minWidth: 180,
                     }}
                   />
-                  {COMMERCIAL_PLANS.map((p) => (
+                  {visiblePlans.map((p) => (
                     <th
                       key={p.id}
                       scope="col"
@@ -816,8 +857,8 @@ export default function PricingPage({
                 </tr>
               </thead>
               <tbody>
-                {PLAN_COMPARISON.map((row, i) => {
-                  const isLast = i === PLAN_COMPARISON.length - 1
+                {comparisonRows.map((row, i) => {
+                  const isLast = i === comparisonRows.length - 1
                   const cellBorder = isLast ? 'none' : `1px solid ${MKT.border}`
                   return (
                     <tr key={row.label}>
@@ -838,7 +879,7 @@ export default function PricingPage({
                       >
                         {row.label}
                       </th>
-                      {(['starter', 'growth', 'pro'] as const).map((planId) => (
+                      {sitePlanIds.map((planId) => (
                         <td
                           key={planId}
                           style={{
@@ -1061,19 +1102,21 @@ export default function PricingPage({
           </div>
 
           {/* Monthly recurring */}
-          <div
-            style={{
-              marginBottom: 14,
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: MKT.text3,
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              textAlign: 'center',
-            }}
-          >
-            Lunar recurent
-          </div>
+          {EXTRAS_MONTHLY.length > 0 && (
+            <div
+              style={{
+                marginBottom: 14,
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: MKT.text3,
+                textTransform: 'uppercase',
+                letterSpacing: '0.1em',
+                textAlign: 'center',
+              }}
+            >
+              Lunar recurent
+            </div>
+          )}
           <div
             style={{
               display: 'grid',
