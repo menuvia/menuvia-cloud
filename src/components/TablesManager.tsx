@@ -16,6 +16,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
+import { browserSite, siteHost } from '../lib/domain'
 
 interface QrTokenRow {
   id: string
@@ -847,7 +848,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         // Brand footer
         doc.setFontSize(sizes.brand)
         doc.setTextColor(190, 180, 170)
-        doc.text('menuvia.ro', x + cW / 2, y + cH * 0.96, { align: 'center' })
+        doc.text(siteHost(browserSite()), x + cW / 2, y + cH * 0.96, { align: 'center' })
       }
 
       const pW = 210,

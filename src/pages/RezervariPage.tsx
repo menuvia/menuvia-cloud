@@ -21,6 +21,7 @@ import MarketingFooter from '../components/marketing/MarketingFooter'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 import { setOnboardingPreset } from '../lib/onboardingPreset'
+import { SITE_HOSTS } from '../lib/domain'
 
 const BENEFITS: { icon: IconName; t: string; d: string }[] = [
   {
@@ -31,7 +32,7 @@ const BENEFITS: { icon: IconName; t: string; d: string }[] = [
   {
     icon: 'qr',
     t: 'Buton de rezervare pe profilul tău Google',
-    d: 'Primești un link stabil (menuvia.ro/rezervare/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.',
+    d: `Primești un link stabil (${SITE_HOSTS.ro}/rezervare/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.`,
   },
   {
     icon: 'bell',

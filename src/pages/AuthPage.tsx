@@ -17,6 +17,7 @@ import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
 import { track } from '../lib/analytics'
+import { browserSite, defaultUiLang } from '../lib/domain'
 // Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
 // folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
 // apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
@@ -109,11 +110,15 @@ function detectLang(): UiLang {
   if (urlLang === 'en') return 'en'
   if (urlLang === 'ro') return 'ro'
   try {
-    if (window.localStorage.getItem(UI_LANG_KEY) === 'en') return 'en'
+    const stored = window.localStorage.getItem(UI_LANG_KEY)
+    if (stored === 'en') return 'en'
+    // Alegere explicită RO: contează doar pe menuvia.com (pe .ro e oricum default).
+    if (stored === 'ro') return 'ro'
   } catch {
     /* ignore — localStorage indisponibil (mod privat etc.) */
   }
-  return 'ro'
+  // Default pe SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe menuvia.com.
+  return defaultUiLang(browserSite())
 }
 
 // Tabelul de traducere — TOATE stringurile vizibile ale acestui fișier.

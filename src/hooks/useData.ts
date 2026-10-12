@@ -84,6 +84,9 @@ export interface Restaurant {
   menu_languages?: string[] | null
   // Moneda meniului (mig 007, activată în mig 205) — 'RON' default.
   currency?: string | null
+  // Țara (ISO alpha-2, mig 296) — 'RO' default. Feature-urile românești
+  // (fiscal, plăți în aplicație, TVA) sunt false în DB pentru country <> 'RO'.
+  country?: string | null
   created_at: string
   updated_at: string
 }

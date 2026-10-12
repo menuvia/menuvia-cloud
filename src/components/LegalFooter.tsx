@@ -2,6 +2,7 @@
 // Footer cu link-uri legale obligatorii (GDPR, ANPC).
 // Folosit pe TOATE paginile publice și autentificate.
 import { D } from '../lib/constants'
+import { CONTACT_EMAIL } from '../lib/domain'
 
 export default function LegalFooter() {
   const year = new Date().getFullYear()
@@ -63,7 +64,7 @@ export default function LegalFooter() {
           DPA
         </a>
         <a
-          href="mailto:contact@menuvia.ro"
+          href={`mailto:${CONTACT_EMAIL}`}
           style={linkStyle}
           onMouseEnter={handleLinkEnter}
           onMouseLeave={handleLinkLeave}

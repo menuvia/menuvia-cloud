@@ -18,6 +18,8 @@ import { D } from './lib/constants'
 import { planIntentDestination, writePlanIntent } from './lib/planIntent'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
+import { browserSite, currentSite, defaultUiLang } from './lib/domain'
+import { checkoutOpenOnSite, siteCheckoutClosedFailure } from './lib/siteMarket'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
@@ -131,7 +133,10 @@ function parsePath(): RouteState {
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
-  if (p === '/') return { view: 'landing' }
+  // menuvia.com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
+  // (menuvia.ro, preview-uri, localhost) rămâne pe landing-ul RO de azi.
+  if (p === '/')
+    return { view: currentSite(window.location.hostname) === 'com' ? 'landing-en' : 'landing' }
   if (p === '/en') return { view: 'landing-en' }
   return { view: 'notfound' }
 }
@@ -551,8 +556,14 @@ function AppRouter() {
       <Suspense fallback={<PageSpinner />}>
         <PricingPage
           onBack={() => navigate('/')}
-          onLogin={() => navigate('/auth?lang=ro')}
+          onLogin={() => navigate('/auth?lang=' + defaultUiLang(browserSite()))}
           onCheckout={async (plan) => {
+            // menuvia.com: prețurile Stripe sunt doar în RON și Plan 3 nu se
+            // vinde acolo — checkout-ul e închis cu mesaj explicit (lib/siteMarket).
+            // Pe menuvia.ro condiția e mereu adevărată → flux neschimbat.
+            if (!checkoutOpenOnSite(browserSite())) {
+              throw new CheckoutError(siteCheckoutClosedFailure())
+            }
             if (!user) {
               // Păstrăm planul ÎNAINTE de navigate (localStorage, TTL 24 h), ca
               // să-l recuperăm după login sau după confirmarea emailului în alt

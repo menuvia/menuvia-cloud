@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { MKT } from '../../lib/marketing'
+import { CONTACT_EMAIL } from '../../lib/domain'
 
 // ─────────────────────────────────────────────────────────────
 // MarketingFooter — footer comun pentru paginile de marketing,
@@ -37,7 +38,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
   {
     title: 'Companie',
     links: [
-      { label: 'Contact', href: 'mailto:contact@menuvia.ro' },
+      { label: 'Contact', href: `mailto:${CONTACT_EMAIL}` },
       { label: 'Program pilot', href: '/recrutare' },
       { label: 'Program de parteneriat', href: '/afiliat' },
     ],

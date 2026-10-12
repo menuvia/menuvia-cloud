@@ -20,6 +20,7 @@ import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon, type IconName } from './ui/Icon'
 import { confirm } from './ui/confirm'
+import { browserSite, siteHost } from '../lib/domain'
 
 // ── Constants for hours_structured editor ──
 
@@ -950,7 +951,7 @@ export default function SettingsTab({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  menuvia.ro/m/
+                  {siteHost(browserSite())}/m/
                 </span>
                 <Inp
                   value={form.slug || ''}
@@ -1647,7 +1648,9 @@ export default function SettingsTab({
               desc={
                 <>
                   Activează pagina ta publică{' '}
-                  <span style={{ color: D.gold }}>menuvia.ro/m/{form.slug || 'slug'}</span>. Clienții
+                  <span style={{ color: D.gold }}>
+                    {siteHost(browserSite())}/m/{form.slug || 'slug'}
+                  </span>. Clienții
                   pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
                   ridicare.
                 </>
