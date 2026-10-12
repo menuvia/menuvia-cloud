@@ -14,13 +14,18 @@
 // Fail-closed: se deschide DOAR cu `CODVIA_ORDERS_OPEN=true` EXACT în env.
 
 const { createClient } = require('@supabase/supabase-js')
+const {
+  appLink,
+  FOUNDER_EMAIL: DEFAULT_FOUNDER_EMAIL,
+  FROM_PILOT_CODVIA,
+  RO_SITE_ORIGINS,
+} = require('./lib/appUrl')
 
-const FOUNDER_EMAIL = process.env.RECRUTARE_NOTIFY_EMAIL || 'radu@menuvia.ro'
+const FOUNDER_EMAIL = process.env.RECRUTARE_NOTIFY_EMAIL || DEFAULT_FOUNDER_EMAIL
 
 // CORS — restrictiv, doar domeniile noastre (codvia.ro se adaugă la cumpărare).
 const ALLOWED_ORIGINS = [
-  'https://menuvia.ro',
-  'https://www.menuvia.ro',
+  ...RO_SITE_ORIGINS,
   'https://menuvia.netlify.app',
   'https://codvia.ro',
   'https://www.codvia.ro',
@@ -193,7 +198,7 @@ exports.handler = async (event) => {
         <tr><td><b>Telefon:</b></td><td><a href="tel:${encodeURIComponent(phone)}">${escapeHtml(phone)}</a></td></tr>
         <tr><td><b>Email:</b></td><td><a href="mailto:${encodeURIComponent(email)}">${escapeHtml(email)}</a></td></tr>
         <tr><td><b>Adresă:</b></td><td>${escapeHtml(address)}</td></tr>
-        <tr><td><b>Meniu QR:</b></td><td>${menuSlug ? `https://menuvia.ro/m/${escapeHtml(menuSlug)}` : '—'}</td></tr>
+        <tr><td><b>Meniu QR:</b></td><td>${menuSlug ? appLink(`/m/${escapeHtml(menuSlug)}`) : '—'}</td></tr>
       </table>
       ${message ? `<h3>Mesaj:</h3><p style="white-space:pre-wrap">${escapeHtml(message)}</p>` : ''}
       <p style="color:#888;font-size:12px;margin-top:24px">
@@ -210,7 +215,7 @@ exports.handler = async (event) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          from: 'Codvia Comenzi <pilot@menuvia.ro>',
+          from: FROM_PILOT_CODVIA,
           to: [FOUNDER_EMAIL],
           subject,
           html,

@@ -12,6 +12,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const { appUrl: resolveAppUrl } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -36,7 +37,7 @@ exports.handler = async (event) => {
   }
 
   const {
-    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY, VITE_APP_URL,
+    SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY,
   } = process.env
 
   if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
@@ -104,7 +105,7 @@ exports.handler = async (event) => {
     })
   }
 
-  const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
+  const appUrl = resolveAppUrl()
   const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
 
   try {

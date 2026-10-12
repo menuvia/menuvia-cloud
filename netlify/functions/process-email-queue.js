@@ -8,9 +8,12 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
-const FROM_EMAIL = process.env.EMAIL_FROM || 'Menuvia <hello@menuvia.ro>'
-const REPLY_TO   = process.env.EMAIL_REPLY_TO || 'radu@menuvia.ro'
-const APP_URL    = process.env.APP_URL || 'https://menuvia.netlify.app'
+const { appUrl, FROM_HELLO, FOUNDER_EMAIL } = require('./lib/appUrl')
+
+const FROM_EMAIL = process.env.EMAIL_FROM || FROM_HELLO
+const REPLY_TO   = process.env.EMAIL_REPLY_TO || FOUNDER_EMAIL
+// Sursa unică a domeniului (lib/appUrl.js): APP_URL → VITE_APP_URL → menuvia.ro.
+const APP_URL    = appUrl()
 
 // ── Email templates (Romanian, warm tone) ──────────────────────
 // Each renders to { subject, html } given templateData.
@@ -272,7 +275,7 @@ const TEMPLATES = {
     // mailto: pre-fill subject = nota + body = ID identificare.
     // Zero infra → patron click pe nota → deschide client email → trimite.
     // Înlocuiește cu URL real (route /nps) dacă vrei pagini de feedback.
-    const replyEmail = 'radu@menuvia.ro'
+    const replyEmail = FOUNDER_EMAIL
     const link = (score) =>
       `mailto:${replyEmail}?subject=${encodeURIComponent('NPS ' + score + '/10 — ' + (d.restaurant_name || ''))}&body=${encodeURIComponent('Nota: ' + score + '/10\n\nMotiv (opțional):\n\n\n—\nUser: ' + (d.user_id || '') + '\nRestaurant: ' + (d.restaurant_name || ''))}`
     return {

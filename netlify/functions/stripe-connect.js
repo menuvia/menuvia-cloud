@@ -12,6 +12,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const { appUrl } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -35,7 +36,7 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY, VITE_APP_URL } = process.env
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !STRIPE_SECRET_KEY) {
     console.error('[stripe-connect] Missing env vars')
     return jsonResponse(500, { error: 'Stripe Connect nu este configurat.' })
@@ -128,7 +129,7 @@ exports.handler = async (event) => {
       }
     }
 
-    const base = (VITE_APP_URL || 'https://menuvia.ro').replace(/\/$/, '')
+    const base = appUrl()
     const link = await stripe.accountLinks.create({
       account: accountId,
       // Ambele întorc în dashboard — SettingsTab recitește statusul la mount.

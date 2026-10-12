@@ -3,6 +3,7 @@
 // Called by owner from the Team tab in dashboard.
 
 const { createClient } = require('@supabase/supabase-js')
+const { appUrl: resolveAppUrl, FROM_HELLO } = require('./lib/appUrl')
 
 // Escapează conținut controlat de user înainte de interpolare în HTML-ul emailului
 // (audit P3: restaurant_name/invited_by_name puteau injecta markup într-un email brandat).
@@ -158,7 +159,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'Could not create invite' }) }
   }
 
-  const appUrl   = process.env.VITE_APP_URL || 'https://menuvia.netlify.app'
+  const appUrl   = resolveAppUrl()
   const acceptUrl = `${appUrl}/invite/${invite.token}`
 
   const ROLE_LABELS = { manager: 'Manager', waiter: 'Ospătar', kitchen: 'Bucătărie' }
@@ -173,7 +174,7 @@ exports.handler = async (event) => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from:    'Menuvia <hello@menuvia.ro>',
+      from:    FROM_HELLO,
       to:      [cleanEmail],
       subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
       html: `

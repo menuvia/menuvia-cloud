@@ -4,6 +4,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const { appUrl: resolveAppUrl } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -31,7 +32,7 @@ exports.handler = async (event) => {
     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY,
     STRIPE_STARTER_PRICE_ID, STRIPE_GROWTH_PRICE_ID,
     STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
-    STRIPE_TRIAL_DAYS, VITE_APP_URL,
+    STRIPE_TRIAL_DAYS,
   } = process.env
 
   // Price map per plan canonic. Lipsa unui price ID = planul respectiv
@@ -202,7 +203,7 @@ exports.handler = async (event) => {
     }
   }
 
-  const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
+  const appUrl = resolveAppUrl()
 
   // Trial configurabil — default 30 zile (onorează promisiunea din landing).
   // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.

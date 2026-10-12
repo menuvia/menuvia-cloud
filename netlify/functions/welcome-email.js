@@ -6,6 +6,7 @@
 // If not set, ALL requests are rejected.
 
 const crypto = require('crypto')
+const { appLink, FROM_HELLO } = require('./lib/appUrl')
 
 function esc(str) {
   if (!str) return ''
@@ -52,7 +53,7 @@ exports.handler = async (event) => {
     signal: AbortSignal.timeout(8000),
     headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from:    'Menuvia <hello@menuvia.ro>',
+      from:    FROM_HELLO,
       to:      [email],
       subject: 'Bun venit la Menuvia',
       html: `
@@ -61,7 +62,7 @@ exports.handler = async (event) => {
           <h2 style="font-family:Georgia,serif;font-size:20px;color:#F0EAE0;margin-bottom:12px;">Bun venit${name ? `, ${name}` : ''}!</h2>
           <p style="color:#9A9590;line-height:1.6;margin-bottom:16px;">Contul tău Menuvia a fost creat cu succes.</p>
           <p style="color:#9A9590;line-height:1.6;margin-bottom:24px;">Acum poți să-ți digitalizezi meniul, să primești comenzi de pe telefoanele clienților și să urmărești tot ce se întâmplă în restaurant în timp real.</p>
-          <a href="${process.env.VITE_APP_URL || 'https://menuvia.netlify.app'}/dashboard" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">Mergi la dashboard</a>
+          <a href="${appLink('/dashboard')}" style="display:inline-block;background:#C8963C;color:#000;padding:14px 28px;border-radius:10px;text-decoration:none;font-weight:600;font-size:15px;margin-bottom:24px;">Mergi la dashboard</a>
           <p style="color:#4A4844;font-size:12px;">Ai întrebări? Răspunde la acest email.</p>
         </div>
       `,
