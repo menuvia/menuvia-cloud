@@ -244,6 +244,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/affiliate_program_gdpr_assertions.sql
 
+      # Țara restaurantului (mig 296) pe stack-ul real: cele două funcții NOI
+      # primesc EXECUTE din default privileges ale Supabase, deci revoke-urile
+      # explicite (CC7) au muncă reală DOAR aici.
+      - name: Țara restaurantului + regula de aur pe țară pe stack-ul Supabase real (mig 296, CC1–CC8)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/restaurant_country_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
