@@ -70,3 +70,40 @@ export function browserSite(): Site {
   if (typeof window === 'undefined' || !window.location) return 'ro'
   return currentSite(window.location.hostname)
 }
+
+// ── Baza link-urilor generate de aplicație ───────────────────
+// `VITE_APP_URL` e fixat în netlify.toml pe contextul production la originea
+// .ro — același bundle servit pe menuvia.com l-ar trimite pe utilizator pe .ro.
+// Pe 'ro' comportamentul rămâne EXACT cel de dinainte (`VITE_APP_URL || origin`);
+// doar pe 'com' decizia se schimbă. Funcții PURE: apelantul le dă hostname-ul,
+// valoarea lui `import.meta.env.VITE_APP_URL` și `window.location.origin`.
+
+function legacyBase(viteAppUrl: string | null | undefined, origin: string): string {
+  return viteAppUrl || origin
+}
+
+/**
+ * Baza pentru redirect-urile de AUTENTIFICARE (confirmarea de signup, resetarea
+ * parolei): pe 'com' originea CURENTĂ — sesiunea și localStorage-ul sunt per
+ * origine, deci omul trebuie să se întoarcă exact unde a pornit.
+ */
+export function authRedirectBase(
+  hostname: string,
+  viteAppUrl: string | null | undefined,
+  origin: string,
+): string {
+  return currentSite(hostname) === 'com' ? origin : legacyBase(viteAppUrl, origin)
+}
+
+/**
+ * Baza pentru URL-urile PUBLICE tipărite/distribuite (QR-ul mesei, linkul
+ * meniului): pe 'com' originea CANONICĂ a site-ului (un QR tipărit nu are voie
+ * să poarte un subdomeniu întâmplător, ex. www).
+ */
+export function publicBaseUrl(
+  hostname: string,
+  viteAppUrl: string | null | undefined,
+  origin: string,
+): string {
+  return currentSite(hostname) === 'com' ? siteOrigin('com') : legacyBase(viteAppUrl, origin)
+}

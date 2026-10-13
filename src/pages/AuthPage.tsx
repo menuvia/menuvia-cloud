@@ -17,7 +17,7 @@ import { getPlanByInternalId } from '../lib/plans'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
 import { track } from '../lib/analytics'
-import { browserSite, defaultUiLang } from '../lib/domain'
+import { authRedirectBase, browserSite, defaultUiLang } from '../lib/domain'
 // Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
 // folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
 // apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
@@ -412,8 +412,14 @@ export default function AuthPage({
           // `?plan=` în link: confirmarea se deschide în ALT tab (sau pe alt
           // dispozitiv), iar intenția trebuie să ajungă și acolo — altfel
           // contul nou ateriza pe /dashboard în loc de checkout.
+          // Pe menuvia.com: originea curentă (VITE_APP_URL e fixat pe .ro în
+          // netlify.toml); pe .ro neschimbat (authRedirectBase, lib/domain.ts).
           emailRedirectTo: authRedirectUrl(
-            import.meta.env.VITE_APP_URL || window.location.origin,
+            authRedirectBase(
+              window.location.hostname,
+              import.meta.env.VITE_APP_URL,
+              window.location.origin,
+            ),
             planIntent,
           ),
         },
@@ -524,7 +530,9 @@ export default function AuthPage({
     setLoading(true)
     setError(null)
     const { error: resetErr } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
-      redirectTo: (import.meta.env.VITE_APP_URL || window.location.origin) + '/reset-password',
+      redirectTo:
+        authRedirectBase(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin) +
+        '/reset-password',
     })
     if (resetErr) {
       setError(translateAuthError(resetErr.message))
