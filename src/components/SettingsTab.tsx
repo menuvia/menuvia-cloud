@@ -355,7 +355,10 @@ export default function SettingsTab({
     else {
       // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
       // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
-      if (form.country !== restaurant.country) clearPendingCountry(restaurant.id)
+      // Doar când câmpul de țară e VIZIBIL (a fost deci trimis conștient): o
+      // salvare cu aceeași țară confirmă alegerea și stinge o intenție veche,
+      // care altfel ar fi re-aplicată la următoarea încărcare (recenzie #288).
+      if (countrySettingVisible(browserSite(), restaurant.country)) clearPendingCountry(restaurant.id)
       toast('Salvat')
     }
     setSaving(false)

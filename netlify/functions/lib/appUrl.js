@@ -111,6 +111,18 @@ function siteAppUrl(site, opts) {
   return appUrl(opts)
 }
 
+/**
+ * Cererea a venit pe menuvia.com (sau un subdomeniu)? Se citește DOAR antetul
+ * `host`, pus de rutarea platformei (Netlify / Caddy pe VPS) — nu `Origin`,
+ * nu `x-forwarded-host`, nu un câmp din corp: o valoare trimisă de apelant
+ * nu are voie să decidă piața. Port, majuscule și punctul final se normalizează.
+ */
+function isComHost(host) {
+  if (typeof host !== 'string' || !host) return false
+  const h = host.trim().toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '')
+  return h === COM_DOMAIN || h.endsWith('.' + COM_DOMAIN)
+}
+
 /** Link absolut: `appLink('/dashboard?tab=billing')`. */
 function appLink(path, opts) {
   const p = typeof path === 'string' && path ? path : '/'
@@ -133,4 +145,5 @@ module.exports = {
   appUrl,
   appLink,
   siteAppUrl,
+  isComHost,
 }

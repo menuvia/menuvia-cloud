@@ -65,6 +65,23 @@ beforeEach(() => {
 })
 
 describe('stripe-checkout — suprafața de eroare', () => {
+  it('SC-COM: cererea rutată pe menuvia.com → 403 site_checkout_unavailable, fără Stripe', async () => {
+    const res = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host: 'menuvia.com' })
+    assert.equal(res.statusCode, 403)
+    assert.equal(JSON.parse(res.body).code, 'site_checkout_unavailable')
+    for (const host of ['www.menuvia.com', 'MENUVIA.COM:443', 'menuvia.com.']) {
+      const r = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host })
+      assert.equal(r.statusCode, 403, host)
+    }
+  })
+
+  it('SC-COM2: menuvia.ro / preview / menuvia.com.evil.com NU sunt blocate de garda de piață', async () => {
+    for (const host of ['menuvia.ro', 'deploy-preview-1--menuvia.netlify.app', 'menuvia.com.evil.com', 'evilmenuvia.com']) {
+      const r = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host })
+      assert.notEqual(r.statusCode, 403, host)
+    }
+  })
+
   it('SC1: metodă greșită → 405 cu corp TEXT, nu JSON', async () => {
     setEnv()
     const res = await handler({ httpMethod: 'GET', headers: {}, body: null })

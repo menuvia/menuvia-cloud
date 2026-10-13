@@ -198,7 +198,7 @@ exports.handler = async (event) => {
         <tr><td><b>Telefon:</b></td><td><a href="tel:${encodeURIComponent(phone)}">${escapeHtml(phone)}</a></td></tr>
         <tr><td><b>Email:</b></td><td><a href="mailto:${encodeURIComponent(email)}">${escapeHtml(email)}</a></td></tr>
         <tr><td><b>Adresă:</b></td><td>${escapeHtml(address)}</td></tr>
-        <tr><td><b>Meniu QR:</b></td><td>${menuSlug ? appLink(`/m/${escapeHtml(menuSlug)}`, { keys: [] }) : '—'}</td></tr>
+        <tr><td><b>Meniu QR:</b></td><td>${menuSlug ? escapeHtml(appLink(`/m/${encodeURIComponent(menuSlug)}`, { keys: [] })) : '—'}</td></tr>
       </table>
       ${message ? `<h3>Mesaj:</h3><p style="white-space:pre-wrap">${escapeHtml(message)}</p>` : ''}
       <p style="color:#888;font-size:12px;margin-top:24px">

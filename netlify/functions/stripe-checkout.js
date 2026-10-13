@@ -5,7 +5,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const crypto = require('crypto')
-const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -32,6 +32,17 @@ function jsonResponse(statusCode, body) {
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' }
+  }
+
+  // menuvia.com nu vinde încă (recenzie CodeRabbit pe #288): închiderea din UI
+  // (siteMarket.checkoutOpenOnSite) nu e o graniță de autorizare — un POST
+  // autentificat direct ar fi creat o sesiune Stripe în RON. Piața se decide din
+  // `host`-ul rutat de platformă, nu din ce trimite apelantul. Pe .ro: neatins.
+  if (isComHost(event.headers?.host)) {
+    return jsonResponse(403, {
+      error: 'Checkout is not available on this site yet.',
+      code: 'site_checkout_unavailable',
+    })
   }
 
   const {
