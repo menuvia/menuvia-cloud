@@ -7,10 +7,13 @@
 //        (harta sălii/statistici rămân), money 2 (bani/bon ascunși)
 //   FT6  analyticsAccess: RO identic cu vechiul `plan === 'pro' || 'enterprise'`;
 //        fiscal CUNOSCUT dezactivat pe pro → 'country_unavailable'; necunoscut → 'full'
+//   FT7  onlinePaymentsEligibility: RO identic cu vechiul `planTier(plan) >= 3`;
+//        pro în afara RO → 'country' (fără „Conectează contul"); necunoscut → eligible
 import { describe, it, expect } from 'vitest'
 import {
   analyticsAccess,
   moneyTier,
+  onlinePaymentsEligibility,
   planTier,
   surfaceTiers,
   type RestaurantFeatures,
@@ -73,5 +76,20 @@ describe('analyticsAccess', () => {
     }
     expect(analyticsAccess('pro', false)).toBe('country_unavailable')
     expect(analyticsAccess('enterprise', false)).toBe('country_unavailable')
+  })
+})
+
+describe('onlinePaymentsEligibility', () => {
+  it('FT7: RO identic cu planTier >= 3; în afara RO pe pro → country', () => {
+    for (const plan of ['free', 'starter', 'growth', 'pro', 'enterprise']) {
+      const old = planTier(plan) >= 3
+      const ro = feats(plan, old)
+      expect(onlinePaymentsEligibility(plan, ro)).toBe(old ? 'eligible' : 'plan')
+      expect(onlinePaymentsEligibility(plan, null)).toBe(old ? 'eligible' : 'plan')
+    }
+    expect(onlinePaymentsEligibility('pro', feats('pro', false))).toBe('country')
+    expect(onlinePaymentsEligibility('enterprise', feats('enterprise', false))).toBe('country')
+    // growth în afara RO: rămâne mesajul de plan (Plan 3 nu e vândut acolo oricum)
+    expect(onlinePaymentsEligibility('growth', feats('growth', false))).toBe('plan')
   })
 })

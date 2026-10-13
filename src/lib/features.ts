@@ -186,6 +186,25 @@ export function analyticsAccess(plan: string, fiscalEnabled: boolean | null): An
   return fiscalEnabled === false ? 'country_unavailable' : 'full'
 }
 
+/**
+ * Eligibilitatea cardului „Plăți online la masă" (Setări). 'plan' = sub
+ * Fiscalizare (ca înainte, pe `plan`); 'country' = Plan 3, dar feature-urile
+ * de bani CUNOSCUT dezactivate (restaurant din afara RO, mig 296 — Stripe
+ * Connect e RON-only, iar stripe-connect.js refuză onboarding-ul); features
+ * necunoscute → 'eligible' (serverul decide, ca înainte). Pe RO identic cu
+ * vechiul `planTier(plan) >= 3`.
+ */
+export type OnlinePaymentsEligibility = 'eligible' | 'plan' | 'country'
+
+export function onlinePaymentsEligibility(
+  plan: string,
+  features: RestaurantFeatures | null,
+): OnlinePaymentsEligibility {
+  if (planTier(plan) < 3) return 'plan'
+  if (features && moneyTier(features) < 3) return 'country'
+  return 'eligible'
+}
+
 // User-friendly plan names — numele COMERCIALE (cele 3 concepte publice).
 // DERIVATE din PLAN_LABELS (sursa unică, lib/constants.ts) + prefixul emoji —
 // capcana „ține PLAN_LABELS și PLAN_NAMES sincronizate manual" (CLAUDE.md,

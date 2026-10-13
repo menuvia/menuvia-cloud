@@ -6,7 +6,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fnUrl } from '../lib/fn'
 import { D } from '../lib/constants'
-import { planTier } from '../lib/features'
+import { onlinePaymentsEligibility } from '../lib/features'
+import { useFeatures } from '../hooks/useFeatures'
 import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
@@ -45,7 +46,12 @@ async function callConnect(
 }
 
 export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, toast }: Props) {
-  const eligible = planTier(plan) >= 3
+  // Pe țară, nu doar pe plan (review #288): un restaurant din afara RO pe pro
+  // NU primește „Conectează contul" — Stripe Connect e RON-only și feature-urile
+  // de bani sunt false în DB (mig 296). useFeatures e cache-uit (fără RTT nou).
+  const { features } = useFeatures(restaurantId)
+  const eligibility = onlinePaymentsEligibility(plan, features)
+  const eligible = eligibility === 'eligible'
   const [status, setStatus] = useState<ConnectStatus | null>(null)
   // Eroare de VERIFICARE ≠ „neconectat": pe blip, cardul afișa fals butonul
   // „Conectează contul", sugerând că un cont deja conectat s-ar fi pierdut.
@@ -122,8 +128,17 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
             color: D.t2,
           }}
         >
-          Disponibil pe planul <strong style={{ color: D.gold }}>Fiscalizare</strong> — plata
-          online atinge banii și bonul fiscal, deci cere planul complet.
+          {eligibility === 'country' ? (
+            <>
+              Disponibil doar pentru restaurantele din România — plata online e legată de bonul
+              fiscal emis pe casa de marcat românească.
+            </>
+          ) : (
+            <>
+              Disponibil pe planul <strong style={{ color: D.gold }}>Fiscalizare</strong> — plata
+              online atinge banii și bonul fiscal, deci cere planul complet.
+            </>
+          )}
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
