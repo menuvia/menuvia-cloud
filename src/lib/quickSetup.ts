@@ -1,6 +1,7 @@
 // src/lib/quickSetup.ts — Setup Asistent (migration 034)
 import { supabase } from './supabase'
 import { fnUrl } from './fn'
+import { browserSite } from './domain'
 
 // ── Business type definitions (UI metadata) ──────────────────
 // Aceleași prețuri folosite în SQL; ținute aici DOAR pentru preview UI
@@ -259,6 +260,8 @@ export async function sendInvite(
         restaurant_id: restaurantId,
         restaurant_name: restaurantName,
         invited_by_name: invitedByName,
+        // Doar eticheta site-ului ('ro'/'com'); serverul o validează pe allowlist.
+        site: browserSite(),
       }),
     })
     if (!res.ok) {

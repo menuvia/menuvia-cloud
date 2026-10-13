@@ -11,7 +11,7 @@ import { useFeatures } from '../hooks/useFeatures'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
 import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
-import { planTier } from '../lib/features'
+import { moneyTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
 import type { Order, PaymentMethod } from '../lib/orders'
 import { D, STATUS_META } from '../lib/constants'
@@ -141,7 +141,7 @@ export default function WaiterPage() {
   // reîncercare; serverul refuză oricum close_order pe planurile fiscale (mig 263).
   const planKnown = restaurantFeatures.features != null
   const paymentsEnabled: boolean | null = planKnown
-    ? planTier(restaurantFeatures.features?.plan) >= 3
+    ? moneyTier(restaurantFeatures.features) >= 3
     : null
 
   // ★ audit v3 (rangul 8): pe planurile fiscale comenzile se încasează normal

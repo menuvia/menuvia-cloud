@@ -14,6 +14,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const webpush = require('web-push')
 const crypto = require('crypto')
+const { NOREPLY_EMAIL } = require('./lib/appUrl')
 
 /**
  * Comparare constant-time a secretului (anti timing attack) — oglindă
@@ -77,7 +78,7 @@ exports.handler = async (event) => {
   if (error || !subs?.length) return json(200, { ok: true, sent: 0 })
 
   webpush.setVapidDetails(
-    `mailto:${VAPID_EMAIL || 'noreply@menuvia.ro'}`,
+    `mailto:${VAPID_EMAIL || NOREPLY_EMAIL}`,
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY,
   )

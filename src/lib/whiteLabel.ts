@@ -5,6 +5,7 @@
 // înlocuiește badge-ul „Creat cu Menuvia" cu brandingul agenției, citit prin
 // RPC-ul public resolve_agency_branding (doar afiliați activi).
 import { supabase } from './supabase'
+import { isMenuviaRootHost } from './domain'
 
 export interface AgencyBranding {
   name: string
@@ -15,7 +16,8 @@ export interface AgencyBranding {
 function isMenuviaHost(hostname: string): boolean {
   const h = hostname.toLowerCase()
   if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0') return true
-  if (h === 'menuvia.ro' || h.endsWith('.menuvia.ro')) return true
+  // menuvia.ro / menuvia.com + subdomenii — lista unică din lib/domain.ts.
+  if (isMenuviaRootHost(h)) return true
   if (h.endsWith('.netlify.app')) return true
   // Hostname-ul din VITE_APP_URL (prod/staging/preview) e mereu „al nostru".
   try {

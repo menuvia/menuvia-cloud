@@ -3,6 +3,7 @@
 // Called by owner from the Team tab in dashboard.
 
 const { createClient } = require('@supabase/supabase-js')
+const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 
 // Escapează conținut controlat de user înainte de interpolare în HTML-ul emailului
 // (audit P3: restaurant_name/invited_by_name puteau injecta markup într-un email brandat).
@@ -33,7 +34,10 @@ exports.handler = async (event) => {
   // cont gratuit cu un restaurant propriu putea trimite 20 de emailuri/zi
   // brandate hello@menuvia.ro cu subiect + conținut controlate de el (phishing
   // pe reputația domeniului). Câmpurile trimise încă de clienți vechi se ignoră.
-  const { email, role, restaurant_id } = payload
+  // `site`: DOAR eticheta site-ului de pe care s-a trimis invitația ('ro'/'com'),
+  // validată pe allowlist în siteAppUrl — NICIODATĂ o origine din body (link
+  // brandat spre orice domeniu = relay de phishing).
+  const { email, role, restaurant_id, site } = payload
 
   if (!email || !role || !restaurant_id) {
     return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) }
@@ -158,7 +162,10 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'Could not create invite' }) }
   }
 
-  const appUrl   = process.env.VITE_APP_URL || 'https://menuvia.netlify.app'
+  // 'com' → https://menuvia.com; orice altceva (absent = clienți vechi, 'ro',
+  // gunoi) → cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL →
+  // menuvia.netlify.app; menuvia.ro nu e încă cumpărat).
+  const appUrl   = siteAppUrl(site, { keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
   const acceptUrl = `${appUrl}/invite/${invite.token}`
 
   const ROLE_LABELS = { manager: 'Manager', waiter: 'Ospătar', kitchen: 'Bucătărie' }
@@ -173,7 +180,7 @@ exports.handler = async (event) => {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from:    'Menuvia <hello@menuvia.ro>',
+      from:    FROM_HELLO,
       to:      [cleanEmail],
       subject: `Ai fost invitat la ${subjectRestaurantName} pe Menuvia`,
       html: `

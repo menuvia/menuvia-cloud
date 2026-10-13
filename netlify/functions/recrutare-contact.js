@@ -3,13 +3,17 @@
 // Stores the lead in Supabase + sends email notification to the founder.
 
 const { createClient } = require('@supabase/supabase-js')
+const {
+  FOUNDER_EMAIL: DEFAULT_FOUNDER_EMAIL,
+  FROM_PILOT_LEADS,
+  RO_SITE_ORIGINS,
+} = require('./lib/appUrl')
 
-const FOUNDER_EMAIL = process.env.RECRUTARE_NOTIFY_EMAIL || 'radu@menuvia.ro'
+const FOUNDER_EMAIL = process.env.RECRUTARE_NOTIFY_EMAIL || DEFAULT_FOUNDER_EMAIL
 
 // CORS — restrictiv, doar domeniile noastre
 const ALLOWED_ORIGINS = [
-  'https://menuvia.ro',
-  'https://www.menuvia.ro',
+  ...RO_SITE_ORIGINS,
   'https://menuvia.netlify.app',
   'http://localhost:5173',
   'http://localhost:4173',
@@ -152,7 +156,7 @@ exports.handler = async (event) => {
           'Content-Type':  'application/json',
         },
         body: JSON.stringify({
-          from:    'Menuvia Leads <pilot@menuvia.ro>',
+          from:    FROM_PILOT_LEADS,
           to:      [FOUNDER_EMAIL],
           subject,
           html,

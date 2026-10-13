@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import QRCode from 'qrcode'
 import { D } from '../lib/constants'
+import { CONTACT_EMAIL } from '../lib/domain'
 import { useAffiliate } from '../hooks/useAffiliate'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { summarizeEarnings, type EarningsInput } from '../lib/affiliateEarnings'
@@ -285,8 +286,8 @@ export default function AfiliatPage() {
           </p>
           <div style={{ background: D.s3, borderRadius: 10, padding: '10px 14px', fontSize: '0.8rem', color: D.t2 }}>
             Ai o întrebare între timp? Scrie-ne la{' '}
-            <a href="mailto:contact@menuvia.ro" style={{ color: D.gold, textDecoration: 'none' }}>
-              contact@menuvia.ro
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: D.gold, textDecoration: 'none' }}>
+              {CONTACT_EMAIL}
             </a>
           </div>
         </div>
@@ -305,8 +306,8 @@ export default function AfiliatPage() {
             Mulțumim pentru interes! Programul de parteneriat pornește treptat și
             momentan nu am putut accepta toate cererile. Dacă situația ta s-a
             schimbat, scrie-ne la{' '}
-            <a href="mailto:contact@menuvia.ro" style={{ color: D.gold, textDecoration: 'none' }}>
-              contact@menuvia.ro
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: D.gold, textDecoration: 'none' }}>
+              {CONTACT_EMAIL}
             </a>{' '}
             — reanalizăm cu drag.
           </p>
@@ -323,8 +324,8 @@ export default function AfiliatPage() {
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
             Pentru detalii, scrie-ne la{' '}
-            <a href="mailto:contact@menuvia.ro" style={{ color: D.gold, textDecoration: 'none' }}>
-              contact@menuvia.ro
+            <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: D.gold, textDecoration: 'none' }}>
+              {CONTACT_EMAIL}
             </a>
             .
           </p>

@@ -13,6 +13,7 @@
 import { useEffect } from 'react'
 import type { ReactNode } from 'react'
 import { D } from '../lib/constants'
+import { CONTACT_EMAIL } from '../lib/domain'
 import LegalFooter from '../components/LegalFooter'
 import Icon from '../components/ui/Icon'
 import termsRaw from '../../menuvia-pack/02-DRAFT-TERMENI.md?raw'
@@ -288,8 +289,8 @@ export default function LegalPage({ doc }: { doc: LegalDoc }) {
           </strong>{' '}
           Documentul de mai jos este versiunea de lucru completă, în curs de avizare de către un
           consultant juridic specializat. Pentru orice întrebare scrieți-ne la{' '}
-          <a href="mailto:contact@menuvia.ro" style={{ color: D.gold }}>
-            contact@menuvia.ro
+          <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: D.gold }}>
+            {CONTACT_EMAIL}
           </a>
           .
         </div>

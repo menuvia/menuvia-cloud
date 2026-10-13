@@ -41,7 +41,9 @@ declare
     -- mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
     'menu_languages',
     -- mig 205 — moneda meniului (expansiune internațională planurile 1-2).
-    'currency'
+    'currency',
+    -- mig 296 — țara (regula de aur pe țară; schimbarea e owner-only în DATE).
+    'country'
   ];
 begin
   -- (a) Toate coloanele din whitelist TREBUIE să rămână UPDATE-abile: dacă un

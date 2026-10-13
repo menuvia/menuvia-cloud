@@ -4,6 +4,8 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const crypto = require('crypto')
+const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -13,6 +15,11 @@ const Stripe = require('stripe')
 // totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
 // ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
+
+/** Etichetă scurtă și stabilă a originii, pentru cheia de idempotență. */
+function originTag(origin) {
+  return crypto.createHash('sha256').update(String(origin)).digest('hex').slice(0, 10)
+}
 
 function jsonResponse(statusCode, body) {
   return {
@@ -27,11 +34,22 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
+  // menuvia.com nu vinde încă (recenzie CodeRabbit pe #288): închiderea din UI
+  // (siteMarket.checkoutOpenOnSite) nu e o graniță de autorizare — un POST
+  // autentificat direct ar fi creat o sesiune Stripe în RON. Piața se decide din
+  // `host`-ul rutat de platformă, nu din ce trimite apelantul. Pe .ro: neatins.
+  if (isComHost(event.headers?.host)) {
+    return jsonResponse(403, {
+      error: 'Checkout is not available on this site yet.',
+      code: 'site_checkout_unavailable',
+    })
+  }
+
   const {
     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY,
     STRIPE_STARTER_PRICE_ID, STRIPE_GROWTH_PRICE_ID,
     STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
-    STRIPE_TRIAL_DAYS, VITE_APP_URL,
+    STRIPE_TRIAL_DAYS,
   } = process.env
 
   // Price map per plan canonic. Lipsa unui price ID = planul respectiv
@@ -202,7 +220,11 @@ exports.handler = async (event) => {
     }
   }
 
-  const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
+  // Cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.netlify.app):
+  // menuvia.ro nu e încă cumpărat, iar env-ul din netlify.toml nu ajunge la
+  // funcții la runtime — un fallback pe .ro ar trimite clientul după plată pe
+  // un domeniu neînregistrat.
+  const appUrl = resolveAppUrl({ keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
   // Trial configurabil — default 30 zile (onorează promisiunea din landing).
   // Set STRIPE_TRIAL_DAYS=0 în Netlify Env pentru a dezactiva fără cod.
@@ -286,9 +308,11 @@ exports.handler = async (event) => {
       // sesiune (dedup); orice diferență → cheie nouă.
       // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
       // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
-      // Prefixul `v3`: corpul s-a schimbat (success_url poartă `checkout_plan`) —
-      // o cerere repetată peste deploy, cu cheia veche, ar primi idempotency_error.
-      idempotencyKey: `checkout_v3_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+      // Prefixul `v4` + hash-ul ORIGINII: success_url/cancel_url fac parte din
+      // corp, deci o schimbare a originii (env modificat, alt domeniu) între
+      // două cereri cu aceeași cheie ar primi idempotency_error de la Stripe.
+      // Hash scurt și stabil (sha256, 10 hex) — originea nu ajunge în clar în cheie.
+      idempotencyKey: `checkout_v4_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
     },
   )
 

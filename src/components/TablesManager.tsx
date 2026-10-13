@@ -16,6 +16,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
+import { browserSite, publicBaseUrl, siteHost } from '../lib/domain'
 
 interface QrTokenRow {
   id: string
@@ -88,9 +89,14 @@ function hexToRgb(hex: string | null | undefined): [number, number, number] | nu
 }
 
 // ── QR helpers — all local, no external API ─────────────────
+// Baza: pe menuvia.com originea canonică .com (VITE_APP_URL e fixat pe .ro în
+// netlify.toml); pe .ro EXACT ca înainte — publicBaseUrl (lib/domain.ts).
+function appPublicBase(): string {
+  return publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin)
+}
+
 function qrUrl(token: string): string {
-  const base = import.meta.env.VITE_APP_URL || window.location.origin
-  return `${base}/q/${token}`
+  return `${appPublicBase()}/q/${token}`
 }
 
 async function generateQRDataURL(token: string, size: number): Promise<string> {
@@ -443,7 +449,7 @@ function GeneralMenuQrCard({
   toast: (msg: string, type?: string) => void
 }) {
   const [qr, setQr] = useState<string | null>(null)
-  const menuUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/m/${restaurant.slug}`
+  const menuUrl = `${appPublicBase()}/m/${restaurant.slug}`
 
   useEffect(() => {
     let cancelled = false
@@ -847,7 +853,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         // Brand footer
         doc.setFontSize(sizes.brand)
         doc.setTextColor(190, 180, 170)
-        doc.text('menuvia.ro', x + cW / 2, y + cH * 0.96, { align: 'center' })
+        doc.text(siteHost(browserSite()), x + cW / 2, y + cH * 0.96, { align: 'center' })
       }
 
       const pW = 210,
@@ -1121,6 +1127,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
 
       {/* QR domain warning — shown when VITE_APP_URL differs from current origin or is a preview URL */}
       {(() => {
+        // Pe menuvia.com QR-urile poartă originea canonică .com (appPublicBase),
+        // deci comparația cu VITE_APP_URL (.ro) ar da o alarmă FALSĂ.
+        if (browserSite() === 'com') return null
         const appUrl = import.meta.env.VITE_APP_URL || ''
         const origin = window.location.origin
         const isPreview = origin.includes('netlify.app') && !appUrl

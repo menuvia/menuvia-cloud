@@ -20,6 +20,9 @@ import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon, type IconName } from './ui/Icon'
 import { confirm } from './ui/confirm'
+import { browserSite, siteHost } from '../lib/domain'
+import { COUNTRIES, countrySettingVisible } from '../lib/countries'
+import { clearPendingCountry } from '../lib/pendingCountry'
 
 // ── Constants for hours_structured editor ──
 
@@ -349,7 +352,15 @@ export default function SettingsTab({
     void _slug
     const { error } = await onUpdate(restaurant.id, rest)
     if (error) toast('Eroare: ' + error.message, 'error')
-    else toast('Salvat')
+    else {
+      // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
+      // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
+      // Doar când câmpul de țară e VIZIBIL (a fost deci trimis conștient): o
+      // salvare cu aceeași țară confirmă alegerea și stinge o intenție veche,
+      // care altfel ar fi re-aplicată la următoarea încărcare (recenzie #288).
+      if (countrySettingVisible(browserSite(), restaurant.country)) clearPendingCountry(restaurant.id)
+      toast('Salvat')
+    }
     setSaving(false)
   }
 
@@ -474,6 +485,54 @@ export default function SettingsTab({
                 </div>
               ))}
             </SettingsCard>
+
+            {/* Țara (mig 296) — DOAR pe menuvia.com sau pentru un local deja în
+                afara RO (countrySettingVisible): pe .ro, pentru un local RO, UI-ul
+                rămâne neschimbat. Editabilă doar de OWNER — trigger-ul
+                trg_restaurants_country_owner_only respinge oricum un manager. */}
+            {countrySettingVisible(browserSite(), restaurant.country) && (
+              <SettingsCard
+                icon="info"
+                title="Țara restaurantului"
+                desc="Plățile în aplicație, bonul fiscal și raportul TVA există doar pentru restaurantele din România."
+                right={
+                  <select
+                    aria-label="Țara restaurantului"
+                    value={form.country ?? 'RO'}
+                    onChange={(e) => upd('country', e.target.value)}
+                    disabled={user?.id !== restaurant.owner_id}
+                    style={{
+                      background: D.s3,
+                      border: `1px solid ${D.border}`,
+                      borderRadius: 8,
+                      color: D.t1,
+                      fontFamily: 'DM Sans, sans-serif',
+                      fontSize: 14,
+                      padding: '10px 12px',
+                      minHeight: 44,
+                      cursor: user?.id !== restaurant.owner_id ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {/* O țară setată de suport în afara listei rămâne selectabilă. */}
+                    {form.country &&
+                      !COUNTRIES.some((c) => c.code === form.country) && (
+                        <option value={String(form.country)}>{String(form.country)}</option>
+                      )}
+                    {COUNTRIES.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                }
+              >
+                {user?.id !== restaurant.owner_id && (
+                  <div style={{ fontSize: '0.75rem', color: D.t2 }}>
+                    Doar proprietarul restaurantului poate schimba țara.
+                  </div>
+                )}
+              </SettingsCard>
+            )}
 
             {/* PROGRAM DETALIAT — hours_structured per zi */}
             <SettingsCard
@@ -950,7 +1009,7 @@ export default function SettingsTab({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  menuvia.ro/m/
+                  {siteHost(browserSite())}/m/
                 </span>
                 <Inp
                   value={form.slug || ''}
@@ -1647,7 +1706,9 @@ export default function SettingsTab({
               desc={
                 <>
                   Activează pagina ta publică{' '}
-                  <span style={{ color: D.gold }}>menuvia.ro/m/{form.slug || 'slug'}</span>. Clienții
+                  <span style={{ color: D.gold }}>
+                    {siteHost(browserSite())}/m/{form.slug || 'slug'}
+                  </span>. Clienții
                   pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
                   ridicare.
                 </>

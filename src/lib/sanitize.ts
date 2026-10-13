@@ -37,6 +37,8 @@ export const RESTAURANT_UPDATE_FIELDS = [
   'google_review_url',
   'menu_languages',
   'currency',
+  // mig 296 — țara (regula de aur pe țară); schimbarea e owner-only în DATE.
+  'country',
 ] as const satisfies readonly (keyof Restaurant)[]
 
 export const CATEGORY_UPDATE_FIELDS = [

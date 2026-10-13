@@ -9,6 +9,7 @@
 // — devine automat https://menuvia.ro când domeniul e configurat, zero cod).
 
 const { createClient } = require('@supabase/supabase-js')
+const { appUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 
 // Paginile de marketing statice — doar cele publice și stabile.
 const STATIC_PATHS = [
@@ -27,8 +28,9 @@ function esc(s) {
 }
 
 exports.handler = async () => {
-  const base = (process.env.URL || process.env.VITE_APP_URL || 'https://menuvia.netlify.app')
-    .replace(/\/+$/, '')
+  // Cheile + fallback-ul de dinainte, EXACT: `URL` (domeniul primar Netlify)
+  // → VITE_APP_URL → menuvia.netlify.app.
+  const base = appUrl({ keys: ['URL', 'VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
   const urls = STATIC_PATHS.map((p) => `${base}${p}`)
 
