@@ -44,6 +44,18 @@ const QrMenuPage = lazy(() => import('./pages/QrMenuPage'))
 const KitchenPage = lazy(() => import('./pages/KitchenPage'))
 const WaiterPage = lazy(() => import('./pages/WaiterPage'))
 const PublicMenuPage = lazy(() => import('./pages/PublicMenuPage'))
+// Prefetch al meniului oaspetelui, același tipar ca LandingPage pe '/': fără
+// el, chunk-ul paginii pornea abia după montarea React + `getSession()` (ruta
+// e randată doar după `loading` din AuthContext) — o serializare pe calea
+// critică a scanării. Aici descărcarea pornește în paralel cu ele; importul
+// e deduplicat de încărcătorul de module, deci lazy() de mai sus primește
+// același modul. Regex-urile sunt cele din parsePath. Un eșec aici e tăcut:
+// lazy() reîncearcă la randare și eroarea ajunge la ErrorBoundary ca înainte.
+if (typeof window !== 'undefined') {
+  const p = window.location.pathname
+  if (/^\/q\/.+$/.test(p)) import('./pages/QrMenuPage').catch(() => undefined)
+  else if (/^\/m\/.+$/.test(p)) import('./pages/PublicMenuPage').catch(() => undefined)
+}
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
