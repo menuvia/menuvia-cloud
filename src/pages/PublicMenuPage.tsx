@@ -74,12 +74,14 @@ import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import ProductPhotoCard from '../components/menu/ProductPhotoCard'
-import FlipbookViewer from '../components/menu/FlipbookViewer'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
 const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
 const PickupCheckoutSheet = lazy(() => import('../components/PickupCheckoutSheet'))
+// FlipbookViewer doar pe layout-ul rar „flipbook” — paritate cu QrMenuPage (era
+// import static aici: chunk-ul lui era cerut la încărcarea ORICĂRUI /m/:slug).
+const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
 
 interface Props {
   slug: string
@@ -715,7 +717,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         {/* Flipbook: DOAR catalogul e înlocuit de viewer — restul paginii
             (hero, CTA rezervări, footer) rămâne identic. */}
         {isFlipbook && (
-          <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} lang={lang} />
+          <Suspense fallback={null}>
+            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} lang={lang} />
+          </Suspense>
         )}
         {!isFlipbook &&
           filtered.length === 0 &&
