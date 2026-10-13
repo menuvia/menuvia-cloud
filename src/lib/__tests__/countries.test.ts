@@ -4,8 +4,16 @@
 //   CN3  patch-ul post-creare: null pe RO (zero apeluri pe fluxul românesc),
 //        țară+monedă+fus pe restul; cod necunoscut → null
 //   CN4  normalizare
+//   CN5  câmpul din Setări: ascuns pe .ro pentru un local RO (UI neschimbat),
+//        vizibil pe .com și pentru orice local deja în afara RO
 import { describe, it, expect } from 'vitest'
-import { COUNTRIES, DEFAULT_COUNTRY, normalizeCountry, restaurantCountryPatch } from '../countries'
+import {
+  COUNTRIES,
+  DEFAULT_COUNTRY,
+  countrySettingVisible,
+  normalizeCountry,
+  restaurantCountryPatch,
+} from '../countries'
 import { MENU_CURRENCIES } from '../currency'
 
 describe('countries', () => {
@@ -41,5 +49,16 @@ describe('countries', () => {
     expect(normalizeCountry(' de ')).toBe('DE')
     expect(normalizeCountry('ZZ')).toBeNull()
     expect(normalizeCountry(42)).toBeNull()
+  })
+})
+
+describe('countrySettingVisible', () => {
+  it('CN5: .ro + RO ascuns; .com sau non-RO vizibil', () => {
+    for (const c of ['RO', 'ro', ' RO ', null, undefined, '']) {
+      expect(countrySettingVisible('ro', c)).toBe(false)
+    }
+    expect(countrySettingVisible('ro', 'DE')).toBe(true)
+    expect(countrySettingVisible('ro', 'CH')).toBe(true) // țară setată de suport, în afara listei
+    for (const c of ['RO', 'DE', null]) expect(countrySettingVisible('com', c)).toBe(true)
   })
 })

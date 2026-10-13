@@ -10,6 +10,7 @@ import { applyBusinessTypePreset } from '../lib/quickSetup'
 import { track } from '../lib/analytics'
 import { browserSite, defaultUiLang, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
+import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -528,6 +529,11 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
       // deci trece de trg_restaurants_country_owner_only.
       const patch = askCountry ? restaurantCountryPatch(country) : null
       if (patch) {
+        // Intenția se păstrează ÎNAINTE de UPDATE și se șterge DOAR pe succes:
+        // dacă UPDATE-ul pică și omul face reload (onboarding-ul e sărit,
+        // restaurantul există), dashboard-ul owner-ului o reîncearcă
+        // (lib/pendingCountry.ts) — altfel localul rămânea tăcut pe 'RO'.
+        storePendingCountry(created.restaurant_id, patch.country)
         const { error: countryErr } = await supabase
           .from('restaurants')
           .update(patch)
@@ -538,6 +544,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           setSaving(false)
           return
         }
+        clearPendingCountry(created.restaurant_id)
       }
       // Preset „Menuvia Rezervări" (setat pe /rezervari, supraviețuiește
       // redirectului de auth): activăm modulul + auto-confirmarea din prima,

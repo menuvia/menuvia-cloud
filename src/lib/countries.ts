@@ -11,6 +11,7 @@
 // 2026, deci EUR (nu BGN).
 // ─────────────────────────────────────────────────────────────
 import type { MenuCurrency } from './currency'
+import type { Site } from './domain'
 
 export interface CountryOption {
   code: string // ISO 3166-1 alpha-2, MAJUSCULE (CHECK-ul din mig 296)
@@ -64,4 +65,16 @@ export function restaurantCountryPatch(
   const opt = countryOption(code)
   if (!opt || opt.code === DEFAULT_COUNTRY) return null
   return { country: opt.code, currency: opt.currency, timezone: opt.timezone }
+}
+
+/**
+ * Câmpul „Țara” din Setări → Restaurant: apare pe menuvia.com sau când
+ * restaurantul e DEJA în afara României (ca owner-ul să-și poată corecta țara
+ * de oriunde). Pe .ro, pentru un local RO (adică toate de azi), NU apare —
+ * UI-ul românesc rămâne neschimbat. `null`/absent (bază fără mig 296) = 'RO'.
+ */
+export function countrySettingVisible(site: Site, country: string | null | undefined): boolean {
+  if (site === 'com') return true
+  const code = typeof country === 'string' ? country.trim().toUpperCase() : ''
+  return code !== '' && code !== DEFAULT_COUNTRY
 }

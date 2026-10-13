@@ -3,6 +3,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
 import { productLimitReason, surfaceTiers, type PlanTier } from '../lib/features'
+import { retryPendingCountry } from '../lib/pendingCountry'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -729,6 +730,34 @@ export default function DashboardPage({
   const restaurant = restaurants.find((r) => r.id === activeId) ?? restaurants[0] ?? null
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
+
+  // Țara aleasă la onboarding (.com) al cărei UPDATE a picat: o reîncercăm O
+  // DATĂ per restaurant și per încărcare, doar pentru OWNER-ul real (nu în
+  // founder-view — trg_restaurants_country_owner_only, mig 296). Pe .ro nu
+  // există niciodată o intenție păstrată → no-op (lib/pendingCountry.ts).
+  const countryRetriedRef = useRef<Set<string>>(new Set())
+  const restaurantId = restaurant?.id ?? null
+  const restaurantCountry = restaurant?.country ?? null
+  const isRealOwner =
+    activeRole === 'owner' && !inFounderView && restaurant != null && restaurant.owner_id === user?.id
+  useEffect(() => {
+    if (!restaurantId || !isRealOwner) return
+    if (countryRetriedRef.current.has(restaurantId)) return
+    countryRetriedRef.current.add(restaurantId)
+    void retryPendingCountry({
+      restaurantId,
+      currentCountry: restaurantCountry,
+      isOwner: true,
+      update: async (patch) => {
+        const { error } = await update(restaurantId, patch)
+        return { error }
+      },
+    }).then((res) => {
+      if (res === 'failed') {
+        console.warn('[dashboard] țara restaurantului încă nesalvată — reîncerc la următoarea încărcare')
+      }
+    })
+  }, [restaurantId, restaurantCountry, isRealOwner, update])
 
   // Planul aparține RESTAURANTULUI, nu user-ului (CLAUDE.md §3): citim
   // get_restaurant_features, corect și pentru staff (un waiter pe restaurant
