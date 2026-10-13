@@ -30,6 +30,8 @@ import {
   SITE_PLAN_IDS,
   checkoutOpenOnSite,
   comparisonRowsForSite,
+  extrasForSite,
+  faqForSite,
   plansForSite,
 } from '../lib/siteMarket'
 
@@ -249,7 +251,8 @@ export default function PricingPage({
     highlight: p.highlight,
   }))
 
-  const EXTRAS_ONETIME = [
+  // Pe .com fără prețurile în lei (extrasForSite); pe .ro lista intactă.
+  const EXTRAS_ONETIME = extrasForSite(site, [
     {
       icon: <Icon name="settings" size={26} color={MKT.accent} />,
       title: 'Setup Concierge',
@@ -274,7 +277,7 @@ export default function PricingPage({
       price: '100 lei',
       desc: '30 QR-uri laminate + suporți plastic. Livrare gratuită Sibiu/Focșani.',
     },
-  ]
+  ])
 
   // Textul celor două carduri vine din `lib/pricingCopy` (date, nu markup):
   // acolo e păzit de PC1-PC5, care încrucișează fiecare afirmație cu
@@ -294,7 +297,9 @@ export default function PricingPage({
     desc: f.desc,
   }))
 
-  const FAQ = [
+  // Pe .com fără întrebările care vând/explică Fiscalizarea (faqForSite); pe .ro
+  // lista intactă.
+  const FAQ = faqForSite(site, [
     TRIAL_FAQ,
     {
       q: 'Care plan e potrivit pentru mine?',
@@ -315,7 +320,7 @@ export default function PricingPage({
       q: 'Sunteți pe piață de mult?',
       a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct pe WhatsApp cu echipa Menuvia.',
     },
-  ]
+  ])
 
   // Flash guard: user logat cu plan intent activ → loader, nu card-urile.
   if (checkingOutPlan != null) {
@@ -1002,7 +1007,10 @@ export default function PricingPage({
         })()}
       </div>
 
-      {/* Extras section — separated with light grey background */}
+      {/* Extras section — separated with light grey background. Pe .com
+          ambele liste pot fi goale (fără Plan 3, fără prețuri în lei) → secțiunea
+          dispare cu totul; pe .ro nu sunt niciodată goale. */}
+      {(EXTRAS_ONETIME.length > 0 || EXTRAS_MONTHLY.length > 0) && (
       <div
         style={{
           background: MKT.surface2,
@@ -1187,6 +1195,7 @@ export default function PricingPage({
           </div>
         </div>
       </div>
+      )}
 
       {/* Incluse în orice plan — o singură bandă compactă */}
       <div style={{ padding: '44px 20px' }}>
