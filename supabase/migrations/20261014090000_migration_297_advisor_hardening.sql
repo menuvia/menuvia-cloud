@@ -82,6 +82,7 @@ revoke execute on function public.check_qr_order_rate_limit(uuid) from public, a
 revoke execute on function public.check_pickup_order_rate_limit(uuid, text) from public, anon, authenticated;
 
 revoke execute on function public.check_availability(uuid, timestamptz, timestamptz, smallint, text) from public, anon;
+grant  execute on function public.check_availability(uuid, timestamptz, timestamptz, smallint, text) to authenticated;
 
 -- ── §2. Politici: instantaneu, ALTER, verificare ─────────────────────────────
 create temp table _m297_policy_before on commit drop as
