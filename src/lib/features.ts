@@ -154,6 +154,38 @@ export function moneyTier(features: RestaurantFeatures | null): PlanTier {
   return tier
 }
 
+/**
+ * Cele DOUĂ tier-uri ale dashboard-ului (review #288): `general` = planul
+ * owner-ului, pentru feature-urile NEfiscale de Plan 3 (harta sălii, statistici
+ * avansate, program echipă) — rămân vizibile unui restaurant din afara RO pe
+ * pro; `money` = moneyTier, DOAR pentru suprafețele de bani/bon (plăți, bonuri,
+ * casă, facturi, încasări, TVA). Pe un restaurant RO cele două sunt IDENTICE.
+ */
+export interface SurfaceTiers {
+  general: PlanTier
+  money: PlanTier
+}
+
+export function surfaceTiers(features: RestaurantFeatures | null): SurfaceTiers {
+  return { general: planTier(features?.plan), money: moneyTier(features) }
+}
+
+/**
+ * Accesul la tab-ul Statistici. Toate view-urile lui (`v_daily_orders`,
+ * `v_product_performance`, `v_waiter_performance`, mig 253/267) au gate-ul
+ * fiscal în date, deci pe un restaurant cu `fiscal_receipt` CUNOSCUT
+ * dezactivat pe pro/enterprise (din afara RO, mig 296) ar întoarce ZERO rânduri
+ * și pagina ar minți cu „Nicio comandă". `null` (necunoscut) → 'full': serverul
+ * decide, ca înainte. Pe RO rezultatul e identic cu vechiul `plan === 'pro' ||
+ * plan === 'enterprise'`.
+ */
+export type AnalyticsAccess = 'upgrade' | 'country_unavailable' | 'full'
+
+export function analyticsAccess(plan: string, fiscalEnabled: boolean | null): AnalyticsAccess {
+  if (plan !== 'pro' && plan !== 'enterprise') return 'upgrade'
+  return fiscalEnabled === false ? 'country_unavailable' : 'full'
+}
+
 // User-friendly plan names — numele COMERCIALE (cele 3 concepte publice).
 // DERIVATE din PLAN_LABELS (sursa unică, lib/constants.ts) + prefixul emoji —
 // capcana „ține PLAN_LABELS și PLAN_NAMES sincronizate manual" (CLAUDE.md,

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { moneyTier, productLimitReason, type PlanTier } from '../lib/features'
+import { productLimitReason, surfaceTiers, type PlanTier } from '../lib/features'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -434,6 +434,9 @@ interface SubTab {
   label: string
   adminOnly?: boolean
   minTier?: PlanTier
+  // Suprafață de BANI/BON: minTier se compară cu tier-ul `money` (moneyTier —
+  // coborât sub 3 în afara RO, mig 296), nu cu planul. Pe RO identic.
+  money?: true
   platformAdminOnly?: boolean
   // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
   hiddenPickupOnly?: boolean
@@ -491,11 +494,11 @@ const NAV_GROUPS: NavGroup[] = [
     subTabs: [
       { id: 'raport', label: 'Rapoarte' },
       { id: 'analytics', label: 'Statistici', minTier: 3 },
-      { id: 'tva', label: 'TVA', minTier: 3 },
-      { id: 'casa-tura', label: 'Încasări', minTier: 3 },
+      { id: 'tva', label: 'TVA', minTier: 3, money: true },
+      { id: 'casa-tura', label: 'Încasări', minTier: 3, money: true },
       // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
       { id: 'casa-marcat', label: 'Casă & tichete', minTier: 2 },
-      { id: 'invoices', label: 'Facturi', minTier: 3 },
+      { id: 'invoices', label: 'Facturi', minTier: 3, money: true },
       // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
       { id: 'gestiune', label: 'Stocuri', minTier: 2 },
     ],
@@ -520,12 +523,13 @@ function isSubTabVisible(
   st: SubTab,
   isAdmin: boolean,
   tier: PlanTier,
+  moneyTierValue: PlanTier,
   isPlatAdmin: boolean,
   pickupOnly: boolean,
 ): boolean {
   if (st.platformAdminOnly && !isPlatAdmin) return false
   if (st.adminOnly && !isAdmin) return false
-  if (st.minTier && tier < st.minTier) return false
+  if (st.minTier && (st.money ? moneyTierValue : tier) < st.minTier) return false
   // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
   if (st.hiddenPickupOnly && pickupOnly) return false
   return true
@@ -732,9 +736,12 @@ export default function DashboardPage({
   // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv).
   const plan = features.features?.plan ?? 'free'
 
-  // Tier comercial derivat din planul restaurantului (coborât sub 3 pentru un
-  // restaurant din afara României — moneyTier, mig 296; identic pe RO).
-  const tier: PlanTier = moneyTier(features.features)
+  // DOUĂ tier-uri (surfaceTiers, lib/features.ts): `tier` = planul (gating
+  // general, inclusiv feature-urile NEfiscale de Plan 3: harta sălii,
+  // statistici, program echipă); `money` = moneyTier, DOAR pe suprafețele de
+  // bani/bon (plăți, bonuri, casă, facturi, încasări, TVA) — coborât sub 3
+  // pentru un restaurant din afara României (mig 296). Pe RO sunt identice.
+  const { general: tier, money } = surfaceTiers(features.features)
 
   // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
   // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.
@@ -748,7 +755,7 @@ export default function DashboardPage({
     ...g,
     subTabs: g.subTabs.filter(
       (st) =>
-        isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly) &&
+        isSubTabVisible(st, isAdminRole, tier, money, isPlatAdmin, pickupOnly) &&
         (!isPartner || isPartnerTab(st.id)),
     ),
   })).filter(
@@ -1431,7 +1438,10 @@ export default function DashboardPage({
                   <HomeTab
                     restaurantId={restaurant.id}
                     restaurantName={restaurant.name}
-                    tier={tier}
+                    // HomeTab folosește tier ≥ 3 DOAR pentru banner-ul casei
+                    // fiscale (bani/bon) → tier-ul `money`; pragurile ≥ 2 sunt
+                    // identice pe ambele tier-uri.
+                    tier={money}
                     isAdmin={isAdminRole}
                     productCount={productCount}
                     pickupOnly={pickupOnly}
@@ -1457,7 +1467,8 @@ export default function DashboardPage({
                   // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
                   isAdmin={isAdminRole}
-                  tier={tier}
+                  // „plăți la masă" = suprafață de bani → tier-ul `money`.
+                  tier={money}
                 />
               )}
               {tab === 'products' && (
@@ -1493,12 +1504,17 @@ export default function DashboardPage({
               )}
               {tab === 'analytics' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă graficele…" />}>
-                  <AnalyticsTab restaurantId={restaurant.id} plan={plan} onUpgrade={onPricing} />
+                  <AnalyticsTab
+                    restaurantId={restaurant.id}
+                    plan={plan}
+                    fiscalEnabled={features.features?.features?.fiscal_receipt?.enabled ?? null}
+                    onUpgrade={onPricing}
+                  />
                 </Suspense>
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă raportul..." />}>
-                  <ReportsTab restaurantId={restaurant.id} fiscalReports={tier >= 3} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={money >= 3} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
@@ -1573,7 +1589,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'invoices' &&
-                (tier >= 3 ? (
+                (money >= 3 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
                     <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
                   </Suspense>
@@ -1624,7 +1640,7 @@ export default function DashboardPage({
                 // secțiunile fiscale. Sub tier 2 rămâne upgrade prompt.
                 (tier >= 2 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={tier >= 3} />
+                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={money >= 3} />
                   </Suspense>
                 ) : (
                   <UpgradePrompt

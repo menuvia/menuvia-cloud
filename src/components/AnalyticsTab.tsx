@@ -6,6 +6,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { analyticsAccess } from '../lib/features'
 import {
   LineChart,
   Line,
@@ -24,6 +25,10 @@ import {
 interface Props {
   restaurantId: string
   plan: string
+  // `fiscal_receipt.enabled` din features: false CUNOSCUT = restaurant din
+  // afara RO (mig 296) — toate view-urile tab-ului au gate fiscal în date.
+  // Absent/null = necunoscut → comportamentul de dinainte.
+  fiscalEnabled?: boolean | null
   onUpgrade: () => void
 }
 
@@ -205,7 +210,7 @@ type AnalyticsSnapshot = {
 const ANALYTICS_TTL_MS = 60_000
 const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
 
-export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
+export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null, onUpgrade }: Props) {
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
@@ -222,7 +227,11 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   const [days, setDays] = useState(30)
   // 'business' a fost eliminat din taxonomie (mig 062 → free/starter/growth/pro/enterprise).
   // Enterprise include tot Pro, deci ambele au acces.
-  const hasAccess = plan === 'pro' || plan === 'enterprise'
+  // analyticsAccess (lib/features.ts): pe RO identic cu `plan === 'pro' ||
+  // plan === 'enterprise'`; în afara RO panourile (toate de încasări, cu gate
+  // fiscal în view) nu se încarcă — altfel „Nicio comandă" ar minți.
+  const access = analyticsAccess(plan, fiscalEnabled)
+  const hasAccess = access === 'full'
 
   const loadData = useCallback(async () => {
     if (!restaurantId || !hasAccess) return
@@ -309,6 +318,40 @@ export default function AnalyticsTab({ restaurantId, plan, onUpgrade }: Props) {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  if (access === 'country_unavailable')
+    return (
+      <div>
+        <h2
+          style={{
+            fontFamily: 'Fraunces,serif',
+            fontSize: '1.5rem',
+            color: D.t1,
+            marginBottom: 20,
+          }}
+        >
+          Statistici
+        </h2>
+        <div
+          style={{
+            background: D.s2,
+            border: `1px solid ${D.border}`,
+            borderRadius: 14,
+            padding: '60px 20px',
+            textAlign: 'center',
+            color: D.t2,
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12, color: D.gold }}>
+            <Icon name="chart" size={32} />
+          </div>
+          <div>
+            Statisticile de încasări se bazează pe datele fiscale și sunt disponibile doar pentru
+            restaurantele din România.
+          </div>
+        </div>
+      </div>
+    )
 
   if (!hasAccess)
     return (
