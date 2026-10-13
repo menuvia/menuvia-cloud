@@ -70,6 +70,10 @@ const CHAIN_METHODS = [
   'gte',
   'lte',
   'abortSignal',
+  // send-invite / stripe-connect (testele de origine din app-url-callsites).
+  'delete',
+  'ilike',
+  'maybeSingle',
 ]
 
 function makeBuilder(table) {
@@ -206,6 +210,12 @@ function FakeStripe(key, opts) {
       del: stripeMethod('customers.del'),
     },
     checkout: { sessions: { create: stripeMethod('checkout.sessions.create') } },
+    billingPortal: { sessions: { create: stripeMethod('billingPortal.sessions.create') } },
+    accounts: {
+      create: stripeMethod('accounts.create'),
+      retrieve: stripeMethod('accounts.retrieve'),
+    },
+    accountLinks: { create: stripeMethod('accountLinks.create') },
     refunds: { list: stripeMethod('refunds.list') },
     charges: { retrieve: stripeMethod('charges.retrieve') },
     webhooks: {

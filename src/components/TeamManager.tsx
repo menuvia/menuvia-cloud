@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { fnUrl } from '../lib/fn'
+import { browserSite } from '../lib/domain'
 import { supabase } from '../lib/supabase'
 import { D } from '../lib/constants'
 import { Skeleton } from './ui/Skeleton'
@@ -225,6 +226,8 @@ export default function TeamManager({
           restaurant_id: restaurant.id,
           restaurant_name: restaurant.name,
           invited_by_name: session?.user?.user_metadata?.full_name || '',
+          // Doar eticheta site-ului ('ro'/'com'); serverul o validează pe allowlist.
+          site: browserSite(),
         }),
       })
       const d = await res.json()

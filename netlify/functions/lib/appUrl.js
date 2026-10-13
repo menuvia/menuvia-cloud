@@ -10,7 +10,18 @@
 // fișierele `.js` din rădăcina lui `netlify/functions/`.
 //
 // Regula de rezolvare: prima valoare VALIDĂ din env, în ordinea cheilor
-// (implicit APP_URL → VITE_APP_URL), altfel DEFAULT_APP_URL. „Validă" = origin
+// (implicit APP_URL → VITE_APP_URL), altfel `opts.fallback` (implicit
+// DEFAULT_APP_URL).
+//
+// ATENȚIE — fallback-ul e PER APELANT, nu global: menuvia.ro NU e încă
+// cumpărat, iar Netlify NU dă funcțiilor la runtime env-ul din netlify.toml
+// (`VITE_APP_URL` de acolo e doar pentru build). Funcțiile care înainte cădeau
+// pe `https://menuvia.netlify.app` (stripe-checkout, stripe-portal,
+// ai-credits-checkout, send-invite, welcome-email, process-email-queue) își
+// păstrează EXACT acel fallback ȘI cheile citite — altfel link-urile Stripe
+// (success/cancel/return), token-urile de invitație și link-urile din emailuri
+// ar pleca spre un domeniu neînregistrat. Doar funcțiile care aveau deja
+// `menuvia.ro` scris de mână rămân pe DEFAULT_APP_URL. „Validă" = origin
 // https (sau http DOAR pe localhost — `netlify dev`); orice altceva (gol, typo,
 // `javascript:`, http public) cade pe fallback — un link de email care pleacă
 // spre o origine stricată e mai rău decât unul spre domeniul de producție.
@@ -22,6 +33,13 @@
 // blocul /etc/menuvia/env (docs/VPS_RUNBOOK.md) și din netlify.toml.
 const RO_DOMAIN = 'menuvia.ro'
 const DEFAULT_APP_URL = `https://${RO_DOMAIN}`
+// Domeniul .com (a doua piață). Folosit DOAR prin `siteAppUrl('com')`, la
+// cererea explicită (validată pe allowlist) a clientului de pe menuvia.com.
+const COM_DOMAIN = 'menuvia.com'
+const COM_APP_URL = `https://${COM_DOMAIN}`
+// Fallback-ul ISTORIC al funcțiilor de checkout/portal/invitație/email —
+// singurul domeniu garantat viu cât timp menuvia.ro nu e cumpărat.
+const LEGACY_NETLIFY_URL = 'https://menuvia.netlify.app'
 
 // Domeniul de email (expeditori, reply-to). NU se schimbă cu site-ul: Resend
 // are verificat doar acest domeniu; un expeditor @menuvia.com ar fi respins.
@@ -61,7 +79,9 @@ function normalizeOrigin(raw) {
 /**
  * Originea aplicației. `opts.keys` permite unei funcții să păstreze o
  * precedență proprie (ex. sitemap citește întâi `URL`, domeniul primar
- * Netlify); `opts.env` există pentru teste.
+ * Netlify); `opts.fallback` păstrează fallback-ul ISTORIC al apelantului
+ * (trebuie să fie el însuși o origine validă, altfel DEFAULT_APP_URL);
+ * `opts.env` există pentru teste.
  */
 function appUrl(opts = {}) {
   const env = opts.env || process.env
@@ -70,7 +90,25 @@ function appUrl(opts = {}) {
     const o = normalizeOrigin(env[k])
     if (o) return o
   }
-  return DEFAULT_APP_URL
+  return normalizeOrigin(opts.fallback) || DEFAULT_APP_URL
+}
+
+// Site-urile pe care clientul le poate CERE explicit. Allowlist STRICT: corpul
+// cererii poartă doar eticheta ('ro'/'com'), niciodată o origine — o origine
+// luată din body ar face din emailul de invitație un relay de phishing
+// (link brandat Menuvia spre orice domeniu).
+const SITE_ORIGINS = Object.freeze({ com: COM_APP_URL })
+
+/**
+ * Originea pentru site-ul cerut de client: 'com' → https://menuvia.com;
+ * orice altceva (absent, 'ro', gunoi, URL) → `appUrl(opts)`, adică EXACT
+ * comportamentul de dinainte al apelantului.
+ */
+function siteAppUrl(site, opts) {
+  if (typeof site === 'string' && Object.prototype.hasOwnProperty.call(SITE_ORIGINS, site)) {
+    return SITE_ORIGINS[site]
+  }
+  return appUrl(opts)
 }
 
 /** Link absolut: `appLink('/dashboard?tab=billing')`. */
@@ -82,6 +120,8 @@ function appLink(path, opts) {
 module.exports = {
   RO_DOMAIN,
   DEFAULT_APP_URL,
+  COM_APP_URL,
+  LEGACY_NETLIFY_URL,
   MAIL_DOMAIN,
   FROM_HELLO,
   FROM_PILOT_LEADS,
@@ -92,4 +132,5 @@ module.exports = {
   normalizeOrigin,
   appUrl,
   appLink,
+  siteAppUrl,
 }

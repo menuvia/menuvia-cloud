@@ -1,7 +1,8 @@
 // tests/functions/app-url.test.js
 // Sursa UNICĂ a domeniului pentru funcțiile Netlify (netlify/functions/lib/appUrl.js).
 //
-//   AU1  fără env → fallback-ul de producție https://menuvia.ro
+//   AU1  fără env și fără `fallback` → https://menuvia.ro; cu `fallback`
+//        (per apelant) → fallback-ul apelantului, validat ca origine
 //   AU2  APP_URL bate VITE_APP_URL; se întoarce DOAR originea (fără cale/slash)
 //   AU3  valorile stricate cad pe următoarea cheie / fallback (http public,
 //        javascript:, gol, gunoi, credențiale în URL) — niciodată ca atare
@@ -10,7 +11,12 @@
 //   AU6  appLink construiește link-uri absolute fără dublu slash
 //   AU7  expeditorii de email rămân EXACT valorile de dinainte (comportament
 //        neschimbat; Resend are verificat doar domeniul .ro)
-//   AU8  integrare: stripe-checkout pune success_url/cancel_url pe APP_URL
+//   AU8  integrare: stripe-checkout pune success_url/cancel_url pe
+//        VITE_APP_URL (cheia de dinainte; APP_URL ignorat)
+//   AU9  siteAppUrl: DOAR eticheta 'com' (allowlist) → https://menuvia.com;
+//        orice altceva → appUrl(opts), adică comportamentul vechi
+//   Fallback-ul per funcție (cel ISTORIC, menuvia.netlify.app) e ținut de
+//   app-url-callsites.test.js (CS1–CS9).
 
 'use strict'
 
@@ -22,9 +28,36 @@ const lib = require(path.join(__dirname, '..', '..', 'netlify', 'functions', 'li
 const { appUrl, appLink, normalizeOrigin } = lib
 
 describe('appUrl — sursa unică a domeniului', () => {
-  it('AU1: fără env → https://menuvia.ro', () => {
+  it('AU1: fără env → fallback-ul apelantului (implicit https://menuvia.ro)', () => {
     assert.equal(appUrl({ env: {} }), 'https://menuvia.ro')
     assert.equal(lib.DEFAULT_APP_URL, 'https://menuvia.ro')
+    assert.equal(lib.LEGACY_NETLIFY_URL, 'https://menuvia.netlify.app')
+    assert.equal(
+      appUrl({ env: {}, fallback: lib.LEGACY_NETLIFY_URL }),
+      'https://menuvia.netlify.app',
+    )
+    // env valid bate fallback-ul
+    assert.equal(
+      appUrl({ env: { APP_URL: 'https://a.example' }, fallback: lib.LEGACY_NETLIFY_URL }),
+      'https://a.example',
+    )
+    // un fallback stricat nu ajunge niciodată în link
+    assert.equal(appUrl({ env: {}, fallback: 'javascript:alert(1)' }), 'https://menuvia.ro')
+    assert.equal(appUrl({ env: {}, fallback: 'http://evil.example' }), 'https://menuvia.ro')
+  })
+
+  it('AU9: siteAppUrl — allowlist strict pe etichetă', () => {
+    const opts = { env: { VITE_APP_URL: 'https://vite.example' }, keys: ['VITE_APP_URL'] }
+    assert.equal(lib.siteAppUrl('com', opts), 'https://menuvia.com')
+    assert.equal(lib.COM_APP_URL, 'https://menuvia.com')
+    for (const s of [undefined, null, 'ro', 'RO', 'COM', ' com', 'https://evil.example',
+      '__proto__', 'toString', 'hasOwnProperty', ['com'], { com: true }, 1]) {
+      assert.equal(lib.siteAppUrl(s, opts), 'https://vite.example', `site=${String(s)}`)
+    }
+    assert.equal(
+      lib.siteAppUrl(undefined, { env: {}, keys: ['VITE_APP_URL'], fallback: lib.LEGACY_NETLIFY_URL }),
+      'https://menuvia.netlify.app',
+    )
   })
 
   it('AU2: APP_URL are prioritate; se întoarce doar originea', () => {
@@ -118,9 +151,9 @@ describe('AU8: integrare — stripe-checkout citește domeniul din sursa unică'
     }
   })
 
-  it('AU8: success_url/cancel_url pe APP_URL (VITE_APP_URL ignorat când APP_URL e valid)', async () => {
-    process.env.APP_URL = 'https://app.example/'
-    process.env.VITE_APP_URL = 'https://other.example'
+  it('AU8: success_url/cancel_url pe VITE_APP_URL (APP_URL ignorat — cheia de dinainte)', async () => {
+    process.env.APP_URL = 'https://other.example'
+    process.env.VITE_APP_URL = 'https://app.example/'
     const { handler } = loadFunction('netlify/functions/stripe-checkout.js')
     state.authUser = { id: 'u1', email: 'a@x.test' }
     state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })

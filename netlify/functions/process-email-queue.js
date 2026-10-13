@@ -8,12 +8,13 @@
 
 const { createClient } = require('@supabase/supabase-js')
 
-const { appUrl, FROM_HELLO, FOUNDER_EMAIL } = require('./lib/appUrl')
+const { appUrl, FROM_HELLO, FOUNDER_EMAIL, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
 
 const FROM_EMAIL = process.env.EMAIL_FROM || FROM_HELLO
 const REPLY_TO   = process.env.EMAIL_REPLY_TO || FOUNDER_EMAIL
-// Sursa unică a domeniului (lib/appUrl.js): APP_URL → VITE_APP_URL → menuvia.ro.
-const APP_URL    = appUrl()
+// Sursa unică a domeniului (lib/appUrl.js), cu cheia și fallback-ul de
+// dinainte, EXACT: doar APP_URL → menuvia.netlify.app.
+const APP_URL    = appUrl({ keys: ['APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
 // ── Email templates (Romanian, warm tone) ──────────────────────
 // Each renders to { subject, html } given templateData.

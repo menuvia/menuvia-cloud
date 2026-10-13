@@ -35,6 +35,7 @@ const ALLOW_RO = {
   'src/lib/guestStrings.ts': 7,
 }
 const ALLOW_COM = {
+  'netlify/functions/lib/appUrl.js': 1, // COM_DOMAIN — siteAppUrl('com') pe server
   'src/lib/domain.ts': 1, // SITE_HOSTS.com
   'src/lib/siteMarket.ts': 1, // mesajul „coming soon" de pe .com
 }

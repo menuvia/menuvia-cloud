@@ -77,11 +77,23 @@ exports.handler = async (event) => {
     return jsonResponse(403, { error: 'Doar owner/manager poate configura plățile.' })
   }
 
-  const { data: restaurant, error: restErr } = await supabase
+  // `country` (mig 296): plata online (Stripe Connect, RON-only — mig 209) e
+  // feature ROMÂNESC (`feature_requires_ro`). Pe o bază fără 296 coloana nu
+  // există (42703) → recitim fără ea și tratăm restaurantul ca 'RO' (toate
+  // restaurantele de dinainte de 296 sunt RO prin default) — funcția se poate
+  // deploya înaintea migrației fără să rupă .ro.
+  let { data: restaurant, error: restErr } = await supabase
     .from('restaurants')
-    .select('stripe_account_id, name')
+    .select('stripe_account_id, name, country')
     .eq('id', restaurantId)
     .maybeSingle()
+  if (restErr && restErr.code === '42703') {
+    ;({ data: restaurant, error: restErr } = await supabase
+      .from('restaurants')
+      .select('stripe_account_id, name')
+      .eq('id', restaurantId)
+      .maybeSingle())
+  }
   if (restErr || !restaurant) {
     return jsonResponse(404, { error: 'Restaurant negăsit.' })
   }
@@ -106,6 +118,18 @@ exports.handler = async (event) => {
   }
 
   // action === 'link'
+  // Gardă pe ȚARĂ (defense-in-depth peste gate-ul din DATE al lui
+  // begin_table_payment, mig 296): fără ea, un restaurant din afara RO pe un
+  // plan cu online_payments ar crea un cont Connect (ireversibil la Stripe)
+  // pentru o plată pe care baza oricum o refuză. Doar pe `link` — `status`
+  // rămâne citibil (un cont legat înainte de schimbarea țării se vede).
+  const country = typeof restaurant.country === 'string' ? restaurant.country : 'RO'
+  if (country !== 'RO') {
+    return jsonResponse(403, {
+      error: 'Plata online este disponibilă doar pentru restaurantele din România.',
+      code: 'country_not_supported',
+    })
+  }
   try {
     let accountId = restaurant.stripe_account_id
     if (!accountId) {
@@ -129,7 +153,8 @@ exports.handler = async (event) => {
       }
     }
 
-    const base = appUrl()
+    // Cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.ro).
+    const base = appUrl({ keys: ['VITE_APP_URL'] })
     const link = await stripe.accountLinks.create({
       account: accountId,
       // Ambele întorc în dashboard — SettingsTab recitește statusul la mount.
