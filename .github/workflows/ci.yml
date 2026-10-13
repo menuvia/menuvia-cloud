@@ -252,6 +252,16 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/restaurant_country_assertions.sql
 
+      # Mig 297 pe stack-ul real: aici trăiesc default privileges ale Supabase
+      # (și drift-ul CLI din aug 2026, care dădea anon EXECUTE direct pe orice
+      # funcție nouă) — clichetul AH1 (DEFINER apelabil de anon == allowlist)
+      # vede privilegiile stack-ului REAL, nu ale unui Postgres gol. Rulează
+      # ÎNAINTEA pasului „Parity grants” (grant-uri doar pentru Playwright).
+      - name: Clichetele advisor-ului Supabase pe stack-ul real (mig 297, AH1–AH6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/advisor_hardening_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
