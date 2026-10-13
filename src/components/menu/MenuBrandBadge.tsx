@@ -62,6 +62,9 @@ export function MenuBrandBadge({ utmSource, color, fontFamily, padding, lang = '
               src={agency.logoUrl}
               alt=""
               height={16}
+              // În subsolul meniului: nu concurează cu pozele de deasupra.
+              loading="lazy"
+              decoding="async"
               style={{ maxWidth: 120, objectFit: 'contain', display: 'block' }}
             />
           )}
