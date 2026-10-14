@@ -11,6 +11,7 @@
 // marketing fiindcă e strict necesar fluxului de atribuire afiliat.
 
 import { supabase } from './supabase'
+import { publicBaseUrl } from './domain'
 
 const REFERRAL_COOKIE = 'mv_ref'
 // Vanity capturat dar NErezolvat încă (RPC picat / plafon global / rețea /
@@ -351,8 +352,29 @@ export function formatRON(cents: number | null | undefined, currency = 'RON'): s
   return getFormatter(currency).format((cents ?? 0) / 100)
 }
 
-/** Construiește URL-ul public de referral pentru un cod. */
-export function referralUrl(code: string): string {
-  const base = (import.meta.env.VITE_APP_URL as string | undefined) || window.location.origin
+/**
+ * URL-ul public de referral, PUR (testabil fără DOM). Baza trece prin
+ * `publicBaseUrl` (lib/domain.ts), ca QR-ul mesei: pe menuvia.com originea
+ * canonică .com — `VITE_APP_URL` e fixat pe .ro în netlify.toml, deci formula
+ * veche (`VITE_APP_URL || origin`) dădea unui afiliat de pe .com un link .ro;
+ * pe .ro și pe orice alt host rezultatul e IDENTIC cu cel de dinainte.
+ */
+export function buildReferralUrl(
+  code: string,
+  hostname: string,
+  viteAppUrl: string | null | undefined,
+  origin: string,
+): string {
+  const base = publicBaseUrl(hostname, viteAppUrl, origin)
   return `${base.replace(/\/$/, '')}/r/${code}`
+}
+
+/** Construiește URL-ul public de referral pentru un cod (site-ul ferestrei curente). */
+export function referralUrl(code: string): string {
+  return buildReferralUrl(
+    code,
+    window.location.hostname,
+    import.meta.env.VITE_APP_URL as string | undefined,
+    window.location.origin,
+  )
 }

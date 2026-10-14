@@ -27,6 +27,7 @@ import {
   readPendingTermsConsent,
   recordTermsAcceptance,
 } from '../lib/terms'
+import { ROUTE_CHANGE_EVENT } from '../lib/routeEvents'
 
 /**
  * Rutele pe care gate-ul NU are voie să apară. Recuperarea parolei creează o
@@ -36,9 +37,6 @@ import {
  * completă din email, deci acolo unde contează valoarea e corectă.
  */
 const AUTH_PATHS = ['/auth', '/reset-password']
-
-/** Anunțul de navigare emis de `navigate()` din App (pushState nu emite nimic). */
-export const ROUTE_CHANGE_EVENT = 'menuvia:route'
 
 function readPath(): string {
   try {

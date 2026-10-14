@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
-import TermsAcceptanceGate, { ROUTE_CHANGE_EVENT } from './components/TermsAcceptanceGate'
+import { ROUTE_CHANGE_EVENT } from './lib/routeEvents'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
 import { getStoredReferral, getVisitorId, resolvePendingReferral } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
@@ -44,6 +44,18 @@ const QrMenuPage = lazy(() => import('./pages/QrMenuPage'))
 const KitchenPage = lazy(() => import('./pages/KitchenPage'))
 const WaiterPage = lazy(() => import('./pages/WaiterPage'))
 const PublicMenuPage = lazy(() => import('./pages/PublicMenuPage'))
+// Prefetch al meniului oaspetelui, același tipar ca LandingPage pe '/': fără
+// el, chunk-ul paginii pornea abia după montarea React + `getSession()` (ruta
+// e randată doar după `loading` din AuthContext) — o serializare pe calea
+// critică a scanării. Aici descărcarea pornește în paralel cu ele; importul
+// e deduplicat de încărcătorul de module, deci lazy() de mai sus primește
+// același modul. Regex-urile sunt cele din parsePath. Un eșec aici e tăcut:
+// lazy() reîncearcă la randare și eroarea ajunge la ErrorBoundary ca înainte.
+if (typeof window !== 'undefined') {
+  const p = window.location.pathname
+  if (/^\/q\/.+$/.test(p)) import('./pages/QrMenuPage').catch(() => undefined)
+  else if (/^\/m\/.+$/.test(p)) import('./pages/PublicMenuPage').catch(() => undefined)
+}
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
@@ -60,6 +72,11 @@ const ReservePage = lazy(() => import('./pages/ReservePage'))
 const RezervariPage = lazy(() => import('./pages/RezervariPage'))
 const LandingPageEn = lazy(() => import('./pages/LandingPageEn'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
+// Gate-ul de Termeni randează null fără sesiune — vizitatorul anonim (meniul
+// QR, /m/:slug) nu-l vede niciodată, dar importul static îl ținea, cu
+// lib/terms, în chunk-ul de ENTRY descărcat la fiecare scanare. Se montează
+// (și se descarcă) doar când există user — vezi TermsGateMount.
+const TermsAcceptanceGate = lazy(() => import('./components/TermsAcceptanceGate'))
 
 type View =
   | 'landing'
@@ -291,6 +308,18 @@ function ProtectedRoute({
       </div>
     )
   return <>{children}</>
+}
+
+// Montează gate-ul de Termeni DOAR cu sesiune: fără user gate-ul întoarce oricum
+// null, deci nimic vizibil nu se schimbă — doar chunk-ul lui iese din entry.
+function TermsGateMount() {
+  const { user } = useAuth()
+  if (!user) return null
+  return (
+    <Suspense fallback={null}>
+      <TermsAcceptanceGate />
+    </Suspense>
+  )
 }
 
 function AppRouter() {
@@ -805,7 +834,7 @@ export default function App() {
             {/* Consimțământul la Termeni: se consemnează la prima sesiune, iar
                 conturile fără el primesc ecranul o singură dată. Randează null
                 pentru vizitatorii anonimi (meniul QR nu e atins). */}
-            <TermsAcceptanceGate />
+            <TermsGateMount />
             {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
                 NE-dialog, global, ca să apară și pe Onboarding (contul nou
                 plătește înainte să-și creeze restaurantul). */}

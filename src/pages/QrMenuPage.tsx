@@ -56,6 +56,7 @@ import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { useToast } from '../components/ui/useToast'
 import { qrPayTableLabel } from '../lib/qrPayLabel'
 import { Icon } from '../components/ui/Icon'
+import { thumbUrlFor } from '../lib/images'
 // Componente comune de meniu (Lot A) — același limbaj vizual ca meniul digital.
 import { CategoryTabs } from '../components/menu/CategoryTabs'
 import { MenuBrandBadge } from '../components/menu/MenuBrandBadge'
@@ -1467,7 +1468,16 @@ export default function QrMenuPage({ token }: Props) {
                 >
                   {p.image_url ? (
                     <img
-                      src={p.image_url}
+                      // OPT-6: tile de ~120-170px → thumb-ul de ~320px (~20KB), nu
+                      // originalul de 1200px (150-400KB per poză), ca sugestiile din
+                      // coș (QrCartSheet, card de 150px). Imagine veche fără thumb →
+                      // o singură trecere pe original.
+                      src={thumbUrlFor(p.image_url) ?? p.image_url}
+                      onError={(e) => {
+                        if (p.image_url && e.currentTarget.src !== p.image_url) {
+                          e.currentTarget.src = p.image_url
+                        }
+                      }}
                       alt={p.name}
                       loading="lazy"
                       decoding="async"
