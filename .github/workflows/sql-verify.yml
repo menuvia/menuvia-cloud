@@ -1827,6 +1827,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/restaurant_country_assertions.sql
 
+      # Mig 297: clichetele advisor-ului Supabase (DEFINER apelabil de anon ==
+      # allowlist, auth.uid() înfășurat în politici, FK-uri cu index). Rulează
+      # și în jobul E2E din ci.yml, pe stack-ul Supabase real (default
+      # privileges) — sql-verify e Postgres gol, orb la clasa aceea.
+      - name: "Advisor hardening ratchets (mig 297, AH1–AH6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/advisor_hardening_assertions.sql
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
