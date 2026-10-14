@@ -255,6 +255,7 @@ do $$
 declare
   v_bad  text;
   v_n    int;
+  v_wrapped int;
   v_upd  int;
   v_upd2 int;
 begin
@@ -285,13 +286,13 @@ begin
     raise exception 'AH4 FAIL: politici cu auth.*()/current_setting() ne-înfășurat (re-evaluat per rând; scrie (select auth.uid())): %', v_bad;
   end if;
   -- anti-vacuitate: cele 21 rescrise de 297 poartă forma înfășurată
-  select count(*) into v_n
+  select count(*) into v_wrapped
     from pg_policy pol join pg_class c on c.oid = pol.polrelid join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'public'
      and (coalesce(pg_get_expr(pol.polqual, pol.polrelid), '') || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), ''))
          like '%( SELECT auth.uid() AS uid)%';
-  if v_n < 21 then
-    raise exception 'AH4 FAIL: doar % politici cu ( SELECT auth.uid() ), se așteptau ≥21', v_n;
+  if v_wrapped < 21 then
+    raise exception 'AH4 FAIL: doar % politici cu ( SELECT auth.uid() ), se așteptau ≥21', v_wrapped;
   end if;
 
   -- comportament sub rolul REAL authenticated: doar rândul propriu
@@ -311,7 +312,7 @@ begin
   if (select full_name from public.profiles where id = '97000000-0000-4000-8000-000000000002')
        is not distinct from 'AH străin' then
     raise exception 'AH4 FAIL: profilul străin a fost modificat'; end if;
-  raise notice 'AH4 OK: zero politici cu auth.*() ne-înfășurat; % înfășurate; self_select/_update țin rândul propriu', 21;
+  raise notice 'AH4 OK: zero politici cu auth.*() ne-înfășurat; % înfășurate; self_select/_update țin rândul propriu', v_wrapped;
 end $$;
 
 -- ── AH5: FK fără index acoperitor ───────────────────────────────────────────
