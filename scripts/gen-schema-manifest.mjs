@@ -12,17 +12,16 @@
 import { readdirSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+// Derivarea numelui e UNA singură, partajată cu aplicarea automată pe producție
+// (scripts/apply-prod-migrations.mjs): ledger-ul, manifestul și sonda trebuie
+// să vorbească despre ACELEAȘI nume.
+import { migrationName } from './lib/prod-migrations.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dir = join(root, 'supabase', 'migrations')
-const PREFIX = /^\d{14}_/
-
 const names = readdirSync(dir)
   .filter((f) => f.endsWith('.sql'))
-  .map((f) => {
-    if (!PREFIX.test(f)) throw new Error(`migrație fără prefix de 14 cifre: ${f}`)
-    return f.replace(PREFIX, '').replace(/\.sql$/, '')
-  })
+  .map(migrationName) // aruncă pe un fișier fără prefix de 14 cifre
   .sort()
 
 const out = join(root, 'netlify', 'functions', 'schema-manifest.json')
