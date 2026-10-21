@@ -296,6 +296,7 @@
     "migration_294_affiliate_payout_flow",
     "migration_295_affiliate_program_gdpr",
     "migration_296_restaurant_country",
-    "migration_297_advisor_hardening"
+    "migration_297_advisor_hardening",
+    "migration_299_email_kinds_sales_network"
   ]
 }
