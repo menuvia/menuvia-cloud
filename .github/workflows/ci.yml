@@ -262,6 +262,14 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/advisor_hardening_assertions.sql
 
+      # Mig 298 pe stack-ul real: helperul NOU safe_time_zone primește EXECUTE
+      # din default privileges ale Supabase, deci revoke-ul explicit (RZ5) are
+      # muncă reală DOAR aici; get_restaurant_by_slug e DROP+CREATE (ACL nou).
+      - name: Rezervarea în fusul restaurantului + limba de bază pe stack-ul real (mig 298, RZ1–RZ6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/reservation_timezone_assertions.sql
+
       - name: Export local keys
         id: sb
         run: |
