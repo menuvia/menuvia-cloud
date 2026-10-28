@@ -576,3 +576,37 @@ export function decideGate({ ref, ci, tests, sql, sqlCoverage }) {
   const pending = [ci, tests, sql].includes('pending')
   return { go: reasons.length === 0, pending, reasons }
 }
+
+// ── 6. MO1: ordinea migrațiilor unui PR față de main ───────────────────────
+
+/**
+ * Migrațiile ADĂUGATE de un PR (în `headFiles`, absente din `baseFiles`) trebuie
+ * să vină STRICT după tot ce e pe main, pe AMBELE axe: numărul (`migration_NNN`)
+ * și prefixul de 14 cifre. Altfel aplicarea automată (care merge pe ordinea
+ * prefixelor) ar vedea un GOL — fișier nou sortat înaintea unuia deja aplicat —
+ * și ar refuza tot lotul. Între ele, migrațiile noi cresc pe ambele axe deodată.
+ * Întoarce lista de probleme (goală = ok).
+ */
+export function checkMigrationOrder(baseFiles, headFiles) {
+  const base = new Set(baseFiles)
+  const added = headFiles.filter((f) => !base.has(f)).sort()
+  const problems = []
+  if (!added.length) return problems
+  const baseNums = baseFiles.map(migrationNumber).filter((n) => n !== null)
+  const maxNum = baseNums.length ? Math.max(...baseNums) : -1
+  const maxVer = baseFiles.length ? baseFiles.map(migrationVersion).sort().at(-1) : ''
+  let prev = null
+  for (const f of added) {
+    const num = migrationNumber(f)
+    const ver = migrationVersion(f)
+    if (num === null) {
+      problems.push(`${f}: o migrație nouă trebuie să se numească <14 cifre>_migration_<NNN>_<slug>.sql`)
+      continue
+    }
+    if (num <= maxNum) problems.push(`${f}: numărul ${num} nu e mai mare decât ultimul de pe main (${maxNum}) — ia ${maxNum + 1}`)
+    if (ver <= maxVer) problems.push(`${f}: prefixul ${ver} nu e după ultimul de pe main (${maxVer}) — folosește un timestamp mai nou`)
+    if (prev && num <= prev.num) problems.push(`${f}: numărul ${num} nu crește față de ${prev.f} (${prev.num}), deși prefixul e mai nou`)
+    prev = { f, num }
+  }
+  return problems
+}

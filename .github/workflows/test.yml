@@ -92,9 +92,15 @@ jobs:
         run: node --test tests/osv-gate/osv-audit.test.mjs
       # Aplicarea automată a migrațiilor pe producție (PR-0): logica pură —
       # numele din ledger, golurile, forma fișierelor, poziția rândului de
-      # ledger, poarta. Integrarea pe Postgres real (AM1–AM4) e în sql-verify.
-      - name: Prod migrations unit tests (PM1–PM10)
-        run: node --test tests/prod-migrations/*.test.mjs
+      # ledger, poarta — plus MO1: migrațiile adăugate de un PR vin STRICT după
+      # tot ce e pe main (număr ȘI prefix), altfel aplicarea pe producție le-ar
+      # vedea ca GOL. MO1 citește baza din origin/main, deci fetch-ul e întâi
+      # (fail-closed: fără bază testul pică, nu sare). Integrarea pe Postgres
+      # real (AM1–AM5) e în sql-verify.
+      - name: Prod migrations unit tests (PM1–PM10 + MO1 ordinea migrațiilor)
+        run: |
+          git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          node --test tests/prod-migrations/*.test.mjs
 
   coverage:
     name: Coverage report
