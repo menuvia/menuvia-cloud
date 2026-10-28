@@ -12,7 +12,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { getStoredReferral, resolvePendingReferral } from '../lib/affiliate'
 import {
   lookupAgentCode,
-  pickAgentCandidate,
+  isAgentFieldVisible,
+  pickSubmitCandidate,
   resolveAgentCodeForSubmit,
   type AgentCodeLookup,
   type SubmitAgentCode,
@@ -71,12 +72,29 @@ export function useSignupAgentCode(enabled: boolean): SignupAgentCode {
   const linkCandidate =
     linkLookup?.state === 'unknown' ? null : (verifiedLinkCode ?? storedCode)
 
+  // Câmpul tastat e VIZIBIL doar fără banner (AuthPage: `!verifiedLinkCode ||
+  // dismissed`). Dacă omul a tastat ceva înainte ca verificarea link-ului să se
+  // întoarcă `valid`, câmpul s-a demontat și bannerul a apărut: valoarea ascunsă
+  // NU are voie să bată codul verificat din link și nici să oprească formularul
+  // cu un mesaj afișat într-un câmp care nu se mai vede.
+  const fieldVisible = isAgentFieldVisible(verifiedLinkCode !== null, dismissed)
+
+  // Mesajul de problemă aparține câmpului: când câmpul se ascunde, dispare și el.
+  useEffect(() => {
+    if (!fieldVisible) setProblem(null)
+  }, [fieldVisible])
+
   const resolveForSubmit = useCallback(async (): Promise<SubmitAgentCode> => {
-    const choice = pickAgentCandidate(typed, linkCandidate, dismissed)
+    const choice = pickSubmitCandidate({
+      typed,
+      stored: linkCandidate,
+      dismissed,
+      linkVerified: verifiedLinkCode !== null,
+    })
     const res = await resolveAgentCodeForSubmit(choice)
     setProblem(res.ok ? null : res.problem)
     return res
-  }, [typed, linkCandidate, dismissed])
+  }, [typed, linkCandidate, dismissed, verifiedLinkCode])
 
   return {
     verifiedLinkCode,

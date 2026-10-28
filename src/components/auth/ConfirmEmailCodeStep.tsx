@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { Icon } from '../ui/Icon'
 import { MKT } from '../../lib/marketing'
+import { D } from '../../lib/constants'
 import {
   OTP_LENGTH,
   RESEND_COOLDOWN_S,
@@ -157,7 +158,7 @@ export default function ConfirmEmailCodeStep({
       </div>
       <h2
         style={{
-          fontFamily: 'Fraunces,serif',
+          fontFamily: D.fontDisplay,
           fontSize: '1.4rem',
           color: MKT.text,
           marginBottom: 12,
@@ -213,7 +214,7 @@ export default function ConfirmEmailCodeStep({
               textAlign: 'center',
               color: MKT.text,
               outline: 'none',
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               boxSizing: 'border-box',
             }}
           />
@@ -249,7 +250,7 @@ export default function ConfirmEmailCodeStep({
             border: 'none',
             borderRadius: 10,
             padding: '14px 0',
-            fontFamily: 'DM Sans,sans-serif',
+            fontFamily: D.fontBody,
             fontSize: 15,
             fontWeight: 700,
             cursor: busy ? 'not-allowed' : 'pointer',
@@ -269,11 +270,13 @@ export default function ConfirmEmailCodeStep({
         style={{
           background: 'none',
           border: 'none',
-          color: resendDisabled ? MKT.text3 : MKT.accentInk,
+          // text2 (#5C4A2A) = 8,5:1 pe alb; aurul-cerneală (#A57A28) are doar 3,9:1.
+          color: resendDisabled ? MKT.text3 : MKT.text2,
+          textDecoration: resendDisabled ? 'none' : 'underline',
           cursor: resendDisabled ? 'not-allowed' : 'pointer',
           fontSize: '0.88rem',
           fontWeight: 600,
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           marginTop: 12,
           padding: '12px 8px',
           minHeight: 44,
@@ -291,7 +294,7 @@ export default function ConfirmEmailCodeStep({
             color: MKT.text3,
             cursor: 'pointer',
             fontSize: '0.85rem',
-            fontFamily: 'DM Sans,sans-serif',
+            fontFamily: D.fontBody,
             padding: '12px 8px',
             minHeight: 44,
           }}

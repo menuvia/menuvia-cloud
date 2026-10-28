@@ -90,8 +90,10 @@ describe('loadPostLoginDestination', () => {
     expect(await loadPostLoginDestination('u-1')).toBe('/dashboard')
   })
 
-  it('PL9 eroare la afiliere = „nu e afiliat"', async () => {
-    setup({ data: [], error: null }, { data: null, error: { message: 'boom' } })
+  it('PL9 eroare la afiliere = „nu e afiliat" (eroarea se verifică ÎNAINTEA rândului)', async () => {
+    // Rând „activ" întors ÎMPREUNĂ cu o eroare: un loader care ignoră `error` ar
+    // trimite omul pe /afiliat.
+    setup({ data: [], error: null }, { data: { status: 'active' }, error: { message: 'boom' } })
     expect(await loadPostLoginDestination('u-1')).toBe('/dashboard')
   })
 

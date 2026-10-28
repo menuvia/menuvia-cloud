@@ -4,6 +4,7 @@
 // caldă a funnel-ului, ca AuthPage). Patronii veniți singuri nu văd NICIUN câmp:
 // câmpul apare doar după „Am un cod de agent".
 import { MKT } from '../../lib/marketing'
+import { D } from '../../lib/constants'
 import type { OtpLang } from '../../lib/otp'
 import type { AgentCodeProblem } from '../../hooks/useSignupAgentCode'
 
@@ -64,7 +65,7 @@ export function AgentCodeBanner({ lang, onDismiss }: { lang: OtpLang; onDismiss:
           color: MKT.text3,
           cursor: 'pointer',
           fontSize: '0.78rem',
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           textDecoration: 'underline',
           // Țintă de atingere ≥44px fără să schimbe ritmul vizual.
           padding: '12px 0 0',
@@ -101,11 +102,12 @@ export function AgentCodeField({
         style={{
           background: 'none',
           border: 'none',
-          color: MKT.accentInk,
+          color: MKT.text2, // 8,5:1 pe alb (aurul-cerneală are doar 3,9:1)
+          textDecoration: 'underline',
           cursor: 'pointer',
           fontSize: '0.82rem',
           fontWeight: 600,
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           textAlign: 'left',
           padding: '12px 0',
           minHeight: 44,
@@ -151,7 +153,7 @@ export function AgentCodeField({
           fontSize: '0.95rem',
           color: MKT.text,
           outline: 'none',
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           boxSizing: 'border-box',
         }}
       />

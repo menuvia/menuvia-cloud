@@ -164,7 +164,7 @@ describe('ConfirmEmailCodeStep', () => {
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /retrimite emailul/i }))
     })
-    expect(screen.getByRole('alert')).toHaveTextContent(/acum puțin timp/i)
+    expect(screen.getByRole('alert')).toHaveTextContent(/prea multe coduri/i)
     expect(screen.getByRole('button', { name: /retrimite/i })).toBeDisabled()
   })
 

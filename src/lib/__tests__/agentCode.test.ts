@@ -15,7 +15,9 @@ import { describe, it, expect } from 'vitest'
 import {
   isAgentCodeShape,
   normalizeAgentCode,
+  isAgentFieldVisible,
   pickAgentCandidate,
+  pickSubmitCandidate,
   resolveAgentCodeForSubmit,
   type AgentCodeLookup,
 } from '../agentCode'
@@ -68,6 +70,30 @@ describe('pickAgentCandidate', () => {
     })
     expect(pickAgentCandidate("a'b", null, false)).toEqual({ source: 'typed', code: "a'b", shapeOk: false })
     expect(pickAgentCandidate('x', null, false)).toEqual({ source: 'typed', code: 'x', shapeOk: false })
+  })
+})
+
+describe('pickSubmitCandidate', () => {
+  it('AS9 câmpul ascuns de banner nu bate codul verificat din link', () => {
+    // tastat ÎNAINTE ca link-ul să se verifice; acum bannerul e afișat
+    expect(
+      pickSubmitCandidate({ typed: "a'b", stored: 'k7m2xq9', dismissed: false, linkVerified: true }),
+    ).toEqual({ source: 'link', code: 'k7m2xq9' })
+    expect(
+      pickSubmitCandidate({ typed: 'ion-pop', stored: 'k7m2xq9', dismissed: false, linkVerified: true }),
+    ).toEqual({ source: 'link', code: 'k7m2xq9' })
+  })
+
+  it('AS10 câmp vizibil → tastatul contează (link neverificat, sau scos de om)', () => {
+    expect(
+      pickSubmitCandidate({ typed: 'ion-pop', stored: 'k7m2xq9', dismissed: false, linkVerified: false }),
+    ).toEqual({ source: 'typed', code: 'ion-pop', shapeOk: true })
+    expect(
+      pickSubmitCandidate({ typed: "a'b", stored: 'k7m2xq9', dismissed: true, linkVerified: true }),
+    ).toEqual({ source: 'typed', code: "a'b", shapeOk: false })
+    expect(isAgentFieldVisible(true, false)).toBe(false)
+    expect(isAgentFieldVisible(true, true)).toBe(true)
+    expect(isAgentFieldVisible(false, false)).toBe(true)
   })
 })
 

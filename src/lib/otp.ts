@@ -57,13 +57,13 @@ const VERIFY_MESSAGES: Record<OtpLang, Record<OtpErrorKind, string>> = {
   ro: {
     invalid:
       'Codul e greșit sau a expirat. Verifică ultimul email primit sau cere unul nou cu „Retrimite”.',
-    rate_limit: 'Prea multe încercări. Așteaptă un minut și reîncearcă.',
+    rate_limit: 'Prea multe încercări. Așteaptă puțin și încearcă din nou.',
     network: 'Problemă de conexiune. Verifică internetul și reîncearcă.',
     other: 'Nu am putut verifica codul. Reîncearcă sau folosește linkul din email.',
   },
   en: {
     invalid: 'The code is wrong or has expired. Check the latest email or request a new one with “Resend”.',
-    rate_limit: 'Too many attempts. Wait a minute and try again.',
+    rate_limit: 'Too many attempts. Wait a little and try again.',
     network: 'Connection problem. Check your internet and try again.',
     other: 'We couldn’t verify the code. Try again or use the link in the email.',
   },
@@ -72,13 +72,13 @@ const VERIFY_MESSAGES: Record<OtpLang, Record<OtpErrorKind, string>> = {
 const RESEND_MESSAGES: Record<OtpLang, Record<OtpErrorKind, string>> = {
   ro: {
     invalid: 'Nu am putut retrimite emailul. Reîncearcă peste un minut.',
-    rate_limit: 'Ai cerut un email acum puțin timp. Așteaptă un minut înainte de următorul.',
+    rate_limit: 'Ai cerut prea multe coduri. Așteaptă puțin și încearcă din nou.',
     network: 'Problemă de conexiune. Verifică internetul și reîncearcă.',
     other: 'Nu am putut retrimite emailul. Reîncearcă peste un minut.',
   },
   en: {
     invalid: 'We couldn’t resend the email. Try again in a minute.',
-    rate_limit: 'You requested an email a moment ago. Wait a minute before the next one.',
+    rate_limit: 'You requested too many codes. Wait a little and try again.',
     network: 'Connection problem. Check your internet and try again.',
     other: 'We couldn’t resend the email. Try again in a minute.',
   },

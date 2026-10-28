@@ -85,6 +85,12 @@ describe('mesaje', () => {
       expect(verifyOtpErrorMessage(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
       expect(resendErrorMessage(kind, 'ro')).not.toMatch(/token|expired|rate limit|failed to fetch/i)
     }
+    // Limita serverului poate fi mai lungă de un minut (SMTP-ul built-in:
+    // câteva emailuri pe oră): mesajele de rate-limit nu promit nicio durată.
+    for (const lang of ['ro', 'en'] as const) {
+      expect(verifyOtpErrorMessage('rate_limit', lang), `verify ${lang}`).not.toMatch(/\d|minut|minute|second|secund/i)
+      expect(resendErrorMessage('rate_limit', lang), `resend ${lang}`).not.toMatch(/\d|minut|minute|second|secund/i)
+    }
     // Cod greșit: mesajul trimite spre „Retrimite" (acțiunea de recuperare).
     expect(verifyOtpErrorMessage('invalid', 'ro')).toMatch(/Retrimite/)
     expect(verifyOtpErrorMessage('invalid', 'ro')).not.toBe(verifyOtpErrorMessage('rate_limit', 'ro'))

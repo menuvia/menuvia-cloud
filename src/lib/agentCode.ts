@@ -54,6 +54,28 @@ export function pickAgentCandidate(
   return { source: 'none' }
 }
 
+/**
+ * Câmpul tastat e vizibil doar fără banner (AuthPage: bannerul apare cu un cod
+ * din link VERIFICAT și nescos). Aceeași regulă hotărăște și ce pleacă la submit.
+ */
+export function isAgentFieldVisible(linkVerified: boolean, dismissed: boolean): boolean {
+  return !linkVerified || dismissed
+}
+
+/**
+ * Alegerea de la submit: ce e tastat într-un câmp ASCUNS (bannerul a apărut după
+ * ce omul tastase) nu bate codul verificat din link și nu oprește formularul.
+ */
+export function pickSubmitCandidate(input: {
+  typed: string
+  stored: string | null
+  dismissed: boolean
+  linkVerified: boolean
+}): AgentChoice {
+  const visible = isAgentFieldVisible(input.linkVerified, input.dismissed)
+  return pickAgentCandidate(visible ? input.typed : '', input.stored, input.dismissed)
+}
+
 export type AgentCodeLookup =
   | { state: 'valid'; code: string }
   | { state: 'unknown' }

@@ -11,6 +11,10 @@
 //        cookie PLEACĂ — serverul rămâne autoritatea; atribuirea nu se pierde
 //        tăcut pe un blip
 //   UA6  „Nu e agentul meu" → codul din link nu mai pleacă
+//   UA8  cod tastat ÎNAINTE ca verificarea link-ului să se întoarcă `valid`:
+//        câmpul se demontează (apare bannerul) și valoarea ascunsă NU bate codul
+//        verificat din link, nici nu lasă un mesaj de problemă în câmpul ascuns;
+//        după „Nu e agentul meu" câmpul reapare și tastatul contează iar
 //   UA7  cod TASTAT: bate link-ul; formă proastă → problem 'shape', fără apel;
 //        „nu există" → problem 'unknown'; schimbarea textului șterge mesajul
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -148,5 +152,41 @@ describe('useSignupAgentCode', () => {
     // schimbarea textului șterge mesajul
     act(() => result.current.setTyped('nuexista2'))
     expect(result.current.problem).toBeNull()
+  })
+
+  it('UA8 tastat înainte de verificarea link-ului: codul verificat din link câștigă, fără mesaj ascuns', async () => {
+    storedMock.mockReturnValue('k7m2xq9')
+    let release: (v: { data: unknown; error: null }) => void = () => undefined
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    const { result } = renderHook(() => useSignupAgentCode(true))
+    await waitFor(() => expect(rpcMock).toHaveBeenCalled())
+
+    // Verificarea link-ului încă nu s-a întors: câmpul e vizibil, omul tastează
+    // un cod cu formă proastă și încearcă să trimită → mesaj în câmp.
+    act(() => result.current.openField())
+    act(() => result.current.setTyped("a'b"))
+    expect(await submit(result)).toEqual({ ok: false, problem: 'shape' })
+    expect(result.current.problem).toBe('shape')
+
+    // Acum link-ul se verifică: apare bannerul, câmpul se demontează.
+    await act(async () => {
+      release({ data: { referral_code: 'k7m2xq9' }, error: null })
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(result.current.verifiedLinkCode).toBe('k7m2xq9'))
+    expect(result.current.problem).toBeNull()
+
+    // Valoarea ascunsă nu suprascrie codul verificat și nu oprește formularul.
+    expect(await submit(result)).toEqual({ ok: true, code: 'k7m2xq9' })
+    expect(result.current.problem).toBeNull()
+
+    // „Nu e agentul meu": câmpul reapare, iar ce e tastat contează din nou.
+    act(() => result.current.dismissLink())
+    expect(await submit(result)).toEqual({ ok: false, problem: 'shape' })
   })
 })
