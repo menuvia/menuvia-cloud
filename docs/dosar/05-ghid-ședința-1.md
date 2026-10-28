@@ -9,24 +9,26 @@
 
 - Un **manager de parole** (1Password, Bitwarden etc.) deschis. Tot ce e „secret” de mai jos se salvează acolo.
 - Un telefon cu o **aplicație de autentificare** (Google Authenticator, 1Password, Aegis).
-- Verifică, uitându-te în Netlify → Deploys, că **publicarea automată e oprită** („Auto publishing” oprit / „locked deploy”). Am pus-o înainte de Ședința 1 prin conector. ⛔ **Dacă nu e oprită, nu pune niciuna dintre cheile din pasul 5; spune-mi mai întâi.** Motiv: orice merge pe `main` ar publica un build cu cheile puse și ar porni serverul înaintea migrației 300 (alerta „[INTERN]” ar pleca la patron).
+- Verifică, uitându-te în Netlify → Deploys, că **publicarea automată e oprită** („Auto publishing” oprit / „locked deploy”). Am pus-o înainte de Ședința 1 prin conector. ⛔ **Dacă nu e oprită, nu pune niciuna dintre cheile din pasul 9; spune-mi mai întâi.** Motiv: orice merge pe `main` ar publica un build cu cheile puse și ar porni serverul înaintea migrației 300 (alerta „[INTERN]” ar pleca la patron).
 
-## Ordinea recomandată (diferă ușor de numerotarea din plan, din cauza dependențelor)
+## Ordinea (cu corespondența față de numerotarea din plan)
 
-| Ordine | Pas (numărul din plan) | Min | De ce în acest loc |
-|---|---|---:|---|
-| 1 | **1** Emailuri contabil + avocat + semnătură calificată | 15 | Așteptarea e de partea lor; pornește ceasul primul |
-| 2 | **3** Domeniul `menuvia.ro` + serverele de nume | 12 | Propagarea DNS durează; cere timp înainte de Resend |
-| 3 | **2** GitHub: environment `production` + secrete | 12 | Independent; faci în timp ce se propagă DNS |
-| 4 | **6a** Supabase: trecerea pe **Pro** + organizația „menuvia-test” | 6 | Protecția parolelor compromise cere Pro |
-| 5 | **9** Stripe (TEST) + Connect | 15 | Independent; cheile TEST merg pe canal separat |
-| 6 | **8** OpenAI | 5 | Independent |
-| 7 | **4** Resend + DMARC + redirecționare email | 12 | Cere DNS-ul propagat |
-| 8 | **6b** Supabase: leaked-password, SMTP, șablon, URL-uri | 8 | Cere cheia Resend din pasul 7 |
-| 9 | **5** Netlify: variabile (doar `production`) | 4 | Cere cheile din 4, 6, 8 |
-| 10 | **10** UptimeRobot | 3 | Cere domeniul |
-| 11 | **7** MFA + 2FA | 10 | Poate fi oricând; la final îl bifezi cu tot |
-| 12 | **11** „Da” la D1–D15 + șefii | 3 | Vezi `04-fisa-decizii-D1-D15.md` |
+| Pasul din ghid | Ce faci | Nr. în plan (§0.2) | Min | De ce în acest loc |
+|---|---|:---:|---:|---|
+| **1** | Emailuri contabil + avocat + semnătură calificată | 1 | 15 | Așteptarea e de partea lor; pornește ceasul primul |
+| **2** | Domeniul `menuvia.ro` + serverele de nume | 3 | 12 | Propagarea DNS durează; cere timp înainte de Resend |
+| **3** | GitHub: environment `production` + secrete | 2 | 12 | Independent; faci în timp ce se propagă DNS |
+| **4** | Supabase: trecerea pe **Pro** + organizația „menuvia-test” | 6 (prima parte) | 6 | Protecția parolelor compromise cere Pro |
+| **5** | Stripe (TEST) + Connect | 9 | 15 | Independent; cheile TEST merg pe canal separat |
+| **6** | OpenAI | 8 | 5 | Independent |
+| **7** | Resend + DMARC + redirecționare email | 4 | 12 | Cere DNS-ul propagat |
+| **8** | Supabase Auth: leaked-password, SMTP, șablon, URL-uri | 6 (a doua parte) | 8 | Cere cheia Resend din pasul 7 |
+| **9** | Netlify: variabile (doar `production`) | 5 | 4 | Cere cheile din pașii 3b, 7, 8 și 6 |
+| **10** | UptimeRobot | 10 | 3 | Cere domeniul |
+| **11** | MFA + 2FA | 7 | 10 | Poate fi oricând; îl bifezi la final |
+| **12** | „Da” la D1–D15 + șefii | 11 | 3 | Vezi `04-fisa-decizii-D1-D15.md` |
+
+Ordinea din ghid diferă de numerotarea din plan doar din cauza dependențelor (DNS → Resend → SMTP → Netlify).
 
 **Total:** ~105 min. Pașii 4, 5, 6 pot sta în așteptare (propagare DNS, verificare Resend); nu sta cu ochii pe ei.
 
@@ -200,7 +202,7 @@ Din cod (`netlify/functions/lib/appUrl.js`, `menuvia-pack/`): `hello@` (expedito
 | `SUPABASE_SERVICE_ROLE_KEY` | **DA** | Supabase → Project settings → **API Keys** → cheia **`service_role`** (⛔ nu `anon`/publishable). Dacă dashboard-ul îți arată doar noul tip „secret key”, spune-mi înainte să-l folosești. | toate funcțiile |
 | `HEALTH_DIAG_TOKEN` | **DA** | aceeași valoare ca secretul GitHub din pasul 3b | `health.js` (`x-health-diag`) |
 | `RESEND_API_KEY` | **DA** | cheia `menuvia-netlify` din pasul 7 (**doar după ce domeniul e „Verified”**) | `process-email-queue.js` |
-| `PLATFORM_OPENAI_KEY` | **DA** | cheia din pasul 6 | `ai-proxy`, `ai-generate-*` |
+| `PLATFORM_OPENAI_KEY` | **DA** | cheia din pasul 6 | `ai-proxy`, `ai-generate-image` |
 
 ### 🤖 Variabilele pe care le pun eu (ne-secrete sau generate)
 
