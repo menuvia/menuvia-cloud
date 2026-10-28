@@ -16,7 +16,7 @@ export interface AgencyBranding {
 function isMenuviaHost(hostname: string): boolean {
   const h = hostname.toLowerCase()
   if (h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0') return true
-  // menuvia.ro / menuvia.com + subdomenii — lista unică din lib/domain.ts.
+  // domeniile platformei (.ro, .com detectat) + subdomenii — lista unică din lib/domain.ts.
   if (isMenuviaRootHost(h)) return true
   if (h.endsWith('.netlify.app')) return true
   // Hostname-ul din VITE_APP_URL (prod/staging/preview) e mereu „al nostru".

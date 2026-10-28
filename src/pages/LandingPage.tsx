@@ -201,7 +201,7 @@ export default function LandingPage({
       icon: 'percent',
       text: 'Cote TVA românești — le schimbi într-un minut, nu re-tipărești meniul',
     },
-    { icon: 'phone', text: 'Suport pe WhatsApp, direct cu fondatorul' },
+    { icon: 'phone', text: 'Suport în română, prin agentul tău Menuvia și pe email' },
   ]
 
   const STEPS = [
@@ -371,7 +371,7 @@ export default function LandingPage({
             </button>
           </div>
           <div style={{ color: MKT.text3, fontSize: 13, marginTop: 18 }}>
-            Setup în 10 minute · Anulezi oricând · Suport pe WhatsApp
+            Setup în 10 minute · Anulezi oricând · Suport pe email
           </div>
         </div>
 
@@ -912,13 +912,12 @@ export default function LandingPage({
               </h2>
               <p style={{ color: AFF_DARK.text2, fontSize: 15, lineHeight: 1.65, margin: '0 0 22px', maxWidth: 460 }}>
                 Programul de parteneriat plătește comision din fiecare local adus — o dată la
-                activare, apoi lunar. Fără costuri, fără target.
+                activare, apoi din următoarele facturi lunare. Fără costuri, fără target.
               </p>
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
                   `${affPct(affiliate.setup_bps)} din prima factură a fiecărui restaurant adus`,
-                  `${affPct(affiliate.recurring_bps)} din abonament, în fiecare lună`,
-                  `Comision lunar plătit ${affiliate.recurring_cap_months.toLocaleString('ro-RO')} luni per restaurant`,
+                  `${affPct(affiliate.recurring_bps)} din fiecare dintre următoarele ${affiliate.recurring_cap_months.toLocaleString('ro-RO')} facturi lunare`,
                 ].map((line) => (
                   <li key={line} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <Icon name="check" size={18} color={MKT.accent} />

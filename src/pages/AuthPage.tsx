@@ -112,12 +112,12 @@ function detectLang(): UiLang {
   try {
     const stored = window.localStorage.getItem(UI_LANG_KEY)
     if (stored === 'en') return 'en'
-    // Alegere explicită RO: contează doar pe menuvia.com (pe .ro e oricum default).
+    // Alegere explicită RO: contează doar pe un host .com (pe .ro e oricum default).
     if (stored === 'ro') return 'ro'
   } catch {
     /* ignore — localStorage indisponibil (mod privat etc.) */
   }
-  // Default pe SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe menuvia.com.
+  // Default pe SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe un host .com.
   return defaultUiLang(browserSite())
 }
 
@@ -412,8 +412,8 @@ export default function AuthPage({
           // `?plan=` în link: confirmarea se deschide în ALT tab (sau pe alt
           // dispozitiv), iar intenția trebuie să ajungă și acolo — altfel
           // contul nou ateriza pe /dashboard în loc de checkout.
-          // Pe menuvia.com: originea curentă (VITE_APP_URL e fixat pe .ro în
-          // netlify.toml); pe .ro neschimbat (authRedirectBase, lib/domain.ts).
+          // Pe .ro neschimbat; pe un host .com tot .ro — niciun redirect spre
+          // domeniul .com (authRedirectBase, lib/domain.ts).
           emailRedirectTo: authRedirectUrl(
             authRedirectBase(
               window.location.hostname,

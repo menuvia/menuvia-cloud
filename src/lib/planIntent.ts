@@ -206,13 +206,31 @@ export function planFromSearch(search: string): PlanIntentId | null {
 }
 
 /**
- * Modul inițial al formularului de pe /auth. `/auth?plan=…` vine din „Începe"
- * pe un plan — adică de la cineva care NU are încă cont; a-l pune pe
- * „Autentificare" îl obliga să găsească singur comutatorul. Intenția păstrată
- * în storage NU contează aici: un om care revine să se logheze are deja cont.
+ * Modul inițial al formularului de pe /auth. Două semnale duc pe „Cont nou”:
+ *  - `/auth?plan=…` vine din „Începe" pe un plan;
+ *  - `/auth?mode=signup` vine din „Începe gratuit” de pe paginile de marketing
+ *    care nu aleg un plan (comparație, verticale, case de marcat, rezervări,
+ *    demo) — înainte duceau pe `/auth?lang=ro`, adică pe „Autentificare”, și
+ *    cel care voia să-și facă cont trebuia să găsească singur comutatorul.
+ * Intenția păstrată în storage NU contează aici: un om care revine să se logheze
+ * are deja cont. Orice altă valoare a lui `mode` rămâne pe „Autentificare”.
  */
 export function initialAuthMode(search: string): 'login' | 'signup' {
-  return planFromSearch(search) ? 'signup' : 'login'
+  if (planFromSearch(search)) return 'signup'
+  try {
+    return new URLSearchParams(search).get('mode') === 'signup' ? 'signup' : 'login'
+  } catch {
+    return 'login'
+  }
+}
+
+/**
+ * Calea spre formularul de ÎNSCRIERE (nu de login), pentru CTA-urile „Începe”
+ * care nu aleg un plan. Singura sursă: un CTA nou folosește funcția asta, nu
+ * un literal `/auth?lang=ro`.
+ */
+export function signupPath(lang: 'ro' | 'en' = 'ro'): string {
+  return '/auth?lang=' + lang + '&mode=signup'
 }
 
 /**

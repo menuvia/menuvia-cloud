@@ -13,7 +13,8 @@
 //        neschimbat; Resend are verificat doar domeniul .ro)
 //   AU8  integrare: stripe-checkout pune success_url/cancel_url pe
 //        VITE_APP_URL (cheia de dinainte; APP_URL ignorat)
-//   AU9  siteAppUrl: DOAR eticheta 'com' (allowlist) → https://menuvia.com;
+//   AU9  siteAppUrl: allowlist-ul de origini e GOL — nicio etichetă (nici 'com')
+//        nu duce spre menuvia.com (D3); toate cad pe appUrl(opts);
 //        orice altceva → appUrl(opts), adică comportamentul vechi
 //   Fallback-ul per funcție (cel ISTORIC, menuvia.netlify.app) e ținut de
 //   app-url-callsites.test.js (CS1–CS9).
@@ -46,10 +47,15 @@ describe('appUrl — sursa unică a domeniului', () => {
     assert.equal(appUrl({ env: {}, fallback: 'http://evil.example' }), 'https://menuvia.ro')
   })
 
-  it('AU9: siteAppUrl — allowlist strict pe etichetă', () => {
+  it('AU9: siteAppUrl — nicio etichetă nu duce spre menuvia.com', () => {
     const opts = { env: { VITE_APP_URL: 'https://vite.example' }, keys: ['VITE_APP_URL'] }
-    assert.equal(lib.siteAppUrl('com', opts), 'https://menuvia.com')
-    assert.equal(lib.COM_APP_URL, 'https://menuvia.com')
+    // Fostul caz special: 'com' dădea https://menuvia.com. Acum cade pe appUrl.
+    assert.equal(lib.siteAppUrl('com', opts), 'https://vite.example')
+    assert.equal('COM_APP_URL' in lib, false)
+    assert.equal(
+      lib.siteAppUrl('com', { env: {}, keys: ['VITE_APP_URL'], fallback: lib.LEGACY_NETLIFY_URL }),
+      'https://menuvia.netlify.app',
+    )
     for (const s of [undefined, null, 'ro', 'RO', 'COM', ' com', 'https://evil.example',
       '__proto__', 'toString', 'hasOwnProperty', ['com'], { com: true }, 1]) {
       assert.equal(lib.siteAppUrl(s, opts), 'https://vite.example', `site=${String(s)}`)
@@ -66,7 +72,7 @@ describe('appUrl — sursa unică a domeniului', () => {
       'https://a.example',
     )
     assert.equal(appUrl({ env: { VITE_APP_URL: 'https://b.example/x/y?z=1' } }), 'https://b.example')
-    assert.equal(appUrl({ env: { APP_URL: '  https://menuvia.com  ' } }), 'https://menuvia.com')
+    assert.equal(appUrl({ env: { APP_URL: '  https://app.example  ' } }), 'https://app.example')
   })
 
   it('AU3: valorile stricate nu ajung niciodată în link', () => {

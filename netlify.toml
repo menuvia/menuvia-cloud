@@ -28,6 +28,13 @@
   to     = "/.netlify/functions/sitemap"
   status = 200
 
+# /preturi → /pricing (redirect HTTP real; plasa din client: lib/routeAliases.ts).
+# ÎNAINTEA catch-all-ului /*.
+[[redirects]]
+  from   = "/preturi"
+  to     = "/pricing"
+  status = 301
+
 [[redirects]]
   from   = "/*"
   to     = "/index.html"

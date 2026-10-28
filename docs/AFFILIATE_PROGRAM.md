@@ -72,6 +72,12 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 > afișează cifre NETE calculate pe server. Rămân deschise: exemplul din `LandingPage.tsx`
 > și recrutarea subafiliaților (§4, D8). Textele descriu modelul aprobat (D2/D3) — devin
 > adevărate în cod odată cu migrația de comision (mig 293).
+>
+> **Text „10% în fiecare lună” (pachetul 5, oct 2026):** închis în aplicație —
+> `LandingPage.tsx` și `AfiliatIntroPage.tsx` spun acum „X% din fiecare dintre următoarele
+> N facturi lunare” (N = `recurring_cap_months`, azi 12), nu „în fiecare lună”. Comisionul
+> recurent are plafon: setup pe prima factură + 12 recurente = 13 facturi comisionate (tabelul
+> de la §1.1). Clichet: `src/lib/__tests__/publicTruth.test.ts` (PT2).
 
 - Calculatorul public (`src/pages/AfiliatIntroPage.tsx:122-131, :399-401`) și exemplul de pe `src/pages/LandingPage.tsx:153-158, :945` calculează comisionul pe **growth 249 lei** — un plan care azi plătește 0 (m099:107).
 - `/afiliat` încă primește cereri (`AfiliatIntroPage.tsx:219-221`, `AfiliatPage.tsx:241-253`), deși E9 recomandă închiderea lor (`docs/ECOSISTEM.md:147`).

@@ -129,12 +129,12 @@ export const PLANS: Plan[] = [
       'Hartă sală + panou live „Stadiu mese"',
       'Rezervări cu alegerea mesei pe hartă',
       'Program echipă (alocare mese, ture)',
-      'Suport prioritar (răspuns în 4 ore)',
+      'Suport prioritar, prin agentul tău Menuvia și pe email',
       '2 locații în același abonament',
     ],
     notIncluded: [],
     limits: { maxProducts: 2000, maxTables: 500, maxTeamMembers: 1000, maxRestaurants: 2 },
-    ctaLabel: 'Discută cu noi (pilot)',
+    ctaLabel: 'Cere ofertă',
     highlight: false,
   },
 ]
@@ -275,7 +275,7 @@ export const TRUST_SIGNALS = [
     desc: 'Prima plată abia după perioada de probă. Anulezi oricând, fără penalizări.',
   },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
-  { icon: '🛟', label: 'Suport WhatsApp', desc: 'Direct cu echipa Menuvia.' },
+  { icon: '🛟', label: 'Suport pe email', desc: 'Prin agentul tău Menuvia și pe email.' },
   {
     icon: '🏪',
     label: 'Abonament per cont',

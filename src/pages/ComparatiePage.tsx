@@ -15,6 +15,7 @@
 // sticky (pattern din PricingPage).
 // =============================================================
 import { MKT } from '../lib/marketing'
+import { signupPath } from '../lib/planIntent'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -52,7 +53,7 @@ const ROWS: { feature: string; values: [string | boolean, string | boolean, stri
   { feature: 'Preț public, pornești singur (self-serve)', values: [true, 'Variabil', false] },
   { feature: 'Rezervări + hartă sală + pre-comandă', values: [true, false, 'Uneori'] },
   { feature: 'AI: meniu din poze, recomandări, nutriție', values: [true, false, 'Rar'] },
-  { feature: 'Suport în română, direct de la fondator', values: [true, 'Variabil', 'Variabil'] },
+  { feature: 'Suport în română, prin agentul tău Menuvia și pe email', values: [true, 'Variabil', 'Variabil'] },
   { feature: 'Program de parteneriat (recomanzi, câștigi)', values: [true, '—', '—'] },
 ]
 
@@ -68,7 +69,7 @@ export default function ComparatiePage({ navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate(signupPath()) }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -124,7 +125,7 @@ export default function ComparatiePage({ navigate }: Props) {
             }}
           >
             <button
-              onClick={() => navigate('/auth?lang=ro')}
+              onClick={() => navigate(signupPath())}
               style={{
                 background: MKT.accent,
                 color: MKT.onAccent,
@@ -370,7 +371,7 @@ export default function ComparatiePage({ navigate }: Props) {
             30 de zile gratuit, anulezi oricând.
           </p>
           <button
-            onClick={() => navigate('/auth?lang=ro')}
+            onClick={() => navigate(signupPath())}
             style={{
               background: MKT.accent,
               color: MKT.onAccent,

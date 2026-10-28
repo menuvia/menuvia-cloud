@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────
 // Ce se VINDE pe fiecare site (decizie de fondator, oct 2026):
 //   menuvia.ro  → toate cele 3 planuri, RON, checkout deschis (NESCHIMBAT).
-//   menuvia.com → DOAR Planurile 1–2. Plan 3 (Fiscalizare) e românesc prin
+//   hostul .com → DOAR Planurile 1–2. Plan 3 (Fiscalizare) e românesc prin
 //                 construcție (casă de marcat RO, TVA RO) și nu se oferă.
 //                 Nu există încă prețuri în EUR în Stripe (un singur price ID
 //                 per plan, în RON) → checkout-ul e ÎNCHIS pe .com, cu mesaj
@@ -54,7 +54,7 @@ export function siteCheckoutClosedFailure(): CheckoutFailure {
   return {
     code: 'site_checkout_unavailable',
     message:
-      'Online sign-up on menuvia.com is coming soon (EUR pricing is not live yet). Write to us and we will set up your restaurant.',
+      'Online sign-up is coming soon on this site (EUR pricing is not live yet). Write to us and we will set up your restaurant.',
     action: 'contact',
   }
 }

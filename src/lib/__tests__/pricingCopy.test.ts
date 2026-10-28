@@ -79,7 +79,7 @@ describe('copy-ul de pe pagina de prețuri', () => {
   it('PC3: trialul numește planurile care chiar îl primesc', () => {
     expect(TRIAL_HEADLINE).not.toMatch(/orice plan/i)
     expect(TRIAL_HEADLINE).toContain(String(TRIAL_DAYS))
-    // Fiscalizarea are CTA de WhatsApp (pilot), deci nu primește trial Stripe.
+    // Fiscalizarea are CTA „Cere ofertă" (pilot), deci nu primește trial Stripe.
     expect(TRIAL_PLAN_IDS).not.toContain('pro')
     expect(TRIAL_PLAN_IDS.length).toBeGreaterThan(0)
     for (const id of TRIAL_PLAN_IDS) {

@@ -239,7 +239,8 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 }}
               >
                 Recomanzi Menuvia localurilor pe care le știi și primești comision din fiecare
-                abonament — o dată la activare, apoi în fiecare lună.
+                abonament — o dată la activare, apoi din următoarele{' '}
+                {defaults.recurring_cap_months} facturi lunare.
               </p>
               <button onClick={onLogin} className="pressable hover-lift" style={goldCta}>
                 Înscrie-te în program →

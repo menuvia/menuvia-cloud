@@ -15,7 +15,8 @@ import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { planIntentDestination, writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
+import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
@@ -116,7 +117,14 @@ interface RouteState {
 }
 
 function parsePath(): RouteState {
-  const p = window.location.pathname
+  // Alias vechi (ex. /preturi → /pricing): corectăm URL-ul din bară fără intrare
+  // nouă în istoric (replaceState), apoi rutăm pe calea canonică. Idempotent —
+  // parsePath poate rula de mai multe ori (inițializator de state, StrictMode).
+  const alias = legacyPathRedirect(window.location.pathname)
+  if (alias) {
+    window.history.replaceState({}, '', alias + window.location.search + window.location.hash)
+  }
+  const p = alias ?? window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
   // /rezervare/:slug — pagina publică de rezervare (linkul din Google Business
@@ -150,7 +158,7 @@ function parsePath(): RouteState {
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
-  // menuvia.com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
+  // hostul .com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
   // (menuvia.ro, preview-uri, localhost) rămâne pe landing-ul RO de azi.
   if (p === '/')
     return { view: currentSite(window.location.hostname) === 'com' ? 'landing-en' : 'landing' }
@@ -504,7 +512,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate(signupPath())} />
       </Suspense>
     )
   if (state.view === 'recrutare')
@@ -587,7 +595,7 @@ function AppRouter() {
           onBack={() => navigate('/')}
           onLogin={() => navigate('/auth?lang=' + defaultUiLang(browserSite()))}
           onCheckout={async (plan) => {
-            // menuvia.com: prețurile Stripe sunt doar în RON și Plan 3 nu se
+            // hostul .com: prețurile Stripe sunt doar în RON și Plan 3 nu se
             // vinde acolo — checkout-ul e închis cu mesaj explicit (lib/siteMarket).
             // Pe menuvia.ro condiția e mereu adevărată → flux neschimbat.
             if (!checkoutOpenOnSite(browserSite())) {

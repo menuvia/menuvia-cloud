@@ -10,6 +10,7 @@ import { MKT, whatsappUrl } from '../lib/marketing'
 import { clearPlanIntent, readPlanIntent, writePlanIntent } from '../lib/planIntent'
 import { readCheckoutReturnParam } from '../lib/checkoutReturn'
 import { CheckoutError, type CheckoutAction } from '../lib/checkout'
+import { isQuoteOnlyPlan, quoteMailto } from '../lib/planCta'
 import {
   BILLING_SCOPE_FAQ,
   EXTRA_FEATURES,
@@ -25,7 +26,7 @@ import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 import { Icon } from '../components/ui/Icon'
-import { browserSite, siteHost } from '../lib/domain'
+import { CONTACT_EMAIL, browserSite } from '../lib/domain'
 import {
   SITE_PLAN_IDS,
   checkoutOpenOnSite,
@@ -49,7 +50,7 @@ function ComparisonValue({ value }: { value: string | boolean }) {
 }
 
 // Butonul de acțiune din banner-ul de eroare la checkout (login / facturare /
-// WhatsApp) — același tratament vizual, indiferent de acțiune.
+// WhatsApp / ofertă) — același tratament vizual, indiferent de acțiune.
 const errorActionBtn: React.CSSProperties = {
   background: MKT.accent,
   color: MKT.onAccent,
@@ -73,7 +74,7 @@ const errorActionBtn: React.CSSProperties = {
 // card-urilor, ca userul să nu vadă pricing-ul o fracțiune de secundă
 // înainte de redirect-ul Stripe. Intent-ul e citit SINCRON la inițializarea
 // state-ului (înaintea primului paint), nu într-un effect — de-asta nu
-// există flash. 'pro' (Fiscalizare) e pilot → niciodată auto-checkout.
+// există flash. 'pro' (Fiscalizare) se cere prin ofertă → niciodată auto-checkout.
 function usePlanIntentAutoCheckout(
   user: { id: string; email?: string | null } | null,
   onCheckout: (plan: string) => void | Promise<void>,
@@ -92,7 +93,7 @@ function usePlanIntentAutoCheckout(
   React.useEffect(() => {
     if (!user) return
     // Logat pe /pricing = intenția e CONSUMATĂ, oricum ar fi: pornim checkout-ul
-    // (starter/growth) sau nu e nimic de pornit (Fiscalizare = pilot, anulare).
+    // (starter/growth) sau nu e nimic de pornit (Fiscalizare = ofertă, anulare).
     // Altfel, cu TTL de 24 h, fiecare login ar re-trimite omul pe /pricing.
     // Doar a NOASTRĂ: intenția legată de alt cont rămâne pentru acel cont.
     clearPlanIntent(user.email ?? null)
@@ -129,8 +130,19 @@ export default function PricingPage({
   onCheckout: (plan: string) => void
 }) {
   const { user } = useAuth()
+  // UNICA poartă spre checkout: Planul 3 (Fiscalizare) NU se vinde self-serve
+  // (regula de aur, D4) — orice plan „cu ofertă" e oprit AICI, oricare ar fi
+  // drumul care îl cere (buton, intenție păstrată, link). Serverul are propriul
+  // refuz (`plan_requires_quote`); asta e plasa de pe client, nu singura.
+  const checkout = React.useCallback(
+    (plan: string): void => {
+      if (isQuoteOnlyPlan(plan)) return
+      return onCheckout(plan)
+    },
+    [onCheckout],
+  )
   // Site-ul (lib/domain.ts): pe menuvia.ro TOT ce urmează e identic cu înainte
-  // (toate planurile, prețuri RON, checkout deschis). Pe menuvia.com: doar
+  // (toate planurile, prețuri RON, checkout deschis). Pe hostul .com: doar
   // Planurile 1–2, fără prețuri (nu există încă prețuri EUR în Stripe) și
   // checkout închis cu mesaj explicit — vezi lib/siteMarket.ts.
   const site = browserSite()
@@ -158,7 +170,7 @@ export default function PricingPage({
     // clientului e aceeași greșeală ca tăcerea, doar mai zgomotoasă.
     console.error('[checkout] eșec neclasificat:', err)
     setCheckoutError({
-      message: 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe WhatsApp.',
+      message: 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.',
       action: 'retry',
     })
   }, [])
@@ -188,7 +200,7 @@ export default function PricingPage({
     [showCheckoutError],
   )
 
-  const checkingOutPlan = usePlanIntentAutoCheckout(user, onCheckout, showCheckoutError)
+  const checkingOutPlan = usePlanIntentAutoCheckout(user, checkout, showCheckoutError)
   const [openFaq, setOpenFaq] = React.useState<number | null>(null)
   // Titlu specific rutei (SEO/share) — altfel /pricing moștenea titlul RO de
   // homepage din index.html. Restaurat la demontare (SPA).
@@ -214,6 +226,8 @@ export default function PricingPage({
     desc: string
     features: { t: string; ok: boolean }[]
     cta: string
+    /** mailto „Cere ofertă" pentru planurile care nu se cumpără singur; altfel null. */
+    quoteHref: string | null
     ctaFn: () => void | Promise<void>
     highlight: boolean
   }> = visiblePlans.map((p) => ({
@@ -229,16 +243,11 @@ export default function PricingPage({
       ...p.notIncluded.map((t) => ({ t, ok: false })),
     ],
     cta: checkoutOpen ? p.ctaLabel : 'Coming soon',
+    // Planul cu ofertă (Fiscalizare) se randează ca link „Cere ofertă" (mailto);
+    // NU are cale spre checkout — nici măcar de rezervă.
+    quoteHref: isQuoteOnlyPlan(p.id) ? quoteMailto(p.name) : null,
     ctaFn: () => {
-      if (p.id === 'pro') {
-        // Fiscalizarea e pilot — WhatsApp dacă e configurat, altfel checkout.
-        const url = whatsappUrl('Salut, mă interesează planul Fiscalizare (pilot)')
-        if (url) {
-          window.open(url, '_blank', 'noopener')
-          return
-        }
-        return onCheckout('pro')
-      }
+      if (isQuoteOnlyPlan(p.id)) return
       // Doar pentru anonimi: un user logat merge direct la Stripe, iar o
       // intenție rămasă în urmă l-ar re-trimite în checkout la următorul login.
       if (!user) writePlanIntent(p.id)
@@ -246,7 +255,7 @@ export default function PricingPage({
       // intercepta deja onCheckout pentru anon. Logat: direct la Stripe.
       // ÎNTOARCEM promisiunea: altfel butonul nu poate aștepta și nici nu
       // poate afla că a picat.
-      return onCheckout(p.id)
+      return checkout(p.id)
     },
     highlight: p.highlight,
   }))
@@ -303,7 +312,7 @@ export default function PricingPage({
     TRIAL_FAQ,
     {
       q: 'Care plan e potrivit pentru mine?',
-      a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — disponibil în pilot.',
+      a: 'Meniu Digital dacă vrei doar un meniu citibil pe telefon. Meniu + Comenzi dacă vrei ca clienții să comande singuri prin QR (plata rămâne pe casa ta) — cel mai popular. Fiscalizare dacă vrei plăți și bon fiscal direct din aplicație — se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat.',
     },
     // Întrebările contractuale vin din `lib/pricingCopy` (aliniate cu Termenii,
     // păzite de PC7–PC9).
@@ -318,7 +327,7 @@ export default function PricingPage({
     PRICE_GUARANTEE_FAQ,
     {
       q: 'Sunteți pe piață de mult?',
-      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport direct pe WhatsApp cu echipa Menuvia.',
+      a: 'Suntem o echipă mică din România, construim Menuvia full-time. Pentru primii patroni avem program pilot extins (60 zile gratis) și suport prin agentul tău Menuvia și pe email.',
     },
   ])
 
@@ -525,10 +534,27 @@ export default function PricingPage({
                 Portalul de facturare
               </a>
             )}
+            {checkoutError.action === 'quote' && (
+              <a
+                href={quoteMailto(getPlanByInternalId('pro').name)}
+                className="pressable"
+                style={errorActionBtn}
+              >
+                Cere ofertă
+              </a>
+            )}
             {checkoutError.action === 'contact' &&
               (() => {
                 const url = whatsappUrl('Salut, vreau să activez un plan Menuvia')
-                if (!url) return null
+                // WhatsApp e oprit cât timp VITE_WHATSAPP_NUMBER lipsește (D4):
+                // fără alternativă, banner-ul ar spune „scrie-ne" fără nicio cale.
+                if (!url) {
+                  return (
+                    <a href={`mailto:${CONTACT_EMAIL}`} className="pressable" style={errorActionBtn}>
+                      Scrie-ne pe email
+                    </a>
+                  )
+                }
                 return (
                   <button
                     onClick={() => window.open(url, '_blank', 'noopener')}
@@ -542,7 +568,7 @@ export default function PricingPage({
           </div>
         )}
 
-        {/* menuvia.com: checkout-ul nu e încă deschis — spus SUS, nu doar la click. */}
+        {/* hostul .com: checkout-ul nu e încă deschis — spus SUS, nu doar la click. */}
         {!checkoutOpen && (
           <div
             role="note"
@@ -559,7 +585,7 @@ export default function PricingPage({
               textAlign: 'center',
             }}
           >
-            Online sign-up with EUR pricing is coming soon on {siteHost(site)}. Contact us and we
+            Online sign-up with EUR pricing is coming soon on this site. Contact us and we
             will set up your restaurant.
           </div>
         )}
@@ -581,6 +607,28 @@ export default function PricingPage({
             // umbră mai prezente decât un card secundar oarecare, ca să nu
             // pară dezactivat lângă „Recomandat".
             const isTierOne = idx === 0 && !isHighlight
+            const ctaStyle: React.CSSProperties = {
+              width: '100%',
+              borderRadius: 12,
+              padding: '15px 0',
+              fontFamily: 'DM Sans,sans-serif',
+              fontWeight: 700,
+              fontSize: '0.95rem',
+              border: isHighlight
+                ? 'none'
+                : isTierOne
+                  ? `1.5px solid ${MKT.accent}`
+                  : `1.5px solid ${MKT.border}`,
+              background: isHighlight ? MKT.accent : isTierOne ? MKT.accentSoft : MKT.surface,
+              // Text închis pe auriu (onAccent ~8:1), nu alb (2.66:1 = sub AA).
+              // Identic cu butonul auriu de pe Landing (ctaBtn) — consistență de brand.
+              // Tier 1: accentInk (nu accent) — #C8963C pe accentSoft e sub AA.
+              color: isHighlight ? MKT.onAccent : isTierOne ? MKT.accentInk : MKT.text,
+              boxShadow: isHighlight
+                ? 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))'
+                : 'none',
+              transition: 'all 0.15s',
+            }
             return (
               <div
                 key={p.id}
@@ -749,40 +797,39 @@ export default function PricingPage({
                   ))}
                 </div>
 
-                <button
-                  className="pressable"
-                  // Toate CTA-urile se dezactivează cât timp UN checkout e în
-                  // curs — altfel un al doilea click pe alt plan pornește două
-                  // sesiuni Stripe concurente (două redirecturi în cursă).
-                  disabled={loadingPlan !== null}
-                  onClick={() => void runCheckout(p.id, p.ctaFn)}
-                  style={{
-                    width: '100%',
-                    borderRadius: 12,
-                    padding: '15px 0',
-                    fontFamily: 'DM Sans,sans-serif',
-                    fontWeight: 700,
-                    fontSize: '0.95rem',
-                    cursor: loadingPlan !== null ? 'default' : 'pointer',
-                    border: isHighlight
-                      ? 'none'
-                      : isTierOne
-                        ? `1.5px solid ${MKT.accent}`
-                        : `1.5px solid ${MKT.border}`,
-                    background: isHighlight ? MKT.accent : isTierOne ? MKT.accentSoft : MKT.surface,
-                    // Text închis pe auriu (onAccent ~8:1), nu alb (2.66:1 = sub AA).
-                    // Identic cu butonul auriu de pe Landing (ctaBtn) — consistență de brand.
-                    // Tier 1: accentInk (nu accent) — #C8963C pe accentSoft e sub AA.
-                    color: isHighlight ? MKT.onAccent : isTierOne ? MKT.accentInk : MKT.text,
-                    opacity: loadingPlan === p.id ? 0.6 : 1,
-                    boxShadow: isHighlight
-                      ? 'var(--shadow-gold-soft, 0 4px 14px rgba(200,150,60,0.3))'
-                      : 'none',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {loadingPlan === p.id ? 'Se procesează...' : p.cta}
-                </button>
+                {p.quoteHref && checkoutOpen ? (
+                  // „Cere ofertă": link mailto, NU buton de checkout. Fiscalizarea
+                  // nu se cumpără singur (regula de aur) — nu are cale spre Stripe.
+                  <a
+                    className="pressable"
+                    href={p.quoteHref}
+                    style={{
+                      ...ctaStyle,
+                      display: 'block',
+                      textAlign: 'center',
+                      textDecoration: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {p.cta}
+                  </a>
+                ) : (
+                  <button
+                    className="pressable"
+                    // Toate CTA-urile se dezactivează cât timp UN checkout e în
+                    // curs — altfel un al doilea click pe alt plan pornește două
+                    // sesiuni Stripe concurente (două redirecturi în cursă).
+                    disabled={loadingPlan !== null}
+                    onClick={() => void runCheckout(p.id, p.ctaFn)}
+                    style={{
+                      ...ctaStyle,
+                      cursor: loadingPlan !== null ? 'default' : 'pointer',
+                      opacity: loadingPlan === p.id ? 0.6 : 1,
+                    }}
+                  >
+                    {loadingPlan === p.id ? 'Se procesează...' : p.cta}
+                  </button>
+                )}
               </div>
             )
           })}
@@ -1370,7 +1417,7 @@ export default function PricingPage({
             disabled={loadingPlan !== null}
             onClick={() => {
               if (!user) writePlanIntent('growth')
-              void runCheckout('growth', () => onCheckout('growth'))
+              void runCheckout('growth', () => checkout('growth'))
             }}
             className="pressable"
             style={{

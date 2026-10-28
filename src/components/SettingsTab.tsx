@@ -486,7 +486,7 @@ export default function SettingsTab({
               ))}
             </SettingsCard>
 
-            {/* Țara (mig 296) — DOAR pe menuvia.com sau pentru un local deja în
+            {/* Țara (mig 296) — DOAR pe un host .com sau pentru un local deja în
                 afara RO (countrySettingVisible): pe .ro, pentru un local RO, UI-ul
                 rămâne neschimbat. Editabilă doar de OWNER — trigger-ul
                 trg_restaurants_country_owner_only respinge oricum un manager. */}
@@ -900,7 +900,7 @@ export default function SettingsTab({
             <SettingsCard
               icon="star"
               title="Google Reviews (recenzii automate)"
-              desc={`După ce clientul finalizează plata și dă feedback pozitiv (rating ≥ 4), îi vom afișa un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business. Cel mai rapid mod să crești numărul de recenzii.`}
+              desc={`După ce clientul finalizează plata și răspunde la întrebările de feedback, îi afișăm un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.`}
             >
               <label style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}>
                 Google Place ID
@@ -1009,7 +1009,7 @@ export default function SettingsTab({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {siteHost(browserSite())}/m/
+                  {siteHost()}/m/
                 </span>
                 <Inp
                   value={form.slug || ''}
@@ -1707,7 +1707,7 @@ export default function SettingsTab({
                 <>
                   Activează pagina ta publică{' '}
                   <span style={{ color: D.gold }}>
-                    {siteHost(browserSite())}/m/{form.slug || 'slug'}
+                    {siteHost()}/m/{form.slug || 'slug'}
                   </span>. Clienții
                   pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
                   ridicare.
