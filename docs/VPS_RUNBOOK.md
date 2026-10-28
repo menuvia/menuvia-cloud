@@ -28,6 +28,9 @@ install -m 600 /dev/null /etc/menuvia/env
 cat > /etc/menuvia/env <<'EOF'
 SUPABASE_URL=https://swjcptdylfmpvopdepqf.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=...
+# Cheia PUBLICĂ (anon): ai-proxy o folosește pentru a verifica accesul agentului de
+# vânzări pe un client cu JWT-ul utilizatorului. Gol → agentul e refuzat (fail-closed).
+SUPABASE_ANON_KEY=...
 # Stripe abonamente — stripe-webhook.js face FAIL-FAST 500 fără TOATE cele 6
 # (audit aug 2026: lista veche omitea STRIPE_WEBHOOK_SECRET + price ID-urile →
 # primul cutover ar fi rupt toate webhook-urile Stripe):

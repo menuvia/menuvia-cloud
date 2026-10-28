@@ -1,7 +1,10 @@
 // netlify/functions/ai-proxy.js
 // Proxy AI multi-provider pentru chatbot + import meniu, cu cheia BYO a
 // restaurantului. Fluxul:
-//   1. Verifică JWT-ul Supabase + caller = owner/manager al restaurantului.
+//   1. Verifică JWT-ul Supabase + caller = owner/manager al restaurantului
+//      — SAU agentul de vânzări al restaurantului (mig 286/303), cu acces
+//      acordat de owner, DOAR pentru `menu_import` și `translate` (vezi
+//      AGENT_FEATURES). Cota consumată e mereu a RESTAURANTULUI.
 //   2. Încarcă config-ul (ai_provider_configs) prin service_role și DECRIPTEAZĂ
 //      cheia AES (secret `AI_CONFIG_SECRET`) — cheia rămâne strict pe server.
 //   3. Verifică cota hibridă (ai_can_use): tokens incluși rămași + credite.
@@ -34,6 +37,44 @@ function jsonResponse(statusCode, body) {
 // consuma întreaga invocare (și pe VPS, fără kill de platformă, ar atârna
 // nelimitat). 25s = generos pentru extracția de meniu din poze, dar finit.
 const PROVIDER_TIMEOUT_MS = 25_000
+
+// Agentul de vânzări (nu owner/manager) are acces la meniul restaurantului prin
+// politicile dedicate din mig 286 — deci poate folosi AI-ul DOAR pentru munca de
+// meniu: importul din poze și traducerea. Orice altă funcție (chat, nutriție) ar
+// trece prin cota și cheia patronului pentru lucruri care nu țin de configurarea
+// meniului → 403. Regula de aur rămâne intactă: nimic aici nu atinge bani/bon.
+const AGENT_FEATURES = ['menu_import', 'translate']
+
+// Apartenența agentului se verifică cu `has_partner_access` pe un client care
+// poartă JWT-ul UTILIZATORULUI (funcția citește auth.uid()): clientul de serviciu
+// nu o poate apela — e revocată pentru service_role (mig 286) — și nici nu ar
+// răspunde pentru agent. Cheia anon (publică) e doar „apikey”-ul PostgREST;
+// autorizarea o face JWT-ul din antet. FAIL-CLOSED: fără cheie anon, o eroare de
+// rețea sau un răspuns ne-boolean → false (403), niciodată „lasă să treacă”.
+async function userHasPartnerAccess(token, restaurantId) {
+  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+  if (!anonKey) {
+    console.error('[ai-proxy] SUPABASE_ANON_KEY lipsește — accesul agentului e refuzat (fail-closed)')
+    return false
+  }
+  try {
+    const userClient = createClient(process.env.SUPABASE_URL, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    })
+    const { data, error } = await userClient.rpc('has_partner_access', {
+      p_restaurant_id: restaurantId,
+    })
+    if (error) {
+      console.error('[ai-proxy] has_partner_access a eșuat:', error.message)
+      return false
+    }
+    return data === true
+  } catch (e) {
+    console.error('[ai-proxy] has_partner_access a aruncat:', e instanceof Error ? e.message : e)
+    return false
+  }
+}
 
 // ── Anti-SSRF: re-validează base_url 'custom' la request (oglindă ai-config) ──
 // Rândurile salvate înainte de validarea de la save ar putea conține host-uri
@@ -334,7 +375,15 @@ exports.handler = async (event) => {
     .single()
 
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return jsonResponse(403, { error: 'Forbidden' })
+    // Nu e owner/manager: singura cale rămasă e agentul cu acces acordat, și
+    // doar pentru funcțiile de meniu. Ordinea contează: feature-ul se verifică
+    // ÎNAINTEA oricărui apel de rețea (un `chat` al unui agent nu costă nimic).
+    if (!AGENT_FEATURES.includes(feature)) {
+      return jsonResponse(403, { error: 'Forbidden' })
+    }
+    if (!(await userHasPartnerAccess(token, restaurant_id))) {
+      return jsonResponse(403, { error: 'Forbidden' })
+    }
   }
 
   // ── Încarcă config-ul (sau starea implicită) ───────────────
