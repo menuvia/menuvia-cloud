@@ -45,7 +45,7 @@ Mă numesc [NUME PRENUME], sunt fondatorul Menuvia, un produs software (SaaS) pe
 CE ESTE PRODUSUL (în 5 rânduri)
 - Platformă web pentru restaurante, vândută pe abonament lunar (99 / 249 / 499 lei), doar B2B (clienții sunt restaurante, PFA sau societăți din România).
 - Date personale prelucrate: conturi de patron/personal (Menuvia = operator); date ale clienților finali ai restaurantelor (rezervări, comenzi, loyalty cu telefon pseudonimizat) — aici Menuvia este persoană împuternicită, iar restaurantul operator (DPA).
-- Plăți: abonamentele prin Stripe; plata online la masă prin Stripe Connect (doar pe un plan, cu modulul activ).
+- Plăți: abonamentele de 99 și 249 lei prin Stripe Checkout (planul de 499 lei e în pilot, fără checkout self-serve); plata online la masă prin Stripe Connect (doar pe un plan, cu modulul activ). Plata comisioanelor către agenți este azi manuală (Wise); plata automată prin Stripe Connect Express este PLANIFICATĂ.
 - Infrastructură: Supabase (baza de date), Netlify (găzduire), Resend (email), SMSO.ro (SMS), Oblio (facturi), Stripe (plăți), Sentry/PostHog (doar cu consimțământ), furnizori AI (OpenAI, Anthropic, Google Gemini) pentru funcții AI opționale ale restaurantului.
 - Vindem prin noi și printr-o rețea de agenți independenți (doar PFA/SRL cu CUI), cu două niveluri: „agent” și „șef de vânzări” (coordonator).
 
@@ -113,7 +113,7 @@ Mulțumesc!
 - Întrebarea **28** (TVA pe prețuri): textul final depinde de regimul de TVA decis de contabil.
 - Întrebarea **3** (CUI/TVA agent): la lansare primim doar agenți PFA/SRL neplătitori de TVA, dacă contabilul confirmă (D13).
 
-## Faptele din repo pe care se bazează întrebările (verificate pe `main`)
+## Faptele din repo pe care se bazează întrebările (verificate pe `main` la commit-ul `6f6afcf5d58660f61dac1d223e4a0d2c9fb1e9c1`; după acel commit faptele se pot schimba)
 
 | Fapt | Unde |
 |---|---|

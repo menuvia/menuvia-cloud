@@ -30,7 +30,7 @@
 
 3.1. **Cota: 20%** din **Comisionul fiecărui Agent al Șefului**, calculat pe fiecare rând de Comision (activare și recurent) al Agentului, la momentul scrierii lui.
 3.2. **Cine plătește:** Bonusul este plătit **de Menuvia, în plus** față de Comisionul Agentului; **NU se scade din Comisionul Agentului**. Agentul își primește integral Comisionul.
-3.3. **Condiții:** Bonusul se acordă doar dacă (a) Comisionul Agentului există (adică are la bază Facturi plătite reale), (b) Agentul este activ și Atribuirea valabilă, (c) Șeful este activ și are contractul acceptat și CUI validat.
+3.3. **Condiții:** Bonusul se acordă doar dacă (a) Comisionul Agentului există (adică are la bază Facturi plătite reale), (b) Agentul este activ și Atribuirea valabilă **la momentul scrierii rândului de Comision**; suspendarea ulterioară a Agentului nu anulează un Bonus deja scris (paritate cu art. 10.3 din Contractul de Agent), dar oprește Bonusurile viitoare, (c) Șeful este activ și are contractul acceptat și CUI validat.
 3.4. **Reținere și retragere:** Bonusul are **aceeași perioadă de reținere** ca Comisionul de la care provine (60 zile pentru activare, 14 zile pentru recurent) și se **retrage proporțional** când Comisionul respectiv se retrage (rambursare sau dispută pierdută, art. 5.6 din Contractul de Agent).
 3.5. **Rotunjire:** în jos la ban pe fiecare rând de Bonus.
 3.6. **Exemple (informativ; fără garanție de venit), pe un Client adus de un Agent al Șefului:**
@@ -61,7 +61,7 @@
 
 ## 5. Date personale; vizibilitate; GDPR
 
-5.1. **Ce vede Șeful:** numele și numărul de telefon al Agenților lui (cu consimțământul fiecărui Agent, art. 9.5 din Contractul de Agent), starea lor (invitat, activ, suspendat), numărul de Clienți atribuiți și Comisioanele/Bonusul **agregate**. **Șeful nu vede** datele Clienților finali ai restaurantelor, datele de plată ale Agenților, IBAN-ul sau contul lor Stripe.
+5.1. **Ce vede Șeful:** numele și numărul de telefon al Agenților lui (cu consimțământul fiecărui Agent, art. 9.5 din Contractul de Agent), numărul de Clienți atribuiți și Comisioanele/Bonusul **agregate**. **Șeful nu vede** datele Clienților finali ai restaurantelor, datele de plată ale Agenților, IBAN-ul sau contul lor Stripe.
 5.2. **Ce vede Agentul despre Șef:** numele și contactul Șefului (cu consimțământul Șefului, dat prin acest contract).
 5.3. **Consimțământ (Șef):** Șeful consimte ca **numele și telefonul lui** să fie afișate Agenților lui și, după caz, patronilor Clienților atribuiți lui direct sau echipei lui; poate retrage consimțământul din aplicație.
 5.4. **Acces la restaurante:** Șeful **nu** are, prin acest contract, acces la conturile Clienților Agenților lui. Accesul opt-in (art. 9.3–9.4 din Contractul de Agent) este al Agentului atribuit și se acordă doar de patron.

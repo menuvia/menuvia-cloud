@@ -9,7 +9,7 @@
 
 1. Alegi 1–2 firme de contabilitate (cere ofertă la ambele dacă poți; răspunsurile la întrebările de mai jos te ajută să le compari).
 2. Trimiți emailul de mai jos. **Atașezi:** nimic obligatoriu. Opțional, linkul către pagina de prețuri după ce îl ai.
-3. Întrebi explicit dacă firma colaborează cu un furnizor de **semnătură electronică calificată** (ONRC și SPV o cer). Dacă da, comanzi prin ei; dacă nu, comanzi tu de la un furnizor calificat (vezi `05-ghid-sedinta-1.md`, pasul 1).
+3. Întrebi explicit dacă firma colaborează cu un furnizor de **semnătură electronică calificată** (necesară pentru depunerea online la ONRC și pentru fluxul SPV ales; ONRC acceptă și semnarea olografă, iar accesul în SPV depinde de reprezentantul sau împuternicitul ales). Dacă da, comanzi prin ei; dacă nu, comanzi tu de la un furnizor calificat (vezi `05-ghid-sedinta-1.md`, pasul 1).
 4. Răspunsurile pe care ți le dă contabilul: le copiezi într-un singur mesaj către mine, **cu aceleași numere ca în email (1–28)**. Cu ele deblochez: baza comisionului, textul de TVA de pe pagina de prețuri, autofacturarea (cod), seria Oblio, pachetul 9 (Legal-final) și pachetul 13 (Plăți automate).
 
 ## Subiect
@@ -27,9 +27,9 @@ Mă numesc [NUME PRENUME] și vreau să înființez un SRL pentru un produs soft
 
 CONTEXT (pe scurt)
 - Activitate: licențiere/furnizare de software ca serviciu, doar B2B (clienții sunt restaurante/cafenele, persoane juridice sau PFA din România).
-- Prețuri lunare listate: 99 lei, 249 lei și 499 lei (trei planuri). Plata se face cu cardul, prin Stripe, recurent. Există și o perioadă de probă gratuită de 30 de zile.
+- Prețuri lunare listate: 99 lei, 249 lei și 499 lei (trei planuri). Abonamentele de 99 și 249 lei se plătesc cu cardul prin Stripe Checkout; planul de 499 lei (Fiscalizare) este în pilot, nu se cumpără încă singur. Perioada de probă gratuită de 30 de zile este planificată (încă neactivă).
 - Facturarea clienților: vrem ca facturile Menuvia către abonați să fie emise prin Oblio (cont pe firma Menuvia), cu transmitere automată în SPV (e-Factura).
-- Rețeaua de vânzări: agenți independenți (doar PFA sau SRL, cu CUI) primesc comision din încasările reale ale clienților aduși (30% o singură dată + 10% pe 12 facturi lunare). Un „șef de vânzări” primește un bonus de 20% din comisionul agenților lui, plătit de Menuvia, nu scăzut din comisionul agentului. Plata comisioanelor se face lunar, automat, prin Stripe Connect (conturi Express).
+- Rețeaua de vânzări: agenți independenți (doar PFA sau SRL, cu CUI) primesc comision din încasările reale ale clienților aduși (30% o singură dată + 10% pe 12 facturi lunare). Un „șef de vânzări” primește un bonus de 20% din comisionul agenților lui, plătit de Menuvia, nu scăzut din comisionul agentului. Plata comisioanelor este azi manuală (Wise) și nu rulează în producție; automatizarea lunară prin Stripe Connect (conturi Express) este PLANIFICATĂ, iar răspunsurile dumneavoastră decid forma ei.
 - Volum la început: foarte mic (zero clienți plătitori acum; câteva zeci în primul an, estimare).
 
 A. ÎNFIINȚARE ȘI SEDIU

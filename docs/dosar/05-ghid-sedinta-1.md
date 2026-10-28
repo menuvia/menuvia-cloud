@@ -124,7 +124,7 @@ Ordinea din ghid diferă de numerotarea din plan doar din cauza dependențelor (
 
 ## Pasul 6 — OpenAI (5 min) — 👤
 
-1. 👤 Cont OpenAI (platform) → **Billing** → încarcă un **credit preplătit** mic și setează un **plafon lunar de 50 $** (**Usage limits**/„Budget”), ca în D5.
+1. 👤 Cont OpenAI (platform) → **Billing** → încarcă un **credit preplătit** mic și **oprește „auto-reload”** (sau setează-l cu o limită lunară de reîncărcare), astfel încât soldul preplătit să fie plafonul real de cheltuială: pe facturarea preplătită, cererile se opresc când soldul se epuizează. Plafonul de 50 $/lună din D5 se respectă încărcând manual cel mult 50 $ pe lună; „limita de reîncărcare” NU este o limită de utilizare.
 2. 👤 **API keys** → **Create new secret key** (numește-o `menuvia-prod`) → copiază cheia o singură dată.
 3. 👤 Cheia merge în Netlify, contextul `production`, ca **`PLATFORM_OPENAI_KEY`** (pasul 9). `/health` arată `config.ai_platform:true` când e setată (alternativ `PLATFORM_ANTHROPIC_KEY`; nu e nevoie de ambele).
 
@@ -213,7 +213,7 @@ Din cod (`netlify/functions/lib/appUrl.js`, `menuvia-pack/`): `hello@` (expedito
 `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` și cele 4 `STRIPE_*_PRICE_ID` — **cheile TEST merg doar în `stripe-test`**; cele LIVE vin la Ședința 3.
 Netlify nu are nevoie de `SLACK_WEBHOOK_URL` (Slack rămâne oprit, D4). Lista completă canonică: blocul `/etc/menuvia/env` din `docs/VPS_RUNBOOK.md` și tabelul din `docs/RUNBOOK.md` §5.
 
-> **Ce vei vedea în health-watch până la Ședința 3 (nu e o greșeală de-a ta):** `.github/workflows/health-watch.yml` pică cu `::error::` pe fiecare `config.<x>: false` când `/health` dă 200 cu token. Cât Stripe LIVE și Slack lipsesc, `config.stripe` și `config.slack` vor fi `false`, deci alarma poate rămâne roșie. Nu o repar eu în pachetul acesta (workflow-urile nu intră în dosar); o adaug la pachetul 3 (apelurile spre Slack mutate pe `founder_alert`) sau o ajustez la cerere.
+> **Ce vei vedea în health-watch până la Ședința 3 (nu e o greșeală de-a ta):** `.github/workflows/health-watch.yml` pică cu `::error::` pe fiecare `config.<x>: false` când `/health` dă 200 cu token. Cât `STRIPE_SECRET_KEY` (în `production`) și Slack lipsesc, `config.stripe` și `config.slack` vor fi `false` (`/health` verifică doar prezența cheii, nu diferențiază TEST de LIVE), deci alarma poate rămâne roșie. Nu o repar în acest pachet (workflow-urile nu intră în dosar); verificările `config.*` devin non-fatale în PR-ul următor de workflow, iar roșul de până atunci este așteptat.
 
 ---
 
@@ -222,7 +222,7 @@ Netlify nu are nevoie de `SLACK_WEBHOOK_URL` (Slack rămâne oprit, D4). Lista c
 1. 👤 Cont UptimeRobot (gratuit) → **Add New Monitor**.
 2. 👤 **Monitor Type:** HTTP(s). **URL:** `https://menuvia.ro/health` (rutat la funcția `health` prin `netlify.toml`). **Interval:** 5 minute. **Alert contact:** emailul tău (+ aplicația push, dacă vrei).
 3. ℹ️ Endpoint-ul răspunde la HEAD și GET; dă **200** când totul e sănătos și **503** când baza sau o sondă critică e căzută. Până când AI-ul republică, va arăta **DOWN** — e normal; poți pune pauză.
-4. 🤖 Când UptimeRobot e verificat, șterg `health-watch.yml` (stopgap).
+4. 🤖 `health-watch.yml` RĂMÂNE activ: UptimeRobot nu trimite antetul `x-health-diag`, deci nu vede `schema: behind`, cozile sau `config.*`. Îl elimin doar dacă un monitor extern parsează JSON-ul de diagnostic și reproduce aceste alerte.
 
 ---
 
@@ -283,7 +283,7 @@ Când contabilul trimite actele, 👤 le semnezi cu **semnătura electronică ca
 - [ ] GitHub: environment `production` (main, fără aprobatori) + `SUPABASE_DB_URL` + `BACKUP_PASSPHRASE`; repository secret `HEALTH_DIAG_TOKEN`
 - [ ] Supabase pe Pro, spend cap pornit; organizația `menuvia-test` (Free)
 - [ ] Stripe: cont RO, Connect pornit, `sk_test`/`pk_test` date mie (NU în producție)
-- [ ] OpenAI: credit + plafon 50 $/lună; cheia în `PLATFORM_OPENAI_KEY`
+- [ ] OpenAI: credit preplătit (auto-reload oprit, max. 50 $/lună încărcați manual); cheia în `PLATFORM_OPENAI_KEY`
 - [ ] Resend: domeniu Verified, DMARC `p=none`, două chei; catch-all `*@menuvia.ro` → Gmail testat
 - [ ] Supabase Auth: leaked password, SMTP Resend, șablon cu link + `{{ .Token }}`, Site URL + Redirect URLs (fără `.com`), rate limit
 - [ ] Netlify `production`: `SUPABASE_SERVICE_ROLE_KEY`, `HEALTH_DIAG_TOKEN`, `RESEND_API_KEY`, `PLATFORM_OPENAI_KEY` (secret)
