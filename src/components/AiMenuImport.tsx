@@ -28,6 +28,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useProducts, useCategories } from '../hooks/useData'
 import { aiMenuImport, type AiPart } from '../lib/ai'
 import { supabase } from '../lib/supabase'
+import { confirm as confirmDialog } from './ui/confirm'
 import {
   buildMenuImportPrompt,
   clearImportDraft,
@@ -35,7 +36,9 @@ import {
   isProductLimitError,
   loadImportDraft,
   reconcileDraftCategories,
+  remainingAfterImport,
   saveImportDraft,
+  uploadLocked,
   type ImportDraftProduct as DraftProduct,
   type StoredImportDraft,
 } from '../lib/aiImportDraft'
@@ -167,6 +170,8 @@ export default function AiMenuImport({
   const [drafts, setDrafts] = useState<DraftProduct[]>([])
   const [imported, setImported] = useState(0)
   const [importErrors, setImportErrors] = useState<string[]>([])
+  // Câte produse au rămas în draft după un import parțial (afișat pe ecranul „done”).
+  const [leftInDraft, setLeftInDraft] = useState(0)
   // Draftul rămas dintr-o sesiune anterioară (sessionStorage, fail-open).
   const [stored, setStored] = useState<StoredImportDraft | null>(() => loadImportDraft(restaurantId))
   // Moneda/limba restaurantului: cerută o singură dată la deschidere, citită la extracție.
@@ -253,6 +258,8 @@ export default function AiMenuImport({
     setError(null)
     let ok = 0
     const failed: string[] = []
+    // Produsele selectate care NU au ajuns în bază (rămân în draft).
+    const unsaved: DraftProduct[] = []
     const selected = drafts.filter((d) => d.include && d.name.trim())
 
     // 1. Creează categoriile noi ('new:<nume>') o singură dată per nume.
@@ -314,27 +321,39 @@ export default function AiMenuImport({
       ok = batch.data?.length ?? selected.length
     } else if (selected.length > 0) {
       if (batch?.error) console.error('confirmImport batch insert failed, per-row fallback', batch.error)
-      for (const d of selected) {
+      for (let i = 0; i < selected.length; i++) {
+        const d = selected[i]!
         const r = await products.create(toRow(d))
         if (!r.error) ok++
         else if (isProductLimitError(r.error)) {
-          // Plafonul s-a atins pe parcurs: oprim aici, cu UN singur mesaj.
+          // Plafonul s-a atins pe parcurs: oprim aici, cu UN singur mesaj. Produsul
+          // curent și TOATE cele de după rămân nesalvate (intră în draft).
           failed.push('limita de produse a planului a fost atinsă — restul produselor nu au fost salvate')
+          unsaved.push(...selected.slice(i))
           break
         } else {
           console.error('confirmImport product create failed', r.error)
           failed.push(`${d.name.trim() || 'produs fără nume'}: nu a putut fi salvat`)
+          unsaved.push(d)
         }
       }
     }
     setImported(ok)
     setImportErrors(failed)
     setBusy(false)
-    // Ceva s-a salvat: draftul nu mai are rost (o reluare ar duplica produsele). Dacă
-    // NU s-a salvat nimic (toate rândurile au eșuat), draftul rămâne — munca nu se pierde.
-    if (ok > 0) {
+    // Draftul păstrează EXACT ce nu s-a salvat: produsele eșuate/neîncercate + rândurile
+    // pe care omul nu le-a selectat. Cele salvate dispar (o reluare ar duplica
+    // produsele). Nimic nesalvat → draftul se șterge de tot.
+    if (unsaved.length === 0) {
       clearImportDraft(restaurantId)
       setStored(null)
+      setLeftInDraft(0)
+    } else {
+      const remaining = remainingAfterImport(drafts, selected, unsaved)
+      saveImportDraft(restaurantId, remaining)
+      setDrafts(remaining)
+      setStored(null)
+      setLeftInDraft(unsaved.length)
     }
     setStep('done')
     // Callerul află de succes AICI (nu la onClose): onboarding-ul marchează
@@ -368,7 +387,14 @@ export default function AiMenuImport({
     setStep('review')
   }
 
-  function discardDraft(): void {
+  async function discardDraft(): Promise<void> {
+    const ok = await confirmDialog({
+      title: 'Renunți la draft?',
+      description: `Cele ${resumableCount} produse extrase, încă nesalvate, se pierd definitiv.`,
+      confirmLabel: 'Renunță la draft',
+      destructive: true,
+    })
+    if (!ok) return
     clearImportDraft(restaurantId)
     setStored(null)
     setDrafts([])
@@ -411,14 +437,14 @@ export default function AiMenuImport({
           {step === 'upload' && resumableCount > 0 && (
             <div data-testid="resume-import" style={{ background: D.s2, border: `1px solid ${D.gold}55`, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
               <p style={{ color: D.t1, fontSize: '0.86rem', margin: '0 0 10px' }}>
-                Ai un import început: {resumableCount} {resumableCount === 1 ? 'produs extras' : 'produse extrase'}, încă nesalvate. Nu pierzi munca deja făcută.
+                Ai un import început: {resumableCount} {resumableCount === 1 ? 'produs extras' : 'produse extrase'}, încă nesalvate. Ai un import nesalvat — reia-l sau renunță la el.
               </p>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button onClick={resumeImport} className="pressable" style={{ background: D.gold, color: '#000', border: 'none', borderRadius: 8, padding: '10px 16px', minHeight: 40, fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
                   Reia importul
                 </button>
-                <button onClick={discardDraft} style={{ background: 'transparent', color: D.t2, border: `1px solid ${D.border}`, borderRadius: 8, padding: '10px 16px', minHeight: 40, fontSize: '0.84rem', cursor: 'pointer' }}>
-                  Șterge draftul
+                <button onClick={() => void discardDraft()} style={{ background: 'transparent', color: D.t2, border: `1px solid ${D.border}`, borderRadius: 8, padding: '10px 16px', minHeight: 40, fontSize: '0.84rem', cursor: 'pointer' }}>
+                  Renunță la draft
                 </button>
               </div>
             </div>
@@ -430,9 +456,9 @@ export default function AiMenuImport({
                 Fotografiază sau încarcă până la {MAX_PHOTOS} poze clare cu meniul (paginile lui).
                 AI-ul extrage produsele și secțiunile, apoi verifici și corectezi înainte de salvare.
               </p>
-              <label style={{ display: 'inline-block', background: D.gold, color: '#000', borderRadius: 10, padding: '13px 28px', fontSize: '0.9rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+              <label style={{ display: 'inline-block', background: D.gold, color: '#000', borderRadius: 10, padding: '13px 28px', fontSize: '0.9rem', fontWeight: 700, cursor: uploadLocked(resumableCount, busy) ? 'default' : 'pointer', opacity: uploadLocked(resumableCount, busy) ? 0.6 : 1 }}>
                 {busy ? 'Se procesează…' : 'Alege pozele'}
-                <input type="file" accept="image/*" multiple disabled={busy} onChange={(e) => { if (e.target.files && e.target.files.length > 0) void handleFiles(e.target.files) }} style={{ display: 'none' }} />
+                <input type="file" accept="image/*" multiple disabled={uploadLocked(resumableCount, busy)} onChange={(e) => { if (e.target.files && e.target.files.length > 0) void handleFiles(e.target.files) }} style={{ display: 'none' }} />
               </label>
             </div>
           )}
@@ -484,7 +510,12 @@ export default function AiMenuImport({
                   ? `${imported} produse salvate, ${importErrors.length} probleme`
                   : `${imported} produse adăugate!`}
               </p>
-              <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>Le găsești în tab-ul Produse.</p>
+              <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: importErrors.length > 0 || leftInDraft > 0 ? 14 : 0 }}>Le găsești în tab-ul Produse.</p>
+              {leftInDraft > 0 && (
+                <p data-testid="left-in-draft" style={{ color: D.gold, fontSize: '0.85rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>
+                  {leftInDraft} {leftInDraft === 1 ? 'produs a rămas' : 'produse au rămas'} în draft, nesalvate. Redeschide importul și apasă „Reia importul”.
+                </p>
+              )}
               {importErrors.length > 0 && (
                 <div style={{ textAlign: 'left', background: D.redA, border: `1px solid ${D.red}44`, borderRadius: 9, padding: '10px 13px', fontSize: '0.8rem', color: D.red, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {importErrors.map((msg, i) => (

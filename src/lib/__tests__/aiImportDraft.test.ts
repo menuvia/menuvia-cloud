@@ -8,6 +8,8 @@
 //   DR4  la reluare, categoriile dispărute între timp se re-potrivesc pe nume
 //   DR5  plafonul planului: UN singur mesaj, înainte de salvare; eroarea de la
 //        server (hint product_limit) e recunoscută
+//   DR7  după un import parțial, draftul = EXACT nesalvatele + neselectatele (ordine păstrată)
+//   DR8  cât există draft nesalvat sau rulează o extragere, pozele noi sunt blocate
 //   DR6  promptul: pentru RON/ro e IDENTIC cu cel de dinainte; pentru alte monede /
 //        limbi se schimbă doar prețurile + „nu traduce”
 import { describe, it, expect } from 'vitest'
@@ -19,7 +21,9 @@ import {
   isProductLimitError,
   loadImportDraft,
   reconcileDraftCategories,
+  remainingAfterImport,
   saveImportDraft,
+  uploadLocked,
   type ImportDraftProduct,
 } from '../aiImportDraft'
 
@@ -197,5 +201,36 @@ describe('promptul de import', () => {
     expect(p).toMatch(/fără să le traduci/)
     // Limbă necunoscută → nicio instrucțiune inventată.
     expect(buildMenuImportPrompt({ language: 'xx' })).not.toMatch(/traduci/)
+  })
+})
+
+describe('import parțial și blocarea pozelor noi', () => {
+  const a = draft({ name: 'A' })
+  const b = draft({ name: 'B' })
+  const c = draft({ name: 'C' })
+  const d = draft({ name: 'D', include: false })
+  const all = [a, b, c, d]
+
+  it('DR7a: nesalvatele + neselectatele rămân, salvatele dispar, ordinea se păstrează', () => {
+    // A salvat, B eșuat, C neîncercat (plafon), D neselectat.
+    expect(remainingAfterImport(all, [a, b, c], [b, c]).map((x) => x.name)).toEqual(['B', 'C', 'D'])
+    // Doar eșecul individual al lui C.
+    expect(remainingAfterImport(all, [a, b, c], [c]).map((x) => x.name)).toEqual(['C', 'D'])
+  })
+
+  it('DR7b: tot eșuat → totul rămâne; nimic nesalvat → draftul dispare (chiar cu neselectate)', () => {
+    expect(remainingAfterImport(all, [a, b, c], [a, b, c])).toHaveLength(4)
+    expect(remainingAfterImport(all, [a, b, c], [])).toEqual([])
+  })
+
+  it('DR7c: neselectatul își păstrează starea (nu devine selectat)', () => {
+    expect(remainingAfterImport(all, [a, b, c], [b]).map((x) => x.include)).toEqual([true, false])
+  })
+
+  it('DR8: poze noi blocate cu draft sau în timpul extragerii; libere altfel', () => {
+    expect(uploadLocked(1, false)).toBe(true)
+    expect(uploadLocked(14, false)).toBe(true)
+    expect(uploadLocked(0, true)).toBe(true)
+    expect(uploadLocked(0, false)).toBe(false)
   })
 })

@@ -162,6 +162,33 @@ export function reconcileDraftCategories(
   })
 }
 
+/**
+ * Draftul care trebuie păstrat după o încercare de salvare: EXACT produsele
+ * nesalvate (eșuate sau neîncercate după atingerea plafonului) + rândurile pe care
+ * omul nu le-a selectat, în ordinea inițială. Cele salvate dispar (o reluare le-ar
+ * duplica). Nimic nesalvat → listă goală (draftul se șterge). Comparația e pe
+ * REFERINȚĂ: `selected` și `unsaved` sunt elemente din `drafts`.
+ */
+export function remainingAfterImport(
+  drafts: ImportDraftProduct[],
+  selected: ImportDraftProduct[],
+  unsaved: ImportDraftProduct[],
+): ImportDraftProduct[] {
+  if (unsaved.length === 0) return []
+  const unsavedSet = new Set(unsaved)
+  const selectedSet = new Set(selected)
+  return drafts.filter((d) => unsavedSet.has(d) || !selectedSet.has(d))
+}
+
+/**
+ * Poze noi NU se pot alege cât există un draft nesalvat (în memorie sau în
+ * storage) sau cât rulează o extragere: o extragere nouă ar înlocui tăcut rândurile
+ * deja extrase. Ieșirile sunt explicite: „Reia importul” sau „Renunță la draft”.
+ */
+export function uploadLocked(resumableCount: number, busy: boolean): boolean {
+  return busy || resumableCount > 0
+}
+
 // ── Plafonul planului: UN singur mesaj, înainte de salvare ─────────────────────
 
 /**

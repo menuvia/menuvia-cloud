@@ -8,6 +8,10 @@
 //   AM6  import reușit → draftul se șterge (o reluare ar duplica produsele)
 //   AM7  storage care ARUNCĂ → importul merge, fără banner și fără excepții
 //   AM8  promptul poartă moneda restaurantului (EUR) și rămâne „lei” când nu o știm
+//   AM9  cât există un draft nesalvat, input-ul de poze e dezactivat (o extragere nouă
+//        nu-l poate înlocui tăcut); „Renunță la draft” cere confirmare
+//   AM10 import parțial: în draft rămân EXACT produsele nesalvate + rândurile
+//        neselectate; cele salvate dispar; ecranul „done” spune câte au rămas
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -27,6 +31,10 @@ const createMany = vi.fn<(rows: unknown) => Promise<DbResult>>()
 const createOne = vi.fn<(row: unknown) => Promise<DbResult>>()
 const createCategory = vi.fn<(row: unknown) => Promise<DbResult>>()
 const maybeSingle = vi.fn<() => DbResult>()
+const confirmMock = vi.hoisted(() =>
+  vi.fn<(opts: { title: string; destructive?: boolean }) => Promise<boolean>>(),
+)
+vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
 
 vi.mock('../../lib/ai', () => ({
   aiMenuImport: (input: AiCall) => aiMenuImport(input),
@@ -84,6 +92,7 @@ beforeEach(() => {
   createOne.mockReset().mockResolvedValue({ data: {}, error: null })
   createCategory.mockReset()
   maybeSingle.mockReset().mockReturnValue({ data: null, error: { message: 'n/a' } })
+  confirmMock.mockReset().mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -103,7 +112,7 @@ describe('AiMenuImport — draft și plafon', () => {
     expect(screen.queryByTestId('resume-import')).not.toBeInTheDocument()
   })
 
-  it('AM1b: fără draft nu există banner; „Șterge draftul” îl elimină din storage', async () => {
+  it('AM1b: fără draft nu există banner; „Renunță la draft” cere confirmare', async () => {
     const { unmount } = renderImport()
     expect(await screen.findByText('Alege pozele')).toBeInTheDocument()
     expect(screen.queryByTestId('resume-import')).not.toBeInTheDocument()
@@ -111,9 +120,30 @@ describe('AiMenuImport — draft și plafon', () => {
 
     seed()
     renderImport()
-    await userEvent.click(await screen.findByRole('button', { name: 'Șterge draftul' }))
-    expect(screen.queryByTestId('resume-import')).not.toBeInTheDocument()
+    // Fără confirmare, draftul NU se șterge.
+    confirmMock.mockResolvedValueOnce(false)
+    await userEvent.click(await screen.findByRole('button', { name: 'Renunță la draft' }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    expect(confirmMock.mock.calls[0]![0].destructive).toBe(true)
+    expect(screen.getByTestId('resume-import')).toBeInTheDocument()
+    expect(loadImportDraft(RID)?.drafts).toHaveLength(2)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Renunță la draft' }))
+    await waitFor(() => expect(screen.queryByTestId('resume-import')).not.toBeInTheDocument())
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull()
+  })
+
+  it('AM9: cât există un draft nesalvat, poze noi nu se pot alege (nu-l înlocuiesc tăcut)', async () => {
+    seed()
+    const { container } = renderImport()
+    await screen.findByTestId('resume-import')
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    expect(input).toBeDisabled()
+    expect(screen.getByTestId('resume-import')).toHaveTextContent(/reia-l sau renunță la el/)
+    expect(aiMenuImport).not.toHaveBeenCalled()
+    // După renunțarea explicită, input-ul se activează (control pozitiv).
+    await userEvent.click(screen.getByRole('button', { name: 'Renunță la draft' }))
+    await waitFor(() => expect(container.querySelector('input[type="file"]')).toBeEnabled())
   })
 
   it('AM2: tap pe fundal nu închide revizuirea (✕ da); pe upload, fundalul închide', async () => {
@@ -196,6 +226,26 @@ describe('AiMenuImport — draft și plafon', () => {
     expect(await screen.findByText(/1 produse salvate, 1 probleme/)).toBeInTheDocument()
     expect(createOne).toHaveBeenCalledTimes(2) // al treilea nici nu se încearcă
     expect(screen.getAllByText(/limita de produse a planului a fost atinsă/)).toHaveLength(1)
+    // Draftul păstrează produsul care a atins plafonul ȘI pe cel neîncercat; cel salvat dispare.
+    expect(loadImportDraft(RID)?.drafts.map((d) => d.name)).toEqual(['Paste', 'Supă'])
+    expect(screen.getByTestId('left-in-draft')).toHaveTextContent(/2 produse au rămas în draft/)
+  })
+
+  it('AM10: import parțial — în draft rămân nesalvatele + neselectatele, nu și cele salvate', async () => {
+    seed([draft({ name: 'Pizza' }), draft({ name: 'Paste' }), draft({ name: 'Supă', include: false })])
+    createMany.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } })
+    createOne
+      .mockResolvedValueOnce({ data: {}, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'network blip' } })
+    const { onImported } = renderImport()
+    await userEvent.click(await screen.findByRole('button', { name: 'Reia importul' }))
+    await userEvent.click(await screen.findByRole('button', { name: /^Salvează 2 produse/ }))
+    expect(await screen.findByText(/1 produse salvate, 1 probleme/)).toBeInTheDocument()
+    expect(onImported).toHaveBeenCalledWith(1)
+    expect(screen.getByTestId('left-in-draft')).toHaveTextContent(/1 produs a rămas în draft/)
+    const left = loadImportDraft(RID)?.drafts
+    expect(left?.map((d) => d.name)).toEqual(['Paste', 'Supă'])
+    expect(left?.map((d) => d.include)).toEqual([true, false]) // neselectatul rămâne neselectat
   })
 
   it('AM6: import reușit — draftul se șterge, callerul află numărul', async () => {
@@ -206,6 +256,7 @@ describe('AiMenuImport — draft și plafon', () => {
     expect(await screen.findByText('2 produse adăugate!')).toBeInTheDocument()
     expect(onImported).toHaveBeenCalledWith(2)
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull()
+    expect(screen.queryByTestId('left-in-draft')).not.toBeInTheDocument()
   })
 
   it('AM6b: nimic salvat (toate eșuează) — draftul NU se șterge', async () => {
@@ -217,6 +268,7 @@ describe('AiMenuImport — draft și plafon', () => {
     await userEvent.click(await screen.findByRole('button', { name: /^Salvează 2 produse/ }))
     expect(await screen.findByText(/0 produse salvate/)).toBeInTheDocument()
     expect(loadImportDraft(RID)?.drafts).toHaveLength(2)
+    expect(screen.getByTestId('left-in-draft')).toHaveTextContent(/2 produse au rămas în draft/)
   })
 })
 
