@@ -23,6 +23,11 @@ import { authRedirectBase, browserSite, defaultUiLang } from '../lib/domain'
 // apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
 // când se publică o versiune nouă a documentelor legale.
 import { TERMS_VERSION, storePendingTermsConsent } from '../lib/terms'
+// Pachetul 7: codul de agent la înscriere (mig 301) și codul de 6 cifre din
+// emailul de confirmare — componentele stau separat, ca AuthPage să nu crească.
+import { useSignupAgentCode } from '../hooks/useSignupAgentCode'
+import { AgentCodeBanner, AgentCodeField } from '../components/auth/AgentCodeSection'
+import ConfirmEmailCodeStep from '../components/auth/ConfirmEmailCodeStep'
 
 // Prefetch: start loading DashboardPage in the background while the user
 // types credentials. By the time login completes, the chunk is cached.
@@ -144,11 +149,8 @@ const S = {
     processingBtn: 'Se procesează...',
     sendResetLinkBtn: 'Trimite link de resetare',
     backToLoginArrow: '← Înapoi la autentificare',
-    confirmEmailTitle: 'Verifică emailul',
-    confirmSentPrefix: 'Am trimis un link de confirmare la',
-    // emailRedirectTo (mai jos) readuce userul direct în aplicație — textul
-    // vechi „revino să te autentifici" rupea funelul exact aici.
-    confirmInstructions: 'Apasă linkul din email — te aduce direct înapoi în contul tău.',
+    // Ecranul „Verifică emailul" (cod de 6 cifre + Retrimite) e în
+    // components/auth/ConfirmEmailCodeStep.tsx, cu textele lui RO/EN.
     brandTagline: 'Configurezi restaurantul în câteva minute.',
     heroSubtitle: 'Adaugi meniul, generezi QR-urile și poți primi comenzi direct de la masă.',
     heroBullets: [
@@ -204,10 +206,6 @@ const S = {
     processingBtn: 'Processing...',
     sendResetLinkBtn: 'Send reset link',
     backToLoginArrow: '← Back to sign in',
-    confirmEmailTitle: 'Check your email',
-    confirmSentPrefix: 'We sent a confirmation link to',
-    confirmInstructions:
-      'Click the link in the email — it brings you right back into your account.',
     brandTagline: 'Set up your restaurant in minutes.',
     heroSubtitle:
       'Add your menu, generate the QR codes, and start taking orders straight from the table.',
@@ -346,6 +344,9 @@ export default function AuthPage({
   const [mode, setMode] = useState<'login' | 'signup'>(() =>
     initialAuthMode(window.location.search),
   )
+  // Codul de agent (mig 301): bannerul din link/cookie + câmpul tastat — doar
+  // pe „Cont nou". Patronii veniți singuri nu văd nimic.
+  const agentCode = useSignupAgentCode(mode === 'signup')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
@@ -388,6 +389,19 @@ export default function AuthPage({
     return 'Nu am putut procesa cererea. Verifică datele și reîncearcă.'
   }
 
+  // Destinația linkului de confirmare (și a „Retrimite"): readuce userul direct
+  // în aplicație, cu `?plan=` când există o intenție. Pe .ro neschimbat; pe un
+  // host .com tot .ro — niciun redirect spre domeniul .com (lib/domain.ts).
+  const confirmRedirectUrl = (): string =>
+    authRedirectUrl(
+      authRedirectBase(
+        window.location.hostname,
+        import.meta.env.VITE_APP_URL,
+        window.location.origin,
+      ),
+      planIntent,
+    )
+
   const handle = async (evt: React.FormEvent) => {
     evt.preventDefault()
     setLoading(true)
@@ -400,11 +414,21 @@ export default function AuthPage({
         setLoading(false)
         return
       }
+      // Codul de agent (mig 301) merge în `user_metadata.agent_code`: un trigger
+      // din bază creează atribuirea la crearea profilului, deci funcționează și
+      // când emailul se confirmă pe ALT dispozitiv. Un cod tastat cu formă
+      // proastă / inexistent oprește formularul cu un mesaj (typo la dictare);
+      // o eroare de rețea NU oprește nimic — serverul rămâne autoritatea.
+      const agent = await agentCode.resolveForSubmit()
+      if (!agent.ok) {
+        setLoading(false)
+        return
+      }
       const { data, error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { full_name: name },
+          data: agent.code ? { full_name: name, agent_code: agent.code } : { full_name: name },
           // Linkul de confirmare readuce userul DIRECT în aplicație (sesiune
           // deja creată de GoTrue la click) — înainte, textul îi cerea să
           // „revină să se autentifice" și funelul se rupea exact aici.
@@ -412,16 +436,7 @@ export default function AuthPage({
           // `?plan=` în link: confirmarea se deschide în ALT tab (sau pe alt
           // dispozitiv), iar intenția trebuie să ajungă și acolo — altfel
           // contul nou ateriza pe /dashboard în loc de checkout.
-          // Pe .ro neschimbat; pe un host .com tot .ro — niciun redirect spre
-          // domeniul .com (authRedirectBase, lib/domain.ts).
-          emailRedirectTo: authRedirectUrl(
-            authRedirectBase(
-              window.location.hostname,
-              import.meta.env.VITE_APP_URL,
-              window.location.origin,
-            ),
-            planIntent,
-          ),
+          emailRedirectTo: confirmRedirectUrl(),
         },
       })
       if (signUpErr) {
@@ -768,39 +783,21 @@ export default function AuthPage({
     )
   }
 
-  // FIX: show "check email" screen instead of proceeding with broken state
+  // Ecranul „Verifică emailul": cod de 6 cifre în același tab + „Retrimite";
+  // linkul din email rămâne ca rezervă.
   if (confirmEmail) {
     return (
       <CenteredCard>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ marginBottom: 16 }}>
-            <Icon name="mail" size={40} color={A.accent} />
-          </div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.4rem',
-              color: A.text,
-              marginBottom: 12,
-            }}
-          >
-            {t.confirmEmailTitle}
-          </h2>
-          <p style={{ color: A.text2, marginBottom: 24, lineHeight: 1.6 }}>
-            {t.confirmSentPrefix} <strong style={{ color: A.text }}>{email}</strong>.
-            <br />
-            {t.confirmInstructions}
-          </p>
-          <button
-            onClick={() => {
-              setConfirmEmail(false)
-              setMode('login')
-            }}
-            style={primaryBtn(false)}
-          >
-            {t.backToLogin}
-          </button>
-        </div>
+        <ConfirmEmailCodeStep
+          email={email}
+          lang={lang}
+          redirectTo={confirmRedirectUrl()}
+          onVerified={onSuccess}
+          onBack={() => {
+            setConfirmEmail(false)
+            setMode('login')
+          }}
+        />
       </CenteredCard>
     )
   }
@@ -922,6 +919,9 @@ export default function AuthPage({
           }}
         >
           {planIntent && <PlanIntentPill intent={planIntent} lang={lang} />}
+          {mode === 'signup' && agentCode.verifiedLinkCode && !agentCode.dismissed && (
+            <AgentCodeBanner lang={lang} onDismiss={agentCode.dismissLink} />
+          )}
 
           <h1
             style={{
@@ -989,6 +989,17 @@ export default function AuthPage({
                 onBlur={(e) => (e.target.style.borderColor = A.border)}
               />
             </div>
+
+            {mode === 'signup' && (!agentCode.verifiedLinkCode || agentCode.dismissed) && (
+              <AgentCodeField
+                lang={lang}
+                open={agentCode.fieldOpen}
+                onOpen={agentCode.openField}
+                value={agentCode.typed}
+                onChange={agentCode.setTyped}
+                problem={agentCode.problem}
+              />
+            )}
 
             {mode === 'signup' && (
               <label
