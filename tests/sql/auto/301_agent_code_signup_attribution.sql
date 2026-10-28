@@ -51,12 +51,16 @@ insert into auth.users (id, email) values
   ('ac000000-0000-4000-8000-0000000000a1', 'ac-agent-a@ac301.test'),
   ('ac000000-0000-4000-8000-0000000000a2', 'ac-agent-b@ac301.test'),
   ('ac000000-0000-4000-8000-0000000000a3', 'ac-agent-p@ac301.test'),
-  ('ac000000-0000-4000-8000-0000000000a4', 'ac-agent-s@ac301.test');
+  ('ac000000-0000-4000-8000-0000000000a4', 'ac-agent-s@ac301.test'),
+  ('ac000000-0000-4000-8000-0000000000a5', 'ac-agent-n@ac301.test');
 insert into public.affiliates (id, profile_id, referral_code, vanity_slug, status) values
   ('ac0a0000-0000-4000-8000-0000000000a1', 'ac000000-0000-4000-8000-0000000000a1', 'acagnta2', 'ac-vanity', 'active'),
   ('ac0a0000-0000-4000-8000-0000000000a2', 'ac000000-0000-4000-8000-0000000000a2', 'acagntb3', null, 'active'),
   ('ac0a0000-0000-4000-8000-0000000000a3', 'ac000000-0000-4000-8000-0000000000a3', 'acagntp4', null, 'pending'),
-  ('ac0a0000-0000-4000-8000-0000000000a4', 'ac000000-0000-4000-8000-0000000000a4', 'acagnts5', null, 'suspended');
+  ('ac0a0000-0000-4000-8000-0000000000a4', 'ac000000-0000-4000-8000-0000000000a4', 'acagnts5', null, 'suspended'),
+  -- N: cod NUMERIC (8 cifre, valid pentru CHECK-ul 097) — singurul care deosebește
+  -- un string „55667788” de un număr JSON 55667788 (`->>` le scrie la fel).
+  ('ac0a0000-0000-4000-8000-0000000000a5', 'ac000000-0000-4000-8000-0000000000a5', '55667788', null, 'active');
 
 -- ── AC1: înscriere cu codul agentului → atribuire pending ───────────────────
 do $$
@@ -102,6 +106,16 @@ begin
     raise exception 'AC1 FAIL: vanity-ul nu a rezolvat la afiliatul A';
   end if;
 
+  -- Control pozitiv pentru AC2 (tipul JSON): același cod numeric, ca STRING, atribuie.
+  insert into auth.users (id, email, raw_user_meta_data) values
+    ('ac000000-0000-4000-8000-0000000000c4', 'ac-c4@ac301.test',
+     jsonb_build_object('agent_code', '55667788'));
+  if (select affiliate_id from public.affiliate_attributions
+       where referred_profile_id = 'ac000000-0000-4000-8000-0000000000c4')
+     is distinct from 'ac0a0000-0000-4000-8000-0000000000a5'::uuid then
+    raise exception 'AC1 FAIL: codul numeric ca string nu a atribuit';
+  end if;
+
   -- Fără cod → fără atribuire (patronii veniți singuri nu sunt atinși).
   insert into auth.users (id, email, raw_user_meta_data) values
     ('ac000000-0000-4000-8000-0000000000c3', 'ac-c3@ac301.test', jsonb_build_object('full_name', 'Singur'));
@@ -125,7 +139,7 @@ declare
     '{"agent_code":"x"}'::jsonb,                             -- prea scurt
     '{"agent_code":"a b c d"}'::jsonb,                       -- spații în interior
     '{"agent_code":"acagnta2; drop table x"}'::jsonb,        -- gunoi
-    '{"agent_code":12345678}'::jsonb,                        -- număr, nu string
+    '{"agent_code":55667788}'::jsonb,                        -- număr JSON cu aceeași cifre ca un cod real
     '{"agent_code":{"code":"acagnta2"}}'::jsonb,             -- obiect
     '{"agent_code":["acagnta2"]}'::jsonb,                    -- array
     '{"agent_code":null}'::jsonb,                            -- null JSON
