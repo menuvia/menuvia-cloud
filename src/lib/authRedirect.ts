@@ -35,27 +35,30 @@ function startsWithSecondSlash(path: string): boolean {
 export function safeNextPath(raw: string | null | undefined): string | null {
   if (typeof raw !== 'string') return null
   if (raw.length === 0 || raw.length > MAX_NEXT_LENGTH) return null
-  if (raw[0] !== '/') return null
-  if (startsWithSecondSlash(raw)) return null
-  if (hasUnsafeChars(raw)) return null
 
-  // Aceleași reguli și pe forma DECODATĂ (de două ori: %252f%252f). Un
-  // percent-encoding malformat la PRIMA decodare nu are ce căuta într-o cale a
-  // noastră; la a doua (ex. `%25` rămas literal) înseamnă doar că nu mai e
-  // nimic de decodat.
-  let decoded = raw
+  // Forma brută ȘI cele două decodări succesive (%252f%252f se vede abia la a
+  // doua): aceleași reguli pe fiecare. Un percent-encoding malformat la PRIMA
+  // decodare nu are ce căuta într-o cale a noastră; la a doua (ex. `%25` rămas
+  // literal) înseamnă doar că nu mai e nimic de decodat.
+  const forms = [raw]
+  let current = raw
   for (let i = 0; i < 2; i++) {
     try {
-      decoded = decodeURIComponent(decoded)
+      current = decodeURIComponent(current)
     } catch {
       if (i === 0) return null
       break
     }
-    if (decoded[0] !== '/' || startsWithSecondSlash(decoded)) return null
-    if (hasUnsafeChars(decoded)) return null
+    forms.push(current)
+  }
+  for (const form of forms) {
+    if (form[0] !== '/') return null // relativ, cu schemă (`https:`, `javascript:`)
+    if (startsWithSecondSlash(form)) return null // `//host`, `/\host`
+    if (hasUnsafeChars(form)) return null
   }
 
-  // Plasa finală: rezolvată față de o origine fictivă, ținta rămâne pe ea.
+  // Al doilea strat, independent: rezolvată față de o origine fictivă, ținta
+  // rămâne pe ea.
   try {
     const base = 'https://next.invalid'
     if (new URL(raw, base).origin !== base) return null
