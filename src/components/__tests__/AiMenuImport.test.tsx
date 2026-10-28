@@ -315,6 +315,10 @@ describe('AiMenuImport — storage care aruncă și prompt', () => {
     expect(promptOf()).toContain('(EUR)')
     expect(promptOf()).not.toContain('în lei')
     first.unmount()
+    // Prima extragere a lăsat un draft nesalvat, iar cât există unul input-ul de poze e
+    // blocat (AM9): îl curățăm ca a doua randare să pornească de la zero.
+    expect(loadImportDraft(RID)?.drafts).toHaveLength(1)
+    sessionStorage.clear()
 
     aiMenuImport.mockClear()
     maybeSingle.mockReturnValue({ data: null, error: { message: 'n/a' } })
