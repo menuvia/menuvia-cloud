@@ -15,6 +15,9 @@ menuvia.ro, www.menuvia.ro {
 		reverse_proxy 127.0.0.1:8788
 	}
 
+	# ── Alias vechi (paritate cu netlify.toml): /preturi → /pricing ──────
+	redir /preturi /pricing 301
+
 	# ── Static (build-ul Vite) ────────────────────────────────────────
 	handle {
 		root * /srv/menuvia/dist

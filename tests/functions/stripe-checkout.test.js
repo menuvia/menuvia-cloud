@@ -16,6 +16,13 @@
 //   SC6  token invalid → 401;
 //   SC7  limiterul căzut → 503 fail-closed; peste plafon → 429;
 //   SC8  interogarea de profil picată → 503 (nu creează un customer duplicat).
+//   SP1  REGULA DE AUR: un POST direct {plan:'pro'|'enterprise'} → 403
+//        `plan_requires_quote`, ZERO apeluri Stripe/Supabase — Planul 3 nu se
+//        vinde self-serve (decizia D4); UI-ul ascunde butonul, dar serverul e
+//        singura graniță de autorizare;
+//   SP2  refuzul nu depinde de majuscule și poartă mesaj românesc + adresa de ofertă;
+//   SP3  control pozitiv: starter/growth trec în continuare (altfel SP1 ar
+//        trece și cu funcția stricată de tot);
 //   SR1  success_url poartă planul CUMPĂRAT (`checkout_plan=`) — clientul
 //        anunță „planul e activ" doar când profilul îl are exact pe acela.
 
@@ -234,5 +241,62 @@ describe('stripe-checkout — suprafața de eroare', () => {
     // `plan=` e intenția de pe /auth — nu are voie să apară în URL-ul de întoarcere.
     assert.equal(success.searchParams.get('plan'), null)
     assert.equal(new URL(params.cancel_url).search, '?checkout=cancelled')
+  })
+})
+
+describe('stripe-checkout — Planul 3 nu se vinde self-serve (regula de aur, D4)', () => {
+  function happyPath() {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => []
+    state.stripeImpls['checkout.sessions.create'] = async () => ({
+      url: 'https://checkout.stripe.com/c/pay/cs_test',
+    })
+  }
+
+  it('SP1: pro și enterprise → 403 plan_requires_quote, fără nicio sesiune Stripe', async () => {
+    for (const plan of ['pro', 'enterprise']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 403, plan)
+      const body = parseBody(res)
+      assert.equal(body.code, 'plan_requires_quote', plan)
+      // Nimic nu pleacă spre Stripe (nici customer, nici sesiune) și nu se
+      // atinge baza: nici rate-limit, nici profil, nici atribuire de afiliat.
+      assert.equal(state.stripeCalls.length, 0, plan)
+      assert.equal(state.rpcCalls.length, 0, plan)
+      assert.equal(state.fromCalls.length, 0, plan)
+    }
+  })
+
+  it('SP2: refuzul ignoră majusculele, e în română și numește adresa de ofertă', async () => {
+    for (const plan of ['PRO', 'Pro', 'ENTERPRISE']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan, referral_code: 'abc123' })
+      assert.equal(res.statusCode, 403, plan)
+      const body = parseBody(res)
+      assert.equal(body.code, 'plan_requires_quote')
+      assert.match(body.error, /ofert/i)
+      assert.match(body.error, /contact@menuvia\.ro/)
+      assert.equal(state.stripeCalls.length, 0, plan)
+    }
+  })
+
+  it('SP3 (control pozitiv): starter și growth trec în continuare spre Stripe', async () => {
+    for (const plan of ['starter', 'growth']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 200, plan)
+      const created = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+      assert.equal(created.length, 1, plan)
+    }
   })
 })

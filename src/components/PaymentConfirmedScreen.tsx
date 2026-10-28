@@ -4,7 +4,9 @@
 // Conține:
 //   1. Animație checkmark + mesaj "Plată confirmată!"
 //   2. Feedback widget rotativ (experiență plată / servire / mâncare)
-//   3. Google Review CTA (apare după feedback pozitiv)
+//   3. Google Review CTA (apare TUTUROR, la finalul feedback-ului — fără filtrare
+//      după notă: Google interzice „review gating", iar a arăta linkul doar celor
+//      mulțumiți e exact asta)
 //   4. Sumar plată (subtotal, tips, total)
 //   5. Buton "Am nevoie de bonul fiscal"
 //   6. Limba = cea aleasă de oaspete în meniu (prop `lang`, T() pe cele 7
@@ -377,9 +379,8 @@ export function FeedbackWidget({
   const [serviceRating, setServiceRating] = useState<number | null>(null)
   const [foodRating, setFoodRating] = useState<number | null>(null)
   const [negativeFeedback, setNegativeFeedback] = useState('')
-  // Interceptare privată (pattern Qerko/sunday): ORICE notă slabă — nu doar
-  // degetul în jos la plată — deschide formularul de feedback privat, ca
-  // nemulțumirea să ajungă la owner ÎNAINTE să ajungă pe Google.
+  // O notă slabă deschide un câmp de comentariu: ca localul să afle ce a mers
+  // prost. Câmpul NU decide cine vede linkul Google — vezi `showGoogleCTA`.
   const [negativeFor, setNegativeFor] = useState<'payment' | 'service' | 'food' | null>(null)
 
   async function saveFeedback(type: 'payment' | 'service' | 'food', rating: number, text?: string) {
@@ -443,16 +444,11 @@ export function FeedbackWidget({
     setStep('complete')
   }
 
-  // Calculează dacă să arătăm Google Review CTA
-  const avgRating = [
-    paymentRating === 'up' ? 5 : paymentRating === 'down' ? 1 : null,
-    serviceRating,
-    foodRating,
-  ]
-    .filter((r): r is number => r !== null)
-    .reduce((a, b, _, arr) => a + b / arr.length, 0)
+  // Linkul Google apare PENTRU TOȚI la finalul feedback-ului, indiferent de
+  // note (audit v3, S0: filtrarea recenziilor după notă — „review gating" — e
+  // interzisă de Google și făcea ca „feedback privat" să fie o promisiune goală).
   const safeReviewUrl = safeHttpUrl(googleReviewUrl)
-  const showGoogleCTA = step === 'complete' && avgRating >= 4 && safeReviewUrl
+  const showGoogleCTA = step === 'complete' && Boolean(safeReviewUrl)
 
   return (
     <div
@@ -500,7 +496,7 @@ export function FeedbackWidget({
         </>
       )}
 
-      {/* Feedback privat — orice notă slabă, indiferent de pas */}
+      {/* Comentariu opțional la o notă slabă, indiferent de pas */}
       {negativeFor !== null && (
         <>
           <div style={{ fontSize: 14, color: PUB.muted, marginBottom: 14 }}>

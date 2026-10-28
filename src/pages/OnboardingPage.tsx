@@ -50,7 +50,7 @@ const S = {
       cityLabel: 'Oraș',
       cityPlaceholder: 'Focșani',
       slugLabel: 'URL meniu public',
-      slugPrefix: `${siteHost(site)}/m/`,
+      slugPrefix: `${siteHost()}/m/`,
       slugPlaceholder: 'la-bella-trattoria',
       nameRequiredError: 'Numele restaurantului este obligatoriu.',
       unknownError: 'Eroare necunoscută',
@@ -138,8 +138,11 @@ const S = {
         { icon: 'home' as IconName, title: 'Restaurant creat' },
         { icon: 'menu' as IconName, title: 'Meniu configurat' },
         { icon: 'table' as IconName, title: 'Mese și QR-uri' },
-        { icon: 'qr' as IconName, title: 'Gata de comenzi' },
       ],
+      // A patra bifă depinde de PLAN (nu mai e hard-codată): comenzile prin QR
+      // există de la Meniu + Comenzi; pe Meniu Digital QR-ul deschide doar meniul.
+      ordersReady: { icon: 'qr' as IconName, title: 'Gata de comenzi' },
+      menuQrReady: { icon: 'qr' as IconName, title: 'Meniu public cu QR' },
       achievementDoneLabel: 'finalizat',
       menuLinkLabel: 'Link meniu public',
       copyBtnAriaLabel: 'Copiază link-ul meniului',
@@ -166,7 +169,7 @@ const S = {
       cityLabel: 'City',
       cityPlaceholder: 'Manchester',
       slugLabel: 'Public menu URL',
-      slugPrefix: `${siteHost(site)}/m/`,
+      slugPrefix: `${siteHost()}/m/`,
       slugPlaceholder: 'the-golden-fork',
       nameRequiredError: 'Restaurant name is required.',
       unknownError: 'Unknown error',
@@ -252,8 +255,9 @@ const S = {
         { icon: 'home' as IconName, title: 'Restaurant created' },
         { icon: 'menu' as IconName, title: 'Menu set up' },
         { icon: 'table' as IconName, title: 'Tables and QR codes' },
-        { icon: 'qr' as IconName, title: 'Ready for orders' },
       ],
+      ordersReady: { icon: 'qr' as IconName, title: 'Ready for orders' },
+      menuQrReady: { icon: 'qr' as IconName, title: 'Public menu with QR' },
       achievementDoneLabel: 'done',
       menuLinkLabel: 'Public menu link',
       copyBtnAriaLabel: 'Copy the menu link',
@@ -1365,9 +1369,25 @@ function Step4Done({
     onComplete()
   }
 
-  const achievements: { icon: IconName; title: string; done: boolean }[] = t.step4.achievements.map(
-    (a) => ({ ...a, done: true }),
-  )
+  // „Gata de comenzi" doar dacă planul chiar permite comenzi prin QR; necunoscut
+  // sau eroare de citire → fail-closed pe formularea adevărată în orice plan.
+  const [canOrder, setCanOrder] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (!cancelled) setCanOrder(hasFeature(f, 'order_qr'))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  const achievements: { icon: IconName; title: string; done: boolean }[] = [
+    ...t.step4.achievements,
+    canOrder ? t.step4.ordersReady : t.step4.menuQrReady,
+  ].map((a) => ({ ...a, done: true }))
 
   return (
     <Shell>

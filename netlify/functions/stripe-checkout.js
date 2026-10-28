@@ -5,7 +5,7 @@
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const crypto = require('crypto')
-const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost } = require('./lib/appUrl')
+const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost, MAIL_DOMAIN } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -15,6 +15,16 @@ const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost } = require('./lib/
 // totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
 // ar trece TĂCUT pe dahlia.
 const STRIPE_API_VERSION = '2023-10-16'
+
+// REGULA DE AUR: bani + bon fiscal = Plan 3 (`pro`/`enterprise`, „Fiscalizare").
+// Planul 3 NU se vinde self-serve (decizia D4): cere o casă de marcat conectată,
+// iar un abonament plătit fără ea ar încasa fără bon. Gate-ul stă AICI, pe
+// server — ascunderea butonului din UI nu e o graniță de autorizare (un POST
+// direct autentificat ar fi creat o sesiune Stripe pe prețul Planului 3).
+// Price ID-urile `pro`/`enterprise` RĂMÂN obligatorii la boot (`.every(Boolean)`):
+// webhook-ul le recunoaște pentru abonamentele create manual de fondator.
+// Oglinda din client: `QUOTE_ONLY_PLAN_IDS` (src/lib/planCta.ts).
+const QUOTE_ONLY_PLANS = ['pro', 'enterprise']
 
 /** Etichetă scurtă și stabilă a originii, pentru cheia de idempotență. */
 function originTag(origin) {
@@ -77,6 +87,14 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Invalid JSON body' })
   }
   const requestedPlan = String(body.plan || '').toLowerCase()
+  // Planul 3 se cere prin ofertă: refuz explicit, ÎNAINTEA oricărui apel Stripe
+  // sau Supabase (nici customer, nici sesiune, nici atribuire de afiliat).
+  if (QUOTE_ONLY_PLANS.includes(requestedPlan)) {
+    return jsonResponse(403, {
+      error: `Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Scrie-ne la contact@${MAIL_DOMAIN} și revenim.`,
+      code: 'plan_requires_quote',
+    })
+  }
   // Cod de referral din cookie-ul de afiliere (trimis de frontend). Normalizat
   // și mărginit defensiv; gol/invalid → ignorat fără efect.
   const referralCode = String(body.referral_code || '')

@@ -45,7 +45,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'În ce stadiu e integrarea?',
-    a: 'Puntea de fiscalizare e în pilot — o pornim împreună cu primele localuri, cu suport direct de la fondator. Restul platformei (meniu QR, comenzi, rapoarte) e live și nu depinde de punte.',
+    a: 'Puntea de fiscalizare e în pilot — o pornim împreună cu primele localuri, cu suport prin agentul tău Menuvia și pe email. Restul platformei (meniu QR, comenzi, rapoarte) e live și nu depinde de punte.',
   },
 ]
 

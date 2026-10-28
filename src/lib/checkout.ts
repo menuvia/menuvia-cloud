@@ -16,7 +16,7 @@
 // teste și telemetrie (mesajele se pot rescrie fără să rupă testele).
 // ─────────────────────────────────────────────────────────────
 
-export type CheckoutAction = 'retry' | 'login' | 'billing' | 'contact'
+export type CheckoutAction = 'retry' | 'login' | 'billing' | 'contact' | 'quote'
 
 export interface CheckoutFailure {
   code: string
@@ -70,6 +70,17 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
       action: 'billing',
     }
   }
+  if (code === 'plan_requires_quote') {
+    // Planul 3 (Fiscalizare) nu se cumpără singur: butonul de pe pagina de
+    // prețuri nu ajunge aici, dar un client vechi sau un POST direct da.
+    return {
+      code,
+      message:
+        msg ??
+        'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă și revenim.',
+      action: 'quote',
+    }
+  }
   if (code === 'subscription_lookup_failed') {
     return {
       code,
@@ -112,7 +123,7 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
     return {
       code: 'not_configured',
       message:
-        'Plata online nu e disponibilă momentan. Scrie-ne pe WhatsApp și îți activăm planul manual.',
+        'Plata online nu e disponibilă momentan. Scrie-ne pe email și îți activăm planul manual.',
       action: 'contact',
     }
   }
@@ -128,7 +139,7 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
 
   return {
     code: 'unknown',
-    message: msg ?? 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe WhatsApp.',
+    message: msg ?? 'Nu am putut porni plata. Reîncearcă, iar dacă se repetă scrie-ne pe email.',
     action: 'retry',
   }
 }

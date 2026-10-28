@@ -17,6 +17,7 @@ import { Skeleton } from './ui/Skeleton'
 import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
+import { qrCardSubtitles } from '../lib/qrCopy'
 
 interface QrTokenRow {
   id: string
@@ -789,8 +790,11 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       // și al meselor ieșeau cu caractere rupte în PDF-ul de print.
       patchPdfDiacritics(doc)
       const accent = hexToRgb(restaurant.primary_color) || [200, 150, 60]
-      const subtitleRo = 'Scanează pentru a comanda'
-      const subtitleEn = 'Scan to order'
+      // „Pentru a comanda" doar când planul permite comenzi prin QR; pe Meniu
+      // Digital QR-ul deschide doar meniul (lib/qrCopy.ts). Necunoscut = fail-closed.
+      const { ro: subtitleRo, en: subtitleEn } = qrCardSubtitles(
+        restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false,
+      )
 
       const drawCard = async (
         i: number,

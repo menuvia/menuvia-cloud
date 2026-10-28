@@ -16,6 +16,7 @@ import type { MemberRole } from './lib/constants'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
 import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
+import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
@@ -116,7 +117,14 @@ interface RouteState {
 }
 
 function parsePath(): RouteState {
-  const p = window.location.pathname
+  // Alias vechi (ex. /preturi → /pricing): corectăm URL-ul din bară fără intrare
+  // nouă în istoric (replaceState), apoi rutăm pe calea canonică. Idempotent —
+  // parsePath poate rula de mai multe ori (inițializator de state, StrictMode).
+  const alias = legacyPathRedirect(window.location.pathname)
+  if (alias) {
+    window.history.replaceState({}, '', alias + window.location.search + window.location.hash)
+  }
+  const p = alias ?? window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
   // /rezervare/:slug — pagina publică de rezervare (linkul din Google Business
