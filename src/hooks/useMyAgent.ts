@@ -22,7 +22,7 @@ export function useMyAgent(restaurantId: string | null | undefined, enabled: boo
     if (!enabled || !restaurantId) return
     let cancelled = false
     void (async () => {
-      let result: MyAgentResult | null = null
+      let result: MyAgentResult | null
       try {
         result = await loadMyAgent(restaurantId)
       } catch {
