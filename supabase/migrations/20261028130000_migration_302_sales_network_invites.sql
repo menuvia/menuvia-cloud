@@ -161,7 +161,7 @@ create table if not exists public.affiliate_contract_acceptances (
   -- sha256 hex al documentului COMPLET așa cum a fost afișat (art. 3.4).
   text_hash        text not null check (text_hash ~ '^[0-9a-f]{64}$'),
   -- CUI-ul declarat, normalizat (doar cifre, fără prefixul RO).
-  declared_cui     text not null check (declared_cui ~ '^[0-9]{2,10}$'),
+  declared_cui     text not null check (declared_cui ~ '^[1-9][0-9]{1,9}$'),
   accepted_at      timestamptz not null default clock_timestamp(),
   invitation_id    uuid references public.affiliate_invitations(id) on delete restrict
 );
@@ -252,7 +252,9 @@ begin
   if left(v_c, 2) = 'RO' then
     v_c := substr(v_c, 3);
   end if;
-  if v_c !~ '^[0-9]{2,10}$' then
+  -- 2–10 cifre, FĂRĂ zero în față: un CUI e un număr pozitiv (și '0000000' ar
+  -- trece altfel de cifra de control: suma 0 → control 0).
+  if v_c !~ '^[1-9][0-9]{1,9}$' then
     return null;
   end if;
   v_ctrl := substr(v_c, length(v_c), 1)::int;
