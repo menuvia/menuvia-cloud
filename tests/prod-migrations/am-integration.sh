@@ -122,6 +122,21 @@ grep -q 'migration_289_reservations_expired' "$WORK/am2b.log" || fail "AM2: mesa
 [ "$(val "$marker289")" = 0 ] && [ "$(val "$marker292")" = 0 ] || fail "AM2: obiecte din 289/292 au apărut"
 echo "✓ AM2: golul 289/290 fără excepție → refuz (exit 2), nimic scris"
 
+# ── AM2b: manifest stricat → refuz ÎNAINTE de orice scriere ─────────────────
+# Cu migrații în așteptare și un --verify-schema ilizibil/stricat, CLI-ul nu are
+# voie să aplice nimic și abia apoi să cadă pe manifest (recenzie CodeRabbit #299).
+printf '{ nu e json' >"$WORK/bad-manifest.json"
+printf '{"names":["ok_name","drop table x;--"]}' >"$WORK/evil-manifest.json"
+for bad in "$WORK/bad-manifest.json" "$WORK/evil-manifest.json" "$WORK/inexistent.json"; do
+  set +e
+  cli --allow-gaps-file "$ALLOW" --verify-schema "$bad" >"$WORK/am2c.log" 2>&1; rc=$?
+  set -e
+  [ "$rc" = 3 ] || { cat "$WORK/am2c.log"; fail "AM2b: manifest $(basename "$bad") trebuia să iasă 3, a ieșit $rc"; }
+  [ "$(val 'select count(*) from supabase_migrations.schema_migrations')" = "$LEDGER0" ] || fail "AM2b: ledger-ul s-a schimbat pe manifest stricat"
+  [ "$(val "$marker289")" = 0 ] || fail "AM2b: 289 aplicată cu manifest stricat"
+done
+echo "✓ AM2b: manifest ilizibil / cu nume nevalide / inexistent → exit 3, nimic scris"
+
 # ── AM1: cu lista de excepții ───────────────────────────────────────────────
 cli --dry-run --allow-gaps-file "$ALLOW" >"$WORK/am1a.log" 2>&1 || { cat "$WORK/am1a.log"; fail "AM1: dry-run a picat"; }
 grep -q 'migration_290_plan_dead_data' "$WORK/am1a.log" || fail "AM1: planul nu listează 290"

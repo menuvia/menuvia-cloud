@@ -161,6 +161,24 @@ function main() {
     throw new CliError(3, `lista de goluri permise numește migrații inexistente: ${unknownAllow.join(', ')}`)
   }
 
+  // Manifestul de schemă se parsează și se validează ÎNAINTE de orice scriere:
+  // un fișier ilizibil sau stricat nu are voie să oprească CLI-ul DUPĂ ce
+  // migrațiile au fost deja comise (pe producție, sau pe copia repetiției).
+  let manifestNames = null
+  if (opts.verifySchema) {
+    let m
+    try {
+      m = JSON.parse(readFileSync(opts.verifySchema, 'utf8'))
+    } catch {
+      throw new CliError(3, 'manifestul de schemă nu poate fi citit ca JSON')
+    }
+    const names = Array.isArray(m) ? m : m.names
+    if (!Array.isArray(names) || !names.length || names.some((n) => !/^[A-Za-z0-9_]+$/.test(n))) {
+      throw new CliError(3, 'manifestul de schemă nu are o listă validă de nume')
+    }
+    manifestNames = names
+  }
+
   // ── Preflight pe ledger ──
   const pre = JSON.parse(psqlValue(url, PREFLIGHT_SQL))
   if (!pre.exists || !pre.has_version || !pre.has_name) {
@@ -274,12 +292,8 @@ function main() {
   )
 
   // ── Verificarea finală: sonda /health (mig 271) nu mai vede nimic lipsă ──
-  if (opts.verifySchema) {
-    const m = JSON.parse(readFileSync(opts.verifySchema, 'utf8'))
-    const names = Array.isArray(m) ? m : m.names
-    if (!Array.isArray(names) || !names.length || names.some((n) => !/^[A-Za-z0-9_]+$/.test(n))) {
-      throw new CliError(3, 'manifestul de schemă nu are o listă validă de nume')
-    }
+  if (manifestNames) {
+    const names = manifestNames
     const sql = `select public.get_schema_version(array[${names.map((n) => `'${n}'`).join(',')}]::text[])::text`
     const v = JSON.parse(psqlValue(url, sql))
     if (v.available !== true || !Array.isArray(v.missing)) {
