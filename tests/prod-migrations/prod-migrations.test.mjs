@@ -217,7 +217,7 @@ test('PM9: poarta cere run-uri verzi de push pe main pentru commit, iar SQL veri
   // filtrul de căi = sursă unică: sql-verify.yml
   const paths = parsePushPaths(readFileSync(join(ROOT, '.github', 'workflows', 'sql-verify.yml'), 'utf8'))
   assert.ok(paths.includes('supabase/**.sql'))
-  for (const p of ['scripts/apply-prod-migrations.mjs', 'scripts/lib/prod-migrations.mjs', 'scripts/prod-migrations-allow-gaps.json']) {
+  for (const p of ['scripts/apply-prod-migrations.mjs', 'scripts/lib/prod-migrations.mjs', 'scripts/prod-migrations-allow-gaps.json', 'scripts/prod-migrations-rehearsal.sh']) {
     assert.ok(paths.includes(p), `${p} trebuie să declanșeze SQL verify (AM1–AM4 îl exercită)`)
   }
   assert.deepEqual(
