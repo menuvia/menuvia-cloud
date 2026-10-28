@@ -256,6 +256,12 @@ end $$;
 rollback to savepoint ha_stub;
 
 -- ── HA4: dead-man's switch cu funcția REALĂ ──────────────────────────────────
+savepoint ha_real;
+
+-- Funcția reală citește auth.users.last_sign_in_at (coloană GoTrue). Mock-ul de
+-- auth din sql-verify n-o are; pe stack-ul Supabase real (jobul E2E) și pe prod
+-- există, deci acolo instrucțiunea e no-op. Adăugată DOAR în tranzacția testului.
+alter table auth.users add column if not exists last_sign_in_at timestamptz;
 insert into public.customer_health_scores (restaurant_id, score, computed_at)
 select rid, 80, '2020-01-01' from ha_fx;
 
@@ -281,6 +287,10 @@ begin
   if v_n <> 1 then raise exception 'HA4: compute_health_scores(1) a întors % rânduri (limit p_batch_size)', v_n; end if;
   raise notice 'HA4 OK (% restaurante active)', v_total;
 end $$;
+
+-- Funcția reală poate alerta (scorul anterior 80 → critic): rândurile ei nu
+-- au voie să contamineze controlul din HA4b.
+rollback to savepoint ha_real;
 
 -- ── HA4b: un eșec în rutarea către agent NU oprește lotul ────────────────────
 savepoint ha_fail;
