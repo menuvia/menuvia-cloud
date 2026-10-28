@@ -2,6 +2,14 @@
   command   = "npm run build"
   publish   = "dist"
   functions = "netlify/functions"
+  # Igienă de build (minute pe credite): deploy previews SĂRITE mereu; producția
+  # și branch deploy-urile (ex. `stripe-test`) sărite DOAR când s-au schimbat
+  # exclusiv docs/, tests/, e2e/, .github/, supabase/, bridge/, deploy/,
+  # scripts/ sau *.md din rădăcină. Orice incertitudine → build. Contract
+  # inversat: exit 0 = ANULAT. Ocolire: `[skip ignore]` în mesajul commit-ului,
+  # sau șterge linia de mai jos (fișierul bate UI-ul). Teste NI1–NI10:
+  # tests/netlify-ignore/. Detalii: scripts/netlify-ignore.sh.
+  ignore    = "bash scripts/netlify-ignore.sh"
 
 [build.environment]
   NODE_VERSION = "22"

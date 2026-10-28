@@ -97,6 +97,11 @@ jobs:
       # vedea ca GOL. MO1 citește baza din origin/main, deci fetch-ul e întâi
       # (fail-closed: fără bază testul pică, nu sare). Integrarea pe Postgres
       # real (AM1–AM5) e în sql-verify.
+      # Comanda `ignore` din netlify.toml: contract inversat (exit 0 = build
+      # anulat), deci o greșeală oprește deploy-urile de producție. Repo git de
+      # test construit local, fără rețea.
+      - name: Netlify ignore command tests (NI1–NI10)
+        run: node --test tests/netlify-ignore/*.test.mjs
       - name: Prod migrations unit tests (PM1–PM10 + MO1 ordinea migrațiilor)
         run: |
           git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
