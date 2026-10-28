@@ -12,10 +12,19 @@ Netlify `ai-config`, `ai-proxy`, `ai-credits-checkout` (+ branch nou în
 | `PLATFORM_OPENAI_KEY` | `ai-proxy` (cheia PLATFORMEI) | **Obligatoriu pentru „AI activ implicit"**: restaurantele fără cheie BYO rulează pe această cheie (furnizorul default e `openai`). Fără ea, apelurile fără BYO întorc eroare clară. |
 | `PLATFORM_ANTHROPIC_KEY`, `PLATFORM_GEMINI_KEY` | `ai-proxy` (opțional) | Doar dacă un restaurant alege manual furnizorul respectiv fără cheie proprie. |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | toate | deja setate |
+| `SUPABASE_ANON_KEY` (sau `VITE_SUPABASE_ANON_KEY`, deja setată în Netlify) | `ai-proxy` (agentul de vânzări) | Cheia PUBLICĂ, folosită doar ca `apikey` pe un client cu JWT-ul utilizatorului, ca `ai-proxy` să verifice `has_partner_access`. Fără ea, accesul agentului e refuzat (fail-closed); owner/manager nu sunt afectați. |
 | `STRIPE_SECRET_KEY` | `ai-credits-checkout` | deja setat |
 
 > ⚠️ După adăugarea/schimbarea unei variabile de mediu, e necesar un **redeploy**
 > ca funcțiile să o preia.
+
+## Agentul de vânzări (mig 286/303)
+
+Un utilizator care NU e owner/manager al restaurantului poate folosi `ai-proxy`
+DOAR dacă are acces de partener acordat de owner (`has_partner_access`, verificat
+pe un client cu JWT-ul lui) și DOAR pentru `menu_import` și `translate`; orice alt
+`feature` (chat, nutriție) → 403. Cota consumată e a RESTAURANTULUI, nu a
+agentului. Teste: `tests/functions/ai-proxy-agent.test.js` (AI1–AI7).
 
 ## Activ implicit (zero configurare)
 

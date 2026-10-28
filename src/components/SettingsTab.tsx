@@ -12,6 +12,7 @@ import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MfaCard from './MfaCard'
 import GdprCard from './GdprCard'
+import { AgentCard } from './_dashboard/AgentCard'
 import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
@@ -464,6 +465,9 @@ export default function SettingsTab({
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
         {section === 'restaurant' && (
           <>
+            {/* Agentul tău Menuvia (mig 303) — doar când există un agent atribuit. */}
+            <AgentCard restaurantId={restaurant.id} />
+
             <SettingsCard icon="info" title="Informații principale">
               {(
                 [
