@@ -55,7 +55,7 @@ describe('routeAliases', () => {
   })
 
   it('RA3: Caddyfile (VPS) are același redirect', () => {
-    expect(read('deploy/Caddyfile')).toMatch(/redir \/preturi \/pricing 301/)
+    expect(read('deploy/Caddyfile')).toMatch(/redir \/preturi \/pricing\?\{query\} 301/)
   })
 
   it('RA4: App.tsx rutează prin helper', () => {

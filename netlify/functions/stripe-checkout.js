@@ -91,7 +91,7 @@ exports.handler = async (event) => {
   // sau Supabase (nici customer, nici sesiune, nici atribuire de afiliat).
   if (QUOTE_ONLY_PLANS.includes(requestedPlan)) {
     return jsonResponse(403, {
-      error: `Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Scrie-ne la contact@${MAIL_DOMAIN} și revenim.`,
+      error: `Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Scrie-ne la contact@${MAIL_DOMAIN}.`,
       code: 'plan_requires_quote',
     })
   }

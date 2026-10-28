@@ -77,7 +77,7 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
       code,
       message:
         msg ??
-        'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă și revenim.',
+        'Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Cere o ofertă.',
       action: 'quote',
     }
   }
@@ -123,7 +123,7 @@ export function describeCheckoutFailure(status: number, body: unknown): Checkout
     return {
       code: 'not_configured',
       message:
-        'Plata online nu e disponibilă momentan. Scrie-ne pe email și îți activăm planul manual.',
+        'Plata online nu e disponibilă momentan. Contactează-ne și îți activăm planul manual.',
       action: 'contact',
     }
   }

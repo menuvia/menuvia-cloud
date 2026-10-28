@@ -16,7 +16,7 @@ menuvia.ro, www.menuvia.ro {
 	}
 
 	# ── Alias vechi (paritate cu netlify.toml): /preturi → /pricing ──────
-	redir /preturi /pricing 301
+	redir /preturi /pricing?{query} 301
 
 	# ── Static (build-ul Vite) ────────────────────────────────────────
 	handle {

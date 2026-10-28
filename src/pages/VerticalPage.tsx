@@ -173,7 +173,7 @@ const VERTICALS: Record<VerticalKey, VerticalConfig> = {
       {
         icon: 'star',
         t: 'Recenzii Google după comandă',
-        d: 'După comandă, fiecare client primește linkul spre pagina ta de Google și poate lăsa o recenzie; notele slabe deschid și un câmp de comentariu, ca să afli ce a mers prost.',
+        d: 'Când ai configurat linkul paginii tale de Google, clientul îl vede după ce termină feedback-ul și poate lăsa o recenzie; notele slabe deschid și un câmp de comentariu, ca să afli ce a mers prost.',
       },
       {
         icon: 'leaf',

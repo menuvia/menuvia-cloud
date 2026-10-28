@@ -8,7 +8,7 @@ import type { IconName } from '../components/ui/Icon'
 import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
 import { applyBusinessTypePreset } from '../lib/quickSetup'
 import { track } from '../lib/analytics'
-import { browserSite, defaultUiLang, siteHost } from '../lib/domain'
+import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 
@@ -1341,7 +1341,9 @@ function Step4Done({
   slug: string
   onComplete: () => void
 }) {
-  const menuUrl = `${window.location.origin}/m/${slug}`
+  // Linkul de distribuit urmează politica de domeniu (D3): pe un host .com NU
+  // trimitem spre un domeniu care nu ne aparține.
+  const menuUrl = `${publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin)}/m/${slug}`
   // Feedback la copiere — fără el, click-ul părea că nu face nimic (iar în
   // browsere fără clipboard API eșua complet tăcut).
   const [copied, setCopied] = useState(false)
@@ -1532,10 +1534,12 @@ function Step4Done({
               <Icon name="users" size={15} color={D.t3} />
               <span>{t.step4.nextStepInviteTeam}</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="chart" size={15} color={D.t3} />
-              <span>{t.step4.nextStepTrackOrders}</span>
-            </div>
+            {canOrder && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="chart" size={15} color={D.t3} />
+                <span>{t.step4.nextStepTrackOrders}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
