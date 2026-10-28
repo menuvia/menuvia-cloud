@@ -62,7 +62,7 @@ async function rejection(p: Promise<unknown>): Promise<SalesNetworkError> {
     await p
   } catch (e) {
     if (e instanceof SalesNetworkError) return e
-    throw new Error(`aruncat altceva decât SalesNetworkError: ${String(e)}`)
+    throw new Error(`aruncat altceva decât SalesNetworkError: ${String(e)}`, { cause: e })
   }
   throw new Error('promisiunea nu a fost respinsă')
 }
