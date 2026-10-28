@@ -19,7 +19,9 @@
 //   PC8  FAQ-ul de facturare spune „per cont" și numără locațiile din limite;
 //   PC9  sursa PricingPage nu mai conține FAQ-urile contractuale ca literal
 //        (altfel o copie în JSX ar ocoli PC7);
-//   PC10 MarketingFooter nu mai trimite la SOL/ODR (desființat), ci la SAL.
+//   PC10 MarketingFooter nu mai trimite la SOL/ODR (desființat), ci la SAL;
+//   PC11 trialul FĂRĂ card (RES-11) nu promite că abonamentul „continuă” singur
+//        (era PC7 în #273; redenumit — PC7 e clasa de copy contractual fals din #302).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -104,6 +106,14 @@ describe('copy-ul de pe pagina de prețuri', () => {
         Number(m[1]),
       )
     }
+  })
+
+  it('PC11: trialul fără card nu promite că abonamentul „continuă” singur (RES-11)', () => {
+    // stripe-checkout.js trimite `missing_payment_method: 'cancel'`: fără card la
+    // final, abonamentul se ANULEAZĂ. Textul vechi spunea exact contrariul.
+    expect(TRIAL_HEADLINE + ' ' + TRIAL_FAQ.a).toMatch(/fără card|nu îți cerem cardul/i)
+    expect(TRIAL_FAQ.a).not.toContain('abonamentul continuă la prețul planului ales, abia atunci')
+    expect(TRIAL_FAQ.a).toMatch(/se oprește singur/)
   })
 
   it('PC5: niciun card nu contrazice tabelul comparativ', () => {

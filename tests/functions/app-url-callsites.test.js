@@ -133,7 +133,7 @@ describe('CS9: stripe-checkout — cheia de idempotență poartă originea', () 
     process.env.VITE_APP_URL = 'https://two.example'
     const b = await runCheckout()
     const ka = a.args[1].idempotencyKey
-    assert.match(ka, /^checkout_v4_[0-9a-f]{10}_u1_growth_/)
+    assert.match(ka, /^checkout_v5_[0-9a-f]{10}_u1_growth_/)
     assert.equal(a2.args[1].idempotencyKey, ka, 'dedup-ul pe aceeași cerere s-a pierdut')
     assert.notEqual(b.args[1].idempotencyKey, ka)
     // Originea nu apare în clar în cheie.

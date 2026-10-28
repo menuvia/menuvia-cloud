@@ -6,7 +6,9 @@
 // ─────────────────────────────────────────────────────────────
 // Reguli de copy (impuse comercial):
 //   - NU scrie „nelimitat" dacă limita e finită.
-//   - NU scrie „Fără card" decât dacă Stripe permite trial fără card.
+//   - „Fără card" e ADEVĂRAT doar pe planurile din TRIAL_PLAN_IDS (RES-11:
+//     stripe-checkout.js trimite `payment_method_collection:'if_required'`
+//     DOAR pe ramura cu trial). Nu-l scrie pe un plan fără trial.
 //   - NU folosi „Pro" ca text vizibil clientului — e id intern.
 //   - Fără termeni tehnici (Modifiers, KDS, FiscalNet) — copy în română umană.
 //   - Mesaj central: Meniu Digital = QR. Meniu + Comenzi = comenzi QR.
@@ -265,14 +267,15 @@ export function locationsPerAccountText(): string {
 }
 
 // Trust signals afișate sub grila de planuri — adevărate, verificate.
-// „Fără card pentru trial" NU apare aici: până nu confirmăm că Stripe
-// Checkout poate fi configurat fără card, nu promitem. Anularea urmează
-// Termenii §4.4: oricând, din aplicație, cu efect la finalul perioadei plătite.
+// „Fără card" e aici din RES-11 (trialul pornește fără metodă de plată) și se
+// publică DOAR după sesiunea reală verificată în Stripe TEST mode (poarta
+// PR-ului #273). Anularea urmează Termenii §4.4: oricând, din aplicație, cu efect
+// la finalul perioadei plătite — fără promisiunea „cu un click" (#302).
 export const TRUST_SIGNALS = [
   {
     icon: '🎁',
     label: '30 zile gratuite',
-    desc: 'Prima plată abia după perioada de probă. Anulezi oricând, fără penalizări.',
+    desc: 'Fără card. Anulezi oricând din aplicație, fără penalizări.',
   },
   { icon: '🔄', label: 'Migrare gratuită', desc: 'Îți mutăm meniul de la alt sistem.' },
   { icon: '🛟', label: 'Suport pe email', desc: 'Prin agentul tău Menuvia și pe email.' },

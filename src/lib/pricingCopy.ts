@@ -39,21 +39,27 @@ export const TRIAL_PLAN_IDS: PlanId[] = ['starter', 'growth']
 
 const trialPlanNames = TRIAL_PLAN_IDS.map((id) => getPlan(id).name)
 
+// RES-11: trialul pornește FĂRĂ card (`payment_method_collection:'if_required'`
+// + `missing_payment_method:'cancel'` în stripe-checkout.js). Fără card la
+// final, abonamentul se oprește SINGUR, fără plată — textul de mai jos nu mai
+// are voie să promită că „abonamentul continuă” (PC11 îl păzește).
 // Anularea urmează Termenii §4.4: oricând, din aplicație, cu efect la finalul
-// perioadei deja plătite; sumele achitate nu se rambursează. În perioada de
-// probă nu s-a plătit nimic, deci anularea înainte de prima plată nu costă.
+// perioadei deja plătite; în perioada de probă nu s-a plătit nimic (#302: fără
+// „cu un click”).
 export const TRIAL_HEADLINE =
-  `${TRIAL_DAYS} de zile gratuite pe ${trialPlanNames.join(' și ')}. ` +
+  `${TRIAL_DAYS} de zile gratuite pe ${trialPlanNames.join(' și ')}, fără card. ` +
   'Anulezi oricând din aplicație, fără penalizări.'
 
 export const TRIAL_FAQ = {
   q: `Ce se întâmplă după cele ${TRIAL_DAYS} de zile gratuite?`,
   a:
     `Trialul de ${TRIAL_DAYS} de zile e pe ${trialPlanNames.join(' și ')} și se acordă o singură ` +
-    'dată per cont. După el, abonamentul continuă la prețul planului ales, abia atunci se face ' +
-    'prima plată. Dacă nu ești mulțumit, anulezi din aplicație înainte de prima plată și nu ' +
-    'plătești nimic. Fiscalizarea intră prin programul pilot, cu setup făcut împreună. După ' +
-    'încetarea abonamentului poți cere exportul datelor tale timp de 30 de zile.',
+    'dată per cont. Nu îți cerem cardul la început. Dacă adaugi un card până la final, ' +
+    'abonamentul continuă la prețul planului și atunci se face prima plată. Dacă nu adaugi, ' +
+    'abonamentul se oprește singur, fără nicio plată: meniul publicat rămâne, iar contul revine ' +
+    'la limitele planului gratuit. Poți anula oricând din aplicație. Fiscalizarea intră prin ' +
+    'programul pilot, cu setup făcut împreună. După încetarea abonamentului poți cere exportul ' +
+    'datelor tale timp de 30 de zile.',
 }
 
 export const PILOT_BANNER = {
