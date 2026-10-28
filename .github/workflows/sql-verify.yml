@@ -1865,6 +1865,17 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/advisor_hardening_assertions.sql
 
+      # NECONDIȚIONAT (mig 298, G0 .com): rezervarea publică judecată în fusul
+      # RESTAURANTULUI (nu București hardcodat), limba de bază editabilă și
+      # proiectată pe QR + /m/:slug, țara pe /m/:slug. Rulează și în jobul E2E
+      # din ci.yml (default privileges pe helperul nou safe_time_zone).
+      - name: "Reservation timezone + menu base language assertions (mig 298, RZ1–RZ6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_timezone_assertions.sql
+
       # Rularea AUTOMATĂ a suitelor din tests/sql/auto/*.sql (după fixture și
       # după toate suitele cu pas propriu). O suită nouă se pune DOAR ca fișier
       # acolo — fără pas nou aici și în ci.yml (fișiere fierbinți la conflicte).

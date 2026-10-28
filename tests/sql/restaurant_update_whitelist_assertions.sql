@@ -43,7 +43,9 @@ declare
     -- mig 205 — moneda meniului (expansiune internațională planurile 1-2).
     'currency',
     -- mig 296 — țara (regula de aur pe țară; schimbarea e owner-only în DATE).
-    'country'
+    'country',
+    -- mig 298 — limba de BAZĂ a meniului (CHECK pe cele 7 limbi ale meniului).
+    'language'
   ];
 begin
   -- (a) Toate coloanele din whitelist TREBUIE să rămână UPDATE-abile: dacă un
