@@ -88,7 +88,12 @@ function affiliate(over: Partial<AdminAffiliateRow>): AdminAffiliateRow {
 
 const AFFILIATES: AdminAffiliateRow[] = [
   affiliate({ affiliate_id: 'h1', full_name: 'Șef Unu', status: 'active' }),
-  affiliate({ affiliate_id: 'a1', full_name: 'Agent Unu', status: 'suspended', parent_affiliate_id: 'h1' }),
+  affiliate({
+    affiliate_id: 'a1',
+    full_name: 'Agent Unu',
+    status: 'suspended',
+    parent_affiliate_id: 'h1',
+  }),
   affiliate({ affiliate_id: 'h2', full_name: 'Șef Închis', status: 'closed' }),
 ]
 
@@ -132,7 +137,10 @@ function callsOf(fn: string): unknown[][] {
 
 const onNetworkChanged = vi.fn()
 
-function renderPanel(affiliates: AdminAffiliateRow[] | null = AFFILIATES, error: string | null = null) {
+function renderPanel(
+  affiliates: AdminAffiliateRow[] | null = AFFILIATES,
+  error: string | null = null,
+) {
   return render(
     <SalesNetworkPanel
       affiliates={affiliates}
@@ -302,14 +310,18 @@ describe('SalesNetworkPanel', () => {
   it('SP6c: rolul se vede din legătura cu șeful', async () => {
     renderPanel()
     const row = (await screen.findByText('Agent Unu')).closest('div') as HTMLElement
-    expect(within(row.parentElement as HTMLElement).getByText(/agent · suspendat/i)).toBeInTheDocument()
+    expect(
+      within(row.parentElement as HTMLElement).getByText(/agent · suspendat/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(/șef · activ/i)).toBeInTheDocument()
   })
 
   it('SP7: RPC lipsă → indisponibil, nu „nepublicat"', async () => {
     rpcMock.mockImplementation(() => rpcFail('PGRST202'))
     renderPanel()
-    expect((await screen.findAllByText(SALES_FAILURE_MESSAGES.unavailable)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(SALES_FAILURE_MESSAGES.unavailable)).length).toBeGreaterThan(
+      0,
+    )
     expect(screen.queryByText(/nepublicat — invitațiile sunt blocate/i)).toBeNull()
     expect(screen.getByRole('button', { name: /creează invitație/i })).toBeDisabled()
     expect(screen.queryByRole('button', { name: /publică versiunea/i })).toBeNull()
@@ -323,7 +335,9 @@ describe('SalesNetworkPanel', () => {
     })
     renderPanel()
     await screen.findByText(/publicat: versiunea 1\.0/i)
-    expect((await screen.findAllByText(SALES_FAILURE_MESSAGES.unavailable)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText(SALES_FAILURE_MESSAGES.unavailable)).length).toBeGreaterThan(
+      0,
+    )
     expect(screen.queryByText(/nicio invitație încă/i)).toBeNull()
   })
 
