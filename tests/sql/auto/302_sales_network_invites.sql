@@ -1409,7 +1409,7 @@ declare
   v jsonb; u1 uuid; u2 uuid; u3 uuid; v_id uuid; v_ts timestamptz; w text; v_h1 uuid;
 begin
   select id into v_h1 from public.affiliates where profile_id = H1;
-  u1 := pg_temp.in_mkuser('h1'); u2 := pg_temp.in_mkuser('h2'); u3 := pg_temp.in_mkuser('h3');
+  u1 := pg_temp.in_mkuser('n25a'); u2 := pg_temp.in_mkuser('n25b'); u3 := pg_temp.in_mkuser('n25c');
 
   -- 1. hash legat de versiune: orice 64 hex ≠ publicat → contract_hash_mismatch (și 000…0)
   v_id := pg_temp.in_seed_inv('head', 'tok-in25', null);
