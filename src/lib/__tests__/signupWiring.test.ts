@@ -14,6 +14,9 @@
 //   SW5  App.tsx: `?next=` se onorează ÎNAINTEA intențiilor, atât în efectul de
 //        auto-redirect cât și în onSuccess; destinația pe rol vine din
 //        loadPostLoginDestination în ambele
+//   SW7  ieșirea din /auth după login = mereu replace, prin exitAuth: nicio
+//        `navigate(` în onSuccess și nicio redirecționare brută în efect (un PUSH
+//        din onSuccess lasă /auth în istoric — regresia prinsă de E2E 03)
 //   SW6  codul de agent se citește din `user_metadata` doar de trigger-ul din
 //        bază: clientul nu cheamă niciun RPC de atribuire la signup
 import { readFileSync } from 'node:fs'
@@ -76,5 +79,16 @@ describe('înscrierea — cablaj', () => {
   it('SW6 clientul nu cheamă RPC de atribuire la signUp (o face trigger-ul din bază)', () => {
     expect(AUTH).not.toMatch(/capture_affiliate_attribution|claim_agent_code/)
     expect(read('src/hooks/useSignupAgentCode.ts')).not.toMatch(/capture_affiliate_attribution|claim_agent_code/)
+  })
+
+  it('SW7 ieșirea din /auth: replace prin exitAuth, niciun navigate în onSuccess', () => {
+    const onSuccess = APP.slice(APP.indexOf('<AuthPage'), APP.indexOf('// ── Authenticated: landing'))
+    expect(onSuccess).not.toMatch(/\bnavigate\(/)
+    expect(onSuccess.match(/exitAuth\(/g)?.length ?? 0).toBeGreaterThan(3)
+    const effect = APP.slice(APP.indexOf('autoRedirectedRef.current = true'), APP.indexOf('// Reset auto-redirect flag'))
+    expect(effect).not.toMatch(/\breplace\(/)
+    expect(effect).not.toMatch(/\bnavigate\(/)
+    expect(effect.match(/exitAuth\(/g)?.length ?? 0).toBeGreaterThan(3)
+    expect(APP).toContain("from './lib/postLoginRedirect'")
   })
 })

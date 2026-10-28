@@ -17,6 +17,7 @@ import { D } from './lib/constants'
 import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
 import { authPathWithNext, nextFromSearch } from './lib/authRedirect'
 import { loadPostLoginDestination } from './lib/postLogin'
+import { leaveAuth } from './lib/postLoginRedirect'
 import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
@@ -341,9 +342,31 @@ function AppRouter() {
     // consimțământul nu se mai consemna deloc (recenzie CodeRabbit pe #261).
     window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
   }
+  // Track if we've already auto-redirected this user this session.
+  // Prevents redirect loop when user clicks back after login.
+  const autoRedirectedRef = useRef(false)
+
   const replace = (path: string) => {
     window.history.replaceState({}, '', path)
     setState(parsePath())
+  }
+  // Ieșirea din /auth după login: mereu replace, o singură dată
+  // (lib/postLoginRedirect.ts). Anunță ruta ca `navigate`: replaceState nu emite
+  // nimic, iar TermsAcceptanceGate (montat în afara routerului) a citit /auth la
+  // montare — fără anunț ar rămâne suprimat toată sesiunea. Se cheamă doar din
+  // handlere/async, niciodată din randare (un setState în listener ar avertiza).
+  const exitAuth = (dest: string) => {
+    const moved = leaveAuth(
+      {
+        pathname: () => window.location.pathname,
+        replace: (path) => {
+          replace(path)
+          window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+        },
+      },
+      dest,
+    )
+    if (moved) autoRedirectedRef.current = true
   }
 
   useEffect(() => {
@@ -351,10 +374,6 @@ function AppRouter() {
     window.addEventListener('popstate', h)
     return () => window.removeEventListener('popstate', h)
   }, [])
-
-  // Track if we've already auto-redirected this user this session.
-  // Prevents redirect loop when user clicks back after login.
-  const autoRedirectedRef = useRef(false)
 
   useEffect(() => {
     if (loading || !user || state.view !== 'auth') return
@@ -377,7 +396,7 @@ function AppRouter() {
       // unde era. Doar cale internă validată (lib/authRedirect.ts).
       const nextDest = nextFromSearch(window.location.search)
       if (nextDest) {
-        replace(nextDest)
+        exitAuth(nextDest)
         return
       }
       // Intenția de afiliere are prioritate (concurează cu onSuccess din
@@ -394,7 +413,7 @@ function AppRouter() {
         } catch {
           /* ignore */
         }
-        replace('/afiliat')
+        exitAuth('/afiliat')
         return
       }
       // Intenția de plan (localStorage, TTL 24 h): contul confirmat din linkul
@@ -407,14 +426,16 @@ function AppRouter() {
       // să moștenească planul ales de altcineva (planIntent.ts).
       const intentDest = planIntentDestination(user.email ?? null, window.location.search)
       if (intentDest) {
-        replace(intentDest)
+        exitAuth(intentDest)
         return
       }
       // Fiecare rol pe ecranul lui (lib/postLogin.ts): personalul pe pagina lui,
       // agentul fără restaurant pe panoul de afiliat, restul pe /dashboard
       // (patronul fără restaurant ajunge acolo pe onboarding).
+      // Doar cât omul e încă pe /auth: dacă `onSuccess` a ajuns primul, drumul e
+      // deja ales și nu-l suprascriem (lib/postLoginRedirect.ts).
       void loadPostLoginDestination(user.id).then((dest) => {
-        replace(dest)
+        exitAuth(dest)
       })
     })()
     return () => {
@@ -726,15 +747,19 @@ function AppRouter() {
       <Suspense fallback={<PageSpinner />}>
         <AuthPage
           onSuccess={(email) => {
-            // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
-            // înapoi la pricing — onCheckout va detecta că e logat și va sări
-            // la Stripe. Fără intent, mergem la dashboard ca până acum.
+            // Ieșirea din /auth se face MEREU cu replace, o singură dată
+            // (exitAuth → lib/postLoginRedirect.ts): intrarea /auth nu rămâne în
+            // istoric, indiferent dacă efectul de auto-redirect sau acest closure
+            // ajunge primul (E2E „back button does not redirect to /auth").
             // `?next=` explicit (de la o rută protejată) bate orice intenție.
             const nextDest = nextFromSearch(window.location.search)
             if (nextDest) {
-              navigate(nextDest)
+              exitAuth(nextDest)
               return
             }
+            // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
+            // înapoi la pricing — onCheckout va detecta că e logat și va sări
+            // la Stripe. Fără intent, mergem pe ecranul rolului.
             const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
@@ -743,7 +768,7 @@ function AppRouter() {
               /* ignore (private mode) */
             }
             if (intentDest) {
-              navigate(intentDest)
+              exitAuth(intentDest)
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
@@ -754,23 +779,17 @@ function AppRouter() {
               } catch {
                 /* ignore */
               }
-              navigate('/afiliat')
+              exitAuth('/afiliat')
               return
             }
-            // Cursă cu efectul de auto-redirect din AppRouter: dacă el a apucat
-            // deja să consume afiliat_intent și a dus userul pe /afiliat, acest
-            // closure (care rulează după `await signIn`, chiar și demontat) NU
-            // are voie să-l suprascrie cu /dashboard.
-            if (window.location.pathname === '/afiliat') return
             // Fiecare rol pe ecranul lui — ACELAȘI calcul ca efectul de
-            // auto-redirect (lib/postLogin.ts). Dacă efectul a mutat deja omul,
-            // nu mai împingem a doua intrare în istoric.
+            // auto-redirect (lib/postLogin.ts). Dacă efectul a mutat deja omul
+            // (pathname ≠ /auth), exitAuth nu mai face nimic.
             void (async () => {
               const { data } = await supabase.auth.getSession()
               const uid = data.session?.user.id
               const dest = uid ? await loadPostLoginDestination(uid) : '/dashboard'
-              if (window.location.pathname !== '/auth') return
-              navigate(dest)
+              exitAuth(dest)
             })()
           }}
         />
