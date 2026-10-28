@@ -1850,6 +1850,21 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/advisor_hardening_assertions.sql
 
+      # PR-0: aplicarea automată pe producție, exersată pe o bază care simulează
+      # producția (replay < 289 + 291 aplicată înaintea lui 289/290, version =
+      # momentul aplicării). AM2 refuzul golului fără excepție, AM1 aplicarea +
+      # ledger + get_schema_version().missing = [], AM3 enum_only + eșec atomic,
+      # AM4 rândul de ledger în aceeași tranzacție cu fișierul. Bază SEPARATĂ —
+      # menuvia_test rămâne neatinsă. Node: cel preinstalat pe runner (CLI-ul
+      # folosește doar built-ins).
+      - name: "Aplicarea automată a migrațiilor pe o bază simulată de producție (PR-0, AM1–AM4)"
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: node --version && bash tests/prod-migrations/am-integration.sh
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

@@ -1,0 +1,186 @@
+name: Apply prod migrations
+
+# Aplicarea AUTOMATĂ a migrațiilor pe producție (PR-0) — fondatorul nu mai
+# rulează SQL de mână. Procedura completă: docs/RUNBOOK.md §6.5.
+#
+# Când: după ce CI + Tests & Quality + SQL Migrations Verify sunt verzi pe vârful
+# lui main (oricare dintre ele se termină ULTIMUL ne trezește; poarta le verifică
+# pe toate trei, prin API), sau manual (workflow_dispatch, implicit dry_run).
+#
+# Ce face, în ordine: poarta (fără secrete) → backup criptat → aplicarea cu
+#   scripts/apply-prod-migrations.mjs (după NUME, ca get_schema_version din
+#   mig 271; rândul de ledger în aceeași tranzacție cu fișierul) → porțile
+#   read-only (privilege_regime_assertions.sql + get_schema_version().missing = []).
+#
+# Secrete: în environment-ul `production` (SUPABASE_DB_URL = URI-ul „Session
+# pooler”, BACKUP_PASSPHRASE). INERT fără ele. Pauză: variabila de repo
+# PROD_MIGRATIONS_PAUSED=true. NU rulează niciodată pe pull_request.
+
+on:
+  workflow_run:
+    workflows: ['CI', 'Tests & Quality', 'SQL Migrations Verify']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Doar planul: nu scrie nimic pe producție'
+        type: boolean
+        default: true
+
+permissions: {}
+
+# Serializat: niciodată două aplicări în paralel pe aceeași bază.
+concurrency:
+  group: prod-migrations
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Poarta (CI + Tests + SQL verify verzi pe main)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      go: ${{ steps.gate.outputs.go }}
+      sha: ${{ steps.gate.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Evaluează poarta
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+          TARGET_REF: ${{ github.ref }}
+          PAUSED: ${{ vars.PROD_MIGRATIONS_PAUSED }}
+        run: node scripts/prod-migrations-gate.mjs
+
+  apply:
+    name: Backup + aplicare + porți
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    permissions:
+      contents: read
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - name: Configurare (inert / pauză / backup obligatoriu)
+        id: cfg
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          PAUSED: ${{ vars.PROD_MIGRATIONS_PAUSED }}
+        run: |
+          if [ "$PAUSED" = "true" ]; then
+            echo "::warning::Aplicarea automată e în PAUZĂ (PROD_MIGRATIONS_PAUSED=true)."
+            echo "### ⏸ În pauză (PROD_MIGRATIONS_PAUSED=true)" >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$DB_URL" ]; then
+            msg="SUPABASE_DB_URL lipsește din environment-ul production — aplicarea automată e INERTĂ. Setează-l (URI-ul Session pooler din Supabase → Connect) + BACKUP_PASSPHRASE; vezi docs/RUNBOOK.md §6.5."
+            echo "::warning::$msg"
+            printf '### ⚠️ Inert\n\n%s\n' "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$DRY_RUN" != "true" ] && [ -z "$PASSPHRASE" ]; then
+            echo "::error::BACKUP_PASSPHRASE lipsește: NICIO migrație fără backup. Setează-l în environment-ul production."
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        if: steps.cfg.outputs.ready == 'true'
+        with:
+          node-version: '22'
+
+      - name: Instalează clientul Postgres 17 (PGDG)
+        if: steps.cfg.outputs.ready == 'true'
+        # Copie a pasului din db-backup.yml: apt-ul din ubuntu-latest dă clientul
+        # 16, iar Supabase rulează PG 17 → pg_dump avortează pe version mismatch.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | \
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Planul (ce lipsește din ledger, după nume)
+        id: plan
+        if: steps.cfg.outputs.ready == 'true'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          node scripts/apply-prod-migrations.mjs --dry-run \
+            --allow-gaps-file scripts/prod-migrations-allow-gaps.json \
+            --output-file "$GITHUB_OUTPUT" --summary-file "$GITHUB_STEP_SUMMARY"
+
+      - name: Backup criptat ÎNAINTE de aplicare
+        if: steps.cfg.outputs.ready == 'true' && env.DRY_RUN != 'true' && steps.plan.outputs.pending_count != '0'
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        # Aceeași mecanică ca db-backup.yml (repo PUBLIC → criptare AES-256
+        # înainte de upload; FĂRĂ --no-privileges, vezi RUNBOOK §6.1).
+        run: |
+          set -euo pipefail
+          STAMP="$(date -u +%Y-%m-%dT%H%M%SZ)"
+          pg_dump "$DB_URL" -Fc --no-owner -f "premigration-$STAMP.dump"
+          pg_restore --list "premigration-$STAMP.dump" > /dev/null   # arhiva e lizibilă
+          openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
+            -in "premigration-$STAMP.dump" -out "premigration-$STAMP.dump.enc"
+          rm "premigration-$STAMP.dump"
+          ls -lh premigration-*.dump.enc
+
+      - name: Urcă backup-ul criptat (retenție 30 zile)
+        if: steps.cfg.outputs.ready == 'true' && env.DRY_RUN != 'true' && steps.plan.outputs.pending_count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-premigration-${{ github.run_id }}
+          path: 'premigration-*.dump.enc'
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Aplică migrațiile pe producție
+        id: apply
+        if: steps.cfg.outputs.ready == 'true' && env.DRY_RUN != 'true' && steps.plan.outputs.pending_count != '0'
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          node scripts/apply-prod-migrations.mjs \
+            --allow-gaps-file scripts/prod-migrations-allow-gaps.json \
+            --verify-schema netlify/functions/schema-manifest.json \
+            --output-file "$GITHUB_OUTPUT" --summary-file "$GITHUB_STEP_SUMMARY"
+
+      - name: Poarta read-only de privilegii pe producție (RP1–RP13)
+        if: steps.apply.outcome == 'success'
+        env:
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        # READ-ONLY prin contract (antetul fișierului: catalog + set role +
+        # SELECT, rulabil pe producție în paralel cu trafic).
+        run: |
+          psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f tests/sql/privilege_regime_assertions.sql
+          echo "✅ Poarta de privilegii: verde" >> "$GITHUB_STEP_SUMMARY"
