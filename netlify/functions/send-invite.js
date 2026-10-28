@@ -162,9 +162,9 @@ exports.handler = async (event) => {
     return { statusCode: 500, body: JSON.stringify({ error: 'Could not create invite' }) }
   }
 
-  // 'com' → https://menuvia.com; orice altceva (absent = clienți vechi, 'ro',
-  // gunoi) → cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL →
-  // menuvia.netlify.app; menuvia.ro nu e încă cumpărat).
+  // Orice valoare a lui `site` (absent = clienți vechi, 'ro', 'com', gunoi) →
+  // cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.netlify.app).
+  // Linkul NU pleacă niciodată spre domeniul .com (nu ne aparține — D3).
   const appUrl   = siteAppUrl(site, { keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
   const acceptUrl = `${appUrl}/invite/${invite.token}`
 

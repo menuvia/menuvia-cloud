@@ -130,7 +130,7 @@ export default function PricingPage({
 }) {
   const { user } = useAuth()
   // Site-ul (lib/domain.ts): pe menuvia.ro TOT ce urmează e identic cu înainte
-  // (toate planurile, prețuri RON, checkout deschis). Pe menuvia.com: doar
+  // (toate planurile, prețuri RON, checkout deschis). Pe hostul .com: doar
   // Planurile 1–2, fără prețuri (nu există încă prețuri EUR în Stripe) și
   // checkout închis cu mesaj explicit — vezi lib/siteMarket.ts.
   const site = browserSite()
@@ -542,7 +542,7 @@ export default function PricingPage({
           </div>
         )}
 
-        {/* menuvia.com: checkout-ul nu e încă deschis — spus SUS, nu doar la click. */}
+        {/* hostul .com: checkout-ul nu e încă deschis — spus SUS, nu doar la click. */}
         {!checkoutOpen && (
           <div
             role="note"

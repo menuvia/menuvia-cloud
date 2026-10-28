@@ -3,7 +3,7 @@
 // care le rulează neschimbate). Înainte, 8 funcții aveau `menuvia.ro` scris de
 // mână și ~37 de link-uri foloseau fallback-uri DIFERITE (`menuvia.ro` într-un
 // loc, `menuvia.netlify.app` în altele, `APP_URL` vs `VITE_APP_URL`) — o a doua
-// piață (menuvia.com) ar fi cerut să le găsești pe toate de mână.
+// piață ar fi cerut să le găsești pe toate de mână.
 //
 // NU e o funcție Netlify: directorul `lib/` n-are `lib.js`/`index.js`, deci
 // zip-it-and-ship-it nu-l expune, iar `deploy/server.js` listează doar
@@ -33,16 +33,17 @@
 // blocul /etc/menuvia/env (docs/VPS_RUNBOOK.md) și din netlify.toml.
 const RO_DOMAIN = 'menuvia.ro'
 const DEFAULT_APP_URL = `https://${RO_DOMAIN}`
-// Domeniul .com (a doua piață). Folosit DOAR prin `siteAppUrl('com')`, la
-// cererea explicită (validată pe allowlist) a clientului de pe menuvia.com.
+// Domeniul .com NU ne aparține (decizia D3, docs/dosar/04): e folosit EXCLUSIV
+// pentru DETECȚIE (`isComHost` — o cerere rutată pe un host .com viitor nu are
+// voie să deschidă checkout-ul în RON). Nicio funcție de aici NU GENEREAZĂ un
+// URL spre el: niciun link, redirect sau email nu pleacă spre menuvia.com.
 const COM_DOMAIN = 'menuvia.com'
-const COM_APP_URL = `https://${COM_DOMAIN}`
 // Fallback-ul ISTORIC al funcțiilor de checkout/portal/invitație/email —
 // singurul domeniu garantat viu cât timp menuvia.ro nu e cumpărat.
 const LEGACY_NETLIFY_URL = 'https://menuvia.netlify.app'
 
 // Domeniul de email (expeditori, reply-to). NU se schimbă cu site-ul: Resend
-// are verificat doar acest domeniu; un expeditor @menuvia.com ar fi respins.
+// are verificat doar acest domeniu.
 const MAIL_DOMAIN = RO_DOMAIN
 const FROM_HELLO = `Menuvia <hello@${MAIL_DOMAIN}>`
 const FROM_PILOT_LEADS = `Menuvia Leads <pilot@${MAIL_DOMAIN}>`
@@ -96,13 +97,16 @@ function appUrl(opts = {}) {
 // Site-urile pe care clientul le poate CERE explicit. Allowlist STRICT: corpul
 // cererii poartă doar eticheta ('ro'/'com'), niciodată o origine — o origine
 // luată din body ar face din emailul de invitație un relay de phishing
-// (link brandat Menuvia spre orice domeniu).
-const SITE_ORIGINS = Object.freeze({ com: COM_APP_URL })
+// (link brandat Menuvia spre orice domeniu). Allowlist-ul de ORIGINI e GOL
+// deliberat: menuvia.com nu e al nostru, deci eticheta 'com' nu mai duce nicăieri
+// (cade pe `appUrl(opts)`, ca orice altă valoare). Când .com se cumpără, intră
+// aici o cheie `com` — într-un PR propriu, cu testul de clichet actualizat.
+const SITE_ORIGINS = Object.freeze({})
 
 /**
- * Originea pentru site-ul cerut de client: 'com' → https://menuvia.com;
- * orice altceva (absent, 'ro', gunoi, URL) → `appUrl(opts)`, adică EXACT
- * comportamentul de dinainte al apelantului.
+ * Originea pentru site-ul cerut de client. Cu allowlist-ul gol, ORICE valoare
+ * (absent, 'ro', 'com', gunoi, URL) → `appUrl(opts)`, adică EXACT
+ * comportamentul de dinainte al apelantului pe .ro.
  */
 function siteAppUrl(site, opts) {
   if (typeof site === 'string' && Object.prototype.hasOwnProperty.call(SITE_ORIGINS, site)) {
@@ -112,7 +116,7 @@ function siteAppUrl(site, opts) {
 }
 
 /**
- * Cererea a venit pe menuvia.com (sau un subdomeniu)? Se citește DOAR antetul
+ * Cererea a venit pe un host .com (sau un subdomeniu)? Doar DETECȚIE. Se citește DOAR antetul
  * `host`, pus de rutarea platformei (Netlify / Caddy pe VPS) — nu `Origin`,
  * nu `x-forwarded-host`, nu un câmp din corp: o valoare trimisă de apelant
  * nu are voie să decidă piața. Port, majuscule și punctul final se normalizează.
@@ -132,7 +136,6 @@ function appLink(path, opts) {
 module.exports = {
   RO_DOMAIN,
   DEFAULT_APP_URL,
-  COM_APP_URL,
   LEGACY_NETLIFY_URL,
   MAIL_DOMAIN,
   FROM_HELLO,

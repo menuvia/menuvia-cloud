@@ -11,9 +11,9 @@
 //   CS1  stripe-checkout:      VITE_APP_URL → menuvia.netlify.app (APP_URL ignorat)
 //   CS2  stripe-portal:        idem
 //   CS3  ai-credits-checkout:  idem
-//   CS4  send-invite:          idem; `site:'com'` → https://menuvia.com, orice
-//                              altceva (origine din body, chei de prototip,
-//                              gunoi) → comportamentul vechi
+//   CS4  send-invite:          idem; `site:'com'` NU duce spre menuvia.com (D3),
+//                              iar nicio valoare (origine din body, chei de
+//                              prototip, gunoi) nu schimbă comportamentul vechi
 //   CS5  welcome-email:        VITE_APP_URL → menuvia.netlify.app
 //   CS6  process-email-queue:  DOAR APP_URL → menuvia.netlify.app (VITE ignorat)
 //   CS7  stripe-connect:       VITE_APP_URL → menuvia.ro (avea deja .ro scris)
@@ -230,10 +230,16 @@ describe('CS4: send-invite — fallback vechi + `site` pe allowlist', () => {
     const html = await run({ site: 'ro' })
     assert.ok(html.includes('href="https://vite.example/invite/tok123"'))
   })
-  it("`site:'com'` → https://menuvia.com (chiar cu VITE_APP_URL setat)", async () => {
+  it("`site:'com'` → același link ca pe .ro, NICIODATĂ menuvia.com (D3)", async () => {
     process.env.VITE_APP_URL = 'https://vite.example'
     const html = await run({ site: 'com' })
-    assert.ok(html.includes('href="https://menuvia.com/invite/tok123"'), html)
+    assert.ok(html.includes('href="https://vite.example/invite/tok123"'), html)
+    assert.ok(!/menuvia\.com/i.test(html), html)
+  })
+  it("`site:'com'` fără env → fallback-ul vechi (menuvia.netlify.app), nu .com", async () => {
+    const html = await run({ site: 'com' })
+    assert.ok(html.includes(`href="${LEGACY}/invite/tok123"`), html)
+    assert.ok(!/menuvia\.com/i.test(html), html)
   })
   it('o ORIGINE în body nu ajunge niciodată în link (anti relay de phishing)', async () => {
     for (const site of [

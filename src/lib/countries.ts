@@ -68,7 +68,7 @@ export function restaurantCountryPatch(
 }
 
 /**
- * Câmpul „Țara” din Setări → Restaurant: apare pe menuvia.com sau când
+ * Câmpul „Țara” din Setări → Restaurant: apare pe un host .com sau când
  * restaurantul e DEJA în afara României (ca owner-ul să-și poată corecta țara
  * de oriunde). Pe .ro, pentru un local RO (adică toate de azi), NU apare —
  * UI-ul românesc rămâne neschimbat. `null`/absent (bază fără mig 296) = 'RO'.

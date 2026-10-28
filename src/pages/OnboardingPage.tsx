@@ -21,7 +21,7 @@ const AiMenuImport = lazy(() => import('../components/AiMenuImport'))
 // schimbă mid-flow. Convenția: cheia localStorage 'menuvia_ui_lang'
 // ('ro' | 'en'), setată de /auth prin ?lang=en. Fără alegere explicită,
 // default-ul vine din SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe
-// menuvia.com — pe .ro rezultatul e identic cu cel de dinainte.
+// hostul .com — pe .ro rezultatul e identic cu cel de dinainte.
 const site = browserSite()
 function readUiLang(): 'ro' | 'en' {
   try {
@@ -33,7 +33,7 @@ function readUiLang(): 'ro' | 'en' {
   return defaultUiLang(site)
 }
 const lang: 'ro' | 'en' = readUiLang()
-// Țara se ALEGE doar pe menuvia.com; pe .ro restaurantul rămâne pe default-ul
+// Țara se ALEGE doar pe un host .com; pe .ro restaurantul rămâne pe default-ul
 // din DB ('RO', mig 296) și nu apare niciun câmp nou.
 const askCountry = site === 'com'
 

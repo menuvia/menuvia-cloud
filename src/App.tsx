@@ -150,7 +150,7 @@ function parsePath(): RouteState {
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
-  // menuvia.com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
+  // hostul .com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
   // (menuvia.ro, preview-uri, localhost) rămâne pe landing-ul RO de azi.
   if (p === '/')
     return { view: currentSite(window.location.hostname) === 'com' ? 'landing-en' : 'landing' }
@@ -587,7 +587,7 @@ function AppRouter() {
           onBack={() => navigate('/')}
           onLogin={() => navigate('/auth?lang=' + defaultUiLang(browserSite()))}
           onCheckout={async (plan) => {
-            // menuvia.com: prețurile Stripe sunt doar în RON și Plan 3 nu se
+            // hostul .com: prețurile Stripe sunt doar în RON și Plan 3 nu se
             // vinde acolo — checkout-ul e închis cu mesaj explicit (lib/siteMarket).
             // Pe menuvia.ro condiția e mereu adevărată → flux neschimbat.
             if (!checkoutOpenOnSite(browserSite())) {

@@ -1,6 +1,7 @@
 // Linkul de referral al afiliatului pe cele două site-uri (recenzie #288).
 //
-//   RU1  menuvia.com (și www) → originea CANONICĂ .com, nu VITE_APP_URL (.ro)
+//   RU1  un host .com (și www) → linkul de afiliat NU pleacă spre .com (D3:
+//        domeniul nu ne aparține): VITE_APP_URL, altfel .ro
 //   RU2  .ro și orice alt host → EXACT formula veche `VITE_APP_URL || origin`
 //        (control pozitiv: comportamentul de pe .ro nu se schimbă)
 //   RU3  slash-ul final al bazei nu dublează separatorul
@@ -13,12 +14,16 @@ import { buildReferralUrl } from '../affiliate'
 const PINNED = 'https://menuvia.ro'
 
 describe('buildReferralUrl', () => {
-  it('RU1: pe menuvia.com linkul rămâne pe .com (canonic, fără www)', () => {
+  it('RU1: pe un host .com linkul de afiliat NU pleacă spre .com', () => {
     expect(buildReferralUrl('ionpop', 'menuvia.com', PINNED, 'https://menuvia.com')).toBe(
-      'https://menuvia.com/r/ionpop',
+      'https://menuvia.ro/r/ionpop',
     )
     expect(buildReferralUrl('ionpop', 'www.menuvia.com', PINNED, 'https://www.menuvia.com')).toBe(
-      'https://menuvia.com/r/ionpop',
+      'https://menuvia.ro/r/ionpop',
+    )
+    // fără VITE_APP_URL: tot .ro, nu originea .com curentă
+    expect(buildReferralUrl('ionpop', 'menuvia.com', undefined, 'https://menuvia.com')).toBe(
+      'https://menuvia.ro/r/ionpop',
     )
   })
 

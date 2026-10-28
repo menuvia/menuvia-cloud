@@ -486,7 +486,7 @@ export default function SettingsTab({
               ))}
             </SettingsCard>
 
-            {/* Țara (mig 296) — DOAR pe menuvia.com sau pentru un local deja în
+            {/* Țara (mig 296) — DOAR pe un host .com sau pentru un local deja în
                 afara RO (countrySettingVisible): pe .ro, pentru un local RO, UI-ul
                 rămâne neschimbat. Editabilă doar de OWNER — trigger-ul
                 trg_restaurants_country_owner_only respinge oricum un manager. */}

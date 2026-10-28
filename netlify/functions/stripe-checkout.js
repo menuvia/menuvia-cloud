@@ -34,7 +34,7 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
-  // menuvia.com nu vinde încă (recenzie CodeRabbit pe #288): închiderea din UI
+  // Un host .com nu vinde (recenzie CodeRabbit pe #288): închiderea din UI
   // (siteMarket.checkoutOpenOnSite) nu e o graniță de autorizare — un POST
   // autentificat direct ar fi creat o sesiune Stripe în RON. Piața se decide din
   // `host`-ul rutat de platformă, nu din ce trimite apelantul. Pe .ro: neatins.

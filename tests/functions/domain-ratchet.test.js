@@ -13,6 +13,13 @@
 //   DR2  la fel pentru `menuvia.com`.
 //   DR3  anti-vacuitate: scanarea VEDE fișierele (altfel un glob stricat ar
 //        face DR1/DR2 trivial adevărate) și vede sursa unică.
+//   DR4  CLICHET D3 (pachetul 5): `menuvia.com` NU ne aparține. Niciun URL
+//        (`https://menuvia.com`, `//www.menuvia.com/...`, `http://app.menuvia.com`)
+//        nu apare în NICIUN fișier livrat (src, funcții, index.html, public/,
+//        netlify.toml) — NICI în comentarii. Domeniul rămâne doar ca nume de
+//        host pentru DETECȚIE (registrul DR2), nu ca URL generabil.
+//   DR5  nicio piesă din afara sursei unice nu citește `SITE_HOSTS.com`/`COM_APP_URL`
+//        (singura cale prin care un URL .com ar putea fi GENERAT din hostname).
 //
 // Exclus: testele (`__tests__`, tests/), documentele legale / markdown și
 // liniile de comentariu (`//`, `*`, `/*`, `{/*`) — acolo domeniul e text, nu
@@ -34,10 +41,11 @@ const ALLOW_RO = {
   // Text de oaspete în 7 limbi (tabela T); nu e configurare de domeniu.
   'src/lib/guestStrings.ts': 7,
 }
+// `menuvia.com` rămâne DOAR ca nume de host pentru DETECȚIE (D3: domeniul nu
+// ne aparține; niciun URL generat). Fiecare intrare e un nume, nu un URL (DR4).
 const ALLOW_COM = {
-  'netlify/functions/lib/appUrl.js': 1, // COM_DOMAIN — siteAppUrl('com') pe server
-  'src/lib/domain.ts': 1, // SITE_HOSTS.com
-  'src/lib/siteMarket.ts': 1, // mesajul „coming soon" de pe .com
+  'netlify/functions/lib/appUrl.js': 1, // COM_DOMAIN — isComHost (detecție)
+  'src/lib/domain.ts': 1, // SITE_HOSTS.com — currentSite/isMenuviaRootHost (detecție)
 }
 
 function walk(dir, exts, out) {
@@ -108,5 +116,50 @@ describe('domain-ratchet — domeniul scris într-un singur loc', () => {
     assert.ok(files.some((f) => f.endsWith(path.join('functions', 'stripe-webhook.js'))))
     assert.equal(hits['netlify/functions/lib/appUrl.js'], 1)
     assert.equal(hits['src/lib/domain.ts'], 1)
+  })
+
+  it('DR4: niciun URL spre menuvia.com în fișierele livrate (nici în comentarii)', () => {
+    const URL_COM = /(?:https?:)?\/\/(?:[a-z0-9-]+\.)*menuvia\.com\b/i
+    const files = [
+      ...walk(path.join(ROOT, 'src'), ['.ts', '.tsx', '.css', '.json'], []),
+      ...walk(path.join(ROOT, 'netlify', 'functions'), ['.js', '.json'], []),
+      ...walk(path.join(ROOT, 'public'), ['.html', '.xml', '.txt', '.json', '.webmanifest', '.js'], []),
+      ...['index.html', 'netlify.toml'].map((f) => path.join(ROOT, f)).filter((f) => fs.existsSync(f)),
+    ]
+    const bad = []
+    for (const f of files) {
+      fs.readFileSync(f, 'utf8')
+        .split('\n')
+        .forEach((l, i) => {
+          if (URL_COM.test(l)) bad.push(`${path.relative(ROOT, f)}:${i + 1}: ${l.trim().slice(0, 120)}`)
+        })
+    }
+    assert.deepEqual(bad, [], 'URL spre menuvia.com (domeniul nu ne aparține — D3):\n' + bad.join('\n'))
+    // anti-vacuitate: scanarea chiar vede ambele surse unice
+    assert.ok(files.some((f) => f.endsWith(path.join('src', 'lib', 'domain.ts'))))
+    assert.ok(files.some((f) => f.endsWith(path.join('lib', 'appUrl.js'))))
+    // controlul pozitiv al regexului
+    assert.ok(URL_COM.test('x = "https://menuvia.com/q/abc"'))
+    assert.ok(URL_COM.test('href="//www.menuvia.com"'))
+    assert.ok(!URL_COM.test('https://menuvia.ro/q/abc'))
+    assert.ok(!URL_COM.test('https://evilmenuvia.com.example'))
+  })
+
+  it('DR5: SITE_HOSTS.com / COM_APP_URL doar în sursa unică', () => {
+    const re = /SITE_HOSTS(?:\.com|\[\s*['"]com['"]\s*\])|COM_APP_URL|siteOrigin\(\s*['"]com['"]|siteHost\(\s*['"]com['"]/
+    const { files } = scan(/^$/)
+    const bad = []
+    for (const f of files) {
+      const rel = path.relative(ROOT, f).split(path.sep).join('/')
+      if (rel === 'src/lib/domain.ts') continue
+      fs.readFileSync(f, 'utf8')
+        .split('\n')
+        .forEach((l, i) => {
+          if (!isCommentLine(l) && re.test(l)) bad.push(`${rel}:${i + 1}: ${l.trim()}`)
+        })
+    }
+    assert.deepEqual(bad, [], bad.join('\n'))
+    assert.ok(re.test('const u = SITE_HOSTS.com'))
+    assert.ok(re.test("siteOrigin('com')"))
   })
 })
