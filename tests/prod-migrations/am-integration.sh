@@ -15,6 +15,9 @@
 #        pică se anulează COMPLET (nici obiecte, nici ledger) și oprește lotul
 #   AM4  ledger-ul e ÎN tranzacția fișierului: dacă INSERT-ul de ledger pică,
 #        obiectele fișierului NU rămân (pică dacă rândul ar fi pus după commit)
+#   AM5  repetiția: backup-ul (pg_dump -Fc) al bazei simulate, restaurat de
+#        scripts/prod-migrations-rehearsal.sh într-o bază nouă, primește
+#        289,290,292.. cu același CLI și trece poarta de privilegii
 #
 # Conexiunea vine din PGHOST/PGPORT/PGUSER/PGPASSWORD (TCP în CI, socket local).
 # Rulează din sql-verify.yml; local: vezi docs/RUNBOOK.md §6.5.
@@ -95,6 +98,13 @@ name="${F291:15}"; name="${name%.sql}"
 printf "insert into supabase_migrations.schema_migrations (version, name) values ('20279999999999', '%s');\n" "$name" >>"$WORK/seed.sql"
 db -f "$WORK/seed.sql"
 echo "  replay: $i fișiere + 291; ledger: $(val 'select count(*) from supabase_migrations.schema_migrations') rânduri"
+
+# Date reale de tenant (fixture-ul de autorizare: 2 utilizatori, 1 restaurant,
+# owner + waiter) — aplicarea 289+ rulează PESTE date, ca pe prod, iar dump-ul
+# de mai jos are ce restaura (RP12 cere rânduri).
+db -f "$REPO_ROOT/tests/sql/authorization_test_fixture.sql" >/dev/null
+# „Backup-ul zilnic” al producției simulate, pentru repetiția din AM5.
+pg_dump -d "$DB" -Fc --no-owner -f "$WORK/prod-sim.dump"
 
 LEDGER0="$(val 'select count(*) from supabase_migrations.schema_migrations')"
 marker289="select count(*) from pg_proc where proname = 'expire_stale_pending_reservations'"
@@ -198,5 +208,22 @@ set -e
   || fail "AM4: fișierul s-a comis FĂRĂ urma lui în ledger (INSERT-ul nu e în tranzacția fișierului)"
 echo "✓ AM4: INSERT-ul de ledger picat a anulat și fișierul (aceeași tranzacție)"
 
+# ── AM5: repetiția pe backup restaurat (dry_run / exercițiul de restaurare) ──
+# Dump-ul e luat ÎNAINTE de AM1 (288 + 291 + date), deci copia are exact
+# golurile producției. Repetiția trebuie să restaureze, să aplice 289,290,292..
+# cu același CLI și să treacă poarta de privilegii.
+REHEARSAL_DB="${DB}_rehearsal" bash "$REPO_ROOT/scripts/prod-migrations-rehearsal.sh" "$WORK/prod-sim.dump" \
+  >"$WORK/am5.log" 2>&1 || { tail -40 "$WORK/am5.log"; fail "AM5: repetiția a picat"; }
+RDB="${DB}_rehearsal"
+rval() { psql -X -At -v ON_ERROR_STOP=1 -d "$RDB" -c "$1"; }
+[ "$(rval 'select count(*) from supabase_migrations.schema_migrations')" = "$NFILES" ] || fail "AM5: ledger-ul copiei != $NFILES"
+[ "$(rval "select count(*) from public.restaurants where slug = 'a6-restaurant'")" = 1 ] || fail "AM5: datele nu s-au restaurat"
+[ "$(rval "select count(*) from public.restaurant_memberships where restaurant_id = '00000000-0000-4000-8000-00000000a602'")" = 2 ] || fail "AM5: membership-urile nu s-au restaurat"
+[ "$(rval "select plan from public.profiles where id = '00000000-0000-4000-8000-00000000a601'")" = pro ] || fail "AM5: planul s-a pierdut (triggere pornite la încărcare?)"
+[ "$(rval "select count(*) from pg_trigger where not tgisinternal and tgenabled = 'D'")" = 0 ] || fail "AM5: triggere rămase stinse"
+grep -q 'migration_289_reservations_expired' "$WORK/am5.log" || fail "AM5: 289 n-a fost aplicată pe copie"
+adm -c "drop database $RDB"
+echo "✓ AM5: backup restaurat (date + ledger + identități), 289,290,292.. aplicate pe copie, poarta verde"
+
 adm -c "drop database $DB"
-echo "✓ AM1–AM4 verzi"
+echo "✓ AM1–AM5 verzi"

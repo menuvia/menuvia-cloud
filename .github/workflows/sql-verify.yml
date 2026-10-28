@@ -19,6 +19,7 @@ on:
       - 'scripts/apply-prod-migrations.mjs'
       - 'scripts/lib/prod-migrations.mjs'
       - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
       - 'tests/prod-migrations/**'
   pull_request:
     branches: [main, develop]
@@ -32,6 +33,7 @@ on:
       - 'scripts/apply-prod-migrations.mjs'
       - 'scripts/lib/prod-migrations.mjs'
       - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
       - 'tests/prod-migrations/**'
 
 jobs:
@@ -1854,10 +1856,12 @@ jobs:
       # producția (replay < 289 + 291 aplicată înaintea lui 289/290, version =
       # momentul aplicării). AM2 refuzul golului fără excepție, AM1 aplicarea +
       # ledger + get_schema_version().missing = [], AM3 enum_only + eșec atomic,
-      # AM4 rândul de ledger în aceeași tranzacție cu fișierul. Bază SEPARATĂ —
+      # AM4 rândul de ledger în aceeași tranzacție cu fișierul, AM5 repetiția
+      # (backup -Fc restaurat de scripts/prod-migrations-rehearsal.sh + aplicare
+      # pe copie + poarta de privilegii). Baze SEPARATE —
       # menuvia_test rămâne neatinsă. Node: cel preinstalat pe runner (CLI-ul
       # folosește doar built-ins).
-      - name: "Aplicarea automată a migrațiilor pe o bază simulată de producție (PR-0, AM1–AM4)"
+      - name: "Aplicarea automată a migrațiilor pe o bază simulată de producție (PR-0, AM1–AM5)"
         env:
           PGHOST: localhost
           PGPORT: '5432'

@@ -7,10 +7,16 @@ name: Apply prod migrations
 # lui main (oricare dintre ele se termină ULTIMUL ne trezește; poarta le verifică
 # pe toate trei, prin API), sau manual (workflow_dispatch, implicit dry_run).
 #
-# Ce face, în ordine: poarta (fără secrete) → backup criptat → aplicarea cu
+# Ce face, în ordine: poarta (fără secrete) → backup criptat → REPETIȚIA (backup-ul
+#   restaurat într-un Postgres 17 efemer, migrațiile aplicate pe copie cu același
+#   CLI, poarta de privilegii) → abia apoi aplicarea pe producție cu
 #   scripts/apply-prod-migrations.mjs (după NUME, ca get_schema_version din
 #   mig 271; rândul de ledger în aceeași tranzacție cu fișierul) → porțile
 #   read-only (privilege_regime_assertions.sql + get_schema_version().missing = []).
+#
+# dry_run (implicit la workflow_dispatch; mereu la schedule): ultimul backup
+#   ZILNIC (artefactul db-backup.yml) e descărcat, decriptat și restaurat, apoi
+#   repetiția — EXERCIȚIUL DE RESTAURARE. Lunar, automat. Producția nu e scrisă.
 #
 # Secrete: în environment-ul `production` (SUPABASE_DB_URL = URI-ul „Session
 # pooler”, BACKUP_PASSPHRASE). INERT fără ele. Pauză: variabila de repo
@@ -21,6 +27,10 @@ on:
     workflows: ['CI', 'Tests & Quality', 'SQL Migrations Verify']
     types: [completed]
     branches: [main]
+  # Exercițiul lunar de restaurare (doar dry_run): un backup nerestaurat
+  # niciodată nu e un backup. Ziua 3, 04:17 UTC (după backup-ul de 02:30).
+  schedule:
+    - cron: '17 4 3 * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -51,6 +61,7 @@ jobs:
     # oricum vârful lui main, nu codul trezirii — garda e a doua plasă.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push' &&
        github.event.workflow_run.head_branch == 'main' &&
@@ -104,7 +115,24 @@ jobs:
       contents: read
       actions: read
     env:
-      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+      # schedule → MEREU dry_run; workflow_dispatch → inputul (implicit true);
+      # workflow_run → aplicare reală (precedată oricum de repetiție).
+      DRY_RUN: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)) && 'true' || 'false' }}
+    # Postgres-ul EFEMER al repetiției (aceeași versiune majoră ca producția).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - name: Configurare (inert / pauză / backup obligatoriu)
         id: cfg
@@ -171,15 +199,16 @@ jobs:
           DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         # Aceeași mecanică ca db-backup.yml (repo PUBLIC → criptare AES-256
-        # înainte de upload; FĂRĂ --no-privileges, vezi RUNBOOK §6.1).
+        # înainte de upload; FĂRĂ --no-privileges, vezi RUNBOOK §6.1). Copia în
+        # clar (`rehearsal.dump`) rămâne DOAR pe runner, pentru repetiție, și se
+        # șterge la final; nu se urcă niciodată.
         run: |
           set -euo pipefail
           STAMP="$(date -u +%Y-%m-%dT%H%M%SZ)"
-          pg_dump "$DB_URL" -Fc --no-owner -f "premigration-$STAMP.dump"
-          pg_restore --list "premigration-$STAMP.dump" > /dev/null   # arhiva e lizibilă
+          pg_dump "$DB_URL" -Fc --no-owner -f rehearsal.dump
+          pg_restore --list rehearsal.dump > /dev/null   # arhiva e lizibilă
           openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE \
-            -in "premigration-$STAMP.dump" -out "premigration-$STAMP.dump.enc"
-          rm "premigration-$STAMP.dump"
+            -in rehearsal.dump -out "premigration-$STAMP.dump.enc"
           ls -lh premigration-*.dump.enc
 
       - name: Urcă backup-ul criptat (retenție 30 zile)
@@ -190,6 +219,51 @@ jobs:
           path: 'premigration-*.dump.enc'
           retention-days: 30
           if-no-files-found: error
+
+      - name: dry_run — ultimul backup zilnic (descărcat + decriptat)
+        if: steps.cfg.outputs.ready == 'true' && env.DRY_RUN == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        # Exercițiul de restaurare propriu-zis: artefactul pe care l-am folosi
+        # într-un dezastru. Dacă nu există (db-backup n-a reușit încă / a expirat)
+        # sau lipsește parola, se face un dump PROASPĂT — și se spune explicit.
+        run: |
+          set -euo pipefail
+          api() { curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$REPO$1"; }
+          src=""
+          if [ -n "$BACKUP_PASSPHRASE" ]; then
+            run_id="$(api '/actions/workflows/db-backup.yml/runs?status=success&per_page=1' | jq -r '.workflow_runs[0].id // empty')"
+            if [ -n "$run_id" ]; then
+              art="$(api "/actions/runs/$run_id/artifacts" | jq -r '[.artifacts[] | select(.expired == false and (.name | startswith("db-backup-")))][0].id // empty')"
+              if [ -n "$art" ]; then
+                curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o backup.zip "https://api.github.com/repos/$REPO/actions/artifacts/$art/zip"
+                unzip -o -q backup.zip -d backup && rm backup.zip
+                enc="$(ls backup/*.dump.enc | head -1)"
+                openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$enc" -out rehearsal.dump
+                rm -rf backup
+                src="backup-ul zilnic din run-ul $run_id ($(basename "$enc"))"
+              fi
+            fi
+          fi
+          if [ -z "$src" ]; then
+            echo "::warning::Niciun backup zilnic utilizabil (db-backup.yml fără artefact valid sau fără BACKUP_PASSPHRASE) — repetiția folosește un dump PROASPĂT. Exercițiul de restaurare NU a acoperit artefactul zilnic."
+            pg_dump "$DB_URL" -Fc --no-owner -f rehearsal.dump
+            src="dump proaspăt (NU backup-ul zilnic)"
+          fi
+          pg_restore --list rehearsal.dump > /dev/null
+          printf '### 💾 Sursa repetiției\n\n%s\n' "$src" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Repetiția — backup restaurat + migrațiile aplicate pe copie + poarta
+        if: steps.cfg.outputs.ready == 'true' && (env.DRY_RUN == 'true' || steps.plan.outputs.pending_count != '0')
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: bash scripts/prod-migrations-rehearsal.sh rehearsal.dump
 
       - name: Aplică migrațiile pe producție
         id: apply
@@ -211,3 +285,7 @@ jobs:
         run: |
           psql "$DB_URL" -X -q -v ON_ERROR_STOP=1 -f tests/sql/privilege_regime_assertions.sql
           echo "✅ Poarta de privilegii: verde" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Șterge copia în clar a backup-ului
+        if: always()
+        run: rm -f rehearsal.dump backup.zip; rm -rf backup
