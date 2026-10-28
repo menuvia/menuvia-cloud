@@ -14,6 +14,14 @@ on:
       - 'tests/sql/**/*.sql'
       - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
+      # Aplicarea automată pe producție (PR-0): AM1–AM4 de la final o exercită
+      # pe Postgres real — o schimbare a CLI-ului trebuie să le declanșeze.
+      - 'scripts/apply-prod-migrations.mjs'
+      - 'scripts/lib/prod-migrations.mjs'
+      - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
+      - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
   pull_request:
     branches: [main, develop]
     paths:
@@ -21,6 +29,14 @@ on:
       - 'tests/sql/**/*.sql'
       - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
+      # Aplicarea automată pe producție (PR-0): AM1–AM4 de la final o exercită
+      # pe Postgres real — o schimbare a CLI-ului trebuie să le declanșeze.
+      - 'scripts/apply-prod-migrations.mjs'
+      - 'scripts/lib/prod-migrations.mjs'
+      - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
+      - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
 
 jobs:
   verify:
@@ -45,10 +61,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Clientul 17 (PGDG), ca serverul din `services:` — `pg_dump` 16 (cel din
+      # apt-ul runnerului) refuză un server 17 („server version mismatch”), iar
+      # AM5 (PR-0) face un pg_dump real. Bin-ul 17 intră primul în PATH pentru
+      # toți pașii următori (psql 17 vorbește fără probleme cu serverul 17).
       - name: Setup PostgreSQL client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | \
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Wait for Postgres ready
         env:
@@ -1848,6 +1875,32 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/reservation_timezone_assertions.sql
+
+      # Rularea AUTOMATĂ a suitelor din tests/sql/auto/*.sql (după fixture și
+      # după toate suitele cu pas propriu). O suită nouă se pune DOAR ca fișier
+      # acolo — fără pas nou aici și în ci.yml (fișiere fierbinți la conflicte).
+      # Runner-ul PICĂ pe director gol: o poartă moartă nu trece drept acoperire.
+      - name: "Suitele automate din tests/sql/auto (runner unic, pică pe director gol)"
+        env:
+          PGPASSWORD: postgres
+        run: bash scripts/run-sql-auto.sh "postgresql://postgres@localhost:5432/menuvia_test"
+
+      # PR-0: aplicarea automată pe producție, exersată pe o bază care simulează
+      # producția (replay < 289 + 291 aplicată înaintea lui 289/290, version =
+      # momentul aplicării). AM2 refuzul golului fără excepție, AM1 aplicarea +
+      # ledger + get_schema_version().missing = [], AM3 enum_only + eșec atomic,
+      # AM4 rândul de ledger în aceeași tranzacție cu fișierul, AM5 repetiția
+      # (backup -Fc restaurat de scripts/prod-migrations-rehearsal.sh + aplicare
+      # pe copie + poarta de privilegii). Baze SEPARATE —
+      # menuvia_test rămâne neatinsă. Node: cel preinstalat pe runner (CLI-ul
+      # folosește doar built-ins).
+      - name: "Aplicarea automată a migrațiilor pe o bază simulată de producție (PR-0, AM1–AM5)"
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: node --version && bash tests/prod-migrations/am-integration.sh
 
       - name: Upload logs on failure
         if: failure()
