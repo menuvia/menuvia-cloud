@@ -9,6 +9,10 @@
 //   TS7  parcurgere profundă: obiecte, array-uri, câmpuri imbricate; netextul rămâne
 //   TS8  referință circulară nu blochează și nu scurge
 //   TS9  forma evenimentelor reale (Sentry, PostHog) — fiecare câmp cu URL
+//   TS10 CABLAJUL: Sentry (beforeSend, beforeSendTransaction, beforeBreadcrumb) și PostHog
+//        (before_send) trec prin scrubTokenPathsDeep — funcția pură nu ajută dacă nu e chemată
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { scrubTokenPaths, scrubTokenPathsDeep } from '../telemetryScrub'
 
@@ -151,5 +155,31 @@ describe('scrubTokenPathsDeep', () => {
     expect(p.properties.$pathname).toBe('/sef-vanzari/:token')
     expect(p.properties.$initial_referrer).toBe('$direct')
     expect(p.event).toBe('$pageview')
+  })
+})
+
+// Cablajul se păzește pe sursă: init-urile reale (Sentry/PostHog) nu pot rula în teste,
+// iar o funcție corectă dar ne-apelată ar lăsa tokenurile să plece exact ca înainte.
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+describe('cablajul telemetriei', () => {
+  const read = (rel: string): string => readFileSync(resolve(process.cwd(), rel), 'utf8')
+
+  it('TS10: Sentry și PostHog trec prin scrubTokenPathsDeep', () => {
+    const main = read('src/main.tsx')
+    for (const hook of [
+      'beforeSend(event)',
+      'beforeSendTransaction(event)',
+      'beforeBreadcrumb(breadcrumb)',
+    ]) {
+      const start = main.indexOf(hook)
+      expect(start).toBeGreaterThan(-1)
+      // corpul hook-ului (până la următorul hook / sfârșitul init-ului)
+      const body = main.slice(start, start + 900)
+      expect(body).toContain('return scrubTokenPathsDeep(')
+    }
+    const analytics = read('src/lib/analytics.ts')
+    const at = analytics.indexOf('before_send:')
+    expect(at).toBeGreaterThan(-1)
+    expect(analytics.slice(at, at + 200)).toContain('scrubTokenPathsDeep(')
   })
 })
