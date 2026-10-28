@@ -28,7 +28,7 @@ export const signupSchema = z
     passwordConfirm: z.string(),
     fullName: z.string().min(2, 'Nume prea scurt').max(100, 'Nume prea lung'),
     agreedTerms: z.literal(true, {
-      errorMap: () => ({ message: 'Trebuie să accepți Termenii și Politica de Confidențialitate' }),
+      message: 'Trebuie să accepți Termenii și Politica de Confidențialitate',
     }),
   })
   .refine((d) => d.password === d.passwordConfirm, {
@@ -66,7 +66,7 @@ export const recrutareSchema = z.object({
     .max(120),
   message: z.string().trim().max(2000, 'Mesaj prea lung').optional().default(''),
   consent: z.literal(true, {
-    errorMap: () => ({ message: 'Trebuie să accepți prelucrarea datelor pentru contact' }),
+    message: 'Trebuie să accepți prelucrarea datelor pentru contact',
   }),
 })
 export type RecrutareInput = z.infer<typeof recrutareSchema>
@@ -237,7 +237,7 @@ export type InvoiceClientInput = z.infer<typeof invoiceClientSchema>
 // ─────────────────────────────────────────────────────────────────
 // HELPER — validare cu erori user-friendly
 // ─────────────────────────────────────────────────────────────────
-export function validateOrThrow<T>(schema: z.ZodSchema<T>, data: unknown): T {
+export function validateOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
   const result = schema.safeParse(data)
   if (!result.success) {
     const firstIssue = result.error.issues[0]
@@ -247,7 +247,7 @@ export function validateOrThrow<T>(schema: z.ZodSchema<T>, data: unknown): T {
 }
 
 export function validateFirstError<T>(
-  schema: z.ZodSchema<T>,
+  schema: z.ZodType<T>,
   data: unknown,
 ): { ok: true; data: T } | { ok: false; error: string; field?: string } {
   const result = schema.safeParse(data)
