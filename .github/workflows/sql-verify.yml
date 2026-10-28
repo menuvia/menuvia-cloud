@@ -21,6 +21,7 @@ on:
       - 'scripts/prod-migrations-allow-gaps.json'
       - 'scripts/prod-migrations-rehearsal.sh'
       - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
   pull_request:
     branches: [main, develop]
     paths:
@@ -35,6 +36,7 @@ on:
       - 'scripts/prod-migrations-allow-gaps.json'
       - 'scripts/prod-migrations-rehearsal.sh'
       - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
 
 jobs:
   verify:
@@ -1851,6 +1853,15 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/advisor_hardening_assertions.sql
+
+      # Rularea AUTOMATĂ a suitelor din tests/sql/auto/*.sql (după fixture și
+      # după toate suitele cu pas propriu). O suită nouă se pune DOAR ca fișier
+      # acolo — fără pas nou aici și în ci.yml (fișiere fierbinți la conflicte).
+      # Runner-ul PICĂ pe director gol: o poartă moartă nu trece drept acoperire.
+      - name: "Suitele automate din tests/sql/auto (runner unic, pică pe director gol)"
+        env:
+          PGPASSWORD: postgres
+        run: bash scripts/run-sql-auto.sh "postgresql://postgres@localhost:5432/menuvia_test"
 
       # PR-0: aplicarea automată pe producție, exersată pe o bază care simulează
       # producția (replay < 289 + 291 aplicată înaintea lui 289/290, version =
