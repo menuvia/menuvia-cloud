@@ -390,7 +390,7 @@ const TEMPLATES = {
   // părinte; pentru patron, „Agentul tău Menuvia". Deasupra fiecărui șablon
   // stă CONTRACTUL lui `template_data` — sursa de adevăr pentru producătorii
   // din PR-urile următoare (triggere/RPC-uri SQL, funcții Netlify). Reguli
-  // comune tuturor celor nouă:
+  // comune tuturor celor opt:
   //   • Orice șir venit din date intră în HTML DOAR prin esc(). Subiectul e
   //     text simplu (antet, nu HTML): trece prin subjectText(), care scoate
   //     caracterele de control — un esc() acolo ar arăta „&amp;" în inbox.
@@ -434,68 +434,6 @@ const TEMPLATES = {
         <p style="${P}"><b>Ce poți face:</b> ia legătura cu patronul în zilele următoare și întreabă-l dacă totul merge bine și dacă are nevoie de ajutor cu meniul, codurile QR sau echipa.</p>
         ${ctaButton(appLink(d.panel_url, '/afiliat'), 'Deschide panoul de agent →')}
         <p style="${NOTE}">Primești acest email pentru că restaurantul îți este atribuit ca agent Menuvia. Din motive de confidențialitate, emailul nu conține datele patronului.</p>
-      `),
-    }
-  },
-
-  /**
-   * affiliate_application_received → ȘEFUL de vânzări: o cerere nouă în echipa lui.
-   *   applicant_display_name  string | null  DOAR cu consimțământul solicitantului;
-   *                                           null/lipsă → text generic, fără nume
-   *   applied_at              ISO 8601       opțional
-   *   head_name               string         opțional — numele ȘEFULUI, pentru salut
-   *   review_url              cale relativă  opțional, implicit /afiliat
-   */
-  affiliate_application_received: (d) => {
-    const applicant = str(d.applicant_display_name)
-    const when = formatDateTimeRo(isoOrNull(d.applied_at))
-    return {
-      subject: subjectText(
-        applicant ? `Cerere nouă în echipa ta: ${applicant}` : 'Cerere nouă în echipa ta de vânzări',
-      ),
-      html: emailShell(`
-        <h1 style="${H1}">Cerere nouă în echipa ta</h1>
-        <p style="${P}">${greeting(d.head_name)}</p>
-        <p style="${P}">${
-          applicant
-            ? `<b>${esc(applicant)}</b> a cerut să intre în echipa ta ca agent de vânzări Menuvia.`
-            : 'Cineva a cerut să intre în echipa ta ca agent de vânzări Menuvia.'
-        }${when ? ` Cererea a fost trimisă ${esc(when)}.` : ''}</p>
-        <p style="${P}">Decizia e a ta: aprobi sau respingi cererea din panou. Până atunci, contul solicitantului rămâne inactiv și nu poate câștiga comisioane.</p>
-        ${ctaButton(appLink(d.review_url, '/afiliat'), 'Vezi cererea →')}
-      `),
-    }
-  },
-
-  /**
-   * affiliate_application_decided → SOLICITANTUL: cererea lui a fost decisă.
-   *   approved           boolean         true = aprobat, false = respins; orice
-   *                                       altceva → text neutru („a primit un răspuns")
-   *   head_display_name  string          opțional — numele șefului care a decis
-   *   applicant_name     string          opțional — numele SOLICITANTULUI, pentru salut
-   *   panel_url          cale relativă   opțional, implicit /afiliat
-   */
-  affiliate_application_decided: (d) => {
-    const head = str(d.head_display_name)
-    const approved = d.approved === true
-    const rejected = d.approved === false
-    const subject = approved
-      ? 'Bine ai venit în echipa de vânzări Menuvia'
-      : rejected
-        ? 'Cererea ta de agent Menuvia nu a fost aprobată'
-        : 'Cererea ta de agent Menuvia a primit un răspuns'
-    const body = approved
-      ? `<p style="${P}">${head ? `<b>${esc(head)}</b> ți-a aprobat cererea.` : 'Cererea ta a fost aprobată.'} Contul tău de agent de vânzări Menuvia e activ: linkul tău de recomandare te așteaptă în panou.</p>`
-      : rejected
-        ? `<p style="${P}">Cererea ta de a intra în echipa${head ? ` condusă de <b>${esc(head)}</b>` : ' de vânzări'} nu a fost aprobată. Dacă crezi că e o greșeală, vorbește direct cu persoana care te-a invitat.</p>`
-        : `<p style="${P}">Cererea ta de a deveni agent de vânzări Menuvia a primit un răspuns. Îl găsești în panou.</p>`
-    return {
-      subject,
-      html: emailShell(`
-        <h1 style="${H1}">${esc(subject)}</h1>
-        <p style="${P}">${greeting(d.applicant_name)}</p>
-        ${body}
-        ${ctaButton(appLink(d.panel_url, '/afiliat'), 'Deschide panoul →')}
       `),
     }
   },
@@ -552,33 +490,41 @@ const TEMPLATES = {
   },
 
   /**
-   * affiliate_invoice_requested → AFILIATUL (șef sau agent): emite factura pentru plată.
-   *   period           'YYYY-MM'        luna comisionului
-   *   amount_cents     integer          suma de facturat, în subunități
-   *   currency         ISO 4217         opțional, implicit RON
-   *   menuvia_billing  { company_name, cui, address }   datele de facturare ale
-   *                    MENUVIA (din platform_settings); dacă lipsește oricare
-   *                    câmp, emailul trimite la panou în loc să le afișeze parțial
-   *   due_hint         string           opțional (ex. „până pe 10 noiembrie")
-   *   affiliate_name   string           opțional — pentru salut
-   *   upload_url       cale relativă    opțional, implicit /afiliat
+   * affiliate_payout_statement → AFILIATUL (șef sau agent): decontul lunar.
+   *   period            'YYYY-MM'        luna comisionului
+   *   amount_cents      integer          suma de plată, în subunități
+   *   currency          ISO 4217         opțional, implicit RON
+   *   invoice_required  boolean          true  = afiliatul emite și ÎNCARCĂ factura
+   *                                              (se afișează datele Menuvia + linkul);
+   *                                      false = AUTOFACTURARE: factura se emite
+   *                                              automat în numele lui;
+   *                                      orice altceva → text neutru („detaliile
+   *                                              despre factură sunt în panou")
+   *   menuvia_billing   { company_name, cui, address }   DOAR pentru invoice_required:
+   *                     datele de facturare ale MENUVIA (din platform_settings);
+   *                     dacă lipsește oricare câmp → „le găsești în panou",
+   *                     niciodată afișate parțial
+   *   due_hint          string           opțional, doar cu invoice_required (ex.
+   *                                      „până pe 10 noiembrie")
+   *   affiliate_name    string           opțional — pentru salut
+   *   upload_url        cale relativă    opțional, implicit /afiliat (încărcarea facturii)
+   *   panel_url         cale relativă    opțional, implicit /afiliat (decontul)
    */
-  affiliate_invoice_requested: (d) => {
+  affiliate_payout_statement: (d) => {
     const period = periodLabel(d.period)
     const amount = fmtMoney(d.amount_cents, d.currency)
+    const mustInvoice = d.invoice_required === true
+    const selfBilled = d.invoice_required === false
     const billing = isObj(d.menuvia_billing) ? d.menuvia_billing : {}
     const company = str(billing.company_name)
     const cui = str(billing.cui)
     const address = str(billing.address)
     const due = str(d.due_hint)
-    return {
-      subject: subjectText(`🧾 Încarcă factura pentru comisionul${period ? ` din ${period}` : ' tău'}`),
-      html: emailShell(`
-        <h1 style="${H1}">Factura pentru comisionul tău</h1>
-        <p style="${P}">${greeting(d.affiliate_name)}</p>
-        <p style="${P}">Comisionul tău${period ? ` pentru <b>${esc(period)}</b>` : ''} ${
-          amount ? `este de <b>${esc(amount)}</b>` : 'e gata de facturat (suma exactă e în panou)'
-        }. Ca să-l primești, emite o factură către Menuvia pe această sumă și încarc-o în panou.${due ? ` Termen: <b>${esc(due)}</b>.` : ''}</p>
+    const intro = `<p style="${P}">Comisionul tău${period ? ` pentru <b>${esc(period)}</b>` : ''} ${
+      amount ? `este de <b>${esc(amount)}</b>` : 'e calculat (suma exactă e în panou)'
+    }.</p>`
+    const invoicePart = mustInvoice
+      ? `<p style="${P}">Ca să-l primești, emite o factură către Menuvia pe această sumă și încarc-o în panou.${due ? ` Termen: <b>${esc(due)}</b>.` : ''}</p>
         ${
           company && cui && address
             ? `<div style="${CARD}">
@@ -588,7 +534,23 @@ const TEMPLATES = {
             : `<p style="${P}">Datele de facturare ale Menuvia le găsești în panou.</p>`
         }
         <p style="${P}">Plata pleacă după ce factura e încărcată și verificată.</p>
-        ${ctaButton(appLink(d.upload_url, '/afiliat'), 'Încarcă factura →')}
+        ${ctaButton(appLink(d.upload_url, '/afiliat'), 'Încarcă factura →')}`
+      : selfBilled
+        ? `<p style="${P}">Factura pentru această sumă se emite automat în numele tău (autofacturare) — nu trebuie să încarci nimic.</p>
+        ${ctaButton(appLink(d.panel_url, '/afiliat'), 'Vezi decontul →')}`
+        : `<p style="${P}">Detaliile despre factură le găsești în panou.</p>
+        ${ctaButton(appLink(d.panel_url, '/afiliat'), 'Vezi decontul →')}`
+    return {
+      subject: subjectText(
+        mustInvoice
+          ? `🧾 Încarcă factura pentru comisionul${period ? ` din ${period}` : ' tău'}`
+          : `🧾 Decontul comisionului${period ? ` din ${period}` : ''}${amount ? `: ${amount}` : ''}`,
+      ),
+      html: emailShell(`
+        <h1 style="${H1}">Decontul comisionului tău</h1>
+        <p style="${P}">${greeting(d.affiliate_name)}</p>
+        ${intro}
+        ${invoicePart}
       `),
     }
   },
@@ -675,6 +637,35 @@ const TEMPLATES = {
       subject += n > 0 ? `: ${n} ${n === 1 ? 'lucru te așteaptă' : 'lucruri te așteaptă'}` : ': nimic nu te așteaptă'
     }
     return { subject: subjectText(subject), html: founderDigestHtml(d, week) }
+  },
+
+  /**
+   * founder_alert → FONDATORUL: un risc de BANI sau JURIDIC care cere o decizie.
+   *   kind        string          codul alertei (ex. 'payout_on_hold'); apare ca
+   *                               referință și e cheia de dedup
+   *   title       string          titlul, scurt (rezervă: „Alertă Menuvia")
+   *   details     string          opțional — text simplu, rândurile se păstrează
+   *   occurred_at ISO 8601        opțional — momentul faptului
+   *   action_url  cale relativă   opțional, implicit /founder
+   * Plafonul de ZGOMOT e al producătorului: maximum o alertă pe zi per tip, prin
+   * dedup_key `founder_alert:<kind>:<YYYY-MM-DD>` (ziua în Europe/Bucharest).
+   * Doar bani/juridic — orice altceva merge în raportul de luni.
+   */
+  founder_alert: (d) => {
+    const title = str(d.title) || 'Alertă Menuvia'
+    const details = str(d.details)
+    const kind = str(d.kind)
+    const when = formatDateTimeRo(isoOrNull(d.occurred_at))
+    return {
+      subject: subjectText(`🚨 ${title}`),
+      html: emailShell(`
+        <h1 style="font-family:Georgia,serif;color:#A93232;font-size:24px;margin:0 0 16px">${esc(title)}</h1>
+        ${details ? `<p style="${P};white-space:pre-wrap">${esc(details)}</p>` : ''}
+        ${when ? `<p style="${P}">Când: ${esc(when)}</p>` : ''}
+        ${ctaButton(appLink(d.action_url, '/founder'), 'Rezolvă →')}
+        <p style="${NOTE}">Alertă automată Menuvia${kind ? ` (cod: <code>${esc(kind)}</code>)` : ''}. Primești cel mult una pe zi pentru fiecare tip și doar pentru riscuri de bani sau juridice; restul intră în raportul de luni.</p>
+      `),
+    }
   },
 
   // Template generic pentru emailuri ad-hoc: html/subject vin din template_data
@@ -1218,9 +1209,33 @@ exports.handler = async () => {
   // Eșecuri de autentificare Resend (401/403) = problemă de CONFIG (cheie
   // invalidă/rotită), nu email individual → alertăm o singură dată la final.
   let authFailures = 0
+  // Rânduri ELIBERATE înapoi în 'queued' din cauza configurației rupte.
+  let released = 0
+
+  // 401/403 de la Resend = CONFIGURAȚIA e ruptă (cheie invalidă/rotită/fără
+  // drept de trimitere), NU destinatarul. Rândul revine în 'queued' NEATINS:
+  // fără failed_attempts++ (altfel 3 rulări cu cheia stricată ar arunca toată
+  // coada în 'failed' — facturi, notificări de plată — iar după repararea
+  // cheii n-ar mai pleca nimic) și FĂRĂ să mutăm scheduled_for: sonda de
+  // backlog din /health (get_queue_backlog, mig 271) măsoară vârsta de la
+  // scheduled_for, deci rândul îmbătrânește și alarma (30 min) se aprinde.
+  // Restul lotului nu mai e trimis deloc — cheia e aceeași pentru toate.
+  const releaseForConfig = (email, why) =>
+    supabase.from('email_queue').update({
+      status: 'queued',
+      claimed_at: null,
+      last_error: `CONFIG Resend: ${why}`.slice(0, 500),
+    }).eq('id', email.id)
+  let configError = null
 
   for (const email of pending) {
     // Deja claim-uit ('sending') de claim_email_batch — fără re-marcare aici.
+
+    if (configError) {
+      await releaseForConfig(email, configError)
+      released++
+      continue
+    }
 
     const template = TEMPLATES[email.template_kind]
     if (!template) {
@@ -1288,6 +1303,8 @@ exports.handler = async () => {
         // 4xx = eroare permanentă (adresă invalidă, payload respins de Resend) — retry-ul
         // nu schimbă rezultatul. EXCEPȚIE: 429 (rate-limit Resend, 5 req/s per echipă) e
         // TRANZITORIU — trebuie reîncercat, nu abandonat definitiv. 5xx/network/429 → backoff.
+        // 401/403 NU ajung aici ca „permanente": sunt CONFIGURAȚIE, nu destinatar
+        // (tratate în catch, rândul revine în 'queued' fără încercare consumată).
         resendErr.permanent = res.status >= 400 && res.status < 500 && res.status !== 429
         // Resend respectă standardul IETF: header `retry-after` (secunde) la 429 — dacă
         // prezent, îl folosim ca bază de backoff în loc de backoff-ul liniar generic.
@@ -1322,7 +1339,19 @@ exports.handler = async () => {
       sent++
     } catch (err) {
       const attempts = email.failed_attempts + 1
-      if (err.status === 401 || err.status === 403) authFailures++
+      if (err.status === 401 || err.status === 403) {
+        authFailures++
+        configError = String(err.message || err)
+        console.error(
+          `[process-email-queue] EROARE DE CONFIGURARE: Resend a răspuns ${err.status} — ` +
+          `RESEND_API_KEY lipsă de drepturi/invalidă/rotită sau domeniul expeditorului ` +
+          `neverificat. Rândurile rămân 'queued' (fără încercare consumată); restul lotului ` +
+          `nu se mai trimite. /health (sonda de coadă) dă alarma dacă problema persistă.`,
+        )
+        await releaseForConfig(email, configError)
+        released++
+        continue
+      }
       if (err.permanent) {
         // Eroare 4xx de la Resend: fără backoff, marcăm direct 'failed'.
         await supabase.from('email_queue').update({
@@ -1358,10 +1387,10 @@ exports.handler = async () => {
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ processed: pending.length, sent, failed, authFailures }),
+    body: JSON.stringify({ processed: pending.length, sent, failed, authFailures, released }),
   }
 }
 
-// Pentru testele din tests/functions (EK1–EK4): fiecare valoare din enumul
+// Pentru testele din tests/functions (EK1–EK7): fiecare valoare din enumul
 // email_template_kind trebuie să aibă șablon, iar șabloanele se randează pur.
 exports.TEMPLATES = TEMPLATES

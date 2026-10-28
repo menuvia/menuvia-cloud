@@ -8,10 +8,12 @@
 //
 //   EK1  fiecare valoare a enumului (create type din mig 039 + TOATE
 //        `alter type … add value` din lanț) are șablon; anti-vacuitate: parserul
-//        vede enumul creat o singură dată, ≥ 32 de valori, cele 9 din mig 299.
+//        vede enumul creat o singură dată, ≥ 31 de valori, cele 8 din mig 299;
+//        tipurile de cerere (affiliate_application_*) NU există — rețeaua e pe
+//        invitație.
 //   EK1b fiecare șablon corespunde unei valori din enum (cheie scrisă greșit =
 //        șablon mort).
-//   EK2  cele 9 șabloane noi se randează cu `{}` (fără throw, fără „undefined"/
+//   EK2  cele 8 șabloane noi se randează cu `{}` (fără throw, fără „undefined"/
 //        „NaN"/„[object Object]", subiect fără caractere de control) și FIECARE
 //        câmp de text din contract ajunge în HTML ESCAPAT — control pozitiv:
 //        markerul escapat TREBUIE să apară, altfel câmpul nici nu e randat.
@@ -23,6 +25,10 @@
 //        în Europe/Bucharest (21:30Z pe 4 sept = 5 sept).
 //   EK6  cablajul real: un rând `agent_client_at_risk` revendicat trece prin
 //        handler, pleacă la Resend și e marcat `sent` (nu „Unknown template").
+//   EK7  Resend 401/403 = CONFIGURAȚIE, nu destinatar: rândul revine în
+//        'queued' fără încercare consumată și fără scheduled_for mutat (sonda
+//        de coadă din /health îl vede îmbătrânind), restul lotului NU se mai
+//        trimite; control: 422/400 (destinatar respins) marchează tot `failed`.
 //
 // Rulează în jobul „Bridge tests" (vitest nu vede tests/functions).
 
@@ -41,15 +47,16 @@ const APP = 'https://app.example'
 
 const NEW_KINDS = [
   'agent_client_at_risk',
-  'affiliate_application_received',
-  'affiliate_application_decided',
   'affiliate_new_client',
   'partner_access_requested',
-  'affiliate_invoice_requested',
+  'affiliate_payout_statement',
   'affiliate_payout_sent',
   'affiliate_payout_blocked',
   'founder_weekly_digest',
+  'founder_alert',
 ]
+// Scoase DELIBERAT din 299 (rețea doar pe invitație; redenumire în decont).
+const GONE_KINDS = ['affiliate_application_received', 'affiliate_application_decided', 'affiliate_invoice_requested']
 
 // APP_URL e citit la ÎNCĂRCAREA modulului → setat înainte, cache golit.
 let TEMPLATES
@@ -99,9 +106,17 @@ describe('EK1: fiecare valoare din email_template_kind are șablon', () => {
     const { values, creates, files } = enumFromMigrations()
     assert.ok(files > 250, `doar ${files} migrații citite`)
     assert.equal(creates, 1, 'enumul trebuie creat exact o dată (mig 039)')
-    assert.ok(values.size >= 32, `doar ${values.size} valori găsite`)
+    assert.ok(values.size >= 31, `doar ${values.size} valori găsite`)
     for (const k of ['welcome', 'custom', 'reservation_cancelled', ...NEW_KINDS]) {
       assert.ok(values.has(k), `valoarea ${k} lipsește din parsare`)
+    }
+  })
+
+  it('tipurile scoase din 299 (cereri de agent, factura cerută) NU există — nici în enum, nici ca șablon', () => {
+    const { values } = enumFromMigrations()
+    for (const k of GONE_KINDS) {
+      assert.ok(!values.has(k), `${k} a reapărut în enum`)
+      assert.equal(TEMPLATES[k], undefined, `${k} are încă șablon`)
     }
   })
 
@@ -129,15 +144,6 @@ const FIELD_CASES = {
     ['city', (v) => ({ restaurant_name: 'R', city: v })],
     ['agent_name', (v) => ({ agent_name: v })],
   ],
-  affiliate_application_received: [
-    ['applicant_display_name', (v) => ({ applicant_display_name: v })],
-    ['head_name', (v) => ({ head_name: v })],
-  ],
-  affiliate_application_decided: [
-    ['head_display_name/aprobat', (v) => ({ approved: true, head_display_name: v })],
-    ['head_display_name/respins', (v) => ({ approved: false, head_display_name: v })],
-    ['applicant_name', (v) => ({ approved: true, applicant_name: v })],
-  ],
   affiliate_new_client: [
     ['restaurant_name', (v) => ({ restaurant_name: v, source: 'link' })],
     ['agent_name', (v) => ({ agent_name: v })],
@@ -147,11 +153,11 @@ const FIELD_CASES = {
     ['restaurant_name', (v) => ({ restaurant_name: v })],
     ['owner_name', (v) => ({ owner_name: v })],
   ],
-  affiliate_invoice_requested: [
-    ['company_name', (v) => ({ menuvia_billing: { company_name: v, cui: 'RO1', address: 'A' } })],
-    ['cui', (v) => ({ menuvia_billing: { company_name: 'M', cui: v, address: 'A' } })],
-    ['address', (v) => ({ menuvia_billing: { company_name: 'M', cui: 'RO1', address: v } })],
-    ['due_hint', (v) => ({ due_hint: v })],
+  affiliate_payout_statement: [
+    ['company_name', (v) => ({ invoice_required: true, menuvia_billing: { company_name: v, cui: 'RO1', address: 'A' } })],
+    ['cui', (v) => ({ invoice_required: true, menuvia_billing: { company_name: 'M', cui: v, address: 'A' } })],
+    ['address', (v) => ({ invoice_required: true, menuvia_billing: { company_name: 'M', cui: 'RO1', address: v } })],
+    ['due_hint', (v) => ({ invoice_required: true, due_hint: v })],
     ['affiliate_name', (v) => ({ affiliate_name: v })],
   ],
   affiliate_payout_sent: [
@@ -169,6 +175,11 @@ const FIELD_CASES = {
     ['risks.label', (v) => ({ risks: [{ kind: 'k', label: v }] })],
     // Cheia unui obiect: doar șiruri (JSON) — exclusă din cazurile null/obiect.
     ['payouts_by_status.key', (v) => ({ money: { payouts_by_status: { [v]: 2 } } }), 'key'],
+  ],
+  founder_alert: [
+    ['title', (v) => ({ title: v })],
+    ['details', (v) => ({ title: 'T', details: v })],
+    ['kind', (v) => ({ kind: v })],
   ],
 }
 
@@ -234,24 +245,50 @@ describe('EK2: șabloanele noi — randare cu {} și escaparea fiecărui câmp',
     }
   })
 
-  it('affiliate_application_decided: true / false / necunoscut dau trei texte diferite', () => {
-    const yes = TEMPLATES.affiliate_application_decided({ approved: true }).subject
-    const no = TEMPLATES.affiliate_application_decided({ approved: false }).subject
-    const unk = TEMPLATES.affiliate_application_decided({ approved: 'true' }).subject
-    assert.equal(new Set([yes, no, unk]).size, 3)
-    assert.match(yes, /Bine ai venit/)
-    assert.match(no, /nu a fost aprobată/)
-    assert.match(unk, /a primit un răspuns/)
-  })
-
-  it('affiliate_invoice_requested: datele Menuvia doar COMPLETE; altfel trimitere la panou', () => {
-    const full = TEMPLATES.affiliate_invoice_requested({
-      menuvia_billing: { company_name: 'MENUVIA SRL', cui: 'RO123', address: 'Str. X 1' },
-    }).html
+  it('affiliate_payout_statement: datele Menuvia doar COMPLETE; altfel trimitere la panou', () => {
+    const billing = { company_name: 'MENUVIA SRL', cui: 'RO123', address: 'Str. X 1' }
+    const full = TEMPLATES.affiliate_payout_statement({ invoice_required: true, menuvia_billing: billing }).html
     assert.ok(full.includes('MENUVIA SRL') && full.includes('RO123') && full.includes('Str. X 1'))
-    const partial = TEMPLATES.affiliate_invoice_requested({ menuvia_billing: { company_name: 'MENUVIA SRL' } }).html
+    const partial = TEMPLATES.affiliate_payout_statement({
+      invoice_required: true,
+      menuvia_billing: { company_name: 'MENUVIA SRL' },
+    }).html
     assert.ok(!partial.includes('MENUVIA SRL'), 'date de facturare afișate PARȚIAL')
     assert.ok(partial.includes('le găsești în panou'))
+  })
+
+  it('affiliate_payout_statement: factură cerută / autofacturare / necunoscut — trei variante', () => {
+    const billing = { company_name: 'MENUVIA SRL', cui: 'RO123', address: 'Str. X 1' }
+    const base = { period: '2026-10', amount_cents: 24900, menuvia_billing: billing, due_hint: 'până pe 10' }
+    const inv = TEMPLATES.affiliate_payout_statement({ ...base, invoice_required: true })
+    assert.ok(inv.html.includes('Încarcă factura') && inv.html.includes('MENUVIA SRL'))
+    assert.ok(!inv.html.includes('autofacturare'))
+    assert.match(inv.subject, /Încarcă factura/)
+    // Autofacturare: NU se cere nimic și NU se afișează datele Menuvia, chiar dacă vin.
+    const self = TEMPLATES.affiliate_payout_statement({ ...base, invoice_required: false })
+    assert.ok(self.html.includes('autofacturare') && self.html.includes('nu trebuie să încarci nimic'))
+    assert.ok(!self.html.includes('Încarcă factura') && !self.html.includes('MENUVIA SRL'))
+    assert.ok(!self.html.includes('până pe 10'))
+    assert.match(self.subject, /Decontul comisionului din octombrie 2026: 249,00 lei/)
+    // Necunoscut ('true' șir, lipsă): nici cerere de factură, nici promisiunea autofacturării.
+    for (const v of ['true', undefined, 1]) {
+      const unk = TEMPLATES.affiliate_payout_statement({ ...base, invoice_required: v }).html
+      assert.ok(!unk.includes('Încarcă factura') && !unk.includes('autofacturare'), String(v))
+      assert.ok(unk.includes('Detaliile despre factură le găsești în panou'))
+    }
+  })
+
+  it('founder_alert: detaliile își păstrează rândurile; codul apare ca referință', () => {
+    const r = TEMPLATES.founder_alert({
+      kind: 'payout_on_hold',
+      title: 'Plată blocată 3 zile',
+      details: 'linia 1\nlinia 2',
+      action_url: '/founder?tab=plati',
+    })
+    assert.match(r.subject, /^🚨 Plată blocată 3 zile$/)
+    assert.ok(r.html.includes('white-space:pre-wrap') && r.html.includes('linia 1\nlinia 2'))
+    assert.ok(r.html.includes('payout_on_hold'))
+    assert.ok(r.html.includes(`href="${APP}/founder?tab=plati"`))
   })
 
   it('affiliate_payout_blocked: cod cunoscut → explicație; cod necunoscut → generic + cod', () => {
@@ -332,21 +369,21 @@ describe('EK3: raportul de luni — „Ce te așteaptă pe tine" primul', () => 
 describe('EK4: linkurile pleacă DOAR pe APP_URL', () => {
   const LINKS = [
     ['agent_client_at_risk', 'panel_url', '/afiliat'],
-    ['affiliate_application_received', 'review_url', '/afiliat'],
-    ['affiliate_application_decided', 'panel_url', '/afiliat'],
     ['affiliate_new_client', 'panel_url', '/afiliat'],
     ['partner_access_requested', 'approve_url', '/dashboard?tab=settings'],
-    ['affiliate_invoice_requested', 'upload_url', '/afiliat'],
+    ['affiliate_payout_statement', 'upload_url', '/afiliat', { invoice_required: true }],
+    ['affiliate_payout_statement', 'panel_url', '/afiliat', { invoice_required: false }],
+    ['founder_alert', 'action_url', '/founder'],
     ['affiliate_payout_sent', 'panel_url', '/afiliat'],
     ['affiliate_payout_blocked', 'action_url', '/afiliat'],
   ]
   const hrefs = (html) => [...html.matchAll(/href="([^"]*)"/g)].map((m) => m[1])
 
-  for (const [kind, key, dflt] of LINKS) {
+  for (const [kind, key, dflt, base = {}] of LINKS) {
     it(`${kind}.${key}: implicit, cale relativă, valori străine respinse`, () => {
       const esc = (s) => s.replace(/&/g, '&amp;')
-      assert.ok(hrefs(TEMPLATES[kind]({}).html).includes(esc(`${APP}${dflt}`)), 'calea implicită')
-      const rel = TEMPLATES[kind]({ [key]: '/afiliat?tab=plati&x=1' }).html
+      assert.ok(hrefs(TEMPLATES[kind]({ ...base }).html).includes(esc(`${APP}${dflt}`)), 'calea implicită')
+      const rel = TEMPLATES[kind]({ ...base, [key]: '/afiliat?tab=plati&x=1' }).html
       assert.ok(hrefs(rel).includes(`${APP}/afiliat?tab=plati&amp;x=1`), 'calea relativă trimisă de producător')
       for (const bad of [
         'https://evil.example/x',
@@ -358,7 +395,7 @@ describe('EK4: linkurile pleacă DOAR pe APP_URL', () => {
         42,
         { url: '/x' },
       ]) {
-        const html = TEMPLATES[kind]({ [key]: bad }).html
+        const html = TEMPLATES[kind]({ ...base, [key]: bad }).html
         assert.ok(!html.includes('evil.example'), `${JSON.stringify(bad)} a ajuns în email`)
         assert.ok(!html.includes('javascript:'))
         for (const h of hrefs(html)) assert.ok(h.startsWith(`${APP}/`), `link în afara APP_URL: ${h}`)
@@ -388,8 +425,8 @@ describe('EK5: formatarea (bani, lună, săptămână ISO, fus orar)', () => {
   })
 
   it("period 'YYYY-MM' → luna în română; invalid → omis", () => {
-    assert.ok(TEMPLATES.affiliate_invoice_requested({ period: '2026-10' }).html.includes('octombrie 2026'))
-    const bad = TEMPLATES.affiliate_invoice_requested({ period: '2026-13' })
+    assert.ok(TEMPLATES.affiliate_payout_statement({ period: '2026-10' }).html.includes('octombrie 2026'))
+    const bad = TEMPLATES.affiliate_payout_statement({ period: '2026-13' })
     assert.ok(!bad.html.includes('2026-13') && !bad.subject.includes('2026-13'))
   })
 
@@ -403,8 +440,8 @@ describe('EK5: formatarea (bani, lună, săptămână ISO, fus orar)', () => {
     assert.match(TEMPLATES.founder_weekly_digest({ week: '2021-W01' }).subject, /\(4–10 ianuarie 2021\)/)
   })
 
-  it('applied_at în Europe/Bucharest: 21:30Z pe 4 sept = 5 septembrie, 00:30', () => {
-    const html = TEMPLATES.affiliate_application_received({ applied_at: '2026-09-04T21:30:00Z' }).html
+  it('occurred_at în Europe/Bucharest: 21:30Z pe 4 sept = 5 septembrie, 00:30', () => {
+    const html = TEMPLATES.founder_alert({ title: 'T', occurred_at: '2026-09-04T21:30:00Z' }).html
     assert.ok(html.includes('5 septembrie'), html)
     assert.ok(html.includes('00:30'))
     assert.ok(!html.includes('4 septembrie'))
@@ -423,6 +460,7 @@ describe('EK6: cablajul real prin handler', () => {
   const saved = {}
   let savedFetch
   let resend = []
+  let resendStatus = 200
   beforeEach(() => {
     resetMocks()
     for (const k of ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'RESEND_API_KEY']) saved[k] = process.env[k]
@@ -433,9 +471,17 @@ describe('EK6: cablajul real prin handler', () => {
     })
     savedFetch = global.fetch
     resend = []
+    resendStatus = 200
     global.fetch = async (url, init) => {
       resend.push({ url, body: JSON.parse(init.body) })
-      return { ok: true, status: 200, json: async () => ({ id: 'em_1' }), text: async () => '' }
+      const st = resendStatus
+      return {
+        ok: st >= 200 && st < 300,
+        status: st,
+        headers: { get: () => null },
+        json: async () => ({ id: 'em_1' }),
+        text: async () => (st === 200 ? '' : `{"statusCode":${st},"message":"x"}`),
+      }
     }
   })
   afterEach(() => {
@@ -469,7 +515,7 @@ describe('EK6: cablajul real prin handler', () => {
     }
     const res = await handler({})
     assert.equal(res.statusCode, 200, res.body)
-    assert.deepEqual(JSON.parse(res.body), { processed: 1, sent: 1, failed: 0, authFailures: 0 })
+    assert.deepEqual(JSON.parse(res.body), { processed: 1, sent: 1, failed: 0, authFailures: 0, released: 0 })
     assert.equal(resend.length, 1)
     assert.deepEqual(resend[0].body.to, ['agent@x.test'])
     assert.match(resend[0].body.subject, /Bistro Ana/)
@@ -477,4 +523,71 @@ describe('EK6: cablajul real prin handler', () => {
     assert.ok(updates.some((u) => u.status === 'sent'))
     assert.ok(!updates.some((u) => String(u.last_error || '').includes('Unknown template')))
   })
+
+  // ── EK7: 401/403 = configurație, nu destinatar ───────────────────────────
+  function claimRows(n) {
+    state.rpcHandlers['claim_email_batch'] = () => ({
+      data: Array.from({ length: n }, (_, i) => ({
+        id: `e${i + 1}`,
+        template_kind: 'welcome',
+        template_data: { owner_name: 'Ion' },
+        recipient_email: `r${i + 1}@x.test`,
+        failed_attempts: 1,
+        created_at: new Date().toISOString(),
+      })),
+      error: null,
+    })
+    const updates = []
+    state.fromHandlers['email_queue'] = (ops) => {
+      const u = ops.find((o) => o.m === 'update')
+      const id = ops.find((o) => o.m === 'eq')
+      if (u) updates.push({ id: id && id.args[1], ...u.args[0] })
+      return { data: null, error: null }
+    }
+    return updates
+  }
+
+  for (const st of [401, 403]) {
+    it(`EK7: Resend ${st} → rândul revine 'queued' NEATINS, restul lotului nu se trimite`, async () => {
+      const { handler } = loadFunction(REL)
+      const updates = claimRows(3)
+      resendStatus = st
+      const errs = []
+      const savedErr = console.error
+      console.error = (...a) => errs.push(a.join(' '))
+      let res
+      try {
+        res = await handler({})
+      } finally {
+        console.error = savedErr
+      }
+      assert.equal(res.statusCode, 200, res.body)
+      assert.deepEqual(JSON.parse(res.body), { processed: 3, sent: 0, failed: 0, authFailures: 1, released: 3 })
+      assert.equal(resend.length, 1, 'după primul 401/403 nu se mai cheamă Resend pentru restul lotului')
+      assert.deepEqual(updates.map((u) => u.id).sort(), ['e1', 'e2', 'e3'])
+      for (const u of updates) {
+        assert.equal(u.status, 'queued', `${u.id}: ${u.status}`)
+        assert.equal(u.claimed_at, null)
+        assert.ok(!('failed_attempts' in u), `${u.id}: încercare consumată pe o eroare de configurare`)
+        assert.ok(!('scheduled_for' in u), `${u.id}: scheduled_for mutat — sonda de coadă n-ar mai vedea vechimea`)
+        assert.match(u.last_error, /^CONFIG Resend/)
+      }
+      assert.ok(errs.some((e) => e.includes('EROARE DE CONFIGURARE')), 'lipsește logul clar de configurare')
+    })
+  }
+
+  for (const st of [422, 400]) {
+    it(`EK7 control: Resend ${st} (destinatar/payload respins) → rândul e marcat failed`, async () => {
+      const { handler } = loadFunction(REL)
+      const updates = claimRows(2)
+      resendStatus = st
+      const res = await handler({})
+      assert.deepEqual(JSON.parse(res.body), { processed: 2, sent: 0, failed: 2, authFailures: 0, released: 0 })
+      assert.equal(resend.length, 2, 'o eroare de destinatar NU oprește lotul')
+      for (const u of updates) {
+        assert.equal(u.status, 'failed')
+        assert.equal(u.failed_attempts, 2)
+      }
+    })
+  }
 })
