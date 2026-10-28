@@ -40,9 +40,23 @@ jobs:
     name: Poarta (CI + Tests + SQL verify verzi pe main)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # GARDA pe workflow_run. `workflow_run` rulează MEREU pe ramura implicită,
+    # cu fișierul de workflow și secretele de pe main — chiar și când l-a trezit
+    # un run de pull_request dintr-un FORK. Filtrul `branches: [main]` compară
+    # doar NUMELE ramurii capului, deci un fork cu o ramură numită `main` trece
+    # de el, iar restricția environment-ului `production` la main NU apără
+    # nimic aici (run-ul nostru chiar e pe main). De aceea: doar evenimente
+    # `push`, doar din repo-ul nostru, iar SHA-ul trezirii trebuie să fie
+    # accesibil din origin/main (pasul „Garda” de mai jos). Poarta evaluează
+    # oricum vârful lui main, nu codul trezirii — garda e a doua plasă.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    # Exact cât trebuie: codul (contents) + starea run-urilor (actions). Cu `{}`
+    # poarta n-ar putea citi nici repo-ul, nici verdictul SQL verify.
     permissions:
       contents: read
       actions: read
@@ -55,6 +69,18 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Garda — SHA-ul trezirii e pe origin/main
+        if: github.event_name == 'workflow_run'
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::head_sha invalid"; exit 1; }
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$HEAD_SHA" origin/main; then
+            echo "::error::Trezire de la ${HEAD_SHA:0:7}, care NU e pe origin/main — refuz (fork / ramură străină)."
+            exit 1
+          fi
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -76,6 +102,7 @@ jobs:
     environment: production
     permissions:
       contents: read
+      actions: read
     env:
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
     steps:
