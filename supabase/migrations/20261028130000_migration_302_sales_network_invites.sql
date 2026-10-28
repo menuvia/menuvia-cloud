@@ -18,16 +18,28 @@
 --       — potrivirea s-a făcut, iar un email care supraviețuiește ștergerii
 --       contului ar fi PII fără scop.
 --   (2) Contract VERSIONAT + dovadă append-only. Versiunea publicată stă în
---       `platform_settings.sales_contract_version` (JSON `null` = NEPUBLICAT,
---       implicit). Cât timp e nepublicată, NICIO invitație nu se creează și
+--       `platform_settings.sales_contract_version` ca OBIECT
+--       `{"version":"1.0","text_hash":"<sha256 hex>"}` (JSON `null` = NEPUBLICAT,
+--       implicit; orice altă formă — șir gol, șir simplu fără hash, obiect cu
+--       hash prost — e tot nepublicat). Hash-ul publicat LEAGĂ versiunea de textul
+--       exact: `redeem_*` respinge cu `contract_hash_mismatch` orice alt hash
+--       (înainte, orice 64 hex trecea, inclusiv 000…0). Cât timp e nepublicată, NICIO invitație nu se creează și
 --       niciuna nu se răscumpără (`contract_not_published`) — contractul
 --       (docs/dosar/03*, art. 3.4) e DRAFT, deci codul e FAIL-CLOSED. Tabela
 --       `affiliate_contract_acceptances` e append-only (trigger BEFORE
 --       UPDATE/DELETE + BEFORE TRUNCATE): afiliat, rol, versiune, sha256 al
 --       textului AFIȘAT (primit de la client), momentul și CUI-ul declarat.
 --       Acceptarea se face în ACELAȘI pas cu răscumpărarea (atomic).
---       `admin_set_sales_contract_version` refuză versiunile care conțin
---       „draft” — un „agent-1.0-DRAFT” nu are voie să deblocheze invitațiile.
+--       `admin_set_sales_contract_version(p_version, p_text_hash)` refuză versiunile
+--       care conțin „draft”, cuvintele rezervate (null/none/undefined/false/true/
+--       nan) și orice nu are forma `^v?[0-9]+(\.[0-9]+)*$` (max 20 caractere).
+--   (2b) D8 ÎN DATE. Un părinte cu `sales_role` setat (șef) poate avea ca
+--       copii DOAR conturi cu `sales_role = 'agent'` (intrate prin invitație, cu
+--       contract acceptat): constraint trigger deferred
+--       `trg_affiliate_sales_role_parent`. Fără el, programul public redeschis +
+--       `register_affiliate` cu codul șefului + `admin_review_affiliate` ar fi
+--       lăsat un „agent” fără contract să încaseze cascada de 20% a șefului.
+--       `get_sales_network` listează în `team` doar `sales_role = 'agent'`.
 --   (3) CUI obligatoriu, validat cu cifra de control (cheia 753217532):
 --       `normalize_ro_cui` / `is_valid_ro_cui`. Verificat pe CUI-uri reale
 --       (Banca Transilvania 5022670, eMAG 14399840, Dedeman 2816464, Orange
@@ -36,6 +48,10 @@
 --       NOT NULL (nu-l colectăm la răscumpărare), `upsert_payout_profile` cere
 --       IBAN valid, iar o salvare ulterioară cu `p_cui = null` ar ȘTERGE
 --       declarația. Completarea din ANAF + profilul de plată vin în pachetul 13.
+--       UNICITATE: la răscumpărare (după validarea tokenului) CUI-ul normalizat nu
+--       poate coincide cu cel din ULTIMA acceptare a niciunui afiliat ne-închis
+--       și ne-șters (inclusiv șeful invitator) — `cui_conflict`; verificarea ia un
+--       lacăt advisory pe CUI (două răscumpărări simultane cu același CUI).
 --   (4) RPC-uri de fondator (toate: `is_platform_admin()`, altfel 42501 cu hint
 --       `not_platform_admin`): `admin_set_sales_contract_version`,
 --       `admin_create_sales_head_invite`, `admin_revoke_affiliate_invite`,
@@ -52,11 +68,23 @@
 --       testul să exerseze EXACT instrucțiunea din migrație. Default-ul
 --       COLOANEI `affiliates.cascade_bps` rămâne 200 (RC1 depinde de el).
 --
+-- IDENTITATEA EMAILULUI. O invitație legată de email se răscumpără doar de un
+-- cont cu email CONFIRMAT (`auth.users.email_confirmed_at`) care se potrivește;
+-- orice răscumpărare cere un cont non-anonim (email prezent, `is_anonymous` fals;
+-- coloanele se citesc prin `to_jsonb(u)` ca să nu depindă de schema mock din CI).
+-- Absența coloanei `email_confirmed_at` = NECONFIRMAT (fail-closed).
+--
+-- GDPR. Revocarea unei invitații (`admin_revoke_affiliate_invite`,
+-- `revoke_agent_invite`) golește `email` și `note`; răscumpărarea golește `email`.
+-- REZIDUU consemnat (nu acum): invitațiile EXPIRATE neutilizate păstrează
+-- email/note până la un janitor.
+--
 -- ANTI-ORACOL. Un SINGUR motiv extern pentru orice problemă a invitației:
 -- `invite_invalid` (inexistentă / expirată / folosită / revocată / alt tip /
 -- email nepotrivit / invitatorul nu mai e un șef activ). Verificările care NU
 -- depind de token (autentificare, rate limit, contract, hash, telefon, CUI)
--- vin ÎNAINTEA căutării tokenului — altfel „cui_invalid” vs „invite_invalid”
+-- vin ÎNAINTEA căutării tokenului (inclusiv `contract_hash_mismatch` și
+-- `anonymous_account`) — altfel „cui_invalid” vs „invite_invalid”
 -- ar spune dacă tokenul e bun. Rate limit 10/15 min per utilizator.
 --
 -- SUSPENDAREA (D9). `admin_set_affiliate_status` doar schimbă `status`; înghețarea
@@ -100,6 +128,45 @@ alter table public.affiliates
 alter table public.affiliates drop constraint if exists affiliates_head_has_no_parent;
 alter table public.affiliates add constraint affiliates_head_has_no_parent
   check (sales_role is distinct from 'head' or parent_affiliate_id is null);
+
+-- D8 în DATE: sub un părinte din rețea (sales_role setat) intră DOAR agenți
+-- (sales_role = 'agent', adică invitație + contract acceptat). Constraint trigger
+-- deferred, ca `trg_affiliate_depth1`: verifică starea finală la COMMIT, deci
+-- rânduri create/aprobate pe alte căi (register_affiliate cu programul public
+-- redeschis, admin_review_affiliate, UPDATE direct) cad cu o eroare clară.
+create or replace function public.fn_affiliate_sales_role_parent()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if NEW.parent_affiliate_id is not null
+     and NEW.sales_role is distinct from 'agent'
+     and exists (select 1 from public.affiliates p
+                  where p.id = NEW.parent_affiliate_id and p.sales_role is not null) then
+    raise exception using errcode = 'check_violation',
+      message = 'sub un șef de vânzări pot fi doar agenți intrați prin invitație',
+      hint    = 'invariant:agent_requires_invitation';
+  end if;
+  -- Invers: un cont care devine membru al rețelei nu poate avea copii ne-agenți.
+  if NEW.sales_role is not null and exists (
+       select 1 from public.affiliates c
+        where c.parent_affiliate_id = NEW.id and c.sales_role is distinct from 'agent') then
+    raise exception using errcode = 'check_violation',
+      message = 'un cont din rețea nu poate avea sub el conturi fără invitație',
+      hint    = 'invariant:agent_requires_invitation';
+  end if;
+  return null;
+end$$;
+
+revoke all on function public.fn_affiliate_sales_role_parent()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_affiliate_sales_role_parent on public.affiliates;
+create constraint trigger trg_affiliate_sales_role_parent
+  after insert or update on public.affiliates
+  deferrable initially deferred
+  for each row execute function public.fn_affiliate_sales_role_parent();
 
 comment on column public.affiliates.sales_role is
   'mig 302: head | agent pentru conturile create prin invitație; NULL = afiliat din programul public/vechi.';
@@ -224,10 +291,29 @@ returns text
 language sql stable security definer
 set search_path = public, pg_temp
 as $$
-  select nullif(btrim(ps.value #>> '{}'), '')
+  select nullif(btrim(ps.value ->> 'version'), '')
     from public.platform_settings ps
    where ps.key = 'sales_contract_version'
-     and jsonb_typeof(ps.value) = 'string'
+     and jsonb_typeof(ps.value) = 'object'
+     and jsonb_typeof(ps.value -> 'version') = 'string'
+     and jsonb_typeof(ps.value -> 'text_hash') = 'string'
+     and (ps.value ->> 'text_hash') ~ '^[0-9a-f]{64}$'
+$$;
+
+-- Hash-ul publicat al textului (aceeași condiție ca versiunea: NULL = nepublicat).
+create or replace function public.sales_contract_published_hash()
+returns text
+language sql stable security definer
+set search_path = public, pg_temp
+as $$
+  select ps.value ->> 'text_hash'
+    from public.platform_settings ps
+   where ps.key = 'sales_contract_version'
+     and jsonb_typeof(ps.value) = 'object'
+     and jsonb_typeof(ps.value -> 'version') = 'string'
+     and nullif(btrim(ps.value ->> 'version'), '') is not null
+     and jsonb_typeof(ps.value -> 'text_hash') = 'string'
+     and (ps.value ->> 'text_hash') ~ '^[0-9a-f]{64}$'
 $$;
 
 -- CUI: prefix RO opțional (orice majuscule/spații), 2–10 cifre, cifra de
@@ -321,6 +407,7 @@ $$;
 revoke all on function public.sales_invite_ttl_days()                       from public, anon, authenticated, service_role;
 revoke all on function public.sales_open_invites_max()                      from public, anon, authenticated, service_role;
 revoke all on function public.sales_contract_published_version()            from public, anon, authenticated, service_role;
+revoke all on function public.sales_contract_published_hash()               from public, anon, authenticated, service_role;
 revoke all on function public.normalize_ro_cui(text)                        from public, anon, authenticated, service_role;
 revoke all on function public.is_valid_ro_cui(text)                         from public, anon, authenticated, service_role;
 revoke all on function public.new_sales_invite_token()                      from public, anon, authenticated, service_role;
@@ -343,43 +430,59 @@ select public.sales_network_apply_cascade_default();
 -- §5. RPC-uri de FONDATOR
 -- ───────────────────────────────────────────────────────────────────────────
 
--- 5a. Publică / retrage versiunea contractului.
-create or replace function public.admin_set_sales_contract_version(p_version text)
-returns jsonb
+-- 5a. Publică / retrage versiunea contractului (versiune + hash-ul textului).
+create or replace function public.admin_set_sales_contract_version(
+  p_version   text,
+  p_text_hash text
+) returns jsonb
 language plpgsql security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_new text := nullif(btrim(coalesce(p_version, '')), '');
-  v_old text;
+  v_new  text := nullif(btrim(coalesce(p_version, '')), '');
+  v_hash text;
+  v_old  text;
+  v_oldh text;
 begin
   if not public.is_platform_admin() then
     raise exception using errcode = 'insufficient_privilege',
       message = 'Acces interzis', hint = 'not_platform_admin';
   end if;
 
-  -- NULL / gol = retragere (invitațiile se blochează din nou).
+  -- NULL / gol = retragere (invitațiile se blochează din nou); hash-ul se ignoră.
   if v_new is not null then
-    if v_new !~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$' then
-      return jsonb_build_object('ok', false, 'reason', 'invalid_version');
-    end if;
-    -- Un contract DRAFT nu are voie să deblocheze invitațiile.
+    -- Un contract DRAFT nu are voie să deblocheze invitațiile (înaintea formei:
+    -- forma numerică nu poate conține „draft", deci verificarea ar fi moartă).
     if v_new ~* 'draft' then
       return jsonb_build_object('ok', false, 'reason', 'draft_version');
     end if;
+    -- (Lista de cuvinte rezervate e redundantă cu forma numerică de mai jos —
+    -- păstrată explicit, defense în adâncime; scoaterea ei nu e observabilă.)
+    if length(v_new) > 20
+       or lower(v_new) in ('null', 'none', 'undefined', 'false', 'true', 'nan')
+       or v_new !~ '^v?[0-9]+(\.[0-9]+)*$' then
+      return jsonb_build_object('ok', false, 'reason', 'invalid_version');
+    end if;
+    v_hash := lower(btrim(coalesce(p_text_hash, '')));
+    if v_hash !~ '^[0-9a-f]{64}$' then
+      return jsonb_build_object('ok', false, 'reason', 'invalid_text_hash');
+    end if;
   end if;
 
-  v_old := public.sales_contract_published_version();
+  v_old  := public.sales_contract_published_version();
+  v_oldh := public.sales_contract_published_hash();
 
   insert into public.platform_settings (key, value, updated_at)
   values ('sales_contract_version',
-          case when v_new is null then 'null'::jsonb else to_jsonb(v_new) end, now())
+          case when v_new is null then 'null'::jsonb
+               else jsonb_build_object('version', v_new, 'text_hash', v_hash) end, now())
   on conflict (key) do update set value = excluded.value, updated_at = now();
 
   perform public.log_platform_action('founder', null, 'sales_contract_version_set',
-    jsonb_build_object('old', v_old, 'new', v_new));
+    jsonb_build_object('old', v_old, 'old_text_hash', v_oldh,
+                       'new', v_new, 'new_text_hash', v_hash));
 
-  return jsonb_build_object('ok', true, 'version', v_new, 'previous', v_old);
+  return jsonb_build_object('ok', true, 'version', v_new, 'text_hash', v_hash, 'previous', v_old);
 end;
 $$;
 
@@ -453,7 +556,10 @@ begin
     return jsonb_build_object('ok', true, 'already', true);
   end if;
 
-  update public.affiliate_invitations set revoked_at = clock_timestamp() where id = v_inv.id;
+  -- GDPR: o invitație retrasă nu mai are nevoie de email/notă.
+  update public.affiliate_invitations
+     set revoked_at = clock_timestamp(), email = null, note = null
+   where id = v_inv.id;
   perform public.log_platform_action('founder', null, 'sales_invite_revoked',
     jsonb_build_object('invite_id', v_inv.id, 'kind', v_inv.kind));
   return jsonb_build_object('ok', true);
@@ -582,6 +688,9 @@ declare
   v_head     public.affiliates%rowtype;
   v_existing public.affiliates%rowtype;
   v_email    text;
+  v_confirmed boolean;
+  v_anon     boolean;
+  v_pub_hash text;
   v_defaults jsonb;
   v_code     text;
   v_try      int := 0;
@@ -610,6 +719,12 @@ begin
   if v_hash !~ '^[0-9a-f]{64}$' then
     return jsonb_build_object('ok', false, 'reason', 'contract_hash_invalid');
   end if;
+  -- Hash-ul trebuie să fie al textului PUBLICAT pentru această versiune (înainte
+  -- de token: un motiv independent de token nu e oracol).
+  v_pub_hash := public.sales_contract_published_hash();
+  if v_pub_hash is null or v_hash <> v_pub_hash then
+    return jsonb_build_object('ok', false, 'reason', 'contract_hash_mismatch');
+  end if;
   v_phone := btrim(coalesce(p_phone, ''));
   if length(v_phone) < 5 or length(v_phone) > 32 then
     return jsonb_build_object('ok', false, 'reason', 'phone_required');
@@ -617,6 +732,17 @@ begin
   v_cui := public.normalize_ro_cui(p_cui);
   if v_cui is null then
     return jsonb_build_object('ok', false, 'reason', 'cui_invalid');
+  end if;
+
+  -- Cont non-anonim: email prezent și `is_anonymous` fals. Citit prin to_jsonb(u)
+  -- (coloanele lipsesc din schema mock din CI; absent = neconfirmat/ne-anonim).
+  select lower(u.email),
+         (to_jsonb(u) ->> 'email_confirmed_at') is not null,
+         coalesce((to_jsonb(u) ->> 'is_anonymous')::boolean, false)
+    into v_email, v_confirmed, v_anon
+    from auth.users u where u.id = v_uid;
+  if not found or v_email is null or v_anon then
+    return jsonb_build_object('ok', false, 'reason', 'anonymous_account');
   end if;
 
   -- Invitația: `for update` serializează două răscumpărări ale aceluiași token
@@ -649,11 +775,10 @@ begin
      or v_inv.expires_at <= clock_timestamp() then
     return jsonb_build_object('ok', false, 'reason', 'invite_invalid');
   end if;
-  if v_inv.email is not null then
-    select lower(u.email) into v_email from auth.users u where u.id = v_uid;
-    if v_email is distinct from v_inv.email then
-      return jsonb_build_object('ok', false, 'reason', 'invite_invalid');
-    end if;
+  -- Invitația legată de email: doar un cont cu emailul CONFIRMAT și potrivit.
+  -- (Nepotrivit / neconfirmat → același invite_invalid: anti-oracol.)
+  if v_inv.email is not null and (not v_confirmed or v_email is distinct from v_inv.email) then
+    return jsonb_build_object('ok', false, 'reason', 'invite_invalid');
   end if;
 
   if p_kind = 'agent' then
@@ -670,6 +795,24 @@ begin
        or v_head.parent_affiliate_id is not null then
       return jsonb_build_object('ok', false, 'reason', 'invite_invalid');
     end if;
+  end if;
+
+  -- UNICITATE CUI (după validarea tokenului: doar cine are o invitație validă
+  -- vede acest motiv). Lacăt pe CUI: două răscumpărări simultane cu același CUI
+  -- se serializează, a doua vede acceptarea primeia după commit.
+  perform pg_advisory_xact_lock(hashtextextended('menuvia.sales_cui:' || v_cui, 0));
+  if exists (
+       select 1
+         from public.affiliates a
+         join lateral (select ca.declared_cui
+                         from public.affiliate_contract_acceptances ca
+                        where ca.affiliate_id = a.id
+                        order by ca.accepted_at desc, ca.id desc
+                        limit 1) l on true
+        where l.declared_cui = v_cui
+          and a.status <> 'closed'
+          and a.erased_at is null) then
+    return jsonb_build_object('ok', false, 'reason', 'cui_conflict');
   end if;
 
   -- Procentele de start = defaulturile fondatorului (mig 188; cascade 2000 din 302).
@@ -857,7 +1000,9 @@ begin
   if v_inv.revoked_at is not null then
     return jsonb_build_object('ok', true, 'already', true);
   end if;
-  update public.affiliate_invitations set revoked_at = clock_timestamp() where id = v_inv.id;
+  update public.affiliate_invitations
+     set revoked_at = clock_timestamp(), email = null, note = null
+   where id = v_inv.id;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -883,7 +1028,7 @@ begin
 
   update public.affiliates
      set contact_sharing    = p_share,
-         contact_sharing_at = case when p_share then clock_timestamp() else null end
+         contact_sharing_at = case when p_share then coalesce(contact_sharing_at, clock_timestamp()) else null end
    where profile_id = v_uid and erased_at is null
   returning id into v_id;
   if v_id is null then
@@ -922,7 +1067,8 @@ begin
     return jsonb_build_object('ok', true, 'role', null, 'status', null,
       'affiliate_id', null, 'contact_sharing', false,
       'contract', jsonb_build_object('current_version', v_current,
-        'accepted_version', null, 'accepted_at', null, 'needs_acceptance', false),
+        'accepted_version', null, 'accepted_at', null, 'needs_acceptance', false,
+        'current_text_hash', public.sales_contract_published_hash()),
       'head', null, 'team', '[]'::jsonb, 'open_invites', '[]'::jsonb,
       'limits', jsonb_build_object('open_invites_max', public.sales_open_invites_max(),
                                    'invite_ttl_days', public.sales_invite_ttl_days()));
@@ -981,7 +1127,7 @@ begin
                ) as j
           from public.affiliates a
           left join public.profiles p on p.id = a.profile_id
-         where a.parent_affiliate_id = v_me.id
+         where a.parent_affiliate_id = v_me.id and a.sales_role = 'agent'
       ) t;
 
     select coalesce(jsonb_agg(jsonb_build_object(
@@ -1004,7 +1150,8 @@ begin
       'current_version',  v_current,
       'accepted_version', v_acc_ver,
       'accepted_at',      v_acc_at,
-      'needs_acceptance', (v_current is not null and v_acc_ver is distinct from v_current)),
+      'needs_acceptance', (v_current is not null and v_acc_ver is distinct from v_current),
+      'current_text_hash', public.sales_contract_published_hash()),
     'head', v_head,
     'team', v_team,
     'open_invites', v_invites,
@@ -1016,7 +1163,7 @@ $$;
 -- ───────────────────────────────────────────────────────────────────────────
 -- §9. Privilegii: revoke EXPLICIT per rol, apoi grant minim
 -- ───────────────────────────────────────────────────────────────────────────
-revoke all on function public.admin_set_sales_contract_version(text)             from public, anon, authenticated, service_role;
+revoke all on function public.admin_set_sales_contract_version(text, text)       from public, anon, authenticated, service_role;
 revoke all on function public.admin_create_sales_head_invite(text, text)         from public, anon, authenticated, service_role;
 revoke all on function public.admin_revoke_affiliate_invite(uuid)                from public, anon, authenticated, service_role;
 revoke all on function public.admin_list_affiliate_invites()                     from public, anon, authenticated, service_role;
@@ -1028,7 +1175,7 @@ revoke all on function public.revoke_agent_invite(uuid)                         
 revoke all on function public.set_my_contact_sharing(boolean)                    from public, anon, authenticated, service_role;
 revoke all on function public.get_sales_network()                                from public, anon, authenticated, service_role;
 
-grant execute on function public.admin_set_sales_contract_version(text)             to authenticated;
+grant execute on function public.admin_set_sales_contract_version(text, text)       to authenticated;
 grant execute on function public.admin_create_sales_head_invite(text, text)         to authenticated;
 grant execute on function public.admin_revoke_affiliate_invite(uuid)                to authenticated;
 grant execute on function public.admin_list_affiliate_invites()                     to authenticated;
@@ -1110,6 +1257,7 @@ begin
   -- (d) helperii interni + funcția de trigger: la NIMENI
   foreach v_fn in array array[
     'sales_invite_ttl_days', 'sales_open_invites_max', 'sales_contract_published_version',
+    'sales_contract_published_hash', 'fn_affiliate_sales_role_parent',
     'normalize_ro_cui', 'is_valid_ro_cui', 'new_sales_invite_token',
     'sales_invite_token_hash', 'sales_network_apply_cascade_default',
     'sales_invite_redeem', 'fn_contract_acceptance_immutable'] loop
@@ -1136,13 +1284,20 @@ begin
 
   -- (f) contractul NU e publicat implicit; cascade: 2000 sau o valoare ≠ 200
   if exists (select 1 from public.platform_settings
-              where key = 'sales_contract_version' and jsonb_typeof(value) = 'string'
-                and (value #>> '{}') ~* 'draft') then
+              where key = 'sales_contract_version' and jsonb_typeof(value) = 'object'
+                and (value ->> 'version') ~* 'draft') then
     raise exception 'mig 302: sales_contract_version conține o versiune DRAFT';
   end if;
   select value into v_cas from public.platform_settings where key = 'affiliate_commission_defaults';
   if v_cas is null or (v_cas ->> 'cascade_bps')::numeric = 200 then
     raise exception 'mig 302: cascade_bps implicit a rămas 200 (așteptat 2000 sau valoarea fondatorului)';
+  end if;
+
+  -- (g0) D8 în date: triggerul deferred există și semnătura admin e unică
+  if not exists (select 1 from pg_trigger where tgname = 'trg_affiliate_sales_role_parent'
+                  and tgrelid = 'public.affiliates'::regclass and tgdeferrable and tginitdeferred
+                  and not tgisinternal) then
+    raise exception 'mig 302: trg_affiliate_sales_role_parent lipsește / nu e DEFERRED';
   end if;
 
   -- (g) programul public rămâne neatins: register_affiliate are o singură semnătură

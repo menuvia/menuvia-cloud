@@ -145,6 +145,7 @@ describe('SN4 get_sales_network', () => {
       accepted_version: '1.0',
       accepted_at: '2026-10-28T10:00:00Z',
       needs_acceptance: false,
+      current_text_hash: 'a'.repeat(64),
     },
     head: null,
     team: [
@@ -200,6 +201,7 @@ describe('SN4 get_sales_network', () => {
       acceptedVersion: '1.0',
       acceptedAt: '2026-10-28T10:00:00Z',
       needsAcceptance: false,
+      currentTextHash: 'a'.repeat(64),
     })
     expect(n.team).toHaveLength(2)
     expect(n.team[0]).toMatchObject({
@@ -270,6 +272,24 @@ describe('SN4 get_sales_network', () => {
       phone: '0722',
       email: 'i@x.ro',
     })
+  })
+
+  it('rol necunoscut sau lipsă → eroare (tristate), NU null = „în afara rețelei"', () => {
+    for (const bad of ['superagent', 'HEAD', 7, undefined]) {
+      let reason: string | null = null
+      try {
+        parseSalesNetwork({ ...payload, role: bad })
+      } catch (e) {
+        reason = e instanceof SalesNetworkError ? e.reason : 'altceva'
+      }
+      expect(reason, String(bad)).toBe('unknown')
+    }
+    const withoutRole = Object.fromEntries(Object.entries(payload).filter(([k]) => k !== 'role'))
+    expect(() => parseSalesNetwork(withoutRole)).toThrow()
+    // control pozitiv: `null` explicit = chiar în afara rețelei
+    expect(
+      parseSalesNetwork({ ...payload, role: null, team: [], open_invites: [] }).role,
+    ).toBeNull()
   })
 
   it('formă proastă → SalesNetworkError(unknown), nu undefined în UI', async () => {
@@ -511,13 +531,61 @@ describe('SN7 RPC-uri de șef și de fondator', () => {
     expect((await rejection(adminSetAffiliateStatus('a1', 'active', ''))).reason).toBe(
       'reason_required',
     )
-    rpcMock.mockReturnValueOnce(ok({ ok: true, version: null, previous: '1.0' }))
-    expect(await adminSetContractVersion(null)).toBeNull()
+    rpcMock.mockReturnValueOnce(ok({ ok: true, version: null, text_hash: null, previous: '1.0' }))
+    expect(await adminSetContractVersion(null, null)).toEqual({ version: null, textHash: null })
     expect(rpcMock).toHaveBeenLastCalledWith('admin_set_sales_contract_version', {
       p_version: null,
+      p_text_hash: null,
     })
-    rpcMock.mockReturnValueOnce(ok({ ok: false, reason: 'draft_version' }))
-    expect((await rejection(adminSetContractVersion('1.0-DRAFT'))).reason).toBe('draft_version')
+    rpcMock.mockReturnValueOnce(
+      ok({ ok: true, version: '1.0', text_hash: 'a'.repeat(64), previous: null }),
+    )
+    expect(await adminSetContractVersion('1.0', 'a'.repeat(64))).toEqual({
+      version: '1.0',
+      textHash: 'a'.repeat(64),
+    })
+    expect(rpcMock).toHaveBeenLastCalledWith('admin_set_sales_contract_version', {
+      p_version: '1.0',
+      p_text_hash: 'a'.repeat(64),
+    })
+    for (const reason of ['draft_version', 'invalid_text_hash', 'invalid_version'] as const) {
+      rpcMock.mockReturnValueOnce(ok({ ok: false, reason }))
+      expect((await rejection(adminSetContractVersion('1.0-DRAFT', 'x'))).reason).toBe(reason)
+    }
+  })
+
+  it('succesul cere `ok === true`: un corp fără `ok` e eroare (revoke, admin revoke, contract)', async () => {
+    const calls: Array<() => Promise<unknown>> = [
+      () => revokeAgentInvite('i1'),
+      () => adminRevokeInvite('i1'),
+      () => adminSetContractVersion('1.0', 'a'.repeat(64)),
+      () => setMyContactSharing(true),
+    ]
+    for (const bodyOf of [{}, { reason: 'x' }, { ok: 'true' }, { ok: 1 }, { ok: null }]) {
+      for (const call of calls) {
+        rpcMock.mockReturnValueOnce(ok(bodyOf))
+        expect((await rejection(call())).reason, JSON.stringify(bodyOf)).toBe('unknown')
+      }
+    }
+    // control pozitiv: `ok: true` trece
+    rpcMock.mockReturnValueOnce(ok({ ok: true }))
+    await revokeAgentInvite('i1')
+    rpcMock.mockReturnValueOnce(ok({ ok: true }))
+    await adminRevokeInvite('i1')
+  })
+
+  it('motivele noi (hash, CUI, cont anonim) au mesaje distincte și românești', () => {
+    for (const r of [
+      'contract_hash_mismatch',
+      'cui_conflict',
+      'anonymous_account',
+      'invalid_text_hash',
+    ] as const) {
+      expect(SALES_SERVER_REASONS).toContain(r)
+      expect(new SalesNetworkError(r).message).toBe(SALES_FAILURE_MESSAGES[r])
+    }
+    const msgs = new Set(Object.values(SALES_FAILURE_MESSAGES))
+    expect(msgs.size).toBe(Object.keys(SALES_FAILURE_MESSAGES).length)
   })
 })
 

@@ -48,6 +48,13 @@
 --   IN19 rate limit pe răscumpări (a 11-a încercare → rate_limited)
 --   IN20 programul public rămâne închis și neatins
 --   IN21 lista fondatorului: formă, stări, fără token/hash; scanare globală finală
+--   IN22 UNICITATE CUI: același CUI ca șeful / ca alt șef respins (`cui_conflict`),
+--        doar ULTIMA acceptare contează, închis/șters eliberează, formatul nu ocolește
+--   IN23 D8 ÎN DATE: programul public redeschis + register_affiliate / review nu pot
+--        pune un cont fără invitație sub un șef (trigger deferred); `team` filtrează
+--   IN24 IDENTITATEA: cont anonim respins; invitația cu email cere email CONFIRMAT
+--   IN25 hash legat de versiune (`contract_hash_mismatch`), reguli de versiune,
+--        `contact_sharing_at` stabil, revocarea golește email/notă
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -83,6 +90,22 @@ insert into auth.users (id, email) values
 insert into public.profiles (id, email)
   select id, email from auth.users where email like 'in-%@in302.test'
   on conflict (id) do nothing;
+-- Schema mock din CI (sql-verify) nu are coloanele din GoTrue pe care le citește
+-- răscumpărarea; pe stack-ul Supabase real ele există (blocul e atunci un no-op).
+do $$ begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'auth' and table_name = 'users' and column_name = 'email_confirmed_at') then
+    alter table auth.users add column email_confirmed_at timestamptz;
+  end if;
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'auth' and table_name = 'users' and column_name = 'is_anonymous') then
+    alter table auth.users add column is_anonymous boolean not null default false;
+  end if;
+end $$;
+-- Toate conturile de test au emailul confirmat; excepțiile (anonim / neconfirmat)
+-- se construiesc explicit, cu `pg_temp.in_mkuser`, în IN24.
+update auth.users set email_confirmed_at = now() where email like 'in-%@in302.test';
+
 update public.profiles set is_platform_admin = true
  where id = '5a000000-0000-4000-8000-0000000000f1';
 update public.profiles set full_name = 'Ion Șef'     where id = '5a000000-0000-4000-8000-000000000001';
@@ -118,14 +141,26 @@ end $f$;
 create function pg_temp.in_u(p_uid uuid, p_sql text) returns jsonb
 language sql as $$ select pg_temp.in_as('authenticated', p_uid, p_sql) $$;
 
+-- CUI-uri VALIDE și distincte pentru răscumpările fără CUI explicit (unicitatea CUI e
+-- impusă de mig 302: două conturi nu pot declara același CUI).
+create temp table in_cui_ctr (n int not null) on commit drop;
+insert into in_cui_ctr values (0);
+create function pg_temp.in_next_cui() returns text language plpgsql as $f$
+declare v int;
+begin
+  update in_cui_ctr set n = n + 1 returning n into v;
+  return (select x::text from generate_series(1000000, 1001000) x
+           where public.normalize_ro_cui(x::text) is not null order by x offset v limit 1);
+end $f$;
+
 -- SQL-ul unui apel de răscumpărare (kind head|agent).
 create function pg_temp.in_rs(p_kind text, p_token text,
-  p_cui text default '14399840', p_ver text default '1.0', p_hash text default null,
+  p_cui text default null, p_ver text default '1.0', p_hash text default null,
   p_phone text default '0722 111 222', p_share boolean default true) returns text
 language sql as $$
   select format('public.%s(%L, %L, %L, %L, %L, %s)',
            case p_kind when 'head' then 'redeem_sales_head_invite' else 'redeem_agent_invite' end,
-           p_token, p_phone, p_cui, p_ver, coalesce(p_hash, repeat('a', 64)), case when p_share then 'true' else 'false' end)
+           p_token, p_phone, coalesce(p_cui, pg_temp.in_next_cui()), p_ver, coalesce(p_hash, repeat('a', 64)), case when p_share then 'true' else 'false' end)
 $$;
 
 create function pg_temp.in_seed_inv(p_kind text, p_token text, p_by uuid,
@@ -137,6 +172,24 @@ returns uuid language sql as $$
           coalesce(p_created, clock_timestamp()),
           coalesce(p_expires, clock_timestamp() + interval '14 days'))
   returning id
+$$;
+
+-- Cont nou, cu email confirmat (implicit), non-anonim.
+create function pg_temp.in_mkuser(p_label text, p_confirmed boolean default true) returns uuid
+language plpgsql as $f$
+declare v_id uuid := md5('in302:' || p_label)::uuid;
+begin
+  insert into auth.users (id, email, email_confirmed_at)
+    values (v_id, 'in-' || p_label || '@in302.test', case when p_confirmed then now() end);
+  insert into public.profiles (id, email) values (v_id, 'in-' || p_label || '@in302.test') on conflict (id) do nothing;
+  return v_id;
+end $f$;
+
+-- Publică contractul 1.0 cu hash-ul 'aaa…a' (ca fondator).
+create function pg_temp.in_publish(p_ver text default '1.0', p_hash text default null) returns jsonb
+language sql as $$
+  select pg_temp.in_u('5a000000-0000-4000-8000-0000000000f1',
+           format('public.admin_set_sales_contract_version(%L, %L)', p_ver, coalesce(p_hash, repeat('a', 64))))
 $$;
 
 create function pg_temp.in_inv_used(p_id uuid) returns boolean language sql as $$
@@ -155,6 +208,7 @@ declare
     'get_sales_network'];
   v_int text[] := array[
     'sales_invite_ttl_days', 'sales_open_invites_max', 'sales_contract_published_version',
+    'sales_contract_published_hash', 'fn_affiliate_sales_role_parent',
     'normalize_ro_cui', 'is_valid_ro_cui', 'new_sales_invite_token',
     'sales_invite_token_hash', 'sales_network_apply_cascade_default',
     'sales_invite_redeem', 'fn_contract_acceptance_immutable'];
@@ -233,7 +287,7 @@ end $$;
 do $$
 declare
   v_calls text[] := array[
-    $q$public.admin_set_sales_contract_version('9.9')$q$,
+    $q$public.admin_set_sales_contract_version('9.9', repeat('a', 64))$q$,
     $q$public.admin_create_sales_head_invite('x@y.ro', 'n')$q$,
     $q$public.admin_revoke_affiliate_invite('5aa00000-0000-4000-8000-0000000000aa')$q$,
     $q$public.admin_list_affiliate_invites()$q$,
@@ -300,42 +354,61 @@ begin
     raise exception 'IN3 FAIL: invitația s-a consumat / s-a creat cont'; end if;
   delete from public.affiliate_invitations where id = v_inv;
 
-  -- Versiuni refuzate: DRAFT (orice majusculă), formă invalidă.
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('agent-1.0-DRAFT')$q$);
+  -- Versiuni refuzate: DRAFT (orice majusculă), cuvinte rezervate, formă invalidă, hash prost.
+  v := pg_temp.in_publish('agent-1.0-DRAFT');
   if v is distinct from '{"ok": false, "reason": "draft_version"}'::jsonb then raise exception 'IN3 FAIL: DRAFT publicat: %', v; end if;
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('1.0 draft')$q$);
-  if (v->>'ok') is distinct from 'false' then raise exception 'IN3 FAIL: "1.0 draft" acceptat: %', v; end if;
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('v 1')$q$);
+  v := pg_temp.in_publish('1.0 draft');
+  if v is distinct from '{"ok": false, "reason": "draft_version"}'::jsonb then raise exception 'IN3 FAIL: "1.0 draft": %', v; end if;
+  v := pg_temp.in_publish('v 1');
   if v is distinct from '{"ok": false, "reason": "invalid_version"}'::jsonb then raise exception 'IN3 FAIL: versiune cu spațiu: %', v; end if;
+  v := pg_temp.in_publish('1.0', 'abc');
+  if v is distinct from '{"ok": false, "reason": "invalid_text_hash"}'::jsonb then raise exception 'IN3 FAIL: hash scurt la publicare: %', v; end if;
+  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('1.0', null)$q$);
+  if v is distinct from '{"ok": false, "reason": "invalid_text_hash"}'::jsonb then raise exception 'IN3 FAIL: hash NULL la publicare: %', v; end if;
   if public.sales_contract_published_version() is not null then
     raise exception 'IN3 FAIL: o versiune refuzată a ajuns publicată'; end if;
 
-  -- Orice altceva decât un șir JSON ne-gol = NEPUBLICAT (fail-closed).
+  -- Orice altceva decât obiectul {version, text_hash} valid = NEPUBLICAT (fail-closed).
   update public.platform_settings set value = '1'::jsonb where key = 'sales_contract_version';
   if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: număr tratat drept versiune'; end if;
   update public.platform_settings set value = '""'::jsonb where key = 'sales_contract_version';
   if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: șir gol tratat drept versiune'; end if;
+  update public.platform_settings set value = '"1.0"'::jsonb where key = 'sales_contract_version';
+  if public.sales_contract_published_version() is not null or public.sales_contract_published_hash() is not null then
+    raise exception 'IN3 FAIL: șirul simplu FĂRĂ hash tratat drept publicat'; end if;
+  update public.platform_settings set value = '{"version":"1.0"}'::jsonb where key = 'sales_contract_version';
+  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: obiect fără hash tratat drept publicat'; end if;
+  update public.platform_settings set value = jsonb_build_object('version', '1.0', 'text_hash', repeat('A', 64)) where key = 'sales_contract_version';
+  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: hash cu majuscule tratat drept publicat'; end if;
+  update public.platform_settings set value = jsonb_build_object('version', '1.0', 'text_hash', 'zzz') where key = 'sales_contract_version';
+  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: hash prost tratat drept publicat'; end if;
+  update public.platform_settings set value = jsonb_build_object('version', 1, 'text_hash', repeat('a', 64)) where key = 'sales_contract_version';
+  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: versiune numerică tratată drept publicată'; end if;
   update public.platform_settings set value = '{"v":"1.0"}'::jsonb where key = 'sales_contract_version';
-  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: obiect tratat drept versiune'; end if;
+  if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: obiect străin tratat drept versiune'; end if;
   delete from public.platform_settings where key = 'sales_contract_version';
   if public.sales_contract_published_version() is not null then raise exception 'IN3 FAIL: cheie absentă tratată drept versiune'; end if;
   insert into public.platform_settings (key, value) values ('sales_contract_version', 'null'::jsonb);
 
-  -- Publicarea (control pozitiv) + audit.
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('1.0')$q$);
-  if v is distinct from '{"ok": true, "version": "1.0", "previous": null}'::jsonb then
+  -- Publicarea (control pozitiv) + audit cu versiune ȘI hash.
+  v := pg_temp.in_publish('1.0');
+  if v is distinct from jsonb_build_object('ok', true, 'version', '1.0', 'text_hash', repeat('a', 64), 'previous', null) then
     raise exception 'IN3 FAIL: publicarea 1.0 respinsă: %', v; end if;
-  if public.sales_contract_published_version() is distinct from '1.0' then
-    raise exception 'IN3 FAIL: versiunea nu e 1.0 după publicare'; end if;
+  if public.sales_contract_published_version() is distinct from '1.0'
+     or public.sales_contract_published_hash() is distinct from repeat('a', 64)
+     or (select value from public.platform_settings where key = 'sales_contract_version')
+          is distinct from jsonb_build_object('version', '1.0', 'text_hash', repeat('a', 64)) then
+    raise exception 'IN3 FAIL: formatul setării publicate'; end if;
   if not exists (select 1 from public.platform_audit_log
                   where action = 'sales_contract_version_set' and details ->> 'new' = '1.0'
-                    and actor_user_id = F) then
+                    and details ->> 'new_text_hash' = repeat('a', 64) and actor_user_id = F) then
     raise exception 'IN3 FAIL: publicarea nu e în audit'; end if;
   -- Retragerea (NULL) blochează din nou; re-publicare.
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version(null)$q$);
-  if (v->>'ok') is distinct from 'true' or public.sales_contract_published_version() is not null then
+  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version(null, null)$q$);
+  if (v->>'ok') is distinct from 'true' or public.sales_contract_published_version() is not null
+     or public.sales_contract_published_hash() is not null then
     raise exception 'IN3 FAIL: retragerea contractului: %', v; end if;
-  v := pg_temp.in_u(F, $q$public.admin_set_sales_contract_version('1.0')$q$);
+  v := pg_temp.in_publish('1.0');
   if (v->>'ok') is distinct from 'true' then raise exception 'IN3 FAIL: re-publicare: %', v; end if;
   raise notice 'IN3 OK: contract nepublicat → nicio invitație creată/răscumpărată (fondator, șef, existentă); DRAFT/invalid refuzate; fail-closed pe forme ciudate; publicare auditată';
 end $$;
@@ -867,7 +940,7 @@ begin
      or v_item->>'email' <> 'in-g2@in302.test' or (v_item->>'clients_total')::int <> 1 or (v_item->>'clients_active')::int <> 1 then
     raise exception 'IN15 FAIL: agentul care consimte: %', v_item; end if;
   -- ZERO scurgeri: clientul final, IBAN, Stripe, restaurantul, token, hash
-  foreach v_k in array array['SECRET', 'cus_', 'RO49', 'iban', 'stripe', 'in-client', 'token', 'hash', '9010105', 'Restaurantul'] loop
+  foreach v_k in array array['SECRET', 'cus_', 'RO49', 'iban', 'stripe', 'in-client', 'token', 'token_hash', '9010105', 'Restaurantul'] loop
     if position(lower(v_k) in lower(v::text)) > 0 then
       raise exception 'IN15 FAIL: rezultatul conține "%" (date de client/bani/secret): %', v_k, v; end if;
   end loop;
@@ -1119,6 +1192,302 @@ begin
   raise notice 'IN20 OK: program închis, register_affiliate → program_closed, invitațiile funcționează independent de el';
 end $$;
 
+
+-- ── IN22: UNICITATE CUI ─────────────────────────────────────────────────────
+do $$
+declare
+  H1 constant uuid := '5a000000-0000-4000-8000-000000000001';
+  want_conflict constant jsonb := '{"ok": false, "reason": "cui_conflict"}';
+  v_h1 uuid; v jsonb; v_inv uuid; u1 uuid; u2 uuid; u3 uuid; u4 uuid; u5 uuid; u6 uuid;
+  v_old text; v_new text; v_aff uuid; v_er text;
+begin
+  select id into v_h1 from public.affiliates where profile_id = H1;
+  u1 := pg_temp.in_mkuser('c1'); u2 := pg_temp.in_mkuser('c2'); u3 := pg_temp.in_mkuser('c3');
+  u4 := pg_temp.in_mkuser('c4'); u5 := pg_temp.in_mkuser('c5'); u6 := pg_temp.in_mkuser('c6');
+
+  -- 1. AGENT cu același CUI ca ȘEFUL invitator (14399840) → respins, formatul nu ocolește
+  v_inv := pg_temp.in_seed_inv('agent', 'tok-in22-a', v_h1);
+  v := pg_temp.in_u(u1, pg_temp.in_rs('agent', 'tok-in22-a', p_cui => 'RO 14399840'));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: agent cu CUI-ul șefului: %', v; end if;
+  v := pg_temp.in_u(u1, pg_temp.in_rs('agent', 'tok-in22-a', p_cui => ' 14399840 '));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: același CUI, alt format: %', v; end if;
+  if pg_temp.in_inv_used(v_inv) or exists (select 1 from public.affiliates where profile_id = u1) then
+    raise exception 'IN22 FAIL: un CUI în conflict a consumat invitația / creat cont'; end if;
+  -- 2. același CUI ca al ALTUI afiliat activ (agentul G1: 2816464)
+  v := pg_temp.in_u(u1, pg_temp.in_rs('agent', 'tok-in22-a', p_cui => '2816464'));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: CUI-ul altui agent: %', v; end if;
+  -- 3. același CUI la DOI șefi: al doilea respins
+  perform pg_temp.in_seed_inv('head', 'tok-in22-h', null);
+  v := pg_temp.in_u(u2, pg_temp.in_rs('head', 'tok-in22-h', p_cui => '14399840'));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: al doilea șef cu același CUI: %', v; end if;
+  -- 4. CONTROL POZITIV: un CUI nou trece (agentul u1, apoi șeful u2)
+  v := pg_temp.in_u(u1, pg_temp.in_rs('agent', 'tok-in22-a'));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN22 FAIL (control): agent cu CUI nou: %', v; end if;
+  v := pg_temp.in_u(u2, pg_temp.in_rs('head', 'tok-in22-h'));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN22 FAIL (control): șef cu CUI nou: %', v; end if;
+  select declared_cui into v_old from public.affiliate_contract_acceptances
+   where affiliate_id = (select id from public.affiliates where profile_id = u1);
+
+  -- 5. contează DOAR ultima acceptare a fiecărui afiliat
+  v_new := pg_temp.in_next_cui();
+  insert into public.affiliate_contract_acceptances (affiliate_id, kind, contract_version, text_hash, declared_cui, accepted_at)
+    select id, 'agent', '1.1', repeat('c', 64), v_new, clock_timestamp() + interval '1 second'
+      from public.affiliates where profile_id = u1;
+  perform pg_temp.in_seed_inv('head', 'tok-in22-old', null);
+  v := pg_temp.in_u(u3, pg_temp.in_rs('head', 'tok-in22-old', p_cui => v_old));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN22 FAIL: CUI-ul vechi (înlocuit) al unui afiliat ar trebui să fie liber: %', v; end if;
+  perform pg_temp.in_seed_inv('head', 'tok-in22-new', null);
+  v := pg_temp.in_u(u4, pg_temp.in_rs('head', 'tok-in22-new', p_cui => v_new));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: CUI-ul NOU (ultima acceptare) nu conflictează: %', v; end if;
+
+  -- 6. un afiliat ÎNCHIS eliberează CUI-ul
+  update public.affiliates set status = 'closed' where profile_id = u3;
+  v_old := (select declared_cui from public.affiliate_contract_acceptances
+             where affiliate_id = (select id from public.affiliates where profile_id = u3));
+  v := pg_temp.in_u(u4, pg_temp.in_rs('head', 'tok-in22-new', p_cui => v_old));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN22 FAIL: CUI-ul unui cont închis ar trebui să fie liber: %', v; end if;
+  -- 7. un afiliat ȘTERS (GDPR) eliberează CUI-ul
+  v_er := pg_temp.in_next_cui();
+  insert into public.affiliates (id, profile_id, referral_code, status, erased_at)
+    values ('5aa00000-0000-4000-8000-0000000000e9', null, 'inerased1', 'active', now());
+  insert into public.affiliate_contract_acceptances (affiliate_id, kind, contract_version, text_hash, declared_cui)
+    values ('5aa00000-0000-4000-8000-0000000000e9', 'agent', '1.0', repeat('c', 64), v_er);
+  perform pg_temp.in_seed_inv('head', 'tok-in22-er', null);
+  v := pg_temp.in_u(u5, pg_temp.in_rs('head', 'tok-in22-er', p_cui => v_er));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN22 FAIL: CUI-ul unui cont șters ar trebui să fie liber: %', v; end if;
+  -- 8. un afiliat SUSPENDAT ține CUI-ul
+  update public.affiliates set status = 'suspended' where profile_id = u5;
+  perform pg_temp.in_seed_inv('head', 'tok-in22-susp', null);
+  v := pg_temp.in_u(u6, pg_temp.in_rs('head', 'tok-in22-susp', p_cui => v_er));
+  if v is distinct from want_conflict then raise exception 'IN22 FAIL: CUI-ul unui cont suspendat trebuie să rămână ocupat: %', v; end if;
+
+  -- 9. lacăt advisory pe CUI + verificarea e ÎNAINTEA creării contului (structural)
+  if (select prosrc from pg_proc where oid = 'public.sales_invite_redeem(text,text,text,text,text,text,boolean)'::regprocedure)
+       !~ 'pg_advisory_xact_lock\(hashtextextended\(''menuvia\.sales_cui:'' \|\| v_cui' then
+    raise exception 'IN22 FAIL: lipsește lacătul advisory pe CUI'; end if;
+  -- toate rândurile create prin răscumpărări trec de verificarea deferred
+  set constraints all immediate;
+  set constraints all deferred;
+  raise notice 'IN22 OK: CUI-ul șefului / altui afiliat / celui de-al doilea șef → cui_conflict (format ignorat); doar ultima acceptare; închis și șters eliberează, suspendat ține; control pozitiv cu CUI nou';
+end $$;
+
+-- ── IN23: D8 ÎN DATE ────────────────────────────────────────────────────────
+do $$
+declare
+  F  constant uuid := '5a000000-0000-4000-8000-0000000000f1';
+  H1 constant uuid := '5a000000-0000-4000-8000-000000000001';
+  v_h1 uuid; v_code text; v jsonb; v_raised boolean; v_hint text; n_before int; n_after int;
+  a uuid; b uuid; c uuid; v_lp uuid := '5aa00000-0000-4000-8000-0000000000f2';
+  v_lc uuid := '5aa00000-0000-4000-8000-0000000000f3';
+begin
+  select id, referral_code into v_h1, v_code from public.affiliates where profile_id = H1;
+  a := pg_temp.in_mkuser('d8a'); b := pg_temp.in_mkuser('d8b'); c := pg_temp.in_mkuser('d8c');
+
+  -- Redeschidem programul public prin mecanismul REAL (founder).
+  v := pg_temp.in_u(F, $q$public.admin_set_affiliate_program_open(true)$q$);
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN23 FAIL: nu am putut deschide programul: %', v; end if;
+  if not public.affiliate_program_is_open() then raise exception 'IN23 FAIL (control): programul nu s-a deschis'; end if;
+
+  -- 1. register_affiliate cu CODUL șefului → cererea se naște, dar COMMIT-ul ar pica.
+  v_raised := false;
+  begin
+    v := pg_temp.in_u(a, format('public.register_affiliate(%L, %L, %L)', v_code, '0722111222', 'nota'));
+    if (v->>'ok') is distinct from 'true' then raise exception 'IN23 FAIL (control): register_affiliate: %', v; end if;
+    set constraints all immediate;
+  exception when check_violation then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    v_raised := true;
+  end;
+  set constraints all deferred;
+  if not v_raised or v_hint is distinct from 'invariant:agent_requires_invitation' then
+    raise exception 'IN23 FAIL: un cont fără invitație a ajuns sub un șef prin register_affiliate (hint %)', v_hint; end if;
+
+  -- 2. o cerere pending DEJA existentă (creată înainte de trigger) aprobată de fondator
+  set constraints all immediate; set constraints all deferred;   -- ALTER TABLE cere zero evenimente în așteptare
+  alter table public.affiliates disable trigger trg_affiliate_sales_role_parent;
+  insert into public.affiliates (id, profile_id, referral_code, status, parent_affiliate_id, phone)
+    values ('5aa00000-0000-4000-8000-0000000000f1', b, 'ind8pend1', 'pending', v_h1, '0722111222');
+  set constraints all immediate; set constraints all deferred;
+  alter table public.affiliates enable trigger trg_affiliate_sales_role_parent;
+  v_raised := false;
+  begin
+    v := pg_temp.in_u(F, $q$public.admin_review_affiliate('5aa00000-0000-4000-8000-0000000000f1', true, true)$q$);
+    if (v->>'ok') is distinct from 'true' then raise exception 'IN23 FAIL (control): review: %', v; end if;
+    set constraints all immediate;
+  exception when check_violation then v_raised := true;
+  end;
+  set constraints all deferred;
+  if not v_raised then raise exception 'IN23 FAIL: admin_review_affiliate a aprobat un cont fără invitație sub un șef'; end if;
+
+  -- 3. `team` listează DOAR agenți (date vechi, dinainte de trigger, nu apar)
+  v := pg_temp.in_u(H1, $q$public.get_sales_network()$q$);
+  n_before := jsonb_array_length(v->'team');
+  set constraints all immediate; set constraints all deferred;
+  alter table public.affiliates disable trigger trg_affiliate_sales_role_parent;
+  insert into public.affiliates (id, profile_id, referral_code, status, parent_affiliate_id, phone)
+    values ('5aa00000-0000-4000-8000-0000000000f4', c, 'ind8old01', 'active', v_h1, '0722111222');
+  set constraints all immediate; set constraints all deferred;
+  alter table public.affiliates enable trigger trg_affiliate_sales_role_parent;
+  v := pg_temp.in_u(H1, $q$public.get_sales_network()$q$);
+  n_after := jsonb_array_length(v->'team');
+  if n_after <> n_before or n_before < 1 then
+    raise exception 'IN23 FAIL: team conține un cont fără sales_role=agent (% → %)', n_before, n_after; end if;
+  delete from public.affiliates where id = '5aa00000-0000-4000-8000-0000000000f4';
+
+  -- 4. INVERS: un cont legacy cu copii legacy NU poate deveni membru al rețelei
+  -- (profile_id NULL cere erased_at — conturi „legacy" fără persoană, doar pentru structură)
+  insert into public.affiliates (id, profile_id, referral_code, erased_at) values (v_lp, null, 'inlegp01', now());
+  insert into public.affiliates (id, profile_id, referral_code, parent_affiliate_id, erased_at)
+    values (v_lc, null, 'inlegc01', v_lp, now());
+  set constraints all immediate;   -- control: legacy sub legacy e permis
+  set constraints all deferred;
+  v_raised := false;
+  begin
+    update public.affiliates set sales_role = 'head' where id = v_lp;
+    set constraints all immediate;
+  exception when check_violation then v_raised := true;
+  end;
+  set constraints all deferred;
+  if not v_raised then raise exception 'IN23 FAIL: un cont cu copii fără invitație a devenit șef'; end if;
+
+  -- 5. CONTROL POZITIV: un agent intrat prin invitație trece de verificarea deferred
+  perform pg_temp.in_seed_inv('agent', 'tok-in23-ok', v_h1);
+  v := pg_temp.in_u(pg_temp.in_mkuser('d8ok'), pg_temp.in_rs('agent', 'tok-in23-ok'));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN23 FAIL (control): agent prin invitație: %', v; end if;
+  set constraints all immediate;
+  set constraints all deferred;
+
+  v := pg_temp.in_u(F, $q$public.admin_set_affiliate_program_open(false)$q$);
+  if public.affiliate_program_is_open() then raise exception 'IN23 FAIL: programul a rămas deschis'; end if;
+  raise notice 'IN23 OK: register_affiliate cu codul șefului și admin_review nu pot plasa un cont fără invitație sub un șef (trigger deferred, ambele sensuri); team doar agenți; control pozitiv';
+end $$;
+
+-- ── IN24: identitatea emailului ─────────────────────────────────────────────
+do $$
+declare
+  want constant jsonb := '{"ok": false, "reason": "invite_invalid"}';
+  anon uuid; unconf uuid; e1 uuid; e2 uuid;
+  v jsonb; v_inv uuid; v_bearer uuid;
+begin
+  anon := pg_temp.in_mkuser('anon'); update auth.users set is_anonymous = true where id = anon;
+  unconf := pg_temp.in_mkuser('unconf', false);
+  e1 := pg_temp.in_mkuser('e1'); e2 := pg_temp.in_mkuser('e2');
+
+  -- 1. cont ANONIM (is_anonymous) → anonymous_account, invitația neatinsă (și bearer)
+  v_bearer := pg_temp.in_seed_inv('head', 'tok-in24-bearer', null);
+  v := pg_temp.in_u(anon, pg_temp.in_rs('head', 'tok-in24-bearer'));
+  if v is distinct from '{"ok": false, "reason": "anonymous_account"}'::jsonb then raise exception 'IN24 FAIL: cont anonim: %', v; end if;
+  -- motivul NU depinde de token (nu e oracol)
+  if pg_temp.in_u(anon, pg_temp.in_rs('head', 'nu-exista-deloc-in24')) is distinct from '{"ok": false, "reason": "anonymous_account"}'::jsonb then
+    raise exception 'IN24 FAIL: anonymous_account depinde de token'; end if;
+  if pg_temp.in_inv_used(v_bearer) then raise exception 'IN24 FAIL: invitația consumată de un cont anonim'; end if;
+
+  -- 2. invitația LEGATĂ de email: cont NECONFIRMAT cu emailul potrivit → invite_invalid (identic cu inexistentă)
+  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-email', null, 'in-unconf@in302.test');
+  v := pg_temp.in_u(unconf, pg_temp.in_rs('head', 'tok-in24-email'));
+  if v is distinct from want
+     or v is distinct from pg_temp.in_u(unconf, pg_temp.in_rs('head', 'token-inexistent-in24')) then
+    raise exception 'IN24 FAIL: email neconfirmat: %', v; end if;
+  if pg_temp.in_inv_used(v_inv) then raise exception 'IN24 FAIL: invitația legată de email consumată de un cont neconfirmat'; end if;
+  -- 3. confirmat dar POTRIVIT altcuiva → invite_invalid; confirmat și potrivit → OK
+  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-e1', null, 'in-e1@in302.test');
+  if pg_temp.in_u(e2, pg_temp.in_rs('head', 'tok-in24-e1')) is distinct from want then
+    raise exception 'IN24 FAIL: email confirmat dar al altcuiva'; end if;
+  v := pg_temp.in_u(e1, pg_temp.in_rs('head', 'tok-in24-e1'));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN24 FAIL (control): email confirmat și potrivit: %', v; end if;
+  -- 4. invitația fără email (bearer) se răscumpără de un cont non-anonim chiar NECONFIRMAT
+  v := pg_temp.in_u(unconf, pg_temp.in_rs('head', 'tok-in24-bearer'));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN24 FAIL (control): bearer, cont neconfirmat non-anonim: %', v; end if;
+  raise notice 'IN24 OK: anonim → anonymous_account (independent de token); email-bound cere email CONFIRMAT și potrivit (altfel invite_invalid); bearer merge pe cont non-anonim';
+end $$;
+
+-- ── IN25: hash legat de versiune, reguli de versiune, consimțământ stabil, revocare ──
+do $$
+declare
+  F  constant uuid := '5a000000-0000-4000-8000-0000000000f1';
+  H1 constant uuid := '5a000000-0000-4000-8000-000000000001';
+  v jsonb; u1 uuid; u2 uuid; u3 uuid; v_id uuid; v_ts timestamptz; w text; v_h1 uuid;
+begin
+  select id into v_h1 from public.affiliates where profile_id = H1;
+  u1 := pg_temp.in_mkuser('h1'); u2 := pg_temp.in_mkuser('h2'); u3 := pg_temp.in_mkuser('h3');
+
+  -- 1. hash legat de versiune: orice 64 hex ≠ publicat → contract_hash_mismatch (și 000…0)
+  v_id := pg_temp.in_seed_inv('head', 'tok-in25', null);
+  foreach w in array array[repeat('b', 64), repeat('0', 64), repeat('a', 63) || 'b'] loop
+    v := pg_temp.in_u(u1, pg_temp.in_rs('head', 'tok-in25', p_hash => w));
+    if v is distinct from '{"ok": false, "reason": "contract_hash_mismatch"}'::jsonb then
+      raise exception 'IN25 FAIL: hash % → %', left(w, 6), v; end if;
+    -- ACELAȘI răspuns pentru un token inexistent (verificarea e ÎNAINTEA tokenului)
+    if pg_temp.in_u(u1, pg_temp.in_rs('head', 'token-inexistent-in25', p_hash => w)) is distinct from v then
+      raise exception 'IN25 FAIL: contract_hash_mismatch depinde de token'; end if;
+  end loop;
+  -- format prost rămâne contract_hash_invalid (nu mismatch)
+  if pg_temp.in_u(u1, pg_temp.in_rs('head', 'tok-in25', p_hash => 'xyz')) is distinct from '{"ok": false, "reason": "contract_hash_invalid"}'::jsonb then
+    raise exception 'IN25 FAIL: hash non-hex'; end if;
+  if pg_temp.in_inv_used(v_id) then raise exception 'IN25 FAIL: un hash greșit a consumat invitația'; end if;
+  -- schimbarea hash-ului publicat mută poarta: acum 'bbb…' e cel bun, 'aaa…' nu
+  v := pg_temp.in_publish('1.0', repeat('b', 64));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN25 FAIL: republicare cu alt hash: %', v; end if;
+  if pg_temp.in_u(u1, pg_temp.in_rs('head', 'tok-in25')) is distinct from '{"ok": false, "reason": "contract_hash_mismatch"}'::jsonb then
+    raise exception 'IN25 FAIL: hash-ul vechi trece după republicare'; end if;
+  v := pg_temp.in_u(u1, pg_temp.in_rs('head', 'tok-in25', p_hash => repeat('B', 64)));   -- majuscule normalizate
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN25 FAIL (control): hash-ul publicat respins: %', v; end if;
+  if (select text_hash from public.affiliate_contract_acceptances
+       where affiliate_id = (select id from public.affiliates where profile_id = u1)) is distinct from repeat('b', 64) then
+    raise exception 'IN25 FAIL: hash-ul acceptării ≠ cel publicat'; end if;
+  v := pg_temp.in_publish('1.0');   -- înapoi la aaa…
+  -- get_sales_network expune hash-ul publicat (UI-ul poate verifica textul înainte de „Accept")
+  v := pg_temp.in_u(H1, $q$public.get_sales_network()$q$);
+  if (v #>> '{contract,current_text_hash}') is distinct from repeat('a', 64) then
+    raise exception 'IN25 FAIL: current_text_hash lipsește din get_sales_network: %', v->'contract'; end if;
+
+  -- 2. reguli de versiune
+  foreach w in array array['null', 'None', 'UNDEFINED', 'false', 'TRUE', 'NaN', 'v', '1.', '.1', '1..2', '1.0-beta', 'vv1', '1.2.3.4.5.6.7.8.9.10.11', ' ', '1 0'] loop
+    if w = ' ' then continue; end if;
+    v := pg_temp.in_publish(w);
+    if (v->>'ok') is distinct from 'false' or (v->>'reason') not in ('invalid_version', 'draft_version') then
+      raise exception 'IN25 FAIL: versiunea "%" acceptată: %', w, v; end if;
+  end loop;
+  foreach w in array array['2', 'v1.2.3', '10.0', 'v7'] loop
+    v := pg_temp.in_publish(w);
+    if (v->>'ok') is distinct from 'true' then raise exception 'IN25 FAIL: versiunea validă "%" respinsă: %', w, v; end if;
+  end loop;
+  v := pg_temp.in_publish('1.0');
+
+  -- 3. contact_sharing_at STABIL la re-apel cu true
+  perform pg_temp.in_u(u1, $q$public.set_my_contact_sharing(true)$q$);
+  update public.affiliates set contact_sharing_at = timestamptz '2026-01-01 10:00:00+00' where profile_id = u1;
+  perform pg_temp.in_u(u1, $q$public.set_my_contact_sharing(true)$q$);
+  select contact_sharing_at into v_ts from public.affiliates where profile_id = u1;
+  if v_ts is distinct from timestamptz '2026-01-01 10:00:00+00' then
+    raise exception 'IN25 FAIL: set_my_contact_sharing(true) a rescris contact_sharing_at (%)', v_ts; end if;
+  perform pg_temp.in_u(u1, $q$public.set_my_contact_sharing(false)$q$);
+  if (select contact_sharing_at from public.affiliates where profile_id = u1) is not null then
+    raise exception 'IN25 FAIL: contact_sharing_at nu s-a golit la retragere'; end if;
+  perform pg_temp.in_u(u1, $q$public.set_my_contact_sharing(true)$q$);
+  if (select contact_sharing_at from public.affiliates where profile_id = u1) is null then
+    raise exception 'IN25 FAIL: contact_sharing_at nu s-a setat la re-consimțământ'; end if;
+
+  -- 4. REVOCAREA golește email și notă (fondator + șef)
+  v := pg_temp.in_u(F, $q$public.admin_create_sales_head_invite('persoana@exemplu.test', 'nota liberă cu nume')$q$);
+  v_id := (v->>'invite_id')::uuid;
+  v := pg_temp.in_u(F, format('public.admin_revoke_affiliate_invite(%L)', v_id));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN25 FAIL: revocare fondator: %', v; end if;
+  if exists (select 1 from public.affiliate_invitations where id = v_id and (email is not null or note is not null)) then
+    raise exception 'IN25 FAIL: revocarea de fondator păstrează email/notă'; end if;
+  v := pg_temp.in_u(H1, $q$public.create_agent_invite('nota șefului cu nume')$q$);
+  v_id := (v->>'invite_id')::uuid;
+  v := pg_temp.in_u(H1, format('public.revoke_agent_invite(%L)', v_id));
+  if (v->>'ok') is distinct from 'true' then raise exception 'IN25 FAIL: revocare șef: %', v; end if;
+  if exists (select 1 from public.affiliate_invitations where id = v_id and (email is not null or note is not null)) then
+    raise exception 'IN25 FAIL: revocarea de șef păstrează nota'; end if;
+  -- control pozitiv: invitația ne-revocată își păstrează nota
+  v := pg_temp.in_u(H1, $q$public.create_agent_invite('rămâne')$q$);
+  if (select note from public.affiliate_invitations where id = (v->>'invite_id')::uuid) is distinct from 'rămâne' then
+    raise exception 'IN25 FAIL (control): nota unei invitații active a dispărut'; end if;
+  raise notice 'IN25 OK: hash ≠ publicat → contract_hash_mismatch (independent de token, și 000…0); reguli de versiune; contact_sharing_at stabil; revocarea golește email/notă';
+end $$;
+
 -- ── IN21: lista fondatorului + scanare GLOBALĂ finală de token ──────────────
 do $$
 declare
@@ -1161,4 +1530,4 @@ begin
 end $$;
 
 rollback;
-\echo '✅ RETEA PE INVITATII OK (IN1-IN21)'
+\echo '✅ RETEA PE INVITATII OK (IN1-IN25)'

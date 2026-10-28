@@ -34,6 +34,8 @@ export interface SalesContractStatus {
   acceptedAt: string | null
   /** Există o versiune publicată pe care acest cont n-a acceptat-o încă. */
   needsAcceptance: boolean
+  /** sha256 hex al textului publicat; `null` = nepublicat. UI-ul își verifică textul cu el. */
+  currentTextHash: string | null
 }
 
 export interface SalesHeadCard {
@@ -139,6 +141,10 @@ export const SALES_SERVER_REASONS = [
   'contract_not_published',
   'contract_version_mismatch',
   'contract_hash_invalid',
+  'contract_hash_mismatch',
+  'invalid_text_hash',
+  'anonymous_account',
+  'cui_conflict',
   'phone_required',
   'cui_invalid',
   'invite_invalid',
@@ -183,6 +189,14 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
     'Contractul de colaborare nu este încă publicat, deci invitațiile sunt blocate. Revino după publicare.',
   contract_version_mismatch:
     'Contractul s-a actualizat între timp. Reîncarcă pagina și citește versiunea curentă.',
+  contract_hash_mismatch:
+    'Textul contractului afișat nu corespunde versiunii publicate. Reîncarcă pagina și citește din nou contractul.',
+  invalid_text_hash:
+    'Hash-ul textului contractului trebuie să aibă 64 de caractere hexazecimale (sha256).',
+  anonymous_account:
+    'Ai nevoie de un cont cu adresă de email ca să continui. Autentifică-te cu emailul tău.',
+  cui_conflict:
+    'Acest CUI este deja folosit de alt cont din program. Verifică CUI-ul sau scrie-ne.',
   contract_hash_invalid:
     'Textul contractului nu a putut fi verificat. Reîncarcă pagina și încearcă din nou.',
   phone_required: 'Introdu un număr de telefon valid (între 5 și 32 de caractere).',
@@ -289,6 +303,7 @@ function parseContract(value: unknown): SalesContractStatus {
     acceptedVersion: str(o?.accepted_version),
     acceptedAt: str(o?.accepted_at),
     needsAcceptance: bool(o?.needs_acceptance),
+    currentTextHash: str(o?.current_text_hash),
   }
 }
 
@@ -340,8 +355,12 @@ export function parseSalesNetwork(data: unknown): SalesNetwork {
   const o = asObject(data)
   if (!o || o.ok !== true) throw new SalesNetworkError('unknown')
   const limits = asObject(o.limits)
+  // Rol necunoscut (sau lipsă) = formă neașteptată → eroare (tristate), NU `null`:
+  // `null` înseamnă „în afara rețelei" și ar ascunde ecranele unui cont care e în rețea.
+  const parsedRole = role(o.role)
+  if (parsedRole === null && o.role !== null) throw new SalesNetworkError('unknown')
   return {
-    role: role(o.role),
+    role: parsedRole,
     status: str(o.status),
     affiliateId: str(o.affiliate_id),
     contactSharing: bool(o.contact_sharing),
@@ -427,8 +446,12 @@ async function rpcObject(fn: string, args?: Record<string, unknown>): Promise<Js
   const data = await rpcData(fn, args)
   const body = asObject(data)
   if (!body) throw new SalesNetworkError('unknown')
-  if (body.ok === false) {
-    throw new SalesNetworkError(isSalesServerReason(body.reason) ? body.reason : 'unknown')
+  // Succesul cere `ok === true` EXPLICIT: un corp fără `ok` (RPC schimbat, proxy,
+  // răspuns gol) nu are voie să treacă drept reușită pe apelurile care nu parsează nimic.
+  if (body.ok !== true) {
+    throw new SalesNetworkError(
+      body.ok === false && isSalesServerReason(body.reason) ? body.reason : 'unknown',
+    )
   }
   return body
 }
@@ -513,10 +536,25 @@ export async function adminSetAffiliateStatus(
   return next
 }
 
-/** Publică (`version`) sau retrage (`null`) versiunea contractului. */
-export async function adminSetContractVersion(version: string | null): Promise<string | null> {
-  const body = await rpcObject('admin_set_sales_contract_version', { p_version: version })
-  return str(body.version)
+export interface PublishedContract {
+  version: string | null
+  textHash: string | null
+}
+
+/**
+ * Publică contractul: versiunea ȘI sha256 al textului exact (serverul respinge la
+ * răscumpărare orice alt hash). `version = null` retrage contractul (invitațiile
+ * se blochează); hash-ul se ignoră atunci.
+ */
+export async function adminSetContractVersion(
+  version: string | null,
+  textHash: string | null,
+): Promise<PublishedContract> {
+  const body = await rpcObject('admin_set_sales_contract_version', {
+    p_version: version,
+    p_text_hash: textHash,
+  })
+  return { version: str(body.version), textHash: str(body.text_hash) }
 }
 
 // ── Helperi puri ──────────────────────────────────────────────────────────────
