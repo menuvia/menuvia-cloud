@@ -173,8 +173,10 @@ describe('cablajul telemetriei', () => {
     ]) {
       const start = main.indexOf(hook)
       expect(start).toBeGreaterThan(-1)
-      // corpul hook-ului (până la următorul hook / sfârșitul init-ului)
-      const body = main.slice(start, start + 900)
+      // corpul hook-ului: până la acolada lui de închidere (nu și hook-urile vecine)
+      const end = main.indexOf('\n    },', start)
+      expect(end).toBeGreaterThan(start)
+      const body = main.slice(start, end)
       expect(body).toContain('return scrubTokenPathsDeep(')
     }
     const analytics = read('src/lib/analytics.ts')
