@@ -260,8 +260,21 @@ savepoint ha_real;
 
 -- Funcția reală citește auth.users.last_sign_in_at (coloană GoTrue). Mock-ul de
 -- auth din sql-verify n-o are; pe stack-ul Supabase real (jobul E2E) și pe prod
--- există, deci acolo instrucțiunea e no-op. Adăugată DOAR în tranzacția testului.
-alter table auth.users add column if not exists last_sign_in_at timestamptz;
+-- există. Pe stack-ul real `auth.users` aparține altui rol, iar chiar și un
+-- `add column if not exists` cere proprietatea tabelului ÎNAINTE de a verifica
+-- existența coloanei (42501 „must be owner of table users") — deci ALTER-ul se
+-- execută DOAR când coloana lipsește (mock-ul sql-verify). Adăugată doar în
+-- tranzacția testului.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'auth' and table_name = 'users'
+      and column_name = 'last_sign_in_at'
+  ) then
+    execute 'alter table auth.users add column last_sign_in_at timestamptz';
+  end if;
+end $$;
 insert into public.customer_health_scores (restaurant_id, score, computed_at)
 select rid, 80, '2020-01-01' from ha_fx;
 
