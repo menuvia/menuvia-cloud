@@ -96,6 +96,7 @@ test('PM4: două commit-uri, zero commit-uri (ne-enum), rollback, instrucțiuni 
   const bad = {
     'două commit-uri': 'begin;\nselect 1;\ncommit;\nbegin;\nselect 2;\ncommit;\n',
     'commit dublat': 'begin;\nselect 1;\ncommit;\ncommit;\n',
+    'begin dublat': 'begin;\nbegin;\nselect 1;\ncommit;\n',
     'fără commit': 'begin;\nselect 1;\n',
     'fără nimic tranzacțional': 'create table t(x int);\n',
     'înainte de begin': 'select 1;\nbegin;\nselect 2;\ncommit;\n',
