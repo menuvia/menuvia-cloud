@@ -33,6 +33,10 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Secretele (SUPABASE_DB_URL, BACKUP_PASSPHRASE) stau în environment-ul
+    # `production`, restrâns la main — aceleași pe care le citește aplicarea
+    # automată a migrațiilor (apply-prod-migrations.yml, RUNBOOK §6.5).
+    environment: production
     steps:
       - name: Verifică secrets (EȘEC vizibil dacă lipsesc)
         id: gate
@@ -47,7 +51,7 @@ jobs:
         run: |
           if [ -z "$DB_URL" ] || [ -z "$PASSPHRASE" ]; then
             echo "::error::Backup IMPOSIBIL: secrets lipsă (SUPABASE_DB_URL și/sau BACKUP_PASSPHRASE)."
-            echo "::error::Setează-le în Settings → Secrets → Actions (vezi docs/RUNBOOK.md §Backup), altfel NU EXISTĂ NICIUN BACKUP al bazei de producție."
+            echo "::error::Setează-le în Settings → Environments → production (vezi docs/RUNBOOK.md §6.5), altfel NU EXISTĂ NICIUN BACKUP al bazei de producție."
             exit 1
           fi
           echo "enabled=true" >> "$GITHUB_OUTPUT"

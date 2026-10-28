@@ -270,6 +270,21 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/reservation_timezone_assertions.sql
 
+      # Mig 300 pe stack-ul real: default privileges ale Supabase re-acordă
+      # EXECUTE la recreare — HA5 verifică aici că doar service_role apelează.
+      - name: Alerta de client în pericol către agent pe stack-ul Supabase real (mig 300, HA1–HA6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/health_alert_routing_assertions.sql
+
+      # Suitele din tests/sql/auto/*.sql pe stack-ul Supabase REAL (default
+      # privileges, roluri reale) — același runner ca în sql-verify.yml. O suită
+      # nouă se pune doar ca fișier acolo. Pică pe director gol. Rulează ÎNAINTEA
+      # „Parity grants" (grant-uri doar pentru Playwright) și a seed-ului demo,
+      # ca toate celelalte suite de mai sus.
+      - name: Suitele automate din tests/sql/auto pe stack-ul Supabase real
+        run: bash scripts/run-sql-auto.sh "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
       - name: Export local keys
         id: sb
         run: |
