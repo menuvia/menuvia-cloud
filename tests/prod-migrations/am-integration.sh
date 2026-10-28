@@ -212,7 +212,7 @@ echo "✓ AM4: INSERT-ul de ledger picat a anulat și fișierul (aceeași tranza
 # Dump-ul e luat ÎNAINTE de AM1 (288 + 291 + date), deci copia are exact
 # golurile producției. Repetiția trebuie să restaureze, să aplice 289,290,292..
 # cu același CLI și să treacă poarta de privilegii.
-REHEARSAL_DB="${DB}_rehearsal" bash "$REPO_ROOT/scripts/prod-migrations-rehearsal.sh" "$WORK/prod-sim.dump" \
+GITHUB_STEP_SUMMARY= REHEARSAL_DB="${DB}_rehearsal" bash "$REPO_ROOT/scripts/prod-migrations-rehearsal.sh" "$WORK/prod-sim.dump" \
   >"$WORK/am5.log" 2>&1 || { tail -40 "$WORK/am5.log"; fail "AM5: repetiția a picat"; }
 RDB="${DB}_rehearsal"
 rval() { psql -X -At -v ON_ERROR_STOP=1 -d "$RDB" -c "$1"; }
