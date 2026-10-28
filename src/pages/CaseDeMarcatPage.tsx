@@ -11,6 +11,7 @@
 // =============================================================
 import { useEffect } from 'react'
 import { MKT } from '../lib/marketing'
+import { signupPath } from '../lib/planIntent'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -69,7 +70,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate(signupPath()) }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -118,7 +119,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => navigate('/auth?lang=ro')}
+              onClick={() => navigate(signupPath())}
               className="pressable"
               style={{
                 background: MKT.accent,
@@ -361,7 +362,7 @@ export default function CaseDeMarcatPage({ navigate }: Props) {
             discutăm direct.
           </p>
           <button
-            onClick={() => navigate('/auth?lang=ro')}
+            onClick={() => navigate(signupPath())}
             className="pressable"
             style={{
               background: MKT.accent,

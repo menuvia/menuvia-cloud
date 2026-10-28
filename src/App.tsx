@@ -15,7 +15,7 @@ import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { planIntentDestination, writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
@@ -504,7 +504,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate(signupPath())} />
       </Suspense>
     )
   if (state.view === 'recrutare')
