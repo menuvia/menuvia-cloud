@@ -10,7 +10,8 @@
 //          anulări (split-uri stale, attach eșuat) sunt ținute de fake-ul din
 //          tests/functions, care aruncă pe forma veche (mutații dovedite).
 //   SDK10  stripe-webhook cu semnătură REALĂ: payload dahlia → comision cu plan și
-//          abonament; charge fără `invoice` → re-citire; formă necunoscută → 500
+//          abonament; charge fără `invoice` → re-citire; formă necunoscută → 500;
+//          eveniment LIVE pe cheia de TEST → ignorat cu semnătură reală (livemode)
 
 'use strict'
 
@@ -159,10 +160,21 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
     assert.equal(state.fromCalls.length, 0)
   })
 
+  it('eveniment LIVE semnat corect, dar cheia platformei e de TEST → 200 ignorat, zero efecte', async () => {
+    okDb()
+    state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
+    const res = await webhook(signed({ id: 'evt_lm', object: 'event', livemode: true, api_version: DAHLIA,
+      type: 'invoice.paid', created: 1_700_000_000, data: { object: dahliaInvoice() } }))
+    assert.equal(res.statusCode, 200, res.body)
+    assert.deepEqual(parseBody(res), { received: true, ignored: 'livemode_mismatch' })
+    assert.equal(state.fromCalls.length, 0)
+    assert.equal(state.rpcCalls.length, 0)
+  })
+
   it('invoice.paid pe endpoint dahlia → comisionul primește planul și abonamentul', async () => {
     okDb()
     state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
-    const res = await webhook(signed({ id: 'evt_d1', object: 'event', api_version: DAHLIA,
+    const res = await webhook(signed({ id: 'evt_d1', object: 'event', livemode: false, api_version: DAHLIA,
       type: 'invoice.paid', created: 1_700_000_000, data: { object: dahliaInvoice() } }))
     assert.equal(res.statusCode, 200, res.body)
     const call = rpcCallsFor('process_affiliate_invoice_paid')[0]
@@ -173,7 +185,7 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
   it('invoice.paid cu linie de formă necunoscută → 500 (Stripe retrimite), fără comision', async () => {
     okDb()
     state.rpcHandlers.process_affiliate_invoice_paid = () => ({ data: null, error: null })
-    const res = await webhook(signed({ id: 'evt_d2', object: 'event', api_version: DAHLIA,
+    const res = await webhook(signed({ id: 'evt_d2', object: 'event', livemode: false, api_version: DAHLIA,
       type: 'invoice.paid', created: 1_700_000_000, data: { object: dahliaInvoice({ pricing: {} }) } }))
     assert.equal(res.statusCode, 500)
     assert.equal(rpcCallsFor('process_affiliate_invoice_paid').length, 0)
@@ -184,7 +196,7 @@ describe('SDK10: stripe-webhook cu semnătură REALĂ', () => {
     state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
     t.route('GET', '/v1/charges/ch_9', { body: { id: 'ch_9', object: 'charge', invoice: 'in_9', amount: 9900 } })
     t.route('GET', '/v1/refunds', { body: { object: 'list', has_more: false, data: [{ id: 're_1', object: 'refund', amount: 3000 }] } })
-    const res = await webhook(signed({ id: 'evt_d3', object: 'event', api_version: DAHLIA,
+    const res = await webhook(signed({ id: 'evt_d3', object: 'event', livemode: false, api_version: DAHLIA,
       type: 'charge.refunded', created: 1_700_000_000, data: { object: { id: 'ch_9', object: 'charge', amount: 9900 } } }))
     assert.equal(res.statusCode, 200, res.body)
     const get = t.requests().find((r) => r.path.startsWith('/v1/charges/ch_9'))
