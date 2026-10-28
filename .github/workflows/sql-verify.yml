@@ -14,6 +14,14 @@ on:
       - 'tests/sql/**/*.sql'
       - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
+      # Aplicarea automată pe producție (PR-0): AM1–AM4 de la final o exercită
+      # pe Postgres real — o schimbare a CLI-ului trebuie să le declanșeze.
+      - 'scripts/apply-prod-migrations.mjs'
+      - 'scripts/lib/prod-migrations.mjs'
+      - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
+      - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
   pull_request:
     branches: [main, develop]
     paths:
@@ -21,6 +29,14 @@ on:
       - 'tests/sql/**/*.sql'
       - 'scripts/**/*.sql'
       - '.github/workflows/sql-verify.yml'
+      # Aplicarea automată pe producție (PR-0): AM1–AM4 de la final o exercită
+      # pe Postgres real — o schimbare a CLI-ului trebuie să le declanșeze.
+      - 'scripts/apply-prod-migrations.mjs'
+      - 'scripts/lib/prod-migrations.mjs'
+      - 'scripts/prod-migrations-allow-gaps.json'
+      - 'scripts/prod-migrations-rehearsal.sh'
+      - 'tests/prod-migrations/**'
+      - 'scripts/run-sql-auto.sh'
 
 jobs:
   verify:
@@ -45,10 +61,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Clientul 17 (PGDG), ca serverul din `services:` — `pg_dump` 16 (cel din
+      # apt-ul runnerului) refuză un server 17 („server version mismatch”), iar
+      # AM5 (PR-0) face un pg_dump real. Bin-ul 17 intră primul în PATH pentru
+      # toți pașii următori (psql 17 vorbește fără probleme cu serverul 17).
       - name: Setup PostgreSQL client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | \
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Wait for Postgres ready
         env:
@@ -1154,6 +1181,16 @@ jobs:
           # Cotele TVA implicite pentru restaurantele noi: 11% redus / 21% standard.
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f tests/sql/vat_rates_2025_assertions.sql
 
+      # NECONDIȚIONAT (mig 285, FR-07): preset-ul TVA din Setup Asistent ==
+      # cotele implicite L.141/2025 (sursă unică `vat_rate_defaults_ro`); id-urile
+      # vechi (19/9/5%) retrase, maparea pe casă neatinsă.
+      - name: "VAT preset == defaults assertions (mig 285, VP1–VP7)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/vat_preset_assertions.sql
+
       - name: "Platform security assertions (mig 111/112)"
         if: ${{ hashFiles('supabase/migrations/20260627000000_migration_111_split_bill_gate.sql') != '' }}
         env:
@@ -1320,6 +1357,17 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/sms_queue_assertions.sql
+
+      # NECONDIȚIONAT (PH-4): contractul pe care se sprijină telefonul E.164 trimis
+      # de client — +40… ≡ 07… în SMS/loyalty/rate-limit, iar un E.164 străin NU
+      # se normalizează la +40 (o „simplificare” pe ultimele 9 cifre ar redeschide
+      # SMS-ul către un străin din România).
+      - name: "Phone E.164 contract assertions (PH-4, PE1–PE6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/phone_e164_contract_assertions.sql
 
       - name: "MFA platform assertions (mig 235)"
         if: ${{ hashFiles('supabase/migrations/20260717120000_migration_235_platform_admin_mfa.sql') != '' }}
@@ -1643,6 +1691,48 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/guest_retention_assertions.sql
 
+      # NECONDIȚIONAT (mig 286): accesul partenerului e opt-in + restrâns. Rulează
+      # SUB rolul real `authenticated`, cu descoperire automată a tabelelor cu
+      # restaurant_id — o tabelă viitoare pe care partenerul ar ajunge să o vadă
+      # face pasul roșu. PO9 e inversul asserției mig 187 (partenerul NU e în funel).
+      - name: "Partner opt-in access assertions (mig 286, PO1–PO10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/partner_optin_assertions.sql
+
+      # NECONDIȚIONAT (mig 289, D1): status `expired` pe rezervări + janitorul
+      # pg_cron. RX4 (expired eliberează masa) e clichet pe starea FINALĂ a
+      # lanțului — o migrație viitoare care recreează create_reservation_public
+      # din 273 (fără expired) face pasul roșu.
+      - name: "Reservations expired assertions (mig 289, RX1–RX8)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservations_expired_assertions.sql
+
+      # NECONDIȚIONAT (mig 292): comanda `paid` e imuabilă pentru rolurile client
+      # (BF-4, sub rolul REAL authenticated) + supersede pe intent-uri `failed`
+      # la plata online a mesei (BF-1).
+      - name: "Paid-order immutability + table-payment supersede (mig 292, PI1–PI4, PT1–PT4)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/paid_immutable_tablepay_assertions.sql
+
+      # NECONDIȚIONAT (mig 294): fluxul de payout cap-coadă. Fiecare tranziție
+      # trece prin RPC-ul de fondator SUB rolul REAL `authenticated` (ca TP24) —
+      # suitele PO/PP scriu direct ca postgres și sunt oarbe la ACL/gate.
+      - name: "Affiliate payout flow assertions (mig 294, PF1–PF12)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_payout_flow_assertions.sql
+
       - name: "Plan whitelist sync assertions (taxonomia free→enterprise)"
         if: ${{ hashFiles('tests/sql/plan_whitelist_sync_assertions.sql') != '' }}
         env:
@@ -1650,6 +1740,16 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/plan_whitelist_sync_assertions.sql
+
+      # NECONDIȚIONAT (mig 287): jurnalul fiscal (pending_receipts) nu mai are
+      # UPDATE pentru rolurile client + secretul Oblio nu mai e citibil. Rulează
+      # SUB rolul real `authenticated` (ca postgres RLS/privilegiile sunt ocolite).
+      - name: "Fiscal journal + Oblio secret lockdown (mig 287, FL1–FL6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/fiscal_lockdown_assertions.sql
 
       # Codul-șanț (payload-ul FiscalNet, lanț 030→…→053) era SINGURUL fără
       # plasă de regresie în CI — cele 51 de aserții existau din mai dar nu
@@ -1661,6 +1761,17 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f supabase/tests/build_fiscalnet_payload_test.sql
+
+      # NECONDIȚIONAT (mig 295): programul de afiliere — flag-ul de deschidere
+      # în DATE (register/review), panoul NET, vanity → cod canonic și ștergerea
+      # GDPR a afiliaților / conturilor atribuite (FK RESTRICT pe profil blocau
+      # Art. 17 tăcut). AP1–AP4 rulează sub rolul REAL `authenticated`/`anon`.
+      - name: "Affiliate program + GDPR assertions (mig 295, AP1–AP12)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_program_gdpr_assertions.sql
 
       - name: "Authorization PR 1A: load CI-only audit helper"
         if: ${{ hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
@@ -1688,6 +1799,17 @@ jobs:
             psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -f "$f"
           done
 
+      # NECONDIȚIONAT (mig 293): afiliere v2 — comision pe toate planurile
+      # plătite, setup la a DOUA factură, instantaneu de procente pe atribuire,
+      # clawback limitat la rest, două facturi/lună fără excepție, plafon 12,
+      # set_affiliate_attribution_status (poarta 193 vie).
+      - name: "Affiliate commission v2 assertions (mig 293, AF1–AF10)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/affiliate_commission_v2_assertions.sql
+
       - name: "Authorization PR 1A: drop CI-only audit helper"
         if: ${{ always() && hashFiles('supabase/migrations/20260615000000_migration_096a_authorization_foundation.sql') != '' }}
         env:
@@ -1695,6 +1817,99 @@ jobs:
         run: |
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 -c \
             "drop function if exists public.assert_security_audit_shape(text);"
+
+      # NECONDIȚIONAT (mig 288): janitorul de comenzi agățate pe Planul 2.
+      # Fixtura contrazice fiecare predicat (Plan 3, registru de plăți, pickup
+      # programat, vârsta din served_at/ready_at); OJ3 dovedește că `cancelled`
+      # nu produce puncte/stoc, iar `closed` da.
+      - name: "Order janitor assertions (mig 288, OJ1–OJ9)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/order_janitors_assertions.sql
+
+      # NECONDIȚIONAT (mig 290): PD1 e clichet de CLASĂ prin descoperire pe
+      # `prosrc` — orice `raise exception` viitor care pomenește un nume intern
+      # de plan (growth/starter/pro/…) sau interpolează `v_plan` face pasul roșu
+      # (regula 4: numele comerciale doar în UI; contractul stă în HINT).
+      - name: "Plan dead data + neutral plan messages assertions (mig 290, PD1–PD4)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/plan_dead_data_assertions.sql
+
+      - name: "Money exactness assertions (mig 291, MX1–MX7)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/money_exactness_assertions.sql
+
+      - name: "Restaurant country + golden rule per country assertions (mig 296, CC1–CC8)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/restaurant_country_assertions.sql
+
+      # Mig 297: clichetele advisor-ului Supabase (DEFINER apelabil de anon ==
+      # allowlist, auth.uid() înfășurat în politici, FK-uri cu index). Rulează
+      # și în jobul E2E din ci.yml, pe stack-ul Supabase real (default
+      # privileges) — sql-verify e Postgres gol, orb la clasa aceea.
+      - name: "Advisor hardening ratchets (mig 297, AH1–AH6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/advisor_hardening_assertions.sql
+
+      # NECONDIȚIONAT (mig 298, G0 .com): rezervarea publică judecată în fusul
+      # RESTAURANTULUI (nu București hardcodat), limba de bază editabilă și
+      # proiectată pe QR + /m/:slug, țara pe /m/:slug. Rulează și în jobul E2E
+      # din ci.yml (default privileges pe helperul nou safe_time_zone).
+      - name: "Reservation timezone + menu base language assertions (mig 298, RZ1–RZ6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/reservation_timezone_assertions.sql
+
+      # Mig 300: alerta „client în pericol" merge la agent, niciodată la patron;
+      # compute_health_scores rămâne dead-man's switch-ul /health (HA4/HA4b).
+      - name: "Health alert routed to agent, never to owner (mig 300, HA1–HA6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/health_alert_routing_assertions.sql
+
+      # Rularea AUTOMATĂ a suitelor din tests/sql/auto/*.sql (după fixture și
+      # după toate suitele cu pas propriu). O suită nouă se pune DOAR ca fișier
+      # acolo — fără pas nou aici și în ci.yml (fișiere fierbinți la conflicte).
+      # Runner-ul PICĂ pe director gol: o poartă moartă nu trece drept acoperire.
+      - name: "Suitele automate din tests/sql/auto (runner unic, pică pe director gol)"
+        env:
+          PGPASSWORD: postgres
+        run: bash scripts/run-sql-auto.sh "postgresql://postgres@localhost:5432/menuvia_test"
+
+      # PR-0: aplicarea automată pe producție, exersată pe o bază care simulează
+      # producția (replay < 289 + 291 aplicată înaintea lui 289/290, version =
+      # momentul aplicării). AM2 refuzul golului fără excepție, AM1 aplicarea +
+      # ledger + get_schema_version().missing = [], AM3 enum_only + eșec atomic,
+      # AM4 rândul de ledger în aceeași tranzacție cu fișierul, AM5 repetiția
+      # (backup -Fc restaurat de scripts/prod-migrations-rehearsal.sh + aplicare
+      # pe copie + poarta de privilegii). Baze SEPARATE —
+      # menuvia_test rămâne neatinsă. Node: cel preinstalat pe runner (CLI-ul
+      # folosește doar built-ins).
+      - name: "Aplicarea automată a migrațiilor pe o bază simulată de producție (PR-0, AM1–AM5)"
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: node --version && bash tests/prod-migrations/am-integration.sh
 
       - name: Upload logs on failure
         if: failure()

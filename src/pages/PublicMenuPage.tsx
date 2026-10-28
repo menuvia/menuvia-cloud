@@ -31,6 +31,7 @@ import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSea
 import type { CartItem } from '../lib/orders'
 import { lineTotal } from '../lib/orders'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
+import { formatTimeInZone, safeTimeZone } from '../lib/dates'
 import { useMenuSeo } from '../hooks/useMenuSeo'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import {
@@ -43,7 +44,8 @@ import {
 } from '../lib/themes'
 
 import { DIETARY_TAGS } from '../lib/constants'
-import { T } from '../lib/publicMenuStrings'
+import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
+import { dietaryLabel } from '../lib/guestI18n'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme, MenuElements } from '../lib/themes'
 import {
@@ -72,12 +74,14 @@ import ProductCard from '../components/menu/ProductCard'
 import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import ProductPhotoCard from '../components/menu/ProductPhotoCard'
-import FlipbookViewer from '../components/menu/FlipbookViewer'
 
 // Lazy-load modalele grele — nu fac parte din bundle-ul inițial
 const ProductSheet = lazy(() => import('../components/ProductSheet'))
 const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
 const PickupCheckoutSheet = lazy(() => import('../components/PickupCheckoutSheet'))
+// FlipbookViewer doar pe layout-ul rar „flipbook” — paritate cu QrMenuPage (era
+// import static aici: chunk-ul lui era cerut la încărcarea ORICĂRUI /m/:slug).
+const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
 
 interface Props {
   slug: string
@@ -89,7 +93,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const [categories, setCategories] = useState<Category[]>([])
   const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  // CHEIA erorii, nu textul: `loadMenu` rulează înainte ca limba aleasă/a
+  // localului să fie cunoscută (lang e încă 'ro'), deci traducem la randare.
+  const [error, setError] = useState<PublicMenuStringKey | null>(null)
   const [activeCat, setActiveCat] = useState<string>('all')
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
   const [cart, setCart] = useState<CartItem[]>([])
@@ -239,7 +245,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       // în doi pași e în fetchMenuBySlug (qr.ts).
       const combined = await fetchMenuBySlug(slug)
       if (!combined) {
-        setError('Restaurant negăsit')
+        setError('rest_not_found_title')
         setLoading(false)
         return
       }
@@ -275,7 +281,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         .catch(() => {})
     } catch (err) {
       console.error('[PublicMenuPage] load error:', err)
-      setError('Conexiune eșuată. Verifică internetul și încearcă din nou.')
+      setError('err_menu_conn')
       setLoading(false)
     }
   }
@@ -475,7 +481,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
   // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
-  if (loading) return <MenuLoading PUB={PUB} />
+  if (loading) return <MenuLoading PUB={PUB} lang={lang} />
 
   // Eroare / restaurant negăsit: ecran premium cu icon + mesaj + reîncercare.
   if (error || !restaurant)
@@ -485,8 +491,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         accent={accent}
         fonts={theme.fonts}
         onRetry={() => void loadMenu()}
-        title={error ? 'Nu am putut încărca meniul' : 'Restaurant negăsit'}
-        message={error ?? 'Verifică linkul sau încearcă din nou.'}
+        lang={lang}
+        title={error ? T(lang, 'menu_load_error_title') : T(lang, 'rest_not_found_title')}
+        message={T(lang, error ?? 'rest_not_found_msg')}
       />
     )
 
@@ -559,6 +566,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             accent={accent}
             PUB={PUB}
             labelStyle={t.label}
+            uiLang={lang}
           />
         </div>
       )}
@@ -634,6 +642,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           accent={accent}
           PUB={PUB}
           theme={theme}
+          lang={lang}
         />
       )}
 
@@ -654,6 +663,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             onToggle={toggleFilter}
             theme={theme}
             PUB={PUB}
+            lang={lang}
           />
         </div>
       )}
@@ -706,14 +716,18 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         )}
         {/* Flipbook: DOAR catalogul e înlocuit de viewer — restul paginii
             (hero, CTA rezervări, footer) rămâne identic. */}
-        {isFlipbook && <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} />}
+        {isFlipbook && (
+          <Suspense fallback={null}>
+            <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} lang={lang} />
+          </Suspense>
+        )}
         {!isFlipbook &&
           filtered.length === 0 &&
           (allProducts.length === 0 ? (
             // Catalog gol: restaurantul n-a publicat încă niciun produs — mesaj
             // dedicat „revino curând", FĂRĂ buton de golire (nu există filtre
             // care să fi golit lista).
-            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} />
+            <MenuCatalogEmpty PUB={PUB} fonts={theme.fonts} lang={lang} />
           ) : (
             // Doar căutarea/filtrele au golit lista → starea „no_results" cu
             // acțiunea de golire a filtrelor.
@@ -763,6 +777,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
                       currency={menuCurrency}
+                      lang={lang}
                     />
                   ))}
                 </div>
@@ -789,6 +804,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
                       currency={menuCurrency}
+                      lang={lang}
                     />
                   ))}
                 </div>
@@ -807,6 +823,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
                       currency={menuCurrency}
+                      lang={lang}
                     />
                   ))}
                 </div>
@@ -826,6 +843,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                       onOpen={openProduct}
                       onQuickAdd={quickAddProduct}
                       currency={menuCurrency}
+                      lang={lang}
                     />
                   ))}
                 </div>
@@ -847,6 +865,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             color={PUB.text3}
             fontFamily={theme.fonts.body}
             padding="0 0 28px"
+            lang={lang}
           />
         )}
       </div>
@@ -908,6 +927,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             onAdd={addToCart}
             currency={menuCurrency}
             happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
+            lang={lang}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
@@ -1119,6 +1139,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             accent={accent}
             PUB={PUB}
             currency={menuCurrency}
+            lang={lang}
             onClose={() => setShowPickup(false)}
             onSuccess={(short_id, pickup_time, total) => {
               setShowPickup(false)
@@ -1203,10 +1224,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {' '}
                   {T(lang, 'pickup_come_at_pre')}{' '}
                   <strong>
-                    {new Date(confirmation.pickup_time).toLocaleTimeString('ro-RO', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {/* Ora în fusul LOCALULUI, nu al telefonului clientului. */}
+                    {formatTimeInZone(confirmation.pickup_time, safeTimeZone(restaurant?.timezone))}
                   </strong>{' '}
                   {T(lang, 'pickup_come_at_post')}
                 </>
@@ -1463,7 +1482,7 @@ function HeroSection({
           )}
           {elements.amenities && hasVegan && (
             <InfoPill isDark={isDark}>
-              <IconLeaf /> Vegan
+              <IconLeaf /> {T(lang, 'diet_vegan')}
             </InfoPill>
           )}
           {elements.social && instagram && (
@@ -1483,7 +1502,7 @@ function HeroSection({
           )}
           {elements.social && website && (
             <SocialPill isDark={isDark} href={socialUrl('website', website)}>
-              <IconGlobe /> Website
+              <IconGlobe /> {T(lang, 'website')}
             </SocialPill>
           )}
         </div>
@@ -1713,9 +1732,10 @@ interface FilterChipsProps {
     border: string
     borderStrong: string
   }
+  lang: string
 }
 
-function FilterChipsRow({ activeFilters, onToggle, theme, PUB }: FilterChipsProps) {
+function FilterChipsRow({ activeFilters, onToggle, theme, PUB, lang }: FilterChipsProps) {
   return (
     <div
       style={{
@@ -1756,7 +1776,7 @@ function FilterChipsRow({ activeFilters, onToggle, theme, PUB }: FilterChipsProp
             }}
           >
             <span style={{ fontSize: 12 }}>{tag.emoji}</span>
-            {tag.label}
+            {dietaryLabel(lang, tag.id, tag.label)}
           </button>
         )
       })}

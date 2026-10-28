@@ -22,7 +22,6 @@ import {
   listInvoiceFailures,
   retryInvoice,
   listPayouts,
-  markPayoutPaid,
   listAffiliates,
   reviewAffiliate,
   setRestaurantPlan,
@@ -34,6 +33,8 @@ import {
   setAffiliateCommission,
   applyDefaultsToAllAffiliates,
   setAffiliateBranding,
+  getAffiliateProgramStatus,
+  setAffiliateProgramOpen,
   getMonthlyBenchmark,
   type MonthlyBenchmark,
   type AffiliateCommissionDefaults,
@@ -48,6 +49,7 @@ import {
 } from '../lib/founder'
 
 import FounderActivationCard from '../components/FounderActivationCard'
+import FounderPayoutRow, { RunPayoutBatchButton } from '../components/FounderPayoutRow'
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 
@@ -106,17 +108,6 @@ const AFFILIATE_STATUS_LABELS: Record<string, string> = {
   suspended: 'suspendat',
   closed: 'închis',
   rejected: 'respins',
-}
-
-const PAYOUT_STATUS_LABELS: Record<string, string> = {
-  draft: 'ciornă',
-  awaiting_invoice: 'așteaptă factura',
-  invoice_matched: 'factură confirmată',
-  processing: 'în procesare',
-  paid: 'plătit',
-  failed: 'eșuat',
-  on_hold: 'în verificare',
-  canceled: 'anulat',
 }
 
 const ACTOR_KIND_LABELS: Record<string, string> = {
@@ -1068,27 +1059,11 @@ function AffiliatesSection() {
   const payouts = useAdminData<AdminPayoutRow[]>(listPayouts)
   const [busyId, setBusyId] = useState<string | null>(null)
 
-  async function doMarkPaid(p: AdminPayoutRow) {
-    const ok = await confirm({
-      title: `Marchezi payout-ul ca plătit?`,
-      description: `${p.affiliate_email} · ${formatMoney(p.gross_cents, p.currency)}. Debitul se înscrie în ledger — acțiune ireversibilă.`,
-      confirmLabel: 'Marchează plătit',
-    })
-    if (!ok) return
-    setBusyId(p.id)
-    try {
-      const res = await markPayoutPaid(p.id)
-      if (!res.ok) throw new Error(res.error ?? 'Eroare')
-      toast.success('Payout marcat plătit')
-      // Plata scrie un rând negativ în ledger (trg_affiliate_payout_settle,
-      // mig 098) → soldul din cardul „Afiliați" trebuie și el reîncărcat,
-      // altfel arată o valoare bănească veche imediat după acțiune.
-      await Promise.all([payouts.reload(), affiliates.reload()])
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Eroare')
-    } finally {
-      setBusyId(null)
-    }
+  // Orice tranziție de payout (mig 294) poate scrie în ledger (plata) sau
+  // elibera sold (anularea) → soldul din cardul „Afiliați" se reîncarcă și el,
+  // altfel arată o valoare bănească veche imediat după acțiune.
+  async function reloadPayouts() {
+    await Promise.all([payouts.reload(), affiliates.reload()])
   }
 
   // Decizia pe o cerere (mig 224). Respingerea cere confirmare — e ce vede
@@ -1097,7 +1072,7 @@ function AffiliatesSection() {
     if (!approve) {
       const ok = await confirm({
         title: 'Respingi cererea?',
-        description: `${a.full_name || a.email} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
+        description: `${a.full_name || a.email || 'Afiliatul'} va vedea un mesaj politicos de refuz. Poți reveni oricând cu „Aprobă totuși".`,
         confirmLabel: 'Respinge',
         destructive: true,
       })
@@ -1105,7 +1080,17 @@ function AffiliatesSection() {
     }
     setBusyId(a.affiliate_id)
     try {
-      const res = await reviewAffiliate(a.affiliate_id, approve)
+      let res = await reviewAffiliate(a.affiliate_id, approve)
+      // mig 295: programul e închis → aprobarea cere override EXPLICIT.
+      if (!res.ok && res.reason === 'program_closed' && approve) {
+        const force = await confirm({
+          title: 'Programul de afiliere e închis',
+          description: `Aprobi totuși cererea${a.full_name || a.email ? ` lui ${a.full_name || a.email}` : ''}? Excepția se consemnează în jurnalul de audit.`,
+          confirmLabel: 'Aprobă ca excepție',
+        })
+        if (!force) return
+        res = await reviewAffiliate(a.affiliate_id, approve, true)
+      }
       if (!res.ok) {
         // RPC-ul refuză cu `reason`, nu cu `error` — mapăm la mesaje clare.
         const msg =
@@ -1143,6 +1128,7 @@ function AffiliatesSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <AffiliateProgramToggleCard />
       <CommissionDefaultsCard onApplied={() => void affiliates.reload()} />
       <div style={cardStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -1177,7 +1163,7 @@ function AffiliatesSection() {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: '0.85rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
                       {depth > 0 && <span style={{ color: D.t3 }}>↳ </span>}
-                      {a.full_name || a.email}
+                      {a.full_name || a.email || (a.erased_at ? 'Afiliat șters (GDPR)' : 'Fără email')}
                       <span style={{ color: D.t3, fontWeight: 400 }}> · cod {a.referral_code}</span>
                       {a.status === 'pending' && (
                         <span
@@ -1198,7 +1184,8 @@ function AffiliatesSection() {
                       )}
                     </div>
                     <div style={{ fontSize: '0.72rem', color: D.t3, overflowWrap: 'anywhere' }}>
-                      {a.email} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
+                      {a.email ?? 'cont șters'} · stare: {AFFILIATE_STATUS_LABELS[a.status] ?? a.status}
+                      {a.erased_at ? ` · șters (GDPR) ${new Date(a.erased_at).toLocaleDateString('ro-RO')}` : ''}
                     </div>
                   </div>
                   <div style={{ fontSize: '0.82rem', fontWeight: 600, color: a.balance_ron_cents > 0 ? D.green : D.t2 }}>
@@ -1309,6 +1296,9 @@ function AffiliatesSection() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
           <Icon name="chart" size={16} color={D.t2} />
           <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Payout-uri</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <RunPayoutBatchButton onDone={reloadPayouts} />
+          </span>
         </div>
         {payouts.loading ? (
           <InlineSpinner label="Se încarcă payout-urile..." />
@@ -1319,41 +1309,7 @@ function AffiliatesSection() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {(payouts.data ?? []).map((p) => (
-              <div
-                key={p.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                  padding: '10px 12px',
-                  background: D.s3,
-                  borderRadius: 10,
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: '0.82rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
-                    {p.affiliate_email} · {formatMoney(p.gross_cents, p.currency)}
-                  </div>
-                  <div style={{ fontSize: '0.72rem', color: D.t3 }}>
-                    {PAYOUT_STATUS_LABELS[p.status] ?? p.status}
-                    {p.invoice_number ? ` · factura ${p.invoice_number}` : ''}
-                    {p.paid_at ? ` · plătit ${formatDate(p.paid_at)}` : ''}
-                    {p.failure_reason ? ` · ${p.failure_reason}` : ''}
-                  </div>
-                </div>
-                {(p.status === 'processing' || p.status === 'on_hold') && (
-                  <button
-                    onClick={() => void doMarkPaid(p)}
-                    disabled={busyId === p.id}
-                    className="pressable"
-                    style={withBusy(primaryBtn, busyId === p.id)}
-                  >
-                    {busyId === p.id ? 'Se marchează...' : 'Marchează plătit'}
-                  </button>
-                )}
-              </div>
+              <FounderPayoutRow key={p.id} payout={p} onChanged={reloadPayouts} />
             ))}
           </div>
         )}
@@ -1470,6 +1426,65 @@ function CommissionFields({
           style={fieldStyle}
         />
       </label>
+    </div>
+  )
+}
+
+// mig 295: comutatorul programului (cereri noi + aprobări). Închis implicit.
+function AffiliateProgramToggleCard() {
+  const toast = useToast()
+  const status = useAdminData<{ open: boolean }>(getAffiliateProgramStatus)
+  const [busy, setBusy] = useState(false)
+  const open = status.data?.open
+
+  async function toggle(next: boolean) {
+    const ok = await confirm({
+      title: next ? 'Deschizi programul de afiliere?' : 'Închizi programul de afiliere?',
+      description: next
+        ? 'Pagina /afiliat va primi cereri noi, iar aprobările nu mai cer excepție.'
+        : 'Cererile noi vor fi refuzate, iar pagina /afiliat va afișa că programul se redeschide. Afiliații existenți nu sunt afectați.',
+      confirmLabel: next ? 'Deschide' : 'Închide',
+      destructive: !next,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await setAffiliateProgramOpen(next)
+      if (!res.ok) throw new Error(res.error ?? 'Eroare')
+      toast.success(next ? 'Programul e deschis' : 'Programul e închis')
+      await status.reload()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Eroare la salvare')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <Icon name="users" size={16} color={D.t2} />
+        <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>Programul de afiliere</span>
+      </div>
+      {status.error ? (
+        <SectionError message={status.error} onRetry={() => void status.reload()} />
+      ) : status.loading || open === undefined ? (
+        <InlineSpinner label="Se încarcă..." />
+      ) : (
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.8rem', color: open ? D.green : D.t2 }}>
+            {open ? 'Deschis — primește cereri noi' : 'Închis — cererile noi sunt refuzate'}
+          </span>
+          <button
+            onClick={() => void toggle(!open)}
+            disabled={busy}
+            className="pressable"
+            style={withBusy(open ? ghostBtn : primaryBtn, busy)}
+          >
+            {open ? 'Închide programul' : 'Deschide programul'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

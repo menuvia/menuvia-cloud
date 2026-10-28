@@ -32,6 +32,8 @@ export interface StripeClient {
   elements(options: {
     clientSecret: string
     appearance?: { theme?: 'stripe' | 'night' | 'flat'; variables?: Record<string, string> }
+    /** Limba formularului Stripe (ISO 639-1, ex. 'ro', 'de'). */
+    locale?: string
   }): StripeElements
   confirmPayment(options: {
     elements: StripeElements

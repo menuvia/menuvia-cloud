@@ -29,6 +29,11 @@ function jsonResponse(statusCode, body) {
   }
 }
 
+// Plasă pentru o eroare de gate fără hint (contractul e HINT-ul `feature_disabled`):
+// textul vechi („Featurea …", până la mig 290) ȘI cel neutru de după („… cere un
+// plan superior"), ca deploy-ul să meargă în orice ordine față de migrație.
+const PLAN_GATE_TEXT = /Featurea|plan superior/
+
 // Hint-urile de business din RPC → status HTTP. Orice altceva = 500 generic
 // (mesajul RO din RPC e sigur de afișat — vine din codul nostru, nu din date).
 const HINT_STATUS = {
@@ -136,7 +141,7 @@ exports.handler = async (event) => {
       p_token: token,
     })
     if (billErr) {
-      const status = HINT_STATUS[billErr.hint] || (billErr.message?.includes('Featurea') ? 403 : 500)
+      const status = HINT_STATUS[billErr.hint] || (PLAN_GATE_TEXT.test(billErr.message || '') ? 403 : 500)
       if (status === 500) console.error('[table-payment] bill failed:', billErr.message)
       return jsonResponse(status, { error: billErr.message, hint: billErr.hint || null })
     }
@@ -258,7 +263,7 @@ exports.handler = async (event) => {
         p_token: token,
       })
   if (beginErr) {
-    const status = HINT_STATUS[beginErr.hint] || (beginErr.message?.includes('Featurea') ? 403 : 500)
+    const status = HINT_STATUS[beginErr.hint] || (PLAN_GATE_TEXT.test(beginErr.message || '') ? 403 : 500)
     if (status === 500) console.error('[table-payment] begin failed:', beginErr.message)
     return jsonResponse(status, { error: beginErr.message, hint: beginErr.hint || null })
   }

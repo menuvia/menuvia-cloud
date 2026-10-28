@@ -16,6 +16,7 @@
 
 import { supabase } from './supabase'
 import { createIdempotencyKeyStore } from './idempotency'
+import type { ReservationStatus } from '../hooks/useReservations'
 
 const reservationKeys = createIdempotencyKeyStore('menuvia_idem_resv:')
 
@@ -104,7 +105,54 @@ function firstRow(data: unknown, args: CreateReservationArgs): CreatedReservatio
  * de succes are doar două stări — „confirmată" și „în așteptare" — deci ar
  * prezenta un rând mort drept rezervare primită.
  */
-export const TERMINAL_RESERVATION_STATUSES = ['cancelled', 'no_show']
+export const TERMINAL_RESERVATION_STATUSES = ['cancelled', 'no_show', 'expired']
+
+/**
+ * Etichetele de status din dashboard. `expired` (mig 289) = rezervare `pending`
+ * rămasă în trecut, pe care nimeni nu a confirmat-o — NU „anulată" (nu a anulat
+ * nimeni) și NU „no-show" (clientul nu a ratat nimic confirmat).
+ */
+export const RESERVATION_STATUS_LABEL: Record<ReservationStatus, string> = {
+  pending: 'În așteptare',
+  confirmed: 'Confirmată',
+  seated: 'La masă',
+  completed: 'Finalizată',
+  cancelled: 'Anulată',
+  no_show: 'No-show',
+  expired: 'Expirată',
+}
+
+/** Pragul peste care o rezervare `confirmed` rămasă neînchisă e „nerezolvată" (mig 289: nu se rescrie automat). */
+export const STALE_CONFIRMED_HOURS = 48
+
+/**
+ * Câte zile rămân vizibile rezervările `expired` în secțiunea „Neconfirmate /
+ * expirate". `expired` nu are nicio acțiune (e terminal), deci fără plafon
+ * secțiunea ar crește la nesfârșit; o săptămână ajunge ca owner-ul să vadă ce
+ * a ratat. `pending`/`confirmed` vechi NU au plafon — acelea cer o decizie.
+ */
+export const STALE_EXPIRED_DAYS = 7
+
+/**
+ * Filtrul PostgREST `or` pentru secțiunea „Neconfirmate / expirate" din
+ * dashboard: `pending` din trecut FĂRĂ limită inferioară de dată (janitorul
+ * orar le mută pe cele vechi în `expired`, dar între ticuri `pending` încă
+ * există) + `expired` doar din ultimele `STALE_EXPIRED_DAYS` zile (informativ,
+ * fără acțiuni) + `confirmed` mai vechi de 48h, pe care fereastra no-show
+ * (mig 234) nu le mai atinge și care trebuie rezolvate de mână.
+ */
+export function buildStaleReservationsFilter(now: Date): string {
+  const nowIso = now.toISOString()
+  const staleIso = new Date(now.getTime() - STALE_CONFIRMED_HOURS * 3600 * 1000).toISOString()
+  const expiredFloorIso = new Date(
+    now.getTime() - STALE_EXPIRED_DAYS * 24 * 3600 * 1000,
+  ).toISOString()
+  return (
+    `and(status.eq.pending,starts_at.lt.${nowIso}),` +
+    `and(status.eq.expired,starts_at.gte.${expiredFloorIso},starts_at.lt.${nowIso}),` +
+    `and(status.eq.confirmed,starts_at.lt.${staleIso})`
+  )
+}
 
 /** `true` dacă rezervarea întoarsă nu mai e vie și nu poate fi prezentată drept primită. */
 export function isTerminalReservation(status: string): boolean {

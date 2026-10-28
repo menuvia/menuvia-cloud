@@ -120,8 +120,11 @@ end $$;
 do $$
 declare v jsonb;
 begin
+  -- mig 293: setup-ul (30% din prima factură) se câștigă la a DOUA factură plătită.
   v := public.process_affiliate_invoice_paid('evt_at6','cus_A','sub_A','in_A','subscription_create',2900,'RON',null,now(),'pro');
-  if (v->>'commission_cents')::bigint <> 870 then raise exception 'AT6 FAIL: comision % (870)', v->>'commission_cents'; end if;
+  if v->>'deferred' is distinct from 'setup_awaits_second_invoice' then raise exception 'AT6 FAIL: prima factură (%)', v; end if;
+  v := public.process_affiliate_invoice_paid('evt_at6b','cus_A','sub_A','in_A2','subscription_cycle',2900,'RON','2026-08-01',now(),'pro');
+  if (v->>'setup_commission_cents')::bigint is distinct from 870::bigint then raise exception 'AT6 FAIL: comision % (870)', v->>'setup_commission_cents'; end if;
   raise notice 'AT6 OK: flux complet → comision 870';
 end $$;
 

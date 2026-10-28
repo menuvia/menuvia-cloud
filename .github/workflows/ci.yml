@@ -157,6 +157,134 @@ jobs:
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -v ON_ERROR_STOP=1 -f tests/sql/guest_retention_assertions.sql
 
+      # Preset-ul TVA (mig 285, FR-07) pe stack-ul real: mig 285 creează o
+      # funcție NOUĂ (`vat_rate_defaults_ro`), iar default privileges ale
+      # Supabase acordă EXECUTE direct lui anon/authenticated — VP7 are muncă
+      # reală DOAR aici; sql-verify (postgres gol) e orb la clasa asta.
+      - name: Preset TVA == cotele implicite pe stack-ul Supabase real (mig 285, VP1–VP7)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/vat_preset_assertions.sql
+
+      # Janitorul de comenzi (mig 288) pe stack-ul Supabase real: funcție NOUĂ,
+      # deci default privileges pot re-acorda EXECUTE (OJ8 cere zero grant) —
+      # sql-verify (postgres gol) e orb la clasa asta.
+      - name: Janitor comenzi pe stack-ul Supabase real (mig 288, OJ1–OJ9)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/order_janitors_assertions.sql
+
+      # Rezervări expirate (mig 289) pe stack-ul real: default privileges ale
+      # Supabase re-acordă EXECUTE pe funcții NOI (janitorul) — RX8 are muncă
+      # reală DOAR aici; sql-verify (postgres gol) e orb la clasa asta.
+      - name: Rezervări expirate pe stack-ul Supabase real (mig 289, RX1–RX8)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/reservations_expired_assertions.sql
+
+      # Accesul partenerului (mig 286) pe stack-ul real: default privileges ale
+      # Supabase pot acorda grant-uri pe funcții/tabele NOI; PO1–PO10 rulează sub
+      # rolul `authenticated` și prind orice drum prin care partenerul vede mai mult
+      # decât meniul + mesele/QR.
+      - name: Acces partener opt-in pe stack-ul Supabase real (mig 286, PO1–PO10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/partner_optin_assertions.sql
+
+      # Mig 287 pe stack-ul real: default privileges ale Supabase pot re-acorda
+      # privilegii pe tabele/funcții NOI; FL1–FL6 rulează sub `authenticated`.
+      - name: Jurnal fiscal + secret Oblio pe stack-ul Supabase real (mig 287, FL1–FL6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/fiscal_lockdown_assertions.sql
+
+      # Mig 290 pe stack-ul real: PD2 verifică ACL-ul gate-urilor recreate
+      # (`create or replace` păstrează ACL-ul, dar default privileges ale
+      # Supabase sunt exact clasa la care sql-verify e orb).
+      - name: Mesaje de plan neutre + date moarte pe stack-ul Supabase real (mig 290, PD1–PD4)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/plan_dead_data_assertions.sql
+
+      # Egalitate exactă la încasare + gate-ul reducerii (mig 291): pe stack-ul
+      # real, ca să vadă și grant-urile/default privileges ale Supabase.
+      - name: Money exactness pe stack-ul Supabase real (mig 291, MX1–MX7)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/money_exactness_assertions.sql
+
+      # Mig 292 pe stack-ul real: default privileges Supabase + rolurile REALE
+      # authenticated/anon (PI1–PI4 comanda paid imuabilă, PT1–PT4 supersede failed).
+      - name: Comanda paid imuabilă + supersede failed pe stack-ul real (mig 292, PI/PT)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/paid_immutable_tablepay_assertions.sql
+
+      # Afiliere v2 (mig 293) pe stack-ul real: funcții NOI (set_affiliate_
+      # attribution_status + trigger-ul de instantaneu), iar default privileges
+      # ale Supabase re-acordă EXECUTE — AF10 are muncă reală aici.
+      - name: Comision afiliere v2 pe stack-ul Supabase real (mig 293, AF1–AF10)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_commission_v2_assertions.sql
+
+      # Fluxul de payout (mig 294) pe stack-ul real: mig 294 creează funcții
+      # NOI, iar default privileges ale Supabase le acordă EXECUTE direct lui
+      # anon/service_role — PF1 are muncă reală DOAR aici.
+      - name: Fluxul de payout al afiliaților pe stack-ul Supabase real (mig 294, PF1–PF12)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_payout_flow_assertions.sql
+
+      # Programul de afiliere + GDPR (mig 295) pe stack-ul real: funcțiile NOI
+      # (helper de flag, detașarea GDPR) primesc EXECUTE din default privileges
+      # ale Supabase — AP11 are muncă reală DOAR aici.
+      - name: Programul de afiliere + GDPR pe stack-ul Supabase real (mig 295, AP1–AP12)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/affiliate_program_gdpr_assertions.sql
+
+      # Țara restaurantului (mig 296) pe stack-ul real: cele două funcții NOI
+      # primesc EXECUTE din default privileges ale Supabase, deci revoke-urile
+      # explicite (CC7) au muncă reală DOAR aici.
+      - name: Țara restaurantului + regula de aur pe țară pe stack-ul Supabase real (mig 296, CC1–CC8)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/restaurant_country_assertions.sql
+
+      # Mig 297 pe stack-ul real: aici trăiesc default privileges ale Supabase
+      # (și drift-ul CLI din aug 2026, care dădea anon EXECUTE direct pe orice
+      # funcție nouă) — clichetul AH1 (DEFINER apelabil de anon == allowlist)
+      # vede privilegiile stack-ului REAL, nu ale unui Postgres gol. Rulează
+      # ÎNAINTEA pasului „Parity grants” (grant-uri doar pentru Playwright).
+      - name: Clichetele advisor-ului Supabase pe stack-ul real (mig 297, AH1–AH6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/advisor_hardening_assertions.sql
+
+      # Mig 298 pe stack-ul real: helperul NOU safe_time_zone primește EXECUTE
+      # din default privileges ale Supabase, deci revoke-ul explicit (RZ5) are
+      # muncă reală DOAR aici; get_restaurant_by_slug e DROP+CREATE (ACL nou).
+      - name: Rezervarea în fusul restaurantului + limba de bază pe stack-ul real (mig 298, RZ1–RZ6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/reservation_timezone_assertions.sql
+
+      # Mig 300 pe stack-ul real: default privileges ale Supabase re-acordă
+      # EXECUTE la recreare — HA5 verifică aici că doar service_role apelează.
+      - name: Alerta de client în pericol către agent pe stack-ul Supabase real (mig 300, HA1–HA6)
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -v ON_ERROR_STOP=1 -f tests/sql/health_alert_routing_assertions.sql
+
+      # Suitele din tests/sql/auto/*.sql pe stack-ul Supabase REAL (default
+      # privileges, roluri reale) — același runner ca în sql-verify.yml. O suită
+      # nouă se pune doar ca fișier acolo. Pică pe director gol. Rulează ÎNAINTEA
+      # „Parity grants" (grant-uri doar pentru Playwright) și a seed-ului demo,
+      # ca toate celelalte suite de mai sus.
+      - name: Suitele automate din tests/sql/auto pe stack-ul Supabase real
+        run: bash scripts/run-sql-auto.sh "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
       - name: Export local keys
         id: sb
         run: |

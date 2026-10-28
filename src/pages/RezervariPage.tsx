@@ -15,12 +15,14 @@
 // =============================================================
 import { useEffect } from 'react'
 import { MKT } from '../lib/marketing'
+import { signupPath } from '../lib/planIntent'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 import { setOnboardingPreset } from '../lib/onboardingPreset'
+import { SITE_HOSTS } from '../lib/domain'
 
 const BENEFITS: { icon: IconName; t: string; d: string }[] = [
   {
@@ -31,7 +33,7 @@ const BENEFITS: { icon: IconName; t: string; d: string }[] = [
   {
     icon: 'qr',
     t: 'Buton de rezervare pe profilul tău Google',
-    d: 'Primești un link stabil (menuvia.ro/rezervare/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.',
+    d: `Primești un link stabil (${SITE_HOSTS.ro}/rezervare/restaurantul-tău) pe care îl pui în Google Business Profile: cine te caută pe Google rezervă direct, fără să te sune.`,
   },
   {
     icon: 'bell',
@@ -63,7 +65,7 @@ export default function RezervariPage({ navigate }: { navigate: (p: string) => v
   const startCta = () => {
     // Intenția supraviețuiește redirectului de auth → OnboardingPage o consumă.
     setOnboardingPreset('rezervari')
-    navigate('/auth?lang=ro')
+    navigate(signupPath())
   }
 
   const card: React.CSSProperties = {

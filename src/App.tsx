@@ -4,18 +4,23 @@ import React, { useEffect, useState, useRef, Suspense, lazy } from 'react'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { RestaurantProvider, useRestaurantCtx } from './contexts/RestaurantContext'
 import { supabase, SUPABASE_CONFIGURED } from './lib/supabase'
-import TermsAcceptanceGate, { ROUTE_CHANGE_EVENT } from './components/TermsAcceptanceGate'
+import { ROUTE_CHANGE_EVENT } from './lib/routeEvents'
 import { CheckoutError, describeCheckoutFailure, readCheckoutUrl } from './lib/checkout'
-import { getStoredReferral, getVisitorId } from './lib/affiliate'
+import { getStoredReferral, getVisitorId, resolvePendingReferral } from './lib/affiliate'
 import { useRestaurants } from './hooks/useData'
 import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './components/PageLoader'
 import CookieBanner from './components/CookieBanner'
 import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { MemberRole } from './lib/constants'
+import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
+import { legacyPathRedirect } from './lib/routeAliases'
+import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
+import { browserSite, currentSite, defaultUiLang } from './lib/domain'
+import { checkoutOpenOnSite, siteCheckoutClosedFailure } from './lib/siteMarket'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
@@ -40,6 +45,18 @@ const QrMenuPage = lazy(() => import('./pages/QrMenuPage'))
 const KitchenPage = lazy(() => import('./pages/KitchenPage'))
 const WaiterPage = lazy(() => import('./pages/WaiterPage'))
 const PublicMenuPage = lazy(() => import('./pages/PublicMenuPage'))
+// Prefetch al meniului oaspetelui, același tipar ca LandingPage pe '/': fără
+// el, chunk-ul paginii pornea abia după montarea React + `getSession()` (ruta
+// e randată doar după `loading` din AuthContext) — o serializare pe calea
+// critică a scanării. Aici descărcarea pornește în paralel cu ele; importul
+// e deduplicat de încărcătorul de module, deci lazy() de mai sus primește
+// același modul. Regex-urile sunt cele din parsePath. Un eșec aici e tăcut:
+// lazy() reîncearcă la randare și eroarea ajunge la ErrorBoundary ca înainte.
+if (typeof window !== 'undefined') {
+  const p = window.location.pathname
+  if (/^\/q\/.+$/.test(p)) import('./pages/QrMenuPage').catch(() => undefined)
+  else if (/^\/m\/.+$/.test(p)) import('./pages/PublicMenuPage').catch(() => undefined)
+}
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
@@ -56,6 +73,11 @@ const ReservePage = lazy(() => import('./pages/ReservePage'))
 const RezervariPage = lazy(() => import('./pages/RezervariPage'))
 const LandingPageEn = lazy(() => import('./pages/LandingPageEn'))
 const PWAPrompt = lazy(() => import('./components/PWAPrompt'))
+// Gate-ul de Termeni randează null fără sesiune — vizitatorul anonim (meniul
+// QR, /m/:slug) nu-l vede niciodată, dar importul static îl ținea, cu
+// lib/terms, în chunk-ul de ENTRY descărcat la fiecare scanare. Se montează
+// (și se descarcă) doar când există user — vezi TermsGateMount.
+const TermsAcceptanceGate = lazy(() => import('./components/TermsAcceptanceGate'))
 
 type View =
   | 'landing'
@@ -95,7 +117,14 @@ interface RouteState {
 }
 
 function parsePath(): RouteState {
-  const p = window.location.pathname
+  // Alias vechi (ex. /preturi → /pricing): corectăm URL-ul din bară fără intrare
+  // nouă în istoric (replaceState), apoi rutăm pe calea canonică. Idempotent —
+  // parsePath poate rula de mai multe ori (inițializator de state, StrictMode).
+  const alias = legacyPathRedirect(window.location.pathname)
+  if (alias) {
+    window.history.replaceState({}, '', alias + window.location.search + window.location.hash)
+  }
+  const p = alias ?? window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
   // /rezervare/:slug — pagina publică de rezervare (linkul din Google Business
@@ -129,7 +158,10 @@ function parsePath(): RouteState {
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
-  if (p === '/') return { view: 'landing' }
+  // hostul .com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
+  // (menuvia.ro, preview-uri, localhost) rămâne pe landing-ul RO de azi.
+  if (p === '/')
+    return { view: currentSite(window.location.hostname) === 'com' ? 'landing-en' : 'landing' }
   if (p === '/en') return { view: 'landing-en' }
   return { view: 'notfound' }
 }
@@ -232,7 +264,9 @@ function ProtectedRoute({
   children,
   navigate,
 }: {
-  roles: MemberRole[]
+  // activeRole poate fi și „partner" (mig 286) — nu e în niciuna din listele de
+  // roluri ale rutelor protejate, deci partenerul nu intră pe Bucătărie/Ospătar.
+  roles: UiRole[]
   children: React.ReactNode
   navigate: (p: string) => void
 }) {
@@ -282,6 +316,18 @@ function ProtectedRoute({
       </div>
     )
   return <>{children}</>
+}
+
+// Montează gate-ul de Termeni DOAR cu sesiune: fără user gate-ul întoarce oricum
+// null, deci nimic vizibil nu se schimbă — doar chunk-ul lui iese din entry.
+function TermsGateMount() {
+  const { user } = useAuth()
+  if (!user) return null
+  return (
+    <Suspense fallback={null}>
+      <TermsAcceptanceGate />
+    </Suspense>
+  )
 }
 
 function AppRouter() {
@@ -348,6 +394,19 @@ function AppRouter() {
           /* ignore */
         }
         replace('/afiliat')
+        return
+      }
+      // Intenția de plan (localStorage, TTL 24 h): contul confirmat din linkul
+      // de email se deschide în ALT tab, unde `onSuccess` din AuthPage nu
+      // rulează niciodată — singurul care vede sesiunea e efectul ăsta. Fără
+      // ramura asta, restaurantul nou ateriza pe /dashboard în loc de
+      // checkout. /pricing pornește singur plata (usePlanIntentAutoCheckout).
+      // Doar intenția ACESTUI cont (sau aleasă în acest tab / `?plan=` din
+      // URL): pe un dispozitiv partajat, ospătarul care se loghează nu are voie
+      // să moștenească planul ales de altcineva (planIntent.ts).
+      const intentDest = planIntentDestination(user.email ?? null, window.location.search)
+      if (intentDest) {
+        replace(intentDest)
         return
       }
       getUserRoles(user.id)
@@ -453,7 +512,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate(signupPath())} />
       </Suspense>
     )
   if (state.view === 'recrutare')
@@ -534,17 +593,19 @@ function AppRouter() {
       <Suspense fallback={<PageSpinner />}>
         <PricingPage
           onBack={() => navigate('/')}
-          onLogin={() => navigate('/auth?lang=ro')}
+          onLogin={() => navigate('/auth?lang=' + defaultUiLang(browserSite()))}
           onCheckout={async (plan) => {
+            // hostul .com: prețurile Stripe sunt doar în RON și Plan 3 nu se
+            // vinde acolo — checkout-ul e închis cu mesaj explicit (lib/siteMarket).
+            // Pe menuvia.ro condiția e mereu adevărată → flux neschimbat.
+            if (!checkoutOpenOnSite(browserSite())) {
+              throw new CheckoutError(siteCheckoutClosedFailure())
+            }
             if (!user) {
-              // Păstrăm planul în sessionStorage ÎNAINTE de navigate, ca să-l
-              // recuperăm după login (vezi AuthPage onSuccess). URL-ul primește
-              // și el ?plan= pentru cazurile cu sessionStorage blocat.
-              try {
-                sessionStorage.setItem('menuvia.plan_intent', plan)
-              } catch {
-                /* ignore */
-              }
+              // Păstrăm planul ÎNAINTE de navigate (localStorage, TTL 24 h), ca
+              // să-l recuperăm după login sau după confirmarea emailului în alt
+              // tab. URL-ul primește și el ?plan= pentru storage blocat.
+              writePlanIntent(plan)
               navigate('/auth?plan=' + encodeURIComponent(plan) + '&lang=ro')
               return
             }
@@ -553,6 +614,9 @@ function AppRouter() {
             } = await supabase.auth.getSession()
             // Cod de referral din cookie-ul de afiliere (dacă vizitatorul a
             // venit de pe un link /r/:cod). Trimis la checkout pentru atribuire.
+            // Un vanity încă nerezolvat (RPC picat / răspuns întârziat) are o
+            // ultimă șansă aici, plafonată la 1,5 s — nu blochează plata.
+            await resolvePendingReferral(1500)
             const referralCode = getStoredReferral()
             const visitorId = getVisitorId()
 
@@ -675,20 +739,19 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <AuthPage
-          onSuccess={() => {
+          onSuccess={(email) => {
             // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
             // înapoi la pricing — onCheckout va detecta că e logat și va sări
             // la Stripe. Fără intent, mergem la dashboard ca până acum.
-            let intent: string | null = null
+            const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
-              intent = sessionStorage.getItem('menuvia.plan_intent')
               afiliatIntent = sessionStorage.getItem('menuvia.afiliat_intent')
             } catch {
               /* ignore (private mode) */
             }
-            if (intent === 'starter' || intent === 'growth' || intent === 'pro') {
-              navigate('/pricing')
+            if (intentDest) {
+              navigate(intentDest)
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
@@ -779,7 +842,11 @@ export default function App() {
             {/* Consimțământul la Termeni: se consemnează la prima sesiune, iar
                 conturile fără el primesc ecranul o singură dată. Randează null
                 pentru vizitatorii anonimi (meniul QR nu e atins). */}
-            <TermsAcceptanceGate />
+            <TermsGateMount />
+            {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
+                NE-dialog, global, ca să apară și pe Onboarding (contul nou
+                plătește înainte să-și creeze restaurantul). */}
+            <CheckoutReturnBanner />
             <Suspense fallback={null}>
               <PWAPrompt />
             </Suspense>

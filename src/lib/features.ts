@@ -7,7 +7,6 @@ import { PLAN_LABELS } from './constants'
 export type FeatureName =
   | 'menu_qr'
   | 'order_qr'
-  | 'kitchen_dashboard'
   | 'waiter_manual'
   | 'pickup_orders'
   | 'extras_pairings'
@@ -15,7 +14,6 @@ export type FeatureName =
   | 'stocks'
   | 'recipes'
   | 'profitability'
-  | 'ai_import'
   | 'analytics_advanced'
   | 'reports_pdf'
   | 'reports_vat'
@@ -140,6 +138,73 @@ export function planTier(plan: string | null | undefined): PlanTier {
   }
 }
 
+/**
+ * Tier-ul RESTAURANTULUI pentru gating-ul de bani/fiscal: planul owner-ului,
+ * coborât la 2 când serverul raportează `fiscal_receipt` DEZACTIVAT pe un plan
+ * de tier 3 — singurul caz e un restaurant din afara României (mig 296:
+ * feature-urile românești sunt false pentru `country <> 'RO'`). Pe orice
+ * restaurant RO (și pe un server fără mig 296) rezultatul e IDENTIC cu
+ * `planTier(features.plan)`. Fără el, UI-ul unui local DE pe Plan 3 ar arăta
+ * butoane de plată pe care serverul le respinge și ar ascunde „Închide comanda",
+ * singura ieșire validă acolo.
+ */
+export function moneyTier(features: RestaurantFeatures | null): PlanTier {
+  const tier = planTier(features?.plan)
+  if (tier === 3 && features?.features?.fiscal_receipt?.enabled === false) return 2
+  return tier
+}
+
+/**
+ * Cele DOUĂ tier-uri ale dashboard-ului (review #288): `general` = planul
+ * owner-ului, pentru feature-urile NEfiscale de Plan 3 (harta sălii, statistici
+ * avansate, program echipă) — rămân vizibile unui restaurant din afara RO pe
+ * pro; `money` = moneyTier, DOAR pentru suprafețele de bani/bon (plăți, bonuri,
+ * casă, facturi, încasări, TVA). Pe un restaurant RO cele două sunt IDENTICE.
+ */
+export interface SurfaceTiers {
+  general: PlanTier
+  money: PlanTier
+}
+
+export function surfaceTiers(features: RestaurantFeatures | null): SurfaceTiers {
+  return { general: planTier(features?.plan), money: moneyTier(features) }
+}
+
+/**
+ * Accesul la tab-ul Statistici. Toate view-urile lui (`v_daily_orders`,
+ * `v_product_performance`, `v_waiter_performance`, mig 253/267) au gate-ul
+ * fiscal în date, deci pe un restaurant cu `fiscal_receipt` CUNOSCUT
+ * dezactivat pe pro/enterprise (din afara RO, mig 296) ar întoarce ZERO rânduri
+ * și pagina ar minți cu „Nicio comandă". `null` (necunoscut) → 'full': serverul
+ * decide, ca înainte. Pe RO rezultatul e identic cu vechiul `plan === 'pro' ||
+ * plan === 'enterprise'`.
+ */
+export type AnalyticsAccess = 'upgrade' | 'country_unavailable' | 'full'
+
+export function analyticsAccess(plan: string, fiscalEnabled: boolean | null): AnalyticsAccess {
+  if (plan !== 'pro' && plan !== 'enterprise') return 'upgrade'
+  return fiscalEnabled === false ? 'country_unavailable' : 'full'
+}
+
+/**
+ * Eligibilitatea cardului „Plăți online la masă" (Setări). 'plan' = sub
+ * Fiscalizare (ca înainte, pe `plan`); 'country' = Plan 3, dar feature-urile
+ * de bani CUNOSCUT dezactivate (restaurant din afara RO, mig 296 — Stripe
+ * Connect e RON-only, iar stripe-connect.js refuză onboarding-ul); features
+ * necunoscute → 'eligible' (serverul decide, ca înainte). Pe RO identic cu
+ * vechiul `planTier(plan) >= 3`.
+ */
+export type OnlinePaymentsEligibility = 'eligible' | 'plan' | 'country'
+
+export function onlinePaymentsEligibility(
+  plan: string,
+  features: RestaurantFeatures | null,
+): OnlinePaymentsEligibility {
+  if (planTier(plan) < 3) return 'plan'
+  if (features && moneyTier(features) < 3) return 'country'
+  return 'eligible'
+}
+
 // User-friendly plan names — numele COMERCIALE (cele 3 concepte publice).
 // DERIVATE din PLAN_LABELS (sursa unică, lib/constants.ts) + prefixul emoji —
 // capcana „ține PLAN_LABELS și PLAN_NAMES sincronizate manual" (CLAUDE.md,
@@ -154,6 +219,15 @@ const PLAN_EMOJI: Record<string, string> = {
 export const PLAN_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(PLAN_LABELS).map(([plan, label]) => [plan, (PLAN_EMOJI[plan] ?? '') + label]),
 )
+
+// Mesajul de limită de produse, pe planul REAL al restaurantului. Înainte
+// DashboardPage scria „planul Gratuit (15 produse)" hardcodat și pe starter
+// (300) — o limită și un nume de plan pe care clientul plătitor nu le avea.
+// Numele vine din PLAN_LABELS (sursa unică), limita din plan_limits.
+export function productLimitReason(plan: string, maxProducts: number): string {
+  const name = PLAN_LABELS[plan] ?? plan
+  return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
+}
 
 // Suggest upgrade path: from current plan, what's next.
 // Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru

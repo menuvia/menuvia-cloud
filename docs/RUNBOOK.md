@@ -97,10 +97,18 @@ order by created_at desc;
 ```
 
 **⚠️ Transferul efectiv e MANUAL** (nu există automatizare Wise în cod). Fluxul de stări:
-`draft → awaiting_invoice → invoice_matched → processing (wise_transfer_id setat) → paid`.
-Tranzițiile sunt gate-uite de trigger (nu poți sări stări; nu poți reveni sub `processing`
-odată ce există `wise_transfer_id`). Emiterea facturii afiliatului + transferul Wise le faci
-manual, apoi actualizezi statusul. **Nu forța `session_replication_role`.**
+`draft → awaiting_invoice → invoice_matched → processing (referință setată) → paid`.
+Din mig 294 fiecare pas e un buton în FounderPage → Afiliați → Payout-uri (RPC-urile
+`admin_payout_*` + `admin_mark_payout_paid`, cu audit), NU un UPDATE în SQL. Referința e
+generică: id-ul transferului Wise SAU numărul OP-ului de virament (`bank_transfer`) SAU alt
+document (`other`) — Wise nu mai e obligatoriu. Ordinea sigură: (1) „Cere factura”;
+(2) „Confirmă factura” cu numărul ei; (3) plătești din bancă/Wise către IBAN-ul afișat pe
+rând, apoi „Am inițiat transferul” cu referința; (4) după ce vezi banii plecați în extras,
+„Marchează plătit”. Rezultat ambiguu → „Pune în verificare”; eșec → „Marchează eșuat”, apoi
+„Anulează” DOAR după ce confirmi că banii NU au plecat (abia anularea eliberează suma pentru
+batch-ul următor). Trigger-ul nu lasă sărirea stărilor, revenirea sub `processing` după o
+referință, nici rescrierea referinței. Batch-ul se poate rula manual cu „Rulează batch-ul
+lunii” (idempotent). **Nu forța `session_replication_role`.**
 
 ### 3.2 Email dead-letter (reia emailurile eșuate)
 
@@ -407,6 +415,17 @@ Semnale în loguri:
   remediere.
 - `Signature verification failed: Error …` (nu `StripeSignatureVerificationError`) →
   endpoint creat cu payload „thin"; recreează-l ca „snapshot".
+- `ALERT livemode mismatch event=<id> type=<t> livemode=<true|false|missing> key_mode=<live|test|unknown>`
+  → garda `livemode` (`netlify/functions/lib/livemode.js`, în AMBELE webhook-uri,
+  după semnătură și înaintea oricărui efect) compară `event.livemode` cu modul
+  din `STRIPE_SECRET_KEY` (`sk_/rk_` + `live_`/`test_`). Nepotrivire (sau câmp
+  lipsă) → răspuns 200 `ignored: livemode_mismatch`, NIMIC nu se procesează (Stripe
+  nu retrimite). Cauze: endpoint de test îndreptat spre producție, sau cheie
+  de test pusă în `STRIPE_SECRET_KEY` de producție (cu ea cardul 4242 ar da
+  Planul 3 gratuit) — verifică întâi cheia din env, apoi URL-ul endpoint-ului
+  din Dashboard. `key_mode=unknown` → 500 `livemode_unknown` (cheie lipsă/prefix
+  străin; fail-closed, Stripe retrimite până o repari). Un eveniment live ignorat
+  pe producție = abonament/plată reală pierdută: reia-l din Dashboard după fix.
 
 ---
 
@@ -623,6 +642,87 @@ zgomotos, corect: regimul RLS nu se poate dovedi fără date.
   CONTULUI Supabase, nu doar a datelor).
 - **Test de restore programat**: cere un al doilea proiect Supabase (cost). Până atunci,
   poarta §6.3 e ce transformă un restore manual dintr-o speranță într-o verificare.
+  (Din PR-0, exercițiul LUNAR de restaurare din §6.5 restaurează backup-ul zilnic într-un
+  Postgres efemer — nu e un proiect Supabase, dar dovedește că artefactul se decriptează,
+  se restaurează și trece poarta.)
+
+### 6.5 Aplicarea automată a migrațiilor pe producție ✅ (PR-0)
+
+Din PR-0, **nimeni nu mai rulează SQL de mână pe producție**. Workflow-ul
+`.github/workflows/apply-prod-migrations.yml` aplică singur, după merge, migrațiile din
+`supabase/migrations/` care lipsesc din ledger-ul `supabase_migrations.schema_migrations`.
+
+**Ce setează fondatorul O SINGURĂ DATĂ** (GitHub → Settings → Environments):
+1. Environment-ul **`production`**, cu *Deployment branches* restrâns la `main`.
+2. În el, secretele:
+   - `SUPABASE_DB_URL` — URI-ul **Session pooler** (Supabase → Connect → Session pooler),
+     NU hostul direct `db.*.supabase.co` (IPv6-only pe free; runnerii n-au IPv6);
+   - `BACKUP_PASSPHRASE` — parolă lungă, aleatoare (o folosește și `db-backup.yml`, care
+     citește acum tot din `production`). **Fără ea nu se aplică nimic**: nicio migrație fără
+     backup.
+   Fără `SUPABASE_DB_URL`, workflow-ul e INERT (avertisment galben + rezumat), ca `deploy-vps.yml`.
+
+**Când rulează și ce face:**
+- Se trezește când se termină pe `main` oricare dintre **CI**, **Tests & Quality** și
+  **SQL Migrations Verify**; jobul `gate` (fără secrete) verifică prin API că, pentru VÂRFUL
+  lui main, toate trei sunt verzi (SQL verify are filtru de căi — dacă n-a rulat pe commit,
+  e acceptat un run verde pe un strămoș DOAR dacă între ei nu s-a schimbat nicio cale din
+  filtrul lui). Garda pe `workflow_run`: doar evenimente `push`, doar din repo-ul nostru, doar
+  un SHA de pe `origin/main` — `workflow_run` rulează mereu pe ramura implicită, deci
+  restricția environment-ului NU apără contra unui fork cu o ramură numită `main`.
+- Jobul `apply` (environment `production`): planul (ce lipsește, după **NUME** — pe prod
+  `version` e momentul aplicării prin MCP, nu prefixul fișierului) → backup criptat (artefact
+  `db-backup-premigration-<run>`, 30 de zile) → **repetiția**: dump-ul restaurat într-un
+  Postgres 17 efemer (`scripts/prod-migrations-rehearsal.sh`, după §6.2: replay DOAR al
+  migrațiilor din ledger-ul dump-ului, date `public`+`archive`, ledger, `auth.users` pe
+  coloanele mock-ului), migrațiile aplicate pe copie cu același CLI, poarta §6.3 pe copie →
+  abia apoi aplicarea pe producție → poarta §6.3 pe producție (read-only) +
+  `get_schema_version(manifest).missing = []`.
+- Fiecare fișier: `psql -X -v ON_ERROR_STOP=1 -f` (FĂRĂ `-1`), cu rândul de ledger inserat
+  ÎNAINTEA `commit;`-ului final — fișierul și urma lui se comit atomic. Fișierele „doar
+  `alter type … add value if not exists`" (tiparul 254) rulează fără tranzacție, iar
+  rândul de ledger se scrie imediat după (re-rulare sigură).
+- Refuzuri ÎNAINTE de orice scriere (exit 2): un fișier în așteptare sortat înaintea unuia
+  deja aplicat (**gol**) care nu e în `scripts/prod-migrations-allow-gaps.json` (azi:
+  289/290, aplicate după 291 — obiecte disjuncte, verificat); forma fișierului (exact un
+  `begin;` primul și un `commit;` ultimul, ignorând DO-urile/funcțiile/comentariile/șirurile;
+  meta-comenzi psql interzise de la 298); un prefix deja folosit în ledger de alt nume.
+
+**Manual / dry_run:** Actions → *Apply prod migrations* → *Run workflow* (implicit
+`dry_run = true`): descarcă și decriptează ultimul backup ZILNIC (`db-backup.yml`),
+îl restaurează, aplică pe copie ce lipsește și rulează porțile — producția nu e scrisă.
+Același dry_run rulează **lunar, automat** (ziua 3, 04:17 UTC): e exercițiul de
+restaurare. Dacă nu există un artefact zilnic valid, folosește un dump proaspăt și o spune
+(avertisment) — atunci exercițiul NU a acoperit backup-ul zilnic.
+
+**Pauză:** variabila de repo (sau de environment) `PROD_MIGRATIONS_PAUSED=true`
+(Settings → Secrets and variables → Actions → Variables). Ștergerea ei reia. Alternativ,
+scoaterea secretului `SUPABASE_DB_URL` face workflow-ul inert.
+
+**Ce s-a aplicat:** rezumatul fiecărui run (Actions → run → Summary) listează planul,
+sursa repetiției și migrațiile aplicate; în bază:
+`select version, name from supabase_migrations.schema_migrations order by version desc limit 20;`
+(rândurile scrise de workflow au `version` = prefixul fișierului; cele vechi, prin MCP,
+au momentul aplicării). Din afară: `/health` → `checks.schema` (cu token: `schema_detail.missing`).
+
+**La eșec:** aplicarea se oprește la PRIMUL fișier care pică; tranzacția lui se anulează
+(nici obiecte, nici rând de ledger), fișierele de după nu sunt atinse; run-ul e roșu și
+rezumatul numește fișierul. Cele aplicate înainte rămân aplicate (fiecare cu urma lui).
+`/health` arată `checks.schema = behind` până la reparare. Repararea = o migrație NOUĂ
+(migrațiile aplicate nu se editează) sau corectarea cauzei de mediu, apoi re-run.
+Dacă repetiția pică, producția NU e atinsă deloc.
+
+**Capcană: SQL rulat de mână în SQL Editor NU scrie ledger-ul.** O migrație aplicată așa
+apare tot „în așteptare" și va fi rulată încă o dată; dacă nu e re-rulabilă, aplicarea
+pică pe ea (sigur: rollback). Rezolvare, DOAR după ce ai verificat că obiectele ei există:
+`insert into supabase_migrations.schema_migrations (version, name) values ('<prefixul
+fișierului>', '<numele fără prefix și .sql>');` — apoi re-run.
+
+**Verificat în CI:** `tests/prod-migrations/` (PM1–PM10 + MO1, `node --test`, în
+`test.yml`) și AM1–AM5 (`tests/prod-migrations/am-integration.sh`, în `sql-verify.yml`:
+bază care simulează producția — 288 + 291 înaintea lui 289/290, `version` = momentul
+aplicării — refuzul golului, aplicarea, idempotența, eșecul atomic, ledger-ul în aceeași
+tranzacție, repetiția pe un backup restaurat).
 
 ---
 

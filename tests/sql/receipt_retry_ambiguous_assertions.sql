@@ -177,7 +177,7 @@ end $$;
 set local role authenticated;
 set local request.jwt.claim.sub = '71000000-0000-4000-8000-000000000001';
 do $$
-declare v_rid uuid; v_hint text;
+declare v_rid uuid; v_hint text; v_state text;
 begin
   select id into v_rid from public.pending_receipts where order_id = '71f00000-0000-4000-8000-000000000002';
   if v_rid is null then raise exception 'RR5: precondiție — owner-ul nu vede rândul sub RLS'; end if;
@@ -187,10 +187,13 @@ begin
        set status = 'pending', bridge_device_id = null, claimed_at = null
      where id = v_rid;
   exception when others then
-    get stacked diagnostics v_hint = pg_exception_hint;
+    get stacked diagnostics v_hint = pg_exception_hint, v_state = returned_sqlstate;
   end;
-  if v_hint is distinct from 'direct_repend_forbidden' then
-    raise exception 'RR5 FAIL: UPDATE-ul direct la pending ca authenticated a trecut (hint=%) — ocolește RPC-ul', v_hint; end if;
+  -- Din mig 287 primul zid e REVOKE UPDATE (42501, înaintea oricărui trigger);
+  -- backstop-ul 270 (hint direct_repend_forbidden) rămâne a doua linie și e
+  -- exersat izolat în fiscal_lockdown_assertions.sql (FL2, cu privilegiul re-acordat).
+  if v_state is distinct from '42501' and v_hint is distinct from 'direct_repend_forbidden' then
+    raise exception 'RR5 FAIL: UPDATE-ul direct la pending ca authenticated a trecut (sqlstate=%, hint=%) — ocolește RPC-ul', v_state, v_hint; end if;
 end $$;
 reset role;
 do $$

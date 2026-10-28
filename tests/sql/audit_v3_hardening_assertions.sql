@@ -134,8 +134,9 @@ begin
   foreach v_sig in array array[
     'public._refresh_order_totals(uuid)', 'public.build_fiscalnet_payload(uuid)',
     'public.owner_plan(uuid)', 'public.get_restaurant_features(uuid)',
-    'public.log_ai_import(uuid, uuid, integer)', 'public.reserve_ai_import_slot(uuid, uuid)',
-    'public.check_ai_import_quota(uuid)'
+    'public.log_ai_import(uuid, uuid, integer)'
+    -- mig 290: reserve_ai_import_slot / check_ai_import_quota ȘTERSE (zero
+    -- apelanți) — absența lor e asertată de plan_dead_data_assertions.sql (PD4).
   ] loop
     if has_function_privilege('anon', v_sig, 'execute') then
       raise exception 'AV4 FAIL: anon poate executa %', v_sig; end if;

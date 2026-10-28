@@ -12,6 +12,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const { livemodeGuard } = require('./lib/livemode')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -109,6 +110,11 @@ exports.handler = async (event) => {
     console.error('[stripe-webhook] Signature verification failed:', (err && err.type) || 'Error', err && err.message)
     return jsonResponse(400, { error: 'Invalid signature' })
   }
+
+  // Gardă livemode (lib/livemode.js): cheia TEST nu are voie să proceseze evenimente
+  // live și invers. DUPĂ semnătură, ÎNAINTE de orice efect (DB/email/Stripe/RPC).
+  const modeBlock = livemodeGuard(stripeEvent, STRIPE_SECRET_KEY, '[stripe-webhook]')
+  if (modeBlock) return modeBlock
 
   // Versiunea endpoint-ului ≠ pin-ul: citirile de mai jos sunt tolerante la
   // ambele forme cunoscute, dar o nepotrivire trebuie să se VADĂ — endpoint-ul
@@ -401,6 +407,23 @@ exports.handler = async (event) => {
 
         if (error) throw new Error(`Downgrade failed: ${error.message}`)
 
+        // Afiliere (mig 293): abonamentul S-A ÎNCHEIAT → atribuirea `canceled`
+        // (fără comisioane noi, fără acces de partener — poarta 193). Acesta e
+        // SINGURUL loc care stinge o atribuire: refund-ul / disputa / plata
+        // eșuată pe O factură se recuperează prin clawback, nu prin terminal
+        // (ireversibil). DUPĂ downgrade, ÎNAINTEA evenimentului de lifecycle:
+        // un eșec al RPC-ului → 500 → Stripe retrimite; reluarea e sigură
+        // (downgrade idempotent, RPC idempotent pe terminal) și emailul de
+        // anulare nu se dublează, fiindcă încă nu fusese pus în coadă.
+        try {
+          await setAttributionTerminal(supabase, { profileId: profile.id }, 'canceled',
+            `customer.subscription.deleted ${subscription.id}`)
+        } catch (e) {
+          processingError = `affiliate attribution status failed: ${e?.message || String(e)}`
+          console.error(`[stripe-webhook] ${processingError}`)
+          break
+        }
+
         // Contextul anulării ajunge în template_data (mig 220 concatenează
         // event_data): fără el, emailul „Confirmăm că abonamentul a fost anulat”
         // pleca și la cine NU a anulat nimic — trialul i s-a încheiat fără card.
@@ -490,6 +513,10 @@ exports.handler = async (event) => {
             amount: invoice.amount_due,
             attempt: invoice.attempt_count,
           })
+          // Afiliere: un eșec de plată, chiar TERMINAL, NU stinge atribuirea —
+          // terminal e ireversibil, iar clientul poate plăti ulterior. Dacă
+          // dunning-ul eșuează definitiv, Stripe anulează abonamentul și
+          // `customer.subscription.deleted` face tranziția (`canceled`).
         }
         break
       }
@@ -686,6 +713,11 @@ exports.handler = async (event) => {
               processingError = `affiliate clawback failed: ${clawErr.message}`
             }
           }
+          // Afiliere: un refund TOTAL pe o factură NU stinge atribuirea (un
+          // refund de bunăvoință pe o lună ar fi oprit pe veci comisioanele unui
+          // client care rămâne abonat). Banii facturii se recuperează prin
+          // clawback-ul de mai sus; sfârșitul abonamentului vine prin
+          // `customer.subscription.deleted`.
         } catch (e) {
           console.error('[stripe-webhook] affiliate clawback threw:', e?.message)
           processingError = `affiliate clawback threw: ${e?.message || String(e)}`
@@ -723,19 +755,30 @@ exports.handler = async (event) => {
             }
             break
           }
+          // Baza storno-ului = SUMA DISPUTATĂ (mig 293), nu tot charge-ul: o
+          // dispută pe rest după un refund parțial nu are voie să storneze iar
+          // partea deja refundată (RPC-ul plafonează oricum la restul comisionului).
+          // Sumă lipsă/invalidă = formă necunoscută → 500, nu ghicim.
+          if (!Number.isInteger(dispute.amount) || dispute.amount <= 0) {
+            processingError = `dispute clawback: dispute.amount invalid (${dispute.amount}) pe ${dispute.id}`
+            console.error(`[stripe-webhook] ALERTĂ (retry): ${processingError}`)
+            break
+          }
           try {
             const { error: clawErr } = await supabase.rpc('process_affiliate_refund', {
               p_event_id:            stripeEvent.id,
               p_stripe_invoice_id:   charge.invoice || null,
               p_charge_amount_cents: charge.amount,
               p_refund_id:           `dispute_${dispute.id}`, // cheie idempotentă stabilă
-              p_refund_amount_cents: charge.amount,            // dispute pierdută = total
+              p_refund_amount_cents: dispute.amount,           // suma disputată (pierdută)
               p_event_created_at:    new Date(stripeEvent.created * 1000).toISOString(),
             })
             if (clawErr) {
               console.error('[stripe-webhook] dispute clawback failed:', clawErr.message)
               processingError = `dispute clawback failed: ${clawErr.message}`
             }
+            // Dispută pierdută: clawback-ul de mai sus recuperează comisionul;
+            // atribuirea NU devine terminală (vezi refund-ul total).
           } catch (e) {
             console.error('[stripe-webhook] dispute clawback threw:', e?.message)
             processingError = `dispute clawback threw: ${e?.message || String(e)}`
@@ -779,6 +822,36 @@ exports.handler = async (event) => {
     .eq('event_id', stripeEvent.id)
 
   return jsonResponse(200, { received: true })
+}
+
+// ── Helper: atribuirea de afiliere iese din `active` (mig 293) ─────
+// set_affiliate_attribution_status e idempotent (terminal rămâne terminal) și
+// întoarce `no_attribution` pentru clienții neatribuiți. Lookup-ul de profil pe
+// customer: PGRST116 (fără profil) = nimic de făcut; ORICE altă eroare ARUNCĂ —
+// apelantul o face 500, iar Stripe retrimite (o atribuire rămasă `active` ține
+// accesul de partener viu, poarta din mig 193).
+async function setAttributionTerminal(supabase, { profileId, customerId }, status, reason) {
+  let pid = profileId || null
+  if (!pid) {
+    if (typeof customerId !== 'string' || !customerId) return null
+    const { data: profile, error: lookupErr } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('stripe_customer_id', customerId)
+      .single()
+    if (lookupErr && lookupErr.code !== 'PGRST116') {
+      throw new Error(`lookup profil eșuat pentru customer ${customerId}: ${lookupErr.message}`)
+    }
+    if (!profile) return null
+    pid = profile.id
+  }
+  const { data, error } = await supabase.rpc('set_affiliate_attribution_status', {
+    p_referred_profile_id: pid,
+    p_status:              status,
+    p_reason:              reason,
+  })
+  if (error) throw new Error(`set_affiliate_attribution_status: ${error.message}`)
+  return data
 }
 
 // ── Helper: normalize plan string to canonical paid tier ──────────

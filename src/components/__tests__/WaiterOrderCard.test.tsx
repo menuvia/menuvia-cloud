@@ -3,12 +3,24 @@
 // integrală/parțială; Plan 1/2 (false) arată „Închide comanda" (nefiscal);
 // NECUNOSCUT (null) nu arată NICIUN buton de finalizare — o închidere nefiscală
 // pe Plan 3 ar însemna bani fără bon. Default-ul prop-ului e null (fail-closed).
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderCard } from '../WaiterOrderCard'
 import { makeOrder } from './fixtures'
 import type { Order } from '../../lib/orders'
+
+// Dialogul de confirmare e un singleton montat în App (<ConfirmRoot/>); în test
+// îl înlocuim cu un mock controlabil, ca să vedem DACĂ și CU CE se cere confirmare.
+const confirmMock = vi.hoisted(() =>
+  vi.fn<(opts: { title: string; description?: string }) => Promise<boolean>>(),
+)
+vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
+
+beforeEach(() => {
+  confirmMock.mockReset()
+  confirmMock.mockResolvedValue(true)
+})
 
 const FINAL_BUTTON = /^(plată integrală|plată parțială|închide comanda)$/i
 
@@ -56,8 +68,9 @@ describe('OrderCard — tristate paymentsEnabled', () => {
     expect(screen.getByText(/se verifică planul restaurantului/i)).toBeInTheDocument()
   })
 
-  it('T4 status ≠ served → fără finalizare indiferent de plan', () => {
-    for (const pe of [true, false, null] as const) {
+  it('T4 status ≠ served → fără finalizare pe Plan 3 și pe plan necunoscut', () => {
+    // (pe Plan 1/2 comanda are „Închide comanda" din orice stare deschisă — T6/T8)
+    for (const pe of [true, null] as const) {
       const { unmount } = render(
         <OrderCard
           order={makeOrder({ status: 'ready' })}
@@ -76,5 +89,174 @@ describe('OrderCard — tristate paymentsEnabled', () => {
     renderCard(makeOrder({ status: 'served' }))
     expect(screen.queryByRole('button', { name: FINAL_BUTTON })).toBeNull()
     expect(screen.getByText(/se verifică planul restaurantului/i)).toBeInTheDocument()
+  })
+})
+
+// ── Închidere din ORICE stare deschisă (Plan 1/2) + „Închide masa" ───────────
+// Pe producție 5 comenzi de ospătar stăteau în `new` de 2–89 zile: butonul
+// exista doar din `served`, iar niciun alt drum nu le scotea din Bucătărie.
+// Serverul (advance_order close_order, mig 270) acceptă deja toate aceste stări.
+describe('OrderCard — „Închide comanda" din orice stare deschisă (Plan 1/2)', () => {
+  const OPEN = ['new', 'confirmed', 'preparing', 'ready', 'served'] as const
+  const TERMINAL = ['paid', 'cancelled', 'closed'] as const
+
+  function renderPlain(order: Order, paymentsEnabled: boolean | null) {
+    return render(
+      <OrderCard
+        order={order}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={vi.fn()}
+        paymentsEnabled={paymentsEnabled}
+      />,
+    )
+  }
+
+  it('T6 false → butonul apare pe FIECARE stare deschisă și pe NICIUNA terminală', () => {
+    for (const status of OPEN) {
+      const { unmount } = renderPlain(makeOrder({ status }), false)
+      expect(screen.getByRole('button', { name: /^închide comanda$/i }), status).toBeInTheDocument()
+      unmount()
+    }
+    for (const status of TERMINAL) {
+      const { unmount } = renderPlain(makeOrder({ status }), false)
+      expect(screen.queryByRole('button', { name: /^închide comanda$/i }), status).toBeNull()
+      unmount()
+    }
+  })
+
+  it('T7 true / null → NICIO „Închide comanda" pe stările ne-servite (regula de aur)', () => {
+    for (const pe of [true, null] as const) {
+      for (const status of ['new', 'confirmed', 'preparing', 'ready'] as const) {
+        const { unmount } = renderPlain(makeOrder({ status }), pe)
+        expect(
+          screen.queryByRole('button', { name: /^închide comanda$/i }),
+          `${String(pe)}/${status}`,
+        ).toBeNull()
+        unmount()
+      }
+    }
+  })
+
+  it('T8 din `new` cere confirmare (avertizează că se scade stoc / se dau puncte) și închide doar după „da"', async () => {
+    const order = makeOrder({ status: 'new' })
+    const { onCloseOrder } = renderCard(order, false)
+    await userEvent.click(screen.getByRole('button', { name: /^închide comanda$/i }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    const opts = confirmMock.mock.calls[0]![0]
+    expect(opts.title).toMatch(/înainte să fie servită/i)
+    expect(opts.description).toMatch(/stocul/i)
+    expect(opts.description).toMatch(/anulează/i)
+    await waitFor(() => expect(onCloseOrder).toHaveBeenCalledWith(order))
+  })
+
+  it('T9 confirmare REFUZATĂ → comanda NU se închide', async () => {
+    confirmMock.mockResolvedValue(false)
+    const { onCloseOrder } = renderCard(makeOrder({ status: 'preparing' }), false)
+    await userEvent.click(screen.getByRole('button', { name: /^închide comanda$/i }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    expect(onCloseOrder).not.toHaveBeenCalled()
+  })
+
+  it('T10 din `served` NU se cere confirmare (pasul normal, ca înainte)', async () => {
+    const order = makeOrder({ status: 'served' })
+    const { onCloseOrder } = renderCard(order, false)
+    await userEvent.click(screen.getByRole('button', { name: /^închide comanda$/i }))
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(onCloseOrder).toHaveBeenCalledWith(order)
+  })
+})
+
+describe('OrderCard — „Închide masa" (închide sesiunea)', () => {
+  function renderWithTable(
+    order: Order,
+    paymentsEnabled: boolean | null,
+    sessionUnservedCount?: number | null,
+  ) {
+    const onCloseTable = vi.fn()
+    render(
+      <OrderCard
+        order={order}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={vi.fn()}
+        onCloseTable={onCloseTable}
+        paymentsEnabled={paymentsEnabled}
+        sessionUnservedCount={sessionUnservedCount}
+      />,
+    )
+    return { onCloseTable }
+  }
+
+  it('T11 comandă cu session_id + Plan 1/2 → „Închide masa" cere confirmare apoi cheamă handlerul', async () => {
+    const order = makeOrder({ status: 'ready', session_id: 'sess-1' })
+    const { onCloseTable } = renderWithTable(order, false)
+    await userEvent.click(screen.getByRole('button', { name: /^închide masa$/i }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    expect(confirmMock.mock.calls[0]![0].title).toMatch(/închizi masa/i)
+    await waitFor(() => expect(onCloseTable).toHaveBeenCalledWith(order))
+  })
+
+  it('T14 dialogul spune că rundele NEservite se anulează (mig 288), cu numărul când e cunoscut', async () => {
+    const cases: [number | null, RegExp, RegExp | null][] = [
+      [2, /2 runde neservite.*ANULATE/, null],
+      [1, /1 rundă neservită.*ANULATĂ/, null],
+      [null, /neservite.*se anulează/, null],
+      [0, /închid toate comenzile/i, /anul/i],
+    ]
+    for (const [count, expected, forbidden] of cases) {
+      confirmMock.mockClear()
+      const { unmount } = render(
+        <OrderCard
+          order={makeOrder({ status: 'served', session_id: 'sess-1' })}
+          onPayOpen={vi.fn()}
+          onSplitOpen={vi.fn()}
+          onCloseOrder={vi.fn()}
+          onCloseTable={vi.fn()}
+          paymentsEnabled={false}
+          sessionUnservedCount={count}
+        />,
+      )
+      await userEvent.click(screen.getByRole('button', { name: /^închide masa$/i }))
+      await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+      const description = String(confirmMock.mock.calls[0]![0].description)
+      expect(description).toMatch(expected)
+      if (forbidden) expect(description).not.toMatch(forbidden)
+      unmount()
+    }
+  })
+
+  it('T12 confirmare refuzată → sesiunea NU se închide', async () => {
+    confirmMock.mockResolvedValue(false)
+    const { onCloseTable } = renderWithTable(
+      makeOrder({ status: 'served', session_id: 'sess-1' }),
+      false,
+    )
+    await userEvent.click(screen.getByRole('button', { name: /^închide masa$/i }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    expect(onCloseTable).not.toHaveBeenCalled()
+  })
+
+  it('T13 fără session_id (comandă de ospătar) sau pe Plan 3 / plan necunoscut → fără „Închide masa"', () => {
+    const cases: [Order, boolean | null][] = [
+      [makeOrder({ status: 'served', session_id: null }), false],
+      [makeOrder({ status: 'served' }), false],
+      [makeOrder({ status: 'served', session_id: 'sess-1' }), true],
+      [makeOrder({ status: 'served', session_id: 'sess-1' }), null],
+    ]
+    for (const [order, pe] of cases) {
+      const { unmount } = render(
+        <OrderCard
+          order={order}
+          onPayOpen={vi.fn()}
+          onSplitOpen={vi.fn()}
+          onCloseOrder={vi.fn()}
+          onCloseTable={vi.fn()}
+          paymentsEnabled={pe}
+        />,
+      )
+      expect(screen.queryByRole('button', { name: /^închide masa$/i })).toBeNull()
+      unmount()
+    }
   })
 })

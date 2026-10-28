@@ -12,6 +12,8 @@ import type { Category, Product } from '../lib/qr'
 import { hasMandatoryModifierGroups } from '../lib/qr'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { thumbUrlFor } from '../lib/images'
+import { T } from '../lib/publicMenuStrings'
+import { Tf } from '../lib/guestI18n'
 
 interface PUBColors {
   bg: string
@@ -60,6 +62,8 @@ export interface QrCartSheetProps {
   payLabel?: string
   /** Split pe itemi (mig 229): deschide selecția „plătește partea ta". */
   onPaySplit?: () => void
+  /** Limba aleasă de oaspete în meniu — default 'ro'. */
+  lang?: string
 }
 
 // Eyebrow mic, all-caps, cu tracking — etichetă de secțiune.
@@ -98,8 +102,9 @@ export default function QrCartSheet({
   tableTotal,
   onPayTable,
   payDisabled = false,
-  payLabel = 'Plătește masa',
+  payLabel,
   onPaySplit,
+  lang = 'ro',
 }: QrCartSheetProps) {
   const hasSent = (sentOrders?.length ?? 0) > 0
   // Index produs → pentru thumbnail-uri în rândurile de coș.
@@ -166,7 +171,9 @@ export default function QrCartSheet({
   }, [categories, cart, checkoutSuggestionSettings, productById])
 
   const suggestionMsg =
-    checkoutSuggestionSettings?.message ?? 'Ai vrea ceva în plus înainte să trimiți?'
+    // Mesajul personalizat al localului e scris în limba lui (de regulă
+    // română) — oaspetele străin primește textul tradus implicit.
+    (lang === 'ro' ? checkoutSuggestionSettings?.message : undefined) ?? T(lang, 'qc_upsell')
 
   // OPT-2: nota pentru bucătărie e stare LOCALĂ cât timp sheet-ul e deschis —
   // fiecare tastă re-randa altfel întreaga pagină de meniu din spatele
@@ -240,7 +247,7 @@ export default function QrCartSheet({
         className="animate-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label="Masa ta"
+        aria-label={T(lang, 'qc_title')}
         style={{
           background: PUB.bg,
           borderRadius: '22px 22px 0 0',
@@ -275,7 +282,7 @@ export default function QrCartSheet({
           type="button"
           ref={closeBtnRef}
           onClick={handleClose}
-          aria-label="Închide"
+          aria-label={T(lang, 'close')}
           className="pressable"
           style={{
             position: 'absolute',
@@ -321,7 +328,7 @@ export default function QrCartSheet({
               lineHeight: 1.1,
             }}
           >
-            Masa ta
+            {T(lang, 'qc_title')}
           </h2>
           <div
             style={{
@@ -331,14 +338,16 @@ export default function QrCartSheet({
               color: PUB.text2,
             }}
           >
-            Adaugă oricând, plătești când vrei.
+            {T(lang, 'qc_subtitle')}
           </div>
         </div>
 
         {/* Secțiune: LA BUCĂTĂRIE (comenzi deja trimise în sesiune) */}
         {hasSent && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div style={sectionLabelStyle(PUB.text2)}>La bucătărie · {sentOrders?.length}</div>
+            <div style={sectionLabelStyle(PUB.text2)}>
+              {T(lang, 'qc_at_kitchen')} · {sentOrders?.length}
+            </div>
             {sentOrders?.map((o) => (
               <div
                 key={o.id}
@@ -370,7 +379,7 @@ export default function QrCartSheet({
                     })}
                   </span>
                   <span style={{ fontSize: 12, color: PUB.text3, fontStyle: 'italic' }}>
-                    Trimisă la bucătărie
+                    {T(lang, 'qc_sent_to_kitchen')}
                   </span>
                 </div>
                 <span
@@ -389,13 +398,13 @@ export default function QrCartSheet({
         )}
 
         {/* Secțiune: ÎN COȘ · DE TRIMIS */}
-        {cart.length > 0 && <div style={sectionLabelStyle(accent)}>În coș · de trimis</div>}
+        {cart.length > 0 && <div style={sectionLabelStyle(accent)}>{T(lang, 'qc_in_cart')}</div>}
 
         {cart.length === 0 && (
           <div style={{ fontSize: 13, color: PUB.text2, padding: '8px 0 4px', lineHeight: 1.5 }}>
             {hasSent
-              ? 'Coșul e gol. Atinge un produs din meniu ca să mai comanzi.'
-              : 'Coșul e gol. Atinge un produs din meniu ca să-l adaugi aici.'}
+              ? T(lang, 'qc_empty_more')
+              : T(lang, 'qc_empty')}
           </div>
         )}
 
@@ -511,7 +520,7 @@ export default function QrCartSheet({
                   <button
                     type="button"
                     onClick={() => onUpdateQty(item._key, -1)}
-                    aria-label="Scade cantitatea"
+                    aria-label={T(lang, 'qty_dec')}
                     className="pressable"
                     style={{
                       background: 'transparent',
@@ -544,7 +553,7 @@ export default function QrCartSheet({
                   <button
                     type="button"
                     onClick={() => onUpdateQty(item._key, 1)}
-                    aria-label="Crește cantitatea"
+                    aria-label={T(lang, 'qty_inc')}
                     className="pressable"
                     style={{
                       background: 'transparent',
@@ -568,7 +577,7 @@ export default function QrCartSheet({
                 <button
                   type="button"
                   onClick={() => onRemove(item._key)}
-                  aria-label={`Elimină ${item.product_name_snapshot}`}
+                  aria-label={Tf(lang, 'remove_named', { name: item.product_name_snapshot })}
                   className="pressable"
                   style={{
                     background: 'none',
@@ -596,9 +605,9 @@ export default function QrCartSheet({
 
         {/* Notă pentru bucătărie */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={sectionLabelStyle(PUB.text2)}>Notă pentru bucătărie</div>
+          <div style={sectionLabelStyle(PUB.text2)}>{T(lang, 'qc_kitchen_note')}</div>
           <textarea
-            placeholder="Fără ceapă, vă rog..."
+            placeholder={T(lang, 'qc_kitchen_note_ph')}
             value={localNotes}
             onChange={(e) => setLocalNotes(e.target.value)}
             onBlur={() => onNotesChange(localNotes)}
@@ -624,7 +633,7 @@ export default function QrCartSheet({
                 mesajul e nudge de conversie → contrast/dimensiune de body,
                 nu stilul mic-tracked de etichetă. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <div style={sectionLabelStyle(PUB.text2)}>Recomandate alături</div>
+              <div style={sectionLabelStyle(PUB.text2)}>{T(lang, 'qc_suggested')}</div>
               <div
                 style={{
                   fontFamily: 'DM Sans, sans-serif',
@@ -732,7 +741,7 @@ export default function QrCartSheet({
                       <button
                         type="button"
                         onClick={() => handleAddSuggestion(s)}
-                        aria-label={`Adaugă ${s.name}`}
+                        aria-label={Tf(lang, 'add_named', { name: s.name })}
                         className="pressable"
                         style={{
                           // Quick-add standardizat la 44x44 (a11y), ca peste tot.
@@ -780,7 +789,7 @@ export default function QrCartSheet({
               color: PUB.text,
             }}
           >
-            Total
+            {T(lang, 'total')}
           </span>
           <span
             style={{
@@ -794,7 +803,7 @@ export default function QrCartSheet({
           </span>
         </div>
         <div style={{ fontSize: 11, color: PUB.text3, textAlign: 'right', marginTop: -8 }}>
-          Totalul final este confirmat de restaurant.
+          {T(lang, 'qc_total_note')}
         </div>
 
         {submitError != null && (
@@ -826,7 +835,7 @@ export default function QrCartSheet({
                 fontFamily: 'inherit',
               }}
             >
-              Reîncearcă
+              {T(lang, 'retry')}
             </button>
           </div>
         )}
@@ -854,8 +863,8 @@ export default function QrCartSheet({
           }}
         >
           {submitting
-            ? 'Se trimite...'
-            : `${hasSent ? 'Trimite și restul' : 'Trimite comanda'} · ${fmtPrice(cartTotal, currency)}`}
+            ? T(lang, 'sending')
+            : `${hasSent ? T(lang, 'qc_send_rest') : T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
         </button>
 
         {/* CTA secundar — Plătește masa (cere nota; doar când există comenzi trimise) */}
@@ -878,7 +887,7 @@ export default function QrCartSheet({
               opacity: payDisabled ? 0.6 : 1,
             }}
           >
-            {payLabel}
+            {payLabel ?? T(lang, 'pay_table')}
             {typeof tableTotal === 'number' ? ` · ${fmtPrice(tableTotal, currency)}` : ''}
           </button>
         )}
@@ -903,7 +912,7 @@ export default function QrCartSheet({
               minHeight: 44,
             }}
           >
-            Împarte nota — plătește partea ta
+            {T(lang, 'qc_split')}
           </button>
         )}
       </div>

@@ -13,9 +13,14 @@
 // ── Mini i18n (doar pentru strings vizibile pe meniul public) ─
 // Restaurantele cu language ∈ {ro, en, de, fr, it, hu, es} primesc textul lor;
 // orice altă limbă primește fallback EN.
+// Textele fluxului oaspetelui (coș, tracker, plată, erori) stau în
+// guestStrings.ts — modul fără importuri, intrat aici prin spread.
+import { GUEST_STRINGS } from './guestStrings'
+
 type PublicMenuLang = 'ro' | 'en' | 'de' | 'fr' | 'it' | 'hu' | 'es'
 
 export const PUBLIC_MENU_STRINGS = {
+  ...GUEST_STRINGS,
   open_now: {
     ro: 'DESCHIS ACUM',
     en: 'OPEN NOW',
@@ -222,6 +227,43 @@ export const PUBLIC_MENU_STRINGS = {
     it: 'Telefono',
     hu: 'Telefon',
     es: 'Teléfono',
+  },
+  // PH-4: prefixul de țară al telefonului oaspetelui (PhoneInput).
+  phone_cc_aria: {
+    ro: 'Prefixul țării',
+    en: 'Country code',
+    de: 'Ländervorwahl',
+    fr: 'Indicatif du pays',
+    it: 'Prefisso internazionale',
+    hu: 'Országhívószám',
+    es: 'Prefijo del país',
+  },
+  phone_cc_other: {
+    ro: 'Alt prefix +…',
+    en: 'Other +…',
+    de: 'Andere +…',
+    fr: 'Autre +…',
+    it: 'Altro +…',
+    hu: 'Más +…',
+    es: 'Otro +…',
+  },
+  phone_cc_hint: {
+    ro: 'Număr din altă țară? Alege prefixul țării sau scrie numărul complet, cu +.',
+    en: 'Not a Romanian number? Choose your country code or type the full number starting with +.',
+    de: 'Keine rumänische Nummer? Wähle deine Ländervorwahl oder gib die ganze Nummer mit + ein.',
+    fr: "Numéro non roumain ? Choisissez l'indicatif de votre pays ou saisissez le numéro complet avec +.",
+    it: 'Numero non rumeno? Scegli il prefisso del tuo paese o scrivi il numero completo con +.',
+    hu: 'Nem romániai szám? Válaszd ki az országhívószámot, vagy írd be a teljes számot + jellel kezdve.',
+    es: '¿Número no rumano? Elige el prefijo de tu país o escribe el número completo con +.',
+  },
+  phone_invalid: {
+    ro: 'Număr de telefon invalid. Verifică prefixul țării și numărul.',
+    en: 'Invalid phone number. Check the country code and the number.',
+    de: 'Ungültige Telefonnummer. Prüfe Ländervorwahl und Nummer.',
+    fr: "Numéro de téléphone invalide. Vérifiez l'indicatif et le numéro.",
+    it: 'Numero di telefono non valido. Controlla il prefisso e il numero.',
+    hu: 'Érvénytelen telefonszám. Ellenőrizd az országhívószámot és a számot.',
+    es: 'Número de teléfono no válido. Revisa el prefijo y el número.',
   },
   reserve_email_opt: {
     ro: 'Email (opțional)',
@@ -891,6 +933,46 @@ export const PUBLIC_MENU_STRINGS = {
     it: 'Totale da pagare al ritiro:',
     hu: 'Fizetendő átvételkor:',
     es: 'Total a pagar en la recogida:',
+  },
+  // Comandă `closed` (Plan 2): nota închisă de ospătar, banii NU trec prin
+  // Menuvia — ecranul nu are voie să spună „Plată confirmată".
+  order_closed_title: {
+    ro: 'Comanda e finalizată',
+    en: 'Your order is complete',
+    de: 'Deine Bestellung ist abgeschlossen',
+    fr: 'Votre commande est terminée',
+    it: 'Il tuo ordine è completato',
+    hu: 'A rendelésed lezárult',
+    es: 'Tu pedido está completado',
+  },
+  order_closed_pay_at_counter: {
+    ro: 'Plata se face la casa localului, nu în aplicație.',
+    en: "Payment is made at the restaurant's till, not in the app.",
+    de: 'Die Bezahlung erfolgt an der Kasse des Lokals, nicht in der App.',
+    fr: "Le paiement se fait à la caisse de l'établissement, pas dans l'application.",
+    it: "Il pagamento si effettua alla cassa del locale, non nell'app.",
+    hu: 'A fizetés a hely kasszájánál történik, nem az alkalmazásban.',
+    es: 'El pago se realiza en la caja del local, no en la aplicación.',
+  },
+  // Erorile de apel al ospătarului — înainte înghițite (doar console.error),
+  // clientul credea că a chemat pe cineva.
+  waiter_call_failed: {
+    ro: 'Nu am putut anunța ospătarul. Încearcă din nou.',
+    en: "We couldn't notify the waiter. Please try again.",
+    de: 'Der Kellner konnte nicht benachrichtigt werden. Bitte versuche es erneut.',
+    fr: 'Impossible de prévenir le serveur. Réessayez.',
+    it: 'Non siamo riusciti ad avvisare il cameriere. Riprova.',
+    hu: 'Nem sikerült értesíteni a pincért. Próbáld újra.',
+    es: 'No pudimos avisar al camarero. Inténtalo de nuevo.',
+  },
+  bill_request_failed: {
+    ro: 'Nu am putut cere nota. Încearcă din nou.',
+    en: "We couldn't ask for the bill. Please try again.",
+    de: 'Die Rechnung konnte nicht angefordert werden. Bitte versuche es erneut.',
+    fr: "Impossible de demander l'addition. Réessayez.",
+    it: 'Non siamo riusciti a chiedere il conto. Riprova.',
+    hu: 'Nem sikerült kérni a számlát. Próbáld újra.',
+    es: 'No pudimos pedir la cuenta. Inténtalo de nuevo.',
   },
   thanks: {
     ro: 'Mulțumim!',

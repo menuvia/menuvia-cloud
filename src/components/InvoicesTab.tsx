@@ -538,7 +538,8 @@ function OblioConfigModal({
 }) {
   const [form, setForm] = useState({
     api_email: existing?.api_email ?? '',
-    api_secret: existing?.api_secret ?? '',
+    // Secretul NU se mai citește din DB (mig 287): câmpul gol = nu-l schimba.
+    api_secret: '',
     company_cif: existing?.company_cif ?? '',
     company_name: existing?.company_name ?? restaurantName,
     company_address: existing?.company_address ?? '',
@@ -553,20 +554,24 @@ function OblioConfigModal({
   const isMobile = useIsMobile()
 
   async function save() {
-    if (!form.api_email || !form.api_secret || !form.company_cif || !form.company_name) {
+    if (!form.api_email || (!existing && !form.api_secret) || !form.company_cif || !form.company_name) {
       setErr('Toate câmpurile marcate cu * sunt obligatorii')
       return
     }
     setSaving(true)
     setErr(null)
     try {
-      await saveOblioConfig({
-        restaurant_id: restaurantId,
-        ...form,
-        company_state: existing?.company_state ?? null,
-        company_city: existing?.company_city ?? null,
-        language: 'RO',
-      })
+      await saveOblioConfig(
+        {
+          restaurant_id: restaurantId,
+          ...form,
+          company_address: form.company_address || null,
+          company_state: existing?.company_state ?? null,
+          company_city: existing?.company_city ?? null,
+          language: 'RO',
+        },
+        existing !== null,
+      )
       onSaved()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare')
@@ -682,13 +687,13 @@ function OblioConfigModal({
           </div>
 
           <div>
-            <label style={labelStyle}>API secret *</label>
+            <label style={labelStyle}>API secret {existing ? '(configurat)' : '*'}</label>
             <input
               type="password"
               style={fieldStyle}
               value={form.api_secret}
               onChange={(e) => setForm({ ...form, api_secret: e.target.value })}
-              placeholder={existing ? '(schimbă doar dacă vrei să actualizezi)' : ''}
+              placeholder={existing ? 'Configurat — lasă gol ca să nu-l schimbi' : ''}
             />
           </div>
 

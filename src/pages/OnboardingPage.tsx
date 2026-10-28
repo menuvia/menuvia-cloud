@@ -8,6 +8,9 @@ import type { IconName } from '../components/ui/Icon'
 import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
 import { applyBusinessTypePreset } from '../lib/quickSetup'
 import { track } from '../lib/analytics'
+import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
+import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
+import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -16,8 +19,23 @@ const AiMenuImport = lazy(() => import('../components/AiMenuImport'))
 // ─── Limbă UI ────────────────────────────────────────────────
 // Citită o singură dată, la încărcarea modulului — nu e state, nu se
 // schimbă mid-flow. Convenția: cheia localStorage 'menuvia_ui_lang'
-// ('ro' | 'en'), setată de /auth prin ?lang=en. Default absolut: 'ro'.
-const lang: 'ro' | 'en' = localStorage.getItem('menuvia_ui_lang') === 'en' ? 'en' : 'ro'
+// ('ro' | 'en'), setată de /auth prin ?lang=en. Fără alegere explicită,
+// default-ul vine din SITE (lib/domain.ts): 'ro' peste tot, 'en' doar pe
+// hostul .com — pe .ro rezultatul e identic cu cel de dinainte.
+const site = browserSite()
+function readUiLang(): 'ro' | 'en' {
+  try {
+    const stored = localStorage.getItem('menuvia_ui_lang')
+    if (stored === 'en' || stored === 'ro') return stored
+  } catch {
+    /* storage blocat (Safari „Block All Cookies") — cădem pe default-ul site-ului */
+  }
+  return defaultUiLang(site)
+}
+const lang: 'ro' | 'en' = readUiLang()
+// Țara se ALEGE doar pe un host .com; pe .ro restaurantul rămâne pe default-ul
+// din DB ('RO', mig 296) și nu apare niciun câmp nou.
+const askCountry = site === 'com'
 
 const S = {
   ro: {
@@ -32,11 +50,15 @@ const S = {
       cityLabel: 'Oraș',
       cityPlaceholder: 'Focșani',
       slugLabel: 'URL meniu public',
-      slugPrefix: 'menuvia.ro/m/',
+      slugPrefix: `${siteHost()}/m/`,
       slugPlaceholder: 'la-bella-trattoria',
       nameRequiredError: 'Numele restaurantului este obligatoriu.',
       unknownError: 'Eroare necunoscută',
       slugTakenError: 'Acest URL e deja folosit. Alege altul.',
+      countryLabel: 'Țara *',
+      countryPlaceholder: 'Alege țara',
+      countryRequiredError: 'Alege țara restaurantului.',
+      countrySaveError: 'Restaurantul a fost creat, dar țara nu s-a salvat. Reîncearcă.',
       savingBtn: 'Se creează...',
       continueBtn: 'Continuă →',
     },
@@ -116,8 +138,11 @@ const S = {
         { icon: 'home' as IconName, title: 'Restaurant creat' },
         { icon: 'menu' as IconName, title: 'Meniu configurat' },
         { icon: 'table' as IconName, title: 'Mese și QR-uri' },
-        { icon: 'qr' as IconName, title: 'Gata de comenzi' },
       ],
+      // A patra bifă depinde de PLAN (nu mai e hard-codată): comenzile prin QR
+      // există de la Meniu + Comenzi; pe Meniu Digital QR-ul deschide doar meniul.
+      ordersReady: { icon: 'qr' as IconName, title: 'Gata de comenzi' },
+      menuQrReady: { icon: 'qr' as IconName, title: 'Meniu public cu QR' },
       achievementDoneLabel: 'finalizat',
       menuLinkLabel: 'Link meniu public',
       copyBtnAriaLabel: 'Copiază link-ul meniului',
@@ -144,11 +169,15 @@ const S = {
       cityLabel: 'City',
       cityPlaceholder: 'Manchester',
       slugLabel: 'Public menu URL',
-      slugPrefix: 'menuvia.ro/m/',
+      slugPrefix: `${siteHost()}/m/`,
       slugPlaceholder: 'the-golden-fork',
       nameRequiredError: 'Restaurant name is required.',
       unknownError: 'Unknown error',
       slugTakenError: 'This URL is already taken. Choose another one.',
+      countryLabel: 'Country *',
+      countryPlaceholder: 'Select a country',
+      countryRequiredError: 'Select the country of your restaurant.',
+      countrySaveError: 'Your restaurant was created, but the country was not saved. Try again.',
       savingBtn: 'Creating...',
       continueBtn: 'Continue →',
     },
@@ -226,8 +255,9 @@ const S = {
         { icon: 'home' as IconName, title: 'Restaurant created' },
         { icon: 'menu' as IconName, title: 'Menu set up' },
         { icon: 'table' as IconName, title: 'Tables and QR codes' },
-        { icon: 'qr' as IconName, title: 'Ready for orders' },
       ],
+      ordersReady: { icon: 'qr' as IconName, title: 'Ready for orders' },
+      menuQrReady: { icon: 'qr' as IconName, title: 'Public menu with QR' },
       achievementDoneLabel: 'done',
       menuLinkLabel: 'Public menu link',
       copyBtnAriaLabel: 'Copy the menu link',
@@ -469,24 +499,57 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
   const [slug, setSlug] = useState('')
+  const [country, setCountry] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Restaurantul deja creat într-o încercare anterioară a cărei salvare a
+  // țării a picat: la reîncercare NU mai creăm un al doilea restaurant.
+  const createdRef = useRef<{ restaurant_id: string; restaurant_slug: string } | null>(null)
 
   const handleCreate = async () => {
     if (!name.trim()) {
       setError(t.step1.nameRequiredError)
       return
     }
+    if (askCountry && !country) {
+      setError(t.step1.countryRequiredError)
+      return
+    }
     setSaving(true)
     setError(null)
     const finalSlug = slug || slugify(name)
     try {
-      const created = await createRestaurant({
-        name: name.trim(),
-        city: city.trim() || null,
-        slug: finalSlug,
-        primaryColor: '#C8963C',
-      })
+      const created =
+        createdRef.current ??
+        (await createRestaurant({
+          name: name.trim(),
+          city: city.trim() || null,
+          slug: finalSlug,
+          primaryColor: '#C8963C',
+        }))
+      createdRef.current = created
+      // Țara (mig 296) + moneda/fusul propuse pentru ea. Pe 'RO' patch-ul e
+      // null → zero apeluri în plus. Owner-ul tocmai a creat restaurantul,
+      // deci trece de trg_restaurants_country_owner_only.
+      const patch = askCountry ? restaurantCountryPatch(country) : null
+      if (patch) {
+        // Intenția se păstrează ÎNAINTE de UPDATE și se șterge DOAR pe succes:
+        // dacă UPDATE-ul pică și omul face reload (onboarding-ul e sărit,
+        // restaurantul există), dashboard-ul owner-ului o reîncearcă
+        // (lib/pendingCountry.ts) — altfel localul rămânea tăcut pe 'RO'.
+        storePendingCountry(created.restaurant_id, patch.country)
+        const { error: countryErr } = await supabase
+          .from('restaurants')
+          .update(patch)
+          .eq('id', created.restaurant_id)
+        if (countryErr) {
+          console.warn('[onboarding] salvarea țării a eșuat:', countryErr)
+          setError(t.step1.countrySaveError)
+          setSaving(false)
+          return
+        }
+        clearPendingCountry(created.restaurant_id)
+      }
       // Preset „Menuvia Rezervări" (setat pe /rezervari, supraviețuiește
       // redirectului de auth): activăm modulul + auto-confirmarea din prima,
       // ca linkul de Google să fie funcțional imediat. BEST-EFFORT: un eșec
@@ -606,11 +669,31 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
             />
           </div>
         </div>
+        {askCountry && (
+          <div>
+            <label htmlFor="ob-country" style={label}>
+              {t.step1.countryLabel}
+            </label>
+            <select
+              id="ob-country"
+              value={country}
+              onChange={(e) => setCountry(e.target.value)}
+              style={inp}
+            >
+              <option value="">{t.step1.countryPlaceholder}</option>
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {error && <ErrorBox msg={error} />}
         <button
           onClick={handleCreate}
-          disabled={saving || !name.trim()}
-          style={saving || !name.trim() ? btnDisabled : btnPrimary}
+          disabled={saving || !name.trim() || (askCountry && !country)}
+          style={saving || !name.trim() || (askCountry && !country) ? btnDisabled : btnPrimary}
         >
           {saving ? t.step1.savingBtn : t.step1.continueBtn}
         </button>
@@ -1258,7 +1341,9 @@ function Step4Done({
   slug: string
   onComplete: () => void
 }) {
-  const menuUrl = `${window.location.origin}/m/${slug}`
+  // Linkul de distribuit urmează politica de domeniu (D3): pe un host .com NU
+  // trimitem spre un domeniu care nu ne aparține.
+  const menuUrl = `${publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin)}/m/${slug}`
   // Feedback la copiere — fără el, click-ul părea că nu face nimic (iar în
   // browsere fără clipboard API eșua complet tăcut).
   const [copied, setCopied] = useState(false)
@@ -1286,9 +1371,25 @@ function Step4Done({
     onComplete()
   }
 
-  const achievements: { icon: IconName; title: string; done: boolean }[] = t.step4.achievements.map(
-    (a) => ({ ...a, done: true }),
-  )
+  // „Gata de comenzi" doar dacă planul chiar permite comenzi prin QR; necunoscut
+  // sau eroare de citire → fail-closed pe formularea adevărată în orice plan.
+  const [canOrder, setCanOrder] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (!cancelled) setCanOrder(hasFeature(f, 'order_qr'))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
+
+  const achievements: { icon: IconName; title: string; done: boolean }[] = [
+    ...t.step4.achievements,
+    canOrder ? t.step4.ordersReady : t.step4.menuQrReady,
+  ].map((a) => ({ ...a, done: true }))
 
   return (
     <Shell>
@@ -1433,10 +1534,12 @@ function Step4Done({
               <Icon name="users" size={15} color={D.t3} />
               <span>{t.step4.nextStepInviteTeam}</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="chart" size={15} color={D.t3} />
-              <span>{t.step4.nextStepTrackOrders}</span>
-            </div>
+            {canOrder && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="chart" size={15} color={D.t3} />
+                <span>{t.step4.nextStepTrackOrders}</span>
+              </div>
+            )}
           </div>
         </div>
       </div>

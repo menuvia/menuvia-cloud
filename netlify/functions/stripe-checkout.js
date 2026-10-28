@@ -4,6 +4,8 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const crypto = require('crypto')
+const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL, isComHost, MAIL_DOMAIN } = require('./lib/appUrl')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -15,12 +17,13 @@ const Stripe = require('stripe')
 const STRIPE_API_VERSION = '2023-10-16'
 
 // Planurile care primesc trial (RES-11). Oglinda EXACTĂ a `TRIAL_PLAN_IDS` din
-// src/lib/pricingCopy.ts — se schimbă în AMBELE locuri. Gate-ul stă AICI, pe
-// server: clientul arată trialul doar pe starter/growth, dar un POST direct
-// `{plan:'pro'}` (sau fallback-ul `onCheckout('pro')` din PricingPage când
-// WhatsApp nu e configurat) ajunge tot aici. Cu trial FĂRĂ card, un trial pe
-// pro/enterprise ar da 30 de zile de Plan 3 (`fiscal_receipt`) fără nicio
-// metodă de plată — regula de aur cere gate server-side.
+// src/lib/pricingCopy.ts — se schimbă în AMBELE locuri. Cu trial FĂRĂ card, un
+// trial pe pro/enterprise ar da 30 de zile de Plan 3 (`fiscal_receipt`) fără
+// nicio metodă de plată — regula de aur cere gate server-side. Mulțimea e
+// DISJUNCTĂ de `QUOTE_ONLY_PLANS` (mai jos): pro/enterprise sunt refuzate cu
+// 403 `plan_requires_quote` ÎNAINTE de orice apel Stripe/DB, deci nu ajung
+// niciodată la logica de trial; filtrul `TRIAL_PLANS.includes(...)` rămâne
+// al doilea zăvor (defense in depth) și testul SX1 păzește disjuncția.
 const TRIAL_PLANS = ['starter', 'growth']
 
 // Durata trialului: `STRIPE_TRIAL_DAYS` NESETAT = 30 (= `TRIAL_DAYS` din
@@ -41,6 +44,21 @@ function resolveTrialDays(raw) {
   return DEFAULT_TRIAL_DAYS
 }
 
+// REGULA DE AUR: bani + bon fiscal = Plan 3 (`pro`/`enterprise`, „Fiscalizare").
+// Planul 3 NU se vinde self-serve (decizia D4): cere o casă de marcat conectată,
+// iar un abonament plătit fără ea ar încasa fără bon. Gate-ul stă AICI, pe
+// server — ascunderea butonului din UI nu e o graniță de autorizare (un POST
+// direct autentificat ar fi creat o sesiune Stripe pe prețul Planului 3).
+// Price ID-urile `pro`/`enterprise` RĂMÂN obligatorii la boot (`.every(Boolean)`):
+// webhook-ul le recunoaște pentru abonamentele create manual de fondator.
+// Oglinda din client: `QUOTE_ONLY_PLAN_IDS` (src/lib/planCta.ts).
+const QUOTE_ONLY_PLANS = ['pro', 'enterprise']
+
+/** Etichetă scurtă și stabilă a originii, pentru cheia de idempotență. */
+function originTag(origin) {
+  return crypto.createHash('sha256').update(String(origin)).digest('hex').slice(0, 10)
+}
+
 function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -54,11 +72,22 @@ exports.handler = async (event) => {
     return { statusCode: 405, body: 'Method not allowed' }
   }
 
+  // Un host .com nu vinde (recenzie CodeRabbit pe #288): închiderea din UI
+  // (siteMarket.checkoutOpenOnSite) nu e o graniță de autorizare — un POST
+  // autentificat direct ar fi creat o sesiune Stripe în RON. Piața se decide din
+  // `host`-ul rutat de platformă, nu din ce trimite apelantul. Pe .ro: neatins.
+  if (isComHost(event.headers?.host)) {
+    return jsonResponse(403, {
+      error: 'Checkout is not available on this site yet.',
+      code: 'site_checkout_unavailable',
+    })
+  }
+
   const {
     SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY,
     STRIPE_STARTER_PRICE_ID, STRIPE_GROWTH_PRICE_ID,
     STRIPE_PRO_PRICE_ID, STRIPE_ENTERPRISE_PRICE_ID,
-    STRIPE_TRIAL_DAYS, VITE_APP_URL,
+    STRIPE_TRIAL_DAYS,
   } = process.env
 
   // Price map per plan canonic. Lipsa unui price ID = planul respectiv
@@ -86,6 +115,14 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Invalid JSON body' })
   }
   const requestedPlan = String(body.plan || '').toLowerCase()
+  // Planul 3 se cere prin ofertă: refuz explicit, ÎNAINTEA oricărui apel Stripe
+  // sau Supabase (nici customer, nici sesiune, nici atribuire de afiliat).
+  if (QUOTE_ONLY_PLANS.includes(requestedPlan)) {
+    return jsonResponse(403, {
+      error: `Planul Fiscalizare se activează pe bază de ofertă, împreună cu instalarea pe casa ta de marcat. Scrie-ne la contact@${MAIL_DOMAIN}.`,
+      code: 'plan_requires_quote',
+    })
+  }
   // Cod de referral din cookie-ul de afiliere (trimis de frontend). Normalizat
   // și mărginit defensiv; gol/invalid → ignorat fără efect.
   const referralCode = String(body.referral_code || '')
@@ -229,7 +266,11 @@ exports.handler = async (event) => {
     }
   }
 
-  const appUrl = VITE_APP_URL || 'https://menuvia.netlify.app'
+  // Cheia + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.netlify.app):
+  // menuvia.ro nu e încă cumpărat, iar env-ul din netlify.toml nu ajunge la
+  // funcții la runtime — un fallback pe .ro ar trimite clientul după plată pe
+  // un domeniu neînregistrat.
+  const appUrl = resolveAppUrl({ keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
   // Trial configurabil — default 30 zile. `STRIPE_TRIAL_DAYS=0` îl dezactivează
   // fără cod; orice valoare invalidă cade pe 30 (resolveTrialDays, sus).
@@ -307,7 +348,10 @@ exports.handler = async (event) => {
         billing_address_collection: 'required',
         customer_update: { name: 'auto', address: 'auto' },
         line_items: [{ price: priceId, quantity: 1 }],
-        success_url: `${appUrl}/dashboard?checkout=success`,
+        // `checkout_plan`: clientul (useCheckoutReturn) anunță „planul e activ"
+        // DOAR când profilul are EXACT planul cumpărat — un cont cu plan manual
+        // are deja un plan ≠ free înainte să ajungă webhook-ul.
+        success_url: `${appUrl}/dashboard?checkout=success&checkout_plan=${encodeURIComponent(requestedPlan)}`,
         cancel_url: `${appUrl}/pricing?checkout=cancelled`,
         subscription_data: {
           // plan în metadata → webhook citește planul REAL cumpărat, nu hardcodat.
@@ -328,15 +372,18 @@ exports.handler = async (event) => {
       },
       {
         // Idempotență: cheia trebuie să includă TOATE intrările care schimbă corpul cererii
-        // (plan, referral_code, trial), altfel Stripe respinge cheia reutilizată cu params
-        // diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere → aceeași
-        // sesiune (dedup); orice diferență → cheie nouă.
+        // (plan, referral_code, trial, origine), altfel Stripe respinge cheia reutilizată cu
+        // params diferiți (idempotency_error). Click-uri repetate cu EXACT aceeași cerere →
+        // aceeași sesiune (dedup); orice diferență → cheie nouă.
         // Fereastră temporală de 30 min: fără ea, aceeași cerere repetată mult mai
         // târziu (ex. a doua zi) ar rămâne blocată pe cheia veche la Stripe.
-        // Prefixul `checkout_v2_`: RES-11 a schimbat corpul cererii (chei noi), iar
-        // o cerere repetată peste deploy, în aceeași fereastră de 30 min, ar fi
-        // plecat cu corpul NOU pe cheia VECHE → `idempotency_error` la Stripe.
-        idempotencyKey: `checkout_v2_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
+        // Prefixul `v5`: două schimbări de corp s-au întâlnit aici — RES-11 (chei de
+        // trial fără card, date de facturare; era `v2`) ȘI hash-ul ORIGINII (success_url/
+        // cancel_url fac parte din corp; era `v4`). O cerere repetată peste deploy, în
+        // aceeași fereastră de 30 min, ar fi plecat cu corpul NOU pe cheia VECHE →
+        // `idempotency_error` la Stripe. Hash scurt și stabil (sha256, 10 hex) —
+        // originea nu ajunge în clar în cheie.
+        idempotencyKey: `checkout_v5_${originTag(appUrl)}_${user.id}_${requestedPlan}_${referralCode || 'none'}_${allowTrial ? trialDays : 0}_${Math.floor(Date.now() / (30 * 60 * 1000))}`,
       },
     )
   } catch (e) {

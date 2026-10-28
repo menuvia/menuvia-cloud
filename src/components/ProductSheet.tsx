@@ -11,12 +11,14 @@ import { useEffect, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { ModifierGroup, Product } from '../lib/qr'
-import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
+import { modifierGroupMin } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
 import type { MenuTheme } from '../lib/themes'
 import Icon, { type IconName } from './ui/Icon'
+import { T } from '../lib/publicMenuStrings'
+import { allergenLabel, dietaryLabel, modifierGroupHintT } from '../lib/guestI18n'
 
 type Selections = Record<string, string | Set<string> | null>
 
@@ -35,6 +37,8 @@ interface ProductSheetProps {
   /** Reducere Happy Hour activă pe produs (%) — DOAR afișare, ca pe ProductCard.
       Reducerea reală se aplică server-side la trimitere (trigger mig 077). */
   happyHourPct?: number
+  /** Limba aleasă de oaspete în meniu — default 'ro'. */
+  lang?: string
 }
 
 function ProductSheet({
@@ -45,6 +49,7 @@ function ProductSheet({
   onClose,
   currency = 'RON',
   happyHourPct = 0,
+  lang = 'ro',
 }: ProductSheetProps) {
   const PUB = {
     bg: theme.colors.bg,
@@ -188,11 +193,11 @@ function ProductSheet({
   // Top compact badges (priority: special > diet > prep time > portion > allergens)
   // icon: null → nu există un icon vectorial potrivit (ex. porție), rămâne text simplu.
   const topBadges: { icon: IconName | null; label: string; color: string }[] = []
-  if (product.is_daily_special) topBadges.push({ icon: 'star', label: 'Specialitate', color: accent })
+  if (product.is_daily_special) topBadges.push({ icon: 'star', label: T(lang, 'ps_special'), color: accent })
   if (product.dietary_tags?.includes('vegan'))
-    topBadges.push({ icon: 'leaf', label: 'Vegan', color: '#388E3C' })
+    topBadges.push({ icon: 'leaf', label: T(lang, 'diet_vegan'), color: '#388E3C' })
   else if (product.dietary_tags?.includes('vegetarian'))
-    topBadges.push({ icon: 'leaf', label: 'Vegetarian', color: '#4CAF6E' })
+    topBadges.push({ icon: 'leaf', label: T(lang, 'diet_vegetarian'), color: '#4CAF6E' })
   // Prep time: doar dacă e setat
   if (product.prep_time_minutes && product.prep_time_minutes > 0) {
     topBadges.push({ icon: 'clock', label: `~${product.prep_time_minutes} min`, color: '#5A8DBA' })
@@ -202,7 +207,7 @@ function ProductSheet({
     topBadges.push({ icon: null, label: product.portion_size, color: '#7A6A52' })
   }
   if (product.allergens && product.allergens.length > 0) {
-    topBadges.push({ icon: 'alert', label: 'Alergeni', color: '#8B6914' })
+    topBadges.push({ icon: 'alert', label: T(lang, 'allergens_title'), color: '#8B6914' })
   }
 
   return (
@@ -254,7 +259,7 @@ function ProductSheet({
           type="button"
           ref={closeBtnRef}
           onClick={onClose}
-          aria-label="Închide"
+          aria-label={T(lang, 'close')}
           className="pressable"
           style={{
             position: 'absolute',
@@ -323,7 +328,7 @@ function ProductSheet({
                     fontFamily: 'DM Sans, sans-serif',
                   }}
                 >
-                  Imagine ilustrativă
+                  {T(lang, 'illustrative_image')}
                 </span>
               )}
             </div>
@@ -423,7 +428,7 @@ function ProductSheet({
                     fontFamily: 'DM Sans, sans-serif',
                   }}
                 >
-                  Reducerea Happy Hour se aplică automat la trimiterea comenzii.
+                  {T(lang, 'hh_auto_note')}
                 </div>
               )}
             </div>
@@ -465,10 +470,10 @@ function ProductSheet({
                   }}
                 >
                   {([
-                    ['Calorii', product.calories, 'kcal'],
-                    ['Proteine', product.protein_g, 'g'],
-                    ['Carbo', product.carbs_g, 'g'],
-                    ['Grăsimi', product.fat_g, 'g'],
+                    [T(lang, 'nut_calories'), product.calories, 'kcal'],
+                    [T(lang, 'nut_protein'), product.protein_g, 'g'],
+                    [T(lang, 'nut_carbs'), product.carbs_g, 'g'],
+                    [T(lang, 'nut_fat'), product.fat_g, 'g'],
                   ] as Array<[string, number | null, string]>)
                     .filter(([, v]) => v != null)
                     .map(([label, v, unit]) => (
@@ -484,7 +489,7 @@ function ProductSheet({
                     ))}
                 </div>
                 <div style={{ fontSize: 10.5, color: PUB.text2, marginTop: 8, opacity: 0.8 }}>
-                  Valori estimative, per porție
+                  {T(lang, 'nut_estimate')}
                 </div>
               </div>
             )}
@@ -528,7 +533,7 @@ function ProductSheet({
               const groupMin = modifierGroupMin(g)
               const groupCount = selectedCount(g)
               const groupMet = groupCount >= groupMin
-              const groupHint = modifierGroupHint(g)
+              const groupHint = modifierGroupHintT(lang, g, groupMin)
               // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
               const atMax =
                 g.selection_type === 'multiple' &&
@@ -571,7 +576,11 @@ function ProductSheet({
                       }}
                     >
                       {groupMin > 0 && groupMet && <Icon name="check" size={11} color="#4CAF6E" />}
-                      {groupMin > 0 ? (groupMet ? 'ales' : 'Obligatoriu') : 'Opțional'}
+                      {groupMin > 0
+                        ? groupMet
+                          ? T(lang, 'mod_selected')
+                          : T(lang, 'mod_required')
+                        : T(lang, 'mod_optional')}
                     </div>
                   </div>
 
@@ -721,7 +730,7 @@ function ProductSheet({
                       letterSpacing: '0.01em',
                     }}
                   >
-                    Adaugă extra
+                    {T(lang, 'add_extras')}
                   </div>
                   <div
                     style={{
@@ -733,7 +742,7 @@ function ProductSheet({
                       letterSpacing: '0.05em',
                     }}
                   >
-                    Opțional
+                    {T(lang, 'mod_optional')}
                   </div>
                 </div>
 
@@ -839,13 +848,13 @@ function ProductSheet({
                   fontFamily: 'DM Sans, sans-serif',
                 }}
               >
-                Cantitate
+                {T(lang, 'quantity')}
               </span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
                 <button
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty === 1}
-                  aria-label="Scade cantitatea"
+                  aria-label={T(lang, 'qty_dec')}
                   style={{
                     width: 44,
                     height: 44,
@@ -876,7 +885,7 @@ function ProductSheet({
                 </span>
                 <button
                   onClick={() => setQty((q) => q + 1)}
-                  aria-label="Crește cantitatea"
+                  aria-label={T(lang, 'qty_inc')}
                   style={{
                     width: 44,
                     height: 44,
@@ -898,7 +907,7 @@ function ProductSheet({
 
             {/* Optional notes */}
             <textarea
-              placeholder="Mențiuni speciale (opțional)"
+              placeholder={T(lang, 'special_requests_opt')}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={2}
@@ -946,7 +955,7 @@ function ProductSheet({
                     color: PUB.text,
                   }}
                 >
-                  <span>Mai multe info</span>
+                  <span>{T(lang, 'more_info')}</span>
                   <span
                     style={{
                       display: 'inline-flex',
@@ -981,7 +990,7 @@ function ProductSheet({
                             marginBottom: 8,
                           }}
                         >
-                          Etichete dietetice
+                          {T(lang, 'diet_tags_title')}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.dietary_tags.map((id) => {
@@ -1001,7 +1010,7 @@ function ProductSheet({
                                   fontFamily: 'DM Sans, sans-serif',
                                 }}
                               >
-                                {tag.emoji} {tag.label}
+                                {tag.emoji} {dietaryLabel(lang, tag.id, tag.label)}
                               </span>
                             )
                           })}
@@ -1025,7 +1034,7 @@ function ProductSheet({
                             gap: 4,
                           }}
                         >
-                          <Icon name="alert" size={12} color="#8B6914" /> Alergeni
+                          <Icon name="alert" size={12} color="#8B6914" /> {T(lang, 'allergens_title')}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.allergens.map((id) => {
@@ -1034,7 +1043,8 @@ function ProductSheet({
                             return (
                               <span
                                 key={id}
-                                title={a.desc}
+                                // Descrierea (exemple de alimente) există doar în română.
+                                title={lang === 'ro' ? a.desc : undefined}
                                 style={{
                                   fontSize: 12,
                                   fontWeight: 500,
@@ -1046,7 +1056,7 @@ function ProductSheet({
                                   fontFamily: 'DM Sans, sans-serif',
                                 }}
                               >
-                                {a.emoji} {a.label}
+                                {a.emoji} {allergenLabel(lang, a.id, a.label)}
                               </span>
                             )
                           })}
@@ -1108,7 +1118,7 @@ function ProductSheet({
               boxShadow: canAdd ? `0 4px 14px ${accent}59` : 'none',
             }}
           >
-            <span>{canAdd ? 'Adaugă în coș' : 'Selectează opțiunile obligatorii'}</span>
+            <span>{canAdd ? T(lang, 'add_to_cart') : T(lang, 'select_required')}</span>
             {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
             {canAdd && (
               <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>

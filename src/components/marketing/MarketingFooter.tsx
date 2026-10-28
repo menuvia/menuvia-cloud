@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { MKT } from '../../lib/marketing'
+import { CONTACT_EMAIL } from '../../lib/domain'
 
 // ─────────────────────────────────────────────────────────────
 // MarketingFooter — footer comun pentru paginile de marketing,
@@ -37,7 +38,7 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
   {
     title: 'Companie',
     links: [
-      { label: 'Contact', href: 'mailto:contact@menuvia.ro' },
+      { label: 'Contact', href: `mailto:${CONTACT_EMAIL}` },
       { label: 'Program pilot', href: '/recrutare' },
       { label: 'Program de parteneriat', href: '/afiliat' },
     ],
@@ -50,7 +51,9 @@ const COLUMNS: { title: string; links: FooterLink[] }[] = [
       { label: 'Cookies', href: '/cookies' },
       { label: 'DPA', href: '/dpa' },
       { label: 'ANPC', href: 'https://anpc.ro', external: true },
-      { label: 'SOL', href: 'https://ec.europa.eu/consumers/odr', external: true },
+      // SOL/ODR (ec.europa.eu/consumers/odr) a fost desființată în iulie 2025 —
+      // paritate cu LegalFooter: soluționarea alternativă a litigiilor = SAL (ANPC).
+      { label: 'SAL', href: 'https://anpc.ro/ce-este-sal/', external: true },
     ],
   },
 ]

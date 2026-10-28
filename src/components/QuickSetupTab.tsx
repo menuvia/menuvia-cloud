@@ -18,6 +18,7 @@ import {
   VAT_PRESETS,
   applyBusinessTypePreset,
   applyVatPreset,
+  describeVatPresetError,
   bulkCreateTables,
   sendInvite,
   type BusinessType,
@@ -291,10 +292,10 @@ function VatPresetSection({ restaurantId }: { restaurantId: string }) {
       const r = await applyVatPreset(restaurantId, selected)
       setResult({
         variant: 'ok',
-        msg: `✓ Configurate ${r.rates_applied} cote TVA. Verifică în tab "Raport TVA".`,
+        msg: `✓ Cotele legale au fost aplicate pe ${r.rates_applied} grupe TVA. Le vezi în Setări → Comenzi & plăți → Cote TVA.`,
       })
     } catch (e) {
-      setResult({ variant: 'err', msg: e instanceof Error ? e.message : 'Eroare' })
+      setResult({ variant: 'err', msg: describeVatPresetError(e) })
     } finally {
       setBusy(false)
     }
@@ -304,10 +305,11 @@ function VatPresetSection({ restaurantId }: { restaurantId: string }) {
 
   return (
     <div style={card}>
-      <h2 style={h2}>2. Cote TVA — preset rapid</h2>
+      <h2 style={h2}>2. Cote TVA — cotele legale actuale</h2>
       <div style={subtle}>
-        Configurarea TVA depinde de tipul localului tău. Întreabă contabilul dacă nu ești sigur.
-        Setarea se poate modifica oricând din tab-ul "Raport TVA".
+        Aplică pe cele 4 grupe cotele din Legea 141/2025 (procent, etichetă, descriere). Maparea
+        pe casa de marcat (tab-ul „Casă & tichete”) rămâne neatinsă. Poți ajusta oricând din
+        Setări → Comenzi & plăți → Cote TVA; întreabă contabilul dacă un produs are regim special.
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

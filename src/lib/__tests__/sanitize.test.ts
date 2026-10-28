@@ -21,8 +21,8 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
     }
   })
 
-  it('contains exactly the 23 columns granted UPDATE (mig 096B + menu_languages mig 197 + currency mig 205)', () => {
-    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(23)
+  it('contains exactly the 25 columns granted UPDATE (mig 096B + menu_languages mig 197 + currency mig 205 + country mig 296 + language mig 298)', () => {
+    expect(RESTAURANT_UPDATE_FIELDS.length).toBe(25)
     expect([...RESTAURANT_UPDATE_FIELDS].sort()).toEqual(
       [
         'name',
@@ -49,6 +49,10 @@ describe('RESTAURANT_UPDATE_FIELDS', () => {
         // mig 197 — meniu multilingv: grant update (menu_languages) pe restaurants.
         'currency',
         'menu_languages',
+        // mig 296 — țara restaurantului (owner-only, trg_restaurants_country_owner_only).
+        'country',
+        // mig 298 — limba de bază a meniului (CHECK pe cele 7 limbi).
+        'language',
       ].sort(),
     )
   })

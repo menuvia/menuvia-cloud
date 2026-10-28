@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { fnUrl } from '../lib/fn'
+import { PILOT_EMAIL, SITE_HOSTS } from '../lib/domain'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 
@@ -238,7 +239,7 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
             fontFamily: 'DM Sans, sans-serif',
           }}
         >
-          menuvia.ro →
+          {SITE_HOSTS.ro} →
         </button>
       </header>
 
@@ -454,7 +455,7 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
                 </div>
                 <div style={{ fontSize: 14, color: D.t2, lineHeight: 1.55 }}>
                   Te contactăm în maximum 24 de ore pentru confirmare. Dacă nu primești telefonul
-                  nostru, scrie-ne la pilot@menuvia.ro.
+                  nostru, scrie-ne la {PILOT_EMAIL}.
                 </div>
               </div>
             ) : ordersOpen === false ? (
@@ -588,7 +589,7 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
                     id="cv-slug"
                     value={menuSlug}
                     onChange={(e) => setMenuSlug(e.target.value)}
-                    placeholder="slug-ul din menuvia.ro/m/…"
+                    placeholder={`slug-ul din ${SITE_HOSTS.ro}/m/…`}
                     style={fieldStyle}
                   />
                   <div style={{ fontSize: 12, color: D.t3, marginTop: 5 }}>

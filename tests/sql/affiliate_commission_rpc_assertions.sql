@@ -7,7 +7,7 @@
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/affiliate_commission_rpc_assertions.sql
 --
 -- Acoperă logica financiară cu cel mai mare risc:
---   RC1  setup: 30% comision + 2% cascade la parent
+--   RC1  setup: 30% comision + 2% cascade la parent (câștigat la a DOUA factură, mig 293)
 --   RC2  idempotency: reprocesarea aceluiași event nu redublează
 --   RC3  recurring: 10% comision + 2% cascade
 --   RC4  no-attribution: skip curat
@@ -40,19 +40,29 @@ insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id
    '00000000-0000-0000-0000-000000000003','cus_X','pending');
 
 -- ── RC1: setup ───────────────────────────────────────────────────────────────
+-- mig 293: setup-ul se CÂȘTIGĂ abia la a DOUA factură plătită pe atribuire.
+-- Prima factură (evt_setup/in_1) doar se consemnează; a doua (evt_rec1/in_2)
+-- scrie setup-ul pe baza + evenimentul PRIMEI și recurring-ul ei.
 do $$
 declare v jsonb;
 begin
   v := public.process_affiliate_invoice_paid('evt_setup','cus_X','sub_X','in_1','subscription_create',2900,'RON',null,now(),'pro');
-  if (v->>'commission_cents')::bigint <> 870 then
-    raise exception 'RC1 FAIL: setup commission % (așteptat 870)', v->>'commission_cents';
+  if v->>'deferred' is distinct from 'setup_awaits_second_invoice'
+     or exists (select 1 from public.affiliate_ledger where stripe_event_id='evt_setup') then
+    raise exception 'RC1 FAIL: prima factură nu trebuie să scrie setup-ul încă (%)', v;
+  end if;
+  v := public.process_affiliate_invoice_paid('evt_rec1','cus_X','sub_X','in_2','subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
+  if (v->>'setup_commission_cents')::bigint is distinct from 870::bigint
+     or (select amount_cents from public.affiliate_ledger
+          where leg='setup' and stripe_event_id='evt_setup') is distinct from 870::bigint then
+    raise exception 'RC1 FAIL: setup commission % (așteptat 870)', v->>'setup_commission_cents';
   end if;
   -- cascade parent = 2% din 870 = 17 (floor)
   if (select amount_cents from public.affiliate_ledger
         where leg='cascade' and stripe_event_id='evt_setup') <> 17 then
     raise exception 'RC1 FAIL: cascade parent ≠ 17';
   end if;
-  raise notice 'RC1 OK: setup 870 + cascade 17';
+  raise notice 'RC1 OK: setup 870 + cascade 17 (la a doua factură)';
 end $$;
 
 -- ── RC2: idempotency ─────────────────────────────────────────────────────────
@@ -68,13 +78,12 @@ begin
   raise notice 'RC2 OK: idempotency (% rânduri)', v_after;
 end $$;
 
--- ── RC3: recurring ───────────────────────────────────────────────────────────
+-- ── RC3: recurring (factura a doua, procesată în RC1) ──────────────────────
 do $$
-declare v jsonb;
 begin
-  v := public.process_affiliate_invoice_paid('evt_rec1','cus_X','sub_X','in_2','subscription_cycle',2900,'RON','2026-07-01',now(),'pro');
-  if (v->>'commission_cents')::bigint <> 290 then
-    raise exception 'RC3 FAIL: recurring % (așteptat 290)', v->>'commission_cents';
+  if (select amount_cents from public.affiliate_ledger
+        where leg='recurring' and stripe_event_id='evt_rec1') is distinct from 290::bigint then
+    raise exception 'RC3 FAIL: recurring ≠ 290';
   end if;
   if (select amount_cents from public.affiliate_ledger
         where leg='cascade' and stripe_event_id='evt_rec1') <> 5 then

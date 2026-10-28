@@ -12,6 +12,11 @@
 --   PP3  IBAN prea scurt → invalid_iban
 --   PP4  formă juridică invalidă → invalid_legal_form
 --   PP5  caller fără afiliere → not_an_affiliate
+--
+-- mig 294: IBAN-ul e validat REAL (ISO 13616 + mod-97). Fixturile RO49BBBB…,
+-- RO49CCCC…, RO49DDDD… aveau cifrele de control GREȘITE (doar RO49AAAA… e
+-- exemplul canonic valid) și au fost corectate la RO40/RO31/RO22 — aceleași
+-- BBAN-uri, cifre de control recalculate. Asserțiile sunt neschimbate.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -46,13 +51,13 @@ end $$;
 do $$
 declare v jsonb; v_cnt int;
 begin
-  v := public.upsert_payout_profile('srl','RO99999999','RO49BBBB1B31007593840000','Test SRL');
+  v := public.upsert_payout_profile('srl','RO99999999','RO40BBBB1B31007593840000','Test SRL');
   if (v->>'ok')::boolean is not true then raise exception 'PP2 FAIL: al doilea upsert (%)', v; end if;
   select count(*) into v_cnt from public.affiliate_payout_profile
     where affiliate_id='0a000000-0000-0000-0000-0000000000d1';
   if v_cnt <> 1 then raise exception 'PP2 FAIL: a duplicat (% rânduri)', v_cnt; end if;
   if (select iban from public.affiliate_payout_profile
-        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO49BBBB1B31007593840000' then
+        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO40BBBB1B31007593840000' then
     raise exception 'PP2 FAIL: IBAN-ul nu s-a actualizat'; end if;
   raise notice 'PP2 OK: re-upsert = UPDATE (1 rând, valori noi)';
 end $$;
@@ -65,7 +70,7 @@ begin
   if v->>'reason' is distinct from 'invalid_iban' then raise exception 'PP3 FAIL: IBAN scurt neגate-uit (%)', v; end if;
   -- efect secundar: rândul (creat de PP2, legal_form='srl') trebuie neschimbat
   if (select iban from public.affiliate_payout_profile
-        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO49BBBB1B31007593840000' then
+        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO40BBBB1B31007593840000' then
     raise exception 'PP3 FAIL: respins dar a alterat IBAN-ul'; end if;
   raise notice 'PP3 OK: IBAN prea scurt → invalid_iban (rând intact)';
 end $$;
@@ -86,10 +91,10 @@ end $$;
 do $$
 declare v jsonb;
 begin
-  v := public.upsert_payout_profile('pfa','  RO12345678  ','  RO49DDDD1B31007593840000  ','  N  ');
+  v := public.upsert_payout_profile('pfa','  RO12345678  ','  RO22DDDD1B31007593840000  ','  N  ');
   if (v->>'ok')::boolean is not true then raise exception 'PP7 FAIL: btrim-IBAN respins (%)', v; end if;
   if (select iban from public.affiliate_payout_profile
-        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO49DDDD1B31007593840000' then
+        where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO22DDDD1B31007593840000' then
     raise exception 'PP7 FAIL: IBAN-ul nu a fost btrim-uit'; end if;
   if (select cui from public.affiliate_payout_profile
         where affiliate_id='0a000000-0000-0000-0000-0000000000d1') <> 'RO12345678' then
@@ -111,7 +116,7 @@ do $$
 declare v jsonb;
 begin
   perform set_config('request.jwt.claim.sub','00000000-0000-0000-0000-0000000000d2', true);
-  v := public.upsert_payout_profile('pfa','ROB','RO49CCCC1B31007593840000','B self');
+  v := public.upsert_payout_profile('pfa','ROB','RO31CCCC1B31007593840000','B self');
   if (v->>'ok')::boolean is not true then raise exception 'PP6 FAIL: B nu-și poate scrie profilul (%)', v; end if;
   -- scrierea lui B a mers DOAR pe affiliate_id-ul lui B
   if (select beneficiary_name from public.affiliate_payout_profile

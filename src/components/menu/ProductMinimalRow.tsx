@@ -6,6 +6,8 @@ import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { DIETARY_TAGS } from '../../lib/constants'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf, dietaryLabel } from '../../lib/guestI18n'
 
 // ─────────────────────────────────────────────────────────────
 // ProductMinimalRow — rând de produs MINIMAL/EDITORIAL (stil eker.ro): fără
@@ -40,6 +42,8 @@ interface ProductMinimalRowProps {
   theme: MenuTheme
   /** Moneda meniului (mig 205/206) — default 'RON' păstrează afișarea istorică. */
   currency?: MenuCurrency
+  /** Limba aleasă de oaspete — default 'ro' (call-site-urile istorice). */
+  lang?: string
 }
 
 const FS_MICRO = 11
@@ -56,6 +60,7 @@ function ProductMinimalRow({
   PUB,
   theme,
   currency = 'RON',
+  lang = 'ro',
 }: ProductMinimalRowProps) {
   const t = menuType(theme.fonts)
 
@@ -76,8 +81,11 @@ function ProductMinimalRow({
   const metaColor = PUB.text2
 
   const priceLabel = hasDiscount
-    ? `Preț redus ${fmtPrice(effectivePrice, currency)}, de la ${fmtPrice(basePrice, currency)}`
-    : `${hasRequiredMods ? 'De la ' : ''}${fmtPrice(effectivePrice, currency)}`
+    ? Tf(lang, 'price_discounted_aria', {
+        price: fmtPrice(effectivePrice, currency),
+        base: fmtPrice(basePrice, currency),
+      })
+    : `${hasRequiredMods ? `${T(lang, 'price_from')} ` : ''}${fmtPrice(effectivePrice, currency)}`
 
   return (
     <div
@@ -147,7 +155,7 @@ function ProductMinimalRow({
                   color: metaColor,
                 }}
               >
-                de la
+                {T(lang, 'price_from_lc')}
               </span>
             )}
             {hasDiscount && (
@@ -208,7 +216,7 @@ function ProductMinimalRow({
               <MinBadge label={`-${Math.round(pct)}%`} color={theme.colors.success} fonts={theme.fonts} />
             )}
             {shownTags.map((tagId) => (
-              <MinTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} />
+              <MinTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} lang={lang} />
             ))}
             {hasRequiredMods && !isSoldOut && (
               <span
@@ -220,11 +228,11 @@ function ProductMinimalRow({
                   letterSpacing: '0.02em',
                 }}
               >
-                opțiuni
+                {T(lang, 'options_hint')}
               </span>
             )}
             {isSoldOut && (
-              <MinBadge label="Epuizat" color={theme.colors.error} fonts={theme.fonts} />
+              <MinBadge label={T(lang, 'sold_out')} color={theme.colors.error} fonts={theme.fonts} />
             )}
           </span>
         )}
@@ -239,7 +247,7 @@ function ProductMinimalRow({
             if (hasRequiredMods) onOpen(product)
             else onQuickAdd(product)
           }}
-          aria-label={`Adaugă ${product.name}`}
+          aria-label={Tf(lang, 'add_named', { name: product.name })}
           style={{
             alignSelf: 'center',
             flexShrink: 0,
@@ -289,7 +297,15 @@ function MinBadge({ label, color, fonts }: { label: string; color: string; fonts
   )
 }
 
-function MinTagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['fonts'] }) {
+function MinTagBadge({
+  tagId,
+  fonts,
+  lang,
+}: {
+  tagId: string
+  fonts: MenuTheme['fonts']
+  lang: string
+}) {
   const tag = DIETARY_TAGS.find((d) => d.id === tagId)
   if (!tag) return null
   return (
@@ -313,7 +329,7 @@ function MinTagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['fonts'
       <span aria-hidden style={{ fontSize: 10 }}>
         {tag.emoji}
       </span>
-      {tag.label}
+      {dietaryLabel(lang, tag.id, tag.label)}
     </span>
   )
 }

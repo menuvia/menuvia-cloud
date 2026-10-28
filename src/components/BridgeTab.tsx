@@ -17,7 +17,7 @@ import { confirm as confirmDialog } from './ui/confirm'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
-import { toRomaniaYMD } from '../lib/dates'
+import { receiptStatsForRomaniaDay } from '../lib/receiptStats'
 
 interface BridgeDevice {
   id: string
@@ -480,15 +480,11 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
     return true
   })
 
-  // Stats today
-  // Ora României, nu UTC — altfel statisticile „azi" săreau ziua noaptea.
-  const today = toRomaniaYMD(new Date())
-  const todayReceipts = receipts.filter((r) => r.created_at.startsWith(today))
-  const stats = {
-    pending: todayReceipts.filter((r) => r.status === 'pending' || r.status === 'sent').length,
-    success: todayReceipts.filter((r) => r.status === 'success').length,
-    errors: todayReceipts.filter((r) => r.status === 'error').length,
-  }
+  // Stats „azi" — ziua României pe AMBELE părți ale comparației. Înainte „azi"
+  // era în ora României, dar `created_at` (UTC, de la PostgREST) se compara ca
+  // prefix de șir, deci bonurile dintre 00:00 și 02:00/03:00 nu intrau în „azi"
+  // în NICIO zi. Logica e pură, în lib/receiptStats.ts (testată fără randare).
+  const stats = receiptStatsForRomaniaDay(receipts, new Date())
 
   if (loading && devices.length === 0) {
     return <InlineSpinner label="Se încarcă casa de marcat..." />

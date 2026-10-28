@@ -11,7 +11,7 @@
 // doar două stări („confirmată" / „în așteptare"), deci ar prezenta un rând MORT
 // drept rezervare primită. Iar cheia trebuie ROTITĂ înainte, altfel clientul
 // rămâne blocat pe rândul mort: orice retrimitere ar întoarce tot pe el.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -92,14 +92,14 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
-function renderSheet() {
+function renderSheet(lang = 'ro') {
   return render(
     <ReservationSheet
       restaurant={makeRestaurant({ slug: 'demo' })}
       theme={getTheme('cafe')}
       accent="#c8102e"
       PUB={PUB}
-      lang="ro"
+      lang={lang}
       onClose={() => {}}
     />,
   )
@@ -111,7 +111,7 @@ function byText(role: string, re: RegExp): HTMLElement {
   return el
 }
 
-async function fillAndSubmit(): Promise<void> {
+async function fillAndSubmit(phone = '0722000111', cc?: string): Promise<void> {
   // Ziua de MÂINE, nu „astăzi": cu program non-stop, sloturile de mâine sunt
   // toate cele 48, indiferent de ora la care rulează CI-ul. Pe „astăzi" o
   // rulare la 23:58 n-ar avea niciun slot de ales și testul ar pica din motive
@@ -119,7 +119,10 @@ async function fillAndSubmit(): Promise<void> {
   await userEvent.click(byText('button', /^Mâine$/))
 
   await userEvent.type(screen.getByPlaceholderText(/^Nume$/), 'Ana Pop')
-  await userEvent.type(screen.getByPlaceholderText(/^Telefon$/), '0722000111')
+  if (cc !== undefined) {
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /prefixul țării/i }), cc)
+  }
+  await userEvent.type(screen.getByPlaceholderText(/^Telefon$/), phone)
 
   // Slotul se alege din RÂNDUL lui, nu după textul afișat: eticheta depinde de
   // fusul orar al runner-ului (precedentul PickupCheckoutSheet S1–S4).
@@ -190,5 +193,60 @@ describe('ReservationSheet — rândul mort (RESID-32)', () => {
       expect(screen.getAllByText(/ABC123/).length).toBeGreaterThan(0)
     })
     expect(screen.queryAllByText(/a fost anulat/i)).toHaveLength(0)
+  })
+})
+
+// PH-4: telefonul pleacă în E.164, cu prefixul de țară VIZIBIL (implicit +40).
+// Forma națională a unui număr străin (SE/CH/FR „07…”) era citită de server
+// drept +407… (mig 228) — SMS-ul de confirmare ajungea la un străin din RO.
+describe('ReservationSheet — telefonul în E.164 (PH-4)', () => {
+  const sentPhone = () =>
+    (h.createMock.mock.calls[0]?.[0] as { p_customer_phone?: string } | undefined)?.p_customer_phone
+
+  beforeEach(() => {
+    h.createMock.mockReset()
+    h.createMock.mockResolvedValue(reservationRow('confirmed'))
+    sessionStorage.clear()
+  })
+  afterEach(() => {
+    Reflect.deleteProperty(window.navigator, 'language')
+    Reflect.deleteProperty(window.navigator, 'languages')
+  })
+
+  it('RS-D: implicitul românesc — 0722000111 pleacă +40722000111', async () => {
+    renderSheet()
+    await fillAndSubmit()
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+40722000111')
+  })
+
+  it('RS-E: numărul tastat cu „+” e deja internațional', async () => {
+    renderSheet()
+    await fillAndSubmit('+46 70 123 45 67')
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+46701234567')
+  })
+
+  it('RS-F: țara aleasă + forma națională NU mai devine +40 (miezul bug-ului)', async () => {
+    renderSheet()
+    await fillAndSubmit('070 123 45 67', '46')
+    await waitFor(() => expect(h.createMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+46701234567')
+  })
+
+  it('RS-G: un număr inutilizabil nu pleacă la server', async () => {
+    renderSheet()
+    await fillAndSubmit('12345')
+    await waitFor(() => {
+      expect(screen.getAllByText(/verifică prefixul țării/i).length).toBeGreaterThan(0)
+    })
+    expect(h.createMock).not.toHaveBeenCalled()
+  })
+
+  it('RS-H: implicitul rămâne +40 și pe un browser în en-US (nu se ghicește din limbă)', () => {
+    Object.defineProperty(window.navigator, 'language', { value: 'en-US', configurable: true })
+    Object.defineProperty(window.navigator, 'languages', { value: ['en-US'], configurable: true })
+    renderSheet('en')
+    expect(screen.getByRole('combobox', { name: /country code/i })).toHaveValue('40')
   })
 })

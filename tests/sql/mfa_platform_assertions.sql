@@ -107,8 +107,13 @@ begin
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'is_admin'
      and pg_get_function_identity_arguments(p.oid) = 'p_restaurant_id uuid';
-  if v_def not ilike '%is_platform_admin%' or v_def not ilike '%has_partner_access%' then
-    raise exception 'MF4 FAIL: funelul is_admin a pierdut un escape (186/187)';
+  -- Escape-ul de fondator (186) RĂMÂNE; cel de partener (187) a fost SCOS în
+  -- mig 286 (acces opt-in cu politici dedicate) — vezi partner_optin_assertions.
+  if v_def not ilike '%is_platform_admin%' then
+    raise exception 'MF4 FAIL: funelul is_admin a pierdut escape-ul is_platform_admin (186)';
+  end if;
+  if v_def ilike '%has_partner_access%' then
+    raise exception 'MF4 FAIL: funelul is_admin conține din nou has_partner_access (scos în mig 286)';
   end if;
 
   if has_function_privilege('anon', 'public.set_my_mfa_enforced(boolean)', 'execute') then

@@ -50,9 +50,12 @@ function renderSheet(onSuccess = vi.fn()) {
   )
 }
 
-async function fillAndSubmit(): Promise<void> {
+async function fillAndSubmit(phone = '0722000111', cc?: string): Promise<void> {
   await userEvent.type(screen.getByPlaceholderText('Ion Popescu'), 'Ana Pop')
-  await userEvent.type(screen.getByPlaceholderText('07XX XXX XXX'), '0722000111')
+  if (cc !== undefined) {
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: /prefixul țării/i }), cc)
+  }
+  await userEvent.type(screen.getByPlaceholderText('07XX XXX XXX'), phone)
   // Slotul e OBLIGATORIU (validare necondiționată); îl alegem după formă, nu
   // după textul exact — eticheta depinde de fusul orar al runner-ului.
   const slot = screen.getAllByRole('button').find((b) => /^\d{1,2}:\d{2}$/.test(b.textContent ?? ''))
@@ -128,5 +131,48 @@ describe('PickupCheckoutSheet — idempotența comenzii pickup', () => {
     const after = sessionStorage.getItem(STORAGE_KEY)
     expect(after).toBeTruthy()
     expect(after).not.toBe(sentKey(0))
+  })
+})
+
+// PH-4: „comanda e gata” (SMS, mig 228) pleacă pe telefonul trimis aici. Forma
+// națională a unui număr străin ajungea la un străin din RO; acum pleacă E.164.
+describe('PickupCheckoutSheet — telefonul în E.164 (PH-4)', () => {
+  const sentPhone = () =>
+    (createOrderMock.mock.calls[0]?.[0] as CreateOrderArgs | undefined)?.customer_phone
+
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+    createOrderMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'new', total: 30 })
+  })
+
+  it('S5 implicitul românesc: 0722000111 → +40722000111', async () => {
+    renderSheet()
+    await fillAndSubmit()
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+40722000111')
+  })
+
+  it('S6 forma cu „00” e deja internațională', async () => {
+    renderSheet()
+    await fillAndSubmit('0041 79 123 45 67')
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+41791234567')
+  })
+
+  it('S7 Italia își păstrează 0-ul', async () => {
+    renderSheet()
+    await fillAndSubmit('06 1234 5678', '39')
+    await waitFor(() => expect(createOrderMock).toHaveBeenCalledTimes(1))
+    expect(sentPhone()).toBe('+390612345678')
+  })
+
+  it('S8 un număr inutilizabil nu ajunge la create_order', async () => {
+    renderSheet()
+    await fillAndSubmit('12345')
+    await waitFor(() => {
+      expect(screen.getAllByText(/verifică prefixul țării/i).length).toBeGreaterThan(0)
+    })
+    expect(createOrderMock).not.toHaveBeenCalled()
   })
 })

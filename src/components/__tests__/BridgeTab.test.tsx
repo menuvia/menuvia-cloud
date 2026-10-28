@@ -4,7 +4,7 @@
 // (un retry = bon fiscal DUBLU); un `error` FĂRĂ marker nu are butonul (nu s-a
 // tipărit nimic → calea rămâne retry/anulare); refuzul serverului se afișează
 // CU TEXTUL LUI și dialogul rămâne deschis (ca în CancelOrderDialog).
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -113,5 +113,32 @@ describe('BridgeTab — „Bonul a ieșit” (mig 277)', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/are deja număr fiscal: 0042/)
     expect(screen.getByText('Bonul a ieșit pe bandă')).toBeInTheDocument()
+  })
+})
+// Contoarele „azi" (fiscal, Plan 3) — cablajul din componentă; logica pură e în
+// receiptStats.test.ts. Doar Date e fals: findBy* are nevoie de setTimeout real.
+describe('BridgeTab — contoarele „azi" sunt în ziua României', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('bonurile de după miezul nopții intră în „azi"; cele de aseară nu', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-04T21:45:00Z')) // 00:45 EEST, 5 septembrie
+    const ok = { status: 'success', error_code: null, error_info: null }
+    tables.pending_receipts = [
+      // 00:30 / 00:40 pe 5 sept — prefixul UTC spune „04": pe codul vechi, 0.
+      receipt({ id: 'r-night-ok', ...ok, bon_number: '0007', created_at: '2026-09-04T21:30:00+00:00' }),
+      receipt({ id: 'r-night-err', created_at: '2026-09-04T21:40:00+00:00' }),
+      // 23:30 / 23:50 pe 4 sept — IERI: „azi" în UTC le-ar număra (2, nu 1).
+      receipt({ id: 'r-eve-ok', ...ok, bon_number: '0006', created_at: '2026-09-04T20:30:00+00:00' }),
+      receipt({ id: 'r-eve-err', created_at: '2026-09-04T20:50:00+00:00' }),
+    ]
+    render(<BridgeTab restaurantId="r1" fiscalEnabled />)
+
+    const printed = await screen.findByText('Tipărite azi')
+    expect(printed.nextElementSibling).toHaveTextContent(/^1$/)
+    expect(screen.getByText('Eșuate azi').nextElementSibling).toHaveTextContent(/^1$/)
+    expect(screen.getByText('În așteptare azi').nextElementSibling).toHaveTextContent(/^0$/)
   })
 })

@@ -1,6 +1,8 @@
 import { useRef, useState, type CSSProperties } from 'react'
 import type { MenuTheme } from '../../lib/themes'
 import { useReducedMotion } from '../../lib/motion'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf } from '../../lib/guestI18n'
 
 // ─────────────────────────────────────────────────────────────
 // FlipbookViewer — meniul ca pe o carte (stil Zvon Cafe): paginile meniului
@@ -34,6 +36,8 @@ interface FlipbookViewerProps {
   PUB: PublicColors
   /** Înălțimea zonei de pagină (default plin-ecran-ish pe mobil). */
   pageHeight?: number | string
+  /** Limba aleasă de oaspete — default 'ro'. */
+  lang?: string
 }
 
 // Detectare one-shot „pointer fin" (mouse/trackpad) — pe touch săgețile ar
@@ -48,6 +52,7 @@ export default function FlipbookViewer({
   theme,
   PUB,
   pageHeight = 'min(72vh, 640px)',
+  lang = 'ro',
 }: FlipbookViewerProps) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const [page, setPage] = useState(0)
@@ -76,10 +81,10 @@ export default function FlipbookViewer({
             marginBottom: 8,
           }}
         >
-          Meniul nu are încă pagini încărcate
+          {T(lang, 'flip_empty_title')}
         </div>
         <div style={{ fontFamily: theme.fonts.body, fontSize: 13, color: PUB.text2, lineHeight: 1.6 }}>
-          Paginile meniului vor apărea aici de îndată ce restaurantul le încarcă.
+          {T(lang, 'flip_empty_sub')}
         </div>
       </div>
     )
@@ -131,7 +136,7 @@ export default function FlipbookViewer({
       <div
         ref={scrollerRef}
         onScroll={handleScroll}
-        aria-label={`Paginile meniului, ${pages.length} pagini. Glisează orizontal pentru a răsfoi.`}
+        aria-label={Tf(lang, 'flip_aria', { n: pages.length })}
         style={{
           display: 'flex',
           overflowX: 'auto',
@@ -157,7 +162,7 @@ export default function FlipbookViewer({
           >
             <img
               src={url}
-              alt={`Pagina ${i + 1} din meniu`}
+              alt={Tf(lang, 'flip_page_alt', { n: i + 1 })}
               loading="lazy"
               decoding="async"
               style={{
@@ -179,7 +184,7 @@ export default function FlipbookViewer({
         <button
           type="button"
           onClick={() => scrollToPage(page - 1)}
-          aria-label="Pagina anterioară"
+          aria-label={T(lang, 'flip_prev')}
           style={arrowStyle('left')}
         >
           <span aria-hidden>‹</span>
@@ -189,7 +194,7 @@ export default function FlipbookViewer({
         <button
           type="button"
           onClick={() => scrollToPage(page + 1)}
-          aria-label="Pagina următoare"
+          aria-label={T(lang, 'flip_next')}
           style={arrowStyle('right')}
         >
           <span aria-hidden>›</span>
@@ -219,7 +224,7 @@ export default function FlipbookViewer({
             whiteSpace: 'nowrap',
           }}
         >
-          pagina {page + 1}/{pages.length}
+          {Tf(lang, 'flip_page_badge', { n: page + 1, total: pages.length })}
         </div>
       )}
     </div>

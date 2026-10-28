@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties, type KeyboardEve
 import type { MenuTheme } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { MOTION, useReducedMotion } from '../../lib/motion'
+import { T } from '../../lib/publicMenuStrings'
 
 // ─────────────────────────────────────────────────────────────
 // CategoryTabs — bară de navigare categorii, sticky sus, orizontală
@@ -38,6 +39,8 @@ interface CategoryTabsProps {
   accent: string
   PUB: PubColors
   theme: MenuTheme
+  /** Limba aleasă de oaspete — default 'ro'. */
+  lang?: string
 }
 
 // Geometria underline-ului activ — poziție + lățime în px relativ la track.
@@ -51,7 +54,15 @@ const TAB_GAP = 7 // spațiu nume ↔ badge
 const TAB_PAD_X = 10 // padding orizontal real pe buton → lățime de tap ≥44px
 const FADE_WIDTH = 36 // lățimea gradientului de fade din dreapta
 
-function CategoryTabsInner({ items, activeId, onSelect, accent, PUB, theme }: CategoryTabsProps) {
+function CategoryTabsInner({
+  items,
+  activeId,
+  onSelect,
+  accent,
+  PUB,
+  theme,
+  lang = 'ro',
+}: CategoryTabsProps) {
   const t = menuType(theme.fonts)
   const reduced = useReducedMotion()
 
@@ -208,7 +219,7 @@ function CategoryTabsInner({ items, activeId, onSelect, accent, PUB, theme }: Ca
         <div
           ref={trackRef}
           role="tablist"
-          aria-label="Categorii meniu"
+          aria-label={T(lang, 'categories_aria')}
           onScroll={updateFade}
           style={trackStyle}
           data-testid="category-tabs"
@@ -223,7 +234,7 @@ function CategoryTabsInner({ items, activeId, onSelect, accent, PUB, theme }: Ca
             // ca screen-reader-ul să anunțe „Vin, 12 produse".
             const ariaLabel =
               item.count != null
-                ? `${item.name}, ${item.count} ${item.count === 1 ? 'produs' : 'produse'}`
+                ? `${item.name}, ${item.count} ${item.count === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}`
                 : item.name
             return (
               <button

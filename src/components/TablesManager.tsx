@@ -16,6 +16,8 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
+import { publicBaseUrl, siteHost } from '../lib/domain'
+import { qrCardSubtitles } from '../lib/qrCopy'
 
 interface QrTokenRow {
   id: string
@@ -88,9 +90,14 @@ function hexToRgb(hex: string | null | undefined): [number, number, number] | nu
 }
 
 // ── QR helpers — all local, no external API ─────────────────
+// Baza: pe .ro EXACT ca înainte (`VITE_APP_URL || origin`); pe un host .com tot
+// .ro — QR-urile nu poartă niciodată domeniul .com (publicBaseUrl, lib/domain.ts).
+function appPublicBase(): string {
+  return publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin)
+}
+
 function qrUrl(token: string): string {
-  const base = import.meta.env.VITE_APP_URL || window.location.origin
-  return `${base}/q/${token}`
+  return `${appPublicBase()}/q/${token}`
 }
 
 async function generateQRDataURL(token: string, size: number): Promise<string> {
@@ -443,7 +450,7 @@ function GeneralMenuQrCard({
   toast: (msg: string, type?: string) => void
 }) {
   const [qr, setQr] = useState<string | null>(null)
-  const menuUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/m/${restaurant.slug}`
+  const menuUrl = `${appPublicBase()}/m/${restaurant.slug}`
 
   useEffect(() => {
     let cancelled = false
@@ -783,8 +790,11 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       // și al meselor ieșeau cu caractere rupte în PDF-ul de print.
       patchPdfDiacritics(doc)
       const accent = hexToRgb(restaurant.primary_color) || [200, 150, 60]
-      const subtitleRo = 'Scanează pentru a comanda'
-      const subtitleEn = 'Scan to order'
+      // „Pentru a comanda" doar când planul permite comenzi prin QR; pe Meniu
+      // Digital QR-ul deschide doar meniul (lib/qrCopy.ts). Necunoscut = fail-closed.
+      const { ro: subtitleRo, en: subtitleEn } = qrCardSubtitles(
+        restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false,
+      )
 
       const drawCard = async (
         i: number,
@@ -847,7 +857,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         // Brand footer
         doc.setFontSize(sizes.brand)
         doc.setTextColor(190, 180, 170)
-        doc.text('menuvia.ro', x + cW / 2, y + cH * 0.96, { align: 'center' })
+        doc.text(siteHost(), x + cW / 2, y + cH * 0.96, { align: 'center' })
       }
 
       const pW = 210,

@@ -6,7 +6,7 @@
 // ecran, toate invizibile pentru orice test, fiindcă erau text în markup:
 //   1. „30 de zile gratuite pe ORICE plan" lângă „Program Pilot — 60 de zile
 //      gratis"; în plus Fiscalizarea nici măcar nu trece prin Stripe (CTA-ul
-//      ei e WhatsApp), deci acolo nu există trial deloc;
+//      ei e „Cere ofertă"), deci acolo nu există trial deloc;
 //   2. „Backup zilnic" — afirmație pe care o știm FALSĂ (workflow-ul de
 //      backup n-a produs niciodată un artefact);
 //   3. plata online vândută ca „în curând / în dezvoltare", în timp ce
@@ -22,7 +22,7 @@
 // dacă tabelul spune că o funcție e livrată pe un plan, cardul nu mai poate
 // spune „în curând" fără să facă testul roșu.
 // ─────────────────────────────────────────────────────────────
-import { PLAN_COMPARISON, getPlan, type PlanId } from './plans'
+import { PLAN_COMPARISON, getPlan, locationsPerAccountText, type PlanId } from './plans'
 
 /** Zile de trial acordate de `stripe-checkout` (STRIPE_TRIAL_DAYS, default 30). */
 export const TRIAL_DAYS = 30
@@ -32,7 +32,7 @@ export const PILOT_DAYS = 60
 
 /**
  * Planurile care primesc efectiv trial: cele care trec prin Stripe Checkout.
- * `pro` (Fiscalizare) NU e aici — CTA-ul lui deschide WhatsApp (pilot cu setup
+ * `pro` (Fiscalizare) NU e aici — CTA-ul lui e „Cere ofertă" (pilot cu setup
  * asistat), deci o promisiune de trial pe „orice plan" ar fi falsă.
  */
 export const TRIAL_PLAN_IDS: PlanId[] = ['starter', 'growth']
@@ -42,10 +42,13 @@ const trialPlanNames = TRIAL_PLAN_IDS.map((id) => getPlan(id).name)
 // RES-11: trialul pornește FĂRĂ card (`payment_method_collection:'if_required'`
 // + `missing_payment_method:'cancel'` în stripe-checkout.js). Fără card la
 // final, abonamentul se oprește SINGUR, fără plată — textul de mai jos nu mai
-// are voie să promită că „abonamentul continuă” (PC7 îl păzește).
+// are voie să promită că „abonamentul continuă” (PC11 îl păzește).
+// Anularea urmează Termenii §4.4: oricând, din aplicație, cu efect la finalul
+// perioadei deja plătite; în perioada de probă nu s-a plătit nimic (#302: fără
+// „cu un click”).
 export const TRIAL_HEADLINE =
   `${TRIAL_DAYS} de zile gratuite pe ${trialPlanNames.join(' și ')}, fără card. ` +
-  'Anulezi cu un click, fără penalizări.'
+  'Anulezi oricând din aplicație, fără penalizări.'
 
 export const TRIAL_FAQ = {
   q: `Ce se întâmplă după cele ${TRIAL_DAYS} de zile gratuite?`,
@@ -54,14 +57,15 @@ export const TRIAL_FAQ = {
     'dată per cont. Nu îți cerem cardul la început. Dacă adaugi un card până la final, ' +
     'abonamentul continuă la prețul planului și atunci se face prima plată. Dacă nu adaugi, ' +
     'abonamentul se oprește singur, fără nicio plată: meniul publicat rămâne, iar contul revine ' +
-    'la limitele planului gratuit. Fiscalizarea intră prin programul pilot, cu setup făcut ' +
-    `împreună. Datele tale rămân disponibile pentru export ${TRIAL_DAYS} de zile după anulare.`,
+    'la limitele planului gratuit. Poți anula oricând din aplicație. Fiscalizarea intră prin ' +
+    'programul pilot, cu setup făcut împreună. După încetarea abonamentului poți cere exportul ' +
+    'datelor tale timp de 30 de zile.',
 }
 
 export const PILOT_BANNER = {
   title: `Program Pilot — ${PILOT_DAYS} de zile gratis, în loc de ${TRIAL_DAYS}`,
   body:
-    `Primii 10 patroni primesc setup personal cu Radu și ${PILOT_DAYS} de zile gratuite pe ` +
+    `Primii 10 patroni primesc setup personal și ${PILOT_DAYS} de zile gratuite pe ` +
     'Meniu + Comenzi, în locul trialului obișnuit. Locurile sunt limitate.',
 }
 
@@ -71,12 +75,53 @@ export const PILOT_BANNER = {
  * ca vreun backup să existe. Exportul și ștergerea contului sunt REALE
  * (GdprCard + `export_user_data` / `request_account_deletion`, mig 042).
  */
+//
+// „30 de zile garanție" a fost SCOS (oct 2026): Termenii §4.4 spun că sumele
+// achitate NU se rambursează, deci o „garanție" e o promisiune contractuală
+// falsă; iar trialul nu acoperă „orice plan" (Fiscalizarea intră prin pilot),
+// deci nici „30 de zile gratuite" nu are ce căuta în banda asta — trialul e
+// deja în TRIAL_HEADLINE, cu planurile numite.
 export const INCLUDED_EVERYWHERE = [
   'Migrare gratuită a meniului',
-  `${TRIAL_DAYS} de zile garanție`,
   'Export date + ștergere cont (GDPR)',
-  'Suport WhatsApp direct',
+  'Suport prin agentul tău Menuvia și pe email',
 ]
+
+/**
+ * Întrebările din FAQ care au valoare CONTRACTUALĂ — date, nu JSX, ca să fie
+ * încrucișate cu Termenii (`menuvia-pack/02-DRAFT-TERMENI.md`) și cu limitele
+ * reale. Înainte pagina promitea „downgrade instant", „plătești per
+ * restaurant" (planul e pe CONT) și „modificările de preț se aplică doar la
+ * noi clienți" — toate trei contrazise de Termeni (§4.6, §15.2) sau de date.
+ */
+export const PLAN_CHANGE_FAQ = {
+  q: 'Pot schimba planul oricând?',
+  // Termenii §4.6: upgrade imediat, cu regularizare proporțională; downgrade
+  // de la următoarea perioadă de facturare.
+  a:
+    'Da. Trecerea la un plan superior are efect imediat, iar diferența de preț se calculează ' +
+    'proporțional. Trecerea la un plan inferior are efect de la următoarea perioadă de ' +
+    'facturare; până atunci păstrezi planul plătit.',
+}
+
+export const BILLING_SCOPE_FAQ = {
+  q: 'Plătesc per restaurant sau per cont?',
+  // `plan_limits.max_restaurants` (prin `limits.maxRestaurants`): planul e al
+  // contului (owner), iar locațiile intră sub același abonament.
+  a:
+    `Per cont: un abonament acoperă locațiile din contul tău. ${locationsPerAccountText()}. ` +
+    'Pentru lanțuri cu 3+ locații, scrie-ne — facem ofertă custom.',
+}
+
+export const PRICE_GUARANTEE_FAQ = {
+  q: 'Garantați prețul?',
+  // Termenii §15.2: preaviz de minimum 30 de zile, efect de la următoarea
+  // perioadă de facturare; §15.3: clientul poate înceta înainte.
+  a:
+    'Prețul nu se schimbă în timpul unei perioade deja plătite. Orice modificare de preț ți-o ' +
+    'anunțăm cu cel puțin 30 de zile înainte și se aplică abia de la următoarea perioadă de ' +
+    'facturare; dacă nu ești de acord, poți renunța înainte să intre în vigoare.',
+}
 
 export interface ExtraFeatureCopy {
   id: string

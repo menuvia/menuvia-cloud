@@ -1,7 +1,7 @@
 # Design: `restaurant_subscriptions` — planul per RESTAURANT, nu per owner
 
 > Status: DESIGN aprobabil, neimplementat. Închide datoria #5 din
-> ARCHITECTURE.md și „Faza 5" din docs/AFFILIATE_PROGRAM.md.
+> ARCHITECTURE.md și „Faza 5" din docs/archive/AFFILIATE_PROGRAM_v1_2026-06.md (v1; programul curent: docs/AFFILIATE_PROGRAM.md).
 > Toate faptele de mai jos au fost verificate în cod la 2026-07-03
 > (main = f642395, 196 migrații).
 
@@ -16,7 +16,7 @@ Planul stă pe `profiles.plan` al OWNER-ului. Consecințe concrete:
 - **`admin_set_restaurant_plan` (mig 186:499-532) e per-owner** — fondatorul
   „schimbă planul restaurantului X" și de fapt le schimbă pe toate ale
   aceluiași owner.
-- **Riscul de afiliere documentat** (AFFILIATE_PROGRAM.md:87-89): comision
+- **Riscul de afiliere documentat** (archive/AFFILIATE_PROGRAM_v1_2026-06.md, §3, fostele linii 87-89): comision
   pe 1 restaurant, entitlement pe N. Atribuirea e pe `referred_profile_id`
   (owner) pentru că `restaurant_id` nu există la checkout (Decizia #3, :250).
 - Stripe nu știe de restaurante: legătura e exclusiv
@@ -34,8 +34,8 @@ restaurant→owner→`profiles.plan`:
 | `get_restaurant_features` | mig 068:13-44 | TOT frontend-ul (`features.ts:43` → `useFeatures`) |
 | `enforce_feature_for_restaurant` | mig 087:22-52 | gate-urile fiscale/lifecycle (regula de aur) |
 
-(+ `enforce_ordering_enabled` mig 083 și `reserve_ai_import_slot` mig 141:44,
-care fac join-ul direct — se aliniază la pâlnie în Faza 0.)
+(+ `enforce_ordering_enabled` mig 083 → 290, care face join-ul direct — se aliniază
+la pâlnie în Faza 0. `reserve_ai_import_slot` a fost ȘTEARSĂ în mig 290: zero apelanți.)
 
 **Frontend-ul e DEJA per-restaurant** (`useFeatures(restaurantId)`, CLAUDE.md
 regula 3) — zero schimbări UI la citire. Singurele scrieri de plan sunt
@@ -73,7 +73,7 @@ comportamentul e byte-identic cu azi.**
 
 ### Faza 0 — fundația, zero schimbare de comportament
 - mig nouă: tabela + `restaurant_plan()` + rescrierea celor 3 pâlnii
-  (+ `enforce_ordering_enabled`, `reserve_ai_import_slot`) să cheme
+  (+ `enforce_ordering_enabled`) să cheme
   `restaurant_plan()` în loc de join-ul direct. Asserții: pe DB fără rânduri
   în tabelă, rezultatele sunt identice cu owner-plan (test A/B în migrație).
 - `stripe-checkout.js`: primește `restaurant_id` din body (UI-ul de checkout
@@ -126,7 +126,7 @@ de gating (`useFeatures` deja per-restaurant), customer-ul Stripe per user.
 
 ## 7. Când se execută
 
-Triggerul documentat (AFFILIATE_PROGRAM.md:74-76): primul owner
+Triggerul documentat (archive/AFFILIATE_PROGRAM_v1_2026-06.md, §3, fostele linii 74-76): primul owner
 multi-restaurant PLĂTITOR sau primul caz de fraudă prin afiliere
 multi-restaurant. Faza 0 e sigură oricând (zero comportament); Fazele 1-2
 cer o fereastră de atenție pe webhook-uri (~o zi de monitorizare).

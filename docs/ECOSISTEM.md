@@ -88,7 +88,7 @@ Formularea din v2 era greșită tehnic. Urmată literal, rupea checkout-ul.
 
 ### Ce NU se construiește acum, explicit
 
-Proiecte Supabase separate; al treilea escape în funel; discriminator pe `profiles`; price ID-uri Webvia/Bookvia în `PLAN_BY_PRICE`; CMS Webvia; conturi de consumator; „localuri neclamate"; NFC ca tehnologie (e SKU); **niciun afiliat aprobat prin `admin_review_affiliate`** până la decizia E9 (`AFFILIATE_PROGRAM.md` e pe „€29/lună Plan 3”, `:57-61`, iar comisioanele sunt cod viu: 30% setup + 10% × 12 luni + 2% cascadă); **`online_payment_fee_bps` rămâne 0** (mig 203:90) până când RES-30 are unealtă de facturare; nicio facturare anuală (un singur price ID per plan) — nici în texte (`02-DRAFT-TERMENI.md` §4.1, `PILOT_PLAYBOOK.md`).
+Proiecte Supabase separate; al treilea escape în funel; discriminator pe `profiles`; price ID-uri Webvia/Bookvia în `PLAN_BY_PRICE`; CMS Webvia; conturi de consumator; „localuri neclamate"; NFC ca tehnologie (e SKU); **niciun afiliat aprobat prin `admin_review_affiliate`** până la decizia E9 (v1 era pe „€29/lună Plan 3”, `docs/archive/AFFILIATE_PROGRAM_v1_2026-06.md` §2; propunerea recalculată pe 4 produse e `docs/AFFILIATE_PROGRAM.md`, iar comisioanele sunt cod viu: 30% setup + 10% × 12 luni + 2% cascadă); **`online_payment_fee_bps` rămâne 0** (mig 203:90) până când RES-30 are unealtă de facturare; nicio facturare anuală (un singur price ID per plan) — nici în texte (`02-DRAFT-TERMENI.md` §4.1, `PILOT_PLAYBOOK.md`).
 
 ### Costuri fixe înainte de primul leu
 

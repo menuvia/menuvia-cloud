@@ -7,6 +7,8 @@ import { menuType } from '../../lib/menuType'
 import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
 import { DIETARY_TAGS } from '../../lib/constants'
+import { T } from '../../lib/publicMenuStrings'
+import { Tf, dietaryLabel } from '../../lib/guestI18n'
 import ProductMinimalRow from './ProductMinimalRow'
 
 // ─────────────────────────────────────────────────────────────
@@ -53,6 +55,8 @@ interface ProductPhotoCardProps {
   theme: MenuTheme
   /** Moneda meniului (mig 205/206) — default 'RON' păstrează afișarea istorică. */
   currency?: MenuCurrency
+  /** Limba aleasă de oaspete — default 'ro' (call-site-urile istorice). */
+  lang?: string
 }
 
 const FS_MICRO = 11
@@ -69,6 +73,7 @@ function ProductPhotoCard({
   PUB,
   theme,
   currency = 'RON',
+  lang = 'ro',
 }: ProductPhotoCardProps) {
   // Fără imagine → rând compact tip listă (nu card gol). Aceeași interfață,
   // aceleași callback-uri — nimic de tradus.
@@ -114,8 +119,11 @@ function ProductPhotoCard({
   const priceColor = hasDiscount ? '#7BE093' : '#FFFFFF'
 
   const priceLabel = hasDiscount
-    ? `Preț redus ${fmtPrice(effectivePrice, currency)}, de la ${fmtPrice(basePrice, currency)}`
-    : `${hasRequiredMods ? 'De la ' : ''}${fmtPrice(effectivePrice, currency)}`
+    ? Tf(lang, 'price_discounted_aria', {
+        price: fmtPrice(effectivePrice, currency),
+        base: fmtPrice(basePrice, currency),
+      })
+    : `${hasRequiredMods ? `${T(lang, 'price_from')} ` : ''}${fmtPrice(effectivePrice, currency)}`
 
   return (
     <div
@@ -138,7 +146,7 @@ function ProductPhotoCard({
         onClick={() => {
           if (!isSoldOut) onOpen(product)
         }}
-        aria-label={`Vezi detalii ${product.name}`}
+        aria-label={Tf(lang, 'view_details_named', { name: product.name })}
         style={{
           display: 'block',
           position: 'relative',
@@ -193,10 +201,10 @@ function ProductPhotoCard({
                   <PhotoBadge label={`-${Math.round(pct)}%`} color="#7BE093" fonts={theme.fonts} />
                 )}
                 {shownTags.map((tagId) => (
-                  <PhotoTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} />
+                  <PhotoTagBadge key={tagId} tagId={tagId} fonts={theme.fonts} lang={lang} />
                 ))}
                 {hasRequiredMods && !isSoldOut && (
-                  <PhotoBadge label="opțiuni" color="#FFFFFF" fonts={theme.fonts} />
+                  <PhotoBadge label={T(lang, 'options_hint')} color="#FFFFFF" fonts={theme.fonts} />
                 )}
               </span>
             )}
@@ -233,7 +241,7 @@ function ProductPhotoCard({
                     marginRight: 4,
                   }}
                 >
-                  de la
+                  {T(lang, 'price_from_lc')}
                 </span>
               )}
               {hasDiscount && (
@@ -313,7 +321,7 @@ function ProductPhotoCard({
                   borderRadius: 100,
                 }}
               >
-                Epuizat
+                {T(lang, 'sold_out')}
               </span>
             </span>
           )}
@@ -333,7 +341,7 @@ function ProductPhotoCard({
             if (hasRequiredMods) onOpen(product)
             else onQuickAdd(product)
           }}
-          aria-label={`Adaugă ${product.name}`}
+          aria-label={Tf(lang, 'add_named', { name: product.name })}
           style={{
             position: 'absolute',
             right: 12,
@@ -397,7 +405,15 @@ function PhotoBadge({
 }
 
 // ── Badge dietetic glass (emoji + label din DIETARY_TAGS, alb pe poză) ──
-function PhotoTagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['fonts'] }) {
+function PhotoTagBadge({
+  tagId,
+  fonts,
+  lang,
+}: {
+  tagId: string
+  fonts: MenuTheme['fonts']
+  lang: string
+}) {
   const tag = DIETARY_TAGS.find((d) => d.id === tagId)
   if (!tag) return null
   return (
@@ -422,7 +438,7 @@ function PhotoTagBadge({ tagId, fonts }: { tagId: string; fonts: MenuTheme['font
       <span aria-hidden style={{ fontSize: 10 }}>
         {tag.emoji}
       </span>
-      {tag.label}
+      {dietaryLabel(lang, tag.id, tag.label)}
     </span>
   )
 }

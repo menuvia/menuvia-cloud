@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { Skeleton } from '../ui/Skeleton'
 import { Icon } from '../ui/Icon'
 import { readableTextOn } from '../../lib/themes'
+import { T } from '../../lib/publicMenuStrings'
 
 // ─────────────────────────────────────────────────────────────
 // Stări pentru MENIU (client) — skeleton la încărcare + eroare premium,
@@ -57,7 +58,7 @@ export function MenuListSkeleton({ PUB, count = 5 }: { PUB: PubColors; count?: n
 }
 
 /** Ecran de încărcare full-height cu schelet de listă (mobile-first). */
-export function MenuLoading({ PUB }: { PUB: PubColors }) {
+export function MenuLoading({ PUB, lang = 'ro' }: { PUB: PubColors; lang?: string }) {
   return (
     <div
       // Skeleton-urile sunt aria-hidden → fără asta, cititoarele de ecran n-ar
@@ -72,7 +73,7 @@ export function MenuLoading({ PUB }: { PUB: PubColors }) {
         padding: '16px 14px',
       }}
     >
-      <span className="visually-hidden">Se încarcă meniul…</span>
+      <span className="visually-hidden">{T(lang, 'menu_loading')}</span>
       <Skeleton variant="title" width="55%" height={26} style={{ marginBottom: 18 }} />
       <MenuListSkeleton PUB={PUB} count={5} />
     </div>
@@ -87,9 +88,11 @@ export function MenuLoading({ PUB }: { PUB: PubColors }) {
 export function MenuCatalogEmpty({
   PUB,
   fonts,
+  lang = 'ro',
 }: {
   PUB: PubColors
   fonts: { heading: string; body: string }
+  lang?: string
 }) {
   return (
     <div
@@ -113,10 +116,10 @@ export function MenuCatalogEmpty({
           marginBottom: 6,
         }}
       >
-        Meniul se pregătește
+        {T(lang, 'menu_preparing_title')}
       </div>
       <div style={{ fontFamily: fonts.body, fontSize: 13, color: PUB.text2, lineHeight: 1.5 }}>
-        Revino curând — preparatele vor apărea aici.
+        {T(lang, 'menu_preparing_sub')}
       </div>
     </div>
   )
@@ -128,13 +131,15 @@ export function MenuError({
   accent,
   fonts,
   onRetry,
-  title = 'Nu am putut încărca meniul',
-  message = 'Verifică conexiunea și încearcă din nou.',
+  lang = 'ro',
+  title = T(lang, 'menu_load_error_title'),
+  message = T(lang, 'menu_load_error_msg'),
 }: {
   PUB: PubColors
   accent: string
   fonts: { heading: string; body: string }
   onRetry?: () => void
+  lang?: string
   title?: string
   message?: string
 }) {
@@ -196,7 +201,7 @@ export function MenuError({
             minHeight: 44,
           }}
         >
-          Reîncearcă
+          {T(lang, 'retry')}
         </button>
       )}
     </div>

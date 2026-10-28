@@ -21,12 +21,23 @@
 // primit namespace-ul `checkout`):
 //   SC12 growth fără istoric → `payment_method_collection` pe SESIUNE (nu în
 //        subscription_data), `trial_settings.missing_payment_method=cancel` ÎN
-//        subscription_data, trial 30, datele de facturare cerute, cheie v2;
+//        subscription_data, trial 30, datele de facturare cerute, cheie v5;
 //   SC13 trial deja folosit → nicio cheie de trial, dar datele de facturare DA;
 //   SC14 STRIPE_TRIAL_DAYS=0 → nicio cheie de trial;
 //   SC15 pro/enterprise → nicio cheie de trial (gate server-side, regula de aur);
 //   SC16 Stripe respinge crearea sesiunii → 502 `checkout_create_failed`, românește;
 //   SC17 STRIPE_TRIAL_DAYS invalid ('30abc', '3000') → 30, nu Stripe-ul respins.
+//
+// Planul 3 + origine (PR #302 / main):
+//   SP1  REGULA DE AUR: un POST direct {plan:'pro'|'enterprise'} → 403
+//        `plan_requires_quote`, ZERO apeluri Stripe/Supabase — Planul 3 nu se
+//        vinde self-serve (decizia D4); UI-ul ascunde butonul, dar serverul e
+//        singura graniță de autorizare;
+//   SP2  refuzul nu depinde de majuscule și poartă mesaj românesc + adresa de ofertă;
+//   SP3  control pozitiv: starter/growth trec în continuare (altfel SP1 ar
+//        trece și cu funcția stricată de tot);
+//   SR1  success_url poartă planul CUMPĂRAT (`checkout_plan=`) — clientul
+//        anunță „planul e activ" doar când profilul îl are exact pe acela.
 
 'use strict'
 
@@ -78,6 +89,23 @@ beforeEach(() => {
 })
 
 describe('stripe-checkout — suprafața de eroare', () => {
+  it('SC-COM: cererea rutată pe menuvia.com → 403 site_checkout_unavailable, fără Stripe', async () => {
+    const res = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host: 'menuvia.com' })
+    assert.equal(res.statusCode, 403)
+    assert.equal(JSON.parse(res.body).code, 'site_checkout_unavailable')
+    for (const host of ['www.menuvia.com', 'MENUVIA.COM:443', 'menuvia.com.']) {
+      const r = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host })
+      assert.equal(r.statusCode, 403, host)
+    }
+  })
+
+  it('SC-COM2: menuvia.ro / preview / menuvia.com.evil.com NU sunt blocate de garda de piață', async () => {
+    for (const host of ['menuvia.ro', 'deploy-preview-1--menuvia.netlify.app', 'menuvia.com.evil.com', 'evilmenuvia.com']) {
+      const r = await post({ plan: 'growth' }, { authorization: 'Bearer tok', host })
+      assert.notEqual(r.statusCode, 403, host)
+    }
+  })
+
   it('SC1: metodă greșită → 405 cu corp TEXT, nu JSON', async () => {
     setEnv()
     const res = await handler({ httpMethod: 'GET', headers: {}, body: null })
@@ -204,6 +232,90 @@ describe('stripe-checkout — suprafața de eroare', () => {
     const body = parseBody(res)
     assert.ok(typeof body.error === 'string' && body.error.length > 0)
   })
+
+  it('SR1: success_url poartă `checkout_plan=<plan cumpărat>`, cancel_url neschimbat', async () => {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => []
+    state.stripeImpls['checkout.sessions.create'] = async () => ({
+      url: 'https://checkout.stripe.com/c/pay/cs_test',
+    })
+
+    const res = await post({ plan: 'growth' })
+    assert.equal(res.statusCode, 200)
+    const calls = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+    assert.equal(calls.length, 1)
+    const params = calls[0].args[0]
+    const success = new URL(params.success_url)
+    assert.equal(success.pathname, '/dashboard')
+    assert.equal(success.searchParams.get('checkout'), 'success')
+    assert.equal(success.searchParams.get('checkout_plan'), 'growth')
+    // `plan=` e intenția de pe /auth — nu are voie să apară în URL-ul de întoarcere.
+    assert.equal(success.searchParams.get('plan'), null)
+    assert.equal(new URL(params.cancel_url).search, '?checkout=cancelled')
+  })
+})
+
+describe('stripe-checkout — Planul 3 nu se vinde self-serve (regula de aur, D4)', () => {
+  function happyPath() {
+    setEnv()
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['subscriptions.list'] = async () => []
+    state.stripeImpls['checkout.sessions.create'] = async () => ({
+      url: 'https://checkout.stripe.com/c/pay/cs_test',
+    })
+  }
+
+  it('SP1: pro și enterprise → 403 plan_requires_quote, fără nicio sesiune Stripe', async () => {
+    for (const plan of ['pro', 'enterprise']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 403, plan)
+      const body = parseBody(res)
+      assert.equal(body.code, 'plan_requires_quote', plan)
+      // Nimic nu pleacă spre Stripe (nici customer, nici sesiune) și nu se
+      // atinge baza: nici rate-limit, nici profil, nici atribuire de afiliat.
+      assert.equal(state.stripeCalls.length, 0, plan)
+      assert.equal(state.rpcCalls.length, 0, plan)
+      assert.equal(state.fromCalls.length, 0, plan)
+    }
+  })
+
+  it('SP2: refuzul ignoră majusculele, e în română și numește adresa de ofertă', async () => {
+    for (const plan of ['PRO', 'Pro', 'ENTERPRISE']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan, referral_code: 'abc123' })
+      assert.equal(res.statusCode, 403, plan)
+      const body = parseBody(res)
+      assert.equal(body.code, 'plan_requires_quote')
+      assert.match(body.error, /ofert/i)
+      assert.match(body.error, /contact@menuvia\.ro/)
+      assert.equal(state.stripeCalls.length, 0, plan)
+    }
+  })
+
+  it('SP3 (control pozitiv): starter și growth trec în continuare spre Stripe', async () => {
+    for (const plan of ['starter', 'growth']) {
+      resetMocks()
+      happyPath()
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 200, plan)
+      const created = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+      assert.equal(created.length, 1, plan)
+    }
+  })
 })
 
 describe('stripe-checkout — trialul fără card (RES-11)', () => {
@@ -250,7 +362,7 @@ describe('stripe-checkout — trialul fără card (RES-11)', () => {
     assert.equal(params.billing_address_collection, 'required')
     assert.deepEqual(params.customer_update, { name: 'auto', address: 'auto' })
     assert.equal(params.subscription_data.metadata.plan, 'growth')
-    assert.match(opts.idempotencyKey, /^checkout_v2_u1_growth_none_30_\d+$/)
+    assert.match(opts.idempotencyKey, /^checkout_v5_[0-9a-f]{10}_u1_growth_none_30_\d+$/)
   })
 
   it('SC13: trial deja folosit → fără chei de trial, dar cu datele de facturare', async () => {
@@ -260,7 +372,7 @@ describe('stripe-checkout — trialul fără card (RES-11)', () => {
     const { params, opts } = sessionCall()
     assertNoTrialKeys(params)
     assert.deepEqual(params.tax_id_collection, { enabled: true })
-    assert.match(opts.idempotencyKey, /^checkout_v2_u1_growth_none_0_\d+$/)
+    assert.match(opts.idempotencyKey, /^checkout_v5_[0-9a-f]{10}_u1_growth_none_0_\d+$/)
   })
 
   it('SC14: STRIPE_TRIAL_DAYS=0 → trial dezactivat, fără chei de trial', async () => {
@@ -272,11 +384,20 @@ describe('stripe-checkout — trialul fără card (RES-11)', () => {
   })
 
   for (const plan of ['pro', 'enterprise']) {
-    it(`SC15: ${plan} → fără trial (gate server-side: Plan 3 fără card ar da bon fiscal gratis)`, async () => {
+    it(`SC15: ${plan} → fără trial și fără sesiune (Plan 3 fără card ar da bon fiscal gratis)`, async () => {
+      // Până la #302 acest caz ajungea la sesiune FĂRĂ chei de trial (200). Acum
+      // Planul 3 e refuzat înainte de orice (SP1); aici rămâne invariantul din
+      // perspectiva trialului: pe contul eligibil de trial, pro/enterprise NU
+      // produc nicio sesiune, deci nici chei de trial.
       scriptHappyPath([])
       const res = await post({ plan })
-      assert.equal(res.statusCode, 200)
-      assertNoTrialKeys(sessionCall().params)
+      assert.equal(res.statusCode, 403)
+      assert.equal(parseBody(res).code, 'plan_requires_quote')
+      assert.equal(
+        state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length,
+        0,
+        'pro/enterprise nu ajung la crearea sesiunii',
+      )
     })
   }
 
@@ -320,4 +441,113 @@ describe('stripe-checkout — trialul fără card (RES-11)', () => {
     await post({ plan: 'growth' })
     assert.equal(sessionCall().params.subscription_data.trial_period_days, 14)
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Intersecția #302 (Planul 3 doar prin ofertă) × #273 (trial fără card).
+//
+//   SX1  mulțimile sunt DISJUNCTE și oglindite în client: TRIAL_PLANS (server)
+//        = TRIAL_PLAN_IDS (pricingCopy.ts), QUOTE_ONLY_PLANS (server) =
+//        QUOTE_ONLY_PLAN_IDS (planCta.ts), iar intersecția e vidă. Un test
+//        COMPORTAMENTAL nu poate păzi asta: refuzul quote-only precede logica de
+//        trial, deci un `pro` strecurat în TRIAL_PLANS ar rămâne invizibil
+//        (mutația „pro în TRIAL_PLANS" nu schimbă niciun răspuns) până în ziua
+//        în care cineva scoate zăvorul quote-only — atunci ar da 30 de zile de
+//        Plan 3 fără card;
+//   SX2  pe un cont ELIGIBIL de trial (fără istoric, STRIPE_TRIAL_DAYS=30),
+//        pro/enterprise → 403 și ZERO apeluri Stripe/DB;
+//   SX3  la fel pe ramura cu customer NOU (profil fără stripe_customer_id):
+//        refuzul precede și `customers.create` — ramura în care trialul sare
+//        peste lookup-ul de abonamente (isFreshCustomer);
+//   SX4  control pozitiv: pe același cont growth primește trial fără card și
+//        starter la fel (altfel SX2/SX3 ar trece și cu trialul scos de tot).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('stripe-checkout — intersecția Plan 3 doar prin ofertă × trial fără card', () => {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  const ROOT = path.resolve(__dirname, '..', '..')
+  const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8')
+  const listFrom = (src, re, label) => {
+    const m = re.exec(src)
+    assert.ok(m, `${label} lipsește din sursă`)
+    return m[1].split(',').map((x) => x.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
+  }
+
+  it('SX1: TRIAL_PLANS ∩ QUOTE_ONLY_PLANS = ∅, ambele oglindite în client', () => {
+    const server = read('netlify/functions/stripe-checkout.js')
+    const trial = listFrom(server, /const TRIAL_PLANS = \[([^\]]*)\]/, 'TRIAL_PLANS')
+    const quote = listFrom(server, /const QUOTE_ONLY_PLANS = \[([^\]]*)\]/, 'QUOTE_ONLY_PLANS')
+    // Anti-vacuitate: ambele liste sunt ne-goale și conțin planurile așteptate.
+    assert.deepEqual(trial.slice().sort(), ['growth', 'starter'])
+    assert.deepEqual(quote.slice().sort(), ['enterprise', 'pro'])
+    const both = trial.filter((p) => quote.includes(p))
+    assert.deepEqual(both, [], `plan simultan cu trial ȘI doar-prin-ofertă: ${both.join(', ')}`)
+
+    const clientTrial = listFrom(
+      read('src/lib/pricingCopy.ts'),
+      /export const TRIAL_PLAN_IDS: PlanId\[\] = \[([^\]]*)\]/,
+      'TRIAL_PLAN_IDS',
+    )
+    const clientQuote = listFrom(
+      read('src/lib/planCta.ts'),
+      /export const QUOTE_ONLY_PLAN_IDS: readonly string\[\] = \[([^\]]*)\]/,
+      'QUOTE_ONLY_PLAN_IDS',
+    )
+    assert.deepEqual(trial, clientTrial, 'TRIAL_PLANS diferă de TRIAL_PLAN_IDS din client')
+    assert.deepEqual(quote, clientQuote, 'QUOTE_ONLY_PLANS diferă de QUOTE_ONLY_PLAN_IDS din client')
+  })
+
+  function eligibleAccount({ freshCustomer = false } = {}) {
+    setEnv()
+    process.env.STRIPE_TRIAL_DAYS = '30'
+    state.authUser = { id: 'u1', email: 'a@x.test' }
+    state.rpcHandlers['check_rate_limit'] = () => ({ data: true, error: null })
+    state.fromHandlers['profiles'] = () => ({
+      data: { stripe_customer_id: freshCustomer ? null : 'cus_1', email: 'a@x.test' },
+      error: null,
+    })
+    state.stripeImpls['customers.create'] = async () => ({ id: 'cus_new' })
+    state.stripeImpls['subscriptions.list'] = async () => []
+    state.stripeImpls['checkout.sessions.create'] = async () => ({ url: 'https://checkout.stripe.com/c/x' })
+  }
+  const untouched = (plan) => {
+    assert.equal(state.stripeCalls.length, 0, `${plan}: apel Stripe înainte de refuz`)
+    assert.equal(state.rpcCalls.length, 0, `${plan}: apel RPC înainte de refuz`)
+    assert.equal(state.fromCalls.length, 0, `${plan}: apel DB înainte de refuz`)
+  }
+
+  for (const plan of ['pro', 'enterprise']) {
+    it(`SX2: ${plan} pe cont eligibil de trial → 403, nicio sesiune, nicio atingere Stripe/DB`, async () => {
+      eligibleAccount()
+      const res = await post({ plan, referral_code: 'abc123' })
+      assert.equal(res.statusCode, 403)
+      assert.equal(parseBody(res).code, 'plan_requires_quote')
+      untouched(plan)
+    })
+
+    it(`SX3: ${plan} pe ramura customer NOU → refuzul precede și customers.create`, async () => {
+      eligibleAccount({ freshCustomer: true })
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 403)
+      assert.equal(parseBody(res).code, 'plan_requires_quote')
+      untouched(plan)
+      assert.equal(state.stripeCalls.filter((c) => c.name === 'customers.create').length, 0)
+    })
+  }
+
+  for (const plan of ['starter', 'growth']) {
+    it(`SX4 (control pozitiv): ${plan} pe același cont primește trial fără card`, async () => {
+      eligibleAccount()
+      const res = await post({ plan })
+      assert.equal(res.statusCode, 200)
+      const calls = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create')
+      assert.equal(calls.length, 1)
+      const params = calls[0].args[0]
+      assert.equal(params.payment_method_collection, 'if_required')
+      assert.equal(params.subscription_data.trial_period_days, 30)
+      assert.deepEqual(params.subscription_data.trial_settings, {
+        end_behavior: { missing_payment_method: 'cancel' },
+      })
+    })
+  }
 })

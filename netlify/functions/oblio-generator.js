@@ -291,20 +291,59 @@ async function fetchOrderLineItems(supabase, orderId, vatIncluded) {
       ? orderTotal / subtotalGross
       : 1
 
-  return rows.map((r) => {
-    const grossUnit = r.grossUnit * factor
-    // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
-    // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
-    // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
-    const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
-    return {
-      name: r.name,
-      quantity: r.qty,
-      price,
-      vatPercentage: r.vatPercent,
-      vatIncluded,
+  // ── Rotunjire la BANI + restul pe linia CEA MAI MARE (BF-8) ─────────────────
+  // Un factor zecimal infinit (3 × 10 lei, discount 10 → 0,9 e exact, dar 20/30 sau
+  // 1/3 nu) dădea un preț unitar cu zecimale pe care Oblio îl rotunjește la 2: 6,67 × 3
+  // = 20,01 ≠ 20,00 plătit. Lucrăm în bani întregi: totalul liniei se rotunjește o
+  // dată, iar pe discount reziduul față de order.total (rotunjiri independente per
+  // linie) se absoarbe pe linia cu suma CEA MAI MARE (la egalitate, ultima dintre
+  // ele). NU pe ultima linie oarbă: o ultimă linie de 0 lei (garnitură gratuită) ar
+  // fi primit −1 ban, adică un preț NEGATIV pe o factură fiscală. Dacă reziduul
+  // negativ depășește linia cea mai mare (practic imposibil — reziduul e de ordinul
+  // a câțiva bani), restul trece pe următoarea, fără să coboare vreo linie sub 0.
+  // O linie cu cantitate > 1 al cărei preț unitar nu se împarte exact în bani se
+  // desparte în (qty-1) × preț rotunjit + 1 × restul, deci Σ(preț × cantitate) ==
+  // totalul liniei.
+  const lineCents = rows.map((r) => Math.round(Number((r.grossUnit * r.qty * factor * 100).toFixed(6))))
+  if (factor !== 1 && Number.isFinite(orderTotal) && lineCents.length > 0) {
+    let residual = Math.round(orderTotal * 100) - lineCents.reduce((s, c) => s + c, 0)
+    // indicii ordonați descrescător după sumă; la egalitate, indicele MAI MARE întâi
+    const byAmount = lineCents.map((_, i) => i).sort((a, b) => lineCents[b] - lineCents[a] || b - a)
+    for (const i of byAmount) {
+      if (residual === 0) break
+      const delta = residual > 0 ? residual : Math.max(residual, -lineCents[i])
+      lineCents[i] += delta
+      residual -= delta
+    }
+  }
+
+  const out = []
+  rows.forEach((r, i) => {
+    const total = lineCents[i]
+    const push = (qty, grossCentsPerUnit) => {
+      const grossUnit = grossCentsPerUnit / 100
+      // Oblio interpretează `price` în funcție de `vatIncluded`: gross (nu mai adaugă
+      // TVA) sau net (adaugă TVA peste). Derivăm NET-ul când vatIncluded=false, ca
+      // totalul facturii să rămână = gross-ul plătit (post-discount) în ambele cazuri.
+      const price = vatIncluded ? grossUnit : grossUnit / (1 + r.vatPercent / 100)
+      out.push({ name: r.name, quantity: qty, price, vatPercentage: r.vatPercent, vatIncluded })
+    }
+    if (Number.isInteger(r.qty) && r.qty > 1) {
+      // floor, NU round (recenzie CodeRabbit pe #285): un unitar rotunjit în SUS
+      // face ca `unit*(qty-1) > total` și rândul-rest să iasă NEGATIV (7 bani pe
+      // 10 bucăți: round → 1, rest = 7 − 9 = −2). Cu floor restul e ≥ unit ≥ 0.
+      const unit = Math.floor(total / r.qty)
+      if (unit * r.qty === total) {
+        push(r.qty, unit)
+      } else {
+        push(r.qty - 1, unit)
+        push(1, total - unit * (r.qty - 1))
+      }
+    } else {
+      push(r.qty, total / r.qty)
     }
   })
+  return out
 }
 
 // ── Derivă denumirea cotei TVA (vatName) din procentul real ──

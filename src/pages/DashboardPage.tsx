@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { planTier, type PlanTier } from '../lib/features'
+import { productLimitReason, surfaceTiers, type PlanTier } from '../lib/features'
+import { retryPendingCountry } from '../lib/pendingCountry'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { useAuth } from '../contexts/AuthContext'
@@ -45,6 +46,7 @@ const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
+import { isPartnerTab } from '../lib/partnerAccess'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 
@@ -79,7 +81,9 @@ function UpgradeModal({
     { label: 'Comenzi prin QR', free: '—', pro: '✓' },
     { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
     { label: 'Comenzi ospătar', free: '—', pro: '✓' },
-    { label: 'Rapoarte', free: 'De bază', pro: 'Zilnic + săptămânal' },
+    // Tab-ul Rapoarte e minTier 2; pe growth = evidența comenzilor (fără
+    // rapoarte pe email — acelea numără doar comenzi `paid`).
+    { label: 'Rapoarte', free: '—', pro: 'Comenzi + produse vândute' },
   ]
   return (
     <div
@@ -431,6 +435,9 @@ interface SubTab {
   label: string
   adminOnly?: boolean
   minTier?: PlanTier
+  // Suprafață de BANI/BON: minTier se compară cu tier-ul `money` (moneyTier —
+  // coborât sub 3 în afara RO, mig 296), nu cu planul. Pe RO identic.
+  money?: true
   platformAdminOnly?: boolean
   // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
   hiddenPickupOnly?: boolean
@@ -488,11 +495,11 @@ const NAV_GROUPS: NavGroup[] = [
     subTabs: [
       { id: 'raport', label: 'Rapoarte' },
       { id: 'analytics', label: 'Statistici', minTier: 3 },
-      { id: 'tva', label: 'TVA', minTier: 3 },
-      { id: 'casa-tura', label: 'Încasări', minTier: 3 },
+      { id: 'tva', label: 'TVA', minTier: 3, money: true },
+      { id: 'casa-tura', label: 'Încasări', minTier: 3, money: true },
       // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
       { id: 'casa-marcat', label: 'Casă & tichete', minTier: 2 },
-      { id: 'invoices', label: 'Facturi', minTier: 3 },
+      { id: 'invoices', label: 'Facturi', minTier: 3, money: true },
       // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
       { id: 'gestiune', label: 'Stocuri', minTier: 2 },
     ],
@@ -517,12 +524,13 @@ function isSubTabVisible(
   st: SubTab,
   isAdmin: boolean,
   tier: PlanTier,
+  moneyTierValue: PlanTier,
   isPlatAdmin: boolean,
   pickupOnly: boolean,
 ): boolean {
   if (st.platformAdminOnly && !isPlatAdmin) return false
   if (st.adminOnly && !isAdmin) return false
-  if (st.minTier && tier < st.minTier) return false
+  if (st.minTier && (st.money ? moneyTierValue : tier) < st.minTier) return false
   // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
   if (st.hiddenPickupOnly && pickupOnly) return false
   return true
@@ -664,7 +672,9 @@ export default function DashboardPage({
   // deosebire de isPlatAdmin (RPC async care pornește false): eticheta
   // bannerului și ținta „Ieși din cont" nu depind de o cursă de rețea.
   const founderViewOrigin = getFounderViewOrigin()
-  const [tab, setTab] = useState<Tab>('home')
+  // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
+  const isPartner = activeRole === 'partner'
+  const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
   // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
@@ -721,14 +731,46 @@ export default function DashboardPage({
   const features = useFeatures(restaurant?.id ?? null)
   const modulesState = useRestaurantModules(restaurant?.id ?? null)
 
+  // Țara aleasă la onboarding (.com) al cărei UPDATE a picat: o reîncercăm O
+  // DATĂ per restaurant și per încărcare, doar pentru OWNER-ul real (nu în
+  // founder-view — trg_restaurants_country_owner_only, mig 296). Pe .ro nu
+  // există niciodată o intenție păstrată → no-op (lib/pendingCountry.ts).
+  const countryRetriedRef = useRef<Set<string>>(new Set())
+  const restaurantId = restaurant?.id ?? null
+  const restaurantCountry = restaurant?.country ?? null
+  const isRealOwner =
+    activeRole === 'owner' && !inFounderView && restaurant != null && restaurant.owner_id === user?.id
+  useEffect(() => {
+    if (!restaurantId || !isRealOwner) return
+    if (countryRetriedRef.current.has(restaurantId)) return
+    countryRetriedRef.current.add(restaurantId)
+    void retryPendingCountry({
+      restaurantId,
+      currentCountry: restaurantCountry,
+      isOwner: true,
+      update: async (patch) => {
+        const { error } = await update(restaurantId, patch)
+        return { error }
+      },
+    }).then((res) => {
+      if (res === 'failed') {
+        console.warn('[dashboard] țara restaurantului încă nesalvată — reîncerc la următoarea încărcare')
+      }
+    })
+  }, [restaurantId, restaurantCountry, isRealOwner, update])
+
   // Planul aparține RESTAURANTULUI, nu user-ului (CLAUDE.md §3): citim
   // get_restaurant_features, corect și pentru staff (un waiter pe restaurant
   // 'free' care e owner 'pro' altundeva nu trebuie să vadă limite/tab-uri 'pro').
   // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv).
   const plan = features.features?.plan ?? 'free'
 
-  // Tier comercial derivat din planul restaurantului.
-  const tier: PlanTier = planTier(plan)
+  // DOUĂ tier-uri (surfaceTiers, lib/features.ts): `tier` = planul (gating
+  // general, inclusiv feature-urile NEfiscale de Plan 3: harta sălii,
+  // statistici, program echipă); `money` = moneyTier, DOAR pe suprafețele de
+  // bani/bon (plăți, bonuri, casă, facturi, încasări, TVA) — coborât sub 3
+  // pentru un restaurant din afara României (mig 296). Pe RO sunt identice.
+  const { general: tier, money } = surfaceTiers(features.features)
 
   // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
   // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.
@@ -740,8 +782,10 @@ export default function DashboardPage({
   // sub-tab vizibil dispare complet din sidebar.
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter((st) =>
-      isSubTabVisible(st, isAdminRole, tier, isPlatAdmin, pickupOnly),
+    subTabs: g.subTabs.filter(
+      (st) =>
+        isSubTabVisible(st, isAdminRole, tier, money, isPlatAdmin, pickupOnly) &&
+        (!isPartner || isPartnerTab(st.id)),
     ),
   })).filter(
     (g) =>
@@ -754,8 +798,8 @@ export default function DashboardPage({
   // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) →
   // înapoi Acasă.
   useEffect(() => {
-    if (activeGroup == null) setTab('home')
-  }, [activeGroup])
+    if (activeGroup == null) setTab(isPartner ? 'products' : 'home')
+  }, [activeGroup, isPartner])
 
   // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
@@ -1001,9 +1045,7 @@ export default function DashboardPage({
         productCount={productCount}
         maxProducts={planLimits.max_products}
         onUpgrade={() =>
-          setUpgradeReason(
-            `Ai atins limita de produse pe planul Gratuit (${planLimits.max_products} produse).`,
-          )
+          setUpgradeReason(productLimitReason(plan, planLimits.max_products))
         }
       />
       <div
@@ -1425,7 +1467,10 @@ export default function DashboardPage({
                   <HomeTab
                     restaurantId={restaurant.id}
                     restaurantName={restaurant.name}
-                    tier={tier}
+                    // HomeTab folosește tier ≥ 3 DOAR pentru banner-ul casei
+                    // fiscale (bani/bon) → tier-ul `money`; pragurile ≥ 2 sunt
+                    // identice pe ambele tier-uri.
+                    tier={money}
                     isAdmin={isAdminRole}
                     productCount={productCount}
                     pickupOnly={pickupOnly}
@@ -1451,7 +1496,8 @@ export default function DashboardPage({
                   // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
                   isAdmin={isAdminRole}
-                  tier={tier}
+                  // „plăți la masă" = suprafață de bani → tier-ul `money`.
+                  tier={money}
                 />
               )}
               {tab === 'products' && (
@@ -1460,7 +1506,7 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     plan={plan}
                     onUpgrade={() =>
-                      setUpgradeReason('Ai atins limita de produse pe planul Gratuit (15 produse).')
+                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
                     }
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1469,7 +1515,10 @@ export default function DashboardPage({
               )}
               {tab === 'categories' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă categoriile..." />}>
-                  <CategoriesTab restaurantId={restaurant.id} />
+                  <CategoriesTab
+                    restaurantId={restaurant.id}
+                    menuLanguages={restaurant.menu_languages ?? []}
+                  />
                 </Suspense>
               )}
               {tab === 'modificatori' && (
@@ -1484,12 +1533,17 @@ export default function DashboardPage({
               )}
               {tab === 'analytics' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă graficele…" />}>
-                  <AnalyticsTab restaurantId={restaurant.id} plan={plan} onUpgrade={onPricing} />
+                  <AnalyticsTab
+                    restaurantId={restaurant.id}
+                    plan={plan}
+                    fiscalEnabled={features.features?.features?.fiscal_receipt?.enabled ?? null}
+                    onUpgrade={onPricing}
+                  />
                 </Suspense>
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă raportul..." />}>
-                  <ReportsTab restaurantId={restaurant.id} fiscalReports={tier >= 3} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={money >= 3} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
@@ -1564,7 +1618,7 @@ export default function DashboardPage({
                 </Suspense>
               )}
               {tab === 'invoices' &&
-                (tier >= 3 ? (
+                (money >= 3 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
                     <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
                   </Suspense>
@@ -1615,7 +1669,7 @@ export default function DashboardPage({
                 // secțiunile fiscale. Sub tier 2 rămâne upgrade prompt.
                 (tier >= 2 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={tier >= 3} />
+                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={money >= 3} />
                   </Suspense>
                 ) : (
                   <UpgradePrompt
