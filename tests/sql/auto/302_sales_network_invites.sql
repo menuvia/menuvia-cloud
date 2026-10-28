@@ -187,6 +187,21 @@ begin
     end loop;
   end loop;
 
+  -- CLICHET DE CLASĂ (prin descoperire): orice funcție din `public` al cărei corp atinge
+  -- tabelele rețelei NU e apelabilă de anon/service_role — o funcție VIITOARE care le
+  -- citește cu un grant larg face CI roșu aici, fără să fie nevoie s-o enumerăm.
+  v_n := 0;
+  for v_oid, fn in
+    select p.oid, p.proname::text from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.prokind = 'f'
+       and p.prosrc ~ 'affiliate_invitations|affiliate_contract_acceptances'
+  loop
+    v_n := v_n + 1;
+    if has_function_privilege('anon', v_oid, 'EXECUTE') or has_function_privilege('service_role', v_oid, 'EXECUTE') then
+      raise exception 'IN1 FAIL: % atinge tabelele rețelei și e apelabilă de anon/service_role', fn; end if;
+  end loop;
+  if v_n < 7 then raise exception 'IN1 FAIL (anti-vacuitate): doar % funcții descoperite care ating tabelele rețelei', v_n; end if;
+
   -- Tabelele: RLS pornit, ZERO politici, zero privilegii pentru niciun rol client.
   foreach v_tbl in array array['affiliate_invitations', 'affiliate_contract_acceptances'] loop
     if not (select relrowsecurity from pg_class where oid = ('public.' || v_tbl)::regclass) then
