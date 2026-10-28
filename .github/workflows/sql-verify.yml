@@ -1838,6 +1838,15 @@ jobs:
           psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
             -f tests/sql/advisor_hardening_assertions.sql
 
+      # Mig 300: alerta „client în pericol" merge la agent, niciodată la patron;
+      # compute_health_scores rămâne dead-man's switch-ul /health (HA4/HA4b).
+      - name: "Health alert routed to agent, never to owner (mig 300, HA1–HA6)"
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d menuvia_test -v ON_ERROR_STOP=1 \
+            -f tests/sql/health_alert_routing_assertions.sql
+
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
