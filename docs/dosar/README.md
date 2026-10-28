@@ -2,7 +2,7 @@
 
 > **Stare:** 28 oct 2026. Pregătit de AI din planul `PLAN_optimizat` §0.2 (Ședința 1, 2a, 2, 3) și §0.3 pachetul 4. **Doar documente**: niciun cod, nicio migrație, niciun workflow modificat.
 > **Nu e sfat juridic sau fiscal.** Emailurile pun ÎNTREBĂRI; contractele sunt DRAFT pentru avocat. Răspunsurile contabilului și ale avocatului le primește AI-ul de la tine și le pune în cod și în texte.
-> **Regulă:** nicio valoare secretă nu se scrie în acest director. Secretele se pun doar în consolele indicate în `05-ghid-ședința-1.md`.
+> **Regulă:** nicio valoare secretă nu se scrie în acest director. Secretele se pun doar în consolele indicate în `05-ghid-sedinta-1.md`.
 
 ## Ce conține directorul
 
@@ -13,7 +13,7 @@
 | [`03-contract-agent-v1-draft.md`](03-contract-agent-v1-draft.md) | Ciorna contractului de agent (DRAFT) | Atașament la avocat |
 | [`03b-contract-sef-vanzari-v1-draft.md`](03b-contract-sef-vanzari-v1-draft.md) | Ciorna contractului de șef de vânzări (DRAFT; doar diferențele față de agent) | Atașament la avocat |
 | [`04-fisa-decizii-D1-D15.md`](04-fisa-decizii-D1-D15.md) | Fișa D1–D15: decizie, varianta recomandată, ce se întâmplă dacă răspunzi NU | Ședința 1, pasul 12 |
-| [`05-ghid-ședința-1.md`](05-ghid-ședința-1.md) | Ghid pas cu pas pentru Ședința 1: căi de meniu, nume exacte de variabile/secrete, ce faci tu și ce face AI-ul | În timpul Ședinței 1 |
+| [`05-ghid-sedinta-1.md`](05-ghid-sedinta-1.md) | Ghid pas cu pas pentru Ședința 1: căi de meniu, nume exacte de variabile/secrete, ce faci tu și ce face AI-ul | În timpul Ședinței 1 |
 
 ## Înainte de Ședința 1
 
@@ -23,7 +23,7 @@
 
 ## Ședința 1 — 28 oct (~100 min): tot ce nu cere firmă
 
-Ordinea de mai jos e cea din ghid (are în vedere dependențele DNS → Resend → SMTP → Netlify). Detaliile click cu click sunt în [`05-ghid-ședința-1.md`](05-ghid-ședința-1.md).
+Ordinea de mai jos e cea din ghid (are în vedere dependențele DNS → Resend → SMTP → Netlify). Detaliile click cu click sunt în [`05-ghid-sedinta-1.md`](05-ghid-sedinta-1.md).
 
 | ✓ | Pas | Ce faci (👤) | Min | Ce deblochează |
 |---|---|---|---:|---|

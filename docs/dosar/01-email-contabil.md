@@ -9,7 +9,7 @@
 
 1. Alegi 1–2 firme de contabilitate (cere ofertă la ambele dacă poți; răspunsurile la întrebările de mai jos te ajută să le compari).
 2. Trimiți emailul de mai jos. **Atașezi:** nimic obligatoriu. Opțional, linkul către pagina de prețuri după ce îl ai.
-3. Întrebi explicit dacă firma colaborează cu un furnizor de **semnătură electronică calificată** (ONRC și SPV o cer). Dacă da, comanzi prin ei; dacă nu, comanzi tu de la un furnizor calificat (vezi `05-ghid-ședința-1.md`, pasul 1).
+3. Întrebi explicit dacă firma colaborează cu un furnizor de **semnătură electronică calificată** (ONRC și SPV o cer). Dacă da, comanzi prin ei; dacă nu, comanzi tu de la un furnizor calificat (vezi `05-ghid-sedinta-1.md`, pasul 1).
 4. Răspunsurile pe care ți le dă contabilul: le copiezi într-un singur mesaj către mine, **cu aceleași numere ca în email (1–28)**. Cu ele deblochez: baza comisionului, textul de TVA de pe pagina de prețuri, autofacturarea (cod), seria Oblio, pachetul 9 (Legal-final) și pachetul 13 (Plăți automate).
 
 ## Subiect
