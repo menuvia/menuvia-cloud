@@ -105,7 +105,13 @@ function psql(url, args) {
       ...process.env,
       PGAPPNAME: 'menuvia-apply-prod-migrations',
       PGCONNECT_TIMEOUT: process.env.PGCONNECT_TIMEOUT || '30',
+      // Plasă pentru ORICE fișier: un DDL care așteaptă un ACCESS EXCLUSIVE în
+      // spatele unei tranzacții lungi blochează tot traficul pe tabelă. Fișierele
+      // pot suprascrie cu `set local` (cele recente o fac deja); un fișier care are
+      // nevoie de mai mult pentru un backfill își ridică singur pragul.
+      PGOPTIONS: process.env.PGOPTIONS || '-c lock_timeout=10s -c statement_timeout=15min',
     },
+    timeout: 30 * 60 * 1000,
   })
   // NU se citează niciodată argv-ul (conține URL-ul) — doar codul de eroare.
   if (r.error) throw new CliError(3, `psql nu a putut fi pornit (${r.error.code || 'eroare'})`)

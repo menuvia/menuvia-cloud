@@ -241,10 +241,12 @@ jobs:
               if [ -n "$art" ]; then
                 curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o backup.zip "https://api.github.com/repos/$REPO/actions/artifacts/$art/zip"
                 unzip -o -q backup.zip -d backup && rm backup.zip
-                enc="$(ls backup/*.dump.enc | head -1)"
-                openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$enc" -out rehearsal.dump
+                enc="$(find backup -maxdepth 1 -name '*.dump.enc' | sort | head -1)"
+                if [ -n "$enc" ]; then
+                  openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSPHRASE -in "$enc" -out rehearsal.dump
+                  src="backup-ul zilnic din run-ul $run_id ($(basename "$enc"))"
+                fi
                 rm -rf backup
-                src="backup-ul zilnic din run-ul $run_id ($(basename "$enc"))"
               fi
             fi
           fi

@@ -36,7 +36,7 @@ git cat-file -e "$BASE^{commit}" 2>/dev/null || build "baza $BASE nu e în clon�
 git cat-file -e "$HEAD_REF^{commit}" 2>/dev/null || build "commit-ul $HEAD_REF nu e în clonă"
 [ "$(git rev-parse "$BASE")" = "$(git rev-parse "$HEAD_REF")" ] && build "aceeași bază — redeploy deliberat"
 
-changed="$(git diff --name-only "$BASE" "$HEAD_REF" 2>/dev/null)" || build "git diff a picat"
+changed="$(git diff --no-renames --name-only "$BASE" "$HEAD_REF" 2>/dev/null)" || build "git diff a picat"
 [ -n "$changed" ] || build "diff gol între commit-uri diferite"
 
 while IFS= read -r f; do

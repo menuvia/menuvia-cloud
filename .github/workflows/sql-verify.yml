@@ -61,10 +61,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Clientul 17 (PGDG), ca serverul din `services:` — `pg_dump` 16 (cel din
+      # apt-ul runnerului) refuză un server 17 („server version mismatch”), iar
+      # AM5 (PR-0) face un pg_dump real. Bin-ul 17 intră primul în PATH pentru
+      # toți pașii următori (psql 17 vorbește fără probleme cu serverul 17).
       - name: Setup PostgreSQL client
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | \
+            sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Wait for Postgres ready
         env:

@@ -239,5 +239,5 @@ test('PM10: URL-ul și parola sunt redactate; un șir non-URI e refuzat înainte
   assert.match(validateDbUrl(''), /lipsește/)
   const r = redact(`eroare la ${url}; parola S3cr@t-pass sau S3cr%40t-pass`, url)
   assert.ok(!r.includes('S3cr'), r)
-  assert.ok(!r.includes('pooler.supabase.com:5432/postgres') || !r.includes('S3cr'))
+  assert.ok(!r.includes('pooler.supabase.com:5432/postgres'), r)
 })

@@ -91,6 +91,17 @@ test('NI9: subdirector cu nume asemănător (docs-site/, testsuite/) NU e ignora
   const head = commit({ 'docs-site/a.md': String(Math.random()), 'testsuite/a.ts': '1' })
   assert.equal(run({ CONTEXT: 'production', CACHED_COMMIT_REF: base, COMMIT_REF: head }).code, BUILD)
 })
+test('NI11: mutarea unui fișier din src/ în docs/ (rename) → BUILD, nu SKIP', () => {
+  // Fără --no-renames, `git diff --name-only` listează doar calea NOUĂ (docs/…),
+  // iar un fișier-sursă șters ar trece drept „doar documentație”.
+  const body = 'export const moved = 1\n'.repeat(5)
+  commit({ 'src/moved.ts': body })
+  const base = g('rev-parse', 'HEAD')
+  g('mv', 'src/moved.ts', 'docs/moved.ts')
+  g('commit', '-q', '-m', 'mută src → docs')
+  const head = g('rev-parse', 'HEAD')
+  assert.equal(run({ CONTEXT: 'production', CACHED_COMMIT_REF: base, COMMIT_REF: head }).code, BUILD)
+})
 test('NI10: netlify.toml folosește scriptul ca `ignore` în [build]', () => {
   const toml = readFileSync(join(ROOT, 'netlify.toml'), 'utf8')
   const buildBlock = toml.split(/^\[/m).find((b) => b.startsWith('build]'))
