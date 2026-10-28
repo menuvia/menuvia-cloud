@@ -90,6 +90,11 @@ jobs:
       # care poate rula și local, nu doar în CI.
       - name: OSV audit gate unit tests
         run: node --test tests/osv-gate/osv-audit.test.mjs
+      # Aplicarea automată a migrațiilor pe producție (PR-0): logica pură —
+      # numele din ledger, golurile, forma fișierelor, poziția rândului de
+      # ledger, poarta. Integrarea pe Postgres real (AM1–AM4) e în sql-verify.
+      - name: Prod migrations unit tests (PM1–PM10)
+        run: node --test tests/prod-migrations/*.test.mjs
 
   coverage:
     name: Coverage report
