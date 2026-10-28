@@ -97,7 +97,9 @@ const replace = vi.fn()
 function renderPage(kind: 'head' | 'agent' = 'head', token: string = TOKEN) {
   const base = kind === 'head' ? '/sef-vanzari' : '/echipa'
   window.history.replaceState({}, '', `${base}/${token}`)
-  return render(<SalesInviteRedeemPage kind={kind} token={token} navigate={navigate} replace={replace} />)
+  return render(
+    <SalesInviteRedeemPage kind={kind} token={token} navigate={navigate} replace={replace} />,
+  )
 }
 
 const submitButton = () => screen.getByRole('button', { name: /accept și intru în echipă/i })
@@ -136,7 +138,12 @@ describe('SalesInviteRedeemPage', () => {
   it('PG2: contract nepublicat → „se deschide în curând", butonul rămâne dezactivat', async () => {
     serverReturns({
       network: {
-        contract: { current_version: null, accepted_version: null, accepted_at: null, needs_acceptance: false },
+        contract: {
+          current_version: null,
+          accepted_version: null,
+          accepted_at: null,
+          needs_acceptance: false,
+        },
       },
     })
     const user = userEvent.setup()
@@ -152,7 +159,12 @@ describe('SalesInviteRedeemPage', () => {
   it('PG3: versiune publicată fără text în bundle → buton dezactivat', async () => {
     serverReturns({
       network: {
-        contract: { current_version: '9.9', accepted_version: null, accepted_at: null, needs_acceptance: false },
+        contract: {
+          current_version: '9.9',
+          accepted_version: null,
+          accepted_at: null,
+          needs_acceptance: false,
+        },
       },
     })
     const user = userEvent.setup()

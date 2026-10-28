@@ -61,7 +61,12 @@ const cardStyle: CSSProperties = {
   padding: 18,
 }
 const titleStyle: CSSProperties = { fontWeight: 600, fontSize: '0.9rem', marginBottom: 4 }
-const hintStyle: CSSProperties = { fontSize: '0.8rem', color: D.t2, lineHeight: 1.5, margin: '0 0 12px' }
+const hintStyle: CSSProperties = {
+  fontSize: '0.8rem',
+  color: D.t2,
+  lineHeight: 1.5,
+  margin: '0 0 12px',
+}
 const inputStyle: CSSProperties = {
   background: D.s3,
   border: `1px solid ${D.border}`,
@@ -495,9 +500,7 @@ function InvitesList({
                 </div>
                 <div style={mutedStyle}>
                   Invitat de{' '}
-                  {inv.kind === 'head'
-                    ? 'fondator'
-                    : (inv.invitedByName ?? '(cont șters)')}
+                  {inv.kind === 'head' ? 'fondator' : (inv.invitedByName ?? '(cont șters)')}
                   {' · creată '}
                   {formatWhen(inv.createdAt)}
                   {inv.state === 'open' ? ` · expiră ${formatWhen(inv.expiresAt)}` : ''}
@@ -573,7 +576,8 @@ function NetworkList({
           : target === 'suspended'
             ? 'Contul nu mai primește comisioane noi și nu mai poate trimite invitații. Comisioanele deja câștigate rămân în evidență. Poți reactiva contul oricând.'
             : 'Contul redevine activ: primește din nou comisioane și poate trimite invitații.',
-      confirmLabel: target === 'closed' ? 'Închide' : target === 'suspended' ? 'Suspendă' : 'Reactivează',
+      confirmLabel:
+        target === 'closed' ? 'Închide' : target === 'suspended' ? 'Suspendă' : 'Reactivează',
       destructive: target !== 'active',
     })
     if (!ok) return
@@ -626,7 +630,11 @@ function NetworkList({
                 </span>
               </div>
               {options.length > 0 && editingId !== r.affiliateId && (
-                <button type="button" onClick={() => startEdit(r.affiliateId, r.status)} style={ghostBtn}>
+                <button
+                  type="button"
+                  onClick={() => startEdit(r.affiliateId, r.status)}
+                  style={ghostBtn}
+                >
                   Schimbă starea
                 </button>
               )}
@@ -674,7 +682,11 @@ function NetworkList({
 }
 
 // ── Panoul ────────────────────────────────────────────────────────────────────
-export default function SalesNetworkPanel({ affiliates, affiliatesError, onNetworkChanged }: Props) {
+export default function SalesNetworkPanel({
+  affiliates,
+  affiliatesError,
+  onNetworkChanged,
+}: Props) {
   const net = useSalesNetwork(true)
   const [invites, setInvites] = useState<AdminInvite[] | null>(null)
   const [invitesError, setInvitesError] = useState<SalesNetworkError | null>(null)

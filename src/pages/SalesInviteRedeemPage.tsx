@@ -19,7 +19,7 @@
 //     doar dă un mesaj imediat.
 // =============================================================
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { D } from '../lib/constants'
 import { useAuth } from '../contexts/AuthContext'
 import { useSalesNetwork } from '../hooks/useSalesNetwork'
@@ -150,7 +150,7 @@ function primaryButton(disabled: boolean): CSSProperties {
   }
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children }: { children: ReactNode }) {
   return (
     <div style={pageStyle}>
       <div style={cardStyle}>{children}</div>
@@ -158,7 +158,12 @@ function Shell({ children }: { children: React.ReactNode }) {
   )
 }
 
-export default function SalesInviteRedeemPage({ kind, token: tokenProp, navigate, replace }: Props) {
+export default function SalesInviteRedeemPage({
+  kind,
+  token: tokenProp,
+  navigate,
+  replace,
+}: Props) {
   const { user, loading: authLoading } = useAuth()
   // Tokenul se citește O singură dată: după curățarea URL-ului, un re-parse al
   // rutei (popstate) ar aduce un token gol, dar pagina îl are deja.
@@ -167,9 +172,13 @@ export default function SalesInviteRedeemPage({ kind, token: tokenProp, navigate
   const basePath = INVITE_BASE_PATH[kind]
   const copy = COPY[kind]
 
-  const { network, loading: netLoading, error: netError, unavailable, reload } = useSalesNetwork(
-    !authLoading && user !== null && tokenOk,
-  )
+  const {
+    network,
+    loading: netLoading,
+    error: netError,
+    unavailable,
+    reload,
+  } = useSalesNetwork(!authLoading && user !== null && tokenOk)
 
   const [phone, setPhone] = useState('')
   const [cui, setCui] = useState('')

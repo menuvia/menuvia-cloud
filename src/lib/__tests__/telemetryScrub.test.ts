@@ -125,7 +125,10 @@ describe('scrubTokenPathsDeep', () => {
       transaction: `/echipa/${TOKEN}`,
       breadcrumbs: [
         { category: 'navigation', data: { from: `/q/${TOKEN}`, to: '/dashboard' } },
-        { category: 'fetch', data: { url: `https://x.supabase.co/rest/v1/rpc/f?ref=/invite/${TOKEN}` } },
+        {
+          category: 'fetch',
+          data: { url: `https://x.supabase.co/rest/v1/rpc/f?ref=/invite/${TOKEN}` },
+        },
       ],
       exception: { values: [{ value: `Eroare la /invite/${TOKEN}` }] },
     }

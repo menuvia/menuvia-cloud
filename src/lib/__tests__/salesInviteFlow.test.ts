@@ -36,7 +36,14 @@ describe('signupPathForInvite', () => {
   })
 
   it('SF2: token cu formă greșită → null', () => {
-    for (const bad of ['', 'scurt', TOKEN + 'x', TOKEN.slice(1), `${TOKEN.slice(0, 42)}/`, '//evil.com']) {
+    for (const bad of [
+      '',
+      'scurt',
+      TOKEN + 'x',
+      TOKEN.slice(1),
+      `${TOKEN.slice(0, 42)}/`,
+      '//evil.com',
+    ]) {
       expect(signupPathForInvite('head', bad)).toBeNull()
     }
   })
@@ -96,8 +103,20 @@ describe('ecranul fondatorului', () => {
 
   it('SF8: versiunea de contract', () => {
     expect(checkContractVersionInput(' 1.0 ')).toEqual({ ok: true, version: '1.0' })
-    expect(checkContractVersionInput('agent-1.0_rev2')).toEqual({ ok: true, version: 'agent-1.0_rev2' })
-    for (const bad of ['', '   ', 'agent-1.0-DRAFT', 'draft', '1.0 final', '-1.0', 'a'.repeat(41), 'ă1']) {
+    expect(checkContractVersionInput('agent-1.0_rev2')).toEqual({
+      ok: true,
+      version: 'agent-1.0_rev2',
+    })
+    for (const bad of [
+      '',
+      '   ',
+      'agent-1.0-DRAFT',
+      'draft',
+      '1.0 final',
+      '-1.0',
+      'a'.repeat(41),
+      'ă1',
+    ]) {
       const r = checkContractVersionInput(bad)
       expect(r.ok).toBe(false)
     }
