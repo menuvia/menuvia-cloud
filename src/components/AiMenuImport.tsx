@@ -12,22 +12,54 @@
 //  3. CATEGORII: AI-ul întoarce și secțiunea din meniu; potrivim automat cu
 //     categoriile existente (case-insensitive) și oferim „➕ (nouă)" pentru
 //     rest — zero dropdown-uri manuale pe 100 de produse.
-import { useState } from 'react'
+//
+// Pachetul 10 (agentul lucrează de la distanță — importul e munca lui de zi cu zi):
+//  4. NU PIERDE MUNCA: draftul extras se păstrează în sessionStorage (fail-open,
+//     lib/aiImportDraft.ts) și se poate relua; un tap pe fundal nu mai închide
+//     ecranul de revizuire.
+//  5. PLAFONUL PLANULUI: se verifică înainte de salvare (`remainingSlots`) și
+//     produce UN singur mesaj; o respingere de la server nu mai cade pe N inserări
+//     care eșuează fiecare cu mesajul ei.
+//  6. Promptul urmează moneda și limba de BAZĂ ale restaurantului (nu „prețuri în lei”).
+import { useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { useProducts, useCategories } from '../hooks/useData'
 import { aiMenuImport, type AiPart } from '../lib/ai'
+import { supabase } from '../lib/supabase'
+import {
+  buildMenuImportPrompt,
+  clearImportDraft,
+  describeProductLimit,
+  isProductLimitError,
+  loadImportDraft,
+  reconcileDraftCategories,
+  saveImportDraft,
+  type ImportDraftProduct as DraftProduct,
+  type StoredImportDraft,
+} from '../lib/aiImportDraft'
 
-interface DraftProduct {
-  name: string
-  description: string
-  price: number
-  emoji: string
-  // '' = fără categorie · uuid = categorie existentă · 'new:<nume>' = de creat
-  category_id: string
-  category_name: string
-  include: boolean
+interface RestaurantMeta {
+  currency: string | null
+  language: string | null
+}
+
+// Moneda și limba de BAZĂ ale restaurantului, pentru promptul AI. Nu aruncă
+// niciodată: pe orice eroare cădem pe RON/ro (comportamentul de dinainte).
+async function fetchRestaurantMeta(restaurantId: string): Promise<RestaurantMeta> {
+  try {
+    const { data, error } = await supabase
+      .from('restaurants')
+      .select('currency, language')
+      .eq('id', restaurantId)
+      .maybeSingle()
+    if (error || !data) return { currency: null, language: null }
+    const row = data as { currency?: string | null; language?: string | null }
+    return { currency: row.currency ?? null, language: row.language ?? null }
+  } catch {
+    return { currency: null, language: null }
+  }
 }
 
 const MAX_PHOTOS = 4
@@ -107,6 +139,7 @@ export default function AiMenuImport({
   onImported,
   onFallbackCsv,
   onFallbackManual,
+  remainingSlots,
 }: {
   restaurantId: string
   onClose: () => void
@@ -120,6 +153,9 @@ export default function AiMenuImport({
   // când callerul le oferă (onboarding-ul n-are CSV, de exemplu).
   onFallbackCsv?: () => void
   onFallbackManual?: () => void
+  // Câte produse mai încap în planul curent (max_products − existente). Necunoscut
+  // (undefined) → fără plafon aici, decide serverul (triggerul de limită din DB).
+  remainingSlots?: number
 }) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
@@ -131,6 +167,16 @@ export default function AiMenuImport({
   const [drafts, setDrafts] = useState<DraftProduct[]>([])
   const [imported, setImported] = useState(0)
   const [importErrors, setImportErrors] = useState<string[]>([])
+  // Draftul rămas dintr-o sesiune anterioară (sessionStorage, fail-open).
+  const [stored, setStored] = useState<StoredImportDraft | null>(() => loadImportDraft(restaurantId))
+  // Moneda/limba restaurantului: cerută o singură dată la deschidere, citită la extracție.
+  const [metaPromise] = useState<Promise<RestaurantMeta>>(() => fetchRestaurantMeta(restaurantId))
+
+  // Fiecare modificare a ecranului de revizuire se salvează: un tap greșit, o
+  // închidere de pagină sau un refresh nu mai pierd rândurile deja extrase.
+  useEffect(() => {
+    if (step === 'review') saveImportDraft(restaurantId, drafts)
+  }, [step, drafts, restaurantId])
 
   // Potrivește numele de categorie extras de AI cu categoriile existente
   // (trim + case-insensitive). Nepotrivit → marker 'new:<nume>' (creat la
@@ -177,18 +223,10 @@ export default function AiMenuImport({
         setBusy(false)
         return
       }
+      const meta = await metaPromise
       const content: AiPart[] = [
         ...images.map((im): AiPart => ({ type: 'image', media_type: im.media_type, data: im.data })),
-        {
-          type: 'text',
-          text:
-            'Extrage toate produsele din aceste poze de meniu (pot fi mai multe pagini ale ACELUIAȘI meniu). ' +
-            'Returnează DOAR un JSON array, fără markdown, cu obiecte de forma ' +
-            '{"name": string, "description": string|null, "price": number, "emoji": string, "category": string|null}. ' +
-            'Prețurile în lei (număr fără simbol). Emoji relevant pentru fiecare produs. ' +
-            '"category" = numele secțiunii din meniu în care apare produsul (ex. "Feluri principale", "Băuturi") — ' +
-            'folosește EXACT același nume pentru toate produsele din aceeași secțiune; null dacă nu e clar.',
-        },
+        { type: 'text', text: buildMenuImportPrompt(meta) },
       ]
       // 8000, nu 4000 (audit aug 2026): 4 pagini × ~40 produse × ~50 tokens
       // per obiect JSON depășeau 4000 → output TRUNCAT mid-array → parseDrafts
@@ -201,6 +239,7 @@ export default function AiMenuImport({
         return
       }
       setDrafts(parsed)
+      setStored(null) // salvarea o face efectul de pe ecranul de revizuire
       setStep('review')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Eroare la procesarea pozelor.')
@@ -261,6 +300,16 @@ export default function AiMenuImport({
     // de produse: ~100 RTT-uri seriale → 2. Fallback pe bucla per-rând DOAR
     // dacă batch-ul eșuează (păstrează raportarea per-produs a eșecurilor).
     const batch = selected.length > 0 ? await products.createMany(selected.map(toRow)) : null
+    if (batch?.error && isProductLimitError(batch.error)) {
+      // Plafonul planului: inserarea în lot e ATOMICĂ (trigger la nivel de
+      // instrucțiune) → nu s-a salvat nimic. UN singur mesaj, rămânem în ecranul
+      // de revizuire cu tot draftul intact — fără N inserări care eșuează fiecare.
+      setError(
+        `Nimic nu a fost salvat. ${String(batch.error.message)} Debifează produse sau treci la un plan superior.`,
+      )
+      setBusy(false)
+      return
+    }
     if (batch && !batch.error) {
       ok = batch.data?.length ?? selected.length
     } else if (selected.length > 0) {
@@ -268,7 +317,11 @@ export default function AiMenuImport({
       for (const d of selected) {
         const r = await products.create(toRow(d))
         if (!r.error) ok++
-        else {
+        else if (isProductLimitError(r.error)) {
+          // Plafonul s-a atins pe parcurs: oprim aici, cu UN singur mesaj.
+          failed.push('limita de produse a planului a fost atinsă — restul produselor nu au fost salvate')
+          break
+        } else {
           console.error('confirmImport product create failed', r.error)
           failed.push(`${d.name.trim() || 'produs fără nume'}: nu a putut fi salvat`)
         }
@@ -277,6 +330,9 @@ export default function AiMenuImport({
     setImported(ok)
     setImportErrors(failed)
     setBusy(false)
+    // Importul s-a încheiat: draftul nu mai are rost (o reluare ar duplica produsele).
+    clearImportDraft(restaurantId)
+    setStored(null)
     setStep('done')
     // Callerul află de succes AICI (nu la onClose): onboarding-ul marchează
     // pasul de meniu, ProductsTab emite telemetria — fără să ghicească din refetch.
@@ -294,10 +350,31 @@ export default function AiMenuImport({
     drafts.filter((d) => d.category_id.startsWith('new:')).map((d) => d.category_id.slice(4)),
   )]
 
+  const selectedCount = drafts.filter((d) => d.include && d.name.trim()).length
+  const limitMessage = describeProductLimit(selectedCount, remainingSlots)
+  // Se poate relua fie draftul din memorie (după „Înapoi”), fie cel din sessionStorage.
+  const resumableCount = drafts.length > 0 ? drafts.length : (stored?.drafts.length ?? 0)
+
+  function resumeImport(): void {
+    if (drafts.length === 0 && stored) {
+      const known = new Set(categories.categories.map((c) => c.id))
+      setDrafts(reconcileDraftCategories(stored.drafts, known))
+    }
+    setStored(null)
+    setError(null)
+    setStep('review')
+  }
+
+  function discardDraft(): void {
+    clearImportDraft(restaurantId)
+    setStored(null)
+    setDrafts([])
+  }
+
   const field = { background: D.s3, border: `1px solid ${D.border}`, borderRadius: 7, color: D.t1, padding: '7px 9px', fontSize: '0.82rem', fontFamily: 'DM Sans,sans-serif', boxSizing: 'border-box' as const }
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
+    <div onClick={() => { if (step !== 'review' && !busy) onClose() }} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: isMobile ? 'flex-end' : 'center', justifyContent: 'center', padding: isMobile ? 0 : 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: D.s1, border: `1px solid ${D.border}`, borderRadius: isMobile ? '18px 18px 0 0' : 18, width: '100%', maxWidth: 640, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${D.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', color: D.t1 }}>📸 Import meniu din poze</span>
@@ -328,6 +405,22 @@ export default function AiMenuImport({
             </div>
           )}
 
+          {step === 'upload' && resumableCount > 0 && (
+            <div data-testid="resume-import" style={{ background: D.s2, border: `1px solid ${D.gold}55`, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
+              <p style={{ color: D.t1, fontSize: '0.86rem', margin: '0 0 10px' }}>
+                Ai un import început: {resumableCount} {resumableCount === 1 ? 'produs extras' : 'produse extrase'}, încă nesalvate. Nu pierzi munca deja făcută.
+              </p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={resumeImport} className="pressable" style={{ background: D.gold, color: '#000', border: 'none', borderRadius: 8, padding: '10px 16px', minHeight: 40, fontSize: '0.84rem', fontWeight: 700, cursor: 'pointer' }}>
+                  Reia importul
+                </button>
+                <button onClick={discardDraft} style={{ background: 'transparent', color: D.t2, border: `1px solid ${D.border}`, borderRadius: 8, padding: '10px 16px', minHeight: 40, fontSize: '0.84rem', cursor: 'pointer' }}>
+                  Șterge draftul
+                </button>
+              </div>
+            </div>
+          )}
+
           {step === 'upload' && (
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
               <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 20 }}>
@@ -348,6 +441,11 @@ export default function AiMenuImport({
                 Corectează ce e greșit, debifează ce nu vrei, apoi salvează.
                 {newCategoryNames.length > 0 && ` Secțiunile marcate cu ➕ se creează automat la salvare.`}
               </p>
+              {limitMessage && (
+                <div role="alert" data-testid="plan-limit" style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '10px 13px', fontSize: '0.84rem', marginBottom: 14 }}>
+                  {limitMessage}
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {drafts.map((d, i) => (
                   <div key={i} style={{ background: d.include ? D.s2 : D.s1, border: `1px solid ${D.border}`, borderRadius: 10, padding: 12, opacity: d.include ? 1 : 0.55 }}>
@@ -400,7 +498,7 @@ export default function AiMenuImport({
             <button onClick={() => setStep('upload')} style={{ background: 'transparent', color: D.t2, border: `1px solid ${D.border}`, borderRadius: 10, padding: '12px 18px', fontSize: '0.86rem', cursor: 'pointer' }}>
               Înapoi
             </button>
-            <button onClick={() => void confirmImport()} disabled={busy} className="pressable" style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+            <button onClick={() => void confirmImport()} disabled={busy || limitMessage !== null} className="pressable" style={{ flex: 1, background: D.gold, color: '#000', border: 'none', borderRadius: 10, padding: '12px 0', fontSize: '0.9rem', fontWeight: 700, cursor: busy || limitMessage !== null ? 'default' : 'pointer', opacity: busy || limitMessage !== null ? 0.6 : 1 }}>
               {busy ? 'Se salvează…' : `Salvează ${drafts.filter((d) => d.include).length} produse`}
             </button>
           </div>

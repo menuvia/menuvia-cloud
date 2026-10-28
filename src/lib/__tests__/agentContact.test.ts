@@ -146,6 +146,7 @@ describe('copy-ul accesului', () => {
   it('AC4: spune ce vede agentul și ce NU (meniu + mese/QR; nu bani, bon, rezervări, setări, echipă)', () => {
     expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/DOAR meniul/)
     expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/mesele/)
+    expect(AGENT_ACCESS_SCOPE_TEXT).toMatch(/NU vede comenzile/)
     for (const w of ['comenzile', 'încasările', 'rezervările', 'datele fiscale', 'setările', 'echipa']) {
       expect(AGENT_ACCESS_SCOPE_TEXT, w).toContain(w)
     }
