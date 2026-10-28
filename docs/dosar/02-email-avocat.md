@@ -27,7 +27,7 @@
 
 **NU atașa** `menuvia-pack/06-DRAFT-CODVIA-COMENZI.md` (Codvia e în pauză; nu face parte din acest pachet) și nu atașa nimic cu chei, parole sau adrese de producție.
 
-> **Atenție la o contradicție pe care o știm:** `docs/AFFILIATE_PROGRAM.md` §1.1 descrie încă unele reguli vechi (comision doar pe Plan 3, setup la prima factură). Codul de pe `main` face altceva (migrația 293: comision pe toate planurile plătite; setup scris la a DOUA factură plătită). Contractele din `docs/dosar/` urmează **codul**. Vezi `03-contract-agent-v1-draft.md`, secțiunea 5.
+> **Atenție la o contradicție pe care o știm:** `docs/AFFILIATE_PROGRAM.md` §1.1 descrie încă unele reguli vechi (comision doar pe Plan 3, setup la prima factură). Codul de pe `main` face altceva (migrația 293: comision pe toate planurile plătite; setup scris la a DOUA factură plătită). Contractele din `docs/dosar/` urmează **codul**. Vezi `03-contract-agent-v1-draft.md`, art. 5 și Anexa 1.
 
 ## Subiect
 
