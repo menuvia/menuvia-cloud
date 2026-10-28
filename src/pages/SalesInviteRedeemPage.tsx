@@ -24,14 +24,13 @@ import { D } from '../lib/constants'
 import { useAuth } from '../contexts/AuthContext'
 import { useSalesNetwork } from '../hooks/useSalesNetwork'
 import { PageSpinner } from '../components/PageLoader'
-import { safeNextPath } from '../lib/authRedirect'
+import { INVITE_BASE_PATH, checkInviteFields, signupPathForInvite } from '../lib/salesInviteFlow'
 import { contractTextFor } from '../lib/salesContract'
 import {
   SALES_FAILURE_MESSAGES,
   SalesNetworkError,
   describeSalesError,
   isInviteTokenShape,
-  normalizeRoCui,
   redeemSalesInvite,
   sha256Hex,
   type SalesRole,
@@ -44,11 +43,6 @@ interface Props {
   navigate: (path: string) => void
   /** Înlocuiește intrarea curentă din istoric (fără intrare nouă). */
   replace: (path: string) => void
-}
-
-const BASE_PATH: Record<SalesRole, string> = {
-  head: '/sef-vanzari',
-  agent: '/echipa',
 }
 
 const COPY: Record<
@@ -170,7 +164,7 @@ export default function SalesInviteRedeemPage({ kind, token: tokenProp, navigate
   // rutei (popstate) ar aduce un token gol, dar pagina îl are deja.
   const [token] = useState<string>(tokenProp)
   const tokenOk = isInviteTokenShape(token)
-  const basePath = BASE_PATH[kind]
+  const basePath = INVITE_BASE_PATH[kind]
   const copy = COPY[kind]
 
   const { network, loading: netLoading, error: netError, unavailable, reload } = useSalesNetwork(
@@ -204,10 +198,10 @@ export default function SalesInviteRedeemPage({ kind, token: tokenProp, navigate
   // 2) Fără sesiune → înscriere, cu întoarcere pe această invitație după login.
   useEffect(() => {
     if (authLoading || user !== null || !tokenOk) return
-    const next = safeNextPath(`${basePath}/${token}`)
-    if (next === null) return
-    replaceRef.current(`/auth?mode=signup&lang=ro&next=${encodeURIComponent(next)}`)
-  }, [authLoading, user, tokenOk, token, basePath])
+    const signupPath = signupPathForInvite(kind, token)
+    if (signupPath === null) return
+    replaceRef.current(signupPath)
+  }, [authLoading, user, tokenOk, token, kind])
 
   // ── Ramuri fără formular ──────────────────────────────────────
   if (!tokenOk) {
@@ -269,20 +263,18 @@ export default function SalesInviteRedeemPage({ kind, token: tokenProp, navigate
   const submit = async (): Promise<void> => {
     if (!canSubmit || currentVersion === null || contractText === null) return
     setFormError(null)
-    const phoneTrimmed = phone.trim()
-    const phoneBad = phoneTrimmed.length < 5 || phoneTrimmed.length > 32
-    const cuiNormalized = normalizeRoCui(cui)
-    setPhoneError(phoneBad ? SALES_FAILURE_MESSAGES.phone_required : null)
-    setCuiError(cuiNormalized === null ? SALES_FAILURE_MESSAGES.cui_invalid : null)
-    if (phoneBad || cuiNormalized === null) return
+    const fields = checkInviteFields(phone, cui)
+    setPhoneError(fields.phoneError)
+    setCuiError(fields.cuiError)
+    if (!fields.ok || fields.cui === null) return
 
     setSubmitting(true)
     try {
       const contractHash = await sha256Hex(contractText)
       await redeemSalesInvite(kind, {
         token,
-        phone: phoneTrimmed,
-        cui: cuiNormalized,
+        phone: fields.phone,
+        cui: fields.cui,
         contractVersion: currentVersion,
         contractHash,
         shareContact,
