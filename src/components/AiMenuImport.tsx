@@ -330,9 +330,12 @@ export default function AiMenuImport({
     setImported(ok)
     setImportErrors(failed)
     setBusy(false)
-    // Importul s-a încheiat: draftul nu mai are rost (o reluare ar duplica produsele).
-    clearImportDraft(restaurantId)
-    setStored(null)
+    // Ceva s-a salvat: draftul nu mai are rost (o reluare ar duplica produsele). Dacă
+    // NU s-a salvat nimic (toate rândurile au eșuat), draftul rămâne — munca nu se pierde.
+    if (ok > 0) {
+      clearImportDraft(restaurantId)
+      setStored(null)
+    }
     setStep('done')
     // Callerul află de succes AICI (nu la onClose): onboarding-ul marchează
     // pasul de meniu, ProductsTab emite telemetria — fără să ghicească din refetch.
