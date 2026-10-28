@@ -15,7 +15,7 @@
 //        câmpul se demontează (apare bannerul) și valoarea ascunsă NU bate codul
 //        verificat din link, nici nu lasă un mesaj de problemă în câmpul ascuns;
 //        după „Nu e agentul meu" câmpul reapare și tastatul contează iar
-//   UA7  cod TASTAT: bate link-ul; formă proastă → problem 'shape', fără apel;
+//   UA7  cod TASTAT (după dismiss, câmp vizibil): bate link-ul; formă proastă → problem 'shape', fără apel;
 //        „nu există" → problem 'unknown'; schimbarea textului șterge mesajul
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
@@ -133,8 +133,14 @@ describe('useSignupAgentCode', () => {
     act(() => result.current.openField())
     expect(result.current.fieldOpen).toBe(true)
 
-    // vanity tastat → codul canonic, în locul celui din link
+    // Cât bannerul e afișat, câmpul tastat e ascuns (AuthPage) -> ce e in state nu
+    // bate codul verificat din link (UA8 acoperă cazul detaliat).
     act(() => result.current.setTyped('  Ion-Pop '))
+    expect(await submit(result)).toEqual({ ok: true, code: 'k7m2xq9' })
+
+    // Dupa dismiss (Nu e agentul meu) câmpul e vizibil din nou; vanity tastat ->
+    // codul canonic al LUI, în locul celui din link.
+    act(() => result.current.dismissLink())
     expect(await submit(result)).toEqual({ ok: true, code: 'p4q8rt2' })
 
     // formă proastă → fără apel suplimentar, mesaj
