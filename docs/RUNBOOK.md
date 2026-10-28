@@ -415,6 +415,17 @@ Semnale în loguri:
   remediere.
 - `Signature verification failed: Error …` (nu `StripeSignatureVerificationError`) →
   endpoint creat cu payload „thin"; recreează-l ca „snapshot".
+- `ALERT livemode mismatch event=<id> type=<t> livemode=<true|false|missing> key_mode=<live|test|unknown>`
+  → garda `livemode` (`netlify/functions/lib/livemode.js`, în AMBELE webhook-uri,
+  după semnătură și înaintea oricărui efect) compară `event.livemode` cu modul
+  din `STRIPE_SECRET_KEY` (`sk_/rk_` + `live_`/`test_`). Nepotrivire (sau câmp
+  lipsă) → răspuns 200 `ignored: livemode_mismatch`, NIMIC nu se procesează (Stripe
+  nu retrimite). Cauze: endpoint de test îndreptat spre producție, sau cheie
+  de test pusă în `STRIPE_SECRET_KEY` de producție (cu ea cardul 4242 ar da
+  Planul 3 gratuit) — verifică întâi cheia din env, apoi URL-ul endpoint-ului
+  din Dashboard. `key_mode=unknown` → 500 `livemode_unknown` (cheie lipsă/prefix
+  străin; fail-closed, Stripe retrimite până o repari). Un eveniment live ignorat
+  pe producție = abonament/plată reală pierdută: reia-l din Dashboard după fix.
 
 ---
 

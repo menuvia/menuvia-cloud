@@ -12,6 +12,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
+const { livemodeGuard } = require('./lib/livemode')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -109,6 +110,11 @@ exports.handler = async (event) => {
     console.error('[stripe-webhook] Signature verification failed:', (err && err.type) || 'Error', err && err.message)
     return jsonResponse(400, { error: 'Invalid signature' })
   }
+
+  // Gardă livemode (lib/livemode.js): cheia TEST nu are voie să proceseze evenimente
+  // live și invers. DUPĂ semnătură, ÎNAINTE de orice efect (DB/email/Stripe/RPC).
+  const modeBlock = livemodeGuard(stripeEvent, STRIPE_SECRET_KEY, '[stripe-webhook]')
+  if (modeBlock) return modeBlock
 
   // Versiunea endpoint-ului ≠ pin-ul: citirile de mai jos sunt tolerante la
   // ambele forme cunoscute, dar o nepotrivire trebuie să se VADĂ — endpoint-ul
