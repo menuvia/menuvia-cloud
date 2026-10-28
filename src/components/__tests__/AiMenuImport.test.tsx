@@ -9,7 +9,6 @@
 //   AM7  storage care ARUNCĂ → importul merge, fără banner și fără excepții
 //   AM8  promptul poartă moneda restaurantului (EUR) și rămâne „lei” când nu o știm
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import type { MockInstance } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { loadImportDraft, saveImportDraft, type ImportDraftProduct } from '../../lib/aiImportDraft'
@@ -76,7 +75,7 @@ function renderImport(props: { remainingSlots?: number } = {}) {
   return { onClose, onImported, ...utils }
 }
 
-const spies: MockInstance[] = []
+const spies: Array<{ mockRestore: () => void }> = []
 
 beforeEach(() => {
   sessionStorage.clear()
