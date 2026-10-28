@@ -441,7 +441,10 @@ function AppRouter() {
     return () => {
       cancelled = true
     }
-  }, [user, loading, state.view])
+    // `exitAuth` se re-creează la fiecare randare și citește doar ref-uri și
+    // `window` (nu state): efectul trebuie să ruleze la schimbarea utilizatorului
+    // sau a vederii, nu la fiecare randare (altfel ar reface redirectul în buclă).
+  }, [user, loading, state.view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset auto-redirect flag when user signs out
   useEffect(() => {
