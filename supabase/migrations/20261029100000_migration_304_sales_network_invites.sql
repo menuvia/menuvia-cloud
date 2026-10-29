@@ -1277,7 +1277,11 @@ begin
   -- (e) răscumpărarea: lock pe invitație, handler unique_violation, rate limit
   select p.prosrc into v_fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'sales_invite_redeem';
-  if position('for update' in v_fn) = 0 or position('unique_violation' in v_fn) = 0
+  -- Ancorat pe CLAUZA din interogarea invitației (ca IN9), nu pe text: corpul
+  -- pomenește lacătul și într-un comentariu, deci un `position` ar trece și cu
+  -- lacătul scos din interogare.
+  if v_fn !~ 'from public\.affiliate_invitations\s+where token_hash = [^;]+for update;'
+     or position('unique_violation' in v_fn) = 0
      or position('check_rate_limit' in v_fn) = 0 then
     raise exception 'mig 304: sales_invite_redeem a pierdut for update / unique_violation / rate limit';
   end if;
