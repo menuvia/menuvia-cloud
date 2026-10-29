@@ -10,6 +10,7 @@
 //        (ambele sensuri: un apel nou fără rând, sau un rând care nu mai e chemat)
 //   RG2  extractorul vede și apelurile cu nume ales condiționat
 //        (control pozitiv: altfel RG1 ar putea trece pe o listă vidă)
+//   RG3  un rând COMENTAT în lista SQL nu mai contează ca listat (SR1 nu-l verifică)
 'use strict'
 
 const { describe, it } = require('node:test')
@@ -46,7 +47,14 @@ function rpcNamesInSql() {
   const start = sql.indexOf('-- RPC-LIST-START')
   const end = sql.indexOf('-- RPC-LIST-END')
   assert.ok(start > 0 && end > start, 'markerii RPC-LIST-START/END lipsesc din suita SQL')
-  return new Set([...sql.slice(start, end).matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]))
+  // Doar intrările ACTIVE: comentariile SQL (`-- 'x',`) se scot înainte, altfel un
+  // rând comentat ar rămâne „listat" aici, deși SR1 nu-l mai verifică.
+  const active = sql
+    .slice(start, end)
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+  return new Set([...active.matchAll(/'([a-z_0-9]+)'/g)].map((m) => m[1]))
 }
 
 describe('rpc-grants-ratchet', () => {
@@ -62,6 +70,22 @@ describe('rpc-grants-ratchet', () => {
     )
     assert.deepEqual(stale, [], `rânduri din lista SQL care nu mai sunt chemate din funcții (scoate-le): ${stale.join(', ')}`)
     assert.ok(listed.length >= 40, `lista e suspect de scurtă (${listed.length})`)
+  })
+
+  it('RG3: un rând comentat în lista SQL NU mai contează ca listat', () => {
+    // Mutație care trebuie să pice: extragerea fără scoaterea comentariilor.
+    const sql = fs.readFileSync(SQL, 'utf8')
+    assert.ok(sql.includes("    'check_rate_limit',\n"), 'rândul check_rate_limit lipsește din listă')
+    const original = fs.readFileSync
+    fs.readFileSync = (p, ...rest) =>
+      p === SQL
+        ? sql.replace("    'check_rate_limit',\n", "    -- 'check_rate_limit',\n")
+        : original(p, ...rest)
+    try {
+      assert.equal(rpcNamesInSql().has('check_rate_limit'), false)
+    } finally {
+      fs.readFileSync = original
+    }
   })
 
   it('RG2: extractorul prinde și numele alese condiționat (control pozitiv)', () => {
