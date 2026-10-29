@@ -239,7 +239,12 @@ export default function SalesInviteRedeemPage({
   const [switchAccount, setSwitchAccount] = useState<'email' | 'other' | null>(null)
 
   const replaceRef = useRef(replace)
-  replaceRef.current = replace
+  // Ref-ul se actualizează DUPĂ commit (nu în randare): o randare aruncată nu are
+  // voie să-i dea efectului (2) un callback necomis. Declarat înaintea efectelor
+  // care îl citesc, deci rulează primul la fiecare commit.
+  useEffect(() => {
+    replaceRef.current = replace
+  }, [replace])
 
   // 1) Tokenul iese din URL imediat ce a fost citit (rămâne doar în memorie).
   //    Pe ruta /auth?next=… NU rulează (alt component); acolo curăță telemetria.
