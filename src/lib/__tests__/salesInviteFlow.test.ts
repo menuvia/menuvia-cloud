@@ -7,21 +7,30 @@
 //   SF5  telefon scurt/lung și CUI cu cifră de control greșită → mesaje clare
 //   SF6  calea de bază (fără token) pe rol
 //   SF7  linkul de invitație: baza publică + calea rolului + token, fără slash dublu
-//   SF8  versiunea de contract: DRAFT / goală / caractere interzise refuzate local
+//   SF8  versiunea de contract: oglinda EXACTĂ a serverului (mig 304: `^v?[0-9]+(\.[0-9]+)*$`,
+//        max 20, „draft” refuzat înaintea formei)
 //   SF9  tranzițiile de stare oglindesc serverul (closed e terminal, pending/rejected nu se ating)
 //   SF10 lista „Rețeaua”: doar conturi din rețea, șefii înaintea agenților, agenții orfani nu se pierd
+//   SF11 poarta contractului: acceptarea e permisă DOAR pe sha256(text local) === amprenta publicată
+//   SF12 refuzurile serverului legate de un câmp (cui_conflict / cui_invalid / phone_required)
+//   SF13 calea invitației CU token (reîncărcare / ?next=), amprenta scurtată, eticheta versiunii
 import { describe, it, expect } from 'vitest'
 import {
   INVITE_BASE_PATH,
   buildInviteLink,
   checkContractVersionInput,
   checkInviteFields,
+  contractGate,
+  contractVersionLabel,
+  fieldForSalesReason,
+  invitePathWithToken,
   networkRows,
   nextStatusesFor,
+  shortHash,
   signupPathForInvite,
 } from '../salesInviteFlow'
 import { nextFromSearch } from '../authRedirect'
-import { SALES_FAILURE_MESSAGES } from '../salesNetwork'
+import { SALES_FAILURE_MESSAGES, SALES_SERVER_REASONS, SalesNetworkError } from '../salesNetwork'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 
@@ -101,29 +110,34 @@ describe('ecranul fondatorului', () => {
     )
   })
 
-  it('SF8: versiunea de contract', () => {
+  it('SF8: versiunea de contract (oglinda serverului)', () => {
     expect(checkContractVersionInput(' 1.0 ')).toEqual({ ok: true, version: '1.0' })
-    expect(checkContractVersionInput('agent-1.0_rev2')).toEqual({
-      ok: true,
-      version: 'agent-1.0_rev2',
-    })
+    for (const good of ['1', 'v2', '1.0.3', '10.20.30', 'v1.0', '1'.repeat(20)]) {
+      expect(checkContractVersionInput(good), good).toEqual({ ok: true, version: good })
+    }
+    // Forme pe care serverul le respinge cu invalid_version (înainte, clientul
+    // accepta `agent-1.0_rev2`, deci fondatorul afla abia de la server).
     for (const bad of [
-      '',
-      '   ',
-      'agent-1.0-DRAFT',
-      'draft',
+      'agent-1.0_rev2',
+      'V1.0',
+      '1.',
+      '.1',
+      '1..0',
       '1.0 final',
       '-1.0',
-      'a'.repeat(41),
+      '1'.repeat(21),
       'ă1',
+      'null',
     ]) {
       const r = checkContractVersionInput(bad)
-      expect(r.ok).toBe(false)
+      expect(r.ok === false && r.message, bad).toBe(SALES_FAILURE_MESSAGES.invalid_version)
     }
-    const d = checkContractVersionInput('v1-Draft')
-    expect(d.ok === false && d.message).toBe(SALES_FAILURE_MESSAGES.draft_version)
-    const i = checkContractVersionInput('1.0 final')
-    expect(i.ok === false && i.message).toBe(SALES_FAILURE_MESSAGES.invalid_version)
+    for (const empty of ['', '   ']) expect(checkContractVersionInput(empty).ok).toBe(false)
+    // „draft” are prioritate (paritate cu ordinea din SQL): mesajul specific, nu cel de formă.
+    for (const draft of ['agent-1.0-DRAFT', 'draft', 'v1-Draft']) {
+      const d = checkContractVersionInput(draft)
+      expect(d.ok === false && d.message, draft).toBe(SALES_FAILURE_MESSAGES.draft_version)
+    }
   })
 
   it('SF9: tranziții de stare', () => {
@@ -160,5 +174,63 @@ describe('ecranul fondatorului', () => {
     const out = networkRows(rows)
     expect(out.map((r) => r.affiliateId)).toEqual(['h1', 'a1', 'h2', 'o1'])
     expect(out.map((r) => r.name)).toEqual(['sef@x.test', 'Agent Unu', '(cont șters)', 'COD-o1'])
+  })
+})
+
+describe('poarta contractului', () => {
+  const TEXT = 'TEXTUL CONTRACTULUI v1.0'
+  const HASH = 'a'.repeat(64)
+  const ready = { status: 'ready', hash: HASH } as const
+
+  it('SF11: acceptare DOAR pe amprenta publicată', () => {
+    expect(contractGate(null, null, TEXT, ready)).toEqual({ state: 'unpublished' })
+    expect(contractGate('1.0', HASH, null, { status: 'none' })).toEqual({
+      state: 'missing_text',
+      version: '1.0',
+    })
+    expect(contractGate('1.0', HASH, TEXT, { status: 'pending' })).toEqual({
+      state: 'checking',
+      version: '1.0',
+    })
+    expect(contractGate('1.0', HASH, TEXT, ready)).toEqual({
+      state: 'ready',
+      version: '1.0',
+      text: TEXT,
+      hash: HASH,
+    })
+    // Mutația „orice hash calculat e bun” (fără comparație) face aceste două să pice.
+    expect(contractGate('1.0', 'b'.repeat(64), TEXT, ready)).toEqual({
+      state: 'mismatch',
+      version: '1.0',
+    })
+    expect(contractGate('1.0', null, TEXT, ready)).toEqual({ state: 'mismatch', version: '1.0' })
+    const err = new SalesNetworkError('hash_unavailable')
+    expect(contractGate('1.0', HASH, TEXT, { status: 'error', error: err })).toEqual({
+      state: 'hash_error',
+      version: '1.0',
+      message: SALES_FAILURE_MESSAGES.hash_unavailable,
+    })
+  })
+
+  it('SF12: refuzurile legate de un câmp', () => {
+    expect(fieldForSalesReason('cui_conflict')).toBe('cui')
+    expect(fieldForSalesReason('cui_invalid')).toBe('cui')
+    expect(fieldForSalesReason('phone_required')).toBe('phone')
+    // Orice alt motiv rămâne mesaj general (anti-oracol: invite_invalid nu se lipește de un câmp).
+    const others = SALES_SERVER_REASONS.filter(
+      (r) => r !== 'cui_conflict' && r !== 'cui_invalid' && r !== 'phone_required',
+    )
+    for (const r of others) expect(fieldForSalesReason(r), r).toBeNull()
+    expect(fieldForSalesReason('network')).toBeNull()
+  })
+
+  it('SF13: calea cu token, amprenta scurtată, eticheta versiunii', () => {
+    expect(invitePathWithToken('head', ` ${TOKEN} `)).toBe(`/sef-vanzari/${TOKEN}`)
+    expect(invitePathWithToken('agent', TOKEN)).toBe(`/echipa/${TOKEN}`)
+    expect(invitePathWithToken('head', '//evil.com')).toBeNull()
+    expect(shortHash('0123456789abcdef'.repeat(4))).toBe('0123456789ab…')
+    expect(shortHash('abc')).toBe('abc')
+    expect(contractVersionLabel('1.0')).toBe('v1.0')
+    expect(contractVersionLabel('v2')).toBe('v2')
   })
 })

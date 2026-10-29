@@ -7,6 +7,8 @@ import {
   SALES_FAILURE_MESSAGES,
   isInviteTokenShape,
   normalizeRoCui,
+  type SalesFailureReason,
+  type SalesNetworkError,
   type SalesRole,
 } from './salesNetwork'
 
@@ -17,13 +19,23 @@ export const INVITE_BASE_PATH: Readonly<Record<SalesRole, string>> = {
 }
 
 /**
+ * Calea invitației CU token (`/sef-vanzari/<token>`), sau `null` dacă tokenul nu
+ * are forma unui token ori calea nu trece de validarea open-redirect
+ * (`safeNextPath`). O folosesc înscrierea (`?next=`) și reîncărcarea paginii
+ * (tokenul a fost scos din URL la montare, deci un reload simplu l-ar pierde).
+ */
+export function invitePathWithToken(kind: SalesRole, token: string): string | null {
+  if (!isInviteTokenShape(token)) return null
+  return safeNextPath(`${INVITE_BASE_PATH[kind]}/${token.trim()}`)
+}
+
+/**
  * Calea spre înscriere care readuce omul pe invitație după login, sau `null`
  * dacă tokenul nu are forma unui token (nu punem gunoi într-un `?next=`) ori
  * calea nu trece de validarea open-redirect (`safeNextPath`).
  */
 export function signupPathForInvite(kind: SalesRole, token: string): string | null {
-  if (!isInviteTokenShape(token)) return null
-  const next = safeNextPath(`${INVITE_BASE_PATH[kind]}/${token.trim()}`)
+  const next = invitePathWithToken(kind, token)
   if (next === null) return null
   return `/auth?mode=signup&lang=ro&next=${encodeURIComponent(next)}`
 }
@@ -51,6 +63,73 @@ export function checkInviteFields(phoneRaw: string, cuiRaw: string): InviteField
   }
 }
 
+/**
+ * Câmpul formularului la care aparține un refuz al serverului (mesajul stă sub
+ * câmp, nu în josul formularului): `cui_conflict` / `cui_invalid` → CUI,
+ * `phone_required` → telefon; orice alt motiv → `null` (mesaj general).
+ */
+export function fieldForSalesReason(reason: SalesFailureReason): 'phone' | 'cui' | null {
+  if (reason === 'cui_conflict' || reason === 'cui_invalid') return 'cui'
+  if (reason === 'phone_required') return 'phone'
+  return null
+}
+
+// ── Contractul afișat vs. contractul publicat ─────────────────────────────────
+
+/** sha256 al textului local, calculat asincron (hooks/useContractTextHash). */
+export type ContractTextHash =
+  | { status: 'none' } // nu există text de calculat
+  | { status: 'pending' }
+  | { status: 'ready'; hash: string }
+  | { status: 'error'; error: SalesNetworkError }
+
+export type ContractGate =
+  /** Serverul nu are o versiune publicată: invitațiile sunt blocate. */
+  | { state: 'unpublished' }
+  /** Versiunea publicată nu are text în acest bundle (aplicație mai veche). */
+  | { state: 'missing_text'; version: string }
+  /** sha256-ul textului local încă se calculează. */
+  | { state: 'checking'; version: string }
+  /** Browserul nu poate calcula sha256 (`crypto.subtle` lipsă). */
+  | { state: 'hash_error'; version: string; message: string }
+  /** Textul local NU e cel publicat (amprentă diferită sau lipsă pe server). */
+  | { state: 'mismatch'; version: string }
+  /** Textul local e EXACT cel publicat: se poate accepta. */
+  | { state: 'ready'; version: string; text: string; hash: string }
+
+/**
+ * FAIL-CLOSED: acceptarea e permisă DOAR când sha256(textul afișat) este
+ * amprenta publicată de server pentru versiunea curentă. Serverul verifică și el
+ * (`contract_hash_mismatch`), dar fără verificarea locală omul ar bifa „am citit
+ * și accept” pe un text pe care serverul îl respinge abia la trimitere.
+ */
+export function contractGate(
+  publishedVersion: string | null,
+  publishedHash: string | null,
+  localText: string | null,
+  localHash: ContractTextHash,
+): ContractGate {
+  if (publishedVersion === null) return { state: 'unpublished' }
+  if (localText === null) return { state: 'missing_text', version: publishedVersion }
+  // O versiune fără amprentă nu poate fi verificată (serverul n-ar accepta-o oricum).
+  if (publishedHash === null) return { state: 'mismatch', version: publishedVersion }
+  if (localHash.status === 'error')
+    return { state: 'hash_error', version: publishedVersion, message: localHash.error.message }
+  if (localHash.status !== 'ready') return { state: 'checking', version: publishedVersion }
+  if (localHash.hash !== publishedHash) return { state: 'mismatch', version: publishedVersion }
+  return { state: 'ready', version: publishedVersion, text: localText, hash: localHash.hash }
+}
+
+/** Primele 12 caractere ale unei amprente sha256 (afișare), cu „…”. */
+export function shortHash(hash: string): string {
+  return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash
+}
+
+/** Eticheta unei versiuni de contract: `1.0` → `v1.0`, `v2` rămâne `v2`. */
+export function contractVersionLabel(version: string): string {
+  return version.startsWith('v') ? version : `v${version}`
+}
+
 // ── Ecranul fondatorului (components/founder/SalesNetworkPanel.tsx) ───────────
 
 /** Linkul de invitație: `<baza publică>/sef-vanzari/<token>` (agent: `/echipa/`). */
@@ -62,14 +141,16 @@ export type ContractVersionCheck = { ok: true; version: string } | { ok: false; 
 
 /**
  * Oglinda locală a regulilor serverului pentru versiunea de contract
- * (`admin_set_sales_contract_version`): serverul rămâne autoritatea, dar o
- * versiune DRAFT sau cu caractere interzise primește mesaj imediat.
+ * (`admin_set_sales_contract_version`, mig 304): „draft” (orice majuscule) →
+ * `draft_version`; peste 20 de caractere sau altă formă decât
+ * `^v?[0-9]+(\.[0-9]+)*$` (ex. `1.0`, `v2`, `1.0.3`) → `invalid_version`.
+ * Serverul rămâne autoritatea; aici doar mesajul vine imediat.
  */
 export function checkContractVersionInput(raw: string): ContractVersionCheck {
   const version = raw.trim()
   if (version === '') return { ok: false, message: 'Scrie versiunea contractului (ex. 1.0).' }
   if (/draft/i.test(version)) return { ok: false, message: SALES_FAILURE_MESSAGES.draft_version }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(version))
+  if (version.length > 20 || !/^v?[0-9]+(\.[0-9]+)*$/.test(version))
     return { ok: false, message: SALES_FAILURE_MESSAGES.invalid_version }
   return { ok: true, version }
 }
