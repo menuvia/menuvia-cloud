@@ -213,6 +213,8 @@ describe('poarta contractului', () => {
   })
 
   it('SF12: refuzurile legate de un câmp', () => {
+    // Mutația „cui_conflict cade pe mesajul general” (sau invers, un motiv de
+    // invitație lipit de un câmp — oracol) pică aici.
     expect(fieldForSalesReason('cui_conflict')).toBe('cui')
     expect(fieldForSalesReason('cui_invalid')).toBe('cui')
     expect(fieldForSalesReason('phone_required')).toBe('phone')
@@ -225,6 +227,8 @@ describe('poarta contractului', () => {
   })
 
   it('SF13: calea cu token, amprenta scurtată, eticheta versiunii', () => {
+    // Mutația „reîncărcarea pe calea de bază” (fără token) ar pierde invitația;
+    // un token cu formă greșită nu are voie să producă o cale.
     expect(invitePathWithToken('head', ` ${TOKEN} `)).toBe(`/sef-vanzari/${TOKEN}`)
     expect(invitePathWithToken('agent', TOKEN)).toBe(`/echipa/${TOKEN}`)
     expect(invitePathWithToken('head', '//evil.com')).toBeNull()

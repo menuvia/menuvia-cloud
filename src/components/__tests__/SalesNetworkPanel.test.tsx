@@ -440,6 +440,8 @@ describe('SalesNetworkPanel', () => {
   })
 
   it('SP12: versiune publicată fără text în aplicație → semnalată; retragerea rămâne posibilă', async () => {
+    // Mutația „se afișează doar amprenta” (fără ramura missing_text) lasă
+    // fondatorul să creadă că invitațiile merg, deși nimeni nu poate accepta.
     server.published = '1.0'
     server.hash = CONTRACT_HASH
     renderPanel()
