@@ -12,7 +12,9 @@
 //      Emailul opțional e o RESTRICȚIE (doar un cont cu exact acel email,
 //      confirmat, poate accepta), nu o notă — textul de lângă câmp o spune.
 //   3. Invitațiile: stare, cine a invitat, data, revocare.
-//   4. Rețeaua: Activ / Suspendat / Închis cu motiv obligatoriu.
+//   4. Rețeaua: Activ / Suspendat / Închis cu motiv obligatoriu. Rolul afișat
+//      vine din `sales_role` (mig 304), nu din lipsa unui părinte: fără el
+//      (proiecție veche, program public) nimeni nu apare ca „Șef”.
 //
 // TRISTATE peste tot: o citire eșuată (RPC lipsă = PGRST202, rețea) NU se
 // afișează ca „nepublicat” sau „zero invitații”; arată mesajul de eroare și
@@ -43,6 +45,7 @@ import {
 } from '../../lib/salesNetwork'
 import {
   AFFILIATE_STATUS_OPTIONS,
+  NETWORK_ROLE_LABELS,
   buildInviteLink,
   checkContractVersionInput,
   contractGate,
@@ -717,7 +720,9 @@ function NetworkList({
     <div style={cardStyle}>
       <div style={titleStyle}>Rețeaua</div>
       <p style={hintStyle}>
-        Șefii și agenții lor. Rolul se vede din legătura cu un șef: cine nu are șef apare ca șef.
+        Șefii și agenții lor (agenții stau sub șeful lor). Rolul vine din contul de rețea, nu din
+        lipsa unui șef: un partener din programul public, sau unul al cărui rol nu e încă știut,
+        apare ca „Partener”.
       </p>
       {rows === null ? (
         affiliatesError === null ? (
@@ -732,14 +737,15 @@ function NetworkList({
       ) : (
         rows.map((r) => {
           const options = nextStatusesFor(r.status)
-          const isHead = r.parentAffiliateId === null
+          // Indentarea arată STRUCTURA (legătura cu un părinte); eticheta, rolul.
+          const hasParent = r.parentAffiliateId !== null
           return (
-            <div key={r.affiliateId} style={{ ...rowStyle, paddingLeft: isHead ? 0 : 18 }}>
+            <div key={r.affiliateId} style={{ ...rowStyle, paddingLeft: hasParent ? 18 : 0 }}>
               <div>
                 <strong>{r.name}</strong>
                 <span style={mutedStyle}>
                   {' · '}
-                  {isHead ? 'Șef' : 'Agent'}
+                  {NETWORK_ROLE_LABELS[r.role]}
                   {' · '}
                   {STATUS_LABELS[r.status] ?? r.status}
                 </span>

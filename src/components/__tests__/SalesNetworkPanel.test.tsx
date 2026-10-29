@@ -16,6 +16,8 @@
 //   SP12 versiune publicată al cărei text lipsește din aplicație → semnalată (cei invitați nu pot accepta)
 //   SP13 emailul invitației e o RESTRICȚIE (serverul îl impune la răscumpărare), nu o notă:
 //        textul de lângă câmp spune regula, iar lista îl arată ca „doar pentru …”
+//   SP14 rolul din „Rețeaua” vine din `sales_role`: fără el (proiecție veche) sau NULL
+//        (program public) nimeni nu e „Șef” / „Agent”, ci „Partener”
 import { createHash, webcrypto } from 'node:crypto'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -109,14 +111,15 @@ function affiliate(over: Partial<AdminAffiliateRow>): AdminAffiliateRow {
 }
 
 const AFFILIATES: AdminAffiliateRow[] = [
-  affiliate({ affiliate_id: 'h1', full_name: 'Șef Unu', status: 'active' }),
+  affiliate({ affiliate_id: 'h1', full_name: 'Șef Unu', status: 'active', sales_role: 'head' }),
   affiliate({
     affiliate_id: 'a1',
     full_name: 'Agent Unu',
     status: 'suspended',
     parent_affiliate_id: 'h1',
+    sales_role: 'agent',
   }),
-  affiliate({ affiliate_id: 'h2', full_name: 'Șef Închis', status: 'closed' }),
+  affiliate({ affiliate_id: 'h2', full_name: 'Șef Închis', status: 'closed', sales_role: 'head' }),
 ]
 
 interface Server {
@@ -360,7 +363,7 @@ describe('SalesNetworkPanel', () => {
     expect(onNetworkChanged).not.toHaveBeenCalled()
   })
 
-  it('SP6c: rolul se vede din legătura cu șeful', async () => {
+  it('SP6c: rolul confirmat (`sales_role`) se vede pe rând', async () => {
     renderPanel()
     const row = (await screen.findByText('Agent Unu')).closest('div') as HTMLElement
     expect(
@@ -468,5 +471,34 @@ describe('SalesNetworkPanel', () => {
     )
     expect(screen.getByText(/lasă câmpul gol dacă nu știi sigur/i)).toBe(hint)
     expect(document.body.textContent ?? '').not.toMatch(/emailul și nota sunt doar pentru tine/i)
+  })
+
+  it('SP14: fără `sales_role` nimeni nu e „Șef”; programul public apare ca „Partener”', async () => {
+    // Un afiliat din programul public n-are părinte, dar NU e șef de vânzări (n-a intrat
+    // prin invitație, n-a acceptat contractul de rețea). Mutația „rolul dedus din
+    // parent_affiliate_id” (cine n-are șef apare ca șef) pică aici.
+    renderPanel([
+      // proiecție veche: câmpul lipsește cu totul
+      affiliate({ affiliate_id: 'p1', full_name: 'Partener Vechi', parent_affiliate_id: null }),
+      affiliate({ affiliate_id: 'p2', full_name: 'Sub Partener', parent_affiliate_id: 'p1' }),
+      // proiecție nouă: NULL explicit = program public
+      affiliate({ affiliate_id: 'p3', full_name: 'Public Explicit', sales_role: null }),
+    ])
+    const rowOf = async (name: string): Promise<HTMLElement> =>
+      ((await screen.findByText(name)).closest('div') as HTMLElement).parentElement as HTMLElement
+
+    const legacy = await rowOf('Partener Vechi')
+    expect(within(legacy).getByText(/^· partener · activ$/i)).toBeInTheDocument()
+    expect(legacy.textContent ?? '').not.toMatch(/șef/i)
+    const child = await rowOf('Sub Partener')
+    expect(within(child).getByText(/^· partener · activ$/i)).toBeInTheDocument()
+    expect(child.textContent ?? '').not.toMatch(/agent|șef/i)
+    const explicit = await rowOf('Public Explicit')
+    expect(
+      within(explicit).getByText(/^· partener \(program public\) · activ$/i),
+    ).toBeInTheDocument()
+    expect(explicit.textContent ?? '').not.toMatch(/șef/i)
+    // Acțiunea de stare rămâne (serverul o permite și pe programul public).
+    expect(screen.getAllByRole('button', { name: /schimbă starea/i })).toHaveLength(3)
   })
 })

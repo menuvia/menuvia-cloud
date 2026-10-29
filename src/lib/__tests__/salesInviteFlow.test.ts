@@ -14,9 +14,11 @@
 //   SF11 poarta contractului: acceptarea e permisă DOAR pe sha256(text local) === amprenta publicată
 //   SF12 refuzurile serverului legate de un câmp (cui_conflict / cui_invalid / phone_required)
 //   SF13 calea invitației CU token (reîncărcare / ?next=), amprenta scurtată, eticheta versiunii
+//   SF14 rolul din „Rețeaua” vine din `sales_role` (mig 304), nu din lipsa unui părinte
 import { describe, it, expect } from 'vitest'
 import {
   INVITE_BASE_PATH,
+  NETWORK_ROLE_LABELS,
   buildInviteLink,
   checkContractVersionInput,
   checkInviteFields,
@@ -184,6 +186,58 @@ describe('ecranul fondatorului', () => {
     const out = networkRows(rows)
     expect(out.map((r) => r.affiliateId)).toEqual(['h1', 'a1', 'h2', 'o1'])
     expect(out.map((r) => r.name)).toEqual(['sef@x.test', 'Agent Unu', '(cont șters)', 'COD-o1'])
+  })
+
+  it('SF14: rolul vine din sales_role; absent / NULL nu devine niciodată „head”', () => {
+    // Mutația „rolul dedus din parent_affiliate_id” face din p1 (program public,
+    // fără părinte) un „Șef” și din p2 un „Agent”: pică aici.
+    const base = {
+      full_name: null,
+      email: null,
+      referral_code: 'COD',
+    }
+    const out = networkRows([
+      {
+        ...base,
+        affiliate_id: 'h1',
+        status: 'active',
+        parent_affiliate_id: null,
+        sales_role: 'head',
+      },
+      {
+        ...base,
+        affiliate_id: 'a1',
+        status: 'active',
+        parent_affiliate_id: 'h1',
+        sales_role: 'agent',
+      },
+      {
+        ...base,
+        affiliate_id: 'p1',
+        status: 'active',
+        parent_affiliate_id: null,
+        sales_role: null,
+      },
+      {
+        ...base,
+        affiliate_id: 'p2',
+        status: 'active',
+        parent_affiliate_id: 'p1',
+        sales_role: null,
+      },
+      { ...base, affiliate_id: 'u1', status: 'suspended', parent_affiliate_id: null },
+    ])
+    expect(out.map((r) => [r.affiliateId, r.role])).toEqual([
+      ['h1', 'head'],
+      ['a1', 'agent'],
+      ['p1', 'public'],
+      ['p2', 'public'],
+      ['u1', 'unknown'],
+    ])
+    expect(NETWORK_ROLE_LABELS.head).toBe('Șef')
+    expect(NETWORK_ROLE_LABELS.agent).toBe('Agent')
+    for (const role of ['public', 'unknown'] as const)
+      expect(NETWORK_ROLE_LABELS[role], role).not.toMatch(/șef|agent/i)
   })
 })
 

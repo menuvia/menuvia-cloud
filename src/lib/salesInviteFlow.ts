@@ -175,10 +175,27 @@ export function nextStatusesFor(current: string): SettableStatus[] {
   return []
 }
 
+/**
+ * Rolul afișat în lista „Rețeaua”. Sursa e `sales_role` (mig 304), NU legătura
+ * cu un părinte: un afiliat din programul public (`sales_role` NULL) n-are
+ * părinte, dar nu e șef de vânzări — n-a intrat prin invitație și n-a acceptat
+ * contractul de rețea. `unknown` = proiecția nu are încă `sales_role` (frontend
+ * înaintea migrației): fără rol confirmat, nimeni nu e etichetat „Șef”.
+ */
+export type NetworkRole = 'head' | 'agent' | 'public' | 'unknown'
+
+export const NETWORK_ROLE_LABELS: Readonly<Record<NetworkRole, string>> = {
+  head: 'Șef',
+  agent: 'Agent',
+  public: 'Partener (program public)',
+  unknown: 'Partener',
+}
+
 export interface NetworkListRow {
   affiliateId: string
   status: string
   parentAffiliateId: string | null
+  role: NetworkRole
   name: string
 }
 
@@ -190,12 +207,22 @@ interface NetworkSourceRow {
   email: string | null
   referral_code: string
   erased_at?: string | null
+  /** mig 304; NULL = program public / afiliat vechi; ABSENT = proiecție veche. */
+  sales_role?: 'head' | 'agent' | null
+}
+
+function networkRoleOf(r: NetworkSourceRow): NetworkRole {
+  if (r.sales_role === 'head') return 'head'
+  if (r.sales_role === 'agent') return 'agent'
+  if (r.sales_role === null) return 'public'
+  return 'unknown'
 }
 
 /**
  * Lista „Rețeaua”: doar conturi în active / suspended / closed (cererile
- * pending / rejected se decid din lista de cereri), șefii (fără părinte)
- * înaintea agenților lor. Rolul se deduce din `parent_affiliate_id`.
+ * pending / rejected se decid din lista de cereri), conturile fără părinte
+ * înaintea celor legate de ele. ORDINEA vine din `parent_affiliate_id`
+ * (structura), dar ROLUL afișat vine din `sales_role` (`networkRoleOf`).
  */
 export function networkRows(rows: readonly NetworkSourceRow[]): NetworkListRow[] {
   const inNetwork = rows.filter(
@@ -205,6 +232,7 @@ export function networkRows(rows: readonly NetworkSourceRow[]): NetworkListRow[]
     affiliateId: r.affiliate_id,
     status: r.status,
     parentAffiliateId: r.parent_affiliate_id,
+    role: networkRoleOf(r),
     name: r.erased_at ? '(cont șters)' : r.full_name || r.email || r.referral_code,
   })
   const heads = inNetwork.filter((r) => r.parent_affiliate_id === null)
@@ -214,7 +242,7 @@ export function networkRows(rows: readonly NetworkSourceRow[]): NetworkListRow[]
     for (const a of inNetwork.filter((r) => r.parent_affiliate_id === h.affiliate_id))
       out.push(toRow(a))
   }
-  // Agenți al căror șef nu e în listă (șef închis / filtrat): nu-i pierdem.
+  // Conturi al căror părinte nu e în listă (închis / filtrat): nu le pierdem.
   for (const a of inNetwork.filter(
     (r) =>
       r.parent_affiliate_id !== null &&
