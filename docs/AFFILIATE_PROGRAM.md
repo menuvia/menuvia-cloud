@@ -425,7 +425,7 @@ același PR (`ECOSISTEM.md:110`). Filtrele `status='active'` NU se slăbesc (CLA
   rămâne pe Netlify (denylist pg_cron, m274:218-219, m282:236-237).
 - `get_affiliate_dashboard` (lanț 097d→110→174→188, live m188:371-509): câștiguri per produs
   (total/confirmat/în hold/plătit/recuperat), restaurante/comenzi per produs.
-- `admin_list_affiliates` (lanț 186→188→224→236): păstrează TOATE câmpurile + totaluri per produs.
+- `admin_list_affiliates` (lanț 186→188→224→236→295→305): păstrează TOATE câmpurile + totaluri per produs.
 
 ---
 

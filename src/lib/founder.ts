@@ -215,8 +215,12 @@ export interface AdminAffiliateRow {
   // mig 295: tombstone GDPR. Opțional (FE înaintea migrației).
   erased_at?: string | null
   // mig 304: rolul în rețeaua pe invitații; NULL = program public / afiliat vechi.
-  // OPȚIONAL: `admin_list_affiliates` încă nu-l proiectează (migrație viitoare),
-  // iar câmpul ABSENT = rol necunoscut — lista „Rețeaua” nu-l ghicește din părinte.
+  // Proiectat de `admin_list_affiliates` din mig 305 (cheia e MEREU prezentă,
+  // cu `null` JSON pe programul public). Rămâne OPȚIONAL fiindcă FE poate ajunge
+  // înaintea migrației: câmpul ABSENT = rol necunoscut — lista „Rețeaua” nu-l
+  // ghicește din părinte. Nu există parser: valoarea se validează la citire
+  // (`networkRoleOf` din lib/salesInviteFlow.ts acceptă DOAR 'head' / 'agent' /
+  // null; orice altceva = necunoscut, deci niciodată „Șef”).
   sales_role?: 'head' | 'agent' | null
 }
 

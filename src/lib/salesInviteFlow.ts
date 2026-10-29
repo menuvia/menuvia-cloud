@@ -179,8 +179,10 @@ export function nextStatusesFor(current: string): SettableStatus[] {
  * Rolul afișat în lista „Rețeaua”. Sursa e `sales_role` (mig 304), NU legătura
  * cu un părinte: un afiliat din programul public (`sales_role` NULL) n-are
  * părinte, dar nu e șef de vânzări — n-a intrat prin invitație și n-a acceptat
- * contractul de rețea. `unknown` = proiecția nu are încă `sales_role` (frontend
- * înaintea migrației): fără rol confirmat, nimeni nu e etichetat „Șef”.
+ * contractul de rețea. `admin_list_affiliates` proiectează `sales_role` din
+ * mig 305 (cheia mereu prezentă; `null` JSON = program public). `unknown` =
+ * cheia lipsește (frontend înaintea migrației 305) sau valoarea nu e una
+ * dintre cele trei știute: fără rol confirmat, nimeni nu e etichetat „Șef”.
  */
 export type NetworkRole = 'head' | 'agent' | 'public' | 'unknown'
 
@@ -207,7 +209,7 @@ interface NetworkSourceRow {
   email: string | null
   referral_code: string
   erased_at?: string | null
-  /** mig 304; NULL = program public / afiliat vechi; ABSENT = proiecție veche. */
+  /** mig 304, proiectat din 305; NULL = program public / afiliat vechi; ABSENT = fără 305. */
   sales_role?: 'head' | 'agent' | null
 }
 
