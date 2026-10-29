@@ -1,6 +1,6 @@
 // =============================================================
 // Menuvia — src/components/founder/SalesNetworkPanel.tsx
-// „Rețea de vânzări” în FounderPage → Afiliați (mig 302, pachetul 8b-1).
+// „Rețea de vânzări” în FounderPage → Afiliați (mig 304, pachetul 8b-1).
 //
 //   1. Contract: versiunea publicată (sau „Nepublicat — invitațiile sunt blocate”),
 //      publică / retrage.

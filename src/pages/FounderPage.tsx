@@ -52,7 +52,7 @@ import FounderActivationCard from '../components/FounderActivationCard'
 import FounderPayoutRow, { RunPayoutBatchButton } from '../components/FounderPayoutRow'
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
-// Rețeaua de vânzări pe invitații (mig 302): panou propriu, încărcat doar în fila Afiliați.
+// Rețeaua de vânzări pe invitații (mig 304): panou propriu, încărcat doar în fila Afiliați.
 const SalesNetworkPanel = lazy(() => import('../components/founder/SalesNetworkPanel'))
 
 type Section = 'overview' | 'restaurante' | 'benchmark' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'

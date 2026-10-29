@@ -1,4 +1,4 @@
-// Panoul „Rețea de vânzări” din FounderPage (mig 302, pachetul 8b-1).
+// Panoul „Rețea de vânzări” din FounderPage (mig 304, pachetul 8b-1).
 //
 //   SP1  contract nepublicat → „Nepublicat — invitațiile sunt blocate", invitația dezactivată
 //   SP2  publicare: DRAFT refuzat local (fără confirm, fără RPC); valid → confirm + RPC + versiunea apare

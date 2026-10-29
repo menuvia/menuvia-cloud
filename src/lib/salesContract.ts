@@ -3,7 +3,7 @@
 // Textele contractelor de rețea, pe VERSIUNE. Sursa unică a documentului
 // afișat la acceptare: clientul calculează sha256 pe EXACT textul de aici
 // (`sha256Hex`), iar serverul păstrează versiunea + hash-ul în istoricul
-// append-only al acceptărilor (mig 302).
+// append-only al acceptărilor (mig 304).
 //
 // Harta e GOALĂ până când avocatul aprobă textul și fondatorul îl publică
 // (docs/dosar/03*-contract-*-draft.md sunt DRAFT-uri și NU se leagă aici: o

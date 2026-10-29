@@ -1,6 +1,6 @@
 // =============================================================
 // Menuvia — src/pages/SalesInviteRedeemPage.tsx
-// Răscumpărarea unei invitații în rețeaua de vânzări (mig 302, pachetul 8b-1):
+// Răscumpărarea unei invitații în rețeaua de vânzări (mig 304, pachetul 8b-1):
 //   /sef-vanzari/:token → șef de vânzări     /echipa/:token → agent
 //
 // Principii:
