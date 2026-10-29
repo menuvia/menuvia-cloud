@@ -52,6 +52,8 @@ import FounderActivationCard from '../components/FounderActivationCard'
 import FounderPayoutRow, { RunPayoutBatchButton } from '../components/FounderPayoutRow'
 
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
+// Rețeaua de vânzări pe invitații (mig 304): panou propriu, încărcat doar în fila Afiliați.
+const SalesNetworkPanel = lazy(() => import('../components/founder/SalesNetworkPanel'))
 
 type Section = 'overview' | 'restaurante' | 'benchmark' | 'operatiuni' | 'afiliati' | 'ai' | 'audit'
 
@@ -1128,6 +1130,13 @@ function AffiliatesSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      <Suspense fallback={<InlineSpinner label="Se încarcă rețeaua de vânzări..." />}>
+        <SalesNetworkPanel
+          affiliates={affiliates.data}
+          affiliatesError={affiliates.error}
+          onNetworkChanged={() => void affiliates.reload()}
+        />
+      </Suspense>
       <AffiliateProgramToggleCard />
       <CommissionDefaultsCard onApplied={() => void affiliates.reload()} />
       <div style={cardStyle}>

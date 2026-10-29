@@ -18,6 +18,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon } from '../components/ui/Icon'
 import { track } from '../lib/analytics'
 import { authRedirectBase, browserSite, defaultUiLang } from '../lib/domain'
+import { nextFromSearch } from '../lib/authRedirect'
 // Versiunea de Termeni (mig 042) și consemnarea trăiesc în `lib/terms` —
 // folosite și de `TermsAcceptanceGate`, care preia cazul în care sesiunea
 // apare abia după confirmarea de email. Incrementează TERMS_VERSION acolo
@@ -392,6 +393,9 @@ export default function AuthPage({
   // Destinația linkului de confirmare (și a „Retrimite"): readuce userul direct
   // în aplicație, cu `?plan=` când există o intenție. Pe .ro neschimbat; pe un
   // host .com tot .ro — niciun redirect spre domeniul .com (lib/domain.ts).
+  // Plus `next=` curent (validat): linkul din email se deschide în ALT tab, iar
+  // fără el contul nou venit dintr-o invitație de rețea (/auth?next=/sef-vanzari/…)
+  // ateriza pe onboarding-ul de restaurant, nu înapoi pe invitație.
   const confirmRedirectUrl = (): string =>
     authRedirectUrl(
       authRedirectBase(
@@ -400,6 +404,7 @@ export default function AuthPage({
         window.location.origin,
       ),
       planIntent,
+      nextFromSearch(window.location.search),
     )
 
   const handle = async (evt: React.FormEvent) => {

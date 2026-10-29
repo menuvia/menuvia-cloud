@@ -110,6 +110,15 @@ describe('SN2 mesaje românești', () => {
     expect(msg).toMatch(/expirată, deja folosită sau retrasă/)
     expect(new SalesNetworkError('invite_invalid').message).toBe(msg)
   })
+  it('invite_invalid pomenește și invitația legată de alt email, cu ieșirea spre alt cont', () => {
+    // Serverul (mig 304) răspunde tot invite_invalid când invitația e legată de un
+    // email și contul are alt email (sau neconfirmat). Mutația „mesajul vechi”
+    // (fără email / fără alt cont) trimite omul să ceară invitații noi care pică la fel.
+    const msg = SALES_FAILURE_MESSAGES.invite_invalid
+    expect(msg).toMatch(/destinată altei adrese de email/)
+    expect(msg).toMatch(/dacă ai alt cont, deconectează-te/i)
+    expect(msg).toMatch(/altfel cere o invitație nouă\.$/)
+  })
   it('describeSalesError nu scurge un Error străin', () => {
     expect(describeSalesError(new Error('SECRET'))).toBe(SALES_FAILURE_MESSAGES.unknown)
     expect(describeSalesError({ message: 'SECRET' })).toBe(SALES_FAILURE_MESSAGES.unknown)

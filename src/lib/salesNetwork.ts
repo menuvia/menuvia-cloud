@@ -188,9 +188,9 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   contract_not_published:
     'Contractul de colaborare nu este încă publicat, deci invitațiile sunt blocate. Revino după publicare.',
   contract_version_mismatch:
-    'Contractul s-a actualizat între timp. Reîncarcă pagina și citește versiunea curentă.',
+    'Contractul s-a actualizat între timp. Redeschide linkul invitației și citește versiunea curentă.',
   contract_hash_mismatch:
-    'Textul contractului afișat nu corespunde versiunii publicate. Reîncarcă pagina și citește din nou contractul.',
+    'Textul contractului afișat nu corespunde versiunii publicate. Redeschide linkul invitației și citește din nou contractul.',
   invalid_text_hash:
     'Hash-ul textului contractului trebuie să aibă 64 de caractere hexazecimale (sha256).',
   anonymous_account:
@@ -198,12 +198,15 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   cui_conflict:
     'Acest CUI este deja folosit de alt cont din program. Verifică CUI-ul sau scrie-ne.',
   contract_hash_invalid:
-    'Textul contractului nu a putut fi verificat. Reîncarcă pagina și încearcă din nou.',
+    'Textul contractului nu a putut fi verificat. Redeschide linkul invitației și încearcă din nou.',
   phone_required: 'Introdu un număr de telefon valid (între 5 și 32 de caractere).',
   cui_invalid: 'CUI-ul nu este valid. Verifică cifrele (poți scrie cu sau fără RO în față).',
   // UN SINGUR mesaj pentru orice problemă a invitației (anti-oracol, ca pe server).
+  // Pomenește și invitația legată de ALT email (mig 304 răspunde tot invite_invalid)
+  // și ieșirea spre alt cont: fără ele, omul cu contul greșit cerea la nesfârșit
+  // invitații noi, legate de același email.
   invite_invalid:
-    'Invitația nu este validă: poate fi expirată, deja folosită sau retrasă. Cere o invitație nouă.',
+    'Invitația nu este validă: poate fi expirată, deja folosită sau retrasă, ori destinată altei adrese de email. Dacă ai alt cont, deconectează-te și intră cu emailul pentru care ai primit invitația; altfel cere o invitație nouă.',
   already_affiliate: 'Contul tău face deja parte din programul de vânzări.',
   not_a_head: 'Doar un șef de vânzări poate face această acțiune.',
   head_not_active: 'Contul tău de șef nu este activ, deci nu poți trimite invitații.',
@@ -215,8 +218,9 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   invalid_value: 'Valoarea trimisă nu este validă.',
   not_an_affiliate: 'Contul tău nu face parte din programul de vânzări.',
   invalid_email: 'Adresa de email nu este validă.',
+  // Regula REALĂ (mig 304 și checkContractVersionInput): `^v?[0-9]+(\.[0-9]+)*$`, max 20.
   invalid_version:
-    'Versiunea contractului poate conține doar litere, cifre, punct, minus și liniuță jos.',
+    'Versiunea are forma 1.0, 1.0.3 sau v2: doar cifre separate prin punct, opțional cu „v” mic în față (maximum 20 de caractere).',
   draft_version: 'O versiune marcată DRAFT nu poate fi publicată.',
   invalid_status: 'Starea cerută nu este validă (activ, suspendat sau închis).',
   reason_required: 'Scrie motivul (cel puțin 3 caractere).',

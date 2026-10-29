@@ -214,6 +214,10 @@ export interface AdminAffiliateRow {
   brand_logo_url?: string | null
   // mig 295: tombstone GDPR. Opțional (FE înaintea migrației).
   erased_at?: string | null
+  // mig 304: rolul în rețeaua pe invitații; NULL = program public / afiliat vechi.
+  // OPȚIONAL: `admin_list_affiliates` încă nu-l proiectează (migrație viitoare),
+  // iar câmpul ABSENT = rol necunoscut — lista „Rețeaua” nu-l ghicește din părinte.
+  sales_role?: 'head' | 'agent' | null
 }
 
 export interface AdminAuditRow {

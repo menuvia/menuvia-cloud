@@ -60,6 +60,9 @@ if (typeof window !== 'undefined') {
   else if (/^\/m\/.+$/.test(p)) import('./pages/PublicMenuPage').catch(() => undefined)
 }
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
+// Invitațiile de rețea (șef / agent): pagina cere sesiune, dar ruta e înaintea
+// gate-ului de onboarding — un agent nu are restaurant.
+const SalesInviteRedeemPage = lazy(() => import('./pages/SalesInviteRedeemPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
@@ -92,6 +95,8 @@ type View =
   | 'kitchen'
   | 'waiter'
   | 'invite'
+  | 'sales-head-invite'
+  | 'sales-agent-invite'
   | 'pricing'
   | 'reset-password'
   | 'demo'
@@ -135,6 +140,14 @@ function parsePath(): RouteState {
   // orice /r/* la '/' — coliziunea a fost prinsă de audit, ruta nu se randa).
   const reserveMatch = p.match(/^\/rezervare\/(.+)$/)
   const inviteMatch = p.match(/^\/invite\/(.+)$/)
+  // Invitații de rețea. Fără token (`/sef-vanzari` simplu) = linkul a fost deja
+  // deschis și curățat din URL (apoi reîncărcat / copiat / deschis în alt
+  // browser): pagina cere redeschiderea linkului primit, nu 404 și NU
+  // „invitație invalidă” (invitația n-a ajuns la server, e încă bună).
+  const headInviteMatch = p.match(/^\/sef-vanzari(?:\/(.*))?$/)
+  const agentInviteMatch = p.match(/^\/echipa(?:\/(.*))?$/)
+  if (headInviteMatch) return { view: 'sales-head-invite', token: headInviteMatch[1] ?? '' }
+  if (agentInviteMatch) return { view: 'sales-agent-invite', token: agentInviteMatch[1] ?? '' }
   if (qrMatch) return { view: 'qr', token: qrMatch[1] }
   if (menuMatch) return { view: 'menu', slug: menuMatch[1] }
   if (reserveMatch) return { view: 'reserve', slug: reserveMatch[1] }
@@ -459,6 +472,8 @@ function AppRouter() {
         'qr',
         'menu',
         'invite',
+        'sales-head-invite',
+        'sales-agent-invite',
         'kitchen',
         'waiter',
         'pricing',
@@ -511,6 +526,20 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <InviteAcceptPage token={state.token} navigate={navigate} />
+      </Suspense>
+    )
+  if (state.view === 'sales-head-invite' || state.view === 'sales-agent-invite')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <SalesInviteRedeemPage
+          kind={state.view === 'sales-head-invite' ? 'head' : 'agent'}
+          token={state.token ?? ''}
+          navigate={navigate}
+          replace={(path) => {
+            replace(path)
+            window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+          }}
+        />
       </Suspense>
     )
   if (state.view === 'reset-password')
