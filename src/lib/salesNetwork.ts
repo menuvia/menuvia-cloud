@@ -188,9 +188,9 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   contract_not_published:
     'Contractul de colaborare nu este încă publicat, deci invitațiile sunt blocate. Revino după publicare.',
   contract_version_mismatch:
-    'Contractul s-a actualizat între timp. Reîncarcă pagina și citește versiunea curentă.',
+    'Contractul s-a actualizat între timp. Redeschide linkul invitației și citește versiunea curentă.',
   contract_hash_mismatch:
-    'Textul contractului afișat nu corespunde versiunii publicate. Reîncarcă pagina și citește din nou contractul.',
+    'Textul contractului afișat nu corespunde versiunii publicate. Redeschide linkul invitației și citește din nou contractul.',
   invalid_text_hash:
     'Hash-ul textului contractului trebuie să aibă 64 de caractere hexazecimale (sha256).',
   anonymous_account:
@@ -198,7 +198,7 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   cui_conflict:
     'Acest CUI este deja folosit de alt cont din program. Verifică CUI-ul sau scrie-ne.',
   contract_hash_invalid:
-    'Textul contractului nu a putut fi verificat. Reîncarcă pagina și încearcă din nou.',
+    'Textul contractului nu a putut fi verificat. Redeschide linkul invitației și încearcă din nou.',
   phone_required: 'Introdu un număr de telefon valid (între 5 și 32 de caractere).',
   cui_invalid: 'CUI-ul nu este valid. Verifică cifrele (poți scrie cu sau fără RO în față).',
   // UN SINGUR mesaj pentru orice problemă a invitației (anti-oracol, ca pe server).
