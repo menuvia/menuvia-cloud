@@ -382,7 +382,9 @@ describe('SalesInviteRedeemPage', () => {
       await screen.findByText(SALES_FAILURE_MESSAGES.contract_hash_mismatch),
     ).toBeInTheDocument()
     expect(await screen.findByText(/nu poate fi afișat în această versiune/i)).toBeInTheDocument()
-    expect(rpcMock.mock.calls.filter((c: unknown[]) => c[0] === 'get_sales_network')).toHaveLength(2)
+    expect(rpcMock.mock.calls.filter((c: unknown[]) => c[0] === 'get_sales_network')).toHaveLength(
+      2,
+    )
     expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
     expect(submitButton()).toBeDisabled()
   })

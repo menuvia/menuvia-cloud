@@ -1,8 +1,9 @@
 // Panoul „Rețea de vânzări” din FounderPage (mig 304, pachetul 8b-1).
 //
 //   SP1  contract nepublicat → „Nepublicat — invitațiile sunt blocate", invitația dezactivată
-//   SP2  publicare: DRAFT refuzat local (fără confirm, fără RPC); valid → confirm + RPC + versiunea apare
-//   SP3  retragere: fără confirmare nu pleacă nimic; cu confirmare → RPC cu versiune null
+//   SP2  publicare: DRAFT refuzat local (fără confirm, fără RPC); valid cu text în aplicație →
+//        confirm + RPC cu (versiune, sha256 REAL al textului) + versiunea și amprenta apar
+//   SP3  retragere: fără confirmare nu pleacă nimic; cu confirmare → RPC cu (null, null)
 //   SP4  tokenul: linkul apare O SINGURĂ DATĂ (baza publică + /sef-vanzari/ + token),
 //        se copiază, dispare la „ascunde" și nu mai apare nici după re-randare, nici în listă
 //   SP5  revocare: confirmDialog; refuzat → niciun RPC; acceptat → RPC pe id
@@ -10,20 +11,38 @@
 //   SP7  RPC lipsă (PGRST202) → „indisponibil", NU „nepublicat"; nicio acțiune de invitare
 //   SP8  lista de invitații eșuată → eroare + „Reîncearcă", NU „Nicio invitație"
 //   SP9  lista „Rețeaua" necunoscută (încă se încarcă / eroare) nu se arată ca goală
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+//   SP10 versiune fără text în aplicație → publicarea DEZACTIVATĂ cu explicație, nimic nu pleacă
+//   SP11 amprenta publicată se vede scurtată; textul din aplicație care NU îi corespunde e semnalat
+//   SP12 versiune publicată al cărei text lipsește din aplicație → semnalată (cei invitați nu pot accepta)
+import { createHash, webcrypto } from 'node:crypto'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const { rpcMock, confirmMock } = vi.hoisted(() => ({ rpcMock: vi.fn(), confirmMock: vi.fn() }))
+const { rpcMock, confirmMock, contractTextMock } = vi.hoisted(() => ({
+  rpcMock: vi.fn(),
+  confirmMock: vi.fn(),
+  contractTextMock: vi.fn(),
+}))
 
 vi.mock('../../lib/supabase', () => ({ supabase: { rpc: rpcMock } }))
 vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
+// Harta reală e GOALĂ (fail-closed până la textul avocatului): testele care
+// publică injectează un text pentru o versiune.
+vi.mock('../../lib/salesContract', () => ({ contractTextFor: contractTextMock }))
 
 import SalesNetworkPanel from '../founder/SalesNetworkPanel'
 import { SALES_FAILURE_MESSAGES } from '../../lib/salesNetwork'
 import type { AdminAffiliateRow } from '../../lib/founder'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
+const CONTRACT_TEXT = 'CONTRACT DE COLABORARE v1.0\nArt. 1. Ștefan acceptă.'
+/** sha256 calculat independent (node:crypto), nu cu funcția testată. */
+const CONTRACT_HASH = createHash('sha256').update(CONTRACT_TEXT, 'utf8').digest('hex')
+
+function textFor(version: string): (v: string | null) => string | null {
+  return (v) => (v === version ? CONTRACT_TEXT : null)
+}
 
 function ok(data: unknown) {
   return Promise.resolve({ data, error: null })
@@ -32,7 +51,7 @@ function rpcFail(code: string) {
   return Promise.resolve({ data: null, error: { code, message: 'x' } })
 }
 
-function networkPayload(version: string | null) {
+function networkPayload(version: string | null, textHash: string | null = null) {
   return {
     ok: true,
     role: null,
@@ -44,6 +63,7 @@ function networkPayload(version: string | null) {
       accepted_version: null,
       accepted_at: null,
       needs_acceptance: false,
+      current_text_hash: textHash,
     },
     head: null,
     team: [],
@@ -99,6 +119,7 @@ const AFFILIATES: AdminAffiliateRow[] = [
 
 interface Server {
   published: string | null
+  hash: string | null
   invites: unknown[]
 }
 let server: Server
@@ -107,12 +128,17 @@ function installServer() {
   rpcMock.mockImplementation((fn: string, args?: Record<string, unknown>) => {
     switch (fn) {
       case 'get_sales_network':
-        return ok(networkPayload(server.published))
+        return ok(networkPayload(server.published, server.hash))
       case 'admin_list_affiliate_invites':
         return ok(server.invites)
       case 'admin_set_sales_contract_version':
+        // Ca pe server: retragerea (versiune null) ignoră hash-ul.
         server.published = (args?.p_version as string | null | undefined) ?? null
-        return ok({ ok: true, version: server.published, previous: null })
+        server.hash =
+          server.published === null
+            ? null
+            : ((args?.p_text_hash as string | null | undefined) ?? null)
+        return ok({ ok: true, version: server.published, text_hash: server.hash, previous: null })
       case 'admin_create_sales_head_invite':
         return ok({
           ok: true,
@@ -154,9 +180,17 @@ beforeEach(() => {
   rpcMock.mockReset()
   confirmMock.mockReset()
   confirmMock.mockResolvedValue(true)
+  contractTextMock.mockReset()
+  contractTextMock.mockReturnValue(null)
   onNetworkChanged.mockReset()
-  server = { published: null, invites: [inviteRow()] }
+  // sha256Hex REAL (crypto.subtle din Node): testele verifică amprenta adevărată.
+  vi.stubGlobal('crypto', webcrypto)
+  server = { published: null, hash: null, invites: [inviteRow()] }
   installServer()
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
 })
 
 describe('SalesNetworkPanel', () => {
@@ -167,30 +201,44 @@ describe('SalesNetworkPanel', () => {
     expect(screen.queryByRole('button', { name: /retrage versiunea/i })).toBeNull()
   })
 
-  it('SP2: publicare — DRAFT refuzat local, versiunea validă trece prin confirm și RPC', async () => {
+  it('SP2: publicare — DRAFT refuzat local, versiunea cu text trimite versiunea ȘI sha256', async () => {
+    contractTextMock.mockImplementation(textFor('1.0'))
     const user = userEvent.setup()
     renderPanel()
     await screen.findByText(/nepublicat — invitațiile sunt blocate/i)
     const input = screen.getByLabelText(/versiunea de publicat/i)
+    const publishButton = () => screen.getByRole('button', { name: /publică versiunea/i })
 
     await user.type(input, 'agent-1.0-DRAFT')
-    await user.click(screen.getByRole('button', { name: /publică versiunea/i }))
     expect(await screen.findByText(SALES_FAILURE_MESSAGES.draft_version)).toBeInTheDocument()
+    expect(publishButton()).toBeDisabled()
+    await user.click(publishButton())
     expect(confirmMock).not.toHaveBeenCalled()
     expect(callsOf('admin_set_sales_contract_version')).toHaveLength(0)
 
     await user.clear(input)
     await user.type(input, '1.0')
-    await user.click(screen.getByRole('button', { name: /publică versiunea/i }))
+    expect(publishButton()).toBeEnabled()
+    await user.click(publishButton())
     await waitFor(() => expect(callsOf('admin_set_sales_contract_version')).toHaveLength(1))
     expect(confirmMock).toHaveBeenCalledTimes(1)
-    expect(callsOf('admin_set_sales_contract_version')[0][1]).toEqual({ p_version: '1.0' })
+    // Mutațiile „hash-ul versiunii / al altui text / null” pică aici: amprenta e
+    // recalculată independent, cu node:crypto, pe EXACT textul din hartă.
+    expect(callsOf('admin_set_sales_contract_version')[0][1]).toEqual({
+      p_version: '1.0',
+      p_text_hash: CONTRACT_HASH,
+    })
     expect(await screen.findByText(/publicat: versiunea 1\.0/i)).toBeInTheDocument()
+    expect(screen.getByText(CONTRACT_HASH.slice(0, 12) + '…')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/textul din aplicație corespunde amprentei publicate/i),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /creează invitație/i })).toBeEnabled()
   })
 
   it('SP3: retragerea cere confirmare și trimite versiune null', async () => {
     server.published = '1.0'
+    server.hash = CONTRACT_HASH
     const user = userEvent.setup()
     renderPanel()
     await screen.findByText(/publicat: versiunea 1\.0/i)
@@ -202,7 +250,10 @@ describe('SalesNetworkPanel', () => {
 
     await user.click(screen.getByRole('button', { name: /retrage versiunea/i }))
     await waitFor(() => expect(callsOf('admin_set_sales_contract_version')).toHaveLength(1))
-    expect(callsOf('admin_set_sales_contract_version')[0][1]).toEqual({ p_version: null })
+    expect(callsOf('admin_set_sales_contract_version')[0][1]).toEqual({
+      p_version: null,
+      p_text_hash: null,
+    })
     expect(await screen.findByText(/nepublicat — invitațiile sunt blocate/i)).toBeInTheDocument()
   })
 
@@ -354,5 +405,47 @@ describe('SalesNetworkPanel', () => {
     )
     expect(screen.getByText('Eroare la încărcare.')).toBeInTheDocument()
     expect(screen.queryByText(/niciun cont în rețea/i)).toBeNull()
+  })
+
+  it('SP10: versiune fără text în aplicație → publicarea e dezactivată, nimic nu pleacă', async () => {
+    // Harta reală e goală: contractTextMock întoarce null pentru orice versiune.
+    // Mutația „butonul se uită doar la formă” (fără `typedText !== null`) îl
+    // activează și trimite publicarea: testul pică.
+    const user = userEvent.setup()
+    renderPanel()
+    await screen.findByText(/nepublicat — invitațiile sunt blocate/i)
+    await user.type(screen.getByLabelText(/versiunea de publicat/i), '1.0')
+    expect(
+      await screen.findByText(/textul contractului v1\.0 nu există încă în aplicație/i),
+    ).toBeInTheDocument()
+    const publishButton = screen.getByRole('button', { name: /publică versiunea/i })
+    expect(publishButton).toBeDisabled()
+    await user.click(publishButton)
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(callsOf('admin_set_sales_contract_version')).toHaveLength(0)
+  })
+
+  it('SP11: amprenta publicată scurtată; textul din aplicație diferit e semnalat', async () => {
+    // Mutația „corespunde” necondiționat (fără comparația amprentelor) pică aici.
+    contractTextMock.mockImplementation(textFor('1.0'))
+    server.published = '1.0'
+    server.hash = 'f'.repeat(64)
+    renderPanel()
+    await screen.findByText(/publicat: versiunea 1\.0/i)
+    expect(screen.getByText('ffffffffffff…')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/textul din aplicație pentru versiunea 1\.0 nu corespunde/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/corespunde amprentei publicate\.$/i)).toBeNull()
+  })
+
+  it('SP12: versiune publicată fără text în aplicație → semnalată; retragerea rămâne posibilă', async () => {
+    server.published = '1.0'
+    server.hash = CONTRACT_HASH
+    renderPanel()
+    expect(
+      await screen.findByText(/textul versiunii 1\.0 nu există în aplicație/i),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /retrage versiunea/i })).toBeEnabled()
   })
 })

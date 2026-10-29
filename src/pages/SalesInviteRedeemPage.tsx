@@ -384,16 +384,16 @@ export default function SalesInviteRedeemPage({
       {gate.state === 'missing_text' && (
         <div role="status" style={noticeStyle}>
           <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul versiunii{' '}
-          {gate.version} nu poate fi afișat în această versiune a aplicației, deci nu îl poți accepta
-          încă. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          {gate.version} nu poate fi afișat în această versiune a aplicației, deci nu îl poți
+          accepta încă. Dacă mesajul rămâne după reîncărcare, scrie-ne.
           {reloadButton}
         </div>
       )}
       {gate.state === 'mismatch' && (
         <div role="status" style={noticeStyle}>
           <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul afișat de această
-          versiune a aplicației nu este cel publicat pentru versiunea {gate.version}, deci nu îl poți
-          accepta. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          versiune a aplicației nu este cel publicat pentru versiunea {gate.version}, deci nu îl
+          poți accepta. Dacă mesajul rămâne după reîncărcare, scrie-ne.
           {reloadButton}
         </div>
       )}
