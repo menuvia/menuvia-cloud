@@ -19,7 +19,11 @@
 //     verificat; serverul îl compară și el (`contract_hash_mismatch`).
 //   • „Reîncarcă pagina” trebuie să păstreze invitația: tokenul a fost scos din
 //     URL la montare, deci reîncărcarea merge pe calea CU token (replace, fără
-//     intrare nouă în istoric), iar pagina nouă îl curăță din nou.
+//     intrare nouă în istoric), iar pagina nouă îl curăță din nou. Notificările
+//     trimit la ACEST buton, nu la reîncărcarea din browser.
+//   • Adresa FĂRĂ token (reîncărcare din browser, „Deschide în browser”, adresă
+//     copiată) NU e „invitație invalidă”: invitația n-a ajuns la server, deci
+//     pagina spune doar să fie redeschis linkul primit (fără niciun apel).
 //   • Un singur mesaj pentru orice problemă a invitației (`invite_invalid`),
 //     ca pe server (anti-oracol). Serverul e autoritatea; validarea CUI de aici
 //     doar dă un mesaj imediat.
@@ -247,6 +251,26 @@ export default function SalesInviteRedeemPage({
   }, [authLoading, user, tokenOk, token, kind])
 
   // ── Ramuri fără formular ──────────────────────────────────────
+  // Fără token = adresa curățată la montare a fost reîncărcată / copiată /
+  // deschisă în alt browser. Invitația NU a ajuns la server, deci pagina nu are
+  // voie să spună că e invalidă (omul ar cere alta, iar cea bună ar rămâne
+  // deschisă). Nu e oracol: nu pleacă nicio cerere.
+  if (token.trim() === '') {
+    return (
+      <Shell>
+        <h1 style={{ fontSize: '1.3rem', margin: '0 0 12px' }}>{copy.title}</h1>
+        <p role="status" style={{ color: D.t2, lineHeight: 1.5 }}>
+          Din motive de siguranță, linkul invitației nu rămâne în bara de adrese: după o reîncărcare
+          a paginii, „Deschide în browser” sau o adresă copiată, ajungi aici fără el. Ca să
+          continui, deschide din nou linkul primit (pe WhatsApp sau pe email); invitația ta nu a
+          fost folosită.
+        </p>
+        <button type="button" style={primaryButton(false)} onClick={() => navigate('/')}>
+          Înapoi la pagina principală
+        </button>
+      </Shell>
+    )
+  }
   if (!tokenOk) {
     return (
       <Shell>
@@ -381,19 +405,23 @@ export default function SalesInviteRedeemPage({
           fi folosită acum. Revino pe același link mai târziu.
         </div>
       )}
+      {/* Spre BUTONUL paginii, nu spre reîncărcarea din browser: tokenul a fost
+          scos din URL, deci doar butonul (calea CU token) păstrează invitația. */}
       {gate.state === 'missing_text' && (
         <div role="status" style={noticeStyle}>
-          <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul versiunii{' '}
-          {gate.version} nu poate fi afișat în această versiune a aplicației, deci nu îl poți
-          accepta încă. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          <strong>Contractul s-a actualizat.</strong> Textul versiunii {gate.version} nu poate fi
+          afișat în această versiune a aplicației, deci nu îl poți accepta încă. Apasă butonul
+          „Reîncarcă pagina” de mai jos (reîncărcarea din browser pierde invitația). Dacă mesajul
+          rămâne și după aceea, scrie-ne.
           {reloadButton}
         </div>
       )}
       {gate.state === 'mismatch' && (
         <div role="status" style={noticeStyle}>
-          <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul afișat de această
-          versiune a aplicației nu este cel publicat pentru versiunea {gate.version}, deci nu îl
-          poți accepta. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          <strong>Contractul s-a actualizat.</strong> Textul afișat de această versiune a aplicației
+          nu este cel publicat pentru versiunea {gate.version}, deci nu îl poți accepta. Apasă
+          butonul „Reîncarcă pagina” de mai jos (reîncărcarea din browser pierde invitația). Dacă
+          mesajul rămâne și după aceea, scrie-ne.
           {reloadButton}
         </div>
       )}
@@ -407,7 +435,8 @@ export default function SalesInviteRedeemPage({
       )}
       {gate.state === 'hash_error' && (
         <div role="alert" style={noticeStyle}>
-          {gate.message}
+          {gate.message} În alt browser deschide linkul primit, nu adresa din bară: din motive de
+          siguranță, adresa nu mai conține invitația.
         </div>
       )}
 

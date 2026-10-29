@@ -17,6 +17,8 @@
 //   PG13 `cui_conflict` → mesajul stă la câmpul CUI (aria-describedby), nu în josul formularului
 //   PG14 `anonymous_account` → formular blocat + deconectare spre un cont cu email
 //   PG15 `contract_hash_mismatch` de la server → se reîncarcă contractul, bifa nu supraviețuiește
+//   PG16 adresa FĂRĂ token (reîncărcare din browser / adresă copiată) → „redeschide linkul”,
+//        NU `invite_invalid`, niciun apel de rețea (cu și fără sesiune)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -179,7 +181,10 @@ describe('SalesInviteRedeemPage', () => {
     const user = userEvent.setup()
     renderPage('head')
     expect(await screen.findByText(/nu poate fi afișat în această versiune/i)).toBeInTheDocument()
-    expect(screen.getByText(/contractul s-a actualizat — reîncarcă pagina/i)).toBeInTheDocument()
+    // Notificarea trimite la BUTONUL paginii, nu la F5 (care ar pierde tokenul).
+    // Mutația „înapoi la «reîncarcă pagina» generic” pică aici.
+    expect(screen.getByText(/apasă butonul „reîncarcă pagina” de mai jos/i)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toMatch(/s-a actualizat — reîncarcă pagina/i)
     await fillValid(user)
     await user.click(screen.getByLabelText(/am citit și accept/i))
     expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
@@ -315,7 +320,8 @@ describe('SalesInviteRedeemPage', () => {
     expect(
       await screen.findByText(/nu este cel publicat pentru versiunea 1\.0/i),
     ).toBeInTheDocument()
-    expect(screen.getByText(/contractul s-a actualizat — reîncarcă pagina/i)).toBeInTheDocument()
+    expect(screen.getByText(/apasă butonul „reîncarcă pagina” de mai jos/i)).toBeInTheDocument()
+    expect(document.body.textContent ?? '').not.toMatch(/s-a actualizat — reîncarcă pagina/i)
     expect(sha256Mock).toHaveBeenCalledWith(CONTRACT_TEXT)
     expect(screen.queryByText(CONTRACT_TEXT)).toBeNull()
     await fillValid(user)
@@ -387,5 +393,31 @@ describe('SalesInviteRedeemPage', () => {
     )
     expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
     expect(submitButton()).toBeDisabled()
+  })
+
+  it('PG16: adresa fără token → „redeschide linkul”, NU invite_invalid, niciun apel', async () => {
+    // Tokenul e scos din URL la montare, deci un F5 / „Deschide în browser” /
+    // o adresă copiată ajung pe /echipa fără el. Mutația „ramura token gol
+    // scoasă” cade pe invite_invalid („cere o invitație nouă”) și pică aici.
+    serverReturns()
+    renderPage('agent', '')
+    expect(await screen.findByText(/deschide din nou linkul primit/i)).toBeInTheDocument()
+    expect(screen.getByText(/invitația ta nu a fost folosită/i)).toBeInTheDocument()
+    expect(screen.queryByText(SALES_FAILURE_MESSAGES.invite_invalid)).toBeNull()
+    expect(document.body.textContent ?? '').not.toMatch(/nu este validă|cere o invitație nouă/i)
+    expect(screen.queryByRole('button', { name: /accept și intru în echipă/i })).toBeNull()
+    expect(rpcMock).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('PG16b: adresa fără token și fără sesiune → același mesaj, fără trimitere la înscriere', async () => {
+    // Mutația „trim scos” (doar `token === ''`) lasă tokenul din spații pe invite_invalid.
+    useAuthMock.mockReturnValue({ user: null, loading: false })
+    serverReturns()
+    renderPage('head', '   ')
+    expect(await screen.findByText(/deschide din nou linkul primit/i)).toBeInTheDocument()
+    expect(screen.queryByText(SALES_FAILURE_MESSAGES.invite_invalid)).toBeNull()
+    expect(rpcMock).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 })

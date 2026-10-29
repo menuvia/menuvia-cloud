@@ -141,7 +141,9 @@ function parsePath(): RouteState {
   const reserveMatch = p.match(/^\/rezervare\/(.+)$/)
   const inviteMatch = p.match(/^\/invite\/(.+)$/)
   // Invitații de rețea. Fără token (`/sef-vanzari` simplu) = linkul a fost deja
-  // deschis și curățat din URL: pagina arată „invitație invalidă”, nu 404.
+  // deschis și curățat din URL (apoi reîncărcat / copiat / deschis în alt
+  // browser): pagina cere redeschiderea linkului primit, nu 404 și NU
+  // „invitație invalidă” (invitația n-a ajuns la server, e încă bună).
   const headInviteMatch = p.match(/^\/sef-vanzari(?:\/(.*))?$/)
   const agentInviteMatch = p.match(/^\/echipa(?:\/(.*))?$/)
   if (headInviteMatch) return { view: 'sales-head-invite', token: headInviteMatch[1] ?? '' }
