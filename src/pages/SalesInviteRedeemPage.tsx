@@ -10,7 +10,11 @@
 //     e calea spre /auth (?next=…), prin care omul fără cont se întoarce aici;
 //     telemetria o curăță (lib/telemetryScrub.ts).
 //   • Fără sesiune → /auth?mode=signup&next=<calea invitației> (replace, ca
-//     intrarea cu token să nu rămână în istoric). După login revine pe pagină.
+//     intrarea cu token să nu rămână în istoric). După login (sau codul de 6
+//     cifre, în același tab) App.tsx onorează `next` și revine pe pagină. Contul
+//     NOU confirmat din LINKUL din email se deschide în alt tab: `next` ajunge
+//     acolo doar pentru că linkul de confirmare îl poartă (`authRedirectUrl`,
+//     lib/planIntent.ts, validat cu `safeNextPath`).
 //   • FAIL-CLOSED pe contract: butonul rămâne dezactivat cât contractul nu e
 //     publicat, cât textul versiunii publicate nu e în acest bundle
 //     (lib/salesContract.ts) și cât sha256(textul afișat) nu e EXACT amprenta

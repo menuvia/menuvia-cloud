@@ -8,6 +8,10 @@
 // Dispozitiv partajat (recenzie pe #284): intenția din localStorage NU mai e a
 // oricui se autentifică — e legată de emailul contului creat (signup) sau, cât
 // timp e nelegată, valabilă doar în tab-ul în care a fost aleasă (PI12–PI16).
+//
+// PI17: linkul de confirmare poartă și `next=` VALIDAT — fără el, contul nou venit
+// dintr-o invitație de rețea (/auth?next=/sef-vanzari/<token>) confirma emailul
+// într-un tab NOU, fără `next`, și ateriza pe onboarding-ul de restaurant.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import {
@@ -21,6 +25,7 @@ import {
   readPlanIntent,
   writePlanIntent,
 } from '../planIntent'
+import { nextFromSearch } from '../authRedirect'
 
 const KEY = 'menuvia.plan_intent'
 const T0 = 1_760_000_000_000
@@ -189,5 +194,45 @@ describe('planIntent — dispozitiv partajat: intenția are proprietar', () => {
     // Un plan necunoscut în URL nu creează intenție.
     clearPlanIntent()
     expect(planIntentDestination('nou@x.ro', '?plan=hacker', T0)).toBeNull()
+  })
+
+  it('PI17 linkul de confirmare poartă `next=` validat; unul periculos e ignorat', () => {
+    // Mutațiile „parametrul next ignorat” și „next nevalidat” (open-redirect
+    // în linkul din email) pică aici.
+    const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
+    const invite = `/sef-vanzari/${TOKEN}`
+    const encoded = encodeURIComponent(invite)
+    expect(authRedirectUrl('https://menuvia.ro', null, invite)).toBe(
+      `https://menuvia.ro/auth?next=${encoded}`,
+    )
+    expect(authRedirectUrl('https://menuvia.ro/', 'growth', invite)).toBe(
+      `https://menuvia.ro/auth?plan=growth&next=${encoded}`,
+    )
+    // Tab-ul nou (linkul din email) recunoaște EXACT aceeași cale — App.tsx o
+    // onorează înaintea oricărei alte destinații (signupWiring SW5).
+    const url = new URL(authRedirectUrl('https://menuvia.ro', 'starter', invite))
+    expect(nextFromSearch(url.search)).toBe(invite)
+    expect(planFromSearch(url.search)).toBe('starter')
+    // Fără next (sau gol) → exact linkul de dinainte (PI9).
+    expect(authRedirectUrl('https://menuvia.ro', null, null)).toBe('https://menuvia.ro/auth')
+    expect(authRedirectUrl('https://menuvia.ro', 'growth', undefined)).toBe(
+      'https://menuvia.ro/auth?plan=growth',
+    )
+    expect(authRedirectUrl('https://menuvia.ro', null, '')).toBe('https://menuvia.ro/auth')
+    // Periculoase: alt host, schemă, backslash, buclă pe /auth → ignorate tăcut.
+    for (const bad of [
+      '//evil.com',
+      'https://evil.com/x',
+      '/\\evil.com',
+      'javascript:alert(1)',
+      '/%2F%2Fevil.com',
+      '/auth?next=%2Fdashboard',
+      'dashboard',
+    ]) {
+      expect(authRedirectUrl('https://menuvia.ro', null, bad), bad).toBe('https://menuvia.ro/auth')
+      expect(authRedirectUrl('https://menuvia.ro', 'pro', bad), bad).toBe(
+        'https://menuvia.ro/auth?plan=pro',
+      )
+    }
   })
 })

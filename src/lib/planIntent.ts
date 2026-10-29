@@ -19,6 +19,8 @@
 // intenție", niciodată pe o excepție care ar urca la ErrorBoundary.
 // ─────────────────────────────────────────────────────────────
 
+import { safeNextPath } from './authRedirect'
+
 const PLAN_INTENT_KEY = 'menuvia.plan_intent'
 /**
  * Marcajul de TAB (sessionStorage) al unei intenții încă NElegate de un cont:
@@ -236,10 +238,25 @@ export function signupPath(lang: 'ro' | 'en' = 'ro'): string {
 /**
  * URL-ul din linkul de confirmare a contului. Poartă `?plan=` când există o
  * intenție, ca funelul să supraviețuiască și unui click pe ALT dispozitiv.
+ *
+ * Poartă și `next=` (calea din care a venit omul, ex. invitația de rețea
+ * `/sef-vanzari/<token>`): linkul din email se deschide într-un tab NOU, unde
+ * `?next=` din tab-ul original nu există, iar App.tsx onorează `next` înaintea
+ * oricărei alte destinații. Doar o cale internă VALIDATĂ (`safeNextPath`); una
+ * nesigură (`//evil.com`, `https://…`, `/\evil`, `/auth`) se ignoră tăcut —
+ * linkul rămâne cel de dinainte.
  */
-export function authRedirectUrl(origin: string, plan: PlanIntentId | null): string {
+export function authRedirectUrl(
+  origin: string,
+  plan: PlanIntentId | null,
+  next?: string | null,
+): string {
   const base = origin.replace(/\/+$/, '') + '/auth'
-  return plan ? base + '?plan=' + encodeURIComponent(plan) : base
+  const params: string[] = []
+  if (plan) params.push('plan=' + encodeURIComponent(plan))
+  const safeNext = safeNextPath(next)
+  if (safeNext !== null) params.push('next=' + encodeURIComponent(safeNext))
+  return params.length === 0 ? base : base + '?' + params.join('&')
 }
 
 /**

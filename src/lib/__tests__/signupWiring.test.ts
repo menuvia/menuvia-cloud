@@ -19,6 +19,8 @@
 //        din onSuccess lasă /auth în istoric — regresia prinsă de E2E 03)
 //   SW6  codul de agent se citește din `user_metadata` doar de trigger-ul din
 //        bază: clientul nu cheamă niciun RPC de atribuire la signup
+//   SW8  linkul de confirmare (signUp ȘI „Retrimite") poartă `next` curent, validat:
+//        confirmarea din email se deschide în ALT tab, fără `?next=` al tab-ului inițial
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -90,5 +92,23 @@ describe('înscrierea — cablaj', () => {
     expect(effect).not.toMatch(/\bnavigate\(/)
     expect(effect.match(/exitAuth\(/g)?.length ?? 0).toBeGreaterThan(3)
     expect(APP).toContain("from './lib/postLoginRedirect'")
+  })
+
+  it('SW8 linkul de confirmare (signUp + Retrimite) poartă `next` curent', () => {
+    // Mutația „confirmRedirectUrl fără next” trimite contul nou venit dintr-o
+    // invitație de rețea (/auth?next=/sef-vanzari/…), la confirmarea din email
+    // (tab NOU, fără `?next=`), pe onboarding-ul de restaurant. Logica (validare,
+    // parametri) are teste proprii în planIntent.test.ts (PI17).
+    const at = AUTH.indexOf('const confirmRedirectUrl = (): string =>')
+    expect(at, 'confirmRedirectUrl lipsește').toBeGreaterThan(-1)
+    const end = AUTH.indexOf('const handle = async', at)
+    expect(end).toBeGreaterThan(at)
+    expect(AUTH.slice(at, end)).toMatch(
+      /authRedirectUrl\([\s\S]*planIntent,\s*nextFromSearch\(window\.location\.search\),?\s*\)/,
+    )
+    expect(AUTH).toContain("import { nextFromSearch } from '../lib/authRedirect'")
+    // ambele drumuri spre email folosesc ACELAȘI URL
+    expect(AUTH).toContain('emailRedirectTo: confirmRedirectUrl()')
+    expect(AUTH).toContain('redirectTo={confirmRedirectUrl()}')
   })
 })
