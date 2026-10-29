@@ -8,7 +8,7 @@
 //   SF6  calea de bază (fără token) pe rol
 //   SF7  linkul de invitație: baza publică + calea rolului + token, fără slash dublu
 //   SF8  versiunea de contract: oglinda EXACTĂ a serverului (mig 304: `^v?[0-9]+(\.[0-9]+)*$`,
-//        max 20, „draft” refuzat înaintea formei)
+//        max 20, „draft” refuzat înaintea formei); mesajul descrie exact regula asta
 //   SF9  tranzițiile de stare oglindesc serverul (closed e terminal, pending/rejected nu se ating)
 //   SF10 lista „Rețeaua”: doar conturi din rețea, șefii înaintea agenților, agenții orfani nu se pierd
 //   SF11 poarta contractului: acceptarea e permisă DOAR pe sha256(text local) === amprenta publicată
@@ -132,6 +132,16 @@ describe('ecranul fondatorului', () => {
       const r = checkContractVersionInput(bad)
       expect(r.ok === false && r.message, bad).toBe(SALES_FAILURE_MESSAGES.invalid_version)
     }
+    // Mesajul descrie ACEASTĂ regulă, nu pe cea veche („litere, cifre, punct, minus
+    // și liniuță jos”), care se contrazicea pe `1.0-final` / `v1_rc`. Mutația
+    // „mesajul vechi” pică aici.
+    const msg = SALES_FAILURE_MESSAGES.invalid_version
+    expect(msg).not.toMatch(/litere|minus|liniuță jos/i)
+    expect(msg).toMatch(/doar cifre separate prin punct/)
+    expect(msg).toMatch(/„v” mic/)
+    expect(msg).toMatch(/maximum 20 de caractere/)
+    for (const example of ['1.0', '1.0.3', 'v2'])
+      expect(checkContractVersionInput(example).ok, example).toBe(true)
     for (const empty of ['', '   ']) expect(checkContractVersionInput(empty).ok).toBe(false)
     // „draft” are prioritate (paritate cu ordinea din SQL): mesajul specific, nu cel de formă.
     for (const draft of ['agent-1.0-DRAFT', 'draft', 'v1-Draft']) {

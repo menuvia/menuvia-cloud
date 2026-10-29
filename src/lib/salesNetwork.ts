@@ -218,8 +218,9 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   invalid_value: 'Valoarea trimisă nu este validă.',
   not_an_affiliate: 'Contul tău nu face parte din programul de vânzări.',
   invalid_email: 'Adresa de email nu este validă.',
+  // Regula REALĂ (mig 304 și checkContractVersionInput): `^v?[0-9]+(\.[0-9]+)*$`, max 20.
   invalid_version:
-    'Versiunea contractului poate conține doar litere, cifre, punct, minus și liniuță jos.',
+    'Versiunea are forma 1.0, 1.0.3 sau v2: doar cifre separate prin punct, opțional cu „v” mic în față (maximum 20 de caractere).',
   draft_version: 'O versiune marcată DRAFT nu poate fi publicată.',
   invalid_status: 'Starea cerută nu este validă (activ, suspendat sau închis).',
   reason_required: 'Scrie motivul (cel puțin 3 caractere).',
