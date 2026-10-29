@@ -26,7 +26,10 @@
 //     pagina spune doar să fie redeschis linkul primit (fără niciun apel).
 //   • Un singur mesaj pentru orice problemă a invitației (`invite_invalid`),
 //     ca pe server (anti-oracol). Serverul e autoritatea; validarea CUI de aici
-//     doar dă un mesaj imediat.
+//     doar dă un mesaj imediat. O invitație poate fi legată de un email (doar un
+//     cont cu exact acel email, confirmat, o poate accepta), iar serverul
+//     răspunde tot `invite_invalid`: de aceea refuzul oferă MEREU (pentru orice
+//     cauză, deci fără oracol) ieșirea „Deconectează-te și folosește alt cont”.
 // =============================================================
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -226,8 +229,10 @@ export default function SalesInviteRedeemPage({
   const [submitting, setSubmitting] = useState(false)
   // Invitația a fost respinsă de server: formularul nu mai are rost.
   const [blocked, setBlocked] = useState(false)
-  // Contul curent e anonim / fără email: răscumpărarea cere un cont cu email.
-  const [needsEmailAccount, setNeedsEmailAccount] = useState(false)
+  // Ieșirea spre ALT cont, după un refuz al serverului: `email` = contul curent
+  // e anonim / fără email (`anonymous_account`); `other` = `invite_invalid`
+  // (printre cauze: invitația e legată de emailul altui cont).
+  const [switchAccount, setSwitchAccount] = useState<'email' | 'other' | null>(null)
 
   const replaceRef = useRef(replace)
   replaceRef.current = replace
@@ -358,9 +363,10 @@ export default function SalesInviteRedeemPage({
       else if (field === 'phone') setPhoneError(message)
       else setFormError(message)
       if (reason === 'invite_invalid' || reason === 'already_affiliate') setBlocked(true)
+      if (reason === 'invite_invalid') setSwitchAccount('other')
       if (reason === 'anonymous_account') {
         setBlocked(true)
-        setNeedsEmailAccount(true)
+        setSwitchAccount('email')
       }
       // Contractul s-a schimbat între timp: aducem versiunea (și amprenta) nouă.
       if (
@@ -547,7 +553,7 @@ export default function SalesInviteRedeemPage({
             {formError}
           </div>
         )}
-        {needsEmailAccount && (
+        {switchAccount !== null && (
           // După deconectare, efectul (2) duce omul la înscriere cu întoarcere
           // pe această invitație (tokenul e încă în memorie).
           <button
@@ -555,7 +561,9 @@ export default function SalesInviteRedeemPage({
             style={{ ...primaryButton(false), marginBottom: 12 }}
             onClick={() => void signOut()}
           >
-            Deconectează-te și intră cu emailul tău
+            {switchAccount === 'email'
+              ? 'Deconectează-te și intră cu emailul tău'
+              : 'Deconectează-te și folosește alt cont'}
           </button>
         )}
 

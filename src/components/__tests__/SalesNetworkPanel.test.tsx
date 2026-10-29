@@ -14,6 +14,8 @@
 //   SP10 versiune fără text în aplicație → publicarea DEZACTIVATĂ cu explicație, nimic nu pleacă
 //   SP11 amprenta publicată se vede scurtată; textul din aplicație care NU îi corespunde e semnalat
 //   SP12 versiune publicată al cărei text lipsește din aplicație → semnalată (cei invitați nu pot accepta)
+//   SP13 emailul invitației e o RESTRICȚIE (serverul îl impune la răscumpărare), nu o notă:
+//        textul de lângă câmp spune regula, iar lista îl arată ca „doar pentru …”
 import { createHash, webcrypto } from 'node:crypto'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -449,5 +451,22 @@ describe('SalesNetworkPanel', () => {
       await screen.findByText(/textul versiunii 1\.0 nu există în aplicație/i),
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /retrage versiunea/i })).toBeEnabled()
+  })
+
+  it('SP13: emailul e o restricție, nu o notă — regula e scrisă lângă câmp și în listă', async () => {
+    // mig 304 (sales_invite_redeem): invitația cu email se acceptă DOAR de un cont cu
+    // exact acel email, confirmat. Mutațiile „textul vechi” („Emailul și nota sunt
+    // doar pentru tine”) și „emailul afișat ca notă” (fără „doar pentru”) pică aici.
+    server.invites = [inviteRow({ email: 'ion@firma.ro', note: 'Ion' })]
+    renderPanel()
+    expect(await screen.findByText(/· doar pentru ion@firma\.ro · Ion/)).toBeInTheDocument()
+    const hint = screen.getByText(/numai de un cont cu exact acest email, confirmat/i)
+    expect(hint.id).not.toBe('')
+    expect(screen.getByLabelText(/email \(opțional\)/i)).toHaveAttribute(
+      'aria-describedby',
+      hint.id,
+    )
+    expect(screen.getByText(/lasă câmpul gol dacă nu știi sigur/i)).toBe(hint)
+    expect(document.body.textContent ?? '').not.toMatch(/emailul și nota sunt doar pentru tine/i)
   })
 })

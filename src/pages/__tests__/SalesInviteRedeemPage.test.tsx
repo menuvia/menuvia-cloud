@@ -8,7 +8,8 @@
 //   PG5  succes → RPC cu parametrii exacți (hash VERIFICAT al textului afișat, consimțământ
 //        nebifat implicit), navigare pe /afiliat prin replace
 //   PG6  URL-ul curent pierde tokenul la montare
-//   PG7  invite_invalid → UN singur mesaj, formularul se blochează
+//   PG7  invite_invalid → UN singur mesaj, formularul se blochează, ieșire spre ALT cont
+//        (invitația poate fi legată de emailul altui cont)
 //   PG8  cont deja în rețea → mesaj, fără formular
 //   PG9  token cu formă greșită → același mesaj generic, fără apel de rețea
 //   PG10 RPC nedeployat → „indisponibil", fără formular (tristate)
@@ -261,7 +262,9 @@ describe('SalesInviteRedeemPage', () => {
     expect(window.location.href).not.toContain(TOKEN)
   })
 
-  it('PG7: invite_invalid → un singur mesaj generic, formularul se blochează', async () => {
+  it('PG7: invite_invalid → un singur mesaj generic, formularul se blochează, ieșire spre alt cont', async () => {
+    // Mutația „invite_invalid doar blochează” (fără butonul de deconectare) lasă
+    // omul logat cu contul greșit pe o invitație legată de alt email: pică aici.
     rpcMock.mockImplementation((fn: string) => {
       if (fn === 'get_sales_network') return ok(networkPayload())
       return ok({ ok: false, reason: 'invite_invalid' })
@@ -269,12 +272,19 @@ describe('SalesInviteRedeemPage', () => {
     const user = userEvent.setup()
     renderPage('head')
     await screen.findByText(CONTRACT_TEXT)
+    // Control: înainte de refuz nu există nicio ieșire spre alt cont.
+    expect(screen.queryByRole('button', { name: /folosește alt cont/i })).toBeNull()
     await fillValid(user)
     await user.click(screen.getByLabelText(/am citit și accept/i))
     await user.click(submitButton())
     expect(await screen.findByText(SALES_FAILURE_MESSAGES.invite_invalid)).toBeInTheDocument()
     expect(replace).not.toHaveBeenCalled()
     expect(submitButton()).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /intră cu emailul tău/i })).toBeNull()
+    await user.click(
+      screen.getByRole('button', { name: /^deconectează-te și folosește alt cont$/i }),
+    )
+    expect(signOutMock).toHaveBeenCalledTimes(1)
   })
 
   it('PG8: cont deja în rețea → mesaj, fără formular', async () => {
@@ -363,6 +373,7 @@ describe('SalesInviteRedeemPage', () => {
     await user.click(submitButton())
     expect(await screen.findByText(SALES_FAILURE_MESSAGES.anonymous_account)).toBeInTheDocument()
     expect(submitButton()).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /folosește alt cont/i })).toBeNull()
     await user.click(screen.getByRole('button', { name: /deconectează-te și intră cu emailul/i }))
     expect(signOutMock).toHaveBeenCalledTimes(1)
   })

@@ -202,8 +202,11 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   phone_required: 'Introdu un număr de telefon valid (între 5 și 32 de caractere).',
   cui_invalid: 'CUI-ul nu este valid. Verifică cifrele (poți scrie cu sau fără RO în față).',
   // UN SINGUR mesaj pentru orice problemă a invitației (anti-oracol, ca pe server).
+  // Pomenește și invitația legată de ALT email (mig 304 răspunde tot invite_invalid)
+  // și ieșirea spre alt cont: fără ele, omul cu contul greșit cerea la nesfârșit
+  // invitații noi, legate de același email.
   invite_invalid:
-    'Invitația nu este validă: poate fi expirată, deja folosită sau retrasă. Cere o invitație nouă.',
+    'Invitația nu este validă: poate fi expirată, deja folosită sau retrasă, ori destinată altei adrese de email. Dacă ai alt cont, deconectează-te și intră cu emailul pentru care ai primit invitația; altfel cere o invitație nouă.',
   already_affiliate: 'Contul tău face deja parte din programul de vânzări.',
   not_a_head: 'Doar un șef de vânzări poate face această acțiune.',
   head_not_active: 'Contul tău de șef nu este activ, deci nu poți trimite invitații.',

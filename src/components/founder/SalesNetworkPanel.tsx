@@ -9,6 +9,8 @@
 //      hash să trimită, iar cei invitați n-ar avea ce accepta). Retragerea
 //      (`null`, `null`) rămâne mereu posibilă.
 //   2. Invită șef de vânzări: creează invitația și arată linkul O SINGURĂ DATĂ.
+//      Emailul opțional e o RESTRICȚIE (doar un cont cu exact acel email,
+//      confirmat, poate accepta), nu o notă — textul de lângă câmp o spune.
 //   3. Invitațiile: stare, cine a invitat, data, revocare.
 //   4. Rețeaua: Activ / Suspendat / Închis cu motiv obligatoriu.
 //
@@ -389,6 +391,8 @@ function ContractCard({
 }
 
 // ── 2. Invită șef de vânzări ──────────────────────────────────────────────────
+const EMAIL_HINT_ID = 'sales-head-invite-email-hint'
+
 function HeadInviteCard({
   canInvite,
   onCreated,
@@ -455,8 +459,8 @@ function HeadInviteCard({
     <div style={cardStyle}>
       <div style={titleStyle}>Invită șef de vânzări</div>
       <p style={hintStyle}>
-        Linkul e personal și de unică folosință; expiră după câteva zile. Emailul și nota sunt doar
-        pentru tine (cui i-ai dat linkul).
+        Linkul e personal și de unică folosință; expiră după câteva zile. Nota e doar pentru tine
+        (cui i-ai dat linkul).
       </p>
       {!canInvite && (
         <p role="status" style={{ ...hintStyle, color: D.amber }}>
@@ -466,7 +470,8 @@ function HeadInviteCard({
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
         <input
           aria-label="Email (opțional)"
-          placeholder="Email (opțional)"
+          aria-describedby={EMAIL_HINT_ID}
+          placeholder="Email (opțional: restricționează invitația)"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           style={{ ...inputStyle, flex: '1 1 200px' }}
@@ -479,6 +484,12 @@ function HeadInviteCard({
           style={{ ...inputStyle, flex: '1 1 200px' }}
         />
       </div>
+      {/* Regula REALĂ a serverului (mig 304, sales_invite_redeem): emailul nu e o
+          notiță, e o restricție — alt cont primește `invite_invalid`, fără cauză. */}
+      <p id={EMAIL_HINT_ID} style={hintStyle}>
+        Dacă scrii un email, invitația poate fi acceptată NUMAI de un cont cu exact acest email,
+        confirmat. Lasă câmpul gol dacă nu știi sigur ce adresă va folosi.
+      </p>
       <button
         type="button"
         disabled={busy || !canInvite}
@@ -608,7 +619,7 @@ function InvitesList({
                   {' · creată '}
                   {formatWhen(inv.createdAt)}
                   {inv.state === 'open' ? ` · expiră ${formatWhen(inv.expiresAt)}` : ''}
-                  {inv.email ? ` · ${inv.email}` : ''}
+                  {inv.email ? ` · doar pentru ${inv.email}` : ''}
                   {inv.note ? ` · ${inv.note}` : ''}
                 </div>
               </div>
