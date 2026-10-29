@@ -1,4 +1,4 @@
-// Hook-ul „Echipa mea" (mig 302): starea e TRISTATE, iar un răspuns întârziat nu
+// Hook-ul „Echipa mea" (mig 304): starea e TRISTATE, iar un răspuns întârziat nu
 // scrie peste unul mai nou.
 //
 //   HS1  încărcare la montare: network + loading=false, fără eroare

@@ -459,7 +459,7 @@ declare
   v_src text;
   v_scutiri constant text[] := array[
     -- B2B / cont / fiscal — NU sunt date de OASPETE:
-    'affiliate_invitations', -- invitație B2B (șef/agent de vânzări, mig 302): `email` e nota
+    'affiliate_invitations', -- invitație B2B (șef/agent de vânzări, mig 304): `email` e nota
                         -- fondatorului „cui i-am dat linkul”, GOLITĂ la răscumpărare; nu e oaspete
     'affiliates',       -- partener contractual; telefonul e cerut de mig 224 la aprobare
     'audit_log',        -- jurnal fiscal, retentie INCHISA ("pastram tot"); PII-ul de

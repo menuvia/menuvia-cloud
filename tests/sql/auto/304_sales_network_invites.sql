@@ -1,6 +1,6 @@
--- tests/sql/auto/302_sales_network_invites.sql
+-- tests/sql/auto/304_sales_network_invites.sql
 -- =============================================================================
--- Mig 302 (pachetul 8a): rețeaua de vânzări DOAR pe invitații. Rulează din
+-- Mig 304 (pachetul 8a): rețeaua de vânzări DOAR pe invitații. Rulează din
 -- tests/sql/auto/ (scripts/run-sql-auto.sh) pe AMBELE medii (Postgres gol din
 -- sql-verify + stack-ul Supabase din E2E). Autonom, ROLLBACK la final.
 --
@@ -65,30 +65,30 @@ begin;
 -- F fondator · N cont simplu · L afiliat vechi (program public) · H1/H2 șefi ·
 -- G1..G3 agenți · Q1..Q4 răscumpărători · C clientul unui agent
 insert into auth.users (id, email) values
-  ('5a000000-0000-4000-8000-0000000000f1', 'in-founder@in302.test'),
-  ('5a000000-0000-4000-8000-0000000000e1', 'in-nobody@in302.test'),
-  ('5a000000-0000-4000-8000-0000000000e2', 'in-legacy@in302.test'),
-  ('5a000000-0000-4000-8000-000000000001', 'in-h1@in302.test'),
-  ('5a000000-0000-4000-8000-000000000002', 'in-h2@in302.test'),
-  ('5a000000-0000-4000-8000-000000000011', 'in-g1@in302.test'),
-  ('5a000000-0000-4000-8000-000000000012', 'in-g2@in302.test'),
-  ('5a000000-0000-4000-8000-000000000013', 'in-g3@in302.test'),
-  ('5a000000-0000-4000-8000-000000000021', 'in-q1@in302.test'),
-  ('5a000000-0000-4000-8000-000000000022', 'in-q2@in302.test'),
-  ('5a000000-0000-4000-8000-000000000023', 'in-q3@in302.test'),
-  ('5a000000-0000-4000-8000-000000000024', 'in-q4@in302.test'),
-  ('5a000000-0000-4000-8000-000000000031', 'in-client@in302.test'),
-  ('5a000000-0000-4000-8000-000000000041', 'in-hx@in302.test'),
-  ('5a000000-0000-4000-8000-000000000042', 'in-creator@in302.test'),
-  ('5a000000-0000-4000-8000-000000000043', 'in-rl@in302.test'),
-  ('5a000000-0000-4000-8000-000000000044', 'in-newuser@in302.test'),
-  ('5a000000-0000-4000-8000-000000000045', 'in-ghost@in302.test'),
-  ('5a000000-0000-4000-8000-000000000046', 'in-client2@in302.test'),
-  ('5a000000-0000-4000-8000-000000000047', 'in-rl2@in302.test'),
-  ('5a000000-0000-4000-8000-000000000048', 'in-q5@in302.test')
+  ('5a000000-0000-4000-8000-0000000000f1', 'in-founder@in304.test'),
+  ('5a000000-0000-4000-8000-0000000000e1', 'in-nobody@in304.test'),
+  ('5a000000-0000-4000-8000-0000000000e2', 'in-legacy@in304.test'),
+  ('5a000000-0000-4000-8000-000000000001', 'in-h1@in304.test'),
+  ('5a000000-0000-4000-8000-000000000002', 'in-h2@in304.test'),
+  ('5a000000-0000-4000-8000-000000000011', 'in-g1@in304.test'),
+  ('5a000000-0000-4000-8000-000000000012', 'in-g2@in304.test'),
+  ('5a000000-0000-4000-8000-000000000013', 'in-g3@in304.test'),
+  ('5a000000-0000-4000-8000-000000000021', 'in-q1@in304.test'),
+  ('5a000000-0000-4000-8000-000000000022', 'in-q2@in304.test'),
+  ('5a000000-0000-4000-8000-000000000023', 'in-q3@in304.test'),
+  ('5a000000-0000-4000-8000-000000000024', 'in-q4@in304.test'),
+  ('5a000000-0000-4000-8000-000000000031', 'in-client@in304.test'),
+  ('5a000000-0000-4000-8000-000000000041', 'in-hx@in304.test'),
+  ('5a000000-0000-4000-8000-000000000042', 'in-creator@in304.test'),
+  ('5a000000-0000-4000-8000-000000000043', 'in-rl@in304.test'),
+  ('5a000000-0000-4000-8000-000000000044', 'in-newuser@in304.test'),
+  ('5a000000-0000-4000-8000-000000000045', 'in-ghost@in304.test'),
+  ('5a000000-0000-4000-8000-000000000046', 'in-client2@in304.test'),
+  ('5a000000-0000-4000-8000-000000000047', 'in-rl2@in304.test'),
+  ('5a000000-0000-4000-8000-000000000048', 'in-q5@in304.test')
   on conflict (id) do nothing;
 insert into public.profiles (id, email)
-  select id, email from auth.users where email like 'in-%@in302.test'
+  select id, email from auth.users where email like 'in-%@in304.test'
   on conflict (id) do nothing;
 -- Schema mock din CI (sql-verify) nu are coloanele din GoTrue pe care le citește
 -- răscumpărarea; pe stack-ul Supabase real ele există (blocul e atunci un no-op).
@@ -104,7 +104,7 @@ do $$ begin
 end $$;
 -- Toate conturile de test au emailul confirmat; excepțiile (anonim / neconfirmat)
 -- se construiesc explicit, cu `pg_temp.in_mkuser`, în IN24.
-update auth.users set email_confirmed_at = now() where email like 'in-%@in302.test';
+update auth.users set email_confirmed_at = now() where email like 'in-%@in304.test';
 
 update public.profiles set is_platform_admin = true
  where id = '5a000000-0000-4000-8000-0000000000f1';
@@ -142,7 +142,7 @@ create function pg_temp.in_u(p_uid uuid, p_sql text) returns jsonb
 language sql as $$ select pg_temp.in_as('authenticated', p_uid, p_sql) $$;
 
 -- CUI-uri VALIDE și distincte pentru răscumpările fără CUI explicit (unicitatea CUI e
--- impusă de mig 302: două conturi nu pot declara același CUI).
+-- impusă de mig 304: două conturi nu pot declara același CUI).
 create temp table in_cui_ctr (n int not null) on commit drop;
 insert into in_cui_ctr values (0);
 create function pg_temp.in_next_cui() returns text language plpgsql as $f$
@@ -177,11 +177,11 @@ $$;
 -- Cont nou, cu email confirmat (implicit), non-anonim.
 create function pg_temp.in_mkuser(p_label text, p_confirmed boolean default true) returns uuid
 language plpgsql as $f$
-declare v_id uuid := md5('in302:' || p_label)::uuid;
+declare v_id uuid := md5('in304:' || p_label)::uuid;
 begin
   insert into auth.users (id, email, email_confirmed_at)
-    values (v_id, 'in-' || p_label || '@in302.test', case when p_confirmed then now() end);
-  insert into public.profiles (id, email) values (v_id, 'in-' || p_label || '@in302.test') on conflict (id) do nothing;
+    values (v_id, 'in-' || p_label || '@in304.test', case when p_confirmed then now() end);
+  insert into public.profiles (id, email) values (v_id, 'in-' || p_label || '@in304.test') on conflict (id) do nothing;
   return v_id;
 end $f$;
 
@@ -334,8 +334,8 @@ begin
     raise exception 'IN3 FAIL: s-a scris o invitație'; end if;
 
   -- Un ȘEF existent (inserat direct) NU poate crea invitație de agent.
-  insert into auth.users (id, email) values ('5a000000-0000-4000-8000-000000000051', 'in-hold@in302.test');
-  insert into public.profiles (id, email) values ('5a000000-0000-4000-8000-000000000051', 'in-hold@in302.test')
+  insert into auth.users (id, email) values ('5a000000-0000-4000-8000-000000000051', 'in-hold@in304.test');
+  insert into public.profiles (id, email) values ('5a000000-0000-4000-8000-000000000051', 'in-hold@in304.test')
     on conflict (id) do nothing;
   insert into public.affiliates (id, profile_id, referral_code, sales_role)
     values (v_head, '5a000000-0000-4000-8000-000000000051', 'inhold01', 'head');
@@ -423,7 +423,7 @@ declare
   v_list jsonb;
 begin
   -- Email cu majuscule: se normalizează; răscumpărătorul are același email.
-  v := pg_temp.in_u(F, $q$public.admin_create_sales_head_invite('  IN-H1@in302.TEST ', 'primul șef')$q$);
+  v := pg_temp.in_u(F, $q$public.admin_create_sales_head_invite('  IN-H1@in304.TEST ', 'primul șef')$q$);
   if (v->>'ok') is distinct from 'true' or v->>'kind' is distinct from 'head' then
     raise exception 'IN4 FAIL: crearea invitației de șef: %', v; end if;
   v_tok := v->>'token'; v_id := (v->>'invite_id')::uuid;
@@ -434,7 +434,7 @@ begin
   if v_inv.token_hash is distinct from encode(extensions.digest(convert_to(v_tok, 'utf8'), 'sha256'), 'hex')
      or v_inv.token_hash = v_tok then
     raise exception 'IN4 FAIL: token_hash ≠ sha256(token) sau egal cu tokenul'; end if;
-  if v_inv.email is distinct from 'in-h1@in302.test' then
+  if v_inv.email is distinct from 'in-h1@in304.test' then
     raise exception 'IN4 FAIL: emailul nu e normalizat: %', v_inv.email; end if;
   if v_inv.kind <> 'head' or v_inv.invited_by_affiliate_id is not null
      or v_inv.created_by_profile_id is distinct from F
@@ -442,7 +442,7 @@ begin
      or v_inv.expires_at > clock_timestamp() + interval '14 days 1 hour' then
     raise exception 'IN4 FAIL: rândul invitației: %', to_jsonb(v_inv); end if;
   if exists (select 1 from public.platform_audit_log where details::text like '%' || v_tok || '%'
-                or details::text like '%in-h1@in302%') then
+                or details::text like '%in-h1@in304%') then
     raise exception 'IN4 FAIL: tokenul/emailul a ajuns în audit'; end if;
   -- Lista fondatorului: fără token/hash.
   v_list := pg_temp.in_u(F, $q$public.admin_list_affiliate_invites()$q$);
@@ -802,8 +802,8 @@ begin
 
   -- șef FĂRĂ contract acceptat → contract_not_accepted; șef suspendat → head_not_active
   -- (șeful Q4 din IN11 a acceptat; construim unul fără acceptare, direct)
-  insert into auth.users (id, email) values ('5a000000-0000-4000-8000-000000000052', 'in-noacc@in302.test');
-  insert into public.profiles (id, email) values ('5a000000-0000-4000-8000-000000000052', 'in-noacc@in302.test') on conflict (id) do nothing;
+  insert into auth.users (id, email) values ('5a000000-0000-4000-8000-000000000052', 'in-noacc@in304.test');
+  insert into public.profiles (id, email) values ('5a000000-0000-4000-8000-000000000052', 'in-noacc@in304.test') on conflict (id) do nothing;
   insert into public.affiliates (profile_id, referral_code, sales_role) values ('5a000000-0000-4000-8000-000000000052', 'innoacc1', 'head');
   v := pg_temp.in_u('5a000000-0000-4000-8000-000000000052', $q$public.create_agent_invite('x')$q$);
   if v is distinct from '{"ok": false, "reason": "contract_not_accepted"}'::jsonb then raise exception 'IN13 FAIL: fără contract: %', v; end if;
@@ -874,7 +874,7 @@ begin
   v := pg_temp.in_u(G1, $q$public.get_sales_network()$q$);
   if v->>'role' is distinct from 'agent' or (v #>> '{head,contact_shared}') is distinct from 'true'
      or (v #>> '{head,name}') is distinct from 'Ion Șef' or (v #>> '{head,phone}') is distinct from '0722 111 222'
-     or (v #>> '{head,email}') is distinct from 'in-h1@in302.test' then
+     or (v #>> '{head,email}') is distinct from 'in-h1@in304.test' then
     raise exception 'IN15 FAIL: cardul șefului cu consimțământ: %', v; end if;
   if v->'team' <> '[]'::jsonb or v->'open_invites' <> '[]'::jsonb then
     raise exception 'IN15 FAIL: agentul vede echipă/invitații: %', v; end if;
@@ -920,7 +920,7 @@ begin
   insert into public.affiliate_payout_profile (affiliate_id, legal_form, cui, iban, beneficiary_name)
     select id, 'pfa', '9010105', 'RO49AAAA1B31007593840000', 'Dan SECRET PFA' from public.affiliates where profile_id = G2;
   insert into public.affiliate_attributions (affiliate_id, referred_profile_id, stripe_customer_id, status)
-    select id, '5a000000-0000-4000-8000-000000000031', 'cus_SECRET_in302', 'active' from public.affiliates where profile_id = G2;
+    select id, '5a000000-0000-4000-8000-000000000031', 'cus_SECRET_in304', 'active' from public.affiliates where profile_id = G2;
 
   v := pg_temp.in_u(H1, $q$public.get_sales_network()$q$);
   v_top_keys := (select string_agg(k, ',' order by k collate "C") from jsonb_object_keys(v) k);
@@ -937,7 +937,7 @@ begin
     raise exception 'IN15 FAIL: contactul agentului fără consimțământ e vizibil: %', v_item; end if;
   select e into v_item from jsonb_array_elements(v->'team') e where (e->>'affiliate_id')::uuid = (select id from public.affiliates where profile_id = G2);
   if (v_item->>'contact_shared') <> 'true' or v_item->>'name' <> 'Dan Agent' or v_item->>'phone' <> '0722 111 222'
-     or v_item->>'email' <> 'in-g2@in302.test' or (v_item->>'clients_total')::int <> 1 or (v_item->>'clients_active')::int <> 1 then
+     or v_item->>'email' <> 'in-g2@in304.test' or (v_item->>'clients_total')::int <> 1 or (v_item->>'clients_active')::int <> 1 then
     raise exception 'IN15 FAIL: agentul care consimte: %', v_item; end if;
   -- ZERO scurgeri: clientul final, IBAN, Stripe, restaurantul, token, hash
   foreach v_k in array array['SECRET', 'cus_', 'RO49', 'iban', 'stripe', 'in-client', 'token', 'token_hash', '9010105', 'Restaurantul'] loop
@@ -1009,14 +1009,14 @@ begin
   select id into v_h1 from public.affiliates where profile_id = H1;
   -- clientul C aparține lui G1 (atribuire creată direct; instantaneul vine din trigger-ul 293)
   insert into public.affiliate_attributions (affiliate_id, referred_profile_id, stripe_customer_id, status)
-    values (v_g1, C, 'cus_in302_c', 'pending') returning id into v_attr;
+    values (v_g1, C, 'cus_in304_c', 'pending') returning id into v_attr;
   if (select snap_cascade_bps from public.affiliate_attributions where id = v_attr) is distinct from 2000 then
     raise exception 'IN17 FAIL: instantaneul cascadei nu e 2000 (părintele are 2000): %',
       (select snap_cascade_bps from public.affiliate_attributions where id = v_attr); end if;
 
   -- factura n (lună n): plan growth 24900
-  perform public.process_affiliate_invoice_paid('evt_in_1', 'cus_in302_c', 'sub_in302', 'in_in_1', 'subscription_create', 24900, 'RON', '2026-09-01', now(), 'growth');
-  perform public.process_affiliate_invoice_paid('evt_in_2', 'cus_in302_c', 'sub_in302', 'in_in_2', 'subscription_cycle', 24900, 'RON', '2026-10-01', now(), 'growth');
+  perform public.process_affiliate_invoice_paid('evt_in_1', 'cus_in304_c', 'sub_in304', 'in_in_1', 'subscription_create', 24900, 'RON', '2026-09-01', now(), 'growth');
+  perform public.process_affiliate_invoice_paid('evt_in_2', 'cus_in304_c', 'sub_in304', 'in_in_2', 'subscription_cycle', 24900, 'RON', '2026-10-01', now(), 'growth');
   select coalesce(sum(amount_cents), 0) into v_sum_a from public.affiliate_ledger where affiliate_id = v_g1 and leg in ('setup', 'recurring');
   select coalesce(sum(amount_cents), 0) into v_sum_c from public.affiliate_ledger where affiliate_id = v_h1 and leg = 'cascade';
   -- setup 30% + recurring 10% din 24900 = 7470 + 2490 = 9960; bonus șef = 20% = 1992
@@ -1040,7 +1040,7 @@ begin
     raise exception 'IN17 FAIL: suspendarea nu e în audit cu motiv'; end if;
   select count(*) into n_agent from public.affiliate_ledger where affiliate_id = v_g1;
   select count(*) into n_casc from public.affiliate_ledger where affiliate_id = v_h1;
-  v := public.process_affiliate_invoice_paid('evt_in_3', 'cus_in302_c', 'sub_in302', 'in_in_3', 'subscription_cycle', 24900, 'RON', '2026-11-01', now(), 'growth');
+  v := public.process_affiliate_invoice_paid('evt_in_3', 'cus_in304_c', 'sub_in304', 'in_in_3', 'subscription_cycle', 24900, 'RON', '2026-11-01', now(), 'growth');
   if v ->> 'skipped' is distinct from 'affiliate_inactive' then raise exception 'IN17 FAIL: agent suspendat nu e sărit: %', v; end if;
   if (select count(*) from public.affiliate_ledger where affiliate_id = v_g1) <> n_agent
      or (select count(*) from public.affiliate_ledger where affiliate_id = v_h1) <> n_casc then
@@ -1057,7 +1057,7 @@ begin
   -- ── REACTIVĂM (control pozitiv: comisionul reapare) ──
   v := pg_temp.in_u(F, format('public.admin_set_affiliate_status(%L, %L, %L)', v_g1, 'active', 'clarificat'));
   if (v->>'ok') is distinct from 'true' then raise exception 'IN17 FAIL: reactivare: %', v; end if;
-  v := public.process_affiliate_invoice_paid('evt_in_4', 'cus_in302_c', 'sub_in302', 'in_in_4', 'subscription_cycle', 24900, 'RON', '2026-12-01', now(), 'growth');
+  v := public.process_affiliate_invoice_paid('evt_in_4', 'cus_in304_c', 'sub_in304', 'in_in_4', 'subscription_cycle', 24900, 'RON', '2026-12-01', now(), 'growth');
   if v ->> 'leg' is distinct from 'recurring' or (v ->> 'commission_cents')::bigint <> 2490 then
     raise exception 'IN17 FAIL (control): după reactivare comisionul nu reapare: %', v; end if;
   select count(*) into n_casc from public.affiliate_ledger where affiliate_id = v_h1 and leg = 'cascade';
@@ -1066,7 +1066,7 @@ begin
   -- ── SUSPENDĂM ȘEFUL: agentul primește comision, șeful NU (fără cascadă nouă) ──
   v := pg_temp.in_u(F, format('public.admin_set_affiliate_status(%L, %L, %L)', v_h1, 'suspended', 'revizuire contract'));
   if (v->>'ok') is distinct from 'true' then raise exception 'IN17 FAIL: suspendare șef: %', v; end if;
-  v := public.process_affiliate_invoice_paid('evt_in_5', 'cus_in302_c', 'sub_in302', 'in_in_5', 'subscription_cycle', 24900, 'RON', '2027-01-01', now(), 'growth');
+  v := public.process_affiliate_invoice_paid('evt_in_5', 'cus_in304_c', 'sub_in304', 'in_in_5', 'subscription_cycle', 24900, 'RON', '2027-01-01', now(), 'growth');
   if v ->> 'leg' is distinct from 'recurring' then raise exception 'IN17 FAIL: agentul nu mai primește comision la șef suspendat: %', v; end if;
   if (select count(*) from public.affiliate_ledger where affiliate_id = v_h1 and leg = 'cascade') <> 3 then
     raise exception 'IN17 FAIL: șeful suspendat a primit bonus nou'; end if;
@@ -1104,7 +1104,7 @@ begin
   v := pg_temp.in_u(F, format('public.admin_set_affiliate_status(%L, %L, %L)', v_g1, 'active', 'revenire'));
   if v is distinct from '{"ok": false, "reason": "invalid_transition", "status": "closed"}'::jsonb then
     raise exception 'IN17 FAIL: closed nu e terminal: %', v; end if;
-  v := public.process_affiliate_invoice_paid('evt_in_6', 'cus_in302_c', 'sub_in302', 'in_in_6', 'subscription_cycle', 24900, 'RON', '2027-02-01', now(), 'growth');
+  v := public.process_affiliate_invoice_paid('evt_in_6', 'cus_in304_c', 'sub_in304', 'in_in_6', 'subscription_cycle', 24900, 'RON', '2027-02-01', now(), 'growth');
   if v ->> 'skipped' is distinct from 'affiliate_inactive' then raise exception 'IN17 FAIL: closed nu îngheață comisioanele: %', v; end if;
   -- G1 a rămas "closed" doar în această tranzacție; îl readucem pentru restul testelor (postgres ocolește RPC-ul)
   update public.affiliates set status = 'active' where id = v_g1;
@@ -1126,7 +1126,7 @@ begin
 
   -- calea reală: detașarea afilierii (295) apoi ștergerea contului
   perform public.erase_affiliate_identity_for_user(G2);
-  delete from auth.users where id = G2;   -- NU are voie să pice pe FK-urile 302
+  delete from auth.users where id = G2;   -- NU are voie să pice pe FK-urile 304
   if exists (select 1 from public.profiles where id = G2) then raise exception 'IN18 FAIL: profilul nu s-a șters'; end if;
   if (select used_by_profile_id from public.affiliate_invitations where id = v_inv) is not null
      or (select used_by_affiliate_id from public.affiliate_invitations where id = v_inv) is distinct from v_g2 then
@@ -1143,7 +1143,7 @@ begin
     raise exception 'IN18 FAIL: agentul șters în echipă: %', v->'team'; end if;
 
   -- creatorul unei invitații (created_by_profile_id) se poate șterge
-  insert into public.profiles (id, email) values (U, 'in-creator@in302.test') on conflict (id) do nothing;
+  insert into public.profiles (id, email) values (U, 'in-creator@in304.test') on conflict (id) do nothing;
   insert into public.affiliate_invitations (kind, token_hash, created_by_profile_id, expires_at)
     values ('head', public.sales_invite_token_hash('tok-in18-creator'), U, clock_timestamp() + interval '1 day');
   delete from auth.users where id = U;
@@ -1383,14 +1383,14 @@ begin
   if pg_temp.in_inv_used(v_bearer) then raise exception 'IN24 FAIL: invitația consumată de un cont anonim'; end if;
 
   -- 2. invitația LEGATĂ de email: cont NECONFIRMAT cu emailul potrivit → invite_invalid (identic cu inexistentă)
-  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-email', null, 'in-unconf@in302.test');
+  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-email', null, 'in-unconf@in304.test');
   v := pg_temp.in_u(unconf, pg_temp.in_rs('head', 'tok-in24-email'));
   if v is distinct from want
      or v is distinct from pg_temp.in_u(unconf, pg_temp.in_rs('head', 'token-inexistent-in24')) then
     raise exception 'IN24 FAIL: email neconfirmat: %', v; end if;
   if pg_temp.in_inv_used(v_inv) then raise exception 'IN24 FAIL: invitația legată de email consumată de un cont neconfirmat'; end if;
   -- 3. confirmat dar POTRIVIT altcuiva → invite_invalid; confirmat și potrivit → OK
-  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-e1', null, 'in-e1@in302.test');
+  v_inv := pg_temp.in_seed_inv('head', 'tok-in24-e1', null, 'in-e1@in304.test');
   if pg_temp.in_u(e2, pg_temp.in_rs('head', 'tok-in24-e1')) is distinct from want then
     raise exception 'IN24 FAIL: email confirmat dar al altcuiva'; end if;
   v := pg_temp.in_u(e1, pg_temp.in_rs('head', 'tok-in24-e1'));

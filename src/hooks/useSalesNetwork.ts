@@ -1,6 +1,6 @@
 // =============================================================
 // Menuvia — src/hooks/useSalesNetwork.ts
-// „Echipa mea" / rolul în rețeaua de vânzări (mig 302, pachetul 8a).
+// „Echipa mea" / rolul în rețeaua de vânzări (mig 304, pachetul 8a).
 //
 // TRISTATE, ca `useBridgeConnected`: `network === null` înseamnă „nu știm" (se
 // încarcă, RPC nedeployat, eroare de rețea) — NU „nu ești în rețea". Un cont care
@@ -21,7 +21,7 @@ export interface UseSalesNetwork {
   loading: boolean
   /** Ultima eroare de citire (mesaj românesc în `error.message`), sau `null`. */
   error: SalesNetworkError | null
-  /** RPC-ul nu e încă deployat pe server (frontend înaintea migrației 302). */
+  /** RPC-ul nu e încă deployat pe server (frontend înaintea migrației 304). */
   unavailable: boolean
   reload: () => Promise<void>
   /**

@@ -1,9 +1,9 @@
-// Teste pentru stratul de client al rețelei de vânzări pe invitații (mig 302).
+// Teste pentru stratul de client al rețelei de vânzări pe invitații (mig 304).
 //
 //   SN1  clasificarea erorilor de transport (PGRST202/42883 → „indisponibil",
 //        42501, JWT, fără cod = rețea, restul necunoscut); mesajul brut NU iese
 //   SN2  fiecare motiv are mesaj românesc; invite_invalid are UNUL singur
-//   SN3  CLICHET DE DRIFT: motivele din migrația 302 == motivele clientului
+//   SN3  CLICHET DE DRIFT: motivele din migrația 304 == motivele clientului
 //   SN4  get_sales_network → camelCase; contact ascuns; formă proastă → eroare
 //   SN5  răscumpărarea: funcția și argumentele corecte, refuz → SalesNetworkError
 //        fără token în mesaj, dublu-submit (`already`)
@@ -119,11 +119,11 @@ describe('SN2 mesaje românești', () => {
   })
 })
 
-describe('SN3 drift: motivele din migrația 302 == motivele clientului', () => {
+describe('SN3 drift: motivele din migrația 304 == motivele clientului', () => {
   it('mulțimile sunt egale în ambele sensuri', () => {
     const dir = join(ROOT, 'supabase', 'migrations')
-    const file = readdirSync(dir).find((f) => f.includes('migration_302_'))
-    expect(file, 'migrația 302 lipsește').toBeTruthy()
+    const file = readdirSync(dir).find((f) => f.includes('migration_304_'))
+    expect(file, 'migrația 304 lipsește').toBeTruthy()
     const sql = readFileSync(join(dir, file ?? ''), 'utf8')
     const server = new Set([...sql.matchAll(/'reason',\s*'([a-z_]+)'/g)].map((m) => m[1]))
     expect(server.size).toBeGreaterThan(20) // control pozitiv: regex-ul chiar prinde ceva

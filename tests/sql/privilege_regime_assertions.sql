@@ -144,7 +144,7 @@ reset role;
 -- ═══════ RP2. RLS pe TOT public + clichet pe setul deny-all-by-absence ═══════
 -- Setul „RLS pornit + ZERO politici" e negare prin ABSENȚĂ. Verificat identic pe
 -- replay ȘI pe producție: exact aceste tabele (`pg_cron_janitor_manifest` vine din
--- mig 274; `affiliate_invitations` + `affiliate_contract_acceptances` din mig 302 —
+-- mig 274; `affiliate_invitations` + `affiliate_contract_acceptances` din mig 304 —
 -- acces doar prin RPC-urile DEFINER, deny-all-by-absence ca `retained_receipts`). Un tabel care INTRĂ în set
 -- nedeclarat = politici PIERDUTE (restore parțial, replay oprit la mijloc). Un
 -- tabel care IESE = a primit o politică ce nu a fost revizuită.

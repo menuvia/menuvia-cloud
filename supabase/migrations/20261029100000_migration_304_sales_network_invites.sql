@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════════════════════════
--- MIGRATION 302 — Rețeaua de vânzări DOAR pe invitații (pachetul 8a: baza de date)
+-- MIGRATION 304 — Rețeaua de vânzări DOAR pe invitații (pachetul 8a: baza de date)
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Decizia D8: rețeaua merge doar pe invitații; programul public
 -- (`affiliate_program_open`) rămâne ÎNCHIS și NEATINS — `register_affiliate`,
@@ -169,9 +169,9 @@ create constraint trigger trg_affiliate_sales_role_parent
   for each row execute function public.fn_affiliate_sales_role_parent();
 
 comment on column public.affiliates.sales_role is
-  'mig 302: head | agent pentru conturile create prin invitație; NULL = afiliat din programul public/vechi.';
+  'mig 304: head | agent pentru conturile create prin invitație; NULL = afiliat din programul public/vechi.';
 comment on column public.affiliates.contact_sharing is
-  'mig 302: consimțământ REVOCABIL (contract art. 9.5) ca numele/telefonul/emailul să fie afișate șefului / agenților. Implicit false.';
+  'mig 304: consimțământ REVOCABIL (contract art. 9.5) ca numele/telefonul/emailul să fie afișate șefului / agenților. Implicit false.';
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- §2. affiliate_invitations
@@ -212,7 +212,7 @@ revoke all on table public.affiliate_invitations
   from public, anon, authenticated, service_role;
 
 comment on table public.affiliate_invitations is
-  'mig 302: invitații șef/agent de vânzări. token_hash = sha256(token); tokenul nu se stochează. RLS fără politici + revoke explicit: acces DOAR prin RPC-urile DEFINER (admin_*_invite, create_agent_invite, redeem_*).';
+  'mig 304: invitații șef/agent de vânzări. token_hash = sha256(token); tokenul nu se stochează. RLS fără politici + revoke explicit: acces DOAR prin RPC-urile DEFINER (admin_*_invite, create_agent_invite, redeem_*).';
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- §3. affiliate_contract_acceptances — dovadă APPEND-ONLY
@@ -243,7 +243,7 @@ revoke all on table public.affiliate_contract_acceptances
   from public, anon, authenticated, service_role;
 
 comment on table public.affiliate_contract_acceptances is
-  'mig 302: istoric APPEND-ONLY al acceptărilor de contract (versiune, sha256 al textului afișat, CUI declarat, moment). UPDATE/DELETE/TRUNCATE respinse de trigger.';
+  'mig 304: istoric APPEND-ONLY al acceptărilor de contract (versiune, sha256 al textului afișat, CUI declarat, moment). UPDATE/DELETE/TRUNCATE respinse de trigger.';
 
 create or replace function public.fn_contract_acceptance_immutable()
 returns trigger
@@ -415,9 +415,9 @@ revoke all on function public.sales_invite_token_hash(text)                 from
 revoke all on function public.sales_network_apply_cascade_default()         from public, anon, authenticated, service_role;
 
 comment on function public.normalize_ro_cui(text) is
-  'mig 302: CUI românesc normalizat (cifre, fără RO) sau NULL. 2–10 cifre + cifra de control cu cheia 753217532 (verificat pe CUI-uri reale). Pură, IMMUTABLE.';
+  'mig 304: CUI românesc normalizat (cifre, fără RO) sau NULL. 2–10 cifre + cifra de control cu cheia 753217532 (verificat pe CUI-uri reale). Pură, IMMUTABLE.';
 comment on function public.sales_contract_published_version() is
-  'mig 302: versiunea publicată a contractului de rețea (platform_settings.sales_contract_version); NULL = nepublicat = invitațiile sunt blocate (fail-closed).';
+  'mig 304: versiunea publicată a contractului de rețea (platform_settings.sales_contract_version); NULL = nepublicat = invitațiile sunt blocate (fail-closed).';
 
 -- Seed: contractul NU e publicat (JSON null). Nu suprascrie o valoare existentă.
 insert into public.platform_settings (key, value)
@@ -815,7 +815,7 @@ begin
     return jsonb_build_object('ok', false, 'reason', 'cui_conflict');
   end if;
 
-  -- Procentele de start = defaulturile fondatorului (mig 188; cascade 2000 din 302).
+  -- Procentele de start = defaulturile fondatorului (mig 188; cascade 2000 din 304).
   select value into v_defaults from public.platform_settings
    where key = 'affiliate_commission_defaults';
 
@@ -1188,11 +1188,11 @@ grant execute on function public.set_my_contact_sharing(boolean)                
 grant execute on function public.get_sales_network()                                to authenticated;
 
 comment on function public.redeem_sales_head_invite(text, text, text, text, text, boolean) is
-  'mig 302: răscumpără invitația de ȘEF (cont active, fără părinte, cascade_bps din setări) și acceptă contractul în același pas. Un singur motiv de refuz pe invitație: invite_invalid. Rate limit 10/15 min.';
+  'mig 304: răscumpără invitația de ȘEF (cont active, fără părinte, cascade_bps din setări) și acceptă contractul în același pas. Un singur motiv de refuz pe invitație: invite_invalid. Rate limit 10/15 min.';
 comment on function public.redeem_agent_invite(text, text, text, text, text, boolean) is
-  'mig 302: răscumpără invitația de AGENT (cont active, părinte = șeful invitator, FĂRĂ aprobare) și acceptă contractul în același pas. Un singur motiv de refuz pe invitație: invite_invalid.';
+  'mig 304: răscumpără invitația de AGENT (cont active, părinte = șeful invitator, FĂRĂ aprobare) și acceptă contractul în același pas. Un singur motiv de refuz pe invitație: invite_invalid.';
 comment on function public.get_sales_network() is
-  'mig 302: lista albă „Echipa mea”: rolul, contractul, cardul șefului (agent) / recruții direcți (șef). Contact doar cu consimțământ; niciodată clienți finali, IBAN, Stripe, token.';
+  'mig 304: lista albă „Echipa mea”: rolul, contractul, cardul șefului (agent) / recruții direcți (șef). Contact doar cu consimțământ; niciodată clienți finali, IBAN, Stripe, token.';
 
 -- ───────────────────────────────────────────────────────────────────────────
 -- §10. Asserții fail-closed
@@ -1208,15 +1208,15 @@ begin
   foreach v_tbl in array array['affiliate_invitations', 'affiliate_contract_acceptances'] loop
     if not (select c.relrowsecurity from pg_class c
              where c.oid = ('public.' || v_tbl)::regclass) then
-      raise exception 'mig 302: RLS oprit pe %', v_tbl;
+      raise exception 'mig 304: RLS oprit pe %', v_tbl;
     end if;
     if exists (select 1 from pg_policy p where p.polrelid = ('public.' || v_tbl)::regclass) then
-      raise exception 'mig 302: % are politici RLS (trebuie deny-all-by-absence)', v_tbl;
+      raise exception 'mig 304: % are politici RLS (trebuie deny-all-by-absence)', v_tbl;
     end if;
     if has_table_privilege('anon', ('public.' || v_tbl)::regclass, 'SELECT,INSERT,UPDATE,DELETE')
        or has_table_privilege('authenticated', ('public.' || v_tbl)::regclass, 'SELECT,INSERT,UPDATE,DELETE')
        or has_table_privilege('service_role', ('public.' || v_tbl)::regclass, 'SELECT,INSERT,UPDATE,DELETE') then
-      raise exception 'mig 302: % are privilegii pentru un rol client', v_tbl;
+      raise exception 'mig 304: % are privilegii pentru un rol client', v_tbl;
     end if;
   end loop;
 
@@ -1225,7 +1225,7 @@ begin
                   and tgrelid = 'public.affiliate_contract_acceptances'::regclass and not tgisinternal)
      or not exists (select 1 from pg_trigger where tgname = 'trg_contract_acceptance_no_truncate'
                   and tgrelid = 'public.affiliate_contract_acceptances'::regclass and not tgisinternal) then
-    raise exception 'mig 302: triggerele append-only lipsesc';
+    raise exception 'mig 304: triggerele append-only lipsesc';
   end if;
 
   -- (c) RPC-urile: DEFINER + pg_temp, o singură semnătură, doar authenticated
@@ -1238,19 +1238,19 @@ begin
     select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.proname = v_fn;
     if v_n <> 1 then
-      raise exception 'mig 302: % are % semnături (PGRST203)', v_fn, v_n;
+      raise exception 'mig 304: % are % semnături (PGRST203)', v_fn, v_n;
     end if;
     if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                     where n.nspname = 'public' and p.proname = v_fn and p.prosecdef
                       and array_to_string(p.proconfig, ',') like '%search_path=public, pg_temp%') then
-      raise exception 'mig 302: % nu e DEFINER cu search_path = public, pg_temp', v_fn;
+      raise exception 'mig 304: % nu e DEFINER cu search_path = public, pg_temp', v_fn;
     end if;
     if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = v_fn
                   and (has_function_privilege('anon', p.oid, 'EXECUTE')
                     or has_function_privilege('service_role', p.oid, 'EXECUTE')
                     or not has_function_privilege('authenticated', p.oid, 'EXECUTE'))) then
-      raise exception 'mig 302: % trebuie apelabilă DOAR de authenticated', v_fn;
+      raise exception 'mig 304: % trebuie apelabilă DOAR de authenticated', v_fn;
     end if;
   end loop;
 
@@ -1263,14 +1263,14 @@ begin
     'sales_invite_redeem', 'fn_contract_acceptance_immutable'] loop
     if not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                     where n.nspname = 'public' and p.proname = v_fn) then
-      raise exception 'mig 302: helperul % lipsește', v_fn;
+      raise exception 'mig 304: helperul % lipsește', v_fn;
     end if;
     if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                 where n.nspname = 'public' and p.proname = v_fn
                   and (has_function_privilege('anon', p.oid, 'EXECUTE')
                     or has_function_privilege('authenticated', p.oid, 'EXECUTE')
                     or has_function_privilege('service_role', p.oid, 'EXECUTE'))) then
-      raise exception 'mig 302: helperul % nu trebuie apelabil de roluri client', v_fn;
+      raise exception 'mig 304: helperul % nu trebuie apelabil de roluri client', v_fn;
     end if;
   end loop;
 
@@ -1279,32 +1279,32 @@ begin
    where n.nspname = 'public' and p.proname = 'sales_invite_redeem';
   if position('for update' in v_fn) = 0 or position('unique_violation' in v_fn) = 0
      or position('check_rate_limit' in v_fn) = 0 then
-    raise exception 'mig 302: sales_invite_redeem a pierdut for update / unique_violation / rate limit';
+    raise exception 'mig 304: sales_invite_redeem a pierdut for update / unique_violation / rate limit';
   end if;
 
   -- (f) contractul NU e publicat implicit; cascade: 2000 sau o valoare ≠ 200
   if exists (select 1 from public.platform_settings
               where key = 'sales_contract_version' and jsonb_typeof(value) = 'object'
                 and (value ->> 'version') ~* 'draft') then
-    raise exception 'mig 302: sales_contract_version conține o versiune DRAFT';
+    raise exception 'mig 304: sales_contract_version conține o versiune DRAFT';
   end if;
   select value into v_cas from public.platform_settings where key = 'affiliate_commission_defaults';
   if v_cas is null or (v_cas ->> 'cascade_bps')::numeric = 200 then
-    raise exception 'mig 302: cascade_bps implicit a rămas 200 (așteptat 2000 sau valoarea fondatorului)';
+    raise exception 'mig 304: cascade_bps implicit a rămas 200 (așteptat 2000 sau valoarea fondatorului)';
   end if;
 
   -- (g0) D8 în date: triggerul deferred există și semnătura admin e unică
   if not exists (select 1 from pg_trigger where tgname = 'trg_affiliate_sales_role_parent'
                   and tgrelid = 'public.affiliates'::regclass and tgdeferrable and tginitdeferred
                   and not tgisinternal) then
-    raise exception 'mig 302: trg_affiliate_sales_role_parent lipsește / nu e DEFERRED';
+    raise exception 'mig 304: trg_affiliate_sales_role_parent lipsește / nu e DEFERRED';
   end if;
 
   -- (g) programul public rămâne neatins: register_affiliate are o singură semnătură
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'register_affiliate';
   if v_n <> 1 then
-    raise exception 'mig 302: register_affiliate are % semnături', v_n;
+    raise exception 'mig 304: register_affiliate are % semnături', v_n;
   end if;
 
   -- (h) CUI: cinci CUI-uri reale valide + trei invalide
@@ -1312,7 +1312,7 @@ begin
           and public.is_valid_ro_cui(' ro 2816464 ') and public.is_valid_ro_cui('9010105')
           and public.is_valid_ro_cui('11588780'))
      or public.is_valid_ro_cui('5022671') or public.is_valid_ro_cui('1') or public.is_valid_ro_cui(null) then
-    raise exception 'mig 302: is_valid_ro_cui nu trece verificările de bază';
+    raise exception 'mig 304: is_valid_ro_cui nu trece verificările de bază';
   end if;
 
   -- (i) tokenul: 43 de caractere URL-safe, hash de 64 hex ≠ token
@@ -1320,7 +1320,7 @@ begin
   if length(v_fn) <> 43 or v_fn !~ '^[A-Za-z0-9_-]{43}$'
      or public.sales_invite_token_hash(v_fn) !~ '^[0-9a-f]{64}$'
      or public.sales_invite_token_hash(v_fn) = v_fn then
-    raise exception 'mig 302: formatul tokenului/hash-ului e greșit';
+    raise exception 'mig 304: formatul tokenului/hash-ului e greșit';
   end if;
 end $$;
 

@@ -1,6 +1,6 @@
 // =============================================================
 // Menuvia — src/lib/salesNetwork.ts
-// Rețeaua de vânzări pe INVITAȚII (mig 302, pachetul 8a): stratul de client.
+// Rețeaua de vânzări pe INVITAȚII (mig 304, pachetul 8a): stratul de client.
 //
 // Aici stau doar tipurile, apelurile RPC și maparea erorilor în română; ecranele
 // (FounderPage, AfiliatPage, /sef-vanzari/:token) sunt pachetul 8b.
@@ -568,7 +568,7 @@ const CUI_KEY = [7, 5, 3, 2, 1, 7, 5, 3, 2] as const
 
 /**
  * CUI normalizat (doar cifre, fără RO) sau `null`. Oglinda lui `normalize_ro_cui`
- * (mig 302): prefix RO opțional, 2–10 cifre fără zero în față, cifra de control
+ * (mig 304): prefix RO opțional, 2–10 cifre fără zero în față, cifra de control
  * cu cheia 753217532. DOAR pentru UX — serverul decide.
  */
 export function normalizeRoCui(raw: string): string | null {
