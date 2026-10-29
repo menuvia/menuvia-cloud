@@ -226,13 +226,18 @@ export interface AdminAffiliateRow {
 
 export interface AdminAuditRow {
   id: string
-  actor_email: string
+  // NULL când contul actorului a fost șters (GDPR, mig 307): rândul de jurnal
+  // rămâne, fără legătură spre profil.
+  actor_email: string | null
   actor_kind: string
   restaurant_id: string | null
   restaurant_name: string | null
   action: string
   details: Record<string, unknown>
   created_at: string
+  // mig 307 — opționale: clientul poate rula înaintea migrației.
+  actor_erased?: boolean
+  actor_erased_at?: string | null
 }
 
 export interface AdminActionResult {
