@@ -302,6 +302,7 @@
     "migration_300_health_alert_to_agent",
     "migration_301_agent_code_signup_attribution",
     "migration_303_agent_remote_access",
-    "migration_304_sales_network_invites"
+    "migration_304_sales_network_invites",
+    "migration_305_admin_list_affiliates_sales_role"
   ]
 }

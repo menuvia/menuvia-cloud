@@ -13,8 +13,9 @@
 //      confirmat, poate accepta), nu o notă — textul de lângă câmp o spune.
 //   3. Invitațiile: stare, cine a invitat, data, revocare.
 //   4. Rețeaua: Activ / Suspendat / Închis cu motiv obligatoriu. Rolul afișat
-//      vine din `sales_role` (mig 304), nu din lipsa unui părinte: fără el
-//      (proiecție veche, program public) nimeni nu apare ca „Șef”.
+//      vine din `sales_role` (coloana din mig 304, proiectată de
+//      `admin_list_affiliates` din mig 305), nu din lipsa unui părinte: fără el
+//      (proiecție dinainte de 305, program public) nimeni nu apare ca „Șef”.
 //
 // TRISTATE peste tot: o citire eșuată (RPC lipsă = PGRST202, rețea) NU se
 // afișează ca „nepublicat” sau „zero invitații”; arată mesajul de eroare și
