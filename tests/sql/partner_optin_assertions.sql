@@ -20,7 +20,7 @@
 --        memberships NU; nu-și poate pune singur consimțământul (UPDATE pe
 --        affiliate_attributions refuzat).
 --   PO5  Revocarea → 0 peste tot, apoi o nouă cerere NU readuce accesul;
---        re-acordarea îl readuce. Manager membru poate acorda/revoca.
+--        re-acordarea îl readuce. Managerul membru NU poate acorda (doar ownerul).
 --   PO6  Filtrele păstrate din 193: atribuire terminală (canceled) și afiliat
 --        ne-activ → fără acces, chiar cu consimțământ.
 --   PO7  Fondatorul (is_platform_admin, escape-ul 186) PĂSTREAZĂ accesul total.
