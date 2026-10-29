@@ -2,25 +2,31 @@
 //
 //   PG1  fără sesiune → înscriere cu ?next= pe invitație (replace), niciun apel de rețea
 //   PG2  contract NEpublicat → „se deschide în curând", butonul rămâne dezactivat
-//   PG3  versiune publicată FĂRĂ text în bundle → buton dezactivat (nu se acceptă un document neafișat)
+//   PG3  versiune publicată FĂRĂ text în bundle → „s-a actualizat", buton dezactivat (nu se
+//        acceptă un document neafișat); „Reîncarcă pagina" merge pe calea CU token
 //   PG4  CUI invalid → mesaj, serverul nu e chemat
-//   PG5  succes → RPC cu parametrii exacți (hash pe textul afișat, consimțământ nebifat implicit),
-//        navigare pe /afiliat prin replace
+//   PG5  succes → RPC cu parametrii exacți (hash VERIFICAT al textului afișat, consimțământ
+//        nebifat implicit), navigare pe /afiliat prin replace
 //   PG6  URL-ul curent pierde tokenul la montare
 //   PG7  invite_invalid → UN singur mesaj, formularul se blochează
 //   PG8  cont deja în rețea → mesaj, fără formular
 //   PG9  token cu formă greșită → același mesaj generic, fără apel de rețea
 //   PG10 RPC nedeployat → „indisponibil", fără formular (tristate)
 //   PG11 rolul de agent cheamă RPC-ul de agent
+//   PG12 sha256(text local) ≠ amprenta publicată → textul NU se afișează, acceptarea e blocată
+//   PG13 `cui_conflict` → mesajul stă la câmpul CUI (aria-describedby), nu în josul formularului
+//   PG14 `anonymous_account` → formular blocat + deconectare spre un cont cu email
+//   PG15 `contract_hash_mismatch` de la server → se reîncarcă contractul, bifa nu supraviețuiește
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const { rpcMock, useAuthMock, contractTextMock, sha256Mock } = vi.hoisted(() => ({
+const { rpcMock, useAuthMock, contractTextMock, sha256Mock, signOutMock } = vi.hoisted(() => ({
   rpcMock: vi.fn(),
   useAuthMock: vi.fn(),
   contractTextMock: vi.fn(),
   sha256Mock: vi.fn(),
+  signOutMock: vi.fn(),
 }))
 
 vi.mock('../../lib/supabase', () => ({ supabase: { rpc: rpcMock } }))
@@ -36,6 +42,8 @@ import { SALES_FAILURE_MESSAGES } from '../../lib/salesNetwork'
 
 const TOKEN = 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde'
 const CONTRACT_TEXT = 'TEXT CONTRACT VERSIUNEA 1.0'
+// sha256Hex e înlocuit cu `hash(<text>)`: amprenta publicată a textului de mai sus.
+const PUBLISHED_HASH = `hash(${CONTRACT_TEXT})`
 const VALID_CUI = '14399840'
 
 function ok(data: unknown) {
@@ -52,17 +60,22 @@ function networkPayload(over: Record<string, unknown> = {}) {
     status: null,
     affiliate_id: null,
     contact_sharing: false,
-    contract: {
-      current_version: '1.0',
-      accepted_version: null,
-      accepted_at: null,
-      needs_acceptance: false,
-    },
+    contract: contract('1.0', PUBLISHED_HASH),
     head: null,
     team: [],
     open_invites: [],
     limits: { open_invites_max: 20, invite_ttl_days: 14 },
     ...over,
+  }
+}
+
+function contract(version: string | null, textHash: string | null) {
+  return {
+    current_version: version,
+    accepted_version: null,
+    accepted_at: null,
+    needs_acceptance: false,
+    current_text_hash: textHash,
   }
 }
 
@@ -93,12 +106,19 @@ function redeemCalls(): unknown[][] {
 
 const navigate = vi.fn()
 const replace = vi.fn()
+const reloadAt = vi.fn()
 
 function renderPage(kind: 'head' | 'agent' = 'head', token: string = TOKEN) {
   const base = kind === 'head' ? '/sef-vanzari' : '/echipa'
   window.history.replaceState({}, '', `${base}/${token}`)
   return render(
-    <SalesInviteRedeemPage kind={kind} token={token} navigate={navigate} replace={replace} />,
+    <SalesInviteRedeemPage
+      kind={kind}
+      token={token}
+      navigate={navigate}
+      replace={replace}
+      reloadAt={reloadAt}
+    />,
   )
 }
 
@@ -113,8 +133,15 @@ beforeEach(() => {
   rpcMock.mockReset()
   navigate.mockReset()
   replace.mockReset()
+  reloadAt.mockReset()
+  signOutMock.mockReset()
+  signOutMock.mockResolvedValue(undefined)
   useAuthMock.mockReset()
-  useAuthMock.mockReturnValue({ user: { id: 'u1', email: 'ana@x.test' }, loading: false })
+  useAuthMock.mockReturnValue({
+    user: { id: 'u1', email: 'ana@x.test' },
+    loading: false,
+    signOut: signOutMock,
+  })
   contractTextMock.mockReset()
   contractTextMock.mockImplementation((version: string | null) =>
     version === '1.0' ? CONTRACT_TEXT : null,
@@ -136,16 +163,7 @@ describe('SalesInviteRedeemPage', () => {
   })
 
   it('PG2: contract nepublicat → „se deschide în curând", butonul rămâne dezactivat', async () => {
-    serverReturns({
-      network: {
-        contract: {
-          current_version: null,
-          accepted_version: null,
-          accepted_at: null,
-          needs_acceptance: false,
-        },
-      },
-    })
+    serverReturns({ network: { contract: contract(null, null) } })
     const user = userEvent.setup()
     renderPage('head')
     expect(await screen.findByText(/programul se deschide în curând/i)).toBeInTheDocument()
@@ -156,24 +174,21 @@ describe('SalesInviteRedeemPage', () => {
     expect(redeemCalls()).toHaveLength(0)
   })
 
-  it('PG3: versiune publicată fără text în bundle → buton dezactivat', async () => {
-    serverReturns({
-      network: {
-        contract: {
-          current_version: '9.9',
-          accepted_version: null,
-          accepted_at: null,
-          needs_acceptance: false,
-        },
-      },
-    })
+  it('PG3: versiune publicată fără text în bundle → buton dezactivat, reîncărcare cu token', async () => {
+    serverReturns({ network: { contract: contract('9.9', 'e'.repeat(64)) } })
     const user = userEvent.setup()
     renderPage('head')
     expect(await screen.findByText(/nu poate fi afișat în această versiune/i)).toBeInTheDocument()
+    expect(screen.getByText(/contractul s-a actualizat — reîncarcă pagina/i)).toBeInTheDocument()
     await fillValid(user)
     await user.click(screen.getByLabelText(/am citit și accept/i))
+    expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
     expect(submitButton()).toBeDisabled()
     expect(redeemCalls()).toHaveLength(0)
+    // Tokenul a fost scos din URL la montare: un reload simplu ar pierde invitația.
+    // Mutația „reloadAt(basePath)” (fără token) pică aici.
+    await user.click(screen.getByRole('button', { name: /^reîncarcă pagina$/i }))
+    expect(reloadAt).toHaveBeenCalledWith(`/sef-vanzari/${TOKEN}`)
   })
 
   it('PG4: CUI invalid → mesaj, serverul nu e chemat', async () => {
@@ -212,7 +227,7 @@ describe('SalesInviteRedeemPage', () => {
         p_phone: '0722 123 456',
         p_cui: VALID_CUI,
         p_contract_version: '1.0',
-        p_contract_hash: `hash(${CONTRACT_TEXT})`,
+        p_contract_hash: PUBLISHED_HASH,
         p_share_contact: false,
       },
     ])
@@ -289,5 +304,86 @@ describe('SalesInviteRedeemPage', () => {
     await user.click(submitButton())
     await waitFor(() => expect(redeemCalls()).toHaveLength(1))
     expect(redeemCalls()[0][0]).toBe('redeem_agent_invite')
+  })
+
+  it('PG12: amprenta locală ≠ cea publicată → textul nu se arată, acceptarea e blocată', async () => {
+    // Mutația „orice hash calculat e bun” (contractGate fără comparație) afișează
+    // textul și activează butonul: testul pică.
+    serverReturns({ network: { contract: contract('1.0', 'f'.repeat(64)) } })
+    const user = userEvent.setup()
+    renderPage('head')
+    expect(
+      await screen.findByText(/nu este cel publicat pentru versiunea 1\.0/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/contractul s-a actualizat — reîncarcă pagina/i)).toBeInTheDocument()
+    expect(sha256Mock).toHaveBeenCalledWith(CONTRACT_TEXT)
+    expect(screen.queryByText(CONTRACT_TEXT)).toBeNull()
+    await fillValid(user)
+    await user.click(screen.getByLabelText(/am citit și accept/i))
+    expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
+    expect(submitButton()).toBeDisabled()
+    await user.click(submitButton())
+    expect(redeemCalls()).toHaveLength(0)
+  })
+
+  it('PG13: cui_conflict → mesajul stă la câmpul CUI', async () => {
+    // Mutația „toate refuzurile în formError” lasă câmpul CUI fără aria-describedby.
+    serverReturns({ redeem: { ok: false, reason: 'cui_conflict' } })
+    const user = userEvent.setup()
+    renderPage('head')
+    await screen.findByText(CONTRACT_TEXT)
+    await fillValid(user)
+    await user.click(screen.getByLabelText(/am citit și accept/i))
+    await user.click(submitButton())
+    const msg = await screen.findByText(SALES_FAILURE_MESSAGES.cui_conflict)
+    const cuiInput = screen.getByLabelText(/^cui/i)
+    expect(cuiInput).toHaveAttribute('aria-invalid', 'true')
+    expect(cuiInput).toHaveAttribute('aria-describedby', msg.id)
+    expect(screen.getAllByText(SALES_FAILURE_MESSAGES.cui_conflict)).toHaveLength(1)
+    // CUI-ul se poate corecta: formularul NU se blochează.
+    expect(submitButton()).toBeEnabled()
+    expect(replace).not.toHaveBeenCalled()
+  })
+
+  it('PG14: anonymous_account → formular blocat, deconectare spre cont cu email', async () => {
+    // Mutația „anonymous_account tratat ca orice eroare” lasă butonul de trimitere
+    // activ și fără ieșire spre un cont cu email.
+    serverReturns({ redeem: { ok: false, reason: 'anonymous_account' } })
+    const user = userEvent.setup()
+    renderPage('head')
+    await screen.findByText(CONTRACT_TEXT)
+    await fillValid(user)
+    await user.click(screen.getByLabelText(/am citit și accept/i))
+    await user.click(submitButton())
+    expect(await screen.findByText(SALES_FAILURE_MESSAGES.anonymous_account)).toBeInTheDocument()
+    expect(submitButton()).toBeDisabled()
+    await user.click(screen.getByRole('button', { name: /deconectează-te și intră cu emailul/i }))
+    expect(signOutMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('PG15: contract_hash_mismatch → contractul se reîncarcă, bifa nu supraviețuiește', async () => {
+    // Mutația „fără reload pe contract_hash_mismatch” lasă pagina pe versiunea veche.
+    const published = { version: '1.0', hash: PUBLISHED_HASH }
+    rpcMock.mockImplementation((fn: string) => {
+      if (fn === 'get_sales_network')
+        return ok(networkPayload({ contract: contract(published.version, published.hash) }))
+      // Între citire și trimitere, fondatorul a publicat 1.1 (text absent din acest bundle).
+      published.version = '1.1'
+      published.hash = 'c'.repeat(64)
+      return ok({ ok: false, reason: 'contract_hash_mismatch' })
+    })
+    const user = userEvent.setup()
+    renderPage('head')
+    await screen.findByText(CONTRACT_TEXT)
+    await fillValid(user)
+    await user.click(screen.getByLabelText(/am citit și accept/i))
+    await user.click(submitButton())
+    expect(
+      await screen.findByText(SALES_FAILURE_MESSAGES.contract_hash_mismatch),
+    ).toBeInTheDocument()
+    expect(await screen.findByText(/nu poate fi afișat în această versiune/i)).toBeInTheDocument()
+    expect(rpcMock.mock.calls.filter((c: unknown[]) => c[0] === 'get_sales_network')).toHaveLength(2)
+    expect(screen.getByLabelText(/am citit și accept/i)).not.toBeChecked()
+    expect(submitButton()).toBeDisabled()
   })
 })

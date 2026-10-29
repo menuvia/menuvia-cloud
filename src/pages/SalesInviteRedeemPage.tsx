@@ -12,8 +12,14 @@
 //   • Fără sesiune → /auth?mode=signup&next=<calea invitației> (replace, ca
 //     intrarea cu token să nu rămână în istoric). După login revine pe pagină.
 //   • FAIL-CLOSED pe contract: butonul rămâne dezactivat cât contractul nu e
-//     publicat sau cât textul versiunii publicate nu e în acest bundle
-//     (lib/salesContract.ts) — nu se acceptă un document care nu a fost afișat.
+//     publicat, cât textul versiunii publicate nu e în acest bundle
+//     (lib/salesContract.ts) și cât sha256(textul afișat) nu e EXACT amprenta
+//     publicată de server (`contract.currentTextHash`) — nu se acceptă un
+//     document care nu a fost afișat. Hash-ul trimis la răscumpărare e cel
+//     verificat; serverul îl compară și el (`contract_hash_mismatch`).
+//   • „Reîncarcă pagina” trebuie să păstreze invitația: tokenul a fost scos din
+//     URL la montare, deci reîncărcarea merge pe calea CU token (replace, fără
+//     intrare nouă în istoric), iar pagina nouă îl curăță din nou.
 //   • Un singur mesaj pentru orice problemă a invitației (`invite_invalid`),
 //     ca pe server (anti-oracol). Serverul e autoritatea; validarea CUI de aici
 //     doar dă un mesaj imediat.
@@ -23,8 +29,16 @@ import type { CSSProperties, ReactNode } from 'react'
 import { D } from '../lib/constants'
 import { useAuth } from '../contexts/AuthContext'
 import { useSalesNetwork } from '../hooks/useSalesNetwork'
+import { useContractTextHash } from '../hooks/useContractTextHash'
 import { PageSpinner } from '../components/PageLoader'
-import { INVITE_BASE_PATH, checkInviteFields, signupPathForInvite } from '../lib/salesInviteFlow'
+import {
+  INVITE_BASE_PATH,
+  checkInviteFields,
+  contractGate,
+  fieldForSalesReason,
+  invitePathWithToken,
+  signupPathForInvite,
+} from '../lib/salesInviteFlow'
 import { contractTextFor } from '../lib/salesContract'
 import {
   SALES_FAILURE_MESSAGES,
@@ -32,7 +46,6 @@ import {
   describeSalesError,
   isInviteTokenShape,
   redeemSalesInvite,
-  sha256Hex,
   type SalesRole,
 } from '../lib/salesNetwork'
 
@@ -43,6 +56,15 @@ interface Props {
   navigate: (path: string) => void
   /** Înlocuiește intrarea curentă din istoric (fără intrare nouă). */
   replace: (path: string) => void
+  /**
+   * Reîncărcare COMPLETĂ (bundle nou, deci și textul nou al contractului) pe o
+   * cale dată. Implicit `window.location.replace`; testele o înlocuiesc.
+   */
+  reloadAt?: (path: string) => void
+}
+
+function reloadWithLocation(path: string): void {
+  window.location.replace(path)
 }
 
 const COPY: Record<
@@ -163,8 +185,9 @@ export default function SalesInviteRedeemPage({
   token: tokenProp,
   navigate,
   replace,
+  reloadAt = reloadWithLocation,
 }: Props) {
-  const { user, loading: authLoading } = useAuth()
+  const { user, loading: authLoading, signOut } = useAuth()
   // Tokenul se citește O singură dată: după curățarea URL-ului, un re-parse al
   // rutei (popstate) ar aduce un token gol, dar pagina îl are deja.
   const [token] = useState<string>(tokenProp)
@@ -180,9 +203,18 @@ export default function SalesInviteRedeemPage({
     reload,
   } = useSalesNetwork(!authLoading && user !== null && tokenOk)
 
+  // Contractul: versiunea + amprenta publicate și sha256 al textului din bundle.
+  // Calculat ÎNAINTEA ramurilor fără formular (hook-urile nu stau după un return).
+  const currentVersion = network?.contract.currentVersion ?? null
+  const publishedHash = network?.contract.currentTextHash ?? null
+  const contractText = contractTextFor(currentVersion)
+  const localHash = useContractTextHash(contractText)
+
   const [phone, setPhone] = useState('')
   const [cui, setCui] = useState('')
-  const [accepted, setAccepted] = useState(false)
+  // Bifa „am citit și accept” e legată de AMPRENTA citită: dacă versiunea se
+  // schimbă (reload după `contract_*_mismatch`), bifa veche nu mai valorează.
+  const [acceptedHash, setAcceptedHash] = useState<string | null>(null)
   const [shareContact, setShareContact] = useState(false)
   const [phoneError, setPhoneError] = useState<string | null>(null)
   const [cuiError, setCuiError] = useState<string | null>(null)
@@ -190,6 +222,8 @@ export default function SalesInviteRedeemPage({
   const [submitting, setSubmitting] = useState(false)
   // Invitația a fost respinsă de server: formularul nu mai are rost.
   const [blocked, setBlocked] = useState(false)
+  // Contul curent e anonim / fără email: răscumpărarea cere un cont cu email.
+  const [needsEmailAccount, setNeedsEmailAccount] = useState(false)
 
   const replaceRef = useRef(replace)
   replaceRef.current = replace
@@ -264,13 +298,14 @@ export default function SalesInviteRedeemPage({
   }
 
   // ── Contractul (fail-closed) ──────────────────────────────────
-  const currentVersion = network.contract.currentVersion
-  const contractText = contractTextFor(currentVersion, kind)
-  const contractReady = currentVersion !== null && contractText !== null
-  const canSubmit = contractReady && accepted && !submitting && !blocked
+  const gate = contractGate(currentVersion, publishedHash, contractText, localHash)
+  const accepted = gate.state === 'ready' && acceptedHash === gate.hash
+  const canSubmit = gate.state === 'ready' && accepted && !submitting && !blocked
+  const reloadPath = invitePathWithToken(kind, token)
 
   const submit = async (): Promise<void> => {
-    if (!canSubmit || currentVersion === null || contractText === null) return
+    if (gate.state !== 'ready' || !accepted || submitting || blocked) return
+    const { version, hash } = gate
     setFormError(null)
     const fields = checkInviteFields(phone, cui)
     setPhoneError(fields.phoneError)
@@ -279,28 +314,53 @@ export default function SalesInviteRedeemPage({
 
     setSubmitting(true)
     try {
-      const contractHash = await sha256Hex(contractText)
       await redeemSalesInvite(kind, {
         token,
         phone: fields.phone,
         cui: fields.cui,
-        contractVersion: currentVersion,
-        contractHash,
+        contractVersion: version,
+        // Amprenta VERIFICATĂ a textului afișat (=== cea publicată).
+        contractHash: hash,
         shareContact,
       })
       // replace: intrarea paginii de invitație nu rămâne în istoric.
       replace('/afiliat')
     } catch (e) {
-      setFormError(describeSalesError(e))
-      if (e instanceof SalesNetworkError) {
-        if (e.reason === 'invite_invalid' || e.reason === 'already_affiliate') setBlocked(true)
-        // Contractul s-a schimbat între timp: aducem versiunea nouă.
-        if (e.reason === 'contract_version_mismatch' || e.reason === 'contract_not_published')
-          void reload()
+      const message = describeSalesError(e)
+      const reason = e instanceof SalesNetworkError ? e.reason : null
+      const field = reason === null ? null : fieldForSalesReason(reason)
+      // Refuzul legat de un câmp (ex. `cui_conflict`) stă sub câmp, nu jos.
+      if (field === 'cui') setCuiError(message)
+      else if (field === 'phone') setPhoneError(message)
+      else setFormError(message)
+      if (reason === 'invite_invalid' || reason === 'already_affiliate') setBlocked(true)
+      if (reason === 'anonymous_account') {
+        setBlocked(true)
+        setNeedsEmailAccount(true)
+      }
+      // Contractul s-a schimbat între timp: aducem versiunea (și amprenta) nouă.
+      if (
+        reason === 'contract_version_mismatch' ||
+        reason === 'contract_hash_mismatch' ||
+        reason === 'contract_not_published'
+      ) {
+        setAcceptedHash(null)
+        void reload()
       }
       setSubmitting(false)
     }
   }
+
+  const reloadButton =
+    reloadPath === null ? null : (
+      <button
+        type="button"
+        style={{ ...primaryButton(false), marginTop: 10 }}
+        onClick={() => reloadAt(reloadPath)}
+      >
+        Reîncarcă pagina
+      </button>
+    )
 
   return (
     <Shell>
@@ -315,23 +375,46 @@ export default function SalesInviteRedeemPage({
         ))}
       </ul>
 
-      {currentVersion === null && (
+      {gate.state === 'unpublished' && (
         <div role="status" style={noticeStyle}>
           Programul se deschide în curând. Contractul nu este încă publicat, deci invitația nu poate
           fi folosită acum. Revino pe același link mai târziu.
         </div>
       )}
-      {currentVersion !== null && contractText === null && (
+      {gate.state === 'missing_text' && (
         <div role="status" style={noticeStyle}>
-          Textul contractului (versiunea {currentVersion}) nu poate fi afișat în această versiune a
-          aplicației, deci nu îl poți accepta încă. Reîncarcă pagina; dacă mesajul rămâne, scrie-ne.
+          <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul versiunii{' '}
+          {gate.version} nu poate fi afișat în această versiune a aplicației, deci nu îl poți accepta
+          încă. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          {reloadButton}
+        </div>
+      )}
+      {gate.state === 'mismatch' && (
+        <div role="status" style={noticeStyle}>
+          <strong>Contractul s-a actualizat — reîncarcă pagina.</strong> Textul afișat de această
+          versiune a aplicației nu este cel publicat pentru versiunea {gate.version}, deci nu îl poți
+          accepta. Dacă mesajul rămâne după reîncărcare, scrie-ne.
+          {reloadButton}
+        </div>
+      )}
+      {gate.state === 'checking' && (
+        <div
+          role="status"
+          style={{ ...noticeStyle, background: D.s3, border: `1px solid ${D.border}` }}
+        >
+          Se verifică textul contractului…
+        </div>
+      )}
+      {gate.state === 'hash_error' && (
+        <div role="alert" style={noticeStyle}>
+          {gate.message}
         </div>
       )}
 
-      {contractText !== null && currentVersion !== null && (
+      {gate.state === 'ready' && (
         <section style={{ marginBottom: 16 }}>
           <div style={{ ...labelStyle, marginBottom: 8 }}>
-            Contract de colaborare, versiunea {currentVersion}
+            Contract de colaborare, versiunea {gate.version}
           </div>
           <div
             tabIndex={0}
@@ -348,7 +431,7 @@ export default function SalesInviteRedeemPage({
               whiteSpace: 'pre-wrap',
             }}
           >
-            {contractText}
+            {gate.text}
           </div>
         </section>
       )}
@@ -373,9 +456,10 @@ export default function SalesInviteRedeemPage({
             onChange={(e) => setPhone(e.target.value)}
             style={inputStyle}
             aria-invalid={phoneError !== null}
+            aria-describedby={phoneError !== null ? 'sales-phone-error' : undefined}
           />
           {phoneError !== null && (
-            <div role="alert" style={fieldErrorStyle}>
+            <div id="sales-phone-error" role="alert" style={fieldErrorStyle}>
               {phoneError}
             </div>
           )}
@@ -394,9 +478,10 @@ export default function SalesInviteRedeemPage({
             onChange={(e) => setCui(e.target.value)}
             style={inputStyle}
             aria-invalid={cuiError !== null}
+            aria-describedby={cuiError !== null ? 'sales-cui-error' : undefined}
           />
           {cuiError !== null && (
-            <div role="alert" style={fieldErrorStyle}>
+            <div id="sales-cui-error" role="alert" style={fieldErrorStyle}>
               {cuiError}
             </div>
           )}
@@ -406,12 +491,15 @@ export default function SalesInviteRedeemPage({
           <input
             type="checkbox"
             checked={accepted}
-            onChange={(e) => setAccepted(e.target.checked)}
+            // Fără text verificat nu există ce accepta: bifa rămâne goală.
+            onChange={(e) =>
+              setAcceptedHash(e.target.checked && gate.state === 'ready' ? gate.hash : null)
+            }
             style={{ width: 20, height: 20, flexShrink: 0, marginTop: 2 }}
           />
           <span>
             Am citit și accept contractul de colaborare
-            {currentVersion !== null ? ` (versiunea ${currentVersion})` : ''}.
+            {gate.state === 'ready' ? ` (versiunea ${gate.version})` : ''}.
           </span>
         </label>
 
@@ -429,6 +517,17 @@ export default function SalesInviteRedeemPage({
           <div role="alert" style={{ ...fieldErrorStyle, marginBottom: 12, fontSize: '0.88rem' }}>
             {formError}
           </div>
+        )}
+        {needsEmailAccount && (
+          // După deconectare, efectul (2) duce omul la înscriere cu întoarcere
+          // pe această invitație (tokenul e încă în memorie).
+          <button
+            type="button"
+            style={{ ...primaryButton(false), marginBottom: 12 }}
+            onClick={() => void signOut()}
+          >
+            Deconectează-te și intră cu emailul tău
+          </button>
         )}
 
         <button type="submit" disabled={!canSubmit} style={primaryButton(!canSubmit)}>
