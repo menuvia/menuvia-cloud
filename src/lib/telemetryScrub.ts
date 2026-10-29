@@ -75,7 +75,19 @@ function scrubUnknown(value: unknown, depth: number, seen: WeakSet<object>): unk
     // Date, Error, Map etc. nu sunt JSON simplu: le lăsăm neatinse.
     if (!isPlainObject(value)) return value
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = scrubUnknown(v, depth + 1, seen)
+    for (const [k, v] of Object.entries(value)) {
+      // CHEILE se redactează și ele: heatmap-ul PostHog (`$$heatmap`) trimite
+      // `$heatmap_data: { <URL-ul curent>: [...] }`, deci URL-ul e CHEIE, nu valoare.
+      const key = scrubTokenPaths(k)
+      const scrubbed = scrubUnknown(v, depth + 1, seen)
+      const prev = out[key]
+      // Două chei care devin identice după redactare (același URL cu tokenuri
+      // diferite): array-urile se îmbină, ca să nu se piardă datele primei chei.
+      out[key] =
+        Array.isArray(prev) && Array.isArray(scrubbed)
+          ? [...(prev as unknown[]), ...(scrubbed as unknown[])]
+          : scrubbed
+    }
     return out
   } finally {
     // O referință repetată (nu circulară) e legitimă: se scoate la ieșire.
@@ -84,11 +96,12 @@ function scrubUnknown(value: unknown, depth: number, seen: WeakSet<object>): unk
 }
 
 /**
- * Copie a lui `value` în care FIECARE șir a trecut prin `scrubTokenPaths`
- * (obiecte simple și array-uri, recursiv). Evenimentele Sentry/PostHog poartă
- * URL-ul în locuri diferite (`request.url`, `transaction`, breadcrumbs,
- * `$current_url`, `$referrer`, mesaje de eroare…): o listă de câmpuri ar rata
- * exact câmpul următor, deci se parcurge tot.
+ * Copie a lui `value` în care FIECARE șir — valoare SAU cheie de obiect — a
+ * trecut prin `scrubTokenPaths` (obiecte simple și array-uri, recursiv).
+ * Evenimentele Sentry/PostHog poartă URL-ul în locuri diferite (`request.url`,
+ * `transaction`, breadcrumbs, `$current_url`, `$referrer`, mesaje de eroare,
+ * cheile din `$heatmap_data`…): o listă de câmpuri ar rata exact câmpul
+ * următor, deci se parcurge tot.
  */
 export function scrubTokenPathsDeep<T>(value: T): T {
   return scrubUnknown(value, 0, new WeakSet<object>()) as T

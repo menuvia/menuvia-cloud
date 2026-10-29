@@ -11,6 +11,9 @@
 //   TS9  forma evenimentelor reale (Sentry, PostHog) — fiecare câmp cu URL
 //   TS10 CABLAJUL: Sentry (beforeSend, beforeSendTransaction, beforeBreadcrumb) și PostHog
 //        (before_send) trec prin scrubTokenPathsDeep — funcția pură nu ajută dacă nu e chemată
+//   TS11 CHEILE obiectelor se redactează (heatmap-ul PostHog pune URL-ul curent drept cheie);
+//        două chei care devin identice după redactare își îmbină array-urile
+//   TS12 PostHog pornește cu `capture_heatmaps: false` (nu decide comutatorul din dashboard)
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -156,6 +159,38 @@ describe('scrubTokenPathsDeep', () => {
     expect(p.properties.$initial_referrer).toBe('$direct')
     expect(p.event).toBe('$pageview')
   })
+
+  it('TS11: tokenul din CHEILE obiectelor (heatmap PostHog) e redactat, datele rămân', () => {
+    // Mutația „cheia copiată neatinsă” (out[k] = …) lasă tokenul în JSON; mutația
+    // „fără îmbinare” pierde punctele primei chei (x: 1) când a doua o suprascrie.
+    const other = 'ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210-_edcba'
+    const signup = (t: string) => `https://menuvia.ro/auth?mode=signup&next=%2Fsef-vanzari%2F${t}`
+    const heatmap = {
+      event: '$$heatmap',
+      properties: {
+        $heatmap_data: {
+          [signup(TOKEN)]: [{ x: 1, y: 1, type: 'click' }],
+          [signup(other)]: [{ x: 2, y: 2, type: 'click' }],
+          'https://menuvia.ro/dashboard': [{ x: 3, y: 3, type: 'mousemove' }],
+          [`/echipa/${TOKEN}`]: { nested: `/q/${TOKEN}` },
+        },
+      },
+    }
+    const out = scrubTokenPathsDeep(heatmap)
+    const json = JSON.stringify(out)
+    expect(json).not.toContain(TOKEN)
+    expect(json).not.toContain(other)
+    expect(out.properties.$heatmap_data).toEqual({
+      'https://menuvia.ro/auth?mode=signup&next=%2Fsef-vanzari%2F:token': [
+        { x: 1, y: 1, type: 'click' },
+        { x: 2, y: 2, type: 'click' },
+      ],
+      'https://menuvia.ro/dashboard': [{ x: 3, y: 3, type: 'mousemove' }],
+      '/echipa/:token': { nested: '/q/:token' },
+    })
+    // originalul nu e mutat
+    expect(Object.keys(heatmap.properties.$heatmap_data)[0]).toContain(TOKEN)
+  })
 })
 
 // Cablajul se păzește pe sursă: init-urile reale (Sentry/PostHog) nu pot rula în teste,
@@ -183,5 +218,19 @@ describe('cablajul telemetriei', () => {
     const at = analytics.indexOf('before_send:')
     expect(at).toBeGreaterThan(-1)
     expect(analytics.slice(at, at + 200)).toContain('scrubTokenPathsDeep(')
+  })
+
+  it('TS12: PostHog pornește cu heatmap-urile OPRITE explicit', () => {
+    // Fără cheie, `isEnabled` cade pe comutatorul din proiectul PostHog (remote
+    // config). Mutațiile „linia ștearsă” și `capture_heatmaps: true` pică aici.
+    const analytics = read('src/lib/analytics.ts')
+    const start = analytics.indexOf('posthog.init(')
+    expect(start).toBeGreaterThan(-1)
+    // corpul apelului: până la închiderea lui (`  })` la începutul liniei)
+    const end = analytics.indexOf('\n  })', start)
+    expect(end).toBeGreaterThan(start)
+    const init = analytics.slice(start, end)
+    expect(init).toMatch(/\n\s*capture_heatmaps: false,/)
+    expect(init).not.toMatch(/enable_heatmaps:\s*true/)
   })
 })

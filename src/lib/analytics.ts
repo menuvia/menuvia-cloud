@@ -113,6 +113,11 @@ async function doInit(key: string, host: string): Promise<void> {
     capture_pageview: true,
     capture_pageleave: true,
     autocapture: false, // dezactivează capturarea automată clicks (mai puțin zgomot)
+    // Heatmap-urile OPRITE explicit: fără cheie, decide comutatorul din proiectul
+    // PostHog (remote config), iar `$$heatmap` pune URL-ul curent (cu ?next=…)
+    // drept CHEIE de obiect. Scrubber-ul redactează și cheile, dar un canal nou
+    // nu se deschide dintr-un dashboard extern.
+    capture_heatmaps: false,
     persistence: 'localStorage', // în loc de cookies (mai curat pentru GDPR)
     ip: false, // nu trimite IP (poate fi reactivat la nivel de proiect PostHog)
     respect_dnt: true, // respectă Do Not Track header
