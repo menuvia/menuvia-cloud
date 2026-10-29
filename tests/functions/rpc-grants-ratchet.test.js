@@ -68,14 +68,21 @@ describe('rpc-grants-ratchet', () => {
       [],
       `RPC-uri chemate din funcții dar NEVERIFICATE pentru service_role (adaugă-le în ${path.relative(ROOT, SQL)} și dă grant în migrație): ${missing.join(', ')}`,
     )
-    assert.deepEqual(stale, [], `rânduri din lista SQL care nu mai sunt chemate din funcții (scoate-le): ${stale.join(', ')}`)
+    assert.deepEqual(
+      stale,
+      [],
+      `rânduri din lista SQL care nu mai sunt chemate din funcții (scoate-le): ${stale.join(', ')}`,
+    )
     assert.ok(listed.length >= 40, `lista e suspect de scurtă (${listed.length})`)
   })
 
   it('RG3: un rând comentat în lista SQL NU mai contează ca listat', () => {
     // Mutație care trebuie să pice: extragerea fără scoaterea comentariilor.
     const sql = fs.readFileSync(SQL, 'utf8')
-    assert.ok(sql.includes("    'check_rate_limit',\n"), 'rândul check_rate_limit lipsește din listă')
+    assert.ok(
+      sql.includes("    'check_rate_limit',\n"),
+      'rândul check_rate_limit lipsește din listă',
+    )
     const original = fs.readFileSync
     fs.readFileSync = (p, ...rest) =>
       p === SQL
@@ -91,8 +98,17 @@ describe('rpc-grants-ratchet', () => {
   it('RG2: extractorul prinde și numele alese condiționat (control pozitiv)', () => {
     const called = rpcNamesInFunctions()
     // oblio-generator.js: .rpc(ambiguous ? 'bridge_oblio_mark_ambiguous' : 'bridge_oblio_mark_failed', …)
-    assert.ok(called.has('bridge_oblio_mark_ambiguous'), 'ramura „ambiguous" a apelului condiționat nu e văzută')
-    assert.ok(called.has('bridge_oblio_mark_failed'), 'ramura „failed" a apelului condiționat nu e văzută')
-    assert.ok(called.has('check_rate_limit'), 'check_rate_limit (send-invite, stripe-checkout) nu e văzut')
+    assert.ok(
+      called.has('bridge_oblio_mark_ambiguous'),
+      'ramura „ambiguous" a apelului condiționat nu e văzută',
+    )
+    assert.ok(
+      called.has('bridge_oblio_mark_failed'),
+      'ramura „failed" a apelului condiționat nu e văzută',
+    )
+    assert.ok(
+      called.has('check_rate_limit'),
+      'check_rate_limit (send-invite, stripe-checkout) nu e văzut',
+    )
   })
 })
