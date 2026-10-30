@@ -1,6 +1,8 @@
 // src/pages/AfiliatPage.tsx
 // Panoul agentului / șefului de vânzări (ruta veche /afiliat, pachetul 8b-2):
 // UN singur ecran, de sus în jos —
+//   0. „Contract nou de colaborare”: DOAR când serverul cere reacceptarea unei
+//      versiuni publicate (mig 308, components/afiliat/ContractReacceptSection);
 //   1. „Înscrie un restaurant”: codul mare, linkul, QR pe tot ecranul, „Arată demo”;
 //   2. „Banii tăi”: două propoziții din cifrele serverului (get_affiliate_dashboard,
 //      mig 295), cu „Detalii plăți” pliat (sume, comisioane, data plății, IBAN);
@@ -32,6 +34,7 @@ import Collapsible from '../components/afiliat/Collapsible'
 import EnrollSection from '../components/afiliat/EnrollSection'
 import TeamSection, { HeadCard } from '../components/afiliat/TeamSection'
 import ContactConsentSection from '../components/afiliat/ContactConsentSection'
+import ContractReacceptSection from '../components/afiliat/ContractReacceptSection'
 
 const card = {
   background: D.s2,
@@ -401,6 +404,11 @@ function SalesPanel({
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Versiune nouă a contractului (mig 308): PRIMA, ca să nu treacă neobservată.
+            Doar pentru membrii rețelei — afiliatul vechi (rol null) n-are ce accepta. */}
+        {network !== null && network.role !== null && network.contract.needsAcceptance ? (
+          <ContractReacceptSection contract={network.contract} onAccepted={sales.reload} />
+        ) : null}
         <EnrollSection code={aff.referral_code} clientsCount={restaurants.length} toast={toast} />
 
         <section aria-labelledby="money-title" style={card}>

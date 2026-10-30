@@ -3,7 +3,9 @@
 //   SN1  clasificarea erorilor de transport (PGRST202/42883 → „indisponibil",
 //        42501, JWT, fără cod = rețea, restul necunoscut); mesajul brut NU iese
 //   SN2  fiecare motiv are mesaj românesc; invite_invalid are UNUL singur
-//   SN3  CLICHET DE DRIFT: motivele din migrația 304 == motivele clientului
+//   SN3  CLICHET DE DRIFT: motivele din migrațiile 304 + 308 == motivele clientului
+//   SN12 reacceptarea (mig 308): funcția și argumentele, `already`, corp fără
+//        versiune → eroare
 //   SN4  get_sales_network → camelCase; contact ascuns; formă proastă → eroare
 //   SN5  răscumpărarea: funcția și argumentele corecte, refuz → SalesNetworkError
 //        fără token în mesaj, dublu-submit (`already`)
@@ -44,6 +46,7 @@ import {
   revokeAgentInvite,
   setMyContactSharing,
   sha256Hex,
+  acceptSalesContract,
   type RedeemInviteInput,
 } from '../salesNetwork'
 
@@ -128,12 +131,17 @@ describe('SN2 mesaje românești', () => {
   })
 })
 
-describe('SN3 drift: motivele din migrația 304 == motivele clientului', () => {
+describe('SN3 drift: motivele din migrațiile 304 + 308 == motivele clientului', () => {
   it('mulțimile sunt egale în ambele sensuri', () => {
     const dir = join(ROOT, 'supabase', 'migrations')
-    const file = readdirSync(dir).find((f) => f.includes('migration_304_'))
-    expect(file, 'migrația 304 lipsește').toBeTruthy()
-    const sql = readFileSync(join(dir, file ?? ''), 'utf8')
+    // 304 = rețeaua pe invitații, 308 = reacceptarea contractului (accept_sales_contract).
+    const sql = ['migration_304_', 'migration_308_']
+      .map((tag) => {
+        const file = readdirSync(dir).find((f) => f.includes(tag))
+        expect(file, `${tag} lipsește`).toBeTruthy()
+        return readFileSync(join(dir, file ?? ''), 'utf8')
+      })
+      .join('\n')
     const server = new Set([...sql.matchAll(/'reason',\s*'([a-z_]+)'/g)].map((m) => m[1]))
     expect(server.size).toBeGreaterThan(20) // control pozitiv: regex-ul chiar prinde ceva
     const client = new Set<string>(SALES_SERVER_REASONS)
@@ -681,5 +689,29 @@ describe('SN11 tokenul nu se persistă și nu se loghează', () => {
     ]) {
       expect(code.includes(banned), banned).toBe(false)
     }
+  })
+})
+
+describe('SN12 reacceptarea contractului (mig 308)', () => {
+  beforeEach(() => {
+    rpcMock.mockReset()
+  })
+
+  it('funcția, argumentele, `already` și refuzurile', async () => {
+    rpcMock.mockReturnValueOnce(ok({ ok: true, already: false, version: '2.0', accepted_at: 'x' }))
+    expect(await acceptSalesContract('2.0', 'b'.repeat(64))).toEqual({ already: false, version: '2.0' })
+    expect(rpcMock).toHaveBeenLastCalledWith('accept_sales_contract', {
+      p_contract_version: '2.0',
+      p_contract_hash: 'b'.repeat(64),
+    })
+    rpcMock.mockReturnValueOnce(ok({ ok: true, already: true, version: '2.0' }))
+    expect((await acceptSalesContract('2.0', 'b'.repeat(64))).already).toBe(true)
+    for (const reason of ['account_closed', 'no_prior_acceptance', 'not_an_affiliate'] as const) {
+      rpcMock.mockReturnValueOnce(ok({ ok: false, reason }))
+      expect((await rejection(acceptSalesContract('2.0', 'b'.repeat(64)))).reason).toBe(reason)
+    }
+    // `ok:true` fără versiune: formă necunoscută, nu „acceptat”
+    rpcMock.mockReturnValueOnce(ok({ ok: true }))
+    expect((await rejection(acceptSalesContract('2.0', 'b'.repeat(64)))).reason).toBe('unknown')
   })
 })

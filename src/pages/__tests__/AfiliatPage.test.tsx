@@ -22,6 +22,9 @@
 //   AF10 comutatorul reflectă `contactSharing` de pe server și cheamă
 //        setContactSharing(true) (mutația `shared={false}` fix pică)
 //   AF11 textele vizibile spun „agent de vânzări”, nu „afiliat/partener”
+//   AF13 „Contract nou de colaborare” apare PRIMA doar pentru un membru cu
+//        needs_acceptance; nu apare pe flag false și nici pe rol null (afiliatul
+//        vechi n-are ce accepta — mutația care uită garda pe rol pică)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -295,6 +298,37 @@ describe('AfiliatPage — panoul de vânzări pe un singur ecran', () => {
     rerender(<AfiliatPage />)
     await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
     await screen.findByText('Bistro Test')
+  })
+
+  it('AF13: secțiunea de reacceptare apare doar pentru membrul cu needs_acceptance', async () => {
+    const pending = (role: 'agent' | 'head' | null, needs: boolean) =>
+      salesState({
+        network: salesNetwork({
+          role,
+          contract: {
+            currentVersion: '2.0',
+            acceptedVersion: '1.0',
+            acceptedAt: '2026-10-01T10:00:00Z',
+            needsAcceptance: needs,
+            currentTextHash: 'b'.repeat(64),
+          },
+        }),
+      })
+    sales.current = pending('agent', true)
+    const { unmount } = render(<AfiliatPage />)
+    await screen.findByText('Bistro Test')
+    const titles = headingTexts()
+    expect(titles).toContain('Contract nou de colaborare')
+    expect(titles.indexOf('Contract nou de colaborare')).toBeLessThan(titles.indexOf('Înscrie un restaurant'))
+    unmount()
+
+    for (const [role, needs] of [['agent', false], [null, true]] as const) {
+      sales.current = pending(role, needs)
+      const view = render(<AfiliatPage />)
+      await screen.findByText('Bistro Test')
+      expect(headingTexts(), `${String(role)}/${String(needs)}`).not.toContain('Contract nou de colaborare')
+      view.unmount()
+    }
   })
 
   it('AF11: textele vizibile vorbesc de agent de vânzări, nu de afiliat/partener', async () => {
