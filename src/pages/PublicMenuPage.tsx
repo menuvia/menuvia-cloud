@@ -41,11 +41,17 @@ import {
   resolveMenuLayout,
   resolveMenuElements,
   resolveFlipbookPages,
+  readableTextOn,
 } from '../lib/themes'
+import { useDocumentLang } from '../hooks/useDocumentLang'
+import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
+import { prefersReducedMotion } from '../lib/motion'
+import { FocusTrap } from '../components/ui/FocusTrap'
+import MyListSheet from '../components/MyListSheet'
 
 import { DIETARY_TAGS } from '../lib/constants'
 import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
-import { dietaryLabel } from '../lib/guestI18n'
+import { dietaryLabel, Tf } from '../lib/guestI18n'
 import { supabase } from '../lib/supabase'
 import type { MenuTheme, MenuElements } from '../lib/themes'
 import {
@@ -75,10 +81,16 @@ import ProductGridCard from '../components/menu/ProductGridCard'
 import ProductMinimalRow from '../components/menu/ProductMinimalRow'
 import ProductPhotoCard from '../components/menu/ProductPhotoCard'
 
-// Lazy-load modalele grele — nu fac parte din bundle-ul inițial
-const ProductSheet = lazy(() => import('../components/ProductSheet'))
-const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
-const PickupCheckoutSheet = lazy(() => import('../components/PickupCheckoutSheet'))
+// Lazy-load modalele grele — nu fac parte din bundle-ul inițial. Funcțiile de
+// import sunt la nivel de modul ca prefetch-ul de după primul paint
+// (prefetchOnIdle, perf-guest-5) să ceară EXACT chunk-ul pe care îl va folosi
+// `lazy` — primul tap pe un produs nu mai așteaptă descărcarea.
+const loadProductSheet = () => import('../components/ProductSheet')
+const loadReservationSheet = () => import('../components/ReservationSheet')
+const loadPickupCheckoutSheet = () => import('../components/PickupCheckoutSheet')
+const ProductSheet = lazy(loadProductSheet)
+const ReservationSheet = lazy(loadReservationSheet)
+const PickupCheckoutSheet = lazy(loadPickupCheckoutSheet)
 // FlipbookViewer doar pe layout-ul rar „flipbook” — paritate cu QrMenuPage (era
 // import static aici: chunk-ul lui era cerut la încărcarea ORICĂRUI /m/:slug).
 const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
@@ -165,6 +177,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // de vizitator când e non-RO (T dă fallback EN pentru de/fr/it/hu/es); altfel
   // păstrează limba implicită a restaurantului — fără regresie pe localuri RO/EN.
   const lang = menuLang !== 'ro' ? menuLang : (restaurant?.language ?? 'ro')
+  // `<html lang>` = limba afișată (WCAG 3.1.1, a11y-guest-html-lang).
+  useDocumentLang(lang)
 
   // „Lista mea" — meniu digital (fără comenzi/pickup): coșul devine o listă LOCALĂ
   // pe care NU o trimiți nicăieri, doar confort ca să ții minte ce vrei să iei.
@@ -443,8 +457,15 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
 
+  // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
+  // ea, adăugarea în coș / „Lista mea" nu era confirmată deloc pentru
+  // cititorul de ecran. `n` crește la fiecare adăugare, ca același produs
+  // adăugat de două ori să fie anunțat de două ori (nod nou în regiune).
+  const [lastAdded, setLastAdded] = useState<{ n: number; name: string } | null>(null)
+
   const addToCart = useCallback((item: CartItem): void => {
     setCart((prev) => [...prev, item])
+    setLastAdded((prev) => ({ n: (prev?.n ?? 0) + 1, name: item.product_name_snapshot }))
   }, [])
 
   function removeFromCart(key: string): void {
@@ -472,12 +493,70 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
     [addToCart],
   )
 
-  // Blochează scroll-ul paginii din spate cât timp sheet-ul de coș sau
-  // confirmarea comenzii sunt deschise — celelalte overlay-uri lazy (Product/
-  // Pickup/Reservation Sheet) o fac deja intern; acestea două sunt inline în
-  // pagină, deci lock-ul trebuie apelat aici, necondiționat (hooks rule).
-  useBodyScrollLock(showCart)
-  useBodyScrollLock(confirmation != null)
+  // Blochează scroll-ul paginii din spate cât timp sheet-ul de coș (ridicare)
+  // sau confirmarea comenzii sunt deschise — celelalte overlay-uri (Product/
+  // Pickup/Reservation Sheet și MyListSheet) o fac deja intern; acestea două
+  // sunt inline în pagină, deci lock-ul trebuie apelat aici, necondiționat
+  // (hooks rule).
+  const pickupCartOpen = showCart && !listMode
+  const confirmationOpen = confirmation != null
+  useBodyScrollLock(pickupCartOpen)
+  useBodyScrollLock(confirmationOpen)
+
+  // Escape închide dialogurile inline (a11y-focus-trap-gaps) — ascultătorul
+  // trăiește DOAR cât e deschis dialogul lui.
+  useEffect(() => {
+    if (!pickupCartOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setShowCart(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [pickupCartOpen])
+  useEffect(() => {
+    if (!confirmationOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setConfirmation(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [confirmationOpen])
+
+  const closeCart = useCallback(() => setShowCart(false), [])
+  const clearList = useCallback(() => setCart([]), [])
+
+  // Schimbarea categoriei urcă lista la începutul ei, imediat sub bara de
+  // categorii (ux-guest-6) — altfel oaspetele derulat jos rămânea la mijlocul
+  // produselor noi. Combinarea căutare + categorie rămâne neatinsă pe /m.
+  const listRef = useRef<HTMLDivElement>(null)
+  const selectCategory = useCallback((id: string): void => {
+    setActiveCat(id)
+    const el = listRef.current
+    if (!el) return
+    const target = listScrollTarget(
+      el.getBoundingClientRect().top,
+      window.scrollY,
+      stickyTabsBottom(),
+    )
+    if (target != null) {
+      window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+    }
+  }, [])
+
+  // Prefetch-ul foilor după primul paint al meniului (perf-guest-5): fișa
+  // produsului mereu, checkout-ul de ridicare doar unde există, rezervarea
+  // doar când modulul e CONFIRMAT activ (null = necunoscut → nu cerem).
+  const menuReady = !loading && restaurant != null
+  useEffect(() => {
+    if (!menuReady) return
+    return prefetchOnIdle(
+      pickupEnabled ? [loadProductSheet, loadPickupCheckoutSheet] : [loadProductSheet],
+    )
+  }, [menuReady, pickupEnabled])
+  useEffect(() => {
+    if (reservationsModuleEnabled !== true) return
+    return prefetchOnIdle([loadReservationSheet])
+  }, [reservationsModuleEnabled])
 
   // Stare de încărcare: schelet de listă premium (theme-aware) în loc de un
   // simplu „Se încarcă..." — percepție de viteză + zero salt de layout.
@@ -638,7 +717,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         <CategoryTabs
           items={categoryTabItems}
           activeId={activeCat}
-          onSelect={setActiveCat}
+          onSelect={selectCategory}
           accent={accent}
           PUB={PUB}
           theme={theme}
@@ -670,6 +749,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
 
       {/* SECTIONS + CARDS EDITORIAL */}
       <div
+        ref={listRef}
         style={{
           flex: 1,
           padding: '4px 20px 140px',
@@ -877,7 +957,14 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
       {!isFlipbook && (listMode || cart.length > 0) && !showCart && (
         <button
           onClick={() => setShowCart(true)}
-          aria-label={listMode ? T(lang, 'my_list') : T(lang, 'view_cart')}
+          // Numele accesibil poartă numărul și totalul (ux-guest-12) — un
+          // aria-label fix („Lista mea") înlocuia tot conținutul vizibil.
+          aria-label={cartBarLabel(
+            lang,
+            listMode ? 'my_list' : 'view_cart',
+            cartCount,
+            fmtPrice(cartTotal, menuCurrency),
+          )}
           style={{
             position: 'fixed',
             bottom: 0,
@@ -886,8 +973,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             maxWidth: 480,
             width: '100%',
             padding: '14px 20px',
+            // Peste bara de home a iPhone-ului (ux-guest-11).
+            paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
             background: cart.length > 0 ? accent : PUB.surface,
-            color: cart.length > 0 ? '#fff' : PUB.text,
+            color: cart.length > 0 ? readableTextOn(accent, PUB.text) : PUB.text,
             border: cart.length > 0 ? 'none' : `1px solid ${PUB.borderStrong}`,
             cursor: 'pointer',
             fontFamily: theme.fonts.body,
@@ -903,7 +992,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
           {cart.length > 0 ? (
             <>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <IconBag size={16} color="#fff" /> {cartCount}{' '}
+                <IconBag size={16} color={readableTextOn(accent, PUB.text)} /> {cartCount}{' '}
                 {cartCount === 1 ? T(lang, 'item_one') : T(lang, 'item_many')}{' '}
                 {listMode ? T(lang, 'in_my_list') : T(lang, 'in_cart')}
               </span>
@@ -917,7 +1006,14 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         </button>
       )}
 
-      {/* Product sheet */}
+      {/* Anunțul adăugării în coș / listă, pentru cititorul de ecran (ux-guest-12). */}
+      <div role="status" aria-live="polite" className="visually-hidden">
+        {lastAdded && (
+          <span key={lastAdded.n}>{Tf(lang, 'pairing_added', { name: lastAdded.name })}</span>
+        )}
+      </div>
+
+      {/* Product sheet — pe „Lista mea" fișa adaugă în listă, nu în coș. */}
       {activeProduct != null && (
         <Suspense fallback={null}>
           <ProductSheet
@@ -928,13 +1024,33 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             currency={menuCurrency}
             happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
             lang={lang}
+            mode={listMode ? 'list' : 'order'}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
       )}
 
-      {/* Cart sheet */}
-      {showCart && (
+      {/* „Lista mea" — foaie proprie: „Închide" doar închide, golirea cere
+          confirmare, dialog modal real (ux-guest-3). */}
+      {showCart && listMode && (
+        <MyListSheet
+          items={cart}
+          total={cartTotal}
+          currency={menuCurrency}
+          lang={lang}
+          accent={accent}
+          PUB={PUB}
+          fonts={theme.fonts}
+          titleStyle={t.sectionTitle}
+          errorColor={theme.colors.error}
+          onRemove={removeFromCart}
+          onClear={clearList}
+          onClose={closeCart}
+        />
+      )}
+
+      {/* Cart sheet (ridicare) */}
+      {pickupCartOpen && (
         <div
           onClick={() => setShowCart(false)}
           style={{
@@ -949,6 +1065,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={T(lang, 'order_yours')}
             style={{
               background: PUB.bg,
               borderRadius: '20px 20px 0 0',
@@ -957,8 +1076,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               maxHeight: '85vh',
               display: 'flex',
               flexDirection: 'column',
+              outline: 'none',
             }}
           >
+            <FocusTrap />
             <div
               style={{
                 width: 40,
@@ -978,16 +1099,11 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   marginBottom: 14,
                 }}
               >
-                {listMode ? T(lang, 'my_list') : T(lang, 'order_yours')}
+                {T(lang, 'order_yours')}
               </div>
-              {listMode && (
-                <div style={{ fontSize: 13, color: PUB.text2, marginTop: -8, marginBottom: 14 }}>
-                  {T(lang, 'list_subtitle')}
-                </div>
-              )}
               {cart.length === 0 && (
                 <div style={{ fontSize: 14, color: PUB.text3, padding: '18px 0', textAlign: 'center', lineHeight: 1.5 }}>
-                  {listMode ? T(lang, 'list_empty') : T(lang, 'cart_empty')}
+                  {T(lang, 'cart_empty')}
                 </div>
               )}
               {cart.map((item) => (
@@ -1051,7 +1167,8 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
             </div>
             <div
               style={{
-                padding: '14px 22px 22px',
+                // Peste bara de home a iPhone-ului (ux-guest-11).
+                padding: '14px 22px calc(22px + env(safe-area-inset-bottom, 0px))',
                 borderTop: `1px solid ${PUB.border}`,
                 background: PUB.bg,
               }}
@@ -1076,53 +1193,30 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   {fmtPrice(cartTotal, menuCurrency)}
                 </span>
               </div>
-              {listMode ? (
-                // „Lista mea" nu se trimite nicăieri — o poți goli sau închide.
-                <button
-                  onClick={() => {
-                    if (cart.length > 0) setCart([])
-                    setShowCart(false)
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '15px',
-                    background: 'transparent',
-                    color: PUB.text2,
-                    border: `1px solid ${PUB.borderStrong}`,
-                    borderRadius: 12,
-                    fontFamily: theme.fonts.body,
-                    fontSize: 15,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {cart.length > 0 ? T(lang, 'clear_list') : T(lang, 'close')}
-                </button>
-              ) : (
-                <button
-                  onClick={() => {
-                    setShowCart(false)
-                    setShowPickup(true)
-                  }}
-                  disabled={cart.length === 0}
-                  style={{
-                    width: '100%',
-                    padding: '15px',
-                    background: accent,
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 12,
-                    fontFamily: theme.fonts.body,
-                    fontSize: 15,
-                    fontWeight: 700,
-                    cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
-                    opacity: cart.length === 0 ? 0.5 : 1,
-                    boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
-                  }}
-                >
-                  {T(lang, 'continue_to_pickup')} →
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setShowCart(false)
+                  setShowPickup(true)
+                }}
+                disabled={cart.length === 0}
+                style={{
+                  width: '100%',
+                  padding: '15px',
+                  background: accent,
+                  // Text pe accent ales pe contrast (a11y-guest-cta-white-on-accent).
+                  color: readableTextOn(accent, PUB.text),
+                  border: 'none',
+                  borderRadius: 12,
+                  fontFamily: theme.fonts.body,
+                  fontSize: 15,
+                  fontWeight: 700,
+                  cursor: cart.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: cart.length === 0 ? 0.5 : 1,
+                  boxShadow: cart.length === 0 ? 'none' : `0 4px 14px ${accent}55`,
+                }}
+              >
+                {T(lang, 'continue_to_pickup')} →
+              </button>
             </div>
           </div>
         </div>
@@ -1181,6 +1275,9 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pickup-confirmation-title"
             style={{
               background: PUB.bg,
               borderRadius: 20,
@@ -1188,8 +1285,10 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               maxWidth: 420,
               width: '100%',
               textAlign: 'center',
+              outline: 'none',
             }}
           >
+            <FocusTrap />
             <div
               style={{
                 width: 64,
@@ -1205,6 +1304,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               <Icon name="check" size={32} color={accent} />
             </div>
             <div
+              id="pickup-confirmation-title"
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 24,
@@ -1239,7 +1339,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               onClick={() => setConfirmation(null)}
               style={{
                 background: accent,
-                color: '#fff',
+                color: readableTextOn(accent, PUB.text),
                 border: 'none',
                 borderRadius: 12,
                 padding: '13px 28px',
