@@ -125,6 +125,28 @@ export function shortHash(hash: string): string {
   return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash
 }
 
+/**
+ * Mesajul unui refuz la REacceptarea contractului din panou (mig 308,
+ * components/afiliat/ContractReacceptSection). Motivele de contract au mesaje
+ * scrise pentru răscumpărare („Redeschide linkul invitației”, „invitațiile sunt
+ * blocate”); în panou nu există niciun link și nicio invitație, deci toate cele
+ * patru motive de contract primesc varianta panoului.
+ */
+export function reacceptMessage(reason: SalesFailureReason): string {
+  // Contract retras între timp: după reîncărcare nu mai e nimic de citit.
+  if (reason === 'contract_not_published') {
+    return 'Contractul a fost retras între timp. Reîncarcă pagina.'
+  }
+  if (
+    reason === 'contract_version_mismatch' ||
+    reason === 'contract_hash_mismatch' ||
+    reason === 'contract_hash_invalid'
+  ) {
+    return 'Contractul s-a actualizat între timp. Reîncarcă pagina și citește versiunea curentă.'
+  }
+  return SALES_FAILURE_MESSAGES[reason]
+}
+
 /** Eticheta unei versiuni de contract: `1.0` → `v1.0`, `v2` rămâne `v2`. */
 export function contractVersionLabel(version: string): string {
   return version.startsWith('v') ? version : `v${version}`

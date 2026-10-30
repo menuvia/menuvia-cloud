@@ -306,6 +306,7 @@
     "migration_305_admin_list_affiliates_sales_role",
     "migration_306_service_role_rpc_grants",
     "migration_307_audit_actor_erasure",
+    "migration_308_sales_contract_reacceptance",
     "migration_309_public_pickup_read_gate"
   ]
 }

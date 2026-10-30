@@ -25,6 +25,12 @@
 //   AF12 mesajul gata de trimis din „Cum vând” ia durata trialului din
 //        TRIAL_DAYS (mutația cu „30 de zile” scris direct pică dacă trialul se
 //        schimbă — testul o simulează citind constanta, nu literalul)
+//   AF13 „Contract nou de colaborare” apare PRIMA doar pentru un membru cu
+//        needs_acceptance; nu apare pe flag false și nici pe rol null (afiliatul
+//        vechi n-are ce accepta — mutația care uită garda pe rol pică)
+//   AF14 cont SUSPENDAT cu needs_acceptance → doar secțiunea de reacceptare, fără
+//        restul panoului (serverul admite acceptarea pe suspendat, mig 308); pe
+//        `closed` nu apare (serverul refuză) — recenzie CodeRabbit pe #316
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TRIAL_DAYS } from '../../lib/pricingCopy'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -299,6 +305,70 @@ describe('AfiliatPage — panoul de vânzări pe un singur ecran', () => {
     rerender(<AfiliatPage />)
     await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true'))
     await screen.findByText('Bistro Test')
+  })
+
+  it('AF13: secțiunea de reacceptare apare doar pentru membrul cu needs_acceptance', async () => {
+    const pending = (role: 'agent' | 'head' | null, needs: boolean) =>
+      salesState({
+        network: salesNetwork({
+          role,
+          contract: {
+            currentVersion: '2.0',
+            acceptedVersion: '1.0',
+            acceptedAt: '2026-10-01T10:00:00Z',
+            needsAcceptance: needs,
+            currentTextHash: 'b'.repeat(64),
+          },
+        }),
+      })
+    sales.current = pending('agent', true)
+    const { unmount } = render(<AfiliatPage />)
+    await screen.findByText('Bistro Test')
+    const titles = headingTexts()
+    expect(titles).toContain('Contract nou de colaborare')
+    expect(titles.indexOf('Contract nou de colaborare')).toBeLessThan(titles.indexOf('Înscrie un restaurant'))
+    unmount()
+
+    for (const [role, needs] of [['agent', false], [null, true]] as const) {
+      sales.current = pending(role, needs)
+      const view = render(<AfiliatPage />)
+      await screen.findByText('Bistro Test')
+      expect(headingTexts(), `${String(role)}/${String(needs)}`).not.toContain('Contract nou de colaborare')
+      view.unmount()
+    }
+  })
+
+  it('AF14: contul suspendat poate accepta contractul nou, fără restul panoului', async () => {
+    const needs = salesState({
+      network: salesNetwork({
+        role: 'agent',
+        status: 'suspended',
+        contract: {
+          currentVersion: '2.0',
+          acceptedVersion: '1.0',
+          acceptedAt: '2026-10-01T10:00:00Z',
+          needsAcceptance: true,
+          currentTextHash: 'b'.repeat(64),
+        },
+      }),
+    })
+    const withStatus = (status: 'suspended' | 'closed'): AffiliateDashboard => {
+      const d = activeDashboard()
+      return { ...d, affiliate: d.affiliate ? { ...d.affiliate, status } : d.affiliate }
+    }
+    sales.current = needs
+    state.dashboard = withStatus('suspended')
+    const view = render(<AfiliatPage />)
+    expect(screen.getByRole('heading', { name: 'Contul tău de vânzări e suspendat' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Contract nou de colaborare' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Înscrie un restaurant' })).toBeNull()
+    expect(screen.queryByText('Bistro Test')).toBeNull()
+    view.unmount()
+
+    state.dashboard = withStatus('closed')
+    render(<AfiliatPage />)
+    expect(screen.getByRole('heading', { name: 'Contul tău de vânzări e închis' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Contract nou de colaborare' })).toBeNull()
   })
 
   it('AF11: textele vizibile vorbesc de agent de vânzări, nu de afiliat/partener', async () => {
