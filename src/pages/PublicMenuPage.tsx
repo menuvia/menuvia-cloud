@@ -16,7 +16,7 @@ import {
   Suspense,
 } from 'react'
 import type { ReactNode, CSSProperties } from 'react'
-import { useInView, revealStyle } from '../lib/motion'
+import { useInView, revealStyle, prefersReducedMotion } from '../lib/motion'
 import {
   fetchMenuBySlug,
   fetchMenuForRestaurant,
@@ -45,7 +45,6 @@ import {
 } from '../lib/themes'
 import { useDocumentLang } from '../hooks/useDocumentLang'
 import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
-import { prefersReducedMotion } from '../lib/motion'
 import { FocusTrap } from '../components/ui/FocusTrap'
 import MyListSheet from '../components/MyListSheet'
 
