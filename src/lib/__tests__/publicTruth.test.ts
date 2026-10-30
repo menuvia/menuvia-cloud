@@ -21,6 +21,7 @@ import { describe, it, expect } from 'vitest'
 import { INCLUDED_EVERYWHERE, PILOT_BANNER, TRIAL_FAQ } from '../pricingCopy'
 import { PLANS, TRUST_SIGNALS } from '../plans'
 import { qrCardSubtitles } from '../qrCopy'
+import { onboardingSummary } from '../onboardingSummary'
 
 // Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
 const ROOT = process.cwd()
@@ -144,7 +145,17 @@ describe('QR și onboarding nu promit comenzi pe planuri fără comenzi', () => 
   it('PT4c: „Gata de comenzi" din onboarding depinde de plan', () => {
     const src = read('src/pages/OnboardingPage.tsx')
     expect(src).toContain("hasFeature(f, 'order_qr')")
-    expect(src).toContain('canOrder ? t.step4.ordersReady : t.step4.menuQrReady')
+    // Bifele se calculează în lib/onboardingSummary.ts, din plan și din ce s-a
+    // creat real (onboardingSummary.test.ts); fără comenzi prin QR, a patra
+    // bifă e „Meniu public cu QR”, niciodată „Gata de comenzi”.
+    expect(src).toContain('onboardingSummary(menu, tables, canOrder)')
+    const keys = onboardingSummary(
+      { kind: 'products', count: 3 },
+      { kind: 'tables', qrOk: true, tables: [{ name: 'Masa 1', token: 't1' }] },
+      false,
+    ).map((i) => i.key)
+    expect(keys).toContain('menu-qr-ready')
+    expect(keys).not.toContain('orders-ready')
     // Nu mai e în lista fixă de bife.
     expect(src).not.toMatch(/achievements: \[[^\]]*Gata de comenzi/)
     expect(src).not.toMatch(/achievements: \[[^\]]*Ready for orders/)

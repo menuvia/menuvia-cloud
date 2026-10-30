@@ -1,9 +1,14 @@
-// Teste smoke pe OnboardingPage — funelul de activare (audit aug 2026:
-// 4/4 utilizatori reali au murit la pasul „introdu meniul", fără nicio plasă
-// de teste pe wizard). Plasa minimă, nu tot wizardul:
-//   - Pasul 1 se randează și cere numele (buton dezactivat fără el)
+// Teste pe OnboardingPage — funelul de activare (audit aug 2026: 4/4
+// utilizatori reali au murit la pasul „introdu meniul", fără nicio plasă de
+// teste pe wizard):
+//   - Pasul 1 se randează și cere numele (buton dezactivat fără el); linkul
+//     meniului se creează din nume (OB-S1)
 //   - crearea restaurantului avansează la Pasul 2
-//   - Pasul 2 oferă importul din poză ca acțiune primară + formularul manual
+//   - Pasul 2 oferă importul din poză ca acțiune primară + formularul manual;
+//     importul primește plafonul planului (AQ3); meniul demo e cel public (OB-D1)
+//   - Pasul 3: ridicarea doar pe planurile care o au (OB-P1, OB-P1b, OB-P2)
+//   - ecranul final: bifele din ce s-a creat real și PDF-ul cu QR-uri (OQ1–OQ3);
+//     cu plan ales înainte de cont, butonul final duce la activarea lui (RQ8)
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -19,6 +24,7 @@ const {
   getLimitDetailedMock,
   fetchFeaturesMock,
   hasFeatureMock,
+  downloadQrPdfMock,
   db,
 } = vi.hoisted(() => ({
   createRestaurantMock: vi.fn(),
@@ -28,8 +34,15 @@ const {
   // `{}` = un răspuns oarecare (nenul) al RPC-ului; `null` = RPC picat.
   fetchFeaturesMock: vi.fn<() => Promise<object | null>>(() => Promise.resolve({})),
   hasFeatureMock: vi.fn<(features: unknown, name: string) => boolean>(() => true),
-  // Ce scrie onboarding-ul în bază (UPDATE-uri), pe tabelă.
-  db: { updates: [] as Array<{ table: string; payload: Record<string, unknown> }> },
+  downloadQrPdfMock: vi.fn<(input: Record<string, unknown>) => Promise<string>>(() =>
+    Promise.resolve('qr.pdf'),
+  ),
+  // Ce scrie onboarding-ul în bază (UPDATE-uri), pe tabelă; `failTokens` = inserarea
+  // token-urilor QR pică.
+  db: {
+    updates: [] as Array<{ table: string; payload: Record<string, unknown> }>,
+    failTokens: false,
+  },
 }))
 
 vi.mock('../../lib/restaurants', () => ({ createRestaurant: createRestaurantMock }))
@@ -43,6 +56,24 @@ vi.mock('../../lib/supabase', () => ({
         db.updates.push({ table, payload })
         return { eq: () => Promise.resolve({ error: null }) }
       },
+      // Pasul 3: mesele (id + nume) și token-urile lor QR se întorc la inserare.
+      insert: (rows: Array<Record<string, unknown>>) => ({
+        select: () => {
+          if (table === 'tables')
+            return Promise.resolve({
+              data: rows.map((r, i) => ({ id: `t${i + 1}`, name: r.name })),
+              error: null,
+            })
+          if (table === 'qr_tokens' && db.failTokens)
+            return Promise.resolve({ data: null, error: { message: 'boom' } })
+          if (table === 'qr_tokens')
+            return Promise.resolve({
+              data: rows.map((r, i) => ({ table_id: r.table_id, token: `tok${i + 1}` })),
+              error: null,
+            })
+          return Promise.resolve({ data: rows, error: null })
+        },
+      }),
     }),
     rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
   },
@@ -54,6 +85,8 @@ vi.mock('../../lib/features', () => ({
   getLimitDetailed: getLimitDetailedMock,
   hasFeature: hasFeatureMock,
 }))
+// PDF-ul cu QR-uri (lib/qrPdf.ts, încărcat la cerere de ecranul final).
+vi.mock('../../lib/qrPdf', () => ({ downloadQrPdf: downloadQrPdfMock }))
 // AiMenuImport e lazy + greu (hooks de date); aici verificăm doar că butonul
 // de deschidere există în Pasul 2 și ce props primește modalul, nu modalul în sine.
 vi.mock('../../components/AiMenuImport', () => ({
@@ -74,6 +107,8 @@ beforeEach(() => {
   fetchFeaturesMock.mockImplementation(() => Promise.resolve({}))
   hasFeatureMock.mockImplementation(() => true)
   db.updates.length = 0
+  db.failTokens = false
+  downloadQrPdfMock.mockImplementation(() => Promise.resolve('qr.pdf'))
   window.localStorage.clear()
 })
 
@@ -185,14 +220,14 @@ describe('OnboardingPage — funelul de activare', () => {
     expect(screen.queryByRole('button', { name: /doar ridicare/i })).not.toBeInTheDocument()
     expect(screen.getByText(/ridicare necesită planul/i)).toBeInTheDocument()
     await user.click(generalQr)
-    await screen.findByText('Ești gata!')
+    await screen.findByRole('heading', { name: /gata!/i })
     expect(pickupWrites()).toHaveLength(0)
   })
 
   it('OB-P1b cu pickup_orders: „doar ridicare” pornește ridicarea + pickup_only', async () => {
     const user = await reachStep3()
     await user.click(await screen.findByRole('button', { name: /doar ridicare/i }))
-    await screen.findByText('Ești gata!')
+    await screen.findByRole('heading', { name: /gata!/i })
     const writes = pickupWrites()
     expect(writes).toHaveLength(1)
     expect(writes[0]!.payload.pickup_settings).toEqual(
@@ -210,5 +245,96 @@ describe('OnboardingPage — funelul de activare', () => {
     expect(await screen.findByText(/nu am putut verifica planul/i)).toBeInTheDocument()
     expect(pickupWrites()).toHaveLength(0)
     expect(screen.getByText('Câte mese are restaurantul?')).toBeInTheDocument()
+  })
+})
+
+// Ecranul final (ux-owner-final-screen): bifele vin din ce s-a creat REAL, iar
+// PDF-ul cu QR-uri se descarcă de aici, nu „din tab-ul Mese & QR”.
+describe('OnboardingPage — ecranul final', () => {
+  // OQ1: meniu și mese sărite → „Aproape gata!”, meniul și mesele „de făcut”, iar
+  // QR-ul de tipărit e posterul meniului general. Mutația care pică: bifele
+  // hard-codate de dinainte (patru bife verzi pe un restaurant gol).
+  it('OQ1 totul sărit: bifele spun adevărul, QR-ul de tipărit e al meniului', async () => {
+    const user = await reachStep3()
+    await user.click(screen.getByRole('button', { name: /sari peste acest pas/i }))
+    expect(await screen.findByRole('heading', { name: 'Aproape gata!' })).toBeInTheDocument()
+    expect(screen.getByTestId('ob-summary-restaurant')).toHaveTextContent('Restaurant creat')
+    expect(screen.getByTestId('ob-summary-menu-empty')).toHaveTextContent(/de făcut/)
+    expect(screen.getByTestId('ob-summary-tables-skipped')).toHaveTextContent(/de făcut/)
+    expect(screen.queryByText('Meniu configurat')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /descarcă qr-ul meniului/i }))
+    await waitFor(() => expect(downloadQrPdfMock).toHaveBeenCalledTimes(1))
+    const arg = downloadQrPdfMock.mock.calls[0]![0] as {
+      format: string
+      canOrder: boolean
+      filePrefix?: string
+      restaurantName: string
+      cards: Array<{ label: string; url: string }>
+    }
+    expect(arg.format).toBe('poster')
+    expect(arg.canOrder).toBe(false)
+    expect(arg.filePrefix).toBe('QR-Meniu')
+    expect(arg.restaurantName).toBe('La Bella')
+    expect(arg.cards).toHaveLength(1)
+    expect(arg.cards[0]!.url).toMatch(/\/m\/la-bella$/)
+  })
+
+  // OQ2: mesele create → „N mese cu QR-uri” bifat și PDF-ul (grilă) cu token-ul
+  // fiecărei mese. Mutația care pică: ecranul fără butonul de descărcare (doar
+  // trimiterea spre Mese & QR) sau token-urile neîntoarse de la inserare.
+  it('OQ2 mese create: PDF-ul cu QR-ul fiecărei mese, direct de pe ecranul final', async () => {
+    const user = await reachStep3()
+    await user.click(screen.getByRole('button', { name: /creează 5 mese/i }))
+    expect(await screen.findByTestId('ob-summary-tables-qr')).toHaveTextContent(/5 mese cu QR-uri/)
+    // Planul citit (comenzi prin QR) înainte de descărcare.
+    await screen.findByTestId('ob-summary-orders-ready')
+    await user.click(screen.getByRole('button', { name: /descarcă pdf-ul cu qr-urile/i }))
+    await waitFor(() => expect(downloadQrPdfMock).toHaveBeenCalledTimes(1))
+    const arg = downloadQrPdfMock.mock.calls[0]![0] as {
+      format: string
+      canOrder: boolean
+      cards: Array<{ label: string; url: string }>
+    }
+    expect(arg.format).toBe('grid')
+    expect(arg.canOrder).toBe(true)
+    expect(arg.cards.map((c) => c.label)).toEqual([
+      'Masa 1',
+      'Masa 2',
+      'Masa 3',
+      'Masa 4',
+      'Masa 5',
+    ])
+    expect(arg.cards[0]!.url).toMatch(/\/q\/tok1$/)
+    expect(arg.cards[4]!.url).toMatch(/\/q\/tok5$/)
+  })
+
+  // OQ3: token-urile QR n-au putut fi create → mesele „de făcut”, iar PDF-ul care
+  // se oferă e cel al meniului (nu un PDF de mese fără QR); un PDF eșuat spune de
+  // ce și unde e alternativa.
+  it('OQ3 fără token-uri: mesele „de făcut”; PDF eșuat → mesaj, nu tăcere', async () => {
+    db.failTokens = true
+    downloadQrPdfMock.mockImplementation(() => Promise.reject(new Error('jspdf')))
+    const user = await reachStep3()
+    await user.click(screen.getByRole('button', { name: /creează 5 mese/i }))
+    expect(await screen.findByTestId('ob-summary-tables-no-qr')).toHaveTextContent(/de făcut/)
+    await user.click(screen.getByRole('button', { name: /descarcă qr-ul meniului/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Mese & QR/)
+  })
+
+  // RQ8: cu un plan ales înainte de cont, butonul final numește pasul următor
+  // (activarea planului), nu „Deschide dashboard-ul”.
+  it('RQ8 cu plan ales: butonul final duce la activarea planului', async () => {
+    const user = userEvent.setup()
+    createRestaurantMock.mockResolvedValue({ restaurant_id: 'r1', restaurant_slug: 'la-bella' })
+    const onComplete = vi.fn()
+    render(<OnboardingPage onComplete={onComplete} pendingPlan="growth" />)
+    await user.type(screen.getByLabelText(/numele restaurantului/i), 'La Bella')
+    await user.click(screen.getByRole('button', { name: /continuă/i }))
+    await user.click(await screen.findByRole('button', { name: /sari peste acest pas/i }))
+    await screen.findByText('Câte mese are restaurantul?')
+    await user.click(screen.getByRole('button', { name: /sari peste acest pas/i }))
+    const cta = await screen.findByRole('button', { name: /continuă cu planul meniu \+ comenzi/i })
+    await user.click(cta)
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1))
   })
 })
