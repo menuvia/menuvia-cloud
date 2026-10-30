@@ -15,7 +15,7 @@ import { modifierGroupMin } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
-import type { MenuTheme } from '../lib/themes'
+import { readableTextOn, type MenuTheme } from '../lib/themes'
 import Icon, { type IconName } from './ui/Icon'
 import { T } from '../lib/publicMenuStrings'
 import { allergenLabel, dietaryLabel, modifierGroupHintT } from '../lib/guestI18n'
@@ -25,6 +25,18 @@ type Selections = Record<string, string | Set<string> | null>
 function isSet(val: string | Set<string> | null): val is Set<string> {
   return val instanceof Set
 }
+
+/**
+ * Ce face fișa (ux-guest-2):
+ *   'order' — comandă (QR cu comenzi, ridicare pe /m): cantitate, mențiuni, „Adaugă în coș";
+ *   'list'  — „Lista mea" (/m fără ridicare): lista e LOCALĂ, nu se trimite nicăieri,
+ *             deci fără mențiuni pentru bucătărie și cu „Adaugă în listă";
+ *   'view'  — doar citire (QR pe Planul 1 sau cu comenzile oprite): descrierea,
+ *             valorile nutriționale și ALERGENII, fără niciun buton care ar
+ *             promite o comandă imposibilă. Înainte, pe acest caz fișa nu se
+ *             deschidea deloc, iar alergenii nu se vedeau nicăieri.
+ */
+export type ProductSheetMode = 'order' | 'list' | 'view'
 
 interface ProductSheetProps {
   product: Product
@@ -39,6 +51,8 @@ interface ProductSheetProps {
   happyHourPct?: number
   /** Limba aleasă de oaspete în meniu — default 'ro'. */
   lang?: string
+  /** Vezi ProductSheetMode — default 'order' (comportamentul istoric). */
+  mode?: ProductSheetMode
 }
 
 function ProductSheet({
@@ -50,7 +64,9 @@ function ProductSheet({
   currency = 'RON',
   happyHourPct = 0,
   lang = 'ro',
+  mode = 'order',
 }: ProductSheetProps) {
+  const isView = mode === 'view'
   const PUB = {
     bg: theme.colors.bg,
     surface: theme.colors.surface,
@@ -66,7 +82,9 @@ function ProductSheet({
   const [qty, setQty] = useState(1)
   const [notes, setNotes] = useState('')
   const [selectedExtras, setSelectedExtras] = useState<Set<string>>(new Set())
-  const [moreInfoOpen, setMoreInfoOpen] = useState(false)
+  // Pe 'view' alergenii sunt chiar motivul pentru care oaspetele a deschis
+  // fișa — îi arătăm din prima, fără un tap în plus.
+  const [moreInfoOpen, setMoreInfoOpen] = useState(isView)
   const closeBtnRef = useRef<HTMLButtonElement>(null)
 
   // Semantică de dialog modal: focus pe butonul de închidere la deschidere +
@@ -193,7 +211,8 @@ function ProductSheet({
   // Top compact badges (priority: special > diet > prep time > portion > allergens)
   // icon: null → nu există un icon vectorial potrivit (ex. porție), rămâne text simplu.
   const topBadges: { icon: IconName | null; label: string; color: string }[] = []
-  if (product.is_daily_special) topBadges.push({ icon: 'star', label: T(lang, 'ps_special'), color: accent })
+  if (product.is_daily_special)
+    topBadges.push({ icon: 'star', label: T(lang, 'ps_special'), color: accent })
   if (product.dietary_tags?.includes('vegan'))
     topBadges.push({ icon: 'leaf', label: T(lang, 'diet_vegan'), color: '#388E3C' })
   else if (product.dietary_tags?.includes('vegetarian'))
@@ -420,7 +439,10 @@ function ProductSheet({
                   {fmtPrice(product.price, currency)}
                 </div>
               )}
-              {happyHourPct > 0 && (
+              {/* „Se aplică automat la trimiterea comenzii" e adevărat DOAR pe
+                  'order' — pe „Lista mea" și pe meniul fără comenzi nu se
+                  trimite nimic, deci nota ar promite o reducere aplicată. */}
+              {happyHourPct > 0 && mode === 'order' && (
                 <div
                   style={{
                     fontSize: 12,
@@ -469,18 +491,27 @@ function ProductSheet({
                     fontFamily: 'DM Sans, sans-serif',
                   }}
                 >
-                  {([
-                    [T(lang, 'nut_calories'), product.calories, 'kcal'],
-                    [T(lang, 'nut_protein'), product.protein_g, 'g'],
-                    [T(lang, 'nut_carbs'), product.carbs_g, 'g'],
-                    [T(lang, 'nut_fat'), product.fat_g, 'g'],
-                  ] as Array<[string, number | null, string]>)
+                  {(
+                    [
+                      [T(lang, 'nut_calories'), product.calories, 'kcal'],
+                      [T(lang, 'nut_protein'), product.protein_g, 'g'],
+                      [T(lang, 'nut_carbs'), product.carbs_g, 'g'],
+                      [T(lang, 'nut_fat'), product.fat_g, 'g'],
+                    ] as Array<[string, number | null, string]>
+                  )
                     .filter(([, v]) => v != null)
                     .map(([label, v, unit]) => (
                       <div key={label}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: PUB.text }}>
                           {v}
-                          <span style={{ fontSize: 11, fontWeight: 400, color: PUB.text2, marginLeft: 2 }}>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 400,
+                              color: PUB.text2,
+                              marginLeft: 2,
+                            }}
+                          >
                             {unit}
                           </span>
                         </div>
@@ -527,29 +558,36 @@ function ProductSheet({
               </div>
             )}
 
-            {/* Modifier groups — clear required/optional labeling */}
-            {groups.map((g) => {
-              const sel = selections[g.id]
-              const groupMin = modifierGroupMin(g)
-              const groupCount = selectedCount(g)
-              const groupMet = groupCount >= groupMin
-              const groupHint = modifierGroupHintT(lang, g, groupMin)
-              // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
-              const atMax =
-                g.selection_type === 'multiple' &&
-                g.max_select != null &&
-                groupCount >= g.max_select
-
-              return (
-                <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 8,
-                    }}
-                  >
+            {/* Doar citire: opțiunile și extra-urile ca listă informativă (cu
+                prețul în plus), fără butoane care ar părea că se pot alege. */}
+            {isView &&
+              [
+                ...groups.map((g) => ({
+                  id: g.id,
+                  title: g.name,
+                  items: g.modifier_options.map((o) => ({
+                    id: o.id,
+                    label: o.name,
+                    delta: o.price_delta,
+                  })),
+                })),
+                ...((product.extras ?? []).length > 0
+                  ? [
+                      {
+                        id: 'extras',
+                        title: T(lang, 'add_extras'),
+                        items: product.extras.map((e) => ({
+                          id: e.id,
+                          label: e.emoji ? `${e.emoji} ${e.name}` : e.name,
+                          delta: Number(e.price),
+                        })),
+                      },
+                    ]
+                  : []),
+              ]
+                .filter((sec) => sec.items.length > 0)
+                .map((sec) => (
+                  <div key={sec.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div
                       style={{
                         fontSize: 14,
@@ -559,159 +597,217 @@ function ProductSheet({
                         letterSpacing: '0.01em',
                       }}
                     >
-                      {g.name}
+                      {sec.title}
                     </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color:
-                          groupMin > 0 ? (groupMet ? '#4CAF6E' : '#c0392b') : PUB.textMuted,
-                        fontFamily: 'DM Sans, sans-serif',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                    >
-                      {groupMin > 0 && groupMet && <Icon name="check" size={11} color="#4CAF6E" />}
-                      {groupMin > 0
-                        ? groupMet
-                          ? T(lang, 'mod_selected')
-                          : T(lang, 'mod_required')
-                        : T(lang, 'mod_optional')}
-                    </div>
-                  </div>
-
-                  {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
-                  {groupHint && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: PUB.textMuted,
-                        fontFamily: 'DM Sans, sans-serif',
-                        marginTop: -4,
-                      }}
-                    >
-                      {groupHint}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                    {g.modifier_options.map((opt) => {
-                      const isSel =
-                        g.selection_type === 'single'
-                          ? !isSet(sel) && sel === opt.id
-                          : isSet(sel) && sel.has(opt.id)
-                      // La plafon, opțiunile nebifate se blochează (hint vizual
-                      // „Maxim N" e afișat sub titlul grupului).
-                      const isDisabled = atMax && !isSel
-
-                      return (
-                        <button
-                          key={opt.id}
-                          disabled={isDisabled}
-                          role={g.selection_type === 'single' ? 'radio' : undefined}
-                          aria-checked={g.selection_type === 'single' ? isSel : undefined}
-                          aria-pressed={g.selection_type === 'single' ? undefined : isSel}
-                          onClick={() =>
-                            g.selection_type === 'single'
-                              ? toggleSingle(g.id, opt.id)
-                              : toggleMultiple(g.id, opt.id)
-                          }
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {sec.items.map((it) => (
+                        <span
+                          key={it.id}
                           style={{
-                            background: isSel ? `${accent}14` : PUB.surface,
-                            border: `1.5px solid ${isSel ? accent : PUB.border}`,
-                            borderRadius: 10,
-                            padding: '13px 16px',
-                            color: PUB.text,
+                            fontSize: 13,
+                            padding: '6px 11px',
+                            borderRadius: 100,
+                            background: PUB.surface,
+                            border: `1px solid ${PUB.border}`,
+                            color: PUB.text2,
                             fontFamily: 'DM Sans, sans-serif',
-                            fontSize: 14,
-                            fontWeight: isSel ? 600 : 500,
-                            cursor: isDisabled ? 'not-allowed' : 'pointer',
-                            opacity: isDisabled ? 0.45 : 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 12,
-                            textAlign: 'left',
-                            minHeight: 44,
-                            transition: 'border-color 0.15s, background 0.15s',
                           }}
                         >
-                          <div
+                          {it.label}
+                          {it.delta > 0 && ` +${fmtPrice(it.delta, currency)}`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+            {/* Modifier groups — clear required/optional labeling */}
+            {!isView &&
+              groups.map((g) => {
+                const sel = selections[g.id]
+                const groupMin = modifierGroupMin(g)
+                const groupCount = selectedCount(g)
+                const groupMet = groupCount >= groupMin
+                const groupHint = modifierGroupHintT(lang, g, groupMin)
+                // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
+                const atMax =
+                  g.selection_type === 'multiple' &&
+                  g.max_select != null &&
+                  groupCount >= g.max_select
+
+                return (
+                  <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 700,
+                          color: PUB.text,
+                          fontFamily: 'DM Sans, sans-serif',
+                          letterSpacing: '0.01em',
+                        }}
+                      >
+                        {g.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: groupMin > 0 ? (groupMet ? '#4CAF6E' : '#c0392b') : PUB.textMuted,
+                          fontFamily: 'DM Sans, sans-serif',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                        }}
+                      >
+                        {groupMin > 0 && groupMet && (
+                          <Icon name="check" size={11} color="#4CAF6E" />
+                        )}
+                        {groupMin > 0
+                          ? groupMet
+                            ? T(lang, 'mod_selected')
+                            : T(lang, 'mod_required')
+                          : T(lang, 'mod_optional')}
+                      </div>
+                    </div>
+
+                    {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
+                    {groupHint && (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: PUB.textMuted,
+                          fontFamily: 'DM Sans, sans-serif',
+                          marginTop: -4,
+                        }}
+                      >
+                        {groupHint}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      {g.modifier_options.map((opt) => {
+                        const isSel =
+                          g.selection_type === 'single'
+                            ? !isSet(sel) && sel === opt.id
+                            : isSet(sel) && sel.has(opt.id)
+                        // La plafon, opțiunile nebifate se blochează (hint vizual
+                        // „Maxim N" e afișat sub titlul grupului).
+                        const isDisabled = atMax && !isSel
+
+                        return (
+                          <button
+                            key={opt.id}
+                            disabled={isDisabled}
+                            role={g.selection_type === 'single' ? 'radio' : undefined}
+                            aria-checked={g.selection_type === 'single' ? isSel : undefined}
+                            aria-pressed={g.selection_type === 'single' ? undefined : isSel}
+                            onClick={() =>
+                              g.selection_type === 'single'
+                                ? toggleSingle(g.id, opt.id)
+                                : toggleMultiple(g.id, opt.id)
+                            }
                             style={{
+                              background: isSel ? `${accent}14` : PUB.surface,
+                              border: `1.5px solid ${isSel ? accent : PUB.border}`,
+                              borderRadius: 10,
+                              padding: '13px 16px',
+                              color: PUB.text,
+                              fontFamily: 'DM Sans, sans-serif',
+                              fontSize: 14,
+                              fontWeight: isSel ? 600 : 500,
+                              cursor: isDisabled ? 'not-allowed' : 'pointer',
+                              opacity: isDisabled ? 0.45 : 1,
                               display: 'flex',
                               alignItems: 'center',
-                              gap: 10,
-                              flex: 1,
-                              minWidth: 0,
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              textAlign: 'left',
+                              minHeight: 44,
+                              transition: 'border-color 0.15s, background 0.15s',
                             }}
                           >
-                            {/* Visual indicator — radio or checkbox style */}
-                            <span
+                            <div
                               style={{
-                                width: 18,
-                                height: 18,
-                                flexShrink: 0,
-                                borderRadius: g.selection_type === 'single' ? '50%' : 4,
-                                border: `2px solid ${isSel ? accent : PUB.borderStrong}`,
-                                background: isSel ? accent : 'transparent',
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'center',
-                                transition: 'all 0.15s',
-                              }}
-                            >
-                              {isSel &&
-                                (g.selection_type === 'single' ? (
-                                  <span
-                                    style={{
-                                      width: 6,
-                                      height: 6,
-                                      borderRadius: '50%',
-                                      background: '#fff',
-                                    }}
-                                  />
-                                ) : (
-                                  <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
-                                ))}
-                            </span>
-                            <span
-                              style={{
+                                gap: 10,
                                 flex: 1,
                                 minWidth: 0,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
                               }}
                             >
-                              {opt.name}
-                            </span>
-                          </div>
-                          {opt.price_delta > 0 && (
-                            <span
-                              style={{
-                                fontSize: 13,
-                                fontWeight: 600,
-                                color: accent,
-                                fontFamily: 'Fraunces, Georgia, serif',
-                                flexShrink: 0,
-                              }}
-                            >
-                              +{fmtPrice(opt.price_delta, currency)}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
+                              {/* Visual indicator — radio or checkbox style */}
+                              <span
+                                style={{
+                                  width: 18,
+                                  height: 18,
+                                  flexShrink: 0,
+                                  borderRadius: g.selection_type === 'single' ? '50%' : 4,
+                                  border: `2px solid ${isSel ? accent : PUB.borderStrong}`,
+                                  background: isSel ? accent : 'transparent',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'all 0.15s',
+                                }}
+                              >
+                                {isSel &&
+                                  (g.selection_type === 'single' ? (
+                                    <span
+                                      style={{
+                                        width: 6,
+                                        height: 6,
+                                        borderRadius: '50%',
+                                        background: '#fff',
+                                      }}
+                                    />
+                                  ) : (
+                                    <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
+                                  ))}
+                              </span>
+                              <span
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                              >
+                                {opt.name}
+                              </span>
+                            </div>
+                            {opt.price_delta > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 600,
+                                  color: accent,
+                                  fontFamily: 'Fraunces, Georgia, serif',
+                                  flexShrink: 0,
+                                }}
+                              >
+                                +{fmtPrice(opt.price_delta, currency)}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
 
             {/* Extras (add-ons opționale plătite) */}
-            {(product.extras ?? []).length > 0 && (
+            {!isView && (product.extras ?? []).length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div
                   style={{
@@ -796,7 +892,9 @@ function ProductSheet({
                               transition: 'all 0.15s',
                             }}
                           >
-                            {isSel && <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />}
+                            {isSel && (
+                              <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
+                            )}
                           </span>
                           <span
                             style={{
@@ -829,103 +927,111 @@ function ProductSheet({
             )}
 
             {/* Quantity stepper */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '14px 16px',
-                background: PUB.surface,
-                border: `1px solid ${PUB.border}`,
-                borderRadius: 12,
-              }}
-            >
-              <span
+            {!isView && (
+              <div
                 style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: PUB.text,
-                  fontFamily: 'DM Sans, sans-serif',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '14px 16px',
+                  background: PUB.surface,
+                  border: `1px solid ${PUB.border}`,
+                  borderRadius: 12,
                 }}
               >
-                {T(lang, 'quantity')}
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <button
-                  onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  disabled={qty === 1}
-                  aria-label={T(lang, 'qty_dec')}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: '50%',
-                    background: qty === 1 ? PUB.border : PUB.surface,
-                    border: `1.5px solid ${qty === 1 ? PUB.border : PUB.borderStrong}`,
-                    color: qty === 1 ? PUB.textMuted : PUB.text,
-                    fontSize: 18,
-                    lineHeight: 1,
-                    paddingBottom: 2,
-                    cursor: qty === 1 ? 'not-allowed' : 'pointer',
-                    fontFamily: 'DM Sans, sans-serif',
-                  }}
-                >
-                  −
-                </button>
                 <span
                   style={{
-                    fontSize: 18,
-                    fontWeight: 700,
+                    fontSize: 14,
+                    fontWeight: 600,
                     color: PUB.text,
-                    fontFamily: 'Fraunces, Georgia, serif',
-                    minWidth: 24,
-                    textAlign: 'center',
-                  }}
-                >
-                  {qty}
-                </span>
-                <button
-                  onClick={() => setQty((q) => q + 1)}
-                  aria-label={T(lang, 'qty_inc')}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: '50%',
-                    background: PUB.surface,
-                    border: `1.5px solid ${PUB.borderStrong}`,
-                    color: PUB.text,
-                    fontSize: 20,
-                    lineHeight: 1,
-                    paddingBottom: 2,
-                    cursor: 'pointer',
                     fontFamily: 'DM Sans, sans-serif',
                   }}
                 >
-                  +
-                </button>
+                  {T(lang, 'quantity')}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <button
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    disabled={qty === 1}
+                    aria-label={T(lang, 'qty_dec')}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: '50%',
+                      background: qty === 1 ? PUB.border : PUB.surface,
+                      border: `1.5px solid ${qty === 1 ? PUB.border : PUB.borderStrong}`,
+                      color: qty === 1 ? PUB.textMuted : PUB.text,
+                      fontSize: 18,
+                      lineHeight: 1,
+                      paddingBottom: 2,
+                      cursor: qty === 1 ? 'not-allowed' : 'pointer',
+                      fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    −
+                  </button>
+                  <span
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 700,
+                      color: PUB.text,
+                      fontFamily: 'Fraunces, Georgia, serif',
+                      minWidth: 24,
+                      textAlign: 'center',
+                    }}
+                  >
+                    {qty}
+                  </span>
+                  <button
+                    onClick={() => setQty((q) => q + 1)}
+                    aria-label={T(lang, 'qty_inc')}
+                    style={{
+                      width: 44,
+                      height: 44,
+                      borderRadius: '50%',
+                      background: PUB.surface,
+                      border: `1.5px solid ${PUB.borderStrong}`,
+                      color: PUB.text,
+                      fontSize: 20,
+                      lineHeight: 1,
+                      paddingBottom: 2,
+                      cursor: 'pointer',
+                      fontFamily: 'DM Sans, sans-serif',
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Optional notes */}
-            <textarea
-              placeholder={T(lang, 'special_requests_opt')}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              style={{
-                background: PUB.surface,
-                border: `1px solid ${PUB.border}`,
-                borderRadius: 10,
-                color: PUB.text,
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 14,
-                lineHeight: 1.45,
-                padding: '12px 14px',
-                resize: 'none',
-                outline: 'none',
-                width: '100%',
-                boxSizing: 'border-box',
-              }}
-            />
+            {/* Mențiuni pentru bucătărie — doar pe 'order': „Lista mea" nu ajunge
+                la bucătărie, iar pe 'view' nu se comandă nimic. */}
+            {mode === 'order' && (
+              <textarea
+                placeholder={T(lang, 'special_requests_opt')}
+                aria-label={T(lang, 'special_requests_opt')}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                style={{
+                  background: PUB.surface,
+                  border: `1px solid ${PUB.border}`,
+                  borderRadius: 10,
+                  color: PUB.text,
+                  fontFamily: 'DM Sans, sans-serif',
+                  // 16px minim: sub 16 iOS Safari face zoom la fiecare focus
+                  // (ux-guest-5), iar fișa sare în față peste meniu.
+                  fontSize: 16,
+                  lineHeight: 1.45,
+                  padding: '12px 14px',
+                  resize: 'none',
+                  outline: 'none',
+                  width: '100%',
+                  boxSizing: 'border-box',
+                }}
+              />
+            )}
 
             {/* "Mai multe info" — collapsible details */}
             {(product.allergens?.length > 0 || product.dietary_tags?.length > 0) && (
@@ -1034,7 +1140,8 @@ function ProductSheet({
                             gap: 4,
                           }}
                         >
-                          <Icon name="alert" size={12} color="#8B6914" /> {T(lang, 'allergens_title')}
+                          <Icon name="alert" size={12} color="#8B6914" />{' '}
+                          {T(lang, 'allergens_title')}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.allergens.map((id) => {
@@ -1070,62 +1177,92 @@ function ProductSheet({
           </div>
         </div>
 
-        {/* Sticky bottom CTA */}
+        {/* Sticky bottom CTA — peste bara de home a iPhone-ului (ux-guest-11):
+            index.html are viewport-fit=cover, deci fără safe-area butonul stătea
+            sub indicator. */}
         <div
           style={{
-            padding: '14px 22px 22px',
+            padding: '14px 22px calc(22px + env(safe-area-inset-bottom, 0px))',
             background: PUB.bg,
             borderTop: `1px solid ${PUB.border}`,
             flexShrink: 0,
           }}
         >
-          <button
-            disabled={!canAdd}
-            onClick={() => {
-              const extrasForCart = (product.extras ?? [])
-                .filter((e) => selectedExtras.has(e.id))
-                .map((e) => ({ id: e.id, name: e.name, price: Number(e.price) }))
-              onAdd({
-                _key: crypto.randomUUID(),
-                product_id: product.id,
-                product_name_snapshot: product.name,
-                unit_price_snapshot: product.price,
-                quantity: qty,
-                selected_modifiers: buildModifiers(),
-                notes: notes.length > 0 ? notes : null,
-                selected_extras: extrasForCart.length > 0 ? extrasForCart : undefined,
-              })
-              onClose()
-            }}
-            style={{
-              background: canAdd ? accent : PUB.borderStrong,
-              color: canAdd ? '#fff' : PUB.textMuted,
-              border: 'none',
-              borderRadius: 14,
-              padding: '15px 20px',
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 15,
-              fontWeight: 700,
-              letterSpacing: '0.01em',
-              cursor: canAdd ? 'pointer' : 'not-allowed',
-              width: '100%',
-              minHeight: 52,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 10,
-              transition: 'background 0.15s',
-              boxShadow: canAdd ? `0 4px 14px ${accent}59` : 'none',
-            }}
-          >
-            <span>{canAdd ? T(lang, 'add_to_cart') : T(lang, 'select_required')}</span>
-            {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
-            {canAdd && (
-              <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>
-                {fmtPrice(totalPrice, currency)}
+          {isView ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                color: PUB.text,
+                border: `1px solid ${PUB.borderStrong}`,
+                borderRadius: 14,
+                padding: '15px 20px',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: 'pointer',
+                width: '100%',
+                minHeight: 52,
+              }}
+            >
+              {T(lang, 'close')}
+            </button>
+          ) : (
+            <button
+              disabled={!canAdd}
+              onClick={() => {
+                const extrasForCart = (product.extras ?? [])
+                  .filter((e) => selectedExtras.has(e.id))
+                  .map((e) => ({ id: e.id, name: e.name, price: Number(e.price) }))
+                onAdd({
+                  _key: crypto.randomUUID(),
+                  product_id: product.id,
+                  product_name_snapshot: product.name,
+                  unit_price_snapshot: product.price,
+                  quantity: qty,
+                  selected_modifiers: buildModifiers(),
+                  notes: mode === 'order' && notes.length > 0 ? notes : null,
+                  selected_extras: extrasForCart.length > 0 ? extrasForCart : undefined,
+                })
+                onClose()
+              }}
+              style={{
+                background: canAdd ? accent : PUB.borderStrong,
+                // Textul peste accent se alege pe contrast (a11y-guest-cta-white-on-accent):
+                // alb fix pica AA pe accentele deschise ale temelor.
+                color: canAdd ? readableTextOn(accent, PUB.text) : PUB.textMuted,
+                border: 'none',
+                borderRadius: 14,
+                padding: '15px 20px',
+                fontFamily: 'DM Sans, sans-serif',
+                fontSize: 15,
+                fontWeight: 700,
+                letterSpacing: '0.01em',
+                cursor: canAdd ? 'pointer' : 'not-allowed',
+                width: '100%',
+                minHeight: 52,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                transition: 'background 0.15s',
+                boxShadow: canAdd ? `0 4px 14px ${accent}59` : 'none',
+              }}
+            >
+              <span>
+                {canAdd
+                  ? T(lang, mode === 'list' ? 'add_to_list' : 'add_to_cart')
+                  : T(lang, 'select_required')}
               </span>
-            )}
-          </button>
+              {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
+              {canAdd && (
+                <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>
+                  {fmtPrice(totalPrice, currency)}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

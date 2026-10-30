@@ -1640,6 +1640,16 @@ export const GUEST_STRINGS = {
     hu: 'Kosárba',
     es: 'Añadir al carrito',
   },
+  // Fișa produsului pe „Lista mea" (/m fără ridicare): lista e locală, nu un coș.
+  add_to_list: {
+    ro: 'Adaugă în listă',
+    en: 'Add to list',
+    de: 'Zur Liste hinzufügen',
+    fr: 'Ajouter à la liste',
+    it: 'Aggiungi alla lista',
+    hu: 'Hozzáadás a listához',
+    es: 'Añadir a la lista',
+  },
   select_required: {
     ro: 'Selectează opțiunile obligatorii',
     en: 'Select the required options',
