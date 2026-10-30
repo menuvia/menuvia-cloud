@@ -71,6 +71,23 @@ jobs:
                 echo "::error::/health raportează config.$k=false — cheia integrării '$k' LIPSEȘTE sau e revocată în env-ul Netlify (RUNBOOK §5, docs/VPS_RUNBOOK.md)."
                 cfg_fail=1
               done
+              # Modul cheii Stripe (live/test/unknown), derivat din prefix. `test` =
+              # AVERTISMENT, nu eroare: până la primul client plătitor producția
+              # rulează deliberat pe cheia de test. `unknown` cu cheie prezentă =
+              # EROARE: ambele webhook-uri răspund 500 livemode_unknown la orice
+              # eveniment (lib/livemode.js). Gol = deploy de dinaintea câmpului.
+              mode="$(echo "$cfg" | sed -n 's/.*"stripe_key_mode":"\([a-z]*\)".*/\1/p')"
+              case "$mode" in
+                test)
+                  echo "::warning::/health raportează config.stripe_key_mode=test — producția rulează pe cheia Stripe de TEST: plățile nu sunt reale, iar cardul 4242 dă Planul 3 gratuit. Înainte de primul client plătitor: cheie sk_live_/rk_live_ + endpoint-uri webhook create în modul live (RUNBOOK §4.1)."
+                  ;;
+                unknown)
+                  if echo "$cfg" | grep -q '"stripe":true'; then
+                    echo "::error::/health raportează config.stripe_key_mode=unknown — STRIPE_SECRET_KEY are un prefix necunoscut (nu sk_/rk_ live/test; ex. cheia publicabilă pk_). Webhook-urile Stripe răspund 500 livemode_unknown la orice eveniment (RUNBOOK §4.1)."
+                    cfg_fail=1
+                  fi
+                  ;;
+              esac
             else
               # Am trimis antetul și n-am primit `config` → token greșit/rotit în
               # Netlify, deploy fără suport de diag sau formă schimbată. Oricare ar

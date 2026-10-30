@@ -56,6 +56,8 @@ const { createClient } = require('@supabase/supabase-js')
 // scripts/gen-schema-manifest.mjs și COMIS — sonda `get_schema_version` (mig
 // 271) primește lista și întoarce ce lipsește din ledger-ul producției.
 const SCHEMA_MANIFEST = require('./schema-manifest.json')
+// Aceeași deducție a modului cheii ca garda `livemode` a webhook-urilor Stripe.
+const { stripeKeyMode } = require('./lib/livemode')
 
 // ── Praguri pentru backlog-ul cozilor (mig 271, audit v3 RES-32) ────────────
 // Grupa `cron` = platformă → `stale` dă 503 (alertă). Pragurile sunt multipli
@@ -157,11 +159,16 @@ function jsonResponse(statusCode, body) {
 }
 
 // Booleeni de PREZENȚĂ a secretelor critice — NU valorile. Doar `!!`.
+// Excepția e `stripe_key_mode` ('live' | 'test' | 'unknown'), derivat din PREFIXUL
+// cheii, nu din cheie: o cheie de TEST pe producție nu se vede din `stripe:true`,
+// iar cu ea cardul 4242 dă Planul 3 gratuit (regula de aur). Webhook-urile o
+// prind abia la primul eveniment (lib/livemode.js); aici se vede înainte.
 function envConfig() {
   return {
     resend: !!process.env.RESEND_API_KEY,
     slack: !!process.env.SLACK_WEBHOOK_URL,
     stripe: !!process.env.STRIPE_SECRET_KEY,
+    stripe_key_mode: stripeKeyMode(process.env.STRIPE_SECRET_KEY),
     ai_platform: !!(
       process.env.PLATFORM_OPENAI_KEY || process.env.PLATFORM_ANTHROPIC_KEY
     ),

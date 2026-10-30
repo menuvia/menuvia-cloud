@@ -426,6 +426,13 @@ Semnale în loguri:
   din Dashboard. `key_mode=unknown` → 500 `livemode_unknown` (cheie lipsă/prefix
   străin; fail-closed, Stripe retrimite până o repari). Un eveniment live ignorat
   pe producție = abonament/plată reală pierdută: reia-l din Dashboard după fix.
+- Modul cheii se vede și ÎNAINTE de primul eveniment: `/health` cu antetul
+  `x-health-diag` întoarce `config.stripe_key_mode` (`live` | `test` | `unknown`,
+  derivat din prefix — cheia însăși nu apare niciodată, iar fără token câmpul
+  lipsește cu totul). `health-watch.yml` dă **avertisment** pe `test` (normal până
+  la primul client plătitor, dar atunci cardul 4242 dă Planul 3 gratuit) și
+  **eroare** pe `unknown` cu cheie prezentă (ex. cheia publicabilă `pk_` pusă în
+  locul celei secrete — webhook-urile răspund 500 la orice eveniment).
 
 ---
 
