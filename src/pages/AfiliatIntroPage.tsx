@@ -61,9 +61,10 @@ const TRUST_ITEMS: { icon: IconName; text: string }[] = [
     icon: 'lock',
     text: 'Reguli clare: comisioanele devin plătibile după 60/14 zile; un refund sau o dispută a clientului le stornează și ulterior',
   },
-  // Fost „Recrutezi sub-parteneri și câștigi și din echipa ta": recrutarea prin cod
-  // a dispărut (pachetul 8b-2); echipe au doar șefii de vânzări invitați de
-  // Menuvia (mig 304). În locul ei, ce primește REAL un nou agent („Cum vând").
+  // Aici stătea o promisiune de recrutare deschisă (o echipă proprie pentru oricine):
+  // recrutarea prin cod a dispărut (pachetul 8b-2), echipe au doar șefii de vânzări
+  // invitați de Menuvia (mig 304). În locul ei, ce primește REAL un agent nou
+  // („Cum vând”). PT6 din publicTruth.test.ts păzește absența ei.
   { icon: 'send', text: 'Ghid de start și un mesaj gata de trimis, direct în panoul tău' },
 ]
 
