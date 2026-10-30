@@ -28,6 +28,7 @@ import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
 import { checkoutOpenOnSite, siteCheckoutClosedFailure } from './lib/siteMarket'
+import { usePwaPromptAllowed } from './lib/pwaGate'
 
 // ── Eager: doar pagina de intrare (LCP) ──────────────────────
 // OPT-R2: LandingPage devine lazy — intra în chunk-ul de ENTRY descărcat și
@@ -339,6 +340,19 @@ function TermsGateMount() {
   return (
     <Suspense fallback={null}>
       <TermsAcceptanceGate />
+    </Suspense>
+  )
+}
+
+// Cardurile PWA (instalare / actualizare) doar unde au sens (lib/pwaGate.ts): nu
+// pe meniul oaspetelui (/q, /m, /rezervare — acolo nici chunk-ul nu se mai cere),
+// nu în înscriere și nu în onboarding, unde stăteau peste butoanele pasului.
+function PwaPromptMount() {
+  const allowed = usePwaPromptAllowed()
+  if (!allowed) return null
+  return (
+    <Suspense fallback={null}>
+      <PWAPrompt />
     </Suspense>
   )
 }
@@ -918,9 +932,7 @@ export default function App() {
                 NE-dialog, global, ca să apară și pe Onboarding (un cont fără
                 restaurant poate încă plăti direct din /pricing). */}
             <CheckoutReturnBanner />
-            <Suspense fallback={null}>
-              <PWAPrompt />
-            </Suspense>
+            <PwaPromptMount />
             <CookieBanner />
             <ConfirmRoot />
           </ToastProvider>

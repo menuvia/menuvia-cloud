@@ -12,6 +12,7 @@ import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 import { slugify } from '../lib/slug'
 import type { PlanIntentId } from '../lib/planIntent'
+import { useSuppressPwaPrompts } from '../lib/pwaGate'
 import {
   onboardingSummary,
   printableTables,
@@ -1822,6 +1823,9 @@ export default function OnboardingPage({
   // omul la activarea lui. Aici doar numește pasul următor pe butonul final.
   pendingPlan?: PlanIntentId | null
 }) {
+  // Fără carduri PWA peste butoanele pașilor (lib/pwaGate.ts): „Instalează
+  // Menuvia” apărea la 30 s exact în mijlocul onboarding-ului.
+  useSuppressPwaPrompts()
   const [state, setState] = useState<OnboardingState>({
     step: 1,
     restaurantId: null,
