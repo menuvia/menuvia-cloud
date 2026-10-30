@@ -415,8 +415,10 @@ export default function AiMenuImport({
     if (drafts.length === 0 && stored) {
       const known = new Set(categories.categories.map((c) => c.id))
       setDrafts(reconcileDraftCategories(stored.drafts, known))
+      // Draft nou încărcat din storage: indicii vechi nu mai înseamnă nimic. Din
+      // memorie (după „Înapoi”), debifările de plafon rămân valabile.
+      setPlanDeferred(new Set())
     }
-    setPlanDeferred(new Set())
     setStored(null)
     setError(null)
     setStep('review')

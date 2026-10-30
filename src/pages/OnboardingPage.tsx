@@ -179,7 +179,7 @@ const S = {
       qrMenuCardLabel: 'Meniu',
       qrBusyBtn: 'Se generează PDF-ul...',
       qrError: 'Nu am putut genera PDF-ul. Reîncearcă sau descarcă-l din tab-ul Mese & QR.',
-      qrOtherFormats: 'Carduri pliabile și postere pe masă găsești oricând în tab-ul Mese & QR.',
+      qrOtherFormats: 'Cardurile pliabile și posterele A4 le găsești oricând în tab-ul Mese & QR.',
       menuLinkLabel: 'Link meniu public',
       copyBtnAriaLabel: 'Copiază link-ul meniului',
       copiedLabel: 'Copiat!',
@@ -403,6 +403,9 @@ const label: React.CSSProperties = {
   marginBottom: 6,
 }
 
+// Accentul cu care se creează restaurantul (Pasul 1) și se tipăresc QR-urile (Pasul 4).
+const ONBOARDING_ACCENT = '#C8963C'
+
 function markOnboarding(restaurantId: string, fields: Record<string, boolean | string | null>) {
   return supabase.from('onboarding_state').update(fields).eq('restaurant_id', restaurantId)
 }
@@ -581,7 +584,7 @@ function Step1Restaurant({
           name: name.trim(),
           city: city.trim() || null,
           slug: slugify(name),
-          primaryColor: '#C8963C',
+          primaryColor: ONBOARDING_ACCENT,
         }))
       createdRef.current = created
       // Țara (mig 296) + moneda/fusul propuse pentru ea. Pe 'RO' patch-ul e
@@ -1439,9 +1442,6 @@ function summaryLabel(item: SummaryItem): string {
       return t.step4.menuQrReady
   }
 }
-
-// Accentul cu care se creează restaurantul la Pasul 1 (createRestaurant).
-const ONBOARDING_ACCENT = '#C8963C'
 
 function Step4Done({
   restaurantId,

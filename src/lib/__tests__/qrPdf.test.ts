@@ -172,7 +172,9 @@ describe('downloadQrPdf', () => {
     expect(texts(doc.calls)).toContain('Casa Taraneasca')
     expect(texts(doc.calls)).toContain('Terasa 1')
     expect(doc.calls.find((c: DocCall) => c.m === 'save')?.args[0]).toBe(name)
-    expect(doc.calls.find((c: DocCall) => c.m === 'addImage')?.args[0]).toBe('data:image/png;base64,u1')
+    expect(doc.calls.find((c: DocCall) => c.m === 'addImage')?.args[0]).toBe(
+      'data:image/png;base64,u1',
+    )
 
     await expect(downloadQrPdf(input({ cards: [] }))).rejects.toThrow(/Niciun QR/)
   })
