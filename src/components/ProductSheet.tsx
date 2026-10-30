@@ -211,8 +211,7 @@ function ProductSheet({
   // Top compact badges (priority: special > diet > prep time > portion > allergens)
   // icon: null → nu există un icon vectorial potrivit (ex. porție), rămâne text simplu.
   const topBadges: { icon: IconName | null; label: string; color: string }[] = []
-  if (product.is_daily_special)
-    topBadges.push({ icon: 'star', label: T(lang, 'ps_special'), color: accent })
+  if (product.is_daily_special) topBadges.push({ icon: 'star', label: T(lang, 'ps_special'), color: accent })
   if (product.dietary_tags?.includes('vegan'))
     topBadges.push({ icon: 'leaf', label: T(lang, 'diet_vegan'), color: '#388E3C' })
   else if (product.dietary_tags?.includes('vegetarian'))
@@ -491,27 +490,18 @@ function ProductSheet({
                     fontFamily: 'DM Sans, sans-serif',
                   }}
                 >
-                  {(
-                    [
-                      [T(lang, 'nut_calories'), product.calories, 'kcal'],
-                      [T(lang, 'nut_protein'), product.protein_g, 'g'],
-                      [T(lang, 'nut_carbs'), product.carbs_g, 'g'],
-                      [T(lang, 'nut_fat'), product.fat_g, 'g'],
-                    ] as Array<[string, number | null, string]>
-                  )
+                  {([
+                    [T(lang, 'nut_calories'), product.calories, 'kcal'],
+                    [T(lang, 'nut_protein'), product.protein_g, 'g'],
+                    [T(lang, 'nut_carbs'), product.carbs_g, 'g'],
+                    [T(lang, 'nut_fat'), product.fat_g, 'g'],
+                  ] as Array<[string, number | null, string]>)
                     .filter(([, v]) => v != null)
                     .map(([label, v, unit]) => (
                       <div key={label}>
                         <div style={{ fontSize: 15, fontWeight: 700, color: PUB.text }}>
                           {v}
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 400,
-                              color: PUB.text2,
-                              marginLeft: 2,
-                            }}
-                          >
+                          <span style={{ fontSize: 11, fontWeight: 400, color: PUB.text2, marginLeft: 2 }}>
                             {unit}
                           </span>
                         </div>
@@ -621,190 +611,188 @@ function ProductSheet({
                   </div>
                 ))}
 
-            {/* Modifier groups — clear required/optional labeling */}
-            {!isView &&
-              groups.map((g) => {
-                const sel = selections[g.id]
-                const groupMin = modifierGroupMin(g)
-                const groupCount = selectedCount(g)
-                const groupMet = groupCount >= groupMin
-                const groupHint = modifierGroupHintT(lang, g, groupMin)
-                // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
-                const atMax =
-                  g.selection_type === 'multiple' &&
-                  g.max_select != null &&
-                  groupCount >= g.max_select
+            {/* Modifier groups — clear required/optional labeling (nu pe 'view') */}
+            {(isView ? [] : groups).map((g) => {
+              const sel = selections[g.id]
+              const groupMin = modifierGroupMin(g)
+              const groupCount = selectedCount(g)
+              const groupMet = groupCount >= groupMin
+              const groupHint = modifierGroupHintT(lang, g, groupMin)
+              // Plafon atins pe grup multiplu → opțiunile nebifate se dezactivează.
+              const atMax =
+                g.selection_type === 'multiple' &&
+                g.max_select != null &&
+                groupCount >= g.max_select
 
-                return (
-                  <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              return (
+                <div key={g.id} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
                     <div
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: PUB.text,
+                        fontFamily: 'DM Sans, sans-serif',
+                        letterSpacing: '0.01em',
                       }}
                     >
-                      <div
-                        style={{
-                          fontSize: 14,
-                          fontWeight: 700,
-                          color: PUB.text,
-                          fontFamily: 'DM Sans, sans-serif',
-                          letterSpacing: '0.01em',
-                        }}
-                      >
-                        {g.name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          color: groupMin > 0 ? (groupMet ? '#4CAF6E' : '#c0392b') : PUB.textMuted,
-                          fontFamily: 'DM Sans, sans-serif',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 4,
-                        }}
-                      >
-                        {groupMin > 0 && groupMet && (
-                          <Icon name="check" size={11} color="#4CAF6E" />
-                        )}
-                        {groupMin > 0
-                          ? groupMet
-                            ? T(lang, 'mod_selected')
-                            : T(lang, 'mod_required')
-                          : T(lang, 'mod_optional')}
-                      </div>
+                      {g.name}
                     </div>
-
-                    {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
-                    {groupHint && (
-                      <div
-                        style={{
-                          fontSize: 12,
-                          color: PUB.textMuted,
-                          fontFamily: 'DM Sans, sans-serif',
-                          marginTop: -4,
-                        }}
-                      >
-                        {groupHint}
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                      {g.modifier_options.map((opt) => {
-                        const isSel =
-                          g.selection_type === 'single'
-                            ? !isSet(sel) && sel === opt.id
-                            : isSet(sel) && sel.has(opt.id)
-                        // La plafon, opțiunile nebifate se blochează (hint vizual
-                        // „Maxim N" e afișat sub titlul grupului).
-                        const isDisabled = atMax && !isSel
-
-                        return (
-                          <button
-                            key={opt.id}
-                            disabled={isDisabled}
-                            role={g.selection_type === 'single' ? 'radio' : undefined}
-                            aria-checked={g.selection_type === 'single' ? isSel : undefined}
-                            aria-pressed={g.selection_type === 'single' ? undefined : isSel}
-                            onClick={() =>
-                              g.selection_type === 'single'
-                                ? toggleSingle(g.id, opt.id)
-                                : toggleMultiple(g.id, opt.id)
-                            }
-                            style={{
-                              background: isSel ? `${accent}14` : PUB.surface,
-                              border: `1.5px solid ${isSel ? accent : PUB.border}`,
-                              borderRadius: 10,
-                              padding: '13px 16px',
-                              color: PUB.text,
-                              fontFamily: 'DM Sans, sans-serif',
-                              fontSize: 14,
-                              fontWeight: isSel ? 600 : 500,
-                              cursor: isDisabled ? 'not-allowed' : 'pointer',
-                              opacity: isDisabled ? 0.45 : 1,
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              gap: 12,
-                              textAlign: 'left',
-                              minHeight: 44,
-                              transition: 'border-color 0.15s, background 0.15s',
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 10,
-                                flex: 1,
-                                minWidth: 0,
-                              }}
-                            >
-                              {/* Visual indicator — radio or checkbox style */}
-                              <span
-                                style={{
-                                  width: 18,
-                                  height: 18,
-                                  flexShrink: 0,
-                                  borderRadius: g.selection_type === 'single' ? '50%' : 4,
-                                  border: `2px solid ${isSel ? accent : PUB.borderStrong}`,
-                                  background: isSel ? accent : 'transparent',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  transition: 'all 0.15s',
-                                }}
-                              >
-                                {isSel &&
-                                  (g.selection_type === 'single' ? (
-                                    <span
-                                      style={{
-                                        width: 6,
-                                        height: 6,
-                                        borderRadius: '50%',
-                                        background: '#fff',
-                                      }}
-                                    />
-                                  ) : (
-                                    <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
-                                  ))}
-                              </span>
-                              <span
-                                style={{
-                                  flex: 1,
-                                  minWidth: 0,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {opt.name}
-                              </span>
-                            </div>
-                            {opt.price_delta > 0 && (
-                              <span
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: 600,
-                                  color: accent,
-                                  fontFamily: 'Fraunces, Georgia, serif',
-                                  flexShrink: 0,
-                                }}
-                              >
-                                +{fmtPrice(opt.price_delta, currency)}
-                              </span>
-                            )}
-                          </button>
-                        )
-                      })}
+                    <div
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color:
+                          groupMin > 0 ? (groupMet ? '#4CAF6E' : '#c0392b') : PUB.textMuted,
+                        fontFamily: 'DM Sans, sans-serif',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                      }}
+                    >
+                      {groupMin > 0 && groupMet && <Icon name="check" size={11} color="#4CAF6E" />}
+                      {groupMin > 0
+                        ? groupMet
+                          ? T(lang, 'mod_selected')
+                          : T(lang, 'mod_required')
+                        : T(lang, 'mod_optional')}
                     </div>
                   </div>
-                )
-              })}
+
+                  {/* Microcopy min/max sub titlul grupului („Alege între…" etc.). */}
+                  {groupHint && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: PUB.textMuted,
+                        fontFamily: 'DM Sans, sans-serif',
+                        marginTop: -4,
+                      }}
+                    >
+                      {groupHint}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {g.modifier_options.map((opt) => {
+                      const isSel =
+                        g.selection_type === 'single'
+                          ? !isSet(sel) && sel === opt.id
+                          : isSet(sel) && sel.has(opt.id)
+                      // La plafon, opțiunile nebifate se blochează (hint vizual
+                      // „Maxim N" e afișat sub titlul grupului).
+                      const isDisabled = atMax && !isSel
+
+                      return (
+                        <button
+                          key={opt.id}
+                          disabled={isDisabled}
+                          role={g.selection_type === 'single' ? 'radio' : undefined}
+                          aria-checked={g.selection_type === 'single' ? isSel : undefined}
+                          aria-pressed={g.selection_type === 'single' ? undefined : isSel}
+                          onClick={() =>
+                            g.selection_type === 'single'
+                              ? toggleSingle(g.id, opt.id)
+                              : toggleMultiple(g.id, opt.id)
+                          }
+                          style={{
+                            background: isSel ? `${accent}14` : PUB.surface,
+                            border: `1.5px solid ${isSel ? accent : PUB.border}`,
+                            borderRadius: 10,
+                            padding: '13px 16px',
+                            color: PUB.text,
+                            fontFamily: 'DM Sans, sans-serif',
+                            fontSize: 14,
+                            fontWeight: isSel ? 600 : 500,
+                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                            opacity: isDisabled ? 0.45 : 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 12,
+                            textAlign: 'left',
+                            minHeight: 44,
+                            transition: 'border-color 0.15s, background 0.15s',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 10,
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            {/* Visual indicator — radio or checkbox style */}
+                            <span
+                              style={{
+                                width: 18,
+                                height: 18,
+                                flexShrink: 0,
+                                borderRadius: g.selection_type === 'single' ? '50%' : 4,
+                                border: `2px solid ${isSel ? accent : PUB.borderStrong}`,
+                                background: isSel ? accent : 'transparent',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              {isSel &&
+                                (g.selection_type === 'single' ? (
+                                  <span
+                                    style={{
+                                      width: 6,
+                                      height: 6,
+                                      borderRadius: '50%',
+                                      background: '#fff',
+                                    }}
+                                  />
+                                ) : (
+                                  <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
+                                ))}
+                            </span>
+                            <span
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                              }}
+                            >
+                              {opt.name}
+                            </span>
+                          </div>
+                          {opt.price_delta > 0 && (
+                            <span
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: accent,
+                                fontFamily: 'Fraunces, Georgia, serif',
+                                flexShrink: 0,
+                              }}
+                            >
+                              +{fmtPrice(opt.price_delta, currency)}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
 
             {/* Extras (add-ons opționale plătite) */}
             {!isView && (product.extras ?? []).length > 0 && (
@@ -892,9 +880,7 @@ function ProductSheet({
                               transition: 'all 0.15s',
                             }}
                           >
-                            {isSel && (
-                              <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />
-                            )}
+                            {isSel && <Icon name="check" size={11} color="#fff" strokeWidth={2.6} />}
                           </span>
                           <span
                             style={{
@@ -1140,8 +1126,7 @@ function ProductSheet({
                             gap: 4,
                           }}
                         >
-                          <Icon name="alert" size={12} color="#8B6914" />{' '}
-                          {T(lang, 'allergens_title')}
+                          <Icon name="alert" size={12} color="#8B6914" /> {T(lang, 'allergens_title')}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                           {product.allergens.map((id) => {
