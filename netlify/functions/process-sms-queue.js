@@ -14,9 +14,10 @@
 //                   aprobarea SMSO — fără aprobare, omite variabila și SMSO
 //                   folosește senderul numeric implicit al contului.
 //
-// Schedule (netlify.toml):
+// Schedule (netlify.toml — sursa UNICĂ; regimul de avarie, vezi comentariul
+// de acolo pentru pragul la care coboară înapoi la fiecare minut):
 //   [functions."process-sms-queue"]
-//     schedule = "* * * * *"
+//     schedule = "*/15 * * * *"
 
 const { createClient } = require('@supabase/supabase-js')
 
