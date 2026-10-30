@@ -13,6 +13,7 @@ import {
   advanceOrderStatus,
   describeEditOrderError,
   describeStaffActionError,
+  describeWaiterOrderSent,
 } from '../orders'
 
 // Cuvinte care trădează un text brut al serverului ajuns pe ecran.
@@ -178,5 +179,20 @@ describe('describeStaffActionError — acțiunile rapide (Confirmă / Gata / Ser
       (e: unknown) => e,
     )
     expect(describeStaffActionError(err)).toMatch(/s-a schimbat între timp/i)
+  })
+})
+
+describe('describeWaiterOrderSent — ospătarul află unde a ajuns comanda', () => {
+  it('SM9 comanda rămasă DOAR pe telefon (coada offline, LOCAL-) → avertisment explicit', () => {
+    const m = describeWaiterOrderSent({ short_id: 'LOCAL-4821' })
+    expect(m.kind).toBe('warning')
+    expect(m.text).toMatch(/DOAR pe acest telefon/)
+    expect(m.text).toContain('LOCAL-4821')
+  })
+
+  it('SM10 comanda ajunsă la server → confirmare cu numărul ei', () => {
+    const m = describeWaiterOrderSent({ short_id: 'A1B2C3' })
+    expect(m.kind).toBe('success')
+    expect(m.text).toBe('Comanda #A1B2C3 a fost trimisă la bucătărie.')
   })
 })

@@ -28,6 +28,7 @@ import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import PickupDetails from '../components/PickupDetails'
+import { ActionErrorNote } from '../components/ActionErrorNote'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
 
 // D imported from constants
@@ -287,46 +288,10 @@ const OrderCard = memo(function OrderCard({
         </button>
       )}
       {actionError != null && (
-        <div
-          role="alert"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
-            background: `${D.red}1A`,
-            border: `1px solid ${D.red}55`,
-            borderRadius: 8,
-            padding: '6px 4px 6px 10px',
-            color: D.red,
-            fontSize: 13,
-            lineHeight: 1.35,
-          }}
-        >
-          <span style={{ minWidth: 0 }}>{actionError}</span>
-          {onDismissError && (
-            <button
-              type="button"
-              onClick={() => onDismissError(order.id)}
-              aria-label={'Închide mesajul'}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: D.red,
-                cursor: 'pointer',
-                minWidth: 44,
-                minHeight: 44,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                padding: 0,
-              }}
-            >
-              <Icon name="close" size={16} />
-            </button>
-          )}
-        </div>
+        <ActionErrorNote
+          message={actionError}
+          onDismiss={onDismissError ? () => onDismissError(order.id) : undefined}
+        />
       )}
     </div>
   )

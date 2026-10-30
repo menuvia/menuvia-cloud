@@ -591,6 +591,26 @@ export interface EditOrderItemPayload {
   notes: string | null
 }
 
+/**
+ * Ce află ospătarul după „Trimite comanda" (ux-staff-order-sent-feedback):
+ * trimisă la bucătărie SAU salvată DOAR pe telefon — coada offline întoarce o
+ * confirmare sintetică `LOCAL-…` (offlineSync.savePendingOrder). Înainte foaia
+ * se închidea fără niciun semn, deci ospătarul nu știa că bucătăria NU a
+ * primit comanda.
+ */
+export function describeWaiterOrderSent(c: Pick<OrderConfirmationPayload, 'short_id'>): {
+  kind: 'success' | 'warning'
+  text: string
+} {
+  if (c.short_id.startsWith('LOCAL-')) {
+    return {
+      kind: 'warning',
+      text: `Fără conexiune: comanda #${c.short_id} e salvată DOAR pe acest telefon. Pleacă singură la bucătărie când revine internetul — ține aplicația deschisă.`,
+    }
+  }
+  return { kind: 'success', text: `Comanda #${c.short_id} a fost trimisă la bucătărie.` }
+}
+
 // Edit items pe comandă non-terminală, fără plăți parțiale.
 // Server validează rol + status + plăți + produs/modificatori; client doar
 // trimite snapshot-ul nou complet.
