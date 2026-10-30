@@ -112,7 +112,7 @@ function expiryReason(sms, nowMs) {
   if (sms.template_kind === 'pickup_ready') {
     const age = nowMs - new Date(sms.created_at).getTime()
     if (Number.isFinite(age) && age > PICKUP_READY_MAX_AGE_MS) {
-      return 'comanda a fost gata acum peste 2 ore'
+      return 'comanda e gata de peste 2 ore'
     }
     return null
   }
