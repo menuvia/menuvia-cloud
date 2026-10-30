@@ -6,7 +6,6 @@ import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
 import { fetchRestaurantFeatures, getLimit, getLimitDetailed, hasFeature } from '../lib/features'
-import { applyBusinessTypePreset } from '../lib/quickSetup'
 import { track } from '../lib/analytics'
 import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
@@ -95,11 +94,12 @@ const S = {
       skipBtn: 'Sari peste acest pas →',
       photoImportBtn: '📸 Ai meniul tipărit? Fotografiază-l și îl importăm noi',
       orManualDivider: 'sau adaugă manual primul produs',
-      presetLead: 'Nu ai meniul la tine? Pornește cu un meniu demo:',
-      presetPizzeriaBtn: '🍕 Meniu demo de pizzerie',
-      presetCafeBtn: '☕ Meniu demo de cafenea',
-      presetApplyingBtn: 'Se adaugă meniul demo...',
-      presetError: 'Nu am putut adăuga meniul demo. Reîncearcă sau sari peste pas.',
+      // Meniul demo e cel PUBLIC (/demo), nu produse inserate în restaurantul
+      // omului: presetul „Tip local” umplea plafonul gratuit (cafenea = 15/15)
+      // și publica pe QR produse și prețuri false.
+      demoLead: 'Nu ai meniul la tine? Vezi întâi cum arată un meniu Menuvia:',
+      demoLink: 'Deschide meniul demo ↗',
+      demoHint: 'Se deschide într-o filă nouă și nu adaugă nimic în restaurantul tău.',
     },
     step3: {
       title: 'Câte mese are restaurantul?',
@@ -217,11 +217,9 @@ const S = {
       skipBtn: 'Skip this step →',
       photoImportBtn: '📸 Have a printed menu? Snap a photo and we import it',
       orManualDivider: 'or add your first product manually',
-      presetLead: "Don't have the menu with you? Start with a demo menu:",
-      presetPizzeriaBtn: '🍕 Demo pizzeria menu',
-      presetCafeBtn: '☕ Demo café menu',
-      presetApplyingBtn: 'Adding the demo menu...',
-      presetError: "We couldn't add the demo menu. Try again or skip this step.",
+      demoLead: "Don't have the menu with you? See what a Menuvia menu looks like first:",
+      demoLink: 'Open the demo menu ↗',
+      demoHint: 'Opens in a new tab and adds nothing to your restaurant.',
     },
     step3: {
       title: 'How many tables does your restaurant have?',
@@ -327,10 +325,14 @@ const btnDisabled: React.CSSProperties = {
   color: D.t3,
   cursor: 'not-allowed',
 }
-// Butoanele de meniu demo (Skip-ul din Pasul 2): chip-uri late, discrete —
-// nu concurează vizual cu importul din poză și cu salvarea manuală.
-const btnPreset: React.CSSProperties = {
+// Linkul spre meniul demo (Skip-ul din Pasul 2): chip lat, discret — nu
+// concurează vizual cu importul din poză și cu salvarea manuală.
+const linkDemo: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   width: '100%',
+  boxSizing: 'border-box',
   background: D.s3,
   color: D.t2,
   border: `1px solid ${D.border}`,
@@ -339,7 +341,7 @@ const btnPreset: React.CSSProperties = {
   minHeight: 44,
   fontFamily: 'DM Sans,sans-serif',
   fontSize: '0.82rem',
-  cursor: 'pointer',
+  textDecoration: 'none',
 }
 const label: React.CSSProperties = {
   display: 'block',
@@ -703,7 +705,6 @@ function Step2Menu({
   // Nr. produse importate — setat de AiMenuImport la succes; la închiderea
   // modalului decide dacă pasul e gata (avansăm) sau doar închidem.
   const importedCountRef = useRef(0)
-  const [presetBusy, setPresetBusy] = useState(false)
   // Plafonul de produse al planului, ca importul AI să-l știe ÎNAINTE de salvare:
   // fără el, pe planul gratuit (15) un meniu real de 25 de produse pica în bloc
   // cu „Nimic nu a fost salvat” (inserarea e atomică). Restaurantul a fost creat
@@ -731,24 +732,6 @@ function Step2Menu({
       track('product_imported_ai', { count: importedCountRef.current, source: 'onboarding' })
       await markOnboarding(restaurantId, { menu_created: true })
       onNext()
-    }
-  }
-
-  // Preset „Tip local" pe ramura de Skip: meniul demo (RPC
-  // apply_business_type_preset, mig 034 — aplicat DOAR pe meniu gol) dă ceva
-  // de văzut pe QR din prima, în loc de restaurant gol.
-  const handlePreset = async (type: 'pizzerie' | 'cafenea') => {
-    if (presetBusy || saving) return
-    setPresetBusy(true)
-    setError(null)
-    try {
-      await applyBusinessTypePreset(restaurantId, type)
-      await markOnboarding(restaurantId, { menu_created: true })
-      onNext()
-    } catch (presetErr) {
-      console.error('[onboarding] preset meniu demo eșuat:', presetErr)
-      setError(t.step2.presetError)
-      setPresetBusy(false)
     }
   }
 
@@ -964,25 +947,18 @@ function Step2Menu({
         <button onClick={onSkip} style={btnSecondary}>
           {t.step2.skipBtn}
         </button>
-        {/* Alternativa la Skip: meniu demo „Tip local" — mai bine un meniu
-            prefăcut de văzut pe QR decât un restaurant complet gol. */}
+        {/* Alternativa la Skip: meniul demo public, într-o filă nouă (nu
+            pierde pasul curent) — omul vede cum arată un meniu fără ca în
+            restaurantul lui să apară produse false. */}
         <div style={{ fontSize: '0.78rem', color: D.t3, textAlign: 'center', marginTop: 4 }}>
-          {t.step2.presetLead}
+          {t.step2.demoLead}
         </div>
-        <button
-          onClick={() => void handlePreset('pizzerie')}
-          disabled={presetBusy || saving}
-          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
-        >
-          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetPizzeriaBtn}
-        </button>
-        <button
-          onClick={() => void handlePreset('cafenea')}
-          disabled={presetBusy || saving}
-          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
-        >
-          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetCafeBtn}
-        </button>
+        <a href="/demo" target="_blank" rel="noopener noreferrer" style={linkDemo}>
+          {t.step2.demoLink}
+        </a>
+        <div style={{ fontSize: '0.72rem', color: D.t3, textAlign: 'center' }}>
+          {t.step2.demoHint}
+        </div>
       </div>
 
       {aiImportOpen && (

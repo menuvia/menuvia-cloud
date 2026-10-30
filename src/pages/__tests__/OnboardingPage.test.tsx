@@ -5,6 +5,8 @@
 //   - crearea restaurantului avansează la Pasul 2
 //   - Pasul 2 oferă importul din poză ca acțiune primară + formularul manual
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -37,10 +39,6 @@ vi.mock('../../lib/features', () => ({
   getLimitDetailed: getLimitDetailedMock,
   hasFeature: vi.fn(() => true),
 }))
-// Presetul demo (RPC apply_business_type_preset) — nu îl exersăm în smoke.
-vi.mock('../../lib/quickSetup', () => ({
-  applyBusinessTypePreset: vi.fn().mockResolvedValue({ status: 'success' }),
-}))
 // AiMenuImport e lazy + greu (hooks de date); aici verificăm doar că butonul
 // de deschidere există în Pasul 2 și ce props primește modalul, nu modalul în sine.
 vi.mock('../../components/AiMenuImport', () => ({
@@ -51,6 +49,9 @@ vi.mock('../../components/AiMenuImport', () => ({
 }))
 
 import OnboardingPage from '../OnboardingPage'
+
+// Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
+const ONBOARDING_SRC = readFileSync(resolve(process.cwd(), 'src/pages/OnboardingPage.tsx'), 'utf8')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -124,7 +125,21 @@ describe('OnboardingPage — funelul de activare', () => {
     expect(screen.getByRole('button', { name: /ai meniul tipărit/i })).toBeInTheDocument()
     // Formularul manual rămâne disponibil (nu a fost înlocuit de import).
     expect(screen.getByLabelText('Produs *')).toBeInTheDocument()
-    // Și alternativa de Skip cu meniu demo e prezentă.
-    expect(screen.getByRole('button', { name: /meniu demo de pizzerie/i })).toBeInTheDocument()
+    // Și alternativa de Skip cu meniu demo e prezentă (meniul demo PUBLIC, OB-D1).
+    expect(screen.getByRole('link', { name: /meniul demo/i })).toBeInTheDocument()
+  })
+
+  // OB-D1 (ux-owner-demo-menus): meniul demo NU se mai inserează în restaurantul
+  // omului (presetul umplea plafonul gratuit — cafenea = 15/15 — și publica pe QR
+  // produse false). Rămâne meniul demo public, într-o filă nouă. Mutația care
+  // pică: butoanele de preset readuse (sau importul applyBusinessTypePreset).
+  it('OB-D1 meniul demo e cel public, într-o filă nouă; nimic nu se inserează', async () => {
+    await reachStep2()
+    const demo = screen.getByRole('link', { name: /meniul demo/i })
+    expect(demo).toHaveAttribute('href', '/demo')
+    expect(demo).toHaveAttribute('target', '_blank')
+    expect(demo).toHaveAttribute('rel', expect.stringContaining('noopener'))
+    expect(screen.queryByRole('button', { name: /meniu demo de/i })).not.toBeInTheDocument()
+    expect(ONBOARDING_SRC).not.toContain('applyBusinessTypePreset')
   })
 })
