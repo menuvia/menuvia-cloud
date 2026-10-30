@@ -11,6 +11,7 @@ import { track } from '../lib/analytics'
 import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
+import { slugify } from '../lib/slug'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -49,12 +50,14 @@ const S = {
       namePlaceholder: 'La Bella Trattoria',
       cityLabel: 'Oraș',
       cityPlaceholder: 'Focșani',
-      slugLabel: 'URL meniu public',
+      // Linkul NU mai e un câmp: se creează din nume (lib/slug.ts), iar
+      // coliziunile le rezolvă serverul cu sufix (mig 221). Omul îl vede doar.
+      linkPreviewLabel: 'Linkul meniului:',
       slugPrefix: `${siteHost()}/m/`,
-      slugPlaceholder: 'la-bella-trattoria',
+      linkPreviewHint: 'Se creează din nume. Îl poți schimba oricând din Setări.',
       nameRequiredError: 'Numele restaurantului este obligatoriu.',
       unknownError: 'Eroare necunoscută',
-      slugTakenError: 'Acest URL e deja folosit. Alege altul.',
+      slugAllocError: 'Nu am putut genera linkul meniului. Reîncearcă.',
       countryLabel: 'Țara *',
       countryPlaceholder: 'Alege țara',
       countryRequiredError: 'Alege țara restaurantului.',
@@ -168,12 +171,12 @@ const S = {
       namePlaceholder: 'The Golden Fork',
       cityLabel: 'City',
       cityPlaceholder: 'Manchester',
-      slugLabel: 'Public menu URL',
+      linkPreviewLabel: 'Menu link:',
       slugPrefix: `${siteHost()}/m/`,
-      slugPlaceholder: 'the-golden-fork',
+      linkPreviewHint: 'Generated from the name. You can change it anytime in Settings.',
       nameRequiredError: 'Restaurant name is required.',
       unknownError: 'Unknown error',
-      slugTakenError: 'This URL is already taken. Choose another one.',
+      slugAllocError: "We couldn't create the menu link. Try again.",
       countryLabel: 'Country *',
       countryPlaceholder: 'Select a country',
       countryRequiredError: 'Select the country of your restaurant.',
@@ -340,15 +343,6 @@ const label: React.CSSProperties = {
   marginBottom: 6,
 }
 
-function slugify(s: string) {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'restaurant'
-  )
-}
-
 function markOnboarding(restaurantId: string, fields: Record<string, boolean | string | null>) {
   return supabase.from('onboarding_state').update(fields).eq('restaurant_id', restaurantId)
 }
@@ -498,7 +492,6 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: string) => void }) {
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
-  const [slug, setSlug] = useState('')
   const [country, setCountry] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -517,14 +510,13 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
     }
     setSaving(true)
     setError(null)
-    const finalSlug = slug || slugify(name)
     try {
       const created =
         createdRef.current ??
         (await createRestaurant({
           name: name.trim(),
           city: city.trim() || null,
-          slug: finalSlug,
+          slug: slugify(name),
           primaryColor: '#C8963C',
         }))
       createdRef.current = created
@@ -576,7 +568,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
       onNext(created.restaurant_id, created.restaurant_slug)
     } catch (err) {
       const msg = err instanceof Error ? err.message : t.step1.unknownError
-      setError(msg.includes('slug') ? t.step1.slugTakenError : msg)
+      setError(msg.includes('slug') ? t.step1.slugAllocError : msg)
       setSaving(false)
     }
   }
@@ -606,10 +598,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           <input
             id="ob-name"
             value={name}
-            onChange={(e) => {
-              setName(e.target.value)
-              setSlug(slugify(e.target.value))
-            }}
+            onChange={(e) => setName(e.target.value)}
             placeholder={t.step1.namePlaceholder}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
@@ -631,44 +620,19 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
         </div>
-        <div>
-          <label htmlFor="ob-slug" style={label}>
-            {t.step1.slugLabel}
-          </label>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              background: D.s3,
-              border: `1px solid ${D.border}`,
-              borderRadius: 9,
-              overflow: 'hidden',
-            }}
-          >
-            <span
-              style={{
-                padding: '0 10px',
-                fontSize: '0.75rem',
-                color: D.t3,
-                borderRight: `1px solid ${D.border}`,
-                height: 46,
-                display: 'flex',
-                alignItems: 'center',
-                flexShrink: 0,
-                whiteSpace: 'nowrap',
-              }}
-            >
+        {/* Doar previzualizare: linkul se creează din nume, fără diacritice
+            rupte („Casa Țărănească” → casa-taraneasca). Cel REAL (eventual cu
+            sufix, dacă numele e luat) apare pe ecranul final. */}
+        {name.trim() && (
+          <div style={{ fontSize: '0.78rem', color: D.t3, lineHeight: 1.5 }}>
+            {t.step1.linkPreviewLabel}{' '}
+            <span data-testid="ob-link-preview" style={{ color: D.t2, wordBreak: 'break-all' }}>
               {t.step1.slugPrefix}
+              {slugify(name)}
             </span>
-            <input
-              id="ob-slug"
-              value={slug}
-              onChange={(e) => setSlug(slugify(e.target.value))}
-              placeholder={t.step1.slugPlaceholder}
-              style={{ ...inp, borderRadius: 0, border: 'none' }}
-            />
+            <div>{t.step1.linkPreviewHint}</div>
           </div>
-        </div>
+        )}
         {askCountry && (
           <div>
             <label htmlFor="ob-country" style={label}>

@@ -73,6 +73,26 @@ describe('OnboardingPage — funelul de activare', () => {
     expect(trackMock).toHaveBeenCalledWith('onboarding_step_completed', { step: 1, skipped: false })
   })
 
+  // OB-S1 (ux-owner-slug): linkul nu mai e un câmp cerut patronului și nu mai
+  // rupe diacriticele. Mutația care pică: slugify-ul vechi (`[^a-z0-9]+` direct
+  // pe litere mici) → „casa-r-neasc” în previzualizare și în apel.
+  it('OB-S1 linkul se creează din nume, cu diacriticele transliterate, fără câmp de slug', async () => {
+    const user = userEvent.setup()
+    createRestaurantMock.mockResolvedValue({
+      restaurant_id: 'r1',
+      restaurant_slug: 'casa-taraneasca',
+    })
+    render(<OnboardingPage onComplete={vi.fn()} />)
+    expect(screen.queryByLabelText(/url meniu/i)).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText(/numele restaurantului/i), 'Casa Țărănească')
+    expect(screen.getByTestId('ob-link-preview')).toHaveTextContent(/\/m\/casa-taraneasca$/)
+    await user.click(screen.getByRole('button', { name: /continuă/i }))
+    await screen.findByText('Adaugă primul produs')
+    expect(createRestaurantMock).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Casa Țărănească', slug: 'casa-taraneasca' }),
+    )
+  })
+
   it('Pasul 2 oferă importul din poză ca acțiune primară, cu formularul manual dedesubt', async () => {
     await reachStep2()
     expect(screen.getByRole('button', { name: /ai meniul tipărit/i })).toBeInTheDocument()
