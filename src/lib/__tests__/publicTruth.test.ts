@@ -10,11 +10,12 @@
 //   PT3  review gating: linkul Google apare TUTUROR — nicio condiție pe notă
 //        în FeedbackWidget, nicio descriere de marketing a filtrării;
 //   PT4  QR-ul de Plan 1 nu promite „pentru a comanda" (qrCopy) și bifa „Gata de
-//        comenzi" din onboarding nu mai e hard-codată.
-//
-// NU acoperă `RecrutarePage.tsx` (pagina /recrutare, cu textele ei de recrutare
-// — „WhatsApp meu, răspund în max 2 ore"): e un pachet separat ("/recrutare fără
-// tine"). Când se rescrie, intră în lista de mai jos.
+//        comenzi" din onboarding nu mai e hard-codată;
+//   PT5  /recrutare (RecrutarePage) vinde EXACT oferta pilot din pricingCopy
+//        (`PILOT_DAYS` pe Meniu + Comenzi), nu „3 luni, plan complet", și nu mai
+//        are prețuri/defecte ale concurenței sau procente fără sursă. Pagina a
+//        intrat și în PT1c: promisiunile personale ale fondatorului (WhatsApp-ul
+//        lui, termenul lui de răspuns, apelul lui) au fost scoase.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -37,6 +38,7 @@ const PUBLIC_COPY_FILES = [
   'src/pages/VerticalPage.tsx',
   'src/pages/RezervariPage.tsx',
   'src/pages/AfiliatIntroPage.tsx',
+  'src/pages/RecrutarePage.tsx',
 ]
 
 const PERSONAL_PROMISES: ReadonlyArray<{ re: RegExp; why: string }> = [
@@ -45,6 +47,11 @@ const PERSONAL_PROMISES: ReadonlyArray<{ re: RegExp; why: string }> = [
   { re: /whatsapp direct|direct (pe|prin) whatsapp/i, why: 'WhatsApp e oprit (D4)' },
   { re: /suport (pe )?whatsapp|support on whatsapp/i, why: 'WhatsApp e oprit (D4)' },
   { re: /(răspuns|răspund\w*) [^.\n]{0,20}\d+ ore/i, why: 'termen de răspuns personal' },
+  // Persoana I singular a fondatorului: „te sun eu", „în maximum 24 de ore",
+  // „a ajuns la mine", „te ajut personal", „WhatsApp-ul meu".
+  { re: /\bte sun (eu|în)\b/i, why: 'apel personal (fondator)' },
+  { re: /\b\d+ de ore\b/i, why: 'termen de răspuns personal' },
+  { re: /ajuns la mine|te ajut personal|whatsapp(-ul)? meu/i, why: 'promisiune personală (fondator)' },
 ]
 
 describe('promisiuni personale', () => {
@@ -80,6 +87,33 @@ describe('promisiuni personale', () => {
         expect(src, `${f} — ${why}`).not.toMatch(re)
       }
     }
+  })
+})
+
+describe('/recrutare vinde oferta pilot reală', () => {
+  const src = read('src/pages/RecrutarePage.tsx')
+
+  it('PT5a: durata vine din PILOT_DAYS, nu dintr-un literal de luni', () => {
+    expect(src).toMatch(/import \{ PILOT_DAYS, TRIAL_DAYS \} from '\.\.\/lib\/pricingCopy'/)
+    expect(src).toContain('{PILOT_DAYS} de zile gratuite')
+    expect(src).not.toMatch(/\d+ luni/i)
+    expect(src).not.toMatch(/plan complet|totul inclus|fără limită/i)
+  })
+
+  it('PT5b: fără prețuri sau defecte ale concurenței, fără procente fără sursă', () => {
+    expect(src).not.toMatch(/SmartBill|Octopus/)
+    expect(src).not.toMatch(/✕ Restul/)
+    expect(src).not.toMatch(/\bcu \d+%/)
+  })
+
+  it('PT5c: Happy Hour nu „sugerează la plată" — se aplică singur (mig 077)', () => {
+    expect(src).not.toMatch(/sugerează aplicarea/)
+    expect(src).toContain('Reducerea se aplică singură pe comenzile prin QR și de ridicare')
+  })
+
+  it('PT5d: suportul real e numit (control pozitiv)', () => {
+    expect(src).toContain('prin agentul tău Menuvia și pe email')
+    expect(src).toContain('Cererea ta a ajuns la noi.')
   })
 })
 
