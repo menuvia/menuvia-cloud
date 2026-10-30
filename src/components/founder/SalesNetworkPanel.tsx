@@ -480,7 +480,7 @@ function HeadInviteCard({
       <MessageLine msg={msg} />
 
       {link !== null && (
-        <OneTimeLinkBox key={link} link={link} revokeVerb="revoci" onHide={() => setLink(null)} />
+        <OneTimeLinkBox link={link} revokeVerb="revoci" onHide={() => setLink(null)} />
       )}
     </div>
   )

@@ -7,8 +7,10 @@
 //
 // Tokenul NU stă aici: părintele ține linkul în starea lui (nu în storage, nu în
 // console) și îl scoate la `onHide`. Caseta doar îl arată, îl copiază și îl
-// trimite. Părintele o montează cu `key={link}`, ca mesajul de copiere al unui
-// link vechi să nu rămână lângă unul nou.
+// trimite. Mesajul de copiere ține minte linkul pentru care a fost scris și se
+// arată DOAR lângă el: dacă omul creează o invitație nouă fără să ascundă caseta,
+// „Link copiat.” nu are voie să stea lângă linkul nou, cât timp în clipboard e
+// tot cel vechi (OL4). Nu depinde de cum montează părintele caseta.
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { D } from '../../lib/constants'
@@ -52,7 +54,7 @@ const ghostBtn: CSSProperties = {
   fontWeight: 500,
 }
 
-type CopyMsg = { kind: 'ok' | 'err'; text: string } | null
+type CopyMsg = { link: string; kind: 'ok' | 'err'; text: string } | null
 
 export interface OneTimeLinkBoxProps {
   link: string
@@ -63,13 +65,15 @@ export interface OneTimeLinkBoxProps {
 
 export default function OneTimeLinkBox({ link, revokeVerb, onHide }: OneTimeLinkBoxProps) {
   const [copyMsg, setCopyMsg] = useState<CopyMsg>(null)
+  const shownMsg = copyMsg !== null && copyMsg.link === link ? copyMsg : null
 
   const copy = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(link)
-      setCopyMsg({ kind: 'ok', text: 'Link copiat.' })
+      setCopyMsg({ link, kind: 'ok', text: 'Link copiat.' })
     } catch {
       setCopyMsg({
+        link,
         kind: 'err',
         text: 'Nu am putut copia automat. Selectează linkul din câmp și copiază-l manual.',
       })
@@ -111,16 +115,16 @@ export default function OneTimeLinkBox({ link, revokeVerb, onHide }: OneTimeLink
           Am salvat linkul, ascunde-l
         </button>
       </div>
-      {copyMsg !== null ? (
+      {shownMsg !== null ? (
         <div
-          role={copyMsg.kind === 'err' ? 'alert' : 'status'}
+          role={shownMsg.kind === 'err' ? 'alert' : 'status'}
           style={{
             marginTop: 8,
             fontSize: '0.82rem',
-            color: copyMsg.kind === 'err' ? D.red : D.green,
+            color: shownMsg.kind === 'err' ? D.red : D.green,
           }}
         >
-          {copyMsg.text}
+          {shownMsg.text}
         </div>
       ) : null}
     </section>

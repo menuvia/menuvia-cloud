@@ -358,7 +358,7 @@ export default function TeamSection({
       ) : null}
 
       {link !== null ? (
-        <OneTimeLinkBox key={link} link={link} revokeVerb="retragi" onHide={() => setLink(null)} />
+        <OneTimeLinkBox link={link} revokeVerb="retragi" onHide={() => setLink(null)} />
       ) : null}
     </section>
   )

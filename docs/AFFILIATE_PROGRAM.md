@@ -73,6 +73,12 @@ m284 = `…_284_*` (ștergeri GDPR + arhivă bonuri).
 > și recrutarea subafiliaților (§4, D8). Textele descriu modelul aprobat (D2/D3) — devin
 > adevărate în cod odată cu migrația de comision (mig 293).
 >
+> **Promisiunea de recrutare de pe `AfiliatIntroPage` (oct 2026, PR #315):** închisă —
+> pagina publică nu mai vinde echipă proprie (PT6 în `publicTruth.test.ts`), iar kitul spune
+> modelul rețelei pe invitații (mig 304: echipe au doar șefii invitați de Menuvia, bonus 20%).
+> Recrutarea subafiliaților din programul public (D8) rămâne DESCHISĂ: `register_affiliate`
+> încă acceptă `p_parent_referral_code`.
+>
 > **Text „10% în fiecare lună” (pachetul 5, oct 2026):** închis în aplicație —
 > `LandingPage.tsx` și `AfiliatIntroPage.tsx` spun acum „X% din fiecare dintre următoarele
 > N facturi lunare” (N = `recurring_cap_months`, azi 12), nu „în fiecare lună”. Comisionul

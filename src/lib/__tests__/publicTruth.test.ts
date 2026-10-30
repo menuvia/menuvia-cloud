@@ -104,6 +104,13 @@ describe('programul de agenți nu promite recrutare deschisă', () => {
     // Control pozitiv: banda de încredere are în locul lui ce primește real agentul.
     expect(src).toContain('Ghid de start și un mesaj gata de trimis, direct în panoul tău')
   })
+
+  it('PT6b: kitul trimis agenților spune modelul rețelei pe invitații, nu „sub-parteneri”', () => {
+    // Secțiunea D a kitului se trimite în scris (regulile programului).
+    const kit = read('docs/vanzare/AFILIATI_KIT.md')
+    expect(kit).not.toMatch(/sub-parteneri/i)
+    expect(kit).toContain('doar pentru șefii de vânzări invitați de Menuvia')
+  })
 })
 
 describe('recenzii Google fără filtrare', () => {
