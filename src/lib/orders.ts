@@ -225,7 +225,10 @@ export interface StaffOrdersPage {
 }
 
 /** Cele mai noi N comenzi deschise ale restaurantului (FIFO) + flag `truncated` când plafonul a fost atins. */
-async function fetchStaffOrders(restaurantId: string, statuses: string[]): Promise<StaffOrdersPage> {
+async function fetchStaffOrders(
+  restaurantId: string,
+  statuses: string[],
+): Promise<StaffOrdersPage> {
   const { data, error } = await supabase
     .from('orders')
     .select(ORDER_SELECT)
@@ -395,7 +398,10 @@ export function describePayRejection(err: unknown): string {
     case 'underpayment':
     case 'overpayment':
       // Serverul spune exact suma și plafonul — e mesajul cel mai util.
-      return serverMsg || 'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
+      return (
+        serverMsg ||
+        'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
+      )
     case 'paid_amount_required':
       return 'Introdu suma încasată.'
     case 'invalid_payment_method':
@@ -493,13 +499,12 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
   }
 }
 
-// Edit items pe comandă non-terminală, fără plăți parțiale.
-// Server validează rol + status + plăți + produs/modificatori; client doar
-// trimite snapshot-ul nou complet.
-// Istoric audit pentru o comandă: orders + order_items.
-// Folosește view-ul public.v_audit_recent (mig 044) care joinează profile
-// pentru numele actorului. RLS filtrează: owner/manager văd tot audit-ul
-// restaurantelor lor; waiter vede doar propriile acțiuni.
+// Istoric audit pentru o comandă: orders + order_items, prin RPC-ul
+// get_order_audit_history (mig 080/081, SECURITY DEFINER), care refuză ORICE
+// alt rol decât owner/manager. Ospătarul și bucătarul NU își văd nici măcar
+// propriile acțiuni — de aceea WaiterPage nu le arată butonul „Vezi istoric".
+// (Comentariul vechi de aici descria v_audit_recent cu RLS „waiter vede
+// propriile acțiuni" — nu mai era adevărat de la mig 080.)
 export interface AuditEntry {
   id: number
   created_at: string
@@ -592,6 +597,9 @@ export interface EditOrderItemPayload {
   notes: string | null
 }
 
+// Edit items pe comandă non-terminală, fără plăți parțiale.
+// Server validează rol + status + plăți + produs/modificatori; client doar
+// trimite snapshot-ul nou complet.
 export async function updateOrderItems(
   orderId: string,
   items: EditOrderItemPayload[],
@@ -608,8 +616,96 @@ export async function updateOrderItems(
     p_items,
     p_expected_total: expectedTotal ?? null,
   })
-  if (error) throw error
+  if (error) {
+    // Error REAL cu hint/code (ca advanceOrderStatus): obiectul PostgREST brut
+    // nu e `instanceof Error`, iar EditOrderSheet afișa „Eroare la salvare" în
+    // loc de motivul serverului (ex. „comanda a fost modificată între timp",
+    // codul 40001 al lock-ului optimist din mig 146+).
+    const err = new Error(error.message || 'Eroare la salvarea comenzii') as Error & {
+      hint?: string
+      code?: string
+    }
+    err.hint = error.hint ?? undefined
+    err.code = error.code ?? undefined
+    throw err
+  }
   return data as { id: string; total: number; discount_amount: number; items_count: number }
+}
+
+function errorParts(err: unknown): { message: string; hint: string; code: string } {
+  const o = err != null && typeof err === 'object' ? (err as Record<string, unknown>) : {}
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  return { message: str(o.message), hint: str(o.hint), code: str(o.code) }
+}
+
+/**
+ * Textul RO pentru refuzul lui `update_order_items` (EditOrderSheet). Mesajele
+ * serverului sunt prefixate `update_order_items:` și jumătate în engleză — nu
+ * se arată brute; cele deja în română (grupe de opțiuni) se arată fără prefix.
+ */
+export function describeEditOrderError(err: unknown): string {
+  if (isNetworkError(err)) return 'Fără conexiune — modificarea nu a fost salvată. Reîncearcă.'
+  const { message, hint, code } = errorParts(err)
+  const plain = message.replace(/^update_order_items:\s*/i, '').trim()
+  if (code === '40001' || /modificată între timp/i.test(plain)) {
+    return 'Comanda a fost modificată între timp de altcineva. Închide și redeschide comanda, apoi reîncearcă.'
+  }
+  if (
+    hint === 'missing_required_group' ||
+    hint === 'too_many_in_group' ||
+    hint === 'duplicate_options'
+  ) {
+    return plain
+  }
+  if (/partial payments/i.test(plain)) {
+    return 'Comanda are plăți înregistrate și nu mai poate fi editată.'
+  }
+  if (/terminal state/i.test(plain)) return 'Comanda e deja finalizată și nu mai poate fi editată.'
+  if (/cannot edit orders|not a member/i.test(plain)) {
+    return 'Rolul tău nu permite editarea comenzii.'
+  }
+  if (/order .* not found/i.test(plain)) return 'Comanda nu mai există.'
+  if (/product .* not found|is inactive|does not belong/i.test(plain)) {
+    return 'Un produs din comandă nu mai e disponibil în meniu. Elimină-l și salvează din nou.'
+  }
+  if (/invalid options|extras invalide/i.test(plain)) {
+    return 'O opțiune aleasă nu mai e disponibilă. Reverifică produsul și salvează din nou.'
+  }
+  if (/invalid quantity/i.test(plain)) return 'Cantitatea trebuie să fie între 1 și 99.'
+  if (/too many items/i.test(plain)) return 'Comanda poate avea cel mult 100 de produse.'
+  return 'Modificarea nu a fost salvată. Reîncearcă.'
+}
+
+/**
+ * Textul RO, scurt, pentru o acțiune rapidă respinsă pe ecranele de staff
+ * (Confirmă / În pregătire / Gata / Servit / Închide comanda). Se afișează
+ * LÂNGĂ butonul apăsat, nu ca banner de pagină: mesajele lui `advance_order`
+ * sunt în engleză („Order not in a servable state (current: served)"), iar
+ * contractul stabil e HINT-ul.
+ */
+export function describeStaffActionError(err: unknown): string {
+  if (isNetworkError(err)) return 'Fără conexiune — acțiunea nu a fost salvată. Reîncearcă.'
+  const { hint } = errorParts(err)
+  switch (hint) {
+    case 'invalid_transition':
+      return 'Comanda s-a schimbat între timp (probabil a mutat-o un coleg). Lista s-a actualizat.'
+    case 'order_terminal':
+      return 'Comanda e deja finalizată.'
+    case 'order_not_found':
+      return 'Comanda nu mai există.'
+    case 'role_insufficient':
+      return 'Rolul tău nu permite această acțiune.'
+    case 'unauthorized':
+      return 'Nu ai acces la comenzile acestui restaurant.'
+    case 'auth_required':
+      return 'Sesiunea a expirat — autentifică-te din nou.'
+    case 'fiscal_plan_requires_payment':
+      return 'Pe planul cu fiscalizare comanda se finalizează prin plată (bon fiscal), nu prin închidere.'
+    case 'action_in_progress':
+      return 'Acțiunea pe această comandă e deja în curs.'
+    default:
+      return 'Acțiunea nu a fost salvată. Reîncearcă.'
+  }
 }
 
 export async function fetchTables(restaurantId: string): Promise<RestaurantTable[]> {
@@ -763,32 +859,6 @@ export async function getOrderPayments(orderId: string): Promise<OrderPaymentRow
   return (data ?? []) as OrderPaymentRow[]
 }
 
-/**
- * Storno pe o plată din registru (mig 270): banii au fost RETURNAȚI clientului
- * (cash înapoi / refund manual în Stripe), adminul stornează cu motiv, rândul
- * iese din order_payments și rămâne în audit_log. E ieșirea legitimă din gate-ul
- * `cancel_over_payments`. Aruncă un Error REAL cu hint/code (ca advanceOrderStatus).
- */
-export async function voidOrderPayment(
-  paymentId: string,
-  reason: string,
-): Promise<{ order_id: string; amount: number; method: string }> {
-  const { data, error } = await supabase.rpc('void_order_payment', {
-    p_payment_id: paymentId,
-    p_reason: reason,
-  })
-  if (error) {
-    const err = new Error(error.message || 'Eroare la stornarea plății') as Error & {
-      hint?: string
-      code?: string
-    }
-    err.hint = error.hint ?? undefined
-    err.code = error.code ?? undefined
-    throw err
-  }
-  return data as { order_id: string; amount: number; method: string }
-}
-
 // ── Public order status (pentru QR tracking, clienți anon) ──
 // FIX: OrderTracker/ActiveOrdersBanner se abonau la postgres_changes pe `orders`
 // cu client anon, dar RLS blochează SELECT-ul → statusul nu se actualiza niciodată.
@@ -845,17 +915,6 @@ export async function requestFiscalReceipt(
   })
   if (error || data == null) return null
   return data as { success: boolean; already_requested: boolean; requested_at: string }
-}
-
-// ── Rotate QR token (tranzacțional) ──
-// FIX: vechea implementare făcea UPDATE + INSERT separat; dacă INSERT-ul pica,
-// masa rămânea fără QR activ. Acum este atomic prin RPC.
-export async function rotateQrToken(
-  tableId: string,
-): Promise<{ ok: boolean; new_token_id: string }> {
-  const { data, error } = await supabase.rpc('rotate_qr_token', { p_table_id: tableId })
-  if (error) throw error
-  return data as { ok: boolean; new_token_id: string }
 }
 
 // ── Discount-uri pe comandă (migration 031) ──

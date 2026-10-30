@@ -6,7 +6,13 @@
 // =============================================================
 
 import { useState, useEffect, useRef } from 'react'
-import { updateOrderItems, fetchOrderById, type Order, type CartItem } from '../lib/orders'
+import {
+  updateOrderItems,
+  fetchOrderById,
+  describeEditOrderError,
+  type Order,
+  type CartItem,
+} from '../lib/orders'
 import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
@@ -149,7 +155,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
       )
       onSaved()
     } catch (e: unknown) {
-      setSubmitError(e instanceof Error ? e.message : 'Eroare la salvare')
+      // Motivul serverului, în română (ex. „comanda a fost modificată între
+      // timp" — lock-ul optimist), nu „Eroare la salvare" generic.
+      setSubmitError(describeEditOrderError(e))
       setSubmitting(false)
     }
   }
@@ -414,6 +422,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           )}
           {submitError && (
             <div
+              role="alert"
               style={{
                 fontSize: 12,
                 color: D.red,
