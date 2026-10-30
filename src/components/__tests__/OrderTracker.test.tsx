@@ -4,7 +4,7 @@
 // OPREASCĂ. Înainte, `paid` rămânea poll-uit la 5 s cât timp ecranul „Plată
 // confirmată" stătea deschis — pe o justificare falsă.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, act } from '@testing-library/react'
+import { render, act, screen } from '@testing-library/react'
 
 const { statusMock } = vi.hoisted(() => ({ statusMock: vi.fn() }))
 vi.mock('../../lib/orders', async (importOriginal) => {
@@ -14,6 +14,7 @@ vi.mock('../../lib/orders', async (importOriginal) => {
 
 import { OrderTracker } from '../OrderTracker'
 import type { OrderConfirmationPayload } from '../../lib/orders'
+import { readableTextOn } from '../../lib/themes'
 
 const CONF: OrderConfirmationPayload = {
   id: 'o1',
@@ -62,5 +63,26 @@ describe('OrderTracker — polling-ul se oprește pe stări terminale', () => {
     await tick(0)
     await tick(5000 * 3)
     expect(statusMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ux-guest-4: pe auriul implicit din Setări albul are 2,66:1. Mutația care pică:
+// `color: '#fff'` readus pe „+ Adaugă produse" (ecranul de urmărire).
+describe('OrderTracker — text lizibil peste accent', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    statusMock.mockReset()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('„+ Adaugă produse" folosește culoarea calculată, nu alb', async () => {
+    statusMock.mockResolvedValue({ id: 'o1', short_id: 'ABC123', status: 'preparing', total: 30 })
+    render(<OrderTracker confirmation={CONF} accent="#C8963C" onReset={() => {}} previousOrders={[]} sessionId="s1" />)
+    await tick(0)
+    const expected = readableTextOn('#C8963C', '#1A1208')
+    expect(expected).not.toBe('#FFFFFF')
+    expect(screen.getByRole('button', { name: /adaugă produse/i })).toHaveStyle({ color: expected })
   })
 })

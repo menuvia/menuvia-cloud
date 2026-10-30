@@ -10,6 +10,7 @@ import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
 import type { MenuTheme } from '../lib/themes'
+import { readableTextOn } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
@@ -95,6 +96,8 @@ export default function PickupCheckoutSheet({
     () => buildPickupSlots(restaurant.pickup_settings, new Date(), tz),
     [restaurant.pickup_settings, tz],
   )
+
+  const submitBlocked = submitting || (slots.length > 0 && !pickupTime)
 
   async function submitOrder() {
     if (slots.length === 0) {
@@ -383,21 +386,22 @@ export default function PickupCheckoutSheet({
           }}
         >
           <button
-            disabled={submitting || (slots.length > 0 && !pickupTime)}
+            disabled={submitBlocked}
             onClick={() => void submitOrder()}
             style={{
               width: '100%',
               padding: '15px',
-              background:
-                submitting || (slots.length > 0 && !pickupTime) ? PUB.borderStrong : accent,
-              color: '#fff',
-              border: 'none',
+              // Blocat → suprafață + text secundar (alb pe borderStrong avea ~1,6:1);
+              // activ → textul lizibil peste accent, nu alb fix.
+              background: submitBlocked ? PUB.surface : accent,
+              color: submitBlocked ? PUB.text3 : readableTextOn(accent, PUB.text),
+              border: submitBlocked ? `1.5px solid ${PUB.border}` : 'none',
               borderRadius: 12,
               fontFamily: theme.fonts.body,
               fontSize: 15,
               fontWeight: 700,
-              cursor: submitting || (slots.length > 0 && !pickupTime) ? 'not-allowed' : 'pointer',
-              boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
+              cursor: submitBlocked ? 'not-allowed' : 'pointer',
+              boxShadow: submitBlocked ? 'none' : `0 4px 14px ${accent}55`,
             }}
           >
             {submitting

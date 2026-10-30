@@ -19,6 +19,7 @@ import {
 import type { FloorLayout } from '../lib/floorPlan'
 import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
+import { legibleOn, readableTextOn } from '../lib/themes'
 import FloorPlanViewer from './menu/FloorPlanViewer'
 import {
   createReservationPublic,
@@ -531,6 +532,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   }, [settings, chosenDateYmd, timeSlot, name, phone, phoneCc, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20
+  // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
+  // folosit ca TEXT (cod, linkuri) trec AA prin calcul, nu prin alb fix.
+  const onAccent = readableTextOn(accent, PUB.text)
+  const accentInk = legibleOn(accent, PUB.bg)
+  const accentInkOnSurface = legibleOn(accent, PUB.surface)
 
   const chipBase: CSSProperties = {
     padding: '10px 14px',
@@ -546,7 +552,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     fontFamily: theme.fonts.body,
   }
   const chipActive = (active: boolean): CSSProperties =>
-    active ? { background: accent, color: '#fff', borderColor: accent } : {}
+    active ? { background: accent, color: onAccent, borderColor: accent } : {}
 
   const labelStyle: CSSProperties = {
     fontSize: 11,
@@ -596,7 +602,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 16px',
-              color: isConfirmed ? '#fff' : accent,
+              color: isConfirmed ? onAccent : accentInkOnSurface,
               fontSize: 30,
             }}
           >
@@ -637,7 +643,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 22,
-                color: accent,
+                color: accentInkOnSurface,
                 letterSpacing: '0.18em',
                 fontWeight: 600,
                 marginBottom: 14,
@@ -663,7 +669,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           {restaurant.phone && (
             <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 10 }}>
               {T(lang, 'reserve_call_if_change')}:{' '}
-              <a href={'tel:' + restaurant.phone} style={{ color: accent, textDecoration: 'none' }}>
+              <a
+                href={'tel:' + restaurant.phone}
+                style={{ color: accentInk, textDecoration: 'none' }}
+              >
                 {restaurant.phone}
               </a>
             </div>
@@ -675,7 +684,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               {T(lang, 'rs_cannot_make_it')}{' '}
               <a
                 href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
-                style={{ color: accent, textDecoration: 'underline' }}
+                style={{ color: accentInk, textDecoration: 'underline' }}
               >
                 {T(lang, 'rs_cancel_online')}
               </a>
@@ -696,7 +705,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 background: accent,
                 border: 'none',
                 borderRadius: 12,
-                color: '#fff',
+                color: onAccent,
                 fontFamily: theme.fonts.body,
                 fontSize: 14,
                 fontWeight: 600,
@@ -971,9 +980,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                       width: 20,
                       height: 20,
                       borderRadius: '50%',
-                      border: 'none',
-                      background: 'rgba(255,255,255,0.28)',
-                      color: '#fff',
+                      // Moștenește culoarea chip-ului (textul lizibil peste accent),
+                      // conturată — nu alb fix peste accent.
+                      border: '1.5px solid currentColor',
+                      background: 'transparent',
+                      color: 'inherit',
                       cursor: 'pointer',
                       fontSize: 14,
                       lineHeight: 1,
@@ -1099,7 +1110,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             href="/confidentialitate"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: accent, textDecoration: 'underline' }}
+            style={{ color: accentInk, textDecoration: 'underline' }}
           >
             {T(lang, 'rs_privacy_policy')}
           </a>
@@ -1111,7 +1122,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             width: '100%',
             padding: '16px',
             background: accent,
-            color: '#fff',
+            color: onAccent,
             border: 'none',
             borderRadius: 12,
             fontFamily: theme.fonts.body,
@@ -1140,6 +1151,10 @@ interface ShellProps {
 }
 
 function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: ShellProps) {
+  // Bara de titlu e plină de accent: textul și butonul de închidere folosesc
+  // culoarea lizibilă peste accent (butonul o are ca FUNDAL, cu „×" în accent —
+  // același contrast, inversat), nu alb fix.
+  const onAccent = readableTextOn(accent, PUB.text)
   // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
   // deschidere, restaurare la închidere + Escape → onClose. Ref-ul pe onClose
   // ține varianta curentă fără să re-monteze efectul la fiecare re-randare.
@@ -1194,7 +1209,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: Shel
         <div
           style={{
             background: accent,
-            color: '#fff',
+            color: onAccent,
             padding: '14px 18px',
             display: 'flex',
             alignItems: 'center',
@@ -1209,7 +1224,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: Shel
               width: 32,
               height: 32,
               borderRadius: '50%',
-              background: '#fff',
+              background: onAccent,
               color: accent,
               border: 'none',
               fontSize: 18,

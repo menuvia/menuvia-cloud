@@ -14,6 +14,7 @@ import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currenc
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { describeGuestError, SPLIT_BILL_ERROR_OPTS } from '../lib/guestErrors'
+import { readableTextOn } from '../lib/themes'
 
 const PayTableSheet = lazy(() => import('./PayTableSheet'))
 
@@ -356,7 +357,7 @@ export default function SplitBillSheet({
           className={selectedUnits > 0 && !loading ? 'pressable' : ''}
           style={{
             background: selectedUnits > 0 && !loading ? accent : PUB.surface,
-            color: selectedUnits > 0 && !loading ? '#fff' : PUB.text3,
+            color: selectedUnits > 0 && !loading ? readableTextOn(accent, PUB.text) : PUB.text3,
             border: 'none',
             borderRadius: 16,
             padding: '15px 0',

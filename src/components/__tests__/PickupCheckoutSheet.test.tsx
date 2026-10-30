@@ -23,6 +23,7 @@ import PickupCheckoutSheet from '../PickupCheckoutSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant, makeCartItem } from './fixtures'
 import type { CreateOrderArgs } from '../../lib/orders'
+import { readableTextOn } from '../../lib/themes'
 
 const STORAGE_KEY = 'menuvia_idem_pickup:demo'
 const PUB = {
@@ -35,16 +36,16 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
-function renderSheet(onSuccess = vi.fn()) {
+function renderSheet(onSuccess = vi.fn(), accent = '#c8102e', onClose: () => void = () => {}) {
   return render(
     <PickupCheckoutSheet
       restaurant={makeRestaurant({ slug: 'demo' })}
       cart={[makeCartItem({ quantity: 1 })]}
       cartTotal={30}
       theme={getTheme('cafe')}
-      accent="#c8102e"
+      accent={accent}
       PUB={PUB}
-      onClose={() => {}}
+      onClose={onClose}
       onSuccess={onSuccess}
     />,
   )
@@ -174,5 +175,21 @@ describe('PickupCheckoutSheet — telefonul în E.164 (PH-4)', () => {
       expect(screen.getAllByText(/verifică prefixul țării/i).length).toBeGreaterThan(0)
     })
     expect(createOrderMock).not.toHaveBeenCalled()
+  })
+})
+
+// ux-guest-4 / a11y-guest-cta-white-on-accent: pe auriul implicit din Setări
+// albul are 2,66:1. Mutația care pică: `color: '#fff'` readus pe CTA.
+describe('PickupCheckoutSheet — text lizibil peste accent', () => {
+  it('S9 CTA-ul activ folosește culoarea calculată, nu alb', async () => {
+    renderSheet(vi.fn(), '#C8963C')
+    const slot = screen.getAllByRole('button').find((b) => /\d{1,2}:\d{2}$/.test(b.textContent ?? ''))
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    const expected = readableTextOn('#C8963C', PUB.text)
+    expect(expected).not.toBe('#FFFFFF')
+    const cta = screen.getByRole('button', { name: /trimite comanda/i })
+    expect(cta).toBeEnabled()
+    expect(cta).toHaveStyle({ color: expected })
   })
 })

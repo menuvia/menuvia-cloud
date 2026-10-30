@@ -11,6 +11,7 @@ import QrCartSheet, { type QrCartSheetProps } from '../QrCartSheet'
 import { lineTotal } from '../../lib/orders'
 import type { CartItem } from '../../lib/orders'
 import { makeCartItem, makeCategory, makeProduct, makeGroup, makeOption } from './fixtures'
+import { readableTextOn } from '../../lib/themes'
 
 const PUB = {
   bg: '#fff',
@@ -165,5 +166,24 @@ describe('QrCartSheet — coșul QR (bani + gating)', () => {
     expect(props.onAddToCart).not.toHaveBeenCalled()
     expect(props.onOpenProduct).toHaveBeenCalledWith(withRequired)
     expect(props.onClose).toHaveBeenCalled()
+  })
+})
+
+// ux-guest-4 / a11y-guest-cta-white-on-accent: accentul implicit din Setări e
+// auriul #C8963C, pe care albul are 2,66:1. Mutația care pică: `color: '#fff'`
+// readus pe CTA sau pe quick-add.
+describe('QrCartSheet — text lizibil peste accent', () => {
+  it('CTA-ul și „+" de pe recomandare folosesc culoarea calculată, nu alb', () => {
+    const sugg = makeProduct({ id: 'p-sug', name: 'Limonadă', category_id: 'c2' })
+    renderSheet({
+      cart: [makeCartItem({ product_id: 'p-alt' })],
+      categories: [makeCategory({ id: 'c2', products: [sugg] })],
+      checkoutSuggestionSettings: { enabled: true },
+    })
+    const expected = readableTextOn('#C8963C', PUB.text)
+    expect(expected).not.toBe('#FFFFFF')
+    const cta = screen.getByRole('button', { name: /trimite comanda/i })
+    expect(cta).toHaveStyle({ color: expected })
+    expect(screen.getByRole('button', { name: 'Adaugă Limonadă' })).toHaveStyle({ color: expected })
   })
 })

@@ -81,6 +81,7 @@ vi.mock('../../lib/supabase', () => {
 import ReservationSheet from '../ReservationSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant } from './fixtures'
+import { readableTextOn } from '../../lib/themes'
 
 const PUB = {
   bg: '#fff',
@@ -92,12 +93,12 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
-function renderSheet(lang = 'ro') {
+function renderSheet(lang = 'ro', accent = '#c8102e') {
   return render(
     <ReservationSheet
       restaurant={makeRestaurant({ slug: 'demo' })}
       theme={getTheme('cafe')}
-      accent="#c8102e"
+      accent={accent}
       PUB={PUB}
       lang={lang}
       onClose={() => {}}
@@ -248,5 +249,23 @@ describe('ReservationSheet — telefonul în E.164 (PH-4)', () => {
     Object.defineProperty(window.navigator, 'languages', { value: ['en-US'], configurable: true })
     renderSheet('en')
     expect(screen.getByRole('combobox', { name: /country code/i })).toHaveValue('40')
+  })
+})
+
+// ux-guest-4 / a11y-guest-cta-white-on-accent: pe auriul implicit din Setări
+// albul are 2,66:1. Mutația care pică: `color: '#fff'` readus pe „Rezervă",
+// pe chip-ul selectat sau pe bara de titlu.
+describe('ReservationSheet — text lizibil peste accent', () => {
+  it('RS-I „Rezervă", chip-ul ales și bara de titlu folosesc culoarea calculată', () => {
+    renderSheet('ro', '#C8963C')
+    const expected = readableTextOn('#C8963C', PUB.text)
+    expect(expected).not.toBe('#FFFFFF')
+    expect(byText('button', /^Rezervă$/)).toHaveStyle({ color: expected })
+    // „Astăzi" e ales implicit — chip plin de accent.
+    expect(byText('button', /Astăzi$/)).toHaveStyle({ color: expected })
+    // Bara de titlu: numele restaurantului stă pe accent.
+    const dialog = screen.getByRole('dialog')
+    const closeBtn = within(dialog).getAllByRole('button')[0]
+    expect(closeBtn?.parentElement).toHaveStyle({ color: expected })
   })
 })

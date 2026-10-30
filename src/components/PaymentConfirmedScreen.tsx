@@ -20,6 +20,7 @@ import type { OrderConfirmationPayload } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
+import { legibleOn, readableTextOn } from '../lib/themes'
 
 const PUB = { bg: '#F8F3EB', text: '#1A1208', muted: '#6B5A3F' } as const
 
@@ -525,7 +526,7 @@ export function FeedbackWidget({
             onClick={submitNegativeFeedback}
             style={{
               background: accent,
-              color: '#FFFFFF',
+              color: readableTextOn(accent, PUB.text),
               border: 'none',
               borderRadius: 999,
               padding: '10px 24px',
@@ -581,7 +582,7 @@ export function FeedbackWidget({
                   borderRadius: 999,
                   padding: '12px 20px',
                   textDecoration: 'none',
-                  color: accent,
+                  color: legibleOn(accent, '#FFFFFF'),
                   fontSize: 14,
                   fontWeight: 700,
                   fontFamily: 'DM Sans, sans-serif',
