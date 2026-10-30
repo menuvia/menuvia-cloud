@@ -26,6 +26,7 @@ import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { describeGuestError } from '../lib/guestErrors'
+import { isNetworkError } from '../lib/networkError'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -346,15 +347,10 @@ export default function QrMenuPage({ token }: Props) {
         return
       } catch (e: unknown) {
         lastError = e
-        const msg = e instanceof Error ? e.message : ''
-        // Only retry on network-level failures, not on server validation errors
-        const isNetworkError =
-          msg.includes('fetch') ||
-          msg.includes('network') ||
-          msg.includes('Failed to fetch') ||
-          msg.includes('NetworkError') ||
-          msg.includes('ECONNREFUSED')
-        if (!isNetworkError || attempt === 2) break
+        // Reîncercăm DOAR căderile de rețea, nu refuzurile serverului. Lista
+        // veche de subșiruri nu cunoștea „Load failed" (Safari/iPhone), deci
+        // pe iPhone comanda nu se reîncerca deloc (lib/networkError.ts).
+        if (!isNetworkError(e) || attempt === 2) break
         // Wait 1s, then 2s before retrying
         await new Promise((r) => setTimeout(r, (attempt + 1) * 1000))
       }

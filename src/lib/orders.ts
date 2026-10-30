@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 import { createIdempotencyKeyStore } from './idempotency'
+import { isNetworkError } from './networkError'
 
 export type OrderStatus =
   | 'new'
@@ -457,8 +458,12 @@ export async function createOrder(args: CreateOrderArgs): Promise<OrderConfirmat
     })
 
     if (error) {
-      // Eroare de rețea (edge down, timeout) → tratăm ca offline
-      if (error.message?.includes('fetch') || error.code === '503') {
+      // Eroare de rețea (edge down, timeout) → tratăm ca offline. supabase-js
+      // NU aruncă la o cădere de rețea, întoarce mesajul fetch-ului în `error`
+      // — iar pe iPhone acela e „TypeError: Load failed", pe care vechea
+      // verificare (`includes('fetch')`) nu-l recunoștea: comanda ospătarului
+      // nu intra în coada offline (lib/networkError.ts).
+      if (isNetworkError(error) || error.code === '503') {
         throw new TypeError('network-error')
       }
       // Eroare business logic (ex. missing_required_group) → aruncă un Error

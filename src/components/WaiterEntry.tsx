@@ -10,6 +10,7 @@ import { fetchMenuForRestaurant } from '../lib/qr'
 import type { RestaurantTable, CartItem } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { D } from '../lib/constants'
+import { isNetworkError } from '../lib/networkError'
 import ModifierSheet from './ModifierSheet'
 
 // D imported from constants
@@ -135,18 +136,16 @@ export default function WaiterEntry({
         return
       } catch (e: unknown) {
         lastError = e
-        const msg = e instanceof Error ? e.message : ''
-        const isNetworkError =
-          msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')
-        if (!isNetworkError || attempt === 2) break
+        // Detecția unică (lib/networkError.ts) — cunoaște și „Load failed" de pe iPhone.
+        if (!isNetworkError(e) || attempt === 2) break
         await new Promise((r) => setTimeout(r, (attempt + 1) * 1000))
       }
     }
 
     const msg = lastError instanceof Error ? lastError.message : 'Eroare la trimiterea comenzii'
-    const isOffline =
-      msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')
-    setSubmitError(isOffline ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg)
+    setSubmitError(
+      isNetworkError(lastError) ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg,
+    )
     setSubmitting(false)
   }
 
