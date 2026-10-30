@@ -1,11 +1,12 @@
 // netlify/functions/process-sms-queue.js
-// Cron-triggered (Netlify scheduled): la fiecare 1 min — „comanda gata la
-// pickup" e time-sensitive (clientul e pe drum); funcția iese imediat când
-// coada e goală, deci costul unui tick e neglijabil.
+// Cron-triggered (Netlify scheduled). Cadența o dă DOAR netlify.toml (vezi
+// blocul „Schedule" de mai jos — clichetul din
+// tests/functions/schedule-comments.test.js cere ca el să fie identic cu
+// toml-ul). Funcția iese imediat când coada e goală.
 //
 // Procesează coada sms_queue (mig 228) → trimite prin SMSO.ro → marchează status.
 // Clonă structurală a lui process-email-queue.js (claim atomic + backoff +
-// alertă Slack pe eșec de configurare).
+// eșecul de CONFIGURARE ținut în coadă, nu aruncat — vezi releaseForConfig).
 //
 // Env:
 //   SMSO_API_KEY  — obligatoriu (fără el: skip cu warn, ca RESEND_API_KEY).
@@ -77,7 +78,9 @@ function parseSmsoResponse(json) {
 }
 
 // Alertă Slack best-effort — DOAR pentru eșecuri de CONFIGURARE (401/403 =
-// cheie invalidă/rotită): fără ea coada devine 'failed' tăcut.
+// cheie invalidă/rotită). Slack e oprit (decizia D4), deci semnalul care chiar
+// ajunge la cineva e sonda de coadă din /health: rândurile ținute în 'queued'
+// îmbătrânesc de la scheduled_for și, peste prag, /health dă 503.
 async function postSmsAlert(message) {
   const slackWebhook = process.env.SLACK_WEBHOOK_URL
   if (!slackWebhook) return
@@ -92,6 +95,32 @@ async function postSmsAlert(message) {
   } catch (e) {
     console.error('[process-sms-queue] alertă Slack a eșuat:', e && e.message)
   }
+}
+
+// ── SMS-uri care nu mai au sens ─────────────────────────────────
+// Un SMS ținut în coadă cât timp cheia SMSO e respinsă (vezi releaseForConfig)
+// poate pleca abia după ore. „Comanda e gata de ridicare" trimis la 5 ore după
+// ce clientul și-a luat-o, sau o confirmare de rezervare pentru o oră deja
+// trecută, sunt mai rele decât niciun SMS: dezinformează. Se ANULEAZĂ înainte
+// de trimitere ('cancelled' — n-a plecat nimic, deci nu consumă plafonul lunar
+// al restaurantului; plafonul exclude doar 'cancelled', mig 228).
+// Un `starts_at` lipsă/ne-parsabil NU expiră (fail-open spre trimitere).
+const PICKUP_READY_MAX_AGE_MS = 2 * 60 * 60_000
+
+function expiryReason(sms, nowMs) {
+  if (sms.template_kind === 'pickup_ready') {
+    const age = nowMs - new Date(sms.created_at).getTime()
+    if (Number.isFinite(age) && age > PICKUP_READY_MAX_AGE_MS) {
+      return 'comanda a fost gata acum peste 2 ore'
+    }
+    return null
+  }
+  if (sms.template_kind === 'reservation_confirmed' || sms.template_kind === 'reservation_reminder') {
+    const startsAt = sms.template_data ? sms.template_data.starts_at : null
+    const t = startsAt ? new Date(startsAt).getTime() : NaN
+    if (Number.isFinite(t) && t < nowMs) return 'ora rezervării a trecut'
+  }
+  return null
 }
 
 // ── Main handler ──────────────────────────────────────────────
@@ -126,8 +155,48 @@ exports.handler = async () => {
   }
 
   let sent = 0, failed = 0, authFailures = 0
+  // Rânduri ELIBERATE înapoi în 'queued' din cauza configurației rupte și
+  // rânduri anulate fiindcă nu mai au sens (expirate).
+  let released = 0, expired = 0
+
+  // 401/403 de la SMSO = CONFIGURAȚIA e ruptă (cheie invalidă/rotită, cont
+  // fără drept de trimitere, sender neaprobat), NU numărul. Până acum ramura
+  // le trata ca „permanente" (4xx) și marca rândul 'failed' din PRIMA încercare:
+  // o cheie greșită arunca tăcut TOATĂ coada (confirmări de rezervare, „comanda
+  // e gata"), iar după repararea cheii nu mai pleca nimic. Acum rândul revine
+  // în 'queued' NEATINS — fără failed_attempts++ și FĂRĂ să mutăm
+  // scheduled_for: sonda de backlog din /health (get_queue_backlog, mig 271)
+  // măsoară vârsta de la scheduled_for, deci rândul îmbătrânește și alarma se
+  // aprinde. Restul lotului nu se mai trimite — cheia e aceeași pentru toate.
+  // Paritate exactă cu process-email-queue.js (EK7).
+  const releaseForConfig = (sms, why) =>
+    supabase.from('sms_queue').update({
+      status: 'queued',
+      claimed_at: null,
+      last_error: `CONFIG SMSO: ${why}`.slice(0, 500),
+    }).eq('id', sms.id)
+  let configError = null
+  const nowMs = Date.now()
 
   for (const sms of pending) {
+    // Deja claim-uit ('sending') de claim_sms_batch — fără re-marcare aici.
+    if (configError) {
+      await releaseForConfig(sms, configError)
+      released++
+      continue
+    }
+
+    const stale = expiryReason(sms, nowMs)
+    if (stale) {
+      await supabase.from('sms_queue').update({
+        status: 'cancelled',
+        claimed_at: null,
+        last_error: `Expirat înainte de trimitere: ${stale}`,
+      }).eq('id', sms.id)
+      expired++
+      continue
+    }
+
     const template = TEMPLATES[sms.template_kind]
     if (!template) {
       // Enum extins în DB înaintea deploy-ului JS: cap pe TIMP (24h), fără
@@ -178,8 +247,10 @@ exports.handler = async () => {
         const errText = await res.text()
         const smsoErr = new Error(`SMSO ${res.status}: ${errText.slice(0, 200)}`)
         smsoErr.status = res.status
-        // 4xx (except 429) = permanent (număr respins, sender neaprobat) —
+        // 4xx (except 429) = permanent (număr respins, conținut refuzat) —
         // retry-ul nu schimbă rezultatul. 429/5xx/network → backoff.
+        // 401/403 NU ajung „permanente": sunt CONFIGURAȚIE, nu destinatar
+        // (tratate în catch, rândul revine în 'queued' fără încercare consumată).
         smsoErr.permanent = res.status >= 400 && res.status < 500 && res.status !== 429
         throw smsoErr
       }
@@ -211,7 +282,19 @@ exports.handler = async () => {
       sent++
     } catch (err) {
       const attempts = sms.failed_attempts + 1
-      if (err.status === 401 || err.status === 403) authFailures++
+      if (err.status === 401 || err.status === 403) {
+        authFailures++
+        configError = String(err.message || err)
+        console.error(
+          `[process-sms-queue] EROARE DE CONFIGURARE: SMSO a răspuns ${err.status} — ` +
+          `SMSO_API_KEY invalidă/rotită, cont fără credit/drept de trimitere sau ` +
+          `SMSO_SENDER neaprobat. Rândurile rămân 'queued' (fără încercare consumată); ` +
+          `restul lotului nu se mai trimite. /health (sonda de coadă) dă alarma dacă persistă.`,
+        )
+        await releaseForConfig(sms, configError)
+        released++
+        continue
+      }
       if (err.permanent) {
         await supabase.from('sms_queue').update({
           status: 'failed',
@@ -233,14 +316,14 @@ exports.handler = async () => {
 
   if (authFailures > 0) {
     await postSmsAlert(
-      `${authFailures}/${pending.length} SMS-uri respinse cu 401/403 de SMSO — ` +
-      `cheia SMSO_API_KEY pare invalidă/rotită. Coada de SMS (confirmări rezervare, ` +
-      `pickup gata) nu mai pleacă până la remedierea cheii.`,
+      `SMSO a respins cheia (401/403) — ${released}/${pending.length} SMS-uri ținute ` +
+      `în coadă. Coada de SMS (confirmări rezervare, pickup gata) nu pleacă până la ` +
+      `remedierea SMSO_API_KEY / SMSO_SENDER; după remediere pleacă singure.`,
     )
   }
 
   return {
     statusCode: 200,
-    body: JSON.stringify({ processed: pending.length, sent, failed, authFailures }),
+    body: JSON.stringify({ processed: pending.length, sent, failed, authFailures, released, expired }),
   }
 }
