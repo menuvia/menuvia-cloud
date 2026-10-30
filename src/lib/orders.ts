@@ -688,7 +688,7 @@ export function describeStaffActionError(err: unknown): string {
   const { hint } = errorParts(err)
   switch (hint) {
     case 'invalid_transition':
-      return 'Comanda s-a schimbat între timp (probabil a mutat-o un coleg). Lista s-a actualizat.'
+      return 'Comanda s-a schimbat între timp — probabil a mutat-o deja un coleg.'
     case 'order_terminal':
       return 'Comanda e deja finalizată.'
     case 'order_not_found':

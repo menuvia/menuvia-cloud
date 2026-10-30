@@ -11,12 +11,29 @@ import {
   type PaymentMethod,
   type AdvanceOrderPayload,
   type RealtimeConnectionStatus,
+  describeStaffActionError,
 } from '../lib/orders'
 
 // Refetch periodic ca plasă de siguranță dacă realtime pică tăcut.
 // 30s e suficient pentru un POS (comenzile apar mai devreme via realtime
 // când canalul e OK; polling-ul prinde doar cazurile când realtime a căzut).
 const POLLING_INTERVAL_MS = 30_000
+
+// Cât stă vizibilă eroarea unei acțiuni rapide lângă buton. Înainte eroarea
+// mergea în bannerul de pagină și rămânea acolo până la următoarea acțiune
+// (pe o tabletă de bucătărie deschisă toată ziua = banner roșu perpetuu).
+export const ACTION_ERROR_TTL_MS = 8_000
+
+// Resincronizare (perf-staff-1): la RE-conectarea canalului realtime, la
+// revenirea în prim-plan după o pauză și la evenimentul `online` lista se
+// reîncarcă IMEDIAT. Evenimentele emise cât canalul era căzut / tab-ul era
+// suspendat NU se mai livrează — fără resync, comenzile noi apăreau abia la
+// heartbeat (~120 s cu realtime „conectat"). Pragul pe ascundere evită un
+// fetch complet la fiecare deblocare scurtă de telefon (canalul supraviețuiește
+// câteva secunde în fundal); plafonul dintre două resync-uri oprește o
+// avalanșă când rețeaua pâlpâie.
+const RESYNC_AFTER_HIDDEN_MS = 10_000
+const RESYNC_MIN_GAP_MS = 2_000
 
 const KITCHEN_STATUSES: OrderStatus[] = ['new', 'confirmed', 'preparing', 'ready']
 // `closed` E exclus: fetchWaiterOrders folosește lista POZITIVĂ (fără closed),
@@ -114,7 +131,8 @@ interface UseOrdersResult {
   // Lista e plafonată (cele mai noi STAFF_ORDERS_FETCH_LIMIT comenzi deschise).
   truncated: boolean
   connectionStatus: RealtimeConnectionStatus
-  // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea).
+  // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea)
+  // sau dacă o acțiune pe ACEEAȘI comandă e deja în curs (dublu-tap).
   // Apelanții pe căi de bani (plată) trebuie să verifice rezultatul înainte de a
   // închide optimist modalul.
   // Cu `opts.throwOnError` eroarea e re-aruncată (cu hint/code) în loc de
@@ -126,6 +144,25 @@ interface UseOrdersResult {
     opts?: { throwOnError?: boolean },
   ) => Promise<boolean>
   byStatus: (statuses: OrderStatus[]) => Order[]
+  /** Comenzile cu o acțiune în curs — butoanele lor stau dezactivate (anti dublu-tap). */
+  pendingIds: ReadonlySet<string>
+  /**
+   * Eroarea ultimei acțiuni rapide eșuate, PE COMANDĂ, în română
+   * (describeStaffActionError) — se afișează lângă butonul apăsat și dispare
+   * singură după ACTION_ERROR_TTL_MS sau la următoarea acțiune pe comandă.
+   */
+  actionErrors: Readonly<Record<string, string>>
+  dismissActionError: (orderId: string) => void
+}
+
+function withoutKey(
+  rec: Readonly<Record<string, string>>,
+  key: string,
+): Readonly<Record<string, string>> {
+  if (!(key in rec)) return rec
+  const next: Record<string, string> = {}
+  for (const [k, v] of Object.entries(rec)) if (k !== key) next[k] = v
+  return next
 }
 
 export function useOrders(
@@ -139,6 +176,15 @@ export function useOrders(
   // deschise) — paginile afișează un avertisment, nu tac (audit v3 RES-36).
   const [truncated, setTruncated] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set<string>())
+  const [actionErrors, setActionErrors] = useState<Readonly<Record<string, string>>>({})
+  // Sursa SINCRONĂ a lock-ului de dublu-tap: al doilea tap din același frame
+  // vine înainte ca state-ul `pendingIds` să se fi re-randat.
+  const pendingSetRef = useRef<Set<string>>(new Set())
+  const errorTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  // Generația vederii (restaurant + view): un advance/resync pornit pentru
+  // restaurantul VECHI nu are voie să scrie în lista celui nou.
+  const genRef = useRef(0)
 
   // Snapshot pentru handler-ul realtime (nu re-abonăm canalul la fiecare
   // schimbare de listă). Poate fi cu un frame în urmă — inofensiv: merge-ul
@@ -173,6 +219,10 @@ export function useOrders(
     }
     setLoading(true)
     setError(null)
+    genRef.current += 1
+    pendingSetRef.current = new Set()
+    setPendingIds(new Set<string>())
+    setActionErrors({})
     // Guard de anulare (audit v3 DS-4): la comutarea restaurantului, răspunsul
     // ÎNTÂRZIAT al fetch-ului vechi nu are voie să suprascrie lista noului
     // restaurant (comenzile lui A afișate sub titlul lui B până la următorul poll).
@@ -212,6 +262,69 @@ export function useOrders(
   // re-creeze intervalul la fiecare flap de status.
   const connectionStatusRef = useRef<RealtimeConnectionStatus>('connecting')
   const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Resincronizarea curentă (setată de efectul de mai jos, pe restaurant+view)
+  // — ref, ca handler-ul canalului să n-o pună în dependențe (re-abonarea
+  // canalului la fiecare schimbare ar pierde evenimente).
+  const resyncRef = useRef<(force?: boolean) => void>(() => {})
+  // Un resync cerut cât un advance e in-flight se amână până la finalul lui
+  // (altfel ar suprascrie starea optimistă înainte de RPC).
+  const resyncWantedRef = useRef(false)
+  const lastResyncAtRef = useRef(0)
+
+  useEffect(() => {
+    if (!restaurantId) return
+    const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
+    let cancelled = false
+    resyncRef.current = (force = false) => {
+      if (pendingAdvancesRef.current > 0) {
+        resyncWantedRef.current = true
+        return
+      }
+      const now = Date.now()
+      if (!force && now - lastResyncAtRef.current < RESYNC_MIN_GAP_MS) return
+      lastResyncAtRef.current = now
+      resyncWantedRef.current = false
+      fetcher(restaurantId)
+        .then((page) => {
+          if (cancelled) return
+          if (pendingAdvancesRef.current > 0) {
+            // A pornit un advance între timp: lista asta ar reverti starea
+            // optimistă. Reluăm resync-ul la finalul lui.
+            resyncWantedRef.current = true
+            return
+          }
+          setOrders((prev) => reconcileOrders(prev, page.orders))
+          setTruncated(page.truncated)
+          // Un fetch reușit închide bannerul de sincronizare (era lipicios).
+          setError(null)
+        })
+        .catch(() => {
+          /* păstrăm lista; heartbeat-ul reîncearcă */
+        })
+    }
+    let hiddenAt: number | null =
+      typeof document !== 'undefined' && document.hidden ? Date.now() : null
+    const onVisibility = () => {
+      if (document.hidden) {
+        hiddenAt = Date.now()
+        return
+      }
+      const away = hiddenAt == null ? 0 : Date.now() - hiddenAt
+      hiddenAt = null
+      if (away >= RESYNC_AFTER_HIDDEN_MS) resyncRef.current()
+    }
+    const onOnline = () => resyncRef.current()
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('online', onOnline)
+    return () => {
+      cancelled = true
+      resyncRef.current = () => {}
+      resyncWantedRef.current = false
+      lastResyncAtRef.current = 0
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [restaurantId, view])
 
   useEffect(() => {
     if (!restaurantId) return
@@ -220,6 +333,9 @@ export function useOrders(
     // 'connected' vechi din ref ar face polling-ul să sară hidratarea corectă
     // și să ruleze throttled pe noul restaurant până la primul flap real.
     connectionStatusRef.current = 'connecting'
+    // A fost canalul ACESTA vreodată conectat? Primul SUBSCRIBED nu cere
+    // resync (fetch-ul inițial tocmai a adus lista); fiecare RE-conectare da.
+    let everConnected = false
     // Timeout: dacă realtime nu raportează SUBSCRIBED în 12s, marcăm
     // disconnected (polling-ul preia datele). Evită bulina blocată pe galben.
     if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current)
@@ -274,11 +390,18 @@ export function useOrders(
         }
       },
       (status) => {
+        const prev = connectionStatusRef.current
         connectionStatusRef.current = status
         setConnectionStatus(status)
         if (status === 'connected' && connectTimeoutRef.current) {
           clearTimeout(connectTimeoutRef.current)
           connectTimeoutRef.current = null
+        }
+        if (status === 'connected' && prev !== 'connected') {
+          // Evenimentele din fereastra în care canalul a fost căzut nu se
+          // mai livrează — le recuperăm cu un fetch imediat.
+          if (everConnected) resyncRef.current()
+          everConnected = true
         }
       },
     )
@@ -328,6 +451,7 @@ export function useOrders(
           // re-randând tot arborele și invalidând orice memo pe carduri.
           setOrders((prev) => reconcileOrders(prev, page.orders))
           setTruncated(page.truncated)
+          setError(null)
         })
         .catch(() => {
           /* ignore — păstrăm state-ul curent */
@@ -339,22 +463,66 @@ export function useOrders(
     }
   }, [restaurantId, view])
 
+  const dismissActionError = useCallback((orderId: string) => {
+    const t = errorTimersRef.current.get(orderId)
+    if (t) {
+      clearTimeout(t)
+      errorTimersRef.current.delete(orderId)
+    }
+    setActionErrors((prev) => withoutKey(prev, orderId))
+  }, [])
+
+  const showActionError = useCallback((orderId: string, message: string) => {
+    const old = errorTimersRef.current.get(orderId)
+    if (old) clearTimeout(old)
+    setActionErrors((prev) => ({ ...prev, [orderId]: message }))
+    errorTimersRef.current.set(
+      orderId,
+      setTimeout(() => {
+        errorTimersRef.current.delete(orderId)
+        setActionErrors((prev) => withoutKey(prev, orderId))
+      }, ACTION_ERROR_TTL_MS),
+    )
+  }, [])
+
+  useEffect(() => {
+    const timers = errorTimersRef.current
+    return () => {
+      for (const t of timers.values()) clearTimeout(t)
+      timers.clear()
+    }
+  }, [])
+
   const advance = useCallback(
     async (
       orderId: string,
       currentStatus: OrderStatus,
       payload: AdvanceOrderPayload,
-      // throwOnError: după rollback-ul optimist și setError, eroarea e RE-ARUNCATĂ
-      // (cu hint/code) ca apelantul s-o afișeze în propriul dialog — banner-ul
-      // paginii stă sub overlay-ul modalelor. Contractul boolean rămâne pentru
-      // ceilalți apelanți (default false).
+      // throwOnError: după rollback, eroarea e RE-ARUNCATĂ (cu hint/code) ca
+      // apelantul s-o afișeze în propriul dialog (plată / anulare). Fără el,
+      // eroarea ajunge în `actionErrors[orderId]`, lângă butonul apăsat.
       opts?: { throwOnError?: boolean },
     ) => {
-      let previous: Order | undefined
-      setOrders((prev) => {
-        previous = prev.find((o) => o.id === orderId)
-        return prev.map((o) => (o.id === orderId ? { ...o, ...payload } : o))
-      })
+      // Dublu-tap (ux-staff-double-tap-advance): după primul tap starea
+      // optimistă mută deja comanda la pasul următor, iar butonul ei arată
+      // ACȚIUNEA următoare — al doilea tap o avansa încă o dată. Cât o acțiune
+      // e în curs pe comandă, orice altă acțiune pe ea e refuzată pe loc.
+      if (pendingSetRef.current.has(orderId)) {
+        if (opts?.throwOnError) {
+          throw Object.assign(new Error(describeStaffActionError({ hint: 'action_in_progress' })), {
+            hint: 'action_in_progress',
+          })
+        }
+        return false
+      }
+      const gen = genRef.current
+      pendingSetRef.current.add(orderId)
+      setPendingIds(new Set(pendingSetRef.current))
+      dismissActionError(orderId)
+      // Instantaneul pentru rollback se citește SINCRON (nu din updater-ul lui
+      // setOrders, care poate rula abia la randare).
+      const previous = ordersRef.current.find((o) => o.id === orderId)
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...payload } : o)))
       pendingAdvancesRef.current += 1
       try {
         // OPT-5: cu realtime conectat, evenimentul UPDATE aduce rândul
@@ -366,30 +534,43 @@ export function useOrders(
           { ...payload, _currentStatus: currentStatus },
           { hydrate: connectionStatusRef.current !== 'connected' },
         )
-        if (updated) upsertOrder(updated)
+        if (updated && gen === genRef.current) upsertOrder(updated)
         return true
       } catch (e: unknown) {
-        if (previous !== undefined) {
-          const snap = previous
-          setOrders((prev) => {
-            const idx = prev.findIndex((o) => o.id === orderId)
-            if (idx === -1) return prev
-            const next = [...prev]
-            next[idx] = snap
-            return next
-          })
+        if (gen === genRef.current) {
+          if (previous !== undefined) {
+            const snap = previous
+            setOrders((prev) => {
+              const idx = prev.findIndex((o) => o.id === orderId)
+              if (idx === -1) return prev
+              const next = [...prev]
+              next[idx] = snap
+              return next
+            })
+          }
+          // Rollback-ul la instantaneu nu e neapărat ADEVĂRUL: cel mai des o
+          // acțiune e respinsă tocmai fiindcă un coleg a mutat deja comanda
+          // (invalid_transition). Cerem rândul real; dacă nici asta nu merge
+          // (rețea), rămâne instantaneul.
+          void fetchOrderById(orderId)
+            .then((fresh) => {
+              if (gen === genRef.current) upsertOrder(fresh)
+            })
+            .catch(() => {
+              /* rămâne instantaneul */
+            })
         }
-        // Cu throwOnError apelantul afișează eroarea în propriul dialog — NU o
-        // punem și în bannerul paginii (ar rămâne acolo după închiderea
-        // dialogului, până la următorul advance).
         if (opts?.throwOnError) throw e
-        setError(e instanceof Error ? e.message : 'Failed to update order')
+        if (gen === genRef.current) showActionError(orderId, describeStaffActionError(e))
         return false
       } finally {
         pendingAdvancesRef.current = Math.max(0, pendingAdvancesRef.current - 1)
+        pendingSetRef.current.delete(orderId)
+        if (gen === genRef.current) setPendingIds(new Set(pendingSetRef.current))
+        if (pendingAdvancesRef.current === 0 && resyncWantedRef.current) resyncRef.current(true)
       }
     },
-    [upsertOrder],
+    [upsertOrder, dismissActionError, showActionError],
   )
 
   const byStatus = useCallback(
@@ -397,5 +578,16 @@ export function useOrders(
     [orders],
   )
 
-  return { orders, loading, error, truncated, connectionStatus, advance, byStatus }
+  return {
+    orders,
+    loading,
+    error,
+    truncated,
+    connectionStatus,
+    advance,
+    byStatus,
+    pendingIds,
+    actionErrors,
+    dismissActionError,
+  }
 }
