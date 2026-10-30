@@ -14,9 +14,14 @@ import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
+import {
+  planIntentDestination,
+  readPlanIntent,
+  signupPath,
+  writePlanIntent,
+} from './lib/planIntent'
 import { authPathWithNext, nextFromSearch } from './lib/authRedirect'
-import { loadPostLoginDestination } from './lib/postLogin'
+import { loadPlanIntentDestination, loadPostLoginDestination } from './lib/postLogin'
 import { leaveAuth } from './lib/postLoginRedirect'
 import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
@@ -431,15 +436,19 @@ function AppRouter() {
       }
       // Intenția de plan (localStorage, TTL 24 h): contul confirmat din linkul
       // de email se deschide în ALT tab, unde `onSuccess` din AuthPage nu
-      // rulează niciodată — singurul care vede sesiunea e efectul ăsta. Fără
-      // ramura asta, restaurantul nou ateriza pe /dashboard în loc de
-      // checkout. /pricing pornește singur plata (usePlanIntentAutoCheckout).
+      // rulează niciodată — singurul care vede sesiunea e efectul ăsta.
       // Doar intenția ACESTUI cont (sau aleasă în acest tab / `?plan=` din
       // URL): pe un dispozitiv partajat, ospătarul care se loghează nu are voie
       // să moștenească planul ales de altcineva (planIntent.ts).
+      // Întâi restaurantul, apoi planul (lib/postLogin.ts): /pricing (unde
+      // usePlanIntentAutoCheckout pornește plata) DOAR pentru cine deține deja
+      // un restaurant; patronul nou trece întâi prin onboarding, iar intenția,
+      // nefolosită, e onorată la finalul lui (onComplete de mai jos).
       const intentDest = planIntentDestination(user.email ?? null, window.location.search)
       if (intentDest) {
-        exitAuth(intentDest)
+        void loadPlanIntentDestination(user.id).then((dest) => {
+          exitAuth(dest)
+        })
         return
       }
       // Fiecare rol pe ecranul lui (lib/postLogin.ts): personalul pe pagina lui,
@@ -789,9 +798,10 @@ function AppRouter() {
               exitAuth(nextDest)
               return
             }
-            // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
-            // înapoi la pricing — onCheckout va detecta că e logat și va sări
-            // la Stripe. Fără intent, mergem pe ecranul rolului.
+            // Dacă userul a venit din pricing cu un plan ales și are deja un
+            // restaurant, îl ducem înapoi la pricing — onCheckout va detecta că
+            // e logat și va sări la Stripe. Fără restaurant, întâi onboarding-ul.
+            // Fără intent, mergem pe ecranul rolului.
             const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
@@ -800,7 +810,12 @@ function AppRouter() {
               /* ignore (private mode) */
             }
             if (intentDest) {
-              exitAuth(intentDest)
+              // Întâi restaurantul, apoi planul — același calcul ca efectul.
+              void (async () => {
+                const { data } = await supabase.auth.getSession()
+                const uid = data.session?.user.id
+                exitAuth(uid ? await loadPlanIntentDestination(uid) : '/dashboard')
+              })()
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
@@ -853,9 +868,13 @@ function AppRouter() {
     return (
       <Suspense fallback={<PageSpinner />}>
         <OnboardingPage
+          pendingPlan={readPlanIntent(user.email ?? null)}
           onComplete={() => {
             refetch()
-            navigate('/dashboard')
+            // Întâi restaurantul, apoi planul: cu o intenție de plan păstrată
+            // (aleasă pe landing/pricing înainte de cont), /pricing pornește
+            // ACUM plata — restaurantul există. Fără intenție, dashboard-ul.
+            navigate(planIntentDestination(user.email ?? null) ?? '/dashboard')
           }}
         />
       </Suspense>
@@ -896,8 +915,8 @@ export default function App() {
                 pentru vizitatorii anonimi (meniul QR nu e atins). */}
             <TermsGateMount />
             {/* Întoarcerea din Stripe (?checkout=success|cancelled): banner
-                NE-dialog, global, ca să apară și pe Onboarding (contul nou
-                plătește înainte să-și creeze restaurantul). */}
+                NE-dialog, global, ca să apară și pe Onboarding (un cont fără
+                restaurant poate încă plăti direct din /pricing). */}
             <CheckoutReturnBanner />
             <Suspense fallback={null}>
               <PWAPrompt />

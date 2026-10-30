@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+import { D, PLAN_LABELS } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
 import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
@@ -12,6 +12,7 @@ import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/doma
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
 import { slugify } from '../lib/slug'
+import type { PlanIntentId } from '../lib/planIntent'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -158,6 +159,9 @@ const S = {
       nextStepTrackOrders: 'Urmărește comenzile live din Bucătărie',
       finishingBtn: 'Se deschide...',
       doneBtn: 'Deschide dashboard-ul →',
+      // Planul ales pe landing/pricing înainte de cont: întâi restaurantul,
+      // apoi planul — CTA-ul final duce la activarea lui (/pricing).
+      continuePlanBtn: (plan: string) => `Continuă cu planul ${plan} →`,
     },
   },
   en: {
@@ -273,6 +277,7 @@ const S = {
       nextStepTrackOrders: 'Track live orders from the Kitchen',
       finishingBtn: 'Opening...',
       doneBtn: 'Open the dashboard →',
+      continuePlanBtn: (plan: string) => `Continue with the ${plan} plan →`,
     },
   },
 } as const
@@ -1299,10 +1304,12 @@ function Step3Table({
 function Step4Done({
   restaurantId,
   slug,
+  pendingPlan,
   onComplete,
 }: {
   restaurantId: string
   slug: string
+  pendingPlan: PlanIntentId | null
   onComplete: () => void
 }) {
   // Linkul de distribuit urmează politica de domeniu (D3): pe un host .com NU
@@ -1513,7 +1520,11 @@ function Step4Done({
         disabled={finishing}
         style={finishing ? btnDisabled : btnPrimary}
       >
-        {finishing ? t.step4.finishingBtn : t.step4.doneBtn}
+        {finishing
+          ? t.step4.finishingBtn
+          : pendingPlan
+            ? t.step4.continuePlanBtn(PLAN_LABELS[pendingPlan] ?? pendingPlan)
+            : t.step4.doneBtn}
       </button>
     </Shell>
   )
@@ -1528,7 +1539,15 @@ interface OnboardingState {
   slug: string | null
 }
 
-export default function OnboardingPage({ onComplete }: { onComplete: () => void }) {
+export default function OnboardingPage({
+  onComplete,
+  pendingPlan = null,
+}: {
+  onComplete: () => void
+  // Planul ales înainte de cont (lib/planIntent.ts): după onboarding, App duce
+  // omul la activarea lui. Aici doar numește pasul următor pe butonul final.
+  pendingPlan?: PlanIntentId | null
+}) {
   const [state, setState] = useState<OnboardingState>({
     step: 1,
     restaurantId: null,
@@ -1593,6 +1612,7 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
     <Step4Done
       restaurantId={state.restaurantId!}
       slug={state.slug!}
+      pendingPlan={pendingPlan}
       onComplete={() => {
         track('onboarding_completed')
         onComplete()

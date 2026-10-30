@@ -6,8 +6,16 @@
 //        (patronul nou ajunge pe onboarding)
 //   PL4  AVÂND restaurant, agentul rămâne pe /dashboard — afilierea nu mută un patron
 //   PL5  roluri mixte → /dashboard (comportamentul de dinainte)
+//
+// Cu intenție de plan (ux-owner-checkout-before-restaurant): întâi restaurantul,
+// apoi planul.
+//   RQ1  patronul fără restaurant → /dashboard (onboarding), NU /pricing — mutația
+//        care pică: „intenție ⇒ /pricing” necondiționat (comportamentul vechi)
+//   RQ2  cine deține un restaurant → /pricing (checkout-ul automat rămâne)
+//   RQ3  agentul fără restaurant care a ales un plan → onboarding, nu /afiliat
+//   RQ4  personalul altui restaurant (fără owner) → ecranul rolului, nu Stripe
 import { describe, it, expect } from 'vitest'
-import { pickPostLoginDestination } from '../postLogin'
+import { pickPlanIntentDestination, pickPostLoginDestination } from '../postLogin'
 
 describe('pickPostLoginDestination', () => {
   it('PL1 personalul pe pagina lui', () => {
@@ -35,5 +43,30 @@ describe('pickPostLoginDestination', () => {
   it('PL5 roluri mixte → /dashboard', () => {
     expect(pickPostLoginDestination({ roles: ['kitchen', 'waiter'], affiliate: 'none' })).toBe('/dashboard')
     expect(pickPostLoginDestination({ roles: ['owner', 'waiter'], affiliate: 'none' })).toBe('/dashboard')
+  })
+})
+
+describe('pickPlanIntentDestination — întâi restaurantul, apoi planul', () => {
+  it('RQ1 patronul fără restaurant → onboarding, nu Stripe', () => {
+    expect(pickPlanIntentDestination({ roles: [], affiliate: 'none' })).toBe('/dashboard')
+    expect(pickPlanIntentDestination({ roles: [], affiliate: 'other' })).toBe('/dashboard')
+  })
+
+  it('RQ2 cine deține un restaurant → /pricing', () => {
+    expect(pickPlanIntentDestination({ roles: ['owner'], affiliate: 'none' })).toBe('/pricing')
+    expect(pickPlanIntentDestination({ roles: ['waiter', 'owner'], affiliate: 'active' })).toBe(
+      '/pricing',
+    )
+  })
+
+  it('RQ3 agentul fără restaurant care a ales un plan → onboarding', () => {
+    expect(pickPlanIntentDestination({ roles: [], affiliate: 'active' })).toBe('/dashboard')
+    expect(pickPlanIntentDestination({ roles: [], affiliate: 'pending' })).toBe('/dashboard')
+  })
+
+  it('RQ4 personalul altui restaurant → ecranul rolului', () => {
+    expect(pickPlanIntentDestination({ roles: ['waiter'], affiliate: 'none' })).toBe('/waiter')
+    expect(pickPlanIntentDestination({ roles: ['kitchen'], affiliate: 'none' })).toBe('/kitchen')
+    expect(pickPlanIntentDestination({ roles: ['manager'], affiliate: 'none' })).toBe('/dashboard')
   })
 })
