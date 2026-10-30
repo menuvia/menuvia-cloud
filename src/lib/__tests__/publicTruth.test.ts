@@ -96,6 +96,16 @@ describe('comisionul de afiliere', () => {
   })
 })
 
+describe('programul de agenți nu promite recrutare deschisă', () => {
+  it('PT6: AfiliatIntroPage nu mai vinde „sub-parteneri” (recrutarea e doar pe invitație)', () => {
+    const src = read('src/pages/AfiliatIntroPage.tsx')
+    expect(src).not.toMatch(/Recrutezi sub-parteneri/)
+    expect(src).not.toMatch(/panoul tău de partener/)
+    // Control pozitiv: banda de încredere are în locul lui ce primește real agentul.
+    expect(src).toContain('Ghid de start și un mesaj gata de trimis, direct în panoul tău')
+  })
+})
+
 describe('recenzii Google fără filtrare', () => {
   it('PT3a: FeedbackWidget nu condiționează linkul de notă', () => {
     const src = read('src/components/PaymentConfirmedScreen.tsx')

@@ -29,6 +29,7 @@ import type { CSSProperties } from 'react'
 import { D } from '../../lib/constants'
 import { publicBaseUrl } from '../../lib/domain'
 import { confirm } from '../ui/confirm'
+import OneTimeLinkBox from '../sales/OneTimeLinkBox'
 import { useSalesNetwork } from '../../hooks/useSalesNetwork'
 import { useContractTextHash } from '../../hooks/useContractTextHash'
 import {
@@ -411,12 +412,10 @@ function HeadInviteCard({
   const [msg, setMsg] = useState<Msg>(null)
   // Linkul cu token: DOAR aici, în memorie, până îl ascunde omul.
   const [link, setLink] = useState<string | null>(null)
-  const [copyMsg, setCopyMsg] = useState<Msg>(null)
 
   const create = async (): Promise<void> => {
     setBusy(true)
     setMsg(null)
-    setCopyMsg(null)
     try {
       const invite = await adminCreateHeadInvite(email, note)
       const base = publicBaseUrl(
@@ -434,30 +433,6 @@ function HeadInviteCard({
       setBusy(false)
     }
   }
-
-  const copy = async (): Promise<void> => {
-    if (link === null) return
-    try {
-      await navigator.clipboard.writeText(link)
-      setCopyMsg({ kind: 'ok', text: 'Link copiat.' })
-    } catch {
-      setCopyMsg({
-        kind: 'err',
-        text: 'Nu am putut copia automat. Selectează linkul din câmp și copiază-l manual.',
-      })
-    }
-  }
-
-  const share = async (): Promise<void> => {
-    if (link === null) return
-    try {
-      await navigator.share({ title: 'Invitație Menuvia', url: link })
-    } catch {
-      /* omul a închis fereastra de partajare: nimic de raportat */
-    }
-  }
-
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
 
   return (
     <div style={cardStyle}>
@@ -505,49 +480,7 @@ function HeadInviteCard({
       <MessageLine msg={msg} />
 
       {link !== null && (
-        <section
-          aria-label="Linkul invitației"
-          style={{
-            marginTop: 14,
-            padding: 14,
-            borderRadius: 10,
-            border: `1px solid ${D.amber}`,
-            background: D.amberA,
-          }}
-        >
-          <p style={{ margin: '0 0 10px', fontSize: '0.84rem', fontWeight: 600 }}>
-            Linkul se vede o singură dată. Copiază-l sau trimite-l acum: după ce închizi caseta nu
-            îl mai poți recupera (poți doar să revoci invitația și să creezi alta).
-          </p>
-          <input
-            aria-label="Link invitație"
-            readOnly
-            value={link}
-            onFocus={(e) => e.currentTarget.select()}
-            style={{ ...inputStyle, width: '100%' }}
-          />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            <button type="button" onClick={() => void copy()} style={primaryBtn}>
-              Copiază
-            </button>
-            {canShare && (
-              <button type="button" onClick={() => void share()} style={ghostBtn}>
-                Trimite
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setLink(null)
-                setCopyMsg(null)
-              }}
-              style={ghostBtn}
-            >
-              Am salvat linkul, ascunde-l
-            </button>
-          </div>
-          <MessageLine msg={copyMsg} />
-        </section>
+        <OneTimeLinkBox key={link} link={link} revokeVerb="revoci" onHide={() => setLink(null)} />
       )}
     </div>
   )

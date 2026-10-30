@@ -61,7 +61,10 @@ const TRUST_ITEMS: { icon: IconName; text: string }[] = [
     icon: 'lock',
     text: 'Reguli clare: comisioanele devin plătibile după 60/14 zile; un refund sau o dispută a clientului le stornează și ulterior',
   },
-  { icon: 'users', text: 'Recrutezi sub-parteneri și câștigi și din echipa ta' },
+  // Fost „Recrutezi sub-parteneri și câștigi și din echipa ta": recrutarea prin cod
+  // a dispărut (pachetul 8b-2); echipe au doar șefii de vânzări invitați de
+  // Menuvia (mig 304). În locul ei, ce primește REAL un nou agent („Cum vând").
+  { icon: 'send', text: 'Ghid de start și un mesaj gata de trimis, direct în panoul tău' },
 ]
 
 const FAQ: { q: string; a: string }[] = [
@@ -83,7 +86,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Pot să-mi văd câștigurile în timp real?',
-    a: 'Da. În panoul tău de partener vezi live fiecare restaurant adus, fiecare comision generat și statusul plăților.',
+    a: 'Da. În panoul tău vezi live fiecare restaurant adus, fiecare comision generat și statusul plăților.',
   },
 ]
 

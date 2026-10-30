@@ -4,10 +4,11 @@
 // consimțământul lor, exact cum îi întoarce serverul), invitațiile deschise cu
 // „Retrage” și „Invită agent”.
 //
-// Linkul invitației se vede O SINGURĂ DATĂ, ca în panoul fondatorului
-// (components/founder/SalesNetworkPanel.tsx): tokenul se întoarce o dată de
-// server, trăiește doar în starea acestei componente (nu în storage, nu în
-// console) și dispare la „Am salvat linkul, ascunde-l”.
+// Linkul invitației se vede O SINGURĂ DATĂ (caseta comună
+// components/sales/OneTimeLinkBox.tsx, aceeași ca în panoul fondatorului):
+// tokenul se întoarce o dată de server, trăiește doar în starea acestei
+// componente (nu în storage, nu în console) și dispare la „Am salvat linkul,
+// ascunde-l”.
 //
 // `HeadCard` e perechea pentru agent: cardul șefului lui (contact doar cu
 // consimțământul ȘEFULUI).
@@ -28,6 +29,7 @@ import {
   type SalesTeamMember,
 } from '../../lib/salesNetwork'
 import { confirm } from '../ui/confirm'
+import OneTimeLinkBox from '../sales/OneTimeLinkBox'
 
 const sectionStyle: CSSProperties = {
   background: D.s2,
@@ -210,7 +212,6 @@ export default function TeamSection({
   const [message, setMessage] = useState<string | null>(null)
   // Linkul cu token: DOAR aici, în memorie, până îl ascunde omul.
   const [link, setLink] = useState<string | null>(null)
-  const [copyMessage, setCopyMessage] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
   const slots = inviteSlots(network)
@@ -220,7 +221,6 @@ export default function TeamSection({
   const create = async (): Promise<void> => {
     setBusy(true)
     setMessage(null)
-    setCopyMessage(null)
     try {
       const invite = await createAgentInvite(note)
       const base = publicBaseUrl(
@@ -255,26 +255,6 @@ export default function TeamSection({
       setMessage(describeSalesError(e))
     } finally {
       setRevokingId(null)
-    }
-  }
-
-  const copy = async (): Promise<void> => {
-    if (link === null) return
-    try {
-      await navigator.clipboard.writeText(link)
-      setCopyMessage('Link copiat.')
-    } catch {
-      setCopyMessage('Nu am putut copia automat. Selectează linkul din câmp și copiază-l manual.')
-    }
-  }
-
-  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
-  const share = async (): Promise<void> => {
-    if (link === null) return
-    try {
-      await navigator.share({ title: 'Invitație Menuvia', url: link })
-    } catch {
-      /* omul a închis fereastra de partajare: nimic de raportat */
     }
   }
 
@@ -378,54 +358,7 @@ export default function TeamSection({
       ) : null}
 
       {link !== null ? (
-        <div
-          role="region"
-          aria-label="Linkul invitației"
-          style={{
-            marginTop: 14,
-            padding: 14,
-            borderRadius: 10,
-            border: `1px solid ${D.amber}`,
-            background: D.amberA,
-          }}
-        >
-          <p style={{ margin: '0 0 10px', fontSize: '0.84rem', fontWeight: 600, color: D.t1 }}>
-            Linkul se vede o singură dată. Copiază-l sau trimite-l acum: după ce îl ascunzi nu îl
-            mai poți recupera (poți doar să retragi invitația și să creezi alta).
-          </p>
-          <input
-            aria-label="Link invitație"
-            readOnly
-            value={link}
-            onFocus={(e) => e.currentTarget.select()}
-            style={{ ...inputStyle, width: '100%' }}
-          />
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            <button type="button" onClick={() => void copy()} style={primaryBtn}>
-              Copiază
-            </button>
-            {canShare ? (
-              <button type="button" onClick={() => void share()} style={ghostBtn}>
-                Trimite
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setLink(null)
-                setCopyMessage(null)
-              }}
-              style={ghostBtn}
-            >
-              Am salvat linkul, ascunde-l
-            </button>
-          </div>
-          {copyMessage !== null ? (
-            <div role="status" style={{ color: D.t1, fontSize: '0.82rem', marginTop: 8 }}>
-              {copyMessage}
-            </div>
-          ) : null}
-        </div>
+        <OneTimeLinkBox key={link} link={link} revokeVerb="retragi" onHide={() => setLink(null)} />
       ) : null}
     </section>
   )
