@@ -8,6 +8,12 @@
 //        nu cel al răscumpărării („linkul invitației”); fără reîncărcare
 //   KR5  alt refuz (cont închis) → mesajul lui
 //   KR6  o versiune nouă resetează bifa (bifa e legată de hash, nu e un boolean)
+//   KR4b contract retras între timp → „Contractul a fost retras”, nu mesajul
+//        despre invitații al răscumpărării
+//   KR7  aceeași versiune republicată cu alt text → „s-a modificat de când l-ai
+//        acceptat”, nu „ai acceptat ultima dată versiunea v2.0”
+//   KR8  acceptare reușită + reîncărcare care NU aduce date noi (rețea picată) →
+//        confirmare pe ecran, fără formular (mutația fără starea locală pică)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -74,6 +80,7 @@ describe('ContractReacceptSection', () => {
     contractTextMock.mockReturnValue(null)
     render(<ContractReacceptSection contract={contract('2.0')} onAccepted={onAccepted} />)
     expect(await screen.findByText(/nu este încă în aplicație/)).toBeInTheDocument()
+    expect(screen.queryByText(/Citește textul de mai jos/)).toBeNull()
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Accept contractul' })).toBeNull()
     expect(rpcMock).not.toHaveBeenCalled()
@@ -121,5 +128,38 @@ describe('ContractReacceptSection', () => {
     expect(await screen.findByText('TEXT VERSIUNEA 3.0')).toBeInTheDocument()
     expect(screen.getByRole('checkbox')).not.toBeChecked()
     expect(screen.getByRole('button', { name: 'Accept contractul' })).toBeDisabled()
+  })
+
+  it('KR4b: contract retras între timp → mesajul panoului, fără invitații', async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, reason: 'contract_not_published' }, error: null })
+    const user = userEvent.setup()
+    render(<ContractReacceptSection contract={contract('2.0')} onAccepted={onAccepted} />)
+    await user.click(await screen.findByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Accept contractul' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Contractul a fost retras între timp. Reîncarcă pagina.')
+    expect(alert).not.toHaveTextContent(/invitați/)
+    expect(onAccepted).not.toHaveBeenCalled()
+  })
+
+  it('KR7: aceeași versiune, alt text → „s-a modificat”, nu „ai acceptat ultima dată v2.0”', async () => {
+    render(
+      <ContractReacceptSection contract={contract('2.0', { acceptedVersion: '2.0' })} onAccepted={onAccepted} />,
+    )
+    expect(await screen.findByText('TEXT VERSIUNEA 2.0')).toBeInTheDocument()
+    expect(screen.getByText(/s-a modificat de când l-ai acceptat/)).toBeInTheDocument()
+    expect(screen.queryByText(/ultima dată versiunea v2\.0/)).toBeNull()
+  })
+
+  it('KR8: acceptare reușită, reîncărcarea nu aduce date noi → confirmare, fără formular', async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, already: false, version: '2.0' }, error: null })
+    const user = userEvent.setup()
+    // onAccepted nu schimbă props-urile: exact ce se vede când reload-ul pică.
+    render(<ContractReacceptSection contract={contract('2.0')} onAccepted={onAccepted} />)
+    await user.click(await screen.findByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Accept contractul' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Ai acceptat contractul v2.0.')
+    expect(screen.queryByRole('button', { name: 'Accept contractul' })).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
   })
 })

@@ -70,6 +70,11 @@ export default function ContractReacceptSection({
   const gate = contractGate(contract.currentVersion, contract.currentTextHash, text, localHash)
   // Bifa ține minte hash-ul textului pe care l-a văzut omul, nu un boolean.
   const [checkedHash, setCheckedHash] = useState<string | null>(null)
+  // Perechea acceptată AICI. Dacă reîncărcarea rețelei pică după o acceptare
+  // reușită, serverul a înregistrat-o, dar `contract` din props rămâne vechi:
+  // fără ea, ecranul n-ar confirma nimic și ar cere din nou acceptarea. Se
+  // compară cu perechea afișată, deci o versiune nouă readuce formularul.
+  const [accepted, setAccepted] = useState<{ version: string; hash: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -82,6 +87,7 @@ export default function ContractReacceptSection({
     setError(null)
     try {
       await acceptSalesContract(gate.version, gate.hash)
+      setAccepted({ version: gate.version, hash: gate.hash })
       await onAccepted()
     } catch (e) {
       setError(e instanceof SalesNetworkError ? reacceptMessage(e.reason) : describeSalesError(e))
@@ -91,6 +97,20 @@ export default function ContractReacceptSection({
   }
 
   const versionLabel = contract.currentVersion !== null ? contractVersionLabel(contract.currentVersion) : ''
+  const isAccepted =
+    accepted !== null &&
+    accepted.version === contract.currentVersion &&
+    accepted.hash === contract.currentTextHash
+  // Aceeași versiune republicată cu ALT text (mig 308, KA5): „ai acceptat ultima
+  // dată versiunea v2.0” sub „a publicat versiunea v2.0” s-ar contrazice.
+  const sameVersion =
+    contract.acceptedVersion !== null && contract.acceptedVersion === contract.currentVersion
+  const intro = sameVersion
+    ? `Textul versiunii ${versionLabel} a contractului s-a modificat de când l-ai acceptat.`
+    : `Menuvia a publicat versiunea ${versionLabel} a contractului.` +
+      (contract.acceptedVersion !== null
+        ? ` Ai acceptat ultima dată versiunea ${contractVersionLabel(contract.acceptedVersion)}.`
+        : '')
 
   return (
     <section aria-labelledby="contract-reaccept-title" style={sectionStyle}>
@@ -98,12 +118,17 @@ export default function ContractReacceptSection({
         Contract nou de colaborare
       </h2>
       <p style={hintStyle}>
-        Menuvia a publicat versiunea {versionLabel} a contractului.
-        {contract.acceptedVersion !== null
-          ? ` Ai acceptat ultima dată versiunea ${contractVersionLabel(contract.acceptedVersion)}.`
-          : ''}{' '}
-        Citește textul de mai jos; CUI-ul declarat la intrarea în rețea rămâne același.
+        {intro}{' '}
+        {gate.state === 'ready' && !isAccepted
+          ? 'Citește textul de mai jos; CUI-ul declarat la intrarea în rețea rămâne același.'
+          : 'CUI-ul declarat la intrarea în rețea rămâne același.'}
       </p>
+
+      {isAccepted ? (
+        <p role="status" style={{ ...hintStyle, color: D.green }}>
+          Ai acceptat contractul {versionLabel}.
+        </p>
+      ) : null}
 
       {gate.state === 'missing_text' ? (
         <p role="status" style={{ ...hintStyle, color: D.amber }}>
@@ -127,7 +152,7 @@ export default function ContractReacceptSection({
         </p>
       ) : null}
 
-      {gate.state === 'ready' ? (
+      {gate.state === 'ready' && !isAccepted ? (
         <>
           <div
             tabIndex={0}
