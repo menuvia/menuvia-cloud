@@ -51,7 +51,7 @@ describe('PartnerAccessList', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('nimic cerut — „Cere acces", fără „Intră pe dashboard"', async () => {
+  it('nimic cerut — „Cere acces", fără „Editează meniul"', async () => {
     listPartnerAttributions.mockResolvedValue([attribution({ state: 'none' })])
     render(<PartnerAccessList />)
     expect(await screen.findByText('Bistro Test')).toBeInTheDocument()

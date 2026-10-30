@@ -122,15 +122,16 @@ Sumele sunt bază fără TVA. Dacă ești plătitor de TVA, o adaugi pe factura 
 
 **7. Plata.** În prima zi a lunii, sistemul generează automat lista de plată din soldul devenit plătibil. Emiți factura către Menuvia (de pe PFA sau SRL) și primești transferul. Prag minim **50 lei** — sub el, suma se reportează în luna următoare, nu se pierde. În panou vezi „Disponibil pentru plată" (net, după stornări și după plățile deja în curs) și data următoarei liste de plată.
 
-## Panoul de partener
+## Panoul agentului de vânzări
 
-Cinci secțiuni, fără să ceri nimic nimănui:
+Un singur ecran (`/afiliat`), de sus în jos, fără să ceri nimic nimănui:
 
-- **Acasă** — câștiguri totale, confirmate, în hold, următoarea plată.
-- **Restaurante** — fiecare local adus, planul lui, comisionul generat.
-- **Sub-parteneri** — partenerii aduși de tine și câți clienți au adus.
-- **Unelte** — linkul tău, codul QR descărcabil, datele tale de plată.
-- **Ghid** — pași, mesaje gata scrise, răspunsuri la obiecții.
+- **Înscrie un restaurant** — codul tău de agent, linkul, codul QR (pe tot ecranul la atingere, descărcabil) și „Arată demo”.
+- **Banii tăi** — cât ai câștigat și cât poți primi acum; sub **Detalii plăți**: sumele pe categorii, comisioanele tale, data următoarei plăți și datele de plată (IBAN).
+- **Clienții mei** — fiecare local adus, starea contului, comisionul generat și accesul la meniul lui (cerere / aprobat / retras).
+- **Echipa ta** — doar pentru șefii de vânzări: agenții invitați, invitațiile deschise, „Invită agent”.
+- **Consimțământ de contact** — comutatorul care arată (sau ascunde) telefonul și emailul tău patronilor restaurantelor aduse și rețelei.
+- **Cum vând** — pași, mesaj gata scris, răspunsuri la întrebările de la început.
 
 ## Pentru agenții web și de marketing: white-label
 
@@ -587,8 +588,8 @@ După aprobarea în panoul de fondator:
 
 - [ ] Îi confirmi aprobarea pe telefon sau WhatsApp (nu doar prin sistem).
 - [ ] Îi trimiți pe email: linkul lui `menuvia.ro/r/COD`, secțiunile **A, C, D** din kitul ăsta, și linkul de demo.
-- [ ] Îi ceri să-și completeze **datele de plată** în panou → „Unelte" → Date de plată. Fără ele, plata nu se poate face.
-- [ ] Îi ceri să-și descarce **codul QR** din „Unelte" (util pe cărți de vizită, la standuri, la târguri).
+- [ ] Îi ceri să-și completeze **datele de plată** în panou → „Banii tăi” → „Detalii plăți” → Date de plată. Fără ele, plata nu se poate face.
+- [ ] Îi ceri să-și descarce **codul QR** din „Înscrie un restaurant” (util pe cărți de vizită, la standuri, la târguri).
 - [ ] Îi spui explicit cele trei lucruri care nu se promit: fiscalizare funcțională, cifre inventate, delivery.
 - [ ] Îi dai numărul tău de WhatsApp și îi spui că răspunzi în aceeași zi. Primii afiliați au nevoie de asta.
 - [ ] Îți pui în calendar telefonul de la 2 săptămâni, cu întrebarea: „cu cine ai vorbit și ce ți-a spus?".
