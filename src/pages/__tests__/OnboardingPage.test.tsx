@@ -12,32 +12,47 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { LimitDetail } from '../../lib/features'
 
-const { createRestaurantMock, trackMock, aiImportPropsMock, getLimitDetailedMock } = vi.hoisted(
-  () => ({
-    createRestaurantMock: vi.fn(),
-    trackMock: vi.fn(),
-    aiImportPropsMock: vi.fn(),
-    getLimitDetailedMock: vi.fn((): LimitDetail => ({ kind: 'unlimited' })),
-  }),
-)
+const {
+  createRestaurantMock,
+  trackMock,
+  aiImportPropsMock,
+  getLimitDetailedMock,
+  fetchFeaturesMock,
+  hasFeatureMock,
+  db,
+} = vi.hoisted(() => ({
+  createRestaurantMock: vi.fn(),
+  trackMock: vi.fn(),
+  aiImportPropsMock: vi.fn(),
+  getLimitDetailedMock: vi.fn((): LimitDetail => ({ kind: 'unlimited' })),
+  // `{}` = un răspuns oarecare (nenul) al RPC-ului; `null` = RPC picat.
+  fetchFeaturesMock: vi.fn<() => Promise<object | null>>(() => Promise.resolve({})),
+  hasFeatureMock: vi.fn<(features: unknown, name: string) => boolean>(() => true),
+  // Ce scrie onboarding-ul în bază (UPDATE-uri), pe tabelă.
+  db: { updates: [] as Array<{ table: string; payload: Record<string, unknown> }> },
+}))
 
 vi.mock('../../lib/restaurants', () => ({ createRestaurant: createRestaurantMock }))
 vi.mock('../../lib/analytics', () => ({ track: trackMock }))
 // Supabase: doar lanțurile atinse de onboarding (markOnboarding = update().eq()).
+// Fiecare UPDATE se înregistrează în `db.updates`, pe tabelă.
 vi.mock('../../lib/supabase', () => ({
   supabase: {
-    from: vi.fn(() => ({
-      update: vi.fn(() => ({ eq: vi.fn().mockResolvedValue({ error: null }) })),
-    })),
+    from: (table: string) => ({
+      update: (payload: Record<string, unknown>) => {
+        db.updates.push({ table, payload })
+        return { eq: () => Promise.resolve({ error: null }) }
+      },
+    }),
     rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
   },
 }))
-// Features (folosite doar în Pasul 3) — fără fetch real în smoke test.
+// Features (Pașii 2–4) — fără fetch real; tristate controlat per test.
 vi.mock('../../lib/features', () => ({
-  fetchRestaurantFeatures: vi.fn().mockResolvedValue({}),
+  fetchRestaurantFeatures: fetchFeaturesMock,
   getLimit: vi.fn(() => null),
   getLimitDetailed: getLimitDetailedMock,
-  hasFeature: vi.fn(() => true),
+  hasFeature: hasFeatureMock,
 }))
 // AiMenuImport e lazy + greu (hooks de date); aici verificăm doar că butonul
 // de deschidere există în Pasul 2 și ce props primește modalul, nu modalul în sine.
@@ -56,6 +71,9 @@ const ONBOARDING_SRC = readFileSync(resolve(process.cwd(), 'src/pages/Onboarding
 beforeEach(() => {
   vi.clearAllMocks()
   getLimitDetailedMock.mockReturnValue({ kind: 'unlimited' })
+  fetchFeaturesMock.mockImplementation(() => Promise.resolve({}))
+  hasFeatureMock.mockImplementation(() => true)
+  db.updates.length = 0
   window.localStorage.clear()
 })
 
@@ -69,6 +87,18 @@ async function reachStep2() {
   await screen.findByText('Adaugă primul produs')
   return user
 }
+
+// Pasul 2 → „Sari peste” → Pasul 3.
+async function reachStep3() {
+  const user = await reachStep2()
+  await user.click(screen.getByRole('button', { name: /sari peste acest pas/i }))
+  await screen.findByText('Câte mese are restaurantul?')
+  return user
+}
+
+type DbUpdate = { table: string; payload: Record<string, unknown> }
+const pickupWrites = (): DbUpdate[] =>
+  db.updates.filter((u: DbUpdate) => u.table === 'restaurants' && 'pickup_settings' in u.payload)
 
 describe('OnboardingPage — funelul de activare', () => {
   it('Pasul 1 se randează cu titlul și butonul Continuă dezactivat fără nume', () => {
@@ -141,5 +171,44 @@ describe('OnboardingPage — funelul de activare', () => {
     expect(demo).toHaveAttribute('rel', expect.stringContaining('noopener'))
     expect(screen.queryByRole('button', { name: /meniu demo de/i })).not.toBeInTheDocument()
     expect(ONBOARDING_SRC).not.toContain('applyBusinessTypePreset')
+  })
+
+  // OB-P1 (ux-owner-pickup-tier1): pe un plan FĂRĂ `pickup_orders`, „Nu am mese”
+  // nu mai pornește ridicarea (meniul public o oferea oaspeților, iar serverul
+  // le respingea toate comenzile) — rămâne QR-ul general. Mutația care pică:
+  // butonul vechi, care scria `pickup_settings.enabled = true` pe orice plan.
+  it('OB-P1 fără pickup_orders: QR-ul general, ridicarea NU se pornește', async () => {
+    hasFeatureMock.mockImplementation((_f: unknown, name: string) => name !== 'pickup_orders')
+    const user = await reachStep3()
+    // Așteptăm planul citit (până atunci butonul e cel neutru, „doar ridicare”).
+    const generalQr = await screen.findByRole('button', { name: /qr-ul general al meniului/i })
+    expect(screen.queryByRole('button', { name: /doar ridicare/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/ridicare necesită planul/i)).toBeInTheDocument()
+    await user.click(generalQr)
+    await screen.findByText('Ești gata!')
+    expect(pickupWrites()).toHaveLength(0)
+  })
+
+  it('OB-P1b cu pickup_orders: „doar ridicare” pornește ridicarea + pickup_only', async () => {
+    const user = await reachStep3()
+    await user.click(await screen.findByRole('button', { name: /doar ridicare/i }))
+    await screen.findByText('Ești gata!')
+    const writes = pickupWrites()
+    expect(writes).toHaveLength(1)
+    expect(writes[0]!.payload.pickup_settings).toEqual(
+      expect.objectContaining({ enabled: true, pickup_only: true }),
+    )
+  })
+
+  // OB-P2: planul NECUNOSCUT (RPC picat) nu pornește ridicarea „pe încredere”:
+  // la apăsare se mai citește o dată, iar dacă tot nu se știe, eroare și nimic
+  // scris. Mutația care pică: tristate-ul înlocuit cu implicitul vechi `true`.
+  it('OB-P2 plan necunoscut: nicio ridicare pornită, mesaj de reîncercare', async () => {
+    fetchFeaturesMock.mockImplementation(() => Promise.resolve(null))
+    const user = await reachStep3()
+    await user.click(screen.getByRole('button', { name: /doar ridicare/i }))
+    expect(await screen.findByText(/nu am putut verifica planul/i)).toBeInTheDocument()
+    expect(pickupWrites()).toHaveLength(0)
+    expect(screen.getByText('Câte mese are restaurantul?')).toBeInTheDocument()
   })
 })

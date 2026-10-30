@@ -132,8 +132,12 @@ const S = {
       createTablesBtn: (count: number) => `Creează ${count} mese →`,
       skipBtn: 'Sari peste acest pas →',
       pickupOnlyBtn: 'Nu am mese — doar ridicare (food truck) →',
+      // Planul fără `pickup_orders`: ridicarea NU se pornește (serverul ar
+      // respinge toate comenzile oaspeților), rămâne QR-ul general al meniului.
+      generalQrBtn: 'Nu am mese — folosesc QR-ul general al meniului →',
       pickupHint:
         'Comenzile pentru ridicare necesită planul 🛎 Meniu + Comenzi — meniul QR general funcționează și pe planul curent.',
+      planUnknownError: 'Nu am putut verifica planul restaurantului. Reîncearcă.',
     },
     step4: {
       title: 'Ești gata!',
@@ -250,8 +254,10 @@ const S = {
       createTablesBtn: (count: number) => `Create ${count} tables →`,
       skipBtn: 'Skip this step →',
       pickupOnlyBtn: 'No tables — pickup only (food truck) →',
+      generalQrBtn: 'No tables — I use the general menu QR →',
       pickupHint:
         'Pickup orders require the 🛎 Menu + Orders plan — the general QR menu still works on your current plan.',
+      planUnknownError: "We couldn't check your restaurant's plan. Try again.",
     },
     step4: {
       title: "You're all set!",
@@ -983,13 +989,20 @@ function Step2Menu({
 // ═══════════════════════════════════════════════════════════════
 // STEP 3 — Configurează prima masă
 // ═══════════════════════════════════════════════════════════════
+/** Ce s-a ales REAL la Pasul 3 — ecranul final bifează după asta, nu hard-codat. */
+type TablesOutcome =
+  | { kind: 'tables'; count: number; qrOk: boolean }
+  | { kind: 'pickup' }
+  | { kind: 'general-qr' }
+  | { kind: 'skipped' }
+
 function Step3Table({
   restaurantId,
   onNext,
   onSkip,
 }: {
   restaurantId: string
-  onNext: () => void
+  onNext: (outcome: TablesOutcome) => void
   onSkip: () => void
 }) {
   // Limita de mese a planului (free=3). Citim de la server ca să nu trimitem
@@ -999,15 +1012,21 @@ function Step3Table({
   const [count, setCount] = useState(5)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Comenzile pentru ridicare sunt growth+ (Gate A) — pe tier 1 arătăm hintul
-  // de plan sub butonul „Nu am mese" (acțiunea rămâne permisă, flag-ul e inert).
-  const [hasPickup, setHasPickup] = useState(true)
+  // Comenzile pentru ridicare sunt growth+ (Gate A). TRISTATE: `null` = planul
+  // nu e (încă) cunoscut. Flag-ul NU e inert: cu `pickup_settings.enabled`,
+  // meniul public oferă ridicarea oaspeților, iar pe un plan fără
+  // `pickup_orders` serverul le respinge TOATE comenzile. Deci pe tier 1 nu se
+  // pornește nimic, iar pe necunoscut nu se pornește până nu e verificat.
+  const [hasPickup, setHasPickup] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void fetchRestaurantFeatures(restaurantId)
       .then((f) => {
-        if (cancelled) return
+        // `null` = RPC picat: NU e „plan fără mese și fără ridicare” — lăsăm
+        // plafonul necunoscut (UI pe 50, serverul e plasa) și ridicarea nedecisă.
+        // Înainte, getLimit(null) dădea 0 → „între 1 și 0 mese”, imposibil.
+        if (cancelled || !f) return
         const lim = getLimit(f, 'max_tables') // null = nelimitat
         setMaxTables(lim)
         setHasPickup(hasFeature(f, 'pickup_orders'))
@@ -1069,15 +1088,40 @@ function Step3Table({
     const { error: qrErr } = await supabase.from('qr_tokens').insert(tokens)
 
     await markOnboarding(restaurantId, { table_created: true, qr_generated: !qrErr })
-    onNext()
+    onNext({ kind: 'tables', count, qrOk: !qrErr })
   }
 
-  // Ramura „fără mese": activăm pickup + pickup_only (UPDATE direct e permis —
-  // pickup_settings are grant column-level 096B + e în RESTAURANT_UPDATE_FIELDS)
-  // și marcăm pașii de mese/QR ca rezolvați semantic (QR-ul general = slug-ul).
-  const handlePickupOnly = async () => {
+  // Ramura „fără mese". Cu `pickup_orders` (verificat, nu presupus): activăm
+  // pickup + pickup_only (UPDATE direct e permis — pickup_settings are grant
+  // column-level 096B + e în RESTAURANT_UPDATE_FIELDS) și marcăm pașii de
+  // mese/QR ca rezolvați semantic (QR-ul general = slug-ul). Fără el: doar
+  // QR-ul general, ridicarea rămâne oprită.
+  const handleNoTables = async () => {
     setSaving(true)
     setError(null)
+    let pickup = hasPickup
+    if (pickup === null) {
+      // Încă necunoscut (citire în curs sau picată): îl citim acum, o dată.
+      const f = await fetchRestaurantFeatures(restaurantId).catch(() => null)
+      pickup = f ? hasFeature(f, 'pickup_orders') : null
+      setHasPickup(pickup)
+      if (pickup === null) {
+        setError(t.step3.planUnknownError)
+        setSaving(false)
+        return
+      }
+      if (!pickup) {
+        // Butonul devine „QR-ul general”, cu explicația planului dedesubt:
+        // omul a cerut ridicare, deci nu-l ducem mai departe fără să vadă de ce.
+        setSaving(false)
+        return
+      }
+    }
+    if (!pickup) {
+      await markOnboarding(restaurantId, { qr_generated: true })
+      onNext({ kind: 'general-qr' })
+      return
+    }
     const { error: pErr } = await supabase
       .from('restaurants')
       .update({
@@ -1097,7 +1141,7 @@ function Step3Table({
       return
     }
     await markOnboarding(restaurantId, { table_created: true, qr_generated: true })
-    onNext()
+    onNext({ kind: 'pickup' })
   }
 
   return (
@@ -1275,10 +1319,10 @@ function Step3Table({
         </button>
         {/* Food truck / tejghea (E3): activează pickup + modul „doar ridicare"
             — fără mese; QR-ul general /m/:slug devine QR-ul principal. */}
-        <button onClick={handlePickupOnly} disabled={saving} style={btnSecondary}>
-          {t.step3.pickupOnlyBtn}
+        <button onClick={() => void handleNoTables()} disabled={saving} style={btnSecondary}>
+          {hasPickup === false ? t.step3.generalQrBtn : t.step3.pickupOnlyBtn}
         </button>
-        {!hasPickup && (
+        {hasPickup === false && (
           <div
             style={{
               fontSize: '0.74rem',
@@ -1534,6 +1578,8 @@ interface OnboardingState {
   step: 1 | 2 | 3 | 4
   restaurantId: string | null
   slug: string | null
+  // Rezultatul REAL al Pasului 3 (ecranul final bifează după el).
+  tables: TablesOutcome
 }
 
 export default function OnboardingPage({
@@ -1549,6 +1595,7 @@ export default function OnboardingPage({
     step: 1,
     restaurantId: null,
     slug: null,
+    tables: { kind: 'skipped' },
   })
 
   const goTo = (step: 1 | 2 | 3 | 4) => setState((s) => ({ ...s, step }))
@@ -1567,7 +1614,7 @@ export default function OnboardingPage({
       <Step1Restaurant
         onNext={(restaurantId, slug) => {
           completeStep(1)
-          setState({ step: 2, restaurantId, slug })
+          setState((s) => ({ ...s, step: 2, restaurantId, slug }))
         }}
       />
     )
@@ -1593,13 +1640,13 @@ export default function OnboardingPage({
     return (
       <Step3Table
         restaurantId={state.restaurantId!}
-        onNext={() => {
+        onNext={(outcome) => {
           completeStep(3)
-          goTo(4)
+          setState((s) => ({ ...s, step: 4, tables: outcome }))
         }}
         onSkip={() => {
           completeStep(3, true)
-          goTo(4)
+          setState((s) => ({ ...s, step: 4, tables: { kind: 'skipped' } }))
         }}
       />
     )
