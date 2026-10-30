@@ -168,6 +168,9 @@ export const SALES_SERVER_REASONS = [
   'not_in_network',
   'no_change',
   'invalid_transition',
+  // mig 308 (accept_sales_contract)
+  'account_closed',
+  'no_prior_acceptance',
 ] as const
 
 export type SalesServerReason = (typeof SALES_SERVER_REASONS)[number]
@@ -230,6 +233,9 @@ export const SALES_FAILURE_MESSAGES: Record<SalesFailureReason, string> = {
   not_in_network: 'Cererea din programul public se decide din lista de cereri, nu prin suspendare.',
   no_change: 'Contul are deja această stare.',
   invalid_transition: 'Un cont închis nu mai poate fi redeschis.',
+  account_closed: 'Contul tău din rețeaua de vânzări este închis, deci nu mai poate accepta contracte.',
+  no_prior_acceptance:
+    'Nu găsim acceptarea inițială a contractului pe acest cont, deci nu putem înregistra una nouă. Scrie-ne.',
   unavailable: 'Funcția nu este disponibilă încă. Încearcă din nou puțin mai târziu.',
   forbidden: 'Nu ai drepturi pentru această acțiune.',
   network: 'Nu am putut contacta serverul. Verifică conexiunea și încearcă din nou.',
@@ -496,6 +502,28 @@ export async function createAgentInvite(note?: string): Promise<CreatedInvite> {
 /** Șeful retrage o invitație neacceptată. */
 export async function revokeAgentInvite(inviteId: string): Promise<void> {
   await rpcObject('revoke_agent_invite', { p_invite_id: inviteId })
+}
+
+export interface AcceptContractResult {
+  /** Perechea (versiune, hash) era deja acceptată: niciun rând nou. */
+  already: boolean
+  version: string
+}
+
+/**
+ * Membrul rețelei acceptă versiunea PUBLICATĂ a contractului (mig 308), cu
+ * sha256 al textului pe care l-a citit. CUI-ul rămâne cel declarat la intrare.
+ */
+export async function acceptSalesContract(
+  version: string,
+  hash: string,
+): Promise<AcceptContractResult> {
+  const body = await rpcObject('accept_sales_contract', {
+    p_contract_version: version,
+    p_contract_hash: hash,
+  })
+  if (typeof body.version !== 'string') throw new SalesNetworkError('unknown')
+  return { already: body.already === true, version: body.version }
 }
 
 /** Consimțământul (revocabil) ca numele/telefonul/emailul să fie afișate. */
