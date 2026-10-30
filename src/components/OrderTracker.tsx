@@ -14,6 +14,12 @@ import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
 import OrderClosedScreen from './OrderClosedScreen'
 import { legibleOn, readableTextOn } from '../lib/themes'
 
+// Ritmul polling-ului (perf-guest-11): 5 s cât comanda se mișcă prin bucătărie
+// (new → ready), 20 s pe `served` — după servire mai urmează doar închiderea
+// (Plan 2) sau plata (Plan 3), care durează minute, nu secunde.
+const ACTIVE_POLL_MS = 5000
+const SERVED_POLL_MS = 20000
+
 const ORDER_STEPS: ReadonlyArray<{ status: string; labelKey: PublicMenuStringKey; n: string }> = [
   { status: 'new', labelKey: 'ot_step_new', n: '1' },
   { status: 'confirmed', labelKey: 'ot_step_confirmed', n: '2' },
@@ -85,6 +91,9 @@ function OrderTracker({
       const payload = await getOrderPublicStatus(confirmation.id, sessionId)
       if (cancelled || !payload) return
       const p = payload as unknown as Record<string, unknown>
+      // Ref-ul se actualizează ACUM, nu la următoarea randare: programarea
+      // următorului tick (mai jos) citește starea imediat după răspuns.
+      statusRef.current = p.status as string
       setStatus(p.status as string)
       setLimitedTracking(!('total' in p))
       if (typeof p.tips_amount === 'number' || typeof p.tips_amount === 'string') {
@@ -106,28 +115,47 @@ function OrderTracker({
       }
     }
 
-    void poll()
-    const interval = setInterval(() => {
-      // Odată terminală, comanda nu mai are ce aduce: oprim intervalul, nu
-      // doar poll-ul (altfel tick-ul gol rulează la nesfârșit). Se face AICI,
-      // nu în poll(): poll() rulează prima dată înainte ca `interval` să existe.
-      if (TERMINAL.includes(statusRef.current)) {
-        clearInterval(interval)
-        return
+    // Un singur lanț de timeout-uri (nu setInterval), ca ritmul să se poată
+    // schimba după stare. Odată terminală, comanda nu mai are ce aduce: nu se mai
+    // programează nimic. Telefonul cu tab-ul în fundal (client care a comandat și
+    // și-a băgat telefonul în buzunar) nu trimite cereri — același guard ca în
+    // useOrders.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inFlight = false
+    const run = async (): Promise<void> => {
+      if (cancelled || TERMINAL.includes(statusRef.current)) return
+      if (!document.hidden) {
+        inFlight = true
+        try {
+          await poll()
+        } catch {
+          // Tranzitoriu (rețea): lanțul continuă la următorul tick.
+        } finally {
+          inFlight = false
+        }
       }
-      // Telefonul cu tab-ul în fundal (client care a comandat și și-a băgat
-      // telefonul în buzunar) nu mai trimite cereri — același guard ca în
-      // useOrders; la revenirea în tab, primul tick reia polling-ul.
-      if (document.hidden) return
-      void poll()
-    }, 5000)
+      if (cancelled || TERMINAL.includes(statusRef.current)) return
+      const delay = statusRef.current === 'served' ? SERVED_POLL_MS : ACTIVE_POLL_MS
+      timer = setTimeout(() => void run(), delay)
+    }
+    // La revenirea în tab oaspetele vrea starea de ACUM, nu peste până la 20 s:
+    // poll imediat, apoi ritmul normal. Dacă o cerere e deja în zbor, ea
+    // programează singură următorul tick.
+    const onVisibility = (): void => {
+      if (document.hidden || inFlight || cancelled) return
+      if (timer !== undefined) clearTimeout(timer)
+      void run()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    void run()
 
     return () => {
       cancelled = true
-      clearInterval(interval)
+      if (timer !== undefined) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
     // status exclus din deps intentionat — folosim ref pentru a evita
-    // restart-ul intervalului la fiecare update de status
+    // restart-ul polling-ului la fiecare update de status
   }, [confirmation.id, confirmation.short_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRequestFiscalReceipt() {
@@ -481,10 +509,16 @@ function ActiveOrdersBanner({
       if (document.hidden) return
       void pollAll()
     }, 6000)
+    // La revenirea în tab: starea de acum, nu peste până la 6 s.
+    const onVisibility = (): void => {
+      if (!document.hidden) void pollAll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [orders, sessionId])
 
