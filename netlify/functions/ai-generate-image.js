@@ -4,6 +4,14 @@
 // (`product-images`) și o setează pe produs, marcând `image_url` ca generat
 // de AI (ai_generated_fields). Metering pe cota hibridă.
 //
+// Configurația se citește EXACT ca în ai-proxy.js (oglindă): fără rând salvat =
+// starea implicită (activ, OpenAI, cheia PLATFORMEI), iar fără cheie proprie
+// (BYO) se folosește PLATFORM_<PROVIDER>_KEY. Până acum funcția cerea un rând
+// salvat ȘI o cheie proprie, deci în starea implicită a ORICĂRUI cont nou —
+// cea pe care AiSettingsTab o promite „fără nicio configurare tehnică" —
+// generarea de imagini era un drum fără ieșire („AI nu este configurat",
+// apoi „Lipsește cheia API"), în timp ce chatul și importul mergeau.
+//
 // Auth: JWT Supabase + caller = owner/manager al restaurantului.
 
 const { createClient } = require('@supabase/supabase-js')
@@ -38,12 +46,26 @@ const IMAGE_COST_USD = 0.04
 // nelimitat.
 const PROVIDER_TIMEOUT_MS = 60_000
 
+// Modelul de IMAGINE e altul decât cel de TEXT. `ai_provider_configs.model` e
+// modelul de chat (fluxul simplu din AiSettingsTab salvează `gpt-4o-mini` /
+// `gemini-1.5-flash`), iar trimis la endpoint-ul de imagini e respins de
+// furnizor — chiar și cu cheie proprie, generarea pica mereu. Folosim modelul
+// configurat DOAR dacă e chiar un model de imagine; altfel cel implicit.
+const IMAGE_MODEL = { openai: 'gpt-image-1', gemini: 'imagen-3.0-generate-002' }
+const IMAGE_MODEL_PATTERN = { openai: /^(gpt-image|dall-e)/i, gemini: /^imagen/i }
+
+function imageModelFor(provider, configuredModel) {
+  const m = typeof configuredModel === 'string' ? configuredModel.trim() : ''
+  if (m && IMAGE_MODEL_PATTERN[provider] && IMAGE_MODEL_PATTERN[provider].test(m)) return m
+  return IMAGE_MODEL[provider]
+}
+
 async function generateOpenAI(apiKey, model, prompt) {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: model || 'gpt-image-1', prompt, size: '1024x1024', n: 1 }),
+    body: JSON.stringify({ model, prompt, size: '1024x1024', n: 1 }),
   })
   if (!res.ok) throw new Error(`openai image ${res.status}: ${await res.text()}`)
   const data = await res.json()
@@ -53,8 +75,7 @@ async function generateOpenAI(apiKey, model, prompt) {
 }
 
 async function generateGemini(apiKey, model, prompt) {
-  const m = model || 'imagen-3.0-generate-002'
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:predict?key=${encodeURIComponent(apiKey)}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:predict?key=${encodeURIComponent(apiKey)}`
   const res = await fetch(url, {
     method: 'POST',
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
@@ -110,26 +131,43 @@ exports.handler = async (event) => {
     return aiError(403, 'forbidden')
   }
 
-  // Config + provider care suportă imagini
-  const { data: config, error: cfgErr } = await supabase
+  // Config + provider care suportă imagini. `maybeSingle`, nu `single`: lipsa
+  // rândului e starea IMPLICITĂ, nu o eroare (oglindă ai-proxy.js).
+  const { data: configRow, error: cfgErr } = await supabase
     .from('ai_provider_configs')
     .select('provider, model, api_key_encrypted, enabled')
     .eq('restaurant_id', restaurant_id)
-    .single()
-  if (cfgErr || !config) return aiError(400, 'provider_key_missing')
+    .maybeSingle()
+  if (cfgErr) {
+    console.error('[ai-generate-image] config load error:', cfgErr.message)
+    return aiError(500, 'config_load_failed')
+  }
+  const config = configRow ?? {
+    provider: 'openai',
+    model: '',
+    api_key_encrypted: null,
+    enabled: true,
+  }
   if (!config.enabled) return aiError(400, 'ai_disabled')
   if (!['openai', 'gemini'].includes(config.provider)) {
     return aiError(400, 'provider_no_images')
   }
-  if (!config.api_key_encrypted) return aiError(400, 'provider_key_missing')
 
+  // Cheia: proprie (BYO) dacă e salvată, altfel a PLATFORMEI — exact ca
+  // ai-proxy. Metering-ul pe cota restaurantului e identic în ambele cazuri.
   let apiKey
-  try {
-    apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
-  } catch (e) {
-    console.error('[ai-generate-image] decrypt error:', e.message)
-    return aiError(500, 'key_load_failed')
+  if (config.api_key_encrypted) {
+    try {
+      apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
+    } catch (e) {
+      console.error('[ai-generate-image] decrypt error:', e.message)
+      return aiError(500, 'key_load_failed')
+    }
+  } else {
+    apiKey = process.env[`PLATFORM_${config.provider.toUpperCase()}_KEY`]
+    if (!apiKey) return aiError(400, 'provider_key_missing')
   }
+  const imageModel = imageModelFor(config.provider, config.model)
 
   // Pre-check cotă
   const { data: canUse, error: quotaErr } = await supabase.rpc('ai_can_use', {
@@ -153,13 +191,13 @@ exports.handler = async (event) => {
   let b64
   try {
     b64 = config.provider === 'gemini'
-      ? await generateGemini(apiKey, config.model, prompt)
-      : await generateOpenAI(apiKey, config.model, prompt)
+      ? await generateGemini(apiKey, imageModel, prompt)
+      : await generateOpenAI(apiKey, imageModel, prompt)
   } catch (e) {
     console.error('[ai-generate-image] provider error:', e.message)
     await supabase.rpc('ai_record_usage', {
       p_restaurant_id: restaurant_id, p_feature: 'image_gen', p_provider: config.provider,
-      p_model: config.model || '', p_input_tokens: 0, p_output_tokens: 0, p_cost: 0,
+      p_model: imageModel, p_input_tokens: 0, p_output_tokens: 0, p_cost: 0,
       p_success: false, p_error: String(e.message).slice(0, 500),
     })
     return isTimeoutError(e) ? aiError(504, 'provider_timeout') : aiError(502, 'image_failed')
@@ -172,7 +210,7 @@ exports.handler = async (event) => {
   {
     const { error: usageErr } = await supabase.rpc('ai_record_usage', {
       p_restaurant_id: restaurant_id, p_feature: 'image_gen', p_provider: config.provider,
-      p_model: config.model || '', p_input_tokens: 0, p_output_tokens: IMAGE_TOKEN_COST,
+      p_model: imageModel, p_input_tokens: 0, p_output_tokens: IMAGE_TOKEN_COST,
       p_cost: IMAGE_COST_USD, p_success: true, p_error: null,
     })
     if (usageErr) {
@@ -217,3 +255,6 @@ exports.handler = async (event) => {
 
   return jsonResponse(200, { image_url: imageUrl })
 }
+
+// Pentru tests/functions/ai-generate-image.test.js.
+exports.imageModelFor = imageModelFor
