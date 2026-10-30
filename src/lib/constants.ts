@@ -14,7 +14,10 @@ export const D_RAW = {
   goldA: 'rgba(200,150,60,0.12)',
   t1: '#F0EAE0',
   t2: '#9A9590',
-  t3: '#7C766C', // FIX AA (~4.6:1 pe s1); fostul #4A4844 → tDisabled
+  // Text mic informativ: AA ≥4.5:1 pe bg/s1/s2/s3/s4 (clichet palette-contrast.test.ts).
+  // Fostul #7C766C pretindea „~4.6:1 pe s1”, dar avea 4.26:1 (și 3.41:1 pe s4).
+  // Decorativul/disabled rămâne tDisabled.
+  t3: '#928C82',
   tDisabled: '#4A4844',
   green: '#4CAF6E',
   greenA: 'rgba(76,175,110,0.12)',
