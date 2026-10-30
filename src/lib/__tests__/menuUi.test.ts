@@ -35,7 +35,9 @@ describe('cartBarLabel', () => {
   })
 
   it('BL2 cu produse → număr, plural și total, în limba oaspetelui', () => {
-    expect(cartBarLabel('ro', 'my_order', 1, '12,00 lei')).toBe('Comanda mea · 1 produs · 12,00 lei')
+    expect(cartBarLabel('ro', 'my_order', 1, '12,00 lei')).toBe(
+      'Comanda mea · 1 produs · 12,00 lei',
+    )
     expect(cartBarLabel('ro', 'my_order', 3, '36,00 lei')).toBe(
       'Comanda mea · 3 produse · 36,00 lei',
     )
@@ -73,7 +75,10 @@ describe('prefetchOnIdle', () => {
     vi.advanceTimersByTime(PREFETCH_FALLBACK_DELAY_MS * 2)
     expect(b).not.toHaveBeenCalled()
 
-    Object.defineProperty(navigator, 'connection', { value: { saveData: true }, configurable: true })
+    Object.defineProperty(navigator, 'connection', {
+      value: { saveData: true },
+      configurable: true,
+    })
     const c = vi.fn(() => Promise.resolve())
     prefetchOnIdle([c])
     vi.advanceTimersByTime(PREFETCH_FALLBACK_DELAY_MS * 2)
