@@ -62,13 +62,15 @@ button {
    DELIBERAT: zeci de câmpuri și butoane au `outline: 'none'` în stilul inline
    din JSX, iar un stil inline bate orice selector din foaie fără `!important`
    — deci regula de mai jos nu se aplica pe ele și focusul era invizibil.
-   Excepția: containerele focusate programatic (FocusTrap pune tabindex=-1 pe
-   dialog ca să mute focusul în el) nu primesc inel pe tot dialogul. */
+   Excepția: DIALOGUL focusat programatic (FocusTrap pune tabindex=-1 pe el ca
+   să mute focusul înăuntru) nu primește inel pe tot conturul. Scopată pe rol,
+   nu pe orice tabindex=-1: un tab dintr-un tablist cu roving tabindex
+   (CategoryTabs) primește focusul cât încă are -1 și trebuie să-și arate inelul. */
 :focus-visible {
   outline: 2px solid var(--color-gold) !important;
   outline-offset: 2px;
 }
-[tabindex='-1']:focus-visible {
+[role='dialog'][tabindex='-1']:focus-visible {
   outline: none !important;
 }
 
