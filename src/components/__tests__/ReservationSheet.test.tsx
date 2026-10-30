@@ -264,9 +264,8 @@ describe('ReservationSheet — text lizibil peste accent', () => {
     // „Astăzi" e ales implicit — chip plin de accent.
     expect(byText('button', /Astăzi$/)).toHaveStyle({ color: expected })
     // Bara de titlu: numele restaurantului stă pe accent.
-    const dialog = screen.getByRole('dialog')
-    const closeBtn = within(dialog).getAllByRole('button')[0]
-    expect(closeBtn?.parentElement).toHaveStyle({ color: expected })
+    const closeBtn = within(screen.getByRole('dialog')).getByRole('button', { name: /^Închide$/ })
+    expect(closeBtn.parentElement).toHaveStyle({ color: expected })
   })
 })
 

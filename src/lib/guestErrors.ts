@@ -106,7 +106,7 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /rate.?limit|too many|prea multe/i, key: 'err_rate_limit_order' },
 ]
 
-export interface GuestErrorShape {
+interface GuestErrorShape {
   message?: unknown
   hint?: unknown
   code?: unknown

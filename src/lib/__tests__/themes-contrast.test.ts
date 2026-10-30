@@ -14,9 +14,12 @@
 //        ajustat ≥4.5:1 când nu; mutația `return color` pică.
 //   TC5  lista din test == lista din SettingsTab (altfel TC2 ar testa o paletă
 //        care nu mai există).
+//   TC6  fiecare valoare exportată din lib/themes are un consumator în src/
+//        (code-health-dead-lib-exports). Mutația care pică: `export` readus pe
+//        isValidHexColor, al cărui singur apelant e resolveTheme.
 // Oracolul de contrast e scris AICI, independent de themes.ts: un bug în
 // formula din producție nu se poate „confirma" singur.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { THEMES, readableTextOn, legibleOn, isDarkTheme } from '../themes'
@@ -147,5 +150,25 @@ describe('Temele publice — contrast AA', () => {
 
   it('isDarkTheme: doar fine-dining e dark (refolosește aceeași luminanță)', () => {
     expect(THEMES.filter(isDarkTheme).map((t) => t.id)).toEqual(['fine-dining'])
+  })
+})
+
+describe('lib/themes — fără exporturi moarte', () => {
+  it('TC6 fiecare valoare exportată are un consumator în afara modulului', () => {
+    const root = resolve(process.cwd(), 'src')
+    const themesSrc = readFileSync(resolve(root, 'lib/themes.ts'), 'utf8')
+    const exported = [
+      ...themesSrc.matchAll(/^export (?:const|function|async function) (\w+)/gm),
+    ].map((m) => m[1] ?? '')
+    // Anti-vacuitate: scanerul chiar vede exporturile.
+    expect(exported).toContain('readableTextOn')
+    const others = (readdirSync(root, { recursive: true }) as string[])
+      .filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('__tests__'))
+      .filter((f) => f.replace(/\\/g, '/') !== 'lib/themes.ts')
+      .map((f) => readFileSync(resolve(root, f), 'utf8'))
+    const unused = exported.filter(
+      (name) => !others.some((src) => new RegExp(`\\b${name}\\b`).test(src)),
+    )
+    expect(unused).toEqual([])
   })
 })
