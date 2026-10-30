@@ -10,7 +10,7 @@ import { renderHook, act, fireEvent } from '@testing-library/react'
 import { useAudioUnlock } from '../useAudioUnlock'
 import { createStaffAudio } from '../../lib/staffAudio'
 
-class FakeAudioContext extends EventTarget {
+class FakeAudioContext {
   static instances: FakeAudioContext[] = []
   static initialState: AudioContextState = 'suspended'
   state: AudioContextState = FakeAudioContext.initialState
@@ -18,14 +18,22 @@ class FakeAudioContext extends EventTarget {
   destination = {}
   resumeCalls = 0
   oscillators = 0
+  private listeners = new Set<() => void>()
   constructor() {
-    super()
     FakeAudioContext.instances.push(this)
   }
+  addEventListener(_type: string, listener: () => void): void {
+    this.listeners.add(listener)
+  }
+  removeEventListener(_type: string, listener: () => void): void {
+    this.listeners.delete(listener)
+  }
+  // Ca browserul: `resume()` acceptat → starea devine `running` și se emite
+  // `statechange`.
   resume(): Promise<void> {
     this.resumeCalls += 1
     this.state = 'running'
-    this.dispatchEvent(new Event('statechange'))
+    for (const l of this.listeners) l()
     return Promise.resolve()
   }
   createBuffer() {
