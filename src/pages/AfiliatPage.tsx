@@ -1,20 +1,37 @@
 // src/pages/AfiliatPage.tsx
-// Panoul afiliatului: vede restaurantele aduse, sub-afiliații, câștigurile și
-// își ia link-ul/QR-ul de referral. Date prin RPC get_affiliate_dashboard
-// (vezi mig 097D). Stil inline cu tokens `D`, fără Tailwind, UI în română.
+// Panoul agentului / șefului de vânzări (ruta veche /afiliat, pachetul 8b-2):
+// UN singur ecran, de sus în jos —
+//   1. „Înscrie un restaurant”: codul mare, linkul, QR pe tot ecranul, „Arată demo”;
+//   2. „Banii tăi”: două propoziții din cifrele serverului (get_affiliate_dashboard,
+//      mig 295), cu „Detalii plăți” pliat (sume, comisioane, data plății, IBAN);
+//   3. „Clienții mei”: un rând per restaurant atribuit, cu acțiunea de acces
+//      (components/PartnerAccessList.tsx, mig 286/303);
+//   4. „Echipa ta”: DOAR pentru șef (get_sales_network, mig 304); agentul vede
+//      cardul șefului lui;
+//   5. „Consimțământ de contact”: comutatorul set_my_contact_sharing (mig 304);
+//   6. „Cum vând”: pliat.
+// Rețeaua e TRISTATE (useSalesNetwork): `network === null` = necunoscut →
+// „Reîncearcă”, niciodată un ecran fals de „nu ești în rețea”. Programul public
+// rămâne închis (mig 295): nicio înscriere publică nouă de aici.
+// Stil inline cu tokens `D`, fără Tailwind, UI în română.
 
 import { useState, useEffect } from 'react'
-import QRCode from 'qrcode'
 import { D } from '../lib/constants'
 import { CONTACT_EMAIL } from '../lib/domain'
-import { useAffiliate } from '../hooks/useAffiliate'
+import { useAffiliate, type AffiliateDashboard, type AffiliateProfile } from '../hooks/useAffiliate'
+import { useSalesNetwork } from '../hooks/useSalesNetwork'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { summarizeEarnings, type EarningsInput } from '../lib/affiliateEarnings'
-import { useToast } from '../components/ui/useToast'
+import { moneySentences, salesRoleTitle } from '../lib/salesPanel'
+import { useToast, type ToastApi } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
 import { supabase } from '../lib/supabase'
 import PartnerAccessList from '../components/PartnerAccessList'
+import Collapsible from '../components/afiliat/Collapsible'
+import EnrollSection from '../components/afiliat/EnrollSection'
+import TeamSection, { HeadCard } from '../components/afiliat/TeamSection'
+import ContactConsentSection from '../components/afiliat/ContactConsentSection'
 
 const card = {
   background: D.s2,
@@ -82,16 +99,6 @@ function MetricCard({
   )
 }
 
-type Tab = 'acasa' | 'restaurante' | 'subafiliati' | 'unelte' | 'ghid'
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'acasa', label: 'Acasă' },
-  { id: 'restaurante', label: 'Restaurante' },
-  { id: 'subafiliati', label: 'Sub-afiliați' },
-  { id: 'unelte', label: 'Unelte' },
-  { id: 'ghid', label: 'Ghid' },
-]
-
 function formatDateRo(iso: string | null | undefined): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -107,19 +114,18 @@ function bpsToPct(bps: number): string {
 export default function AfiliatPage() {
   const { dashboard, loading, error, register } = useAffiliate()
   const toast = useToast()
-  const [tab, setTab] = useState<Tab>('acasa')
   const [registering, setRegistering] = useState(false)
   const [parentCode, setParentCode] = useState('')
   // Cererea de afiliere (mig 224): telefonul e obligatoriu (interviu telefonic).
   const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
 
-  if (loading) return <PageSpinner label="Se încarcă panoul de afiliat…" />
+  if (loading) return <PageSpinner label="Se încarcă panoul tău de vânzări…" />
 
   if (error) {
     return (
       <div style={{ maxWidth: 560, margin: '80px auto', padding: 24, textAlign: 'center', color: D.t2 }}>
-        <div style={{ marginBottom: 14 }}>Nu am putut încărca panoul de afiliat.</div>
+        <div style={{ marginBottom: 14 }}>Nu am putut încărca panoul tău de vânzări.</div>
         <button style={goldBtn} onClick={() => window.location.reload()}>
           Reîncearcă
         </button>
@@ -148,7 +154,7 @@ export default function AfiliatPage() {
       else if (res.reason === 'parent_not_found') toast.error('Codul celui care te-a invitat nu e valid.')
       else if (res.reason === 'phone_required') toast.error('Numărul de telefon nu pare valid.')
       else if (res.reason === 'program_closed')
-        toast.error('Programul de parteneriat nu primește cereri noi acum. Se redeschide în curând.')
+        toast.error('Programul pentru agenți de vânzări nu primește cereri noi acum. Se redeschide în curând.')
       else toast.error('Nu am putut trimite cererea. Încearcă din nou.')
     }
     const inputStyle = {
@@ -177,7 +183,7 @@ export default function AfiliatPage() {
               textAlign: 'center',
             }}
           >
-            Devino partener Menuvia
+            Devino agent de vânzări Menuvia
           </h1>
           <p style={{ color: D.t2, fontSize: '0.95rem', lineHeight: 1.5, margin: '0 0 18px', textAlign: 'center' }}>
             {dashboard?.defaults ? (
@@ -206,7 +212,7 @@ export default function AfiliatPage() {
             {[
               ['1', 'Trimiți cererea de mai jos (durează un minut).'],
               ['2', 'Te sunăm pentru o discuție scurtă de cunoaștere.'],
-              ['3', 'Primești acces la panoul de partener și linkul tău.'],
+              ['3', 'Primești acces la panoul tău de agent, cu codul și linkul tău.'],
             ].map(([n, txt]) => (
               <div key={n} style={{ display: 'flex', gap: 10, alignItems: 'baseline', padding: '3px 0' }}>
                 <span style={{ color: D.gold, fontWeight: 700, fontSize: '0.8rem' }}>{n}.</span>
@@ -262,9 +268,6 @@ export default function AfiliatPage() {
   }
 
   const aff = dashboard.affiliate
-  const earnings = dashboard.earnings
-  const restaurants = dashboard.restaurants ?? []
-  const subs = dashboard.sub_affiliates ?? []
   if (!aff) return <PageSpinner />
 
   // ── Cerere în analiză / respinsă / cont oprit (mig 224) ────────────────────
@@ -280,9 +283,9 @@ export default function AfiliatPage() {
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: '0 0 16px' }}>
             Mulțumim! Cererea ta a ajuns la noi. Te sunăm pentru o discuție scurtă
-            de cunoaștere când deschidem programul pentru parteneri noi — nu îți
-            putem promite încă o dată. După aprobare primești aici panoul de
-            partener, linkul tău de recomandare și ghidul de start.
+            de cunoaștere când deschidem programul pentru agenți noi — nu îți
+            putem promite încă o dată. După aprobare primești aici panoul tău
+            de agent, codul și linkul tău de recomandare și ghidul de start.
           </p>
           <div style={{ background: D.s3, borderRadius: 10, padding: '10px 14px', fontSize: '0.8rem', color: D.t2 }}>
             Ai o întrebare între timp? Scrie-ne la{' '}
@@ -303,7 +306,7 @@ export default function AfiliatPage() {
             Nu am putut aproba cererea, deocamdată
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
-            Mulțumim pentru interes! Programul de parteneriat pornește treptat și
+            Mulțumim pentru interes! Programul pentru agenți de vânzări pornește treptat și
             momentan nu am putut accepta toate cererile. Dacă situația ta s-a
             schimbat, scrie-ne la{' '}
             <a href={`mailto:${CONTACT_EMAIL}`} style={{ color: D.gold, textDecoration: 'none' }}>
@@ -320,7 +323,7 @@ export default function AfiliatPage() {
       <div style={{ maxWidth: 560, margin: '80px auto', padding: 24 }}>
         <div style={{ ...card, textAlign: 'center', padding: '40px 28px' }}>
           <h1 style={{ fontFamily: 'Fraunces,serif', color: D.t1, fontSize: '1.5rem', margin: '0 0 10px' }}>
-            {aff.status === 'suspended' ? 'Contul de partener e suspendat' : 'Contul de partener e închis'}
+            {aff.status === 'suspended' ? 'Contul tău de vânzări e suspendat' : 'Contul tău de vânzări e închis'}
           </h1>
           <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
             Pentru detalii, scrie-ne la{' '}
@@ -334,87 +337,7 @@ export default function AfiliatPage() {
     )
   }
 
-  const activeCount = restaurants.filter((r) => r.status === 'active').length
-
-  return (
-    <div style={{ maxWidth: 880, margin: '0 auto', padding: '24px 16px 64px', color: D.t1 }}>
-      <header style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-          Program de afiliere
-        </div>
-        <h1 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.8rem', margin: '4px 0 0' }}>Panoul tău</h1>
-      </header>
-
-      {/* Tab bar — semantică de tabs pentru screen readere; starea activă e
-          comunicată și non-cromatic (greutatea fontului), nu doar prin culoare. */}
-      <div role="tablist" aria-label="Secțiunile panoului de afiliat" style={{ display: 'flex', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            id={`aff-tab-${t.id}`}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              background: tab === t.id ? D.goldA : 'transparent',
-              color: tab === t.id ? D.gold : D.t2,
-              border: `1px solid ${tab === t.id ? `${D.gold}55` : D.border}`,
-              borderRadius: 9,
-              padding: '8px 14px',
-              minHeight: 44,
-              fontSize: '0.85rem',
-              fontWeight: tab === t.id ? 700 : 500,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div role="tabpanel" aria-labelledby={`aff-tab-${tab}`}>
-      {tab === 'acasa' ? (
-        <AcasaTab
-          activeCount={activeCount}
-          totalCount={restaurants.length}
-          subsCount={subs.length}
-          earnings={earnings}
-          nextPayoutAt={dashboard.next_payout_at}
-          nextBatchDate={dashboard.next_batch_date}
-          commission={{
-            setupBps: aff.setup_bps,
-            recurringBps: aff.recurring_bps,
-            cascadeBps: aff.cascade_bps,
-            capMonths: aff.recurring_cap_months,
-          }}
-          onGoTo={setTab}
-        />
-      ) : null}
-      {tab === 'restaurante' ? (
-        <RestauranteTab restaurants={restaurants} currency={earnings?.currency || 'RON'} />
-      ) : null}
-      {tab === 'subafiliati' ? (
-        <SubafiliatiTab subs={subs} cascadeBps={aff.cascade_bps} code={aff.referral_code} toast={toast} />
-      ) : null}
-      {tab === 'unelte' ? (
-        <UnelteTab code={aff.referral_code} affiliateId={aff.id} toast={toast} />
-      ) : null}
-      {tab === 'ghid' ? (
-        <GhidTab
-          commission={{
-            setupBps: aff.setup_bps,
-            recurringBps: aff.recurring_bps,
-            cascadeBps: aff.cascade_bps,
-            capMonths: aff.recurring_cap_months,
-          }}
-          code={aff.referral_code}
-          toast={toast}
-        />
-      ) : null}
-      </div>
-    </div>
-  )
+  return <SalesPanel dashboard={dashboard} aff={aff} toast={toast} />
 }
 
 // ── Programul închis pentru cereri noi (mig 295) ───────────────────────────
@@ -428,10 +351,10 @@ function ProgramClosedNotice() {
           <Icon name="users" size={40} color={D.gold} />
         </div>
         <h1 style={{ fontFamily: 'Fraunces,serif', color: D.t1, fontSize: '1.5rem', margin: '0 0 10px' }}>
-          Programul de parteneriat se redeschide
+          Programul pentru agenți de vânzări se redeschide
         </h1>
         <p style={{ color: D.t2, fontSize: '0.92rem', lineHeight: 1.6, margin: 0 }}>
-          Momentan nu primim cereri noi de parteneriat. Pregătim programul pentru
+          Momentan nu primim cereri noi de agenți. Pregătim programul pentru
           lansare și îl redeschidem în curând — revino pe această pagină.
         </p>
       </div>
@@ -439,20 +362,164 @@ function ProgramClosedNotice() {
   )
 }
 
-// ── Tab: Acasă ───────────────────────────────────────────────────────────────
-function AcasaTab({
-  activeCount,
-  totalCount,
-  subsCount,
+// ── Panoul activ: un singur ecran ───────────────────────────────────────────
+function SalesPanel({
+  dashboard,
+  aff,
+  toast,
+}: {
+  dashboard: AffiliateDashboard
+  aff: AffiliateProfile
+  toast: ToastApi
+}) {
+  const sales = useSalesNetwork(true)
+  const network = sales.network
+  // `undefined` = rol necunoscut (rețeaua n-a răspuns): titlu neutru.
+  const role = network === null ? undefined : network.role
+  const restaurants = dashboard.restaurants ?? []
+  const subs = dashboard.sub_affiliates ?? []
+  const earnings = dashboard.earnings
+  const cur = earnings?.currency || 'RON'
+  const fmt = (cents: number) => formatRON(cents, cur)
+  const money = moneySentences(summarizeEarnings(earnings), earnings?.paid_cents ?? 0, fmt)
+  const commission = {
+    setupBps: aff.setup_bps,
+    recurringBps: aff.recurring_bps,
+    cascadeBps: aff.cascade_bps,
+    capMonths: aff.recurring_cap_months,
+  }
+  // Bonusul din vânzările echipei are sens doar pentru șef (agenții nu au recruți).
+  const showCascade = role === 'head'
+
+  return (
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '24px 16px 64px', color: D.t1 }}>
+      <header style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {salesRoleTitle(role)}
+        </div>
+        <h1 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.8rem', margin: '4px 0 0' }}>Panoul tău</h1>
+      </header>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <EnrollSection code={aff.referral_code} clientsCount={restaurants.length} toast={toast} />
+
+        <section aria-labelledby="money-title" style={card}>
+          <h2 id="money-title" style={{ margin: '0 0 8px', fontSize: '1.05rem', color: D.t1 }}>
+            Banii tăi
+          </h2>
+          <p style={{ margin: '0 0 6px', fontSize: '0.92rem', lineHeight: 1.55, color: D.t1 }}>{money.earned}</p>
+          <p style={{ margin: 0, fontSize: '0.92rem', lineHeight: 1.55, color: D.t1 }}>{money.payout}</p>
+        </section>
+        <Collapsible
+          title="Detalii plăți"
+          hint="Sumele pe categorii, comisioanele tale, data plății și datele de plată (IBAN)"
+        >
+          <PaymentDetails
+            earnings={earnings}
+            nextPayoutAt={dashboard.next_payout_at}
+            nextBatchDate={dashboard.next_batch_date}
+            commission={commission}
+            showCascade={showCascade}
+          />
+          <PayoutProfileForm affiliateId={aff.id} toast={toast} />
+        </Collapsible>
+
+        <PartnerAccessList clients={restaurants} formatMoney={fmt} />
+
+        {network === null ? (
+          <NetworkUnknown loading={sales.loading} message={sales.error?.message ?? null} onRetry={() => void sales.reload()} />
+        ) : (
+          <>
+            {network.role === 'head' ? <TeamSection network={network} onChanged={sales.reload} /> : null}
+            {network.role === 'agent' && network.head ? <HeadCard head={network.head} /> : null}
+            {network.role !== 'head' && subs.length > 0 ? <LegacySubs subs={subs} /> : null}
+            <ContactConsentSection
+              role={network.role}
+              shared={network.contactSharing}
+              onChange={sales.setContactSharing}
+            />
+          </>
+        )}
+
+        <Collapsible title="Cum vând" hint="Pașii, un mesaj gata de trimis și întrebările de la început">
+          <HowToSell commission={commission} showCascade={showCascade} code={aff.referral_code} toast={toast} />
+        </Collapsible>
+      </div>
+    </div>
+  )
+}
+
+// Rețeaua n-a răspuns (încă): NU spunem „nu ești în rețea” — nu știm. Echipa și
+// consimțământul de contact apar după o citire reușită.
+function NetworkUnknown({
+  loading,
+  message,
+  onRetry,
+}: {
+  loading: boolean
+  message: string | null
+  onRetry: () => void
+}) {
+  if (loading) {
+    return (
+      <div role="status" style={{ ...card, color: D.t2, fontSize: '0.85rem' }}>
+        Se încarcă echipa și consimțământul de contact…
+      </div>
+    )
+  }
+  return (
+    <div role="alert" style={{ ...card, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ color: D.t1, fontSize: '0.88rem', lineHeight: 1.5 }}>
+        Nu am putut încărca echipa și consimțământul tău de contact.
+        {message ? ` ${message}` : ''}
+      </div>
+      <div>
+        <button type="button" style={goldBtn} onClick={onRetry}>
+          Reîncearcă
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Recomandările din programul public vechi (sub-afiliați cu codul tău), doar
+// pentru conturile care NU sunt șefi în rețeaua pe invitații: programul e
+// închis (mig 295), deci nu mai oferim recrutarea prin cod, doar lista.
+function LegacySubs({
+  subs,
+}: {
+  subs: { referral_code: string; status: string; joined_at: string; attributions_count: number }[]
+}) {
+  return (
+    <Collapsible title="Recomandările tale din programul vechi" hint={`${subs.length} conturi înscrise cu codul tău`}>
+      {subs.map((s) => (
+        <div
+          key={s.referral_code}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: D.t1, fontWeight: 600, wordBreak: 'break-all', fontSize: '0.85rem' }}>
+              cod: {s.referral_code}
+            </div>
+            <div style={{ color: D.t2, fontSize: '0.76rem', marginTop: 2 }}>
+              {statusLabel(s.status)} · înscris {formatDateRo(s.joined_at)}
+            </div>
+          </div>
+          <div style={{ color: D.t2, fontSize: '0.82rem' }}>{s.attributions_count} aduse</div>
+        </div>
+      ))}
+    </Collapsible>
+  )
+}
+
+// ── Detalii plăți (pliat sub „Banii tăi”) ───────────────────────────────────
+function PaymentDetails({
   earnings,
   nextPayoutAt,
   nextBatchDate,
   commission,
-  onGoTo,
+  showCascade,
 }: {
-  activeCount: number
-  totalCount: number
-  subsCount: number
   earnings?: EarningsInput & { currency: string; clawed_back_cents: number }
   nextPayoutAt?: string | null
   nextBatchDate?: string | null
@@ -462,7 +529,8 @@ function AcasaTab({
     cascadeBps: number
     capMonths: number
   }
-  onGoTo: (tab: Tab) => void
+  /** Doar șeful primește bonus din vânzările echipei. */
+  showCascade: boolean
 }) {
   const e = earnings
   // Moneda câștigurilor (default 'RON' dacă lipsește) — o pasăm la formatRON.
@@ -472,85 +540,7 @@ function AcasaTab({
   const sum = summarizeEarnings(e)
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Primii pași — doar cât timp partenerul n-a adus încă niciun restaurant.
-          Trei acțiuni concrete, fiecare cu drum direct spre tab-ul potrivit. */}
-      {totalCount === 0 ? (
-        <div style={{ ...card, border: `1px solid ${D.gold}44` }}>
-          <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.95rem', marginBottom: 4 }}>
-            Primii pași
-          </div>
-          <div style={{ color: D.t2, fontSize: '0.78rem', marginBottom: 12 }}>
-            Trei lucruri mici și ești gata de prima recomandare.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {(
-              [
-                {
-                  n: '1',
-                  t: 'Citește ghidul de start',
-                  d: 'Cum funcționează comisioanele și cum prezinți Menuvia (5 min).',
-                  cta: 'Deschide ghidul',
-                  tab: 'ghid' as Tab,
-                },
-                {
-                  n: '2',
-                  t: 'Ia-ți linkul și codul QR',
-                  d: 'Linkul tău unic de recomandare: conturile NOI care se abonează după ce l-au deschis îți sunt atribuite.',
-                  cta: 'Vezi uneltele',
-                  tab: 'unelte' as Tab,
-                },
-                {
-                  n: '3',
-                  t: 'Completează datele de plată',
-                  d: 'IBAN + date de facturare, ca să-ți putem trimite comisioanele.',
-                  cta: 'Completează',
-                  tab: 'unelte' as Tab,
-                },
-              ]
-            ).map((s) => (
-              <div
-                key={s.n}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 10,
-                  flexWrap: 'wrap',
-                  padding: '10px 12px',
-                  background: D.s3,
-                  borderRadius: 10,
-                }}
-              >
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.85rem' }}>
-                    <span style={{ color: D.gold }}>{s.n}.</span> {s.t}
-                  </div>
-                  <div style={{ color: D.t2, fontSize: '0.74rem', marginTop: 2 }}>{s.d}</div>
-                </div>
-                <button
-                  onClick={() => onGoTo(s.tab)}
-                  style={{
-                    background: 'transparent',
-                    color: D.gold,
-                    border: `1px solid ${D.gold}55`,
-                    borderRadius: 8,
-                    padding: '8px 12px',
-                    minHeight: 44,
-                    fontSize: '0.78rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    fontFamily: 'DM Sans,sans-serif',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {s.cta} →
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {/* Comisioanele reale ale afiliatului (setate de platformă, mig 188) —
+      {/* Comisioanele reale ale agentului (setate de platformă, mig 188) —
           transparență: cifrele exacte, nu text generic. */}
       <div style={card}>
         <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -573,12 +563,14 @@ function AcasaTab({
               din fiecare dintre următoarele {commission.capMonths} facturi lunare
             </div>
           </div>
-          <div>
-            <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
-              {bpsToPct(commission.cascadeBps)}%
+          {showCascade ? (
+            <div>
+              <div style={{ fontFamily: 'Fraunces,serif', fontSize: '1.3rem', color: D.gold }}>
+                {bpsToPct(commission.cascadeBps)}%
+              </div>
+              <div style={{ fontSize: '0.74rem', color: D.t2 }}>din comisioanele agenților din echipa ta</div>
             </div>
-            <div style={{ fontSize: '0.74rem', color: D.t2 }}>din comisioanele sub-afiliaților</div>
-          </div>
+          ) : null}
         </div>
       </div>
       <div
@@ -588,7 +580,6 @@ function AcasaTab({
           gap: 12,
         }}
       >
-        <MetricCard label="Restaurante active" value={String(activeCount)} hint={`${totalCount} aduse în total`} accent />
         {/* „Disponibil" = confirmat net − ce e deja angajat în plăți (draft-uri
             în curs + plătite), calculat pe server (mig 295). Sub prag, suma se
             reportează — o spunem explicit, nu lăsăm cifra să pară „de primit". */}
@@ -620,7 +611,6 @@ function AcasaTab({
         {e && e.clawed_back_cents > 0 ? (
           <MetricCard label="Stornat (clawback)" value={formatRON(e.clawed_back_cents, cur)} hint="comisioane retrase" />
         ) : null}
-        <MetricCard label="Sub-afiliați" value={String(subsCount)} />
       </div>
 
       <div style={card}>
@@ -651,268 +641,6 @@ function AcasaTab({
           Plata se face după ce emiți factura către Menuvia.
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── Tab: Restaurante ─────────────────────────────────────────────────────────
-function RestauranteTab({
-  restaurants,
-  currency,
-}: {
-  restaurants: {
-    attribution_id: string
-    status: string
-    captured_at: string
-    restaurant_names: string[]
-    city: string | null
-    commission_cents: number
-  }[]
-  currency: string
-}) {
-  if (restaurants.length === 0) {
-    return (
-      <div style={{ ...card, textAlign: 'center', padding: '40px 24px', color: D.t2 }}>
-        Încă n-ai adus niciun restaurant. Împărtășește link-ul tău din tab-ul „Unelte”.
-      </div>
-    )
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <PartnerAccessList />
-      {restaurants.map((r) => {
-        const name = r.restaurant_names[0] ?? 'Cont nou'
-        return (
-          <div
-            key={r.attribution_id}
-            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.95rem' }}>{name}</div>
-              <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 2 }}>
-                {(r.city ?? '—') + ' · ' + statusLabel(r.status)}
-              </div>
-            </div>
-            <div style={{ color: D.gold, fontFamily: 'Fraunces,serif', fontSize: '1.1rem', fontWeight: 700 }}>
-              {formatRON(r.commission_cents, currency)}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── Tab: Sub-afiliați ────────────────────────────────────────────────────────
-function SubafiliatiTab({
-  subs,
-  cascadeBps,
-  code,
-  toast,
-}: {
-  subs: { referral_code: string; status: string; joined_at: string; attributions_count: number }[]
-  cascadeBps: number
-  code: string
-  toast: ReturnType<typeof useToast>
-}) {
-  // Cei pe care îi recrutezi se înscriu cu CODUL TĂU în câmpul „Cod de invitație".
-  const copyCode = () => {
-    // navigator.clipboard e undefined pe context non-secure → guard ca să nu arunce sincron.
-    if (!navigator.clipboard) {
-      toast.error('Copierea nu e disponibilă în acest browser')
-      return
-    }
-    void navigator.clipboard
-      .writeText(code)
-      .then(() => toast.success('Cod copiat'))
-      .catch(() => toast.error('Nu s-a putut copia codul'))
-  }
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ ...card, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
-        Primești <strong style={{ color: D.gold }}>{bpsToPct(cascadeBps)}%</strong> din comisioanele
-        afiliaților pe care îi recomanzi tu (un singur nivel).
-      </div>
-
-      {/* Recrutare: codul propriu, de pus de noul afiliat la înscriere. */}
-      <div style={card}>
-        <div
-          style={{
-            fontSize: '0.72rem',
-            color: D.t2,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            marginBottom: 8,
-          }}
-        >
-          Recrutează un afiliat
-        </div>
-        <div style={{ fontSize: '0.82rem', color: D.t2, lineHeight: 1.5, marginBottom: 10 }}>
-          Dă-i codul tău. Când se înscrie ca afiliat, îl pune în câmpul „Cod de invitație” și intră
-          sub tine.
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <code
-            style={{
-              background: D.s1,
-              border: `1px solid ${D.border}`,
-              borderRadius: 9,
-              padding: '8px 14px',
-              color: D.gold,
-              fontSize: '1rem',
-              fontWeight: 700,
-              letterSpacing: '0.04em',
-            }}
-          >
-            {code}
-          </code>
-          <button style={goldBtn} onClick={copyCode}>
-            Copiază codul
-          </button>
-        </div>
-      </div>
-
-      {subs.length === 0 ? (
-        <div style={{ ...card, textAlign: 'center', padding: '32px 24px', color: D.t2 }}>
-          N-ai încă sub-afiliați.
-        </div>
-      ) : (
-        subs.map((s) => (
-          <div
-            key={s.referral_code}
-            style={{ ...card, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}
-          >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: D.t1, fontWeight: 600, wordBreak: 'break-all' }}>cod: {s.referral_code}</div>
-              <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 2 }}>
-                {statusLabel(s.status)} · înscris {formatDateRo(s.joined_at)}
-              </div>
-            </div>
-            <div style={{ color: D.t2, fontSize: '0.82rem' }}>{s.attributions_count} aduse</div>
-          </div>
-        ))
-      )}
-    </div>
-  )
-}
-
-// ── Tab: Unelte (link + QR + share + date de plată) ──────────────────────────
-function UnelteTab({
-  code,
-  affiliateId,
-  toast,
-}: {
-  code: string
-  affiliateId: string
-  toast: ReturnType<typeof useToast>
-}) {
-  const url = referralUrl(code)
-  const [qr, setQr] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void QRCode.toDataURL(url, { width: 600, margin: 1, color: { dark: '#1A1208', light: '#F8F3EB' } }).then(
-      (dataUrl) => {
-        if (!cancelled) setQr(dataUrl)
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [url])
-
-  const copy = () => {
-    // navigator.clipboard e undefined pe context non-secure → guard ca să nu arunce sincron.
-    if (!navigator.clipboard) {
-      toast.error('Copierea nu e disponibilă în acest browser')
-      return
-    }
-    void navigator.clipboard
-      .writeText(url)
-      .then(() => toast.success('Link copiat'))
-      .catch(() => toast.error('Nu s-a putut copia link-ul'))
-  }
-
-  const share = () => {
-    const nav = navigator as Navigator & { share?: (data: { title: string; text: string; url: string }) => Promise<void> }
-    if (nav.share) {
-      void nav.share({ title: 'Menuvia', text: 'Încearcă Menuvia pentru restaurantul tău', url }).catch(() => {
-        /* user a anulat — ignor */
-      })
-    } else {
-      copy()
-    }
-  }
-
-  const downloadQr = () => {
-    if (!qr) return
-    const a = document.createElement('a')
-    a.href = qr
-    a.download = `menuvia-afiliat-${code}.png`
-    a.click()
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={card}>
-        <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
-          Link-ul tău de recomandare
-        </div>
-        <div
-          style={{
-            background: D.s1,
-            border: `1px solid ${D.border}`,
-            borderRadius: 9,
-            padding: '10px 12px',
-            color: D.t1,
-            fontSize: '0.85rem',
-            wordBreak: 'break-all',
-            marginBottom: 12,
-          }}
-        >
-          {url}
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button style={goldBtn} onClick={copy}>
-            Copiază
-          </button>
-          <button
-            style={{
-              background: 'transparent',
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              borderRadius: 9,
-              padding: '10px 16px',
-              minHeight: 44,
-              fontSize: '0.85rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-            }}
-            onClick={share}
-          >
-            Distribuie
-          </button>
-        </div>
-      </div>
-
-      <div style={{ ...card, textAlign: 'center' }}>
-        <div style={{ fontSize: '0.72rem', color: D.t2, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 12 }}>
-          Cod QR (printabil pentru flyere)
-        </div>
-        {qr ? (
-          <img src={qr} alt="Cod QR cu link-ul tău de recomandare" style={{ width: 220, height: 220, borderRadius: 12 }} />
-        ) : (
-          <div style={{ color: D.t2, fontSize: '0.82rem', padding: 40 }}>Se generează…</div>
-        )}
-        <div style={{ marginTop: 12 }}>
-          <button style={{ ...goldBtn, ...(qr ? null : disabledBtn) }} disabled={!qr} onClick={downloadQr}>
-            Descarcă PNG
-          </button>
-        </div>
-      </div>
-
-      <PayoutProfileForm affiliateId={affiliateId} toast={toast} />
     </div>
   )
 }
@@ -1122,18 +850,21 @@ function PayoutProfileForm({
   )
 }
 
-// ── Tab: Ghid — tutorialul de start al partenerului ──────────────────────────
+// ── „Cum vând” (pliat) — tutorialul de start al agentului ────────────────────
 // Experiența „te învăț eu": pașii concreți, cu procentele REALE ale
-// partenerului (nu text generic), un mini-script de prezentare gata de
+// agentului (nu text generic), un mini-script de prezentare gata de
 // copiat și întrebările care apar mereu la început.
-function GhidTab({
+function HowToSell({
   commission,
+  showCascade,
   code,
   toast,
 }: {
   commission: { setupBps: number; recurringBps: number; cascadeBps: number; capMonths: number }
+  /** Doar șeful primește bonus din vânzările echipei. */
+  showCascade: boolean
   code: string
-  toast: ReturnType<typeof useToast>
+  toast: ToastApi
 }) {
   const url = referralUrl(code)
   // Mini-script de prezentare — onest (fiscal = pilot, fără promisiuni false).
@@ -1154,8 +885,8 @@ function GhidTab({
 
   const steps: { t: string; d: string }[] = [
     {
-      t: 'Ia-ți linkul din tab-ul „Unelte”',
-      d: 'Linkul și codul QR sunt ale tale. Un cont NOU creat după ce a deschis linkul rămâne recomandarea ta dacă se abonează în 90 de zile de pe același browser (pe Safari/iPhone marcajul poate expira după 7 zile). Conturile care existau deja înainte de click nu se atribuie, iar primul link deschis câștigă.',
+      t: 'Folosește codul și linkul din „Înscrie un restaurant”',
+      d: 'Codul, linkul și codul QR sunt ale tale. Restaurantul îți rămâne atribuit când patronul își face contul din linkul tău sau scrie codul tău la înscriere („Am un cod de agent”). Dacă doar deschide linkul și își face contul mai târziu, browserul lui păstrează codul o vreme (pe iPhone uneori doar 7 zile), deci cel mai sigur e să-și facă contul pe loc. Conturile care existau deja nu se atribuie, iar primul agent înregistrat pe cont rămâne.',
     },
     {
       t: 'Recomandă localurilor pe care le cunoști',
@@ -1163,18 +894,18 @@ function GhidTab({
     },
     {
       t: 'Ajută-i să pornească (opțional, dar face diferența)',
-      d: 'După ce restaurantul se abonează prin linkul tău, poți cere acces de partener la meniul și mesele/QR ale lui. Accesul se acordă doar dacă ownerul aprobă, nu include comenzi, rezervări sau date fiscale și poate fi revocat oricând.',
+      d: 'După ce restaurantul își face contul cu codul tău, poți cere din „Clienții mei” acces la meniul și mesele/QR ale lui. Accesul îl dă doar patronul, nu include comenzi, rezervări sau date fiscale și îl poate retrage oricând.',
     },
     {
       t: 'Urmărește câștigurile și emite factura',
-      d: 'În „Acasă” vezi banii în timp real. Comisioanele de activare au un hold de 60 de zile (anti-fraudă), cele lunare de 14 zile. Plata vine după ce emiți factura către Menuvia — datele de plată le completezi în „Unelte”.',
+      d: 'În „Banii tăi” vezi cât ai câștigat și cât poți primi. Comisioanele de activare au un hold de 60 de zile (anti-fraudă), cele lunare de 14 zile. Plata vine după ce emiți factura către Menuvia — datele de plată le completezi în „Detalii plăți”.',
     },
   ]
 
   const faq: { q: string; a: string }[] = [
     {
       q: 'Cât câștig, concret?',
-      a: `Primești ${bpsToPct(commission.setupBps)}% din prima factură a fiecărui restaurant adus (plătit după ce restaurantul achită și a doua factură), apoi ${bpsToPct(commission.recurringBps)}% din fiecare dintre următoarele ${commission.capMonths} facturi lunare — pe orice plan plătit. Dacă aduci alți parteneri (sub-afiliați), primești și ${bpsToPct(commission.cascadeBps)}% din comisioanele lor. Un refund sau o dispută stornează comisionul aferent.`,
+      a: `Primești ${bpsToPct(commission.setupBps)}% din prima factură a fiecărui restaurant adus (plătit după ce restaurantul achită și a doua factură), apoi ${bpsToPct(commission.recurringBps)}% din fiecare dintre următoarele ${commission.capMonths} facturi lunare — pe orice plan plătit.${showCascade ? ` Ca șef de vânzări primești și ${bpsToPct(commission.cascadeBps)}% din comisioanele agenților din echipa ta.` : ''} Un refund sau o dispută stornează comisionul aferent.`,
     },
     {
       q: 'Ce spun dacă mă întreabă de bonul fiscal?',
@@ -1182,11 +913,11 @@ function GhidTab({
     },
     {
       q: 'Restaurantul vrea o demonstrație. Ce fac?',
-      a: 'Trimite-i pagina de demo (menuvia.netlify.app/demo) — e un meniu real, interactiv. Sau arată-i direct de pe telefonul tău, la masă.',
+      a: 'Apasă „Arată demo” din „Înscrie un restaurant” — e un meniu real, interactiv — sau arată-i direct de pe telefonul tău, la masă.',
     },
     {
       q: 'Trebuie să fiu firmă ca să primesc banii?',
-      a: 'Plata se face pe bază de factură (PFA, SRL sau altă formă). Completezi datele o singură dată în „Unelte” → Date de plată.',
+      a: 'Plata se face pe bază de factură (PFA, SRL sau altă formă). Completezi datele o singură dată în „Detalii plăți” → Date de plată.',
     },
   ]
 

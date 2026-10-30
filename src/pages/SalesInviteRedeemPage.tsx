@@ -74,6 +74,12 @@ interface Props {
   reloadAt?: (path: string) => void
 }
 
+// Ce NU depinde de bifă (get_my_agent, mig 303): numele agentului e afișat patronilor
+// restaurantelor aduse de el (și managerilor lor) oricum. Bifa deschide telefonul și
+// emailul către proprietarul contului și contactul complet către rețea (mig 304).
+const SHARE_NOTE =
+  'Numele tău îl văd oricum patronii restaurantelor aduse de tine, în cardul „Agentul tău Menuvia” din panoul lor. Opțiunea o poți schimba oricând din panoul tău, la „Consimțământ de contact”.'
+
 function reloadWithLocation(path: string): void {
   window.location.replace(path)
 }
@@ -92,7 +98,7 @@ const COPY: Record<
       'Contractul de mai jos spune exact ce primești și ce nu ai voie să faci. Îl accepți în același pas.',
     ],
     shareLabel:
-      'Arată numele, telefonul și emailul meu agenților din echipa mea (poți retrage oricând)',
+      'Arată numele, telefonul și emailul meu agenților din echipa mea, iar telefonul și emailul patronilor restaurantelor pe care le aduc (poți retrage oricând din panoul tău)',
   },
   agent: {
     title: 'Invitație: agent de vânzări Menuvia',
@@ -104,7 +110,7 @@ const COPY: Record<
       'Contractul de mai jos spune exact ce primești și ce nu ai voie să faci. Îl accepți în același pas.',
     ],
     shareLabel:
-      'Arată numele, telefonul și emailul meu șefului meu de vânzări (poți retrage oricând)',
+      'Arată numele, telefonul și emailul meu șefului meu de vânzări, iar telefonul și emailul patronilor restaurantelor pe care le aduc (poți retrage oricând din panoul tău)',
   },
 }
 
@@ -547,15 +553,22 @@ export default function SalesInviteRedeemPage({
           </span>
         </label>
 
-        <label style={{ ...checkRowStyle, marginBottom: 18 }}>
+        <label style={{ ...checkRowStyle, marginBottom: 6 }}>
           <input
             type="checkbox"
             checked={shareContact}
+            aria-describedby="share-contact-note"
             onChange={(e) => setShareContact(e.target.checked)}
             style={{ width: 20, height: 20, flexShrink: 0, marginTop: 2 }}
           />
           <span>{copy.shareLabel}</span>
         </label>
+        <p
+          id="share-contact-note"
+          style={{ margin: '0 0 18px 30px', color: D.t2, fontSize: '0.8rem', lineHeight: 1.5 }}
+        >
+          {SHARE_NOTE}
+        </p>
 
         {formError !== null && (
           <div role="alert" style={{ ...fieldErrorStyle, marginBottom: 12, fontSize: '0.88rem' }}>

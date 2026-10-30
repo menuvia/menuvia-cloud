@@ -20,6 +20,8 @@
 //   PG15 `contract_hash_mismatch` de la server → se reîncarcă contractul, bifa nu supraviețuiește
 //   PG16 adresa FĂRĂ token (reîncărcare din browser / adresă copiată) → „redeschide linkul”,
 //        NU `invite_invalid`, niciun apel de rețea (cu și fără sesiune)
+//   PG17 bifa de contact spune ADEVĂRAT cine vede contactul: și PATRONII restaurantelor
+//        aduse (get_my_agent, mig 303), nu doar rețeaua; retragerea e în panou
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -431,4 +433,24 @@ describe('SalesInviteRedeemPage', () => {
     expect(rpcMock).not.toHaveBeenCalled()
     expect(replace).not.toHaveBeenCalled()
   })
+
+  // PG17 — mutația care pică: textul vechi al bifei („…agenților din echipa mea (poți
+  // retrage oricând)”), care tăcea despre patroni, sau nota scoasă de lângă bifă.
+  it.each(['head', 'agent'] as const)(
+    'PG17 (%s): bifa pomenește patronii și panoul',
+    async (kind) => {
+      serverReturns()
+      renderPage(kind)
+      await screen.findByText(CONTRACT_TEXT)
+      const box = screen.getByLabelText(/arată numele, telefonul/i)
+      const label = box.closest('label')?.textContent ?? ''
+      expect(label).toMatch(/patronilor restaurantelor pe care le aduc/i)
+      expect(label).toMatch(/din panoul tău/i)
+      // Numele e afișat patronilor ORICUM (mig 303): nota o spune, legată de bifă.
+      const noteId = box.getAttribute('aria-describedby') ?? ''
+      expect(document.getElementById(noteId)?.textContent ?? '').toMatch(
+        /numele tău îl văd oricum patronii/i,
+      )
+    },
+  )
 })
