@@ -17,6 +17,7 @@ import {
 import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../lib/stocks'
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
+import { ProductsToolbar } from './_dashboard/ProductsToolbar'
 import { generateNutrition, generateProductImage } from '../lib/ai'
 import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
@@ -2172,85 +2173,21 @@ export default function ProductsTab({
             {products.length} total · {products.filter((p) => p.is_active).length} active
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setAiBulkOpen(true)}
-            aria-label="Generează AI pentru tot meniul"
-            title="Generează imagini + nutriție cu AI pentru tot meniul"
-            style={btn({
-              background: D.s2,
-              color: D.gold,
-              border: `1px solid ${D.gold}55`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="sparkle" size={16} />
-            {mob ? 'AI' : 'Generează AI'}
-          </button>
-          <button
-            onClick={() => setAiImportOpen(true)}
-            aria-label="Import meniu din poză (AI)"
-            title="Import meniu din poză (AI)"
-            style={btn({
-              background: D.s2,
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="camera" size={16} />
-            {mob ? 'Poză' : 'Import din poză'}
-          </button>
-          <button
-            onClick={() => setCsvImportOpen(true)}
-            aria-label="Import CSV"
-            title="Import produse din fișier CSV"
-            style={btn({
-              background: D.s2,
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="download" size={16} />
-            {mob ? 'CSV' : 'Import CSV'}
-          </button>
-          <button
-            onClick={() => {
-              if (!canAdd) {
-                onUpgrade()
-                return
-              }
-              setModal('add')
-            }}
-            style={btn({
-              background: canAdd ? D.gold : D.s3,
-              color: canAdd ? '#000' : D.t2,
-              border: canAdd ? 'none' : `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.82rem' : '0.9rem',
-              gap: 6,
-            })}
-          >
-            {canAdd ? (
-              '+ Adaugă produs'
-            ) : (
-              <>
-                <Icon name="lock" size={16} />
-                Limită atinsă — Upgrade
-              </>
-            )}
-          </button>
-        </div>
+        {/* Pe un catalog GOL antetul nu are butoane: starea goală de mai jos are
+            exact aceleași acțiuni (poză, manual, CSV), iar „Generează AI" n-ar
+            avea pe ce lucra. Înainte: 4 butoane aici + 2 jos = 6 căi spre
+            același lucru (audit UX oct 2026). */}
+        {!loading && products.length > 0 && (
+          <ProductsToolbar
+            mobile={mob}
+            canAdd={canAdd}
+            onAdd={() => setModal('add')}
+            onUpgrade={onUpgrade}
+            onImportPhoto={() => setAiImportOpen(true)}
+            onImportCsv={() => setCsvImportOpen(true)}
+            onBulkAi={() => setAiBulkOpen(true)}
+          />
+        )}
       </div>
       <div
         style={{
@@ -2358,16 +2295,18 @@ export default function ProductsTab({
             <Skeleton variant="table-row" count={5} />
           </div>
         ) : filtered.length === 0 ? (
+          // Pe un catalog gol starea goală e SINGURUL loc cu acțiuni (antetul
+          // nu le mai are) — deci le arată și când în căutare s-a tastat ceva.
           <EmptyState
-            icon={search ? 'search' : 'menu'}
-            title={search ? 'Niciun produs găsit' : 'Niciun produs încă'}
+            icon={search && products.length > 0 ? 'search' : 'menu'}
+            title={search && products.length > 0 ? 'Niciun produs găsit' : 'Niciun produs încă'}
             description={
-              search
+              search && products.length > 0
                 ? 'Încearcă alt termen de căutare sau șterge filtrul.'
                 : 'Adaugă primul produs din meniu — manual, din poză sau prin CSV.'
             }
             action={
-              !search ? (
+              !search || products.length === 0 ? (
                 // Importul din poză = acțiunea PRIMARĂ pe meniu gol (audit aug
                 // 2026): cine are meniul în mână îl fotografiază, nu tastează
                 // 30 de produse; adăugarea manuală rămâne alături, secundară.
@@ -2393,6 +2332,14 @@ export default function ProductsTab({
                     }}
                   >
                     Adaugă manual
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Icon name="download" size={16} />}
+                    onClick={() => setCsvImportOpen(true)}
+                  >
+                    Importă din CSV
                   </Button>
                 </div>
               ) : undefined
