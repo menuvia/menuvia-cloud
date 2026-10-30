@@ -2148,7 +2148,7 @@ function AuditSection() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span style={{ fontSize: '0.72rem', color: D.t3 }}>{formatDate(row.created_at)}</span>
               <span style={{ fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
-                {row.actor_email}
+                {row.actor_email ?? 'Cont șters'}
                 <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </span>
             </div>
@@ -2186,7 +2186,7 @@ function AuditSection() {
             <tr key={row.id}>
               <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>{formatDate(row.created_at)}</td>
               <td style={tdStyle}>
-                {row.actor_email}
+                {row.actor_email ?? 'Cont șters'}
                 <span style={{ color: D.t3 }}> ({ACTOR_KIND_LABELS[row.actor_kind] ?? row.actor_kind})</span>
               </td>
               <td style={tdStyle}>{row.action}</td>

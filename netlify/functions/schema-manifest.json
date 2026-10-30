@@ -304,6 +304,7 @@
     "migration_303_agent_remote_access",
     "migration_304_sales_network_invites",
     "migration_305_admin_list_affiliates_sales_role",
-    "migration_306_service_role_rpc_grants"
+    "migration_306_service_role_rpc_grants",
+    "migration_307_audit_actor_erasure"
   ]
 }
