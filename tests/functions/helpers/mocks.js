@@ -76,6 +76,8 @@ const CHAIN_METHODS = [
   'in',
   'gte',
   'lte',
+  // automation-cron (scanarea stripe_events blocate, founder-alert.test.js).
+  'lt',
   'abortSignal',
   // send-invite / stripe-connect (testele de origine din app-url-callsites).
   'delete',
