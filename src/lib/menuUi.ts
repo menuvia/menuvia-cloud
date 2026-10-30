@@ -83,7 +83,9 @@ export function prefetchOnIdle(loaders: readonly ChunkLoader[]): () => void {
       }
     }
   }
-  const w = window as Window & {
+  // `globalThis`, nu `window`: în browser sunt același obiect, iar în teste
+  // e cel pe care vi.stubGlobal îl înlocuiește.
+  const w = globalThis as typeof globalThis & {
     requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
     cancelIdleCallback?: (id: number) => void
   }
