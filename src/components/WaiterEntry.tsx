@@ -73,7 +73,7 @@ export default function WaiterEntry({
       })
       .catch(() => {
         // Eșecul nu rămâne „lipit": următoarea alegere de masă reîncearcă.
-        menuRef.current = null
+        if (menuRef.current === menu) menuRef.current = null
         if (!isCancelled()) setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.')
       })
   }

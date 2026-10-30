@@ -73,7 +73,6 @@ vi.mock('../../components/WaiterEntry', async () => {
       createElement(
         'button',
         {
-          type: 'button',
           onClick: () => {
             if (h.sent.current) props.onOrderCreated(h.sent.current)
           },
