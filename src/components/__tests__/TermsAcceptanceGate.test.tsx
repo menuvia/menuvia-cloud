@@ -10,8 +10,11 @@
 //          să i se ceară a doua oară;
 //   TG-C5  pe ruta de recuperare a parolei → nimic (sesiunea de recovery e
 //          reală, deci fără excepție omul n-ar putea să-și schimbe parola).
+//   TG-C6  capcana de focus: Tab / Shift+Tab ciclează în poartă și nu ajung
+//          la butoanele paginii de dedesubt (a11y-focus-trap-gaps; mutația
+//          „fără <FocusTrap />" pică — focusul nu mai revine pe primul element).
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 const { useAuthMock, recordMock, refreshMock, signOutMock } = vi.hoisted(() => ({
   useAuthMock: vi.fn(),
@@ -97,5 +100,29 @@ describe('TermsAcceptanceGate', () => {
     auth({ profile: { id: 'u1', terms_accepted_at: null } })
     render(<TermsAcceptanceGate />)
     expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('TG-C6: capcana de focus — Tab nu iese din poartă în pagina de dedesubt', () => {
+    auth({ profile: { id: 'u1', terms_accepted_at: null } })
+    render(
+      <>
+        <button type="button">Buton din pagină</button>
+        <TermsAcceptanceGate />
+      </>,
+    )
+    const dialog = screen.getByRole('dialog')
+    const checkbox = screen.getByRole('checkbox')
+    const signOut = screen.getByRole('button', { name: 'Ieși din cont' })
+
+    // Tab de pe ULTIMUL element (butonul „Accept" e dezactivat fără bifă)
+    // revine pe primul — bifa —, nu pe butonul paginii.
+    signOut.focus()
+    fireEvent.keyDown(signOut, { key: 'Tab' })
+    expect(document.activeElement).toBe(checkbox)
+
+    // Shift+Tab de pe primul element sare la ultimul.
+    fireEvent.keyDown(checkbox, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(signOut)
+    expect(dialog.contains(document.activeElement)).toBe(true)
   })
 })
