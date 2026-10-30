@@ -77,7 +77,11 @@ describe('ConfirmDialog — tastatura', () => {
     render(
       <>
         <div role="dialog" aria-modal="true" aria-label="Produs">
-          <FocusTrap onEscape={() => (outerClosed += 1)} />
+          <FocusTrap
+            onEscape={() => {
+              outerClosed += 1
+            }}
+          />
           <button type="button">Salvează</button>
         </div>
         <ConfirmRoot />
