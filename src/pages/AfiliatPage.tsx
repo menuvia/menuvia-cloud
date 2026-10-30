@@ -25,6 +25,7 @@ import { useSalesNetwork } from '../hooks/useSalesNetwork'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { summarizeEarnings, type EarningsInput } from '../lib/affiliateEarnings'
 import { moneySentences, salesRoleTitle } from '../lib/salesPanel'
+import { TRIAL_DAYS } from '../lib/pricingCopy'
 import { useToast, type ToastApi } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
@@ -876,10 +877,12 @@ function HowToSell({
 }) {
   const url = referralUrl(code)
   // Mini-script de prezentare — onest (fiscal = pilot, fără promisiuni false).
+  // Durata trialului vine din TRIAL_DAYS: un literal ar fi rămas în urmă la
+  // prima schimbare a trialului (PC6 păzește doar pagina de prețuri).
   const pitch =
     `Salut! Folosesc Menuvia — meniu digital cu comenzi direct de la masă, fără aparatură nouă. ` +
     `Clienții scanează un cod QR, comanda ajunge direct în bucătărie. ` +
-    `Se configurează în câteva minute și ai 30 de zile gratuit. ` +
+    `Se configurează în câteva minute și ai ${TRIAL_DAYS} de zile gratuite. ` +
     `Uite linkul meu, dacă vrei să încerci: ${url}`
 
   const copyPitch = async () => {

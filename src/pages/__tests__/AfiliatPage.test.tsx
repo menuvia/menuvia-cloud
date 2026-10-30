@@ -22,10 +22,14 @@
 //   AF10 comutatorul reflectă `contactSharing` de pe server și cheamă
 //        setContactSharing(true) (mutația `shared={false}` fix pică)
 //   AF11 textele vizibile spun „agent de vânzări”, nu „afiliat/partener”
+//   AF12 mesajul gata de trimis din „Cum vând” ia durata trialului din
+//        TRIAL_DAYS (mutația cu „30 de zile” scris direct pică dacă trialul se
+//        schimbă — testul o simulează citind constanta, nu literalul)
 //   AF13 „Contract nou de colaborare” apare PRIMA doar pentru un membru cu
 //        needs_acceptance; nu apare pe flag false și nici pe rol null (afiliatul
 //        vechi n-are ce accepta — mutația care uită garda pe rol pică)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { TRIAL_DAYS } from '../../lib/pricingCopy'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AffiliateDashboard } from '../../hooks/useAffiliate'
@@ -335,5 +339,17 @@ describe('AfiliatPage — panoul de vânzări pe un singur ecran', () => {
     render(<AfiliatPage />)
     await screen.findByText('Bistro Test')
     expect(document.body.textContent ?? '').not.toMatch(/afiliat|partener/i)
+  })
+
+  it('AF12: mesajul din „Cum vând” are durata trialului din TRIAL_DAYS', async () => {
+    render(<AfiliatPage />)
+    await screen.findByText('Bistro Test')
+    await userEvent.click(screen.getByRole('button', { name: /cum vând/i }))
+    const text = document.body.textContent ?? ''
+    expect(text).toContain(`ai ${TRIAL_DAYS} de zile gratuite`)
+    // Niciun alt număr de zile gratuite nu poate sta lângă el.
+    const days = [...text.matchAll(/(\d+) de zile gratuit/g)].map((m) => Number(m[1]))
+    expect(days.length).toBeGreaterThan(0)
+    expect(days.every((d) => d === TRIAL_DAYS)).toBe(true)
   })
 })

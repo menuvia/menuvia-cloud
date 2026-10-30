@@ -1188,7 +1188,7 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Mod partener'} —{' '}
+            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Vizită de agent de vânzări'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
