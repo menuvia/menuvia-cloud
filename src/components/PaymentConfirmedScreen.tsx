@@ -514,7 +514,8 @@ export function FeedbackWidget({
               padding: 12,
               border: '1px solid #E8DFD0',
               borderRadius: 10,
-              fontSize: 13,
+              // 16px: sub 16px Safari pe iOS mărește pagina la focus.
+              fontSize: 16,
               fontFamily: 'DM Sans, sans-serif',
               resize: 'none',
               outline: 'none',

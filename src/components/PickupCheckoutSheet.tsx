@@ -1,6 +1,6 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useId } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder, getPickupIdempotencyKey, rotatePickupIdempotencyKey } from '../lib/orders'
@@ -62,6 +62,9 @@ export default function PickupCheckoutSheet({
   const [pickupTime, setPickupTime] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Etichetele vizibile numesc câmpurile (înainte erau doar text deasupra lor).
+  const nameId = useId()
+  const phoneId = useId()
   // Cheie de idempotență PERSISTATĂ (sessionStorage per restaurant): retry-urile
   // după un răspuns pierdut refolosesc aceeași cheie chiar dacă sheet-ul a fost
   // închis/redeschis sau pagina reîncărcată → serverul dedup-uiește, fără comenzi
@@ -216,6 +219,7 @@ export default function PickupCheckoutSheet({
 
           <div style={{ marginBottom: 16 }}>
             <label
+              htmlFor={nameId}
               style={{
                 display: 'block',
                 fontSize: 12,
@@ -227,15 +231,18 @@ export default function PickupCheckoutSheet({
               {T(lang, 'pk_name')} *
             </label>
             <input
+              id={nameId}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={T(lang, 'pk_name_ph')}
+              autoComplete="name"
               style={{
                 width: '100%',
                 padding: '12px 14px',
                 border: `1.5px solid ${PUB.border}`,
                 borderRadius: 10,
-                fontSize: 14,
+                // 16px: sub 16px Safari pe iOS mărește pagina la focus.
+                fontSize: 16,
                 fontFamily: theme.fonts.body,
                 background: PUB.surface,
                 color: PUB.text,
@@ -247,6 +254,7 @@ export default function PickupCheckoutSheet({
 
           <div style={{ marginBottom: 16 }}>
             <label
+              htmlFor={phoneId}
               style={{
                 display: 'block',
                 fontSize: 12,
@@ -258,6 +266,7 @@ export default function PickupCheckoutSheet({
               {T(lang, 'reserve_phone')}
             </label>
             <PhoneInput
+              inputId={phoneId}
               cc={phoneCc}
               national={phone}
               onCcChange={setPhoneCc}
@@ -268,7 +277,7 @@ export default function PickupCheckoutSheet({
                 padding: '12px 14px',
                 border: `1.5px solid ${PUB.border}`,
                 borderRadius: 10,
-                fontSize: 14,
+                fontSize: 16,
                 fontFamily: theme.fonts.body,
                 background: PUB.surface,
                 color: PUB.text,
@@ -380,7 +389,8 @@ export default function PickupCheckoutSheet({
 
         <div
           style={{
-            padding: '14px 22px 22px',
+            // Deasupra barei de home a iPhone-ului (viewport-fit=cover în index.html).
+            padding: '14px 22px calc(22px + env(safe-area-inset-bottom, 0px))',
             borderTop: `1px solid ${PUB.border}`,
             background: PUB.bg,
           }}

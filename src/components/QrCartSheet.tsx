@@ -264,7 +264,8 @@ export default function QrCartSheet({
           maxHeight: '88vh',
           overflowY: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: '8px 20px 28px',
+          // CTA-ul e ultimul element: îl ridicăm deasupra barei de home a iPhone-ului.
+          padding: '8px 20px calc(28px + env(safe-area-inset-bottom, 0px))',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
@@ -628,7 +629,8 @@ export default function QrCartSheet({
               borderRadius: 14,
               color: PUB.text,
               fontFamily: 'DM Sans, sans-serif',
-              fontSize: 14,
+              // 16px: sub 16px Safari pe iOS mărește pagina la focus.
+              fontSize: 16,
               padding: '12px 14px',
               resize: 'none',
               width: '100%',

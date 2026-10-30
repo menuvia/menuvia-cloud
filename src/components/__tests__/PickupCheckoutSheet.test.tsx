@@ -193,3 +193,21 @@ describe('PickupCheckoutSheet — text lizibil peste accent', () => {
     expect(cta).toHaveStyle({ color: expected })
   })
 })
+
+// ux-guest-5 / a11y-autocomplete: sub 16px Safari pe iOS mărește pagina la
+// fiecare focus; etichetele vizibile nu erau legate de câmpuri, iar numele n-avea
+// autocomplete. Mutațiile care pică: `fontSize: 14`; `htmlFor` scos;
+// `autoComplete` scos de pe nume.
+describe('PickupCheckoutSheet — câmpurile formularului', () => {
+  it('S10 etichetele numesc câmpurile, cu ≥16px și autocomplete', () => {
+    const { container } = renderSheet()
+    const name = screen.getByLabelText(/^Nume/)
+    expect(name).toHaveAttribute('autocomplete', 'name')
+    expect(screen.getByLabelText(/^Telefon/)).toHaveAttribute('autocomplete', 'tel')
+    const controls = Array.from(container.querySelectorAll('input, textarea, select')) as HTMLElement[]
+    expect(controls.length).toBeGreaterThanOrEqual(3)
+    for (const el of controls) {
+      expect(parseFloat(el.style.fontSize), el.outerHTML.slice(0, 80)).toBeGreaterThanOrEqual(16)
+    }
+  })
+})

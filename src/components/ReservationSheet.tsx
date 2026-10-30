@@ -562,12 +562,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     marginTop: 22,
     marginBottom: 10,
   }
+  // 16px: sub 16px Safari pe iOS mărește pagina la fiecare focus pe câmp.
   const inputStyle: CSSProperties = {
     width: '100%',
     padding: '12px 14px',
     border: `1.5px solid ${PUB.border}`,
     borderRadius: 10,
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: theme.fonts.body,
     background: PUB.surface,
     color: PUB.text,
@@ -1046,6 +1047,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={T(lang, 'reserve_name')}
+          aria-label={T(lang, 'reserve_name')}
+          autoComplete="name"
           style={{ ...inputStyle, marginBottom: 10 }}
         />
         <div style={{ marginBottom: 10 }}>
@@ -1064,8 +1067,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder={T(lang, 'reserve_email_opt')}
+          aria-label={T(lang, 'reserve_email_opt')}
           type="email"
           inputMode="email"
+          autoComplete="email"
           style={{ ...inputStyle, marginBottom: 10 }}
         />
         <textarea

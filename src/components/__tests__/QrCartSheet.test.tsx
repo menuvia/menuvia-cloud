@@ -187,3 +187,13 @@ describe('QrCartSheet — text lizibil peste accent', () => {
     expect(screen.getByRole('button', { name: 'Adaugă Limonadă' })).toHaveStyle({ color: expected })
   })
 })
+
+// ux-guest-5: sub 16px Safari pe iOS mărește pagina la focus pe nota pentru
+// bucătărie. Mutația care pică: `fontSize: 14` pe textarea.
+describe('QrCartSheet — nota pentru bucătărie', () => {
+  it('textarea are ≥16px', () => {
+    renderSheet()
+    const note = screen.getByRole('textbox')
+    expect(parseFloat(note.style.fontSize)).toBeGreaterThanOrEqual(16)
+  })
+})

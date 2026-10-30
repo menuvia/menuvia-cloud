@@ -269,3 +269,23 @@ describe('ReservationSheet — text lizibil peste accent', () => {
     expect(closeBtn?.parentElement).toHaveStyle({ color: expected })
   })
 })
+
+// ux-guest-5 / a11y-autocomplete: sub 16px Safari pe iOS mărește pagina la
+// fiecare focus; numele și emailul n-aveau autocomplete. Mutațiile care pică:
+// `fontSize: 14` în inputStyle; `autoComplete` scos de pe nume/email.
+describe('ReservationSheet — câmpurile formularului', () => {
+  it('RS-J toate câmpurile au ≥16px, iar nume/email/telefon au autocomplete', () => {
+    const { container } = renderSheet()
+    const controls = Array.from(
+      container.querySelectorAll('input, textarea, select'),
+    ) as HTMLElement[]
+    // nume, prefix (select), telefon, email, note
+    expect(controls.length).toBeGreaterThanOrEqual(5)
+    for (const el of controls) {
+      expect(parseFloat(el.style.fontSize), el.outerHTML.slice(0, 80)).toBeGreaterThanOrEqual(16)
+    }
+    expect(screen.getByPlaceholderText(/^Nume$/)).toHaveAttribute('autocomplete', 'name')
+    expect(screen.getByPlaceholderText(/^Email/)).toHaveAttribute('autocomplete', 'email')
+    expect(screen.getByPlaceholderText(/^Telefon$/)).toHaveAttribute('autocomplete', 'tel')
+  })
+})
