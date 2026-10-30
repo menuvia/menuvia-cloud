@@ -16,10 +16,10 @@ import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 
 // Din process.cwd(), NU din import.meta.url (capcana din qr-scan.test.ts, #269).
-const html = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
+const html: string = readFileSync(resolve(process.cwd(), 'index.html'), 'utf8')
 // Comentariile HTML pot pomeni tiparele — se scot înainte de analiză.
 const markup = html.replace(/<!--[\s\S]*?-->/g, '')
-const links = markup.match(/<link\b[^>]*>/g) ?? []
+const links: string[] = markup.match(/<link\b[^>]*>/g) ?? []
 
 const attr = (tag: string, name: string): string | null => {
   const m = tag.match(new RegExp(`\\b${name}(?:\\s*=\\s*"([^"]*)")?(?=[\\s/>])`))
