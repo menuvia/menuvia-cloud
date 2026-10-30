@@ -337,11 +337,29 @@ export default function AfiliatPage() {
             .
           </p>
         </div>
+        {/* mig 308 admite acceptarea pe un cont SUSPENDAT (acceptarea e dovadă, nu
+            redă nimic) — iar o suspendare poate fi tocmai „până accepți noile
+            condiții”. Fără secțiunea de aici, n-ar exista unde s-o facă. Doar ea:
+            restul panoului rămâne ascuns. Pe `closed` serverul refuză. */}
+        {aff.status === 'suspended' ? <SuspendedContractReaccept /> : null}
       </div>
     )
   }
 
   return <SalesPanel dashboard={dashboard} aff={aff} toast={toast} />
+}
+
+// Contul suspendat vede DOAR „Contract nou de colaborare”, și doar când serverul
+// cere reacceptarea (rol în rețea + needs_acceptance). Rețea necunoscută → nimic.
+function SuspendedContractReaccept() {
+  const sales = useSalesNetwork(true)
+  const network = sales.network
+  if (network === null || network.role === null || !network.contract.needsAcceptance) return null
+  return (
+    <div style={{ marginTop: 16 }}>
+      <ContractReacceptSection contract={network.contract} onAccepted={sales.reload} />
+    </div>
+  )
 }
 
 // ── Programul închis pentru cereri noi (mig 295) ───────────────────────────
