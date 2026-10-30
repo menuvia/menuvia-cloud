@@ -14,7 +14,7 @@ import { legibleOn, readableTextOn } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
-import { describeGuestError } from '../lib/guestErrors'
+import { guestErrorKey, isPickupRefusal, PICKUP_ERROR_OPTS } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -62,6 +62,10 @@ export default function PickupCheckoutSheet({
   const [pickupTime, setPickupTime] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Refuz definitiv (ux-guest-10): localul nu primește comenzi cu ridicare —
+  // Planul 1 sau downgrade (proiecția publică nu expune planul, deci ridicarea
+  // încă apare). Foaia nu mai oferă „Trimite", doar întoarcerea la meniu.
+  const [refused, setRefused] = useState(false)
   // Etichetele vizibile numesc câmpurile (înainte erau doar text deasupra lor).
   const nameId = useId()
   const phoneId = useId()
@@ -151,14 +155,12 @@ export default function PickupCheckoutSheet({
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
-      // Hint-urile din create_order (mig 191) + mesajele brute → text în limba
-      // oaspetelui (lib/guestErrors); niciodată textul serverului.
-      setError(
-        describeGuestError(lang, err, {
-          fallback: 'err_order_not_sent',
-          network: 'err_order_not_sent_network',
-        }),
-      )
+      // Hint-urile din create_order (mig 191) + gate-ul de plan (mig 290) +
+      // mesajele brute → text în limba oaspetelui (lib/guestErrors); niciodată
+      // textul serverului.
+      const key = guestErrorKey(err, PICKUP_ERROR_OPTS)
+      setError(T(lang, key))
+      setRefused(isPickupRefusal(key))
       setSubmitting(false)
     }
   }
@@ -414,29 +416,50 @@ export default function PickupCheckoutSheet({
             background: PUB.bg,
           }}
         >
-          <button
-            disabled={submitBlocked}
-            onClick={() => void submitOrder()}
-            style={{
-              width: '100%',
-              padding: '15px',
-              // Blocat → suprafață + text secundar (alb pe borderStrong avea ~1,6:1);
-              // activ → textul lizibil peste accent, nu alb fix.
-              background: submitBlocked ? PUB.surface : accent,
-              color: submitBlocked ? PUB.text3 : onAccent,
-              border: submitBlocked ? `1.5px solid ${PUB.border}` : 'none',
-              borderRadius: 12,
-              fontFamily: theme.fonts.body,
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: submitBlocked ? 'not-allowed' : 'pointer',
-              boxShadow: submitBlocked ? 'none' : `0 4px 14px ${accent}55`,
-            }}
-          >
-            {submitting
-              ? T(lang, 'sending')
-              : `${T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
-          </button>
+          {refused ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: '100%',
+                padding: '15px',
+                background: 'transparent',
+                color: PUB.text,
+                border: `1.5px solid ${PUB.borderStrong}`,
+                borderRadius: 12,
+                fontFamily: theme.fonts.body,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {T(lang, 'reserve_back_to_menu')}
+            </button>
+          ) : (
+            <button
+              disabled={submitBlocked}
+              onClick={() => void submitOrder()}
+              style={{
+                width: '100%',
+                padding: '15px',
+                // Blocat → suprafață + text secundar (alb pe borderStrong avea ~1,6:1);
+                // activ → textul lizibil peste accent, nu alb fix.
+                background: submitBlocked ? PUB.surface : accent,
+                color: submitBlocked ? PUB.text3 : onAccent,
+                border: submitBlocked ? `1.5px solid ${PUB.border}` : 'none',
+                borderRadius: 12,
+                fontFamily: theme.fonts.body,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: submitBlocked ? 'not-allowed' : 'pointer',
+                boxShadow: submitBlocked ? 'none' : `0 4px 14px ${accent}55`,
+              }}
+            >
+              {submitting
+                ? T(lang, 'sending')
+                : `${T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
+            </button>
+          )}
         </div>
       </div>
     </div>

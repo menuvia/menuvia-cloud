@@ -238,3 +238,45 @@ describe('PickupCheckoutSheet — selecție și eroare accesibile', () => {
     expect(createOrderMock).not.toHaveBeenCalled()
   })
 })
+
+// ux-guest-10 (pasul A): pe un local fără `pickup_orders` (Planul 1, downgrade)
+// refuzul serverului (hint `plan_upgrade_required`, mig 290) apărea ca
+// „Comanda nu s-a trimis. Încearcă din nou." cu butonul de trimitere activ —
+// o retrimitere care nu poate reuși. Mutațiile care pică: fallback-ul vechi
+// (describeGuestError fără PICKUP_ERROR_OPTS); CTA-ul lăsat după refuz.
+describe('PickupCheckoutSheet — refuzul de plan spus pe față', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+  })
+
+  it('S12 refuzul de plan: mesaj de indisponibilitate și „Înapoi la meniu", fără „Trimite"', async () => {
+    createOrderMock.mockRejectedValue(
+      Object.assign(
+        new Error(
+          'Comenzile nu sunt disponibile pe planul curent al restaurantului. Funcția cere un plan superior.',
+        ),
+        { hint: 'plan_upgrade_required', code: '23514' },
+      ),
+    )
+    const onClose = vi.fn()
+    renderSheet(vi.fn(), '#c8102e', onClose)
+    await fillAndSubmit()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/ridicare nu sunt disponibile/i)
+    expect(alert).not.toHaveTextContent(/încearcă din nou/i)
+    expect(screen.queryByRole('button', { name: /trimite comanda/i })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /înapoi la meniu/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('S13 control: o eroare de rețea lasă „Trimite" (se poate reîncerca)', async () => {
+    createOrderMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    renderSheet()
+    await fillAndSubmit()
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: /trimite comanda/i })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /înapoi la meniu/i })).not.toBeInTheDocument()
+  })
+})
+
