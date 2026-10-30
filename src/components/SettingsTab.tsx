@@ -7,6 +7,7 @@ import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
+import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
@@ -200,14 +201,16 @@ export default function SettingsTab({
       canvas.height = Math.round(img.height * scale)
       ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
-      const blob = await new Promise<Blob | null>((res) =>
-        canvas.toBlob((b) => res(b), 'image/webp', 0.85),
-      )
-      if (!blob) throw new Error('blob create failed')
-      const path = user.id + '/' + restaurant.id + '/' + kind + '/' + crypto.randomUUID() + '.webp'
+      // WebP unde se poate; pe Safari (iPhone) JPEG pentru cover/pagini și PNG
+      // pentru logo (păstrează transparența). Extensia + Content-Type vin din ce
+      // a codat EFECTIV browserul — înainte, Safari urca PNG sub nume `.webp`,
+      // iar cover-ul de 1600 px (LCP-ul meniului public) ajungea la câțiva MB.
+      const encoded = await encodeForUpload(canvas, { quality: 0.85, alpha: kind === 'logo' })
+      const path =
+        user.id + '/' + restaurant.id + '/' + kind + '/' + crypto.randomUUID() + '.' + encoded.ext
       const { error } = await supabase.storage
         .from('product-images')
-        .upload(path, blob, { contentType: 'image/webp' })
+        .upload(path, encoded.blob, { contentType: encoded.contentType })
       if (error) throw error
       const { data } = supabase.storage.from('product-images').getPublicUrl(path)
       return data.publicUrl

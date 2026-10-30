@@ -18,6 +18,7 @@ import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
 import { generateNutrition, generateProductImage } from '../lib/ai'
+import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
@@ -101,37 +102,40 @@ function ProductModal({
       canvas.height = img.height * scale
       ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
-      const blob = await new Promise<Blob>((res) =>
-        canvas.toBlob((b) => res(b!), 'image/webp', 0.85),
-      )
+      // WebP unde browserul îl codează, JPEG pe Safari (iPhone) — extensia și
+      // Content-Type-ul vin din ce a codat EFECTIV browserul (lib/imageEncode).
+      const original = await encodeForUpload(canvas, {
+        quality: 0.85,
+        alpha: mayHaveAlpha(file.type),
+      })
       // OPT-6: al DOILEA blob de ~320px pentru thumbnail-uri — cardurile de
       // listă (88px) și coșul (52px) descărcau originalul de 1200px
       // (~150-400KB) pentru fiecare poză; thumb-ul e ~20KB. Convenție de nume
-      // {uuid}_t.webp lângă original (thumbUrlFor din lib/images derivă URL-ul;
-      // fallback onError la original acoperă toate imaginile vechi — fără
-      // migrație DB, fără coloană nouă).
+      // {uuid}_t.{ext} lângă original, în ACELAȘI format (thumbUrlFor din
+      // lib/images derivă URL-ul; fallback onError la original acoperă toate
+      // imaginile vechi — fără migrație DB, fără coloană nouă).
       const thumbW = 320
       const tScale = canvas.width > thumbW ? thumbW / canvas.width : 1
       const tCanvas = document.createElement('canvas')
       tCanvas.width = Math.round(canvas.width * tScale)
       tCanvas.height = Math.round(canvas.height * tScale)
       tCanvas.getContext('2d')!.drawImage(canvas, 0, 0, tCanvas.width, tCanvas.height)
-      const thumbBlob = await new Promise<Blob>((res) =>
-        tCanvas.toBlob((b) => res(b!), 'image/webp', 0.8),
-      )
+      const thumb = await encodeSameFormat(tCanvas, original, 0.8)
       const baseName = crypto.randomUUID()
-      const path = userId + '/' + restaurantId + '/' + baseName + '.webp'
-      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.webp'
+      const path = userId + '/' + restaurantId + '/' + baseName + '.' + original.ext
+      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.' + original.ext
       const { error } = await supabase.storage
         .from('product-images')
-        .upload(path, blob, { contentType: 'image/webp' })
+        .upload(path, original.blob, { contentType: original.contentType })
       if (error) throw error
-      // Thumb-ul e best-effort: dacă upload-ul lui pică, cardurile cad oricum
-      // pe original prin fallback-ul onError — nu blocăm salvarea produsului.
-      const { error: thumbErr } = await supabase.storage
-        .from('product-images')
-        .upload(thumbPath, thumbBlob, { contentType: 'image/webp' })
-      if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
+      // Thumb-ul e best-effort: dacă codarea sau upload-ul lui pică, cardurile
+      // cad oricum pe original prin fallback-ul onError — nu blocăm produsul.
+      if (thumb) {
+        const { error: thumbErr } = await supabase.storage
+          .from('product-images')
+          .upload(thumbPath, thumb.blob, { contentType: thumb.contentType })
+        if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
+      }
       const {
         data: { publicUrl },
       } = supabase.storage.from('product-images').getPublicUrl(path)
