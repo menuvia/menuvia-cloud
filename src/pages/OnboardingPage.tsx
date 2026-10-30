@@ -5,7 +5,7 @@ import { createRestaurant } from '../lib/restaurants'
 import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
-import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
+import { fetchRestaurantFeatures, getLimit, getLimitDetailed, hasFeature } from '../lib/features'
 import { applyBusinessTypePreset } from '../lib/quickSetup'
 import { track } from '../lib/analytics'
 import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
@@ -704,6 +704,26 @@ function Step2Menu({
   // modalului decide dacă pasul e gata (avansăm) sau doar închidem.
   const importedCountRef = useRef(0)
   const [presetBusy, setPresetBusy] = useState(false)
+  // Plafonul de produse al planului, ca importul AI să-l știe ÎNAINTE de salvare:
+  // fără el, pe planul gratuit (15) un meniu real de 25 de produse pica în bloc
+  // cu „Nimic nu a fost salvat” (inserarea e atomică). Restaurantul a fost creat
+  // la Pasul 1, iar pasul ăsta avansează la primul produs salvat, deci aici are 0
+  // produse: locurile rămase = plafonul. Necunoscut (RPC picat) sau nelimitat →
+  // undefined: decide serverul, ca înainte.
+  const [productSlots, setProductSlots] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (cancelled || !f) return
+        const lim = getLimitDetailed(f, 'max_products')
+        if (lim.kind === 'limited') setProductSlots(Math.max(0, lim.n))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
 
   const handleImportClosed = async () => {
     setAiImportOpen(false)
@@ -969,6 +989,7 @@ function Step2Menu({
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
+            remainingSlots={productSlots}
             onImported={(count) => {
               importedCountRef.current = count
             }}

@@ -6,13 +6,18 @@
 //   - Pasul 2 oferă importul din poză ca acțiune primară + formularul manual
 // Pattern de mock-uri ca în ReservePage.test.tsx (supabase + module).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { LimitDetail } from '../../lib/features'
 
-const { createRestaurantMock, trackMock } = vi.hoisted(() => ({
-  createRestaurantMock: vi.fn(),
-  trackMock: vi.fn(),
-}))
+const { createRestaurantMock, trackMock, aiImportPropsMock, getLimitDetailedMock } = vi.hoisted(
+  () => ({
+    createRestaurantMock: vi.fn(),
+    trackMock: vi.fn(),
+    aiImportPropsMock: vi.fn(),
+    getLimitDetailedMock: vi.fn((): LimitDetail => ({ kind: 'unlimited' })),
+  }),
+)
 
 vi.mock('../../lib/restaurants', () => ({ createRestaurant: createRestaurantMock }))
 vi.mock('../../lib/analytics', () => ({ track: trackMock }))
@@ -29,6 +34,7 @@ vi.mock('../../lib/supabase', () => ({
 vi.mock('../../lib/features', () => ({
   fetchRestaurantFeatures: vi.fn().mockResolvedValue({}),
   getLimit: vi.fn(() => null),
+  getLimitDetailed: getLimitDetailedMock,
   hasFeature: vi.fn(() => true),
 }))
 // Presetul demo (RPC apply_business_type_preset) — nu îl exersăm în smoke.
@@ -36,13 +42,19 @@ vi.mock('../../lib/quickSetup', () => ({
   applyBusinessTypePreset: vi.fn().mockResolvedValue({ status: 'success' }),
 }))
 // AiMenuImport e lazy + greu (hooks de date); aici verificăm doar că butonul
-// de deschidere există în Pasul 2, nu modalul în sine.
-vi.mock('../../components/AiMenuImport', () => ({ default: () => null }))
+// de deschidere există în Pasul 2 și ce props primește modalul, nu modalul în sine.
+vi.mock('../../components/AiMenuImport', () => ({
+  default: (props: { remainingSlots?: number }) => {
+    aiImportPropsMock(props)
+    return null
+  },
+}))
 
 import OnboardingPage from '../OnboardingPage'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  getLimitDetailedMock.mockReturnValue({ kind: 'unlimited' })
   window.localStorage.clear()
 })
 
@@ -90,6 +102,20 @@ describe('OnboardingPage — funelul de activare', () => {
     await screen.findByText('Adaugă primul produs')
     expect(createRestaurantMock).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Casa Țărănească', slug: 'casa-taraneasca' }),
+    )
+  })
+
+  // AQ3 (ux-owner-ai-import-plafon): onboarding-ul trimite plafonul planului
+  // importului AI, ca un meniu peste plafon să fie oprit ÎNAINTE de salvare.
+  // Mutația care pică: <AiMenuImport> fără remainingSlots (comportamentul vechi).
+  it('AQ3 importul din poză primește plafonul de produse al planului', async () => {
+    getLimitDetailedMock.mockReturnValue({ kind: 'limited', n: 15 })
+    const user = await reachStep2()
+    await user.click(screen.getByRole('button', { name: /ai meniul tipărit/i }))
+    await waitFor(() =>
+      expect(aiImportPropsMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ restaurantId: 'r1', remainingSlots: 15 }),
+      ),
     )
   })
 

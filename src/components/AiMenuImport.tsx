@@ -21,6 +21,11 @@
 //     produce UN singur mesaj; o respingere de la server nu mai cade pe N inserări
 //     care eșuează fiecare cu mesajul ei.
 //  6. Promptul urmează moneda și limba de BAZĂ ale restaurantului (nu „prețuri în lei”).
+//  7. PESTE PLAFON, o singură apăsare: „Păstrează primele N” debifează ce nu
+//     încape (în ordinea meniului), iar produsele debifate așa NU se pierd —
+//     rămân în draft, bifate, pentru după trecerea la un plan superior. Pe
+//     planul gratuit un meniu real (25 de produse, plafon 15) cerea altfel 10
+//     debifări de mână, iar onboarding-ul nici nu trimitea plafonul.
 import { useState, useEffect } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
@@ -34,7 +39,9 @@ import {
   clearImportDraft,
   describeProductLimit,
   isProductLimitError,
+  isSelectedDraft,
   loadImportDraft,
+  overLimitIndices,
   reconcileDraftCategories,
   remainingAfterImport,
   saveImportDraft,
@@ -172,6 +179,11 @@ export default function AiMenuImport({
   const [importErrors, setImportErrors] = useState<string[]>([])
   // Câte produse au rămas în draft după un import parțial (afișat pe ecranul „done”).
   const [leftInDraft, setLeftInDraft] = useState(0)
+  // Rândurile debifate de „Păstrează primele N” (indici în `drafts`): nu sunt o
+  // alegere a omului, ci plafonul planului — la salvare rămân în draft.
+  const [planDeferred, setPlanDeferred] = useState<ReadonlySet<number>>(() => new Set())
+  // Câte dintre produsele rămase în draft n-au încăput în plan (ecranul „done”).
+  const [deferredByPlan, setDeferredByPlan] = useState(0)
   // Draftul rămas dintr-o sesiune anterioară (sessionStorage, fail-open).
   const [stored, setStored] = useState<StoredImportDraft | null>(() => loadImportDraft(restaurantId))
   // Moneda/limba restaurantului: cerută o singură dată la deschidere, citită la extracție.
@@ -244,6 +256,7 @@ export default function AiMenuImport({
         return
       }
       setDrafts(parsed)
+      setPlanDeferred(new Set())
       setStored(null) // salvarea o face efectul de pe ecranul de revizuire
       setStep('review')
     } catch (e) {
@@ -260,7 +273,9 @@ export default function AiMenuImport({
     const failed: string[] = []
     // Produsele selectate care NU au ajuns în bază (rămân în draft).
     const unsaved: DraftProduct[] = []
-    const selected = drafts.filter((d) => d.include && d.name.trim())
+    const selected = drafts.filter(isSelectedDraft)
+    // Debifate de plafon (și încă debifate): rămân în draft, nu se aruncă.
+    const deferred = drafts.filter((d, i) => planDeferred.has(i) && !d.include)
 
     // 1. Creează categoriile noi ('new:<nume>') o singură dată per nume.
     //    RE-POTRIVIRE întâi contra listei PROASPETE de categorii: seedCategoryIds
@@ -343,18 +358,25 @@ export default function AiMenuImport({
     setBusy(false)
     // Draftul păstrează EXACT ce nu s-a salvat: produsele eșuate/neîncercate + rândurile
     // pe care omul nu le-a selectat. Cele salvate dispar (o reluare ar duplica
-    // produsele). Nimic nesalvat → draftul se șterge de tot.
-    if (unsaved.length === 0) {
+    // produsele). Nimic nesalvat → draftul se șterge de tot. Produsele debifate de
+    // plafon contează ca nesalvate și revin BIFATE (omul nu le-a refuzat).
+    const keepInDraft = [...unsaved, ...deferred]
+    if (keepInDraft.length === 0) {
       clearImportDraft(restaurantId)
       setStored(null)
       setLeftInDraft(0)
     } else {
-      const remaining = remainingAfterImport(drafts, selected, unsaved)
+      const deferredSet = new Set(deferred)
+      const remaining = remainingAfterImport(drafts, selected, keepInDraft).map((d) =>
+        deferredSet.has(d) ? { ...d, include: true } : d,
+      )
       saveImportDraft(restaurantId, remaining)
       setDrafts(remaining)
       setStored(null)
-      setLeftInDraft(unsaved.length)
+      setLeftInDraft(keepInDraft.length)
     }
+    setDeferredByPlan(deferred.length)
+    setPlanDeferred(new Set())
     setStep('done')
     // Callerul află de succes AICI (nu la onClose): onboarding-ul marchează
     // pasul de meniu, ProductsTab emite telemetria — fără să ghicească din refetch.
@@ -372,8 +394,20 @@ export default function AiMenuImport({
     drafts.filter((d) => d.category_id.startsWith('new:')).map((d) => d.category_id.slice(4)),
   )]
 
-  const selectedCount = drafts.filter((d) => d.include && d.name.trim()).length
+  const selectedCount = drafts.filter(isSelectedDraft).length
   const limitMessage = describeProductLimit(selectedCount, remainingSlots)
+  // „Păstrează primele N”: doar când încape ceva (pe 0 locuri nu e nimic de păstrat).
+  const canKeepWithinPlan =
+    limitMessage !== null && remainingSlots !== undefined && remainingSlots > 0
+
+  function keepWithinPlan(): void {
+    if (remainingSlots === undefined) return
+    const over = overLimitIndices(drafts, remainingSlots)
+    if (over.length === 0) return
+    const overSet = new Set(over)
+    setDrafts((prev) => prev.map((d, i) => (overSet.has(i) ? { ...d, include: false } : d)))
+    setPlanDeferred((prev) => new Set([...prev, ...over]))
+  }
   // Se poate relua fie draftul din memorie (după „Înapoi”), fie cel din sessionStorage.
   const resumableCount = drafts.length > 0 ? drafts.length : (stored?.drafts.length ?? 0)
 
@@ -382,6 +416,7 @@ export default function AiMenuImport({
       const known = new Set(categories.categories.map((c) => c.id))
       setDrafts(reconcileDraftCategories(stored.drafts, known))
     }
+    setPlanDeferred(new Set())
     setStored(null)
     setError(null)
     setStep('review')
@@ -471,9 +506,19 @@ export default function AiMenuImport({
                 {newCategoryNames.length > 0 && ` Secțiunile marcate cu ➕ se creează automat la salvare.`}
               </p>
               {limitMessage && (
-                <div role="alert" data-testid="plan-limit" style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '10px 13px', fontSize: '0.84rem', marginBottom: 14 }}>
+                <div role="alert" data-testid="plan-limit" style={{ background: D.redA, border: `1px solid ${D.red}44`, color: D.red, borderRadius: 9, padding: '10px 13px', fontSize: '0.84rem', marginBottom: canKeepWithinPlan ? 8 : 14 }}>
                   {limitMessage}
                 </div>
+              )}
+              {canKeepWithinPlan && (
+                <button
+                  onClick={keepWithinPlan}
+                  style={{ display: 'block', width: '100%', background: D.s3, color: D.t1, border: `1px solid ${D.gold}55`, borderRadius: 9, padding: '10px 13px', minHeight: 44, fontSize: '0.84rem', fontWeight: 600, cursor: 'pointer', fontFamily: 'DM Sans,sans-serif', marginBottom: 14 }}
+                >
+                  {remainingSlots === 1
+                    ? 'Păstrează primul produs, restul rămân în draft'
+                    : `Păstrează primele ${remainingSlots} produse, restul rămân în draft`}
+                </button>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {drafts.map((d, i) => (
@@ -512,8 +557,13 @@ export default function AiMenuImport({
               </p>
               <p style={{ color: D.t2, fontSize: '0.85rem', marginBottom: importErrors.length > 0 || leftInDraft > 0 ? 14 : 0 }}>Le găsești în tab-ul Produse.</p>
               {leftInDraft > 0 && (
-                <p data-testid="left-in-draft" style={{ color: D.gold, fontSize: '0.85rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>
+                <p data-testid="left-in-draft" style={{ color: D.gold, fontSize: '0.85rem', marginBottom: importErrors.length > 0 || deferredByPlan > 0 ? 14 : 0 }}>
                   {leftInDraft} {leftInDraft === 1 ? 'produs a rămas' : 'produse au rămas'} în draft, nesalvate. Redeschide importul și apasă „Reia importul”.
+                </p>
+              )}
+              {deferredByPlan > 0 && (
+                <p data-testid="deferred-by-plan" style={{ color: D.t2, fontSize: '0.82rem', marginBottom: importErrors.length > 0 ? 14 : 0 }}>
+                  {deferredByPlan === 1 ? 'Un produs n-a încăput' : `${deferredByPlan} produse n-au încăput`} în planul curent. Le salvezi din draft după ce treci la un plan superior.
                 </p>
               )}
               {importErrors.length > 0 && (
