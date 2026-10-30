@@ -125,7 +125,7 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
   it('GA6 bara își anunță conținutul, adăugarea e anunțată, `<html lang>` urmează limba', () => {
     for (const s of [src.qr, src.pub]) {
       expect(s).toMatch(/aria-label=\{cartBarLabel\(/)
-      expect(s).toMatch(/role="status" aria-live="polite"/)
+      expect(s).toMatch(/role="status"\s+aria-live="polite"/)
       expect(s).toMatch(/useDocumentLang\(lang\)/)
     }
     expect(src.qr).not.toMatch(/aria-label=\{T\(lang, 'my_order'\)\}/)
