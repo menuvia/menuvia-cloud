@@ -340,7 +340,7 @@ function Problem() {
             {
               i: '✕',
               t: 'Zero rapoarte',
-              d: 'Nu știi ce vinde mai bine, când e peak, cine vinde cât.',
+              d: 'Nu știi ce se vinde mai bine și ce rămâne pe raft.',
             },
           ].map((x, i) => (
             <div
@@ -399,7 +399,7 @@ function Features() {
       n: '04',
       icon: 'chart',
       t: 'Rapoarte cu sens',
-      d: `Evidența comenzilor și a produselor vândute, export PDF/CSV pentru contabil. Pe ${getPlan('pro').name}: vânzări pe oră, raport TVA și încasări pe tură.`,
+      d: `Evidența comenzilor și a produselor vândute. Pe ${getPlan('pro').name}: vânzări pe oră, raport TVA, încasări pe tură și export PDF/CSV pentru contabil.`,
     },
     {
       n: '05',
@@ -1052,7 +1052,7 @@ function ContactForm() {
 
             <div style={{ fontSize: 12, color: D.t3, lineHeight: 1.5 }}>
               Folosim datele doar ca să te contactăm despre demo și programul pilot. Detalii în{' '}
-              <a href="/confidentialitate" style={{ color: D.t2 }}>
+              <a href="/confidentialitate" target="_blank" rel="noopener noreferrer" style={{ color: D.t2 }}>
                 politica de confidențialitate
               </a>
               .

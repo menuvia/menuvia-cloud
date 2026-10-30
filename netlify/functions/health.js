@@ -160,9 +160,10 @@ function jsonResponse(statusCode, body) {
 
 // Booleeni de PREZENȚĂ a secretelor critice — NU valorile. Doar `!!`.
 // Excepția e `stripe_key_mode` ('live' | 'test' | 'unknown'), derivat din PREFIXUL
-// cheii, nu din cheie: o cheie de TEST pe producție nu se vede din `stripe:true`,
-// iar cu ea cardul 4242 dă Planul 3 gratuit (regula de aur). Webhook-urile o
-// prind abia la primul eveniment (lib/livemode.js); aici se vede înainte.
+// cheii, nu din cheie: o cheie de TEST pe producție (interzisă de D2) nu se vede
+// din `stripe:true`, iar cu ea un card de test activează abonamente fără bani.
+// Webhook-urile o prind abia la primul eveniment (lib/livemode.js); aici se vede
+// înainte. health-watch.yml pică pe orice mod în afară de `live`.
 function envConfig() {
   return {
     resend: !!process.env.RESEND_API_KEY,

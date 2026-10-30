@@ -111,6 +111,16 @@ describe('/recrutare vinde oferta pilot reală', () => {
     expect(src).toContain('Reducerea se aplică singură pe comenzile prin QR și de ridicare')
   })
 
+  it('PT5e: exportul pentru contabil e numit pe Planul 3 (ReportsTab: fiscalReports = money ≥ 3)', () => {
+    // Pilotul e pe Meniu + Comenzi; acolo ReportsTab ascunde Export CSV/PDF.
+    expect(src).not.toMatch(/vândute, export/i)
+    expect(src).toContain(
+      "Pe ${getPlan('pro').name}: vânzări pe oră, raport TVA, încasări pe tură și export PDF/CSV pentru contabil",
+    )
+    // Vânzările pe oră / pe ospătar sunt tot Plan 3: problema nu le mai pomenește.
+    expect(src).not.toMatch(/când e peak|cine vinde cât/)
+  })
+
   it('PT5d: suportul real e numit (control pozitiv)', () => {
     expect(src).toContain('prin agentul tău Menuvia și pe email')
     expect(src).toContain('Cererea ta a ajuns la noi.')

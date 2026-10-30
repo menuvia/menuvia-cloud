@@ -429,10 +429,11 @@ Semnale în loguri:
 - Modul cheii se vede și ÎNAINTE de primul eveniment: `/health` cu antetul
   `x-health-diag` întoarce `config.stripe_key_mode` (`live` | `test` | `unknown`,
   derivat din prefix — cheia însăși nu apare niciodată, iar fără token câmpul
-  lipsește cu totul). `health-watch.yml` dă **avertisment** pe `test` (normal până
-  la primul client plătitor, dar atunci cardul 4242 dă Planul 3 gratuit) și
-  **eroare** pe `unknown` cu cheie prezentă (ex. cheia publicabilă `pk_` pusă în
-  locul celei secrete — webhook-urile răspund 500 la orice eveniment).
+  lipsește cu totul). `health-watch.yml` dă **eroare** pe `test` (D2: cheile de
+  test stau doar în branch deploy-ul `stripe-test`, niciodată în producție) și pe
+  `unknown` cu cheie prezentă (ex. cheia publicabilă `pk_` pusă în locul celei
+  secrete — webhook-urile răspund 500 la orice eveniment). În logul public al
+  workflow-ului apar doar NUMELE cheilor din `config`, nu valorile.
 
 ---
 
