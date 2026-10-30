@@ -225,10 +225,7 @@ export interface StaffOrdersPage {
 }
 
 /** Cele mai noi N comenzi deschise ale restaurantului (FIFO) + flag `truncated` când plafonul a fost atins. */
-async function fetchStaffOrders(
-  restaurantId: string,
-  statuses: string[],
-): Promise<StaffOrdersPage> {
+async function fetchStaffOrders(restaurantId: string, statuses: string[]): Promise<StaffOrdersPage> {
   const { data, error } = await supabase
     .from('orders')
     .select(ORDER_SELECT)
@@ -398,10 +395,7 @@ export function describePayRejection(err: unknown): string {
     case 'underpayment':
     case 'overpayment':
       // Serverul spune exact suma și plafonul — e mesajul cel mai util.
-      return (
-        serverMsg ||
-        'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
-      )
+      return serverMsg || 'Suma nu corespunde restului de plată. Verifică suma (fără bacșiș) și reîncearcă.'
     case 'paid_amount_required':
       return 'Introdu suma încasată.'
     case 'invalid_payment_method':

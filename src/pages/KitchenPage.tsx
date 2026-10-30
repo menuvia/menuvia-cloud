@@ -4,7 +4,16 @@
 // Restaurant selection via RestaurantContext — no local membership query.
 // =============================================================
 
-import { memo, useCallback, useState, useEffect, useRef, CSSProperties, ReactNode } from 'react'
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  CSSProperties,
+  ReactNode,
+} from 'react'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { useOrders } from '../hooks/useOrders'
 import type { Order, OrderStatus } from '../lib/orders'
@@ -12,6 +21,8 @@ import { STAFF_ORDERS_FETCH_LIMIT } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
 import { usePushNotifications } from '../hooks/usePushNotifications'
+import { useAudioUnlock } from '../hooks/useAudioUnlock'
+import { createTapGuard } from '../lib/tapGuard'
 import { useInView, revealStyle } from '../lib/motion'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -114,8 +125,20 @@ function ElapsedTimer({ createdAt }: { createdAt: string }) {
 interface OrderCardProps {
   order: Order
   onAdvance: (id: string, cur: OrderStatus, next: OrderStatus) => void
+  // Acțiunea pe comandă e în curs: butonul stă dezactivat (anti dublu-tap —
+  // după primul tap butonul arată deja PASUL URMĂTOR).
+  pending?: boolean
+  // Refuzul ultimei acțiuni, în română, afișat SUB buton (nu sus, în pagină).
+  actionError?: string | null
+  onDismissError?: (id: string) => void
 }
-const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) {
+const OrderCard = memo(function OrderCard({
+  order,
+  onAdvance,
+  pending = false,
+  actionError = null,
+  onDismissError,
+}: OrderCardProps) {
   const next = KITCHEN_NEXT[order.status]
   // Re-render la 10s (aceeași cadență ca ElapsedTimer) — altfel border-ul/fundalul
   // cardului rămâneau „calme" până la următorul poll (~30s) deși chip-ul de timp
@@ -236,6 +259,8 @@ const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) 
       {next != null && (
         <button
           className="pressable"
+          disabled={pending}
+          aria-busy={pending}
           onClick={(e) => {
             // Feedback tactil scurt pe tap — bucătarul vede că butonul a „prins".
             e.currentTarget.classList.remove('animate-bump')
@@ -252,13 +277,56 @@ const OrderCard = memo(function OrderCard({ order, onAdvance }: OrderCardProps) 
             fontFamily: 'DM Sans, sans-serif',
             fontSize: 15,
             fontWeight: 700,
-            cursor: 'pointer',
+            cursor: pending ? 'wait' : 'pointer',
+            opacity: pending ? 0.6 : 1,
             width: '100%',
             minHeight: 48,
           }}
         >
-          {next.label}
+          {pending ? 'Se salvează…' : next.label}
         </button>
+      )}
+      {actionError != null && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 8,
+            background: `${D.red}1A`,
+            border: `1px solid ${D.red}55`,
+            borderRadius: 8,
+            padding: '6px 4px 6px 10px',
+            color: D.red,
+            fontSize: 13,
+            lineHeight: 1.35,
+          }}
+        >
+          <span style={{ minWidth: 0 }}>{actionError}</span>
+          {onDismissError && (
+            <button
+              type="button"
+              onClick={() => onDismissError(order.id)}
+              aria-label={'Închide mesajul'}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: D.red,
+                cursor: 'pointer',
+                minWidth: 44,
+                minHeight: 44,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                padding: 0,
+              }}
+            >
+              <Icon name="close" size={16} />
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -328,10 +396,24 @@ export default function KitchenPage() {
   // redeschide bannerul.
   const [dismissedError, setDismissedError] = useState<string | null>(null)
 
-  const { orders, loading, error, truncated, advance, byStatus, connectionStatus } = useOrders(
-    restaurantId,
-    'kitchen',
-  )
+  const {
+    orders,
+    loading,
+    error,
+    truncated,
+    advance,
+    byStatus,
+    connectionStatus,
+    pendingIds,
+    actionErrors,
+    dismissActionError,
+  } = useOrders(restaurantId, 'kitchen')
+  // Sunetul pentru comandă nouă: deblocat la PRIMA atingere a ecranului;
+  // până atunci un banner o cere (altfel beep-ul era mut fără niciun semn).
+  const sound = useAudioUnlock()
+  // Anti dublu-tap între carduri: „Gata" mută cardul în altă coloană, iar
+  // cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
+  const tapGuard = useMemo(() => createTapGuard(), [])
   // Indicatorul reflectă starea REALĂ a canalului de comenzi (useOrders), nu un canal de
   // prezență separat care putea arăta „Conectat" când realtime-ul comenzilor era căzut.
   // Cele 3 stări rămân distincte: 'connecting' (starea inițială, câteva secunde la fiecare
@@ -384,9 +466,10 @@ export default function KitchenPage() {
   // OPT-8: stabil — altfel memo-ul de pe OrderCard e inert (prop nou/render).
   const handleAdvance = useCallback(
     (orderId: string, current: OrderStatus, next: OrderStatus): void => {
+      if (!tapGuard()) return
       void advance(orderId, current, { status: next })
     },
-    [advance],
+    [advance, tapGuard],
   )
 
   if (ctxLoading || loading) {
@@ -555,6 +638,49 @@ export default function KitchenPage() {
         </div>
       )}
 
+      {sound.locked && (
+        <div
+          role="status"
+          style={{
+            background: `${D.amber}1F`,
+            borderBottom: `1px solid ${D.amber}44`,
+            padding: '8px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span
+            style={{ display: 'flex', alignItems: 'center', gap: 8, color: D.amber, fontSize: 13 }}
+          >
+            <Icon name="bell" size={16} color={D.amber} />
+            Sunetul pentru comenzile noi e oprit de browser până atingi ecranul o dată.
+          </span>
+          <button
+            type="button"
+            onClick={sound.unlock}
+            style={{
+              background: D.amber,
+              color: '#000',
+              border: 'none',
+              borderRadius: 7,
+              minHeight: 44,
+              padding: '7px 16px',
+              fontFamily: 'DM Sans,sans-serif',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            Pornește sunetul
+          </button>
+        </div>
+      )}
+
       {truncated && (
         <div
           role="status"
@@ -578,8 +704,9 @@ export default function KitchenPage() {
             gap: 12,
           }}
         >
-          {/* Mesaj acționabil în română — erorile din useOrders vin brute (engleză/tehnice);
-              detaliul tehnic rămâne vizibil, secundar, pentru diagnoză. */}
+          {/* Doar erorile de ÎNCĂRCARE a listei (refuzurile unei acțiuni stau pe card).
+              Mesaj acționabil în română; detaliul tehnic rămâne secundar, pentru
+              diagnoză. Dispare singur la următorul fetch reușit. */}
           <span style={{ minWidth: 0 }}>
             Nu am putut sincroniza comenzile. Verifică conexiunea și reîncearcă.{' '}
             <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
@@ -677,7 +804,13 @@ export default function KitchenPage() {
               >
                 {colOrders.map((order, i) => (
                   <RevealItem key={order.id} delay={Math.min(i, 4) * 40}>
-                    <OrderCard order={order} onAdvance={handleAdvance} />
+                    <OrderCard
+                      order={order}
+                      onAdvance={handleAdvance}
+                      pending={pendingIds.has(order.id)}
+                      actionError={actionErrors[order.id] ?? null}
+                      onDismissError={dismissActionError}
+                    />
                   </RevealItem>
                 ))}
                 {colOrders.length === 0 && (
