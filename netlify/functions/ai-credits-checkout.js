@@ -8,6 +8,8 @@
 const { createClient } = require('@supabase/supabase-js')
 const Stripe = require('stripe')
 const { appUrl: resolveAppUrl, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+// Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
+const { aiError } = require('./lib/aiErrors')
 // Versiunea de API PINUITĂ (audit v3 OPS-8) pentru CERERILE noastre către Stripe:
 // fără pin, un bump de SDK schimbă tăcut forma răspunsurilor pe care le citim
 // (subscriptions.list, checkout sessions…). NU acoperă evenimentele de WEBHOOK:
@@ -36,37 +38,37 @@ const PACKS = {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' }
+    return aiError(405, 'method_not_allowed')
   }
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, STRIPE_SECRET_KEY } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !STRIPE_SECRET_KEY) {
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
 
   let body
   try {
     body = JSON.parse(event.body || '{}')
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return aiError(400, 'bad_json')
   }
 
   const { restaurant_id, pack } = body
-  if (!restaurant_id) return jsonResponse(400, { error: 'Missing restaurant_id' })
+  if (!restaurant_id) return aiError(400, 'missing_restaurant')
   // hasOwnProperty: `PACKS[pack]` cu pack='constructor'/'toString' întorcea o
   // funcție moștenită din Object.prototype → trecea de `!packDef` și crăpa mai
   // jos cu 500 în loc de un 400 curat.
   const packDef = Object.prototype.hasOwnProperty.call(PACKS, pack) ? PACKS[pack] : null
-  if (!packDef) return jsonResponse(400, { error: 'Invalid pack' })
+  if (!packDef) return aiError(400, 'invalid_pack')
 
   // Auth
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (!token) return jsonResponse(401, { error: 'Missing Authorization header' })
+  if (!token) return aiError(401, 'auth_missing')
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
   const { data: { user }, error: authErr } = await supabase.auth.getUser(token)
-  if (authErr || !user) return jsonResponse(401, { error: 'Invalid token' })
+  if (authErr || !user) return aiError(401, 'auth_invalid')
 
   // Autorizare: owner/manager al restaurantului
   const { data: membership } = await supabase
@@ -76,7 +78,7 @@ exports.handler = async (event) => {
     .eq('user_id', user.id)
     .single()
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return jsonResponse(403, { error: 'Forbidden' })
+    return aiError(403, 'forbidden')
   }
 
   const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: STRIPE_API_VERSION, timeout: 6000, maxNetworkRetries: 0 })
@@ -93,7 +95,7 @@ exports.handler = async (event) => {
   // avea deja unul. Ieșim 503 înainte de creare (oglindă cu stripe-checkout.js).
   if (profileErr) {
     console.error('[ai-credits-checkout] profiles SELECT error:', profileErr.message)
-    return jsonResponse(503, { error: 'Serviciu temporar indisponibil. Reîncearcă.' })
+    return aiError(503, 'service_unavailable')
   }
 
   let customerId = profile?.stripe_customer_id

@@ -8,6 +8,8 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
+// Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
+const { aiError, isTimeoutError } = require('./lib/aiErrors')
 
 function jsonResponse(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
@@ -67,34 +69,35 @@ async function generateGemini(apiKey, model, prompt) {
 }
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method not allowed' }
+  if (event.httpMethod !== 'POST') return aiError(405, 'method_not_allowed')
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, AI_CONFIG_SECRET } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
   if (AI_CONFIG_SECRET.length < 32) {
     console.error('[ai-generate-image] AI_CONFIG_SECRET prea scurt (<32)')
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
 
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (!token) return jsonResponse(401, { error: 'Missing Authorization header' })
+  if (!token) return aiError(401, 'auth_missing')
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) return jsonResponse(401, { error: 'Invalid or expired token' })
+  if (authError || !user) return aiError(401, 'auth_invalid')
 
   let body
   try {
     body = JSON.parse(event.body || '{}')
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return aiError(400, 'bad_json')
   }
   const { restaurant_id, product_id, name, description, category } = body
-  if (!restaurant_id || !product_id) return jsonResponse(400, { error: 'Missing restaurant_id or product_id' })
-  if (typeof name !== 'string' || name.trim().length === 0) return jsonResponse(400, { error: 'Missing product name' })
+  if (!restaurant_id) return aiError(400, 'missing_restaurant')
+  if (!product_id) return aiError(400, 'missing_product')
+  if (typeof name !== 'string' || name.trim().length === 0) return aiError(400, 'missing_product_name')
 
   // Autorizare owner/manager
   const { data: membership } = await supabase
@@ -104,7 +107,7 @@ exports.handler = async (event) => {
     .eq('user_id', user.id)
     .single()
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return jsonResponse(403, { error: 'Forbidden' })
+    return aiError(403, 'forbidden')
   }
 
   // Config + provider care suportă imagini
@@ -113,22 +116,19 @@ exports.handler = async (event) => {
     .select('provider, model, api_key_encrypted, enabled')
     .eq('restaurant_id', restaurant_id)
     .single()
-  if (cfgErr || !config) return jsonResponse(400, { error: 'AI nu este configurat pentru acest restaurant.' })
-  if (!config.enabled) return jsonResponse(400, { error: 'AI este dezactivat pentru acest restaurant.' })
+  if (cfgErr || !config) return aiError(400, 'provider_key_missing')
+  if (!config.enabled) return aiError(400, 'ai_disabled')
   if (!['openai', 'gemini'].includes(config.provider)) {
-    return jsonResponse(400, {
-      error: 'Generarea de imagini necesită OpenAI sau Gemini. Schimbă furnizorul în Setări → Asistent AI.',
-      code: 'provider_no_images',
-    })
+    return aiError(400, 'provider_no_images')
   }
-  if (!config.api_key_encrypted) return jsonResponse(400, { error: 'Lipsește cheia API.' })
+  if (!config.api_key_encrypted) return aiError(400, 'provider_key_missing')
 
   let apiKey
   try {
     apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
   } catch (e) {
     console.error('[ai-generate-image] decrypt error:', e.message)
-    return jsonResponse(500, { error: 'Could not load API key' })
+    return aiError(500, 'key_load_failed')
   }
 
   // Pre-check cotă
@@ -138,10 +138,10 @@ exports.handler = async (event) => {
   })
   if (quotaErr) {
     console.error('[ai-generate-image] ai_can_use error:', quotaErr.message)
-    return jsonResponse(500, { error: 'Could not verify AI quota' })
+    return aiError(500, 'quota_check_failed')
   }
   if (canUse === false) {
-    return jsonResponse(429, { error: 'Ai atins limita AI. Cumpără credite pentru a continua.', code: 'quota_exceeded' })
+    return aiError(429, 'quota_exceeded')
   }
 
   // Prompt appetisant, fundal neutru, fără text suprapus.
@@ -162,7 +162,7 @@ exports.handler = async (event) => {
       p_model: config.model || '', p_input_tokens: 0, p_output_tokens: 0, p_cost: 0,
       p_success: false, p_error: String(e.message).slice(0, 500),
     })
-    return jsonResponse(502, { error: 'Generarea imaginii a eșuat la provider.' })
+    return isTimeoutError(e) ? aiError(504, 'provider_timeout') : aiError(502, 'image_failed')
   }
 
   // Provider a REUȘIT → costul e deja incurat pe cheia restaurantului. Înregistrăm
@@ -188,11 +188,11 @@ exports.handler = async (event) => {
     .upload(path, buffer, { contentType: 'image/png', upsert: true })
   if (upErr) {
     console.error('[ai-generate-image] upload error:', upErr.message)
-    return jsonResponse(500, { error: 'Nu am putut salva imaginea generată.' })
+    return aiError(500, 'image_save_failed')
   }
   const { data: pub } = supabase.storage.from('product-images').getPublicUrl(path)
   const imageUrl = pub?.publicUrl
-  if (!imageUrl) return jsonResponse(500, { error: 'Nu am putut obține URL-ul imaginii.' })
+  if (!imageUrl) return aiError(500, 'image_save_failed')
 
   // Setează imaginea pe produs + marchează image_url ca generat de AI (tenant-safe)
   const { data: prod, error: prodErr } = await supabase
@@ -201,7 +201,7 @@ exports.handler = async (event) => {
     .eq('id', product_id)
     .eq('restaurant_id', restaurant_id)
     .single()
-  if (prodErr || !prod) return jsonResponse(404, { error: 'Produsul nu a fost găsit.' })
+  if (prodErr || !prod) return aiError(404, 'product_not_found')
 
   const fields = Array.isArray(prod.ai_generated_fields) ? prod.ai_generated_fields : []
   const newFields = Array.from(new Set([...fields, 'image_url']))
@@ -212,7 +212,7 @@ exports.handler = async (event) => {
     .eq('restaurant_id', restaurant_id)
   if (updErr) {
     console.error('[ai-generate-image] product update error:', updErr.message)
-    return jsonResponse(500, { error: 'Nu am putut actualiza produsul.' })
+    return aiError(500, 'product_update_failed')
   }
 
   return jsonResponse(200, { image_url: imageUrl })
