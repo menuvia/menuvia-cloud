@@ -6,9 +6,15 @@
 //
 // Skipuit dacă restaurant-ul nu există (CI fără seed).
 import { test, expect } from '@playwright/test'
+import { prepPage, dumpOverlaysOnFailure } from './helpers'
 
 test.describe('Public menu — editorial design', () => {
+  test.afterEach(dumpOverlaysOnFailure)
   test('renders hero + tabs + cards + footer pentru /m/tinctura', async ({ page }) => {
+    // Bannerul de cookie-uri și cardurile PWA (role="dialog", fixate jos) ar
+    // intercepta click-ul pe bara „Lista mea" (pasul 9) — pre-setate înainte
+    // de prima navigare (CLAUDE.md, e2e/helpers.ts).
+    await prepPage(page)
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
     // Diagnostic: erorile de consolă (inclusiv [qr] fetchRestaurantBySlug) apar
@@ -74,6 +80,30 @@ test.describe('Public menu — editorial design', () => {
     const footer = page.getByTestId('footer-brand')
     await expect(footer).toBeVisible()
     await expect(footer).toContainText(/MENIU BY MENUVIA/)
+
+    // 9. „Lista mea" (seed-ul n-are ridicare → meniu digital cu listă locală):
+    //    foaia e dialog, iar Escape și „Închide" o închid FĂRĂ s-o golească
+    //    (ux-guest-3 — înainte singurul buton al foii golea lista).
+    await page.getByTestId('search-input').fill('espresso')
+    await page
+      .getByRole('button', { name: /^Adaugă Espresso/ })
+      .first()
+      .click()
+    // Numele accesibil al barei poartă numărul (ux-guest-12).
+    const listBar = page.getByRole('button', { name: /Lista mea · 1 produs/ })
+    await expect(listBar).toBeVisible()
+    await listBar.click()
+    const listSheet = page.getByRole('dialog', { name: 'Lista mea' })
+    await expect(listSheet).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(listSheet).toBeHidden()
+    await expect(listBar).toBeVisible()
+    await listBar.click()
+    await expect(listSheet).toBeVisible()
+    // Al doilea „Închide" e cel din subsol (primul e X-ul din colț).
+    await listSheet.getByRole('button', { name: 'Închide', exact: true }).last().click()
+    await expect(listSheet).toBeHidden()
+    await expect(listBar).toBeVisible()
 
     // Niciun JS error. „due to access control checks" e zgomot WebKit-only:
     // apelul RPC compus (get_menu_by_slug/get_restaurant_by_slug, mig 245) care
