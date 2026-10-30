@@ -126,11 +126,19 @@ describe('QR și onboarding nu promit comenzi pe planuri fără comenzi', () => 
     expect(qrCardSubtitles(false).en).not.toMatch(/order/i)
   })
 
-  it('PT4b: TablesManager folosește helperul, nu textul fix', () => {
-    const src = read('src/components/TablesManager.tsx')
-    expect(src).toContain('qrCardSubtitles(')
-    expect(src).not.toContain("'Scanează pentru a comanda'")
-    expect(src).not.toContain("'Scan to order'")
+  it('PT4b: PDF-ul de QR folosește helperul, nu textul fix', () => {
+    // Desenul PDF-ului s-a mutat din TablesManager în lib/qrPdf.ts (îl folosește
+    // și ecranul final al onboarding-ului); TablesManager îi dă planul.
+    const pdf = read('src/lib/qrPdf.ts')
+    expect(pdf).toContain('qrCardSubtitles(input.canOrder)')
+    const tables = read('src/components/TablesManager.tsx')
+    expect(tables).toContain(
+      "canOrder: restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false",
+    )
+    for (const src of [pdf, tables]) {
+      expect(src).not.toContain("'Scanează pentru a comanda'")
+      expect(src).not.toContain("'Scan to order'")
+    }
   })
 
   it('PT4c: „Gata de comenzi" din onboarding depinde de plan', () => {

@@ -14,10 +14,9 @@ import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
-import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
-import { qrCardSubtitles } from '../lib/qrCopy'
+import { downloadQrPdf, type QrPdfFormat } from '../lib/qrPdf'
 
 interface QrTokenRow {
   id: string
@@ -78,15 +77,6 @@ function slugify(s: string) {
       .replace(/[^a-z0-9-]/g, '')
       .replace(/^-|-$/g, '') || 'masa'
   )
-}
-
-// "#C8963C" → [200, 150, 60]; fallback null pe input invalid → caller folosește accent default.
-function hexToRgb(hex: string | null | undefined): [number, number, number] | null {
-  if (!hex) return null
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
-  if (!m) return null
-  const n = parseInt(m[1], 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
 }
 
 // ── QR helpers — all local, no external API ─────────────────
@@ -545,7 +535,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const [rotateTarget, setRotateTarget] = useState<TableRow | null>(null)
   // Descărcare PDF: reținem FORMATUL în curs (nu doar un boolean) ca spinner-ul
   // să apară doar pe opțiunea apăsată, nu pe toate deodată.
-  type PdfFormat = 'grid' | 'tent' | 'poster'
+  type PdfFormat = QrPdfFormat
   const [downloading, setDownloading] = useState<PdfFormat | null>(null)
   // Dropdown „Descarcă QR-uri" — colapsează cele 3 butoane de export într-unul.
   const [pdfMenuOpen, setPdfMenuOpen] = useState(false)
@@ -774,8 +764,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       .catch(() => toast('Nu s-a putut copia linkul', 'error'))
   }
 
-  // PDF: jsPDF loads on-demand (560KB) — only when user actually exports
-  // Format: 'grid' (6/A4, current), 'poster' (1/A4, mare), 'tent' (4/A4, pliabil)
+  // PDF: jsPDF se încarcă la cerere (560KB), doar la export. Desenul stă în
+  // lib/qrPdf.ts (același PDF îl dă și ecranul final al onboarding-ului).
+  // Format: 'grid' (6/A4), 'poster' (1/A4, mare), 'tent' (4/A4, pliabil).
   const downloadPdf = async (format: PdfFormat = 'grid') => {
     const active = tables.filter((t) => t.is_active && t.active_token)
     if (!active.length) {
@@ -784,126 +775,16 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     }
     setDownloading(format)
     try {
-      const { default: jsPDF } = await import('jspdf')
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-      // Fonturile standard jsPDF nu au ă/ș/ț — fără patch, numele restaurantului
-      // și al meselor ieșeau cu caractere rupte în PDF-ul de print.
-      patchPdfDiacritics(doc)
-      const accent = hexToRgb(restaurant.primary_color) || [200, 150, 60]
-      // „Pentru a comanda" doar când planul permite comenzi prin QR; pe Meniu
-      // Digital QR-ul deschide doar meniul (lib/qrCopy.ts). Necunoscut = fail-closed.
-      const { ro: subtitleRo, en: subtitleEn } = qrCardSubtitles(
-        restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false,
-      )
-
-      const drawCard = async (
-        i: number,
-        x: number,
-        y: number,
-        cW: number,
-        cH: number,
-        scale: 'sm' | 'md' | 'lg',
-      ) => {
-        const sizes = {
-          sm: { rn: 8, tn: 13, qFrac: 0.5, sub: 7, brand: 5 },
-          md: { rn: 11, tn: 18, qFrac: 0.55, sub: 9, brand: 6 },
-          lg: { rn: 18, tn: 36, qFrac: 0.6, sub: 14, brand: 9 },
-        }[scale]
-
-        // Card background + border (cu accent restaurant)
-        doc.setFillColor(248, 243, 235)
-        doc.roundedRect(x, y, cW, cH, 4, 4, 'F')
-        doc.setDrawColor(accent[0], accent[1], accent[2])
-        doc.setLineWidth(scale === 'lg' ? 1.2 : 0.5)
-        doc.roundedRect(x, y, cW, cH, 4, 4, 'S')
-
-        // Restaurant name
-        doc.setFontSize(sizes.rn)
-        doc.setTextColor(26, 18, 8)
-        doc.setFont('helvetica', 'bold')
-        const maxRn = scale === 'lg' ? 38 : 26
-        const rn =
-          restaurant.name.length > maxRn
-            ? restaurant.name.slice(0, maxRn - 2) + '…'
-            : restaurant.name
-        doc.text(rn, x + cW / 2, y + cH * 0.1, { align: 'center' })
-
-        // Table name (cu accent restaurant)
-        doc.setFontSize(sizes.tn)
-        doc.setTextColor(accent[0], accent[1], accent[2])
-        doc.text(active[i].name, x + cW / 2, y + cH * 0.2, { align: 'center' })
-
-        // QR code — generated locally, no external request
-        const qs = Math.min(cW, cH) * sizes.qFrac
-        const qx = x + (cW - qs) / 2
-        const qy = y + cH * 0.27
-        try {
-          const imgData = await generateQRDataURL(active[i].active_token!.token, 400)
-          doc.addImage(imgData, 'PNG', qx, qy, qs, qs)
-        } catch {
-          doc.setFillColor(220, 215, 208)
-          doc.rect(qx, qy, qs, qs, 'F')
-        }
-
-        // Bilingual subtitle
-        doc.setFontSize(sizes.sub)
-        doc.setTextColor(60, 50, 38)
-        doc.setFont('helvetica', 'normal')
-        doc.text(subtitleRo, x + cW / 2, y + cH * 0.85, { align: 'center' })
-        doc.setFontSize(sizes.sub - 1)
-        doc.setTextColor(138, 126, 108)
-        doc.text(subtitleEn, x + cW / 2, y + cH * 0.9, { align: 'center' })
-
-        // Brand footer
-        doc.setFontSize(sizes.brand)
-        doc.setTextColor(190, 180, 170)
-        doc.text(siteHost(), x + cW / 2, y + cH * 0.96, { align: 'center' })
-      }
-
-      const pW = 210,
-        pH = 297
-
-      if (format === 'poster') {
-        // 1 card/A4, aproape full-page → ideal pentru intrare/poster
-        const margin = 15
-        for (let i = 0; i < active.length; i++) {
-          if (i > 0) doc.addPage()
-          await drawCard(i, margin, margin, pW - 2 * margin, pH - 2 * margin, 'lg')
-        }
-      } else if (format === 'tent') {
-        // 4 cards/A4 portrait (2x2), card pătrat 90x90mm — pliabil ca tent card
-        const cols = 2,
-          rows = 2,
-          cW = 90,
-          cH = 90
-        const mX = (pW - cols * cW) / (cols + 1)
-        const mY = (pH - rows * cH) / (rows + 1)
-        for (let i = 0; i < active.length; i++) {
-          if (i > 0 && i % (cols * rows) === 0) doc.addPage()
-          const idx = i % (cols * rows)
-          const col = idx % cols,
-            row = Math.floor(idx / cols)
-          await drawCard(i, mX + col * (cW + mX), mY + row * (cH + mY), cW, cH, 'md')
-        }
-      } else {
-        // grid — 6 cards/A4 (2x3), default
-        const cols = 2,
-          rows = 3,
-          cW = 80,
-          cH = 82
-        const mX = (pW - cols * cW) / (cols + 1)
-        const mY = (pH - rows * cH) / (rows + 1)
-        for (let i = 0; i < active.length; i++) {
-          if (i > 0 && i % (cols * rows) === 0) doc.addPage()
-          const idx = i % (cols * rows)
-          const col = idx % cols,
-            row = Math.floor(idx / cols)
-          await drawCard(i, mX + col * (cW + mX), mY + row * (cH + mY), cW, cH, 'sm')
-        }
-      }
-
-      const suffix = format === 'poster' ? 'poster' : format === 'tent' ? 'tent' : 'grid'
-      doc.save(`QR-Mese-${suffix}-${restaurant.name.replace(/[^a-zA-Z0-9]/g, '-')}.pdf`)
+      await downloadQrPdf({
+        restaurantName: restaurant.name,
+        primaryColor: restaurant.primary_color,
+        cards: active.map((t) => ({ label: t.name, url: qrUrl(t.active_token!.token) })),
+        format,
+        // „Pentru a comanda" doar când planul permite comenzi prin QR; pe Meniu
+        // Digital QR-ul deschide doar meniul (lib/qrCopy.ts). Necunoscut = fail-closed.
+        canOrder: restaurantFeatures.features ? restaurantFeatures.has('order_qr') : false,
+        brandHost: siteHost(),
+      })
       toast('PDF descărcat')
     } catch (e) {
       toast('Eroare PDF: ' + (e instanceof Error ? e.message : 'unknown'), 'error')
