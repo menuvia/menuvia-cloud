@@ -552,6 +552,7 @@ function ProductModal({
             Nume *
           </label>
           <Inp
+            label="Nume"
             value={form.name || ''}
             onChange={(v) => upd('name', v)}
             placeholder="Spaghete Carbonara"
@@ -563,6 +564,7 @@ function ProductModal({
               Preț (lei) *
             </label>
             <Inp
+              label="Preț (lei)"
               value={form.price != null ? String(form.price) : ''}
               onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
@@ -574,6 +576,7 @@ function ProductModal({
               Categorie
             </label>
             <Sel
+              label="Categorie"
               value={form.category_id || ''}
               onChange={(v) => {
                 // Opțiunea specială NU e o categorie: deschide input-ul inline;
@@ -593,7 +596,12 @@ function ProductModal({
             {newCatOpen && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <Inp value={newCatName} onChange={setNewCatName} placeholder="Nume categorie nouă" />
+                  <Inp
+                    label="Nume categorie nouă"
+                    value={newCatName}
+                    onChange={setNewCatName}
+                    placeholder="Nume categorie nouă"
+                  />
                 </div>
                 <button
                   type="button"
@@ -709,6 +717,7 @@ function ProductModal({
             Descriere
           </label>
           <textarea
+            aria-label="Descriere"
             value={form.description || ''}
             onChange={(e) => upd('description', e.target.value)}
             placeholder="Descriere produs..."
@@ -748,7 +757,7 @@ function ProductModal({
                   }}
                 >
                   <span style={{ fontSize: '0.82rem', color: D.t2, fontWeight: 500 }}>{l}</span>
-                  <Toggle value={!!form[k]} onChange={(v) => upd(k, v)} />
+                  <Toggle label={l} value={!!form[k]} onChange={(v) => upd(k, v)} />
                 </div>
                 <span style={{ fontSize: '0.66rem', color: D.t3, lineHeight: 1.3 }}>{desc}</span>
               </div>
@@ -1089,6 +1098,7 @@ function ProductModal({
                           Nume ({label})
                         </label>
                         <Inp
+                          label={`Nume (${label})`}
                           value={entry.name ?? ''}
                           onChange={(v) => setTranslation(code, 'name', v)}
                           placeholder={form.name || 'Nume produs'}
@@ -1106,6 +1116,7 @@ function ProductModal({
                           Descriere ({label})
                         </label>
                         <textarea
+                          aria-label={`Descriere (${label})`}
                           value={entry.description ?? ''}
                           onChange={(e) => setTranslation(code, 'description', e.target.value)}
                           placeholder={form.description || 'Descriere produs'}
@@ -1189,6 +1200,7 @@ function ProductModal({
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Inp
+                      label="Timp pregătire (minute)"
                       value={form.prep_time_minutes == null ? '' : String(form.prep_time_minutes)}
                       onChange={(v) =>
                         upd('prep_time_minutes', v.length > 0 ? parseInt(v) || null : null)
@@ -1210,6 +1222,7 @@ function ProductModal({
                     Cantitate / porție
                   </label>
                   <Inp
+                    label="Cantitate / porție"
                     value={form.portion_size || ''}
                     onChange={(v) => upd('portion_size', v.length > 0 ? v : null)}
                     placeholder="350g"
@@ -1256,6 +1269,7 @@ function ProductModal({
                     <div key={nf.key}>
                       <label style={{ display: 'block', fontSize: '0.7rem', color: D.t3, marginBottom: 4 }}>{nf.label}</label>
                       <Inp
+                        label={nf.label}
                         type="number"
                         value={form[nf.key] == null ? '' : String(form[nf.key])}
                         onChange={(v) => {
@@ -1878,6 +1892,7 @@ function RecipeAddForm({
       }}
     >
       <select
+        aria-label="Ingredient"
         value={selectedId}
         onChange={(e) => setSelectedId(e.target.value)}
         style={{
@@ -1899,7 +1914,13 @@ function RecipeAddForm({
         ))}
       </select>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <Inp value={quantity} onChange={setQuantity} type="number" placeholder="0" />
+        <Inp
+          label={sel ? `Cantitate ${sel.name} (${sel.unit})` : 'Cantitate'}
+          value={quantity}
+          onChange={setQuantity}
+          type="number"
+          placeholder="0"
+        />
         <span style={{ fontSize: '0.7rem', color: D.t3, whiteSpace: 'nowrap' }}>
           {sel?.unit ?? ''}
         </span>
@@ -1951,9 +1972,9 @@ function ExtraForm({
         alignItems: 'center',
       }}
     >
-      <Inp value={emoji} onChange={setEmoji} placeholder="🧀" />
-      <Inp value={name} onChange={setName} placeholder="Brânză extra" />
-      <Inp value={price} onChange={setPrice} type="number" placeholder="5.00" />
+      <Inp label="Emoji extra" value={emoji} onChange={setEmoji} placeholder="🧀" />
+      <Inp label="Nume extra" value={name} onChange={setName} placeholder="Brânză extra" />
+      <Inp label="Preț extra (lei)" value={price} onChange={setPrice} type="number" placeholder="5.00" />
       <button
         type="button"
         onClick={submit}

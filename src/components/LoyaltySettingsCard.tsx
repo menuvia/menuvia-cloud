@@ -146,6 +146,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
               </div>
             </div>
             <Toggle
+              label="Fidelizarea în meniul QR"
               value={modulesState.isEnabled('loyalty')}
               onChange={(v) => {
                 modulesState

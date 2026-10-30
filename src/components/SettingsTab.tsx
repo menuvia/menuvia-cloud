@@ -485,7 +485,12 @@ export default function SettingsTab({
                   >
                     {label}
                   </label>
-                  <Inp value={String(form[k] || '')} onChange={(v) => upd(k, v)} placeholder={ph} />
+                  <Inp
+                    label={label.replace(/\s*\*$/, '')}
+                    value={String(form[k] || '')}
+                    onChange={(v) => upd(k, v)}
+                    placeholder={ph}
+                  />
                 </div>
               ))}
             </SettingsCard>
@@ -861,6 +866,7 @@ export default function SettingsTab({
               desc="Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici."
             >
               <Inp
+                label="Parolă WiFi"
                 value={form.wifi_password ?? ''}
                 onChange={(v) => upd('wifi_password', v.trim() || null)}
                 placeholder="ex: tinctura2024"
@@ -886,6 +892,7 @@ export default function SettingsTab({
                       {label}
                     </label>
                     <Inp
+                      label={label}
                       value={socials[k] ?? ''}
                       onChange={(v) =>
                         upd('socials', {
@@ -910,6 +917,7 @@ export default function SettingsTab({
                 Google Place ID
               </label>
               <Inp
+                label="Google Place ID"
                 value={form.google_place_id ?? ''}
                 onChange={(v) => upd('google_place_id', v.trim() || null)}
                 placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
@@ -1016,6 +1024,7 @@ export default function SettingsTab({
                   {siteHost()}/m/
                 </span>
                 <Inp
+                  label="Adresa meniului (slug)"
                   value={form.slug || ''}
                   onChange={(v) => upd('slug', slugifyWhileTyping(v))}
                   placeholder="slug-url"
@@ -1480,6 +1489,7 @@ export default function SettingsTab({
                         <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
                       </div>
                       <Toggle
+                        label={el.name}
                         value={value}
                         onChange={(v) =>
                           // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
@@ -1520,6 +1530,7 @@ export default function SettingsTab({
                   </div>
                   {planTier(plan) >= 2 ? (
                     <Toggle
+                      label={'Afișează badge-ul „Creat cu Menuvia"'}
                       value={!(form.theme_settings?.hide_branding ?? false)}
                       onChange={(v) => updTheme({ hide_branding: !v })}
                     />
@@ -1656,6 +1667,7 @@ export default function SettingsTab({
                       </div>
                     </div>
                     <Toggle
+                      label="Rezervări"
                       value={modulesState.isEnabled('reservations')}
                       onChange={(v) => {
                         modulesState
@@ -1719,6 +1731,7 @@ export default function SettingsTab({
               }
               right={
                 <Toggle
+                  label="Comenzi pentru ridicare"
                   value={form.pickup_settings?.enabled ?? false}
                   onChange={(v) => updPickup({ enabled: v })}
                 />
@@ -1747,6 +1760,7 @@ export default function SettingsTab({
                       </div>
                     </div>
                     <Toggle
+                      label={'Mod „doar ridicare" (fără mese)'}
                       value={form.pickup_settings?.pickup_only ?? false}
                       onChange={(v) => updPickup({ pickup_only: v })}
                     />
@@ -1764,6 +1778,7 @@ export default function SettingsTab({
                         Pregătire minim (min)
                       </label>
                       <Inp
+                        label="Pregătire minim (minute)"
                         value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1784,6 +1799,7 @@ export default function SettingsTab({
                         Interval slot (min)
                       </label>
                       <Inp
+                        label="Interval slot (minute)"
                         value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1806,6 +1822,7 @@ export default function SettingsTab({
                         Deschidere
                       </label>
                       <Inp
+                        label="Deschidere ridicare"
                         value={form.pickup_settings?.open_hours?.start ?? '09:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1830,6 +1847,7 @@ export default function SettingsTab({
                         Închidere
                       </label>
                       <Inp
+                        label="Închidere ridicare"
                         value={form.pickup_settings?.open_hours?.end ?? '21:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1850,6 +1868,7 @@ export default function SettingsTab({
                       Instrucțiuni client (opțional)
                     </label>
                     <Inp
+                      label="Instrucțiuni client (opțional)"
                       value={form.pickup_settings?.instructions ?? ''}
                       onChange={(v) =>
                         updPickup({ instructions: v.length > 0 ? v : null })
@@ -1883,6 +1902,7 @@ export default function SettingsTab({
               desc="Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal dar n-a luat desert)."
               right={
                 <Toggle
+                  label="Sugestii la coș"
                   value={form.checkout_suggestion_settings?.enabled ?? false}
                   onChange={(v) =>
                     upd('checkout_suggestion_settings', {
@@ -1911,6 +1931,7 @@ export default function SettingsTab({
                     Mesaj afișat
                   </label>
                   <Inp
+                    label="Mesaj afișat la sugestii"
                     value={form.checkout_suggestion_settings?.message ?? ''}
                     onChange={(v) =>
                       upd('checkout_suggestion_settings', {

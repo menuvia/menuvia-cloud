@@ -231,6 +231,7 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
               </div>
             </div>
             <Toggle
+              label={'Butonul „Plătește online" în meniul QR'}
               value={modulesState.isEnabled('online_payments')}
               onChange={(v) => {
                 modulesState
