@@ -4,10 +4,18 @@
 // Audiență: patroni cafenele/baruri din România, 25-50 ani.
 // Tonul: cald, profesional, direct. Fără jargon "SaaS B2B".
 // Stil: editorial cu tipografie strong, asimetric, dark cu accent gold.
+//
+// Oferta vine din `PILOT_BANNER`/`PILOT_DAYS` (pricingCopy.ts), prețurile și
+// numele planurilor din `PLANS` — pagina promitea un trimestru gratuit pe toate
+// funcțiile, în timp ce /pricing spunea 60 de zile pe Meniu + Comenzi. Fără promisiuni
+// PERSONALE ale fondatorului (WhatsApp, termen de răspuns, apel personal): suportul
+// real e prin agentul Menuvia și pe email. Păzit de `publicTruth.test.ts` (PT1c, PT5).
 // =============================================================
 import { useEffect, useState } from 'react'
 import { fnUrl } from '../lib/fn'
 import { D } from '../lib/constants'
+import { getPlan } from '../lib/plans'
+import { PILOT_DAYS, TRIAL_DAYS } from '../lib/pricingCopy'
 import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
 
@@ -204,10 +212,10 @@ function Hero() {
           marginTop: 32,
         }}
       >
-        Comenzi prin QR, gestiune stocuri, raport Z fiscal, închidere zi cu un click. Toate într-un
-        singur loc, fără un abonament SmartBill în plus.{' '}
-        <strong style={{ color: D.t1 }}>3 luni gratuit</strong>{' '}
-        pentru primele 10 cafenele care intră în program.
+        Meniu cu QR, comenzi la masă și în bucătărie, stocuri și rapoarte, iar pe planul{' '}
+        {getPlan('pro').name}, bon fiscal pe casa ta de marcat. Toate într-un singur loc.{' '}
+        <strong style={{ color: D.t1 }}>{PILOT_DAYS} de zile gratuite</strong> pe{' '}
+        {getPlan('growth').name} pentru primii 10 patroni care intră în program.
       </p>
 
       {/* CTA row */}
@@ -262,7 +270,7 @@ function Hero() {
       >
         <span>✓ Bridge FiscalNet (Datecs / Activa / Tremol)</span>
         <span>✓ Date pe servere UE (Frankfurt)</span>
-        <span>✓ Suport WhatsApp în română</span>
+        <span>✓ Suport în română, prin agentul tău Menuvia și pe email</span>
       </div>
     </section>
   )
@@ -325,14 +333,14 @@ function Problem() {
             },
             {
               i: '✕',
-              t: 'SmartBill separat',
-              d: 'Plătești încă o subscripție lunară pentru emitere bonuri.',
+              t: 'Comenzi pe hârtie',
+              d: 'Bonuri scrise de mână, comenzi pierdute între sală și bucătărie.',
             },
             { i: '✕', t: 'Gestiune în Excel', d: 'Tracking stocuri manual, cu erori și uitări.' },
             {
               i: '✕',
               t: 'Zero rapoarte',
-              d: 'Nu știi ce vinde mai bine, când e peak, cine vinde cât.',
+              d: 'Nu știi ce se vinde mai bine și ce rămâne pe raft.',
             },
           ].map((x, i) => (
             <div
@@ -373,13 +381,13 @@ function Features() {
       n: '01',
       icon: 'qr',
       t: 'Meniu cu QR',
-      d: 'Clientul scanează codul de pe masă și comandă direct. Comenzile apar pe ecranul tău și al bucătăriei în timp real. Reduce timpul de așteptare cu 40%.',
+      d: 'Clientul scanează codul de pe masă și comandă direct. Comenzile apar pe ecranul tău și al bucătăriei în timp real.',
     },
     {
       n: '02',
       icon: 'receipt',
       t: 'Bridge FiscalNet',
-      d: 'Conectare directă la casa de marcat (Datecs, Activa, Tremol). Tipărește bon fiscal automat la plată. Raport Z cu un click la închidere.',
+      d: `Pe planul ${getPlan('pro').name}: conectare la casa de marcat (Datecs, Activa, Tremol), bon fiscal tipărit automat la plată, raport Z la închidere.`,
     },
     {
       n: '03',
@@ -391,19 +399,19 @@ function Features() {
       n: '04',
       icon: 'chart',
       t: 'Rapoarte cu sens',
-      d: 'Vânzări pe oră, pe ospătar, pe categorie. Top 10 produse. Export PDF/CSV pentru contabil. Tot ce înseamnă "cifre" într-un singur loc.',
+      d: `Evidența comenzilor și a produselor vândute. Pe ${getPlan('pro').name}: vânzări pe oră, raport TVA, încasări pe tură și export PDF/CSV pentru contabil.`,
     },
     {
       n: '05',
       icon: 'clock',
       t: 'Casă & închidere zi',
-      d: 'Fond inițial, mișcări (cheltuieli, depuneri), numărare seara cu diferență automată. Z fiscal generat și trimis prin Bridge.',
+      d: `Pe ${getPlan('pro').name}: fond inițial, mișcări (cheltuieli, depuneri), numărare seara cu diferență automată, Z fiscal trimis prin Bridge.`,
     },
     {
       n: '06',
       icon: 'percent',
       t: 'Happy Hour automat',
-      d: 'Setezi reguli ("17-19 reducere 20% pe tot"). Sistemul îți sugerează aplicarea la plată. Zero greșeli manuale.',
+      d: 'Setezi reguli ("17-19 reducere 20% pe tot"). Reducerea se aplică singură pe comenzile prin QR și de ridicare.',
     },
   ]
 
@@ -543,35 +551,35 @@ function Differentiators() {
             maxWidth: 820,
           }}
         >
-          Vs. soluțiile existente din România:
+          Ce primești, concret:
         </h2>
 
         <div style={{ marginTop: 40, display: 'grid', gap: 14 }}>
           {[
             {
               k: 'Preț',
-              us: 'de la 99 lei/lună, totul inclus',
-              them: 'SmartBill 39 lei + POS 200 lei + Octopus 80 lei = 319 lei/lună',
+              main: `${getPlan('starter').name}: ${getPlan('starter').priceMonthly} lei/lună`,
+              more: `${getPlan('growth').name}: ${getPlan('growth').priceMonthly} lei · ${getPlan('pro').name}: ${getPlan('pro').priceMonthly} lei`,
             },
             {
-              k: 'TVA flexibil',
-              us: 'Cote configurabile (21% / 11% / 0%) pe fiecare produs, raport automat',
-              them: 'Manual, prin Excel sau contabil extern',
+              k: 'TVA',
+              main: 'Cote configurabile (21% / 11% / 0%) pe fiecare produs',
+              more: `Raport TVA automat pe ${getPlan('pro').name}`,
             },
             {
               k: 'Casa de marcat',
-              us: 'Bridge universal (Datecs/Activa/Tremol)',
-              them: 'Cuplaj manual cu un singur producător',
+              main: 'Bridge FiscalNet (Datecs / Activa / Tremol)',
+              more: `Pe ${getPlan('pro').name}, cu instalarea făcută împreună`,
             },
             {
               k: 'Limba',
-              us: 'Tot în română, suport pe WhatsApp',
-              them: 'UI parțial tradus, ticketing prin email',
+              main: 'Aplicația în română, meniul public în 7 limbi',
+              more: 'Suport prin agentul tău Menuvia și pe email',
             },
             {
               k: 'Onboarding',
-              us: 'Setup Asistent: 3 min de la cont la prima comandă',
-              them: 'Zile de configurare manuală',
+              main: 'Setup Asistent: meniul și mesele, pas cu pas',
+              more: 'Import de meniu din fișier CSV',
             },
           ].map((x, i) => (
             <div
@@ -579,7 +587,7 @@ function Differentiators() {
               style={{
                 display: 'grid',
                 // auto-fit: pe 375px cele 3 coloane fixe nu încăpeau (text de ~85px);
-                // acum eticheta e rând-antet, iar Menuvia/concurența curg pe coloane.
+                // acum eticheta e rând-antet, iar cele două fapte curg pe coloane.
                 gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
                 gap: '10px 24px',
                 padding: '18px 0',
@@ -598,13 +606,15 @@ function Differentiators() {
               >
                 {x.k}
               </div>
+              {/* Fost un tabel „Menuvia vs. concurență" cu prețuri și defecte ale altora
+                  pe care nu le putem dovedi — acum două fapte despre Menuvia. */}
               <div style={{ fontSize: 15, color: D.t1, lineHeight: 1.5 }}>
-                <span style={{ color: D.green, fontWeight: 600 }}>✓ Menuvia: </span>
-                {x.us}
+                <span style={{ color: D.green, fontWeight: 600 }}>✓ </span>
+                {x.main}
               </div>
-              <div style={{ fontSize: 14, color: D.t3, lineHeight: 1.5 }}>
-                <span style={{ color: D.t3 }}>✕ Restul: </span>
-                {x.them}
+              <div style={{ fontSize: 15, color: D.t2, lineHeight: 1.5 }}>
+                <span style={{ color: D.green, fontWeight: 600 }}>✓ </span>
+                {x.more}
               </div>
             </div>
           ))}
@@ -672,8 +682,8 @@ function PilotOffer() {
             position: 'relative',
           }}
         >
-          Primele <em style={{ color: D.gold, fontStyle: 'italic' }}>10 cafenele</em> primesc 3 luni
-          gratuit.
+          Primii <em style={{ color: D.gold, fontStyle: 'italic' }}>10 patroni</em> primesc{' '}
+          {PILOT_DAYS} de zile gratuite.
         </h2>
 
         <div
@@ -686,10 +696,16 @@ function PilotOffer() {
           }}
         >
           {[
-            { n: '3 luni', d: 'Plan complet, fără limită produse/comenzi' },
-            { n: 'Onboarding', d: 'Te ajut personal: import meniu, setup TVA, conectare casă' },
-            { n: 'Sprijin direct', d: 'WhatsApp meu, răspund în max 2 ore' },
-            { n: 'Feedback = features', d: 'Tot ce ceri în pilot se construiește' },
+            {
+              n: `${PILOT_DAYS} de zile`,
+              d: `${getPlan('growth').name} gratuit, în locul trialului obișnuit de ${TRIAL_DAYS} de zile`,
+            },
+            {
+              n: 'Setup împreună',
+              d: `Import meniu, cote TVA și, pe ${getPlan('pro').name}, conectarea casei de marcat`,
+            },
+            { n: 'Suport', d: 'Prin agentul tău Menuvia și pe email' },
+            { n: 'Feedback', d: 'Ne spui ce-ți lipsește, iar noi îți spunem sincer dacă și când intră' },
           ].map((x, i) => (
             <div key={i}>
               <div
@@ -848,7 +864,7 @@ function ContactForm() {
           Programează un demo de <em style={{ color: D.gold, fontStyle: 'italic' }}>30 min</em>.
         </h2>
         <p style={{ fontSize: 17, color: D.t2, lineHeight: 1.55, maxWidth: 580, marginBottom: 36 }}>
-          Te sun eu, îți arăt aplicația și răspund la întrebări. Fără presiune să cumperi.
+          Te sunăm, îți arătăm aplicația și răspundem la întrebări. Fără presiune să cumperi.
         </p>
 
         {done ? (
@@ -871,9 +887,11 @@ function ContactForm() {
                 marginBottom: 8,
               }}
             >
-              Cererea ta a ajuns la mine.
+              Cererea ta a ajuns la noi.
             </div>
-            <div style={{ fontSize: 15, color: D.t2 }}>Te sun în maximum 24 de ore. Mulțumesc!</div>
+            <div style={{ fontSize: 15, color: D.t2 }}>
+              Te contactăm la telefonul sau emailul lăsat, ca să stabilim demo-ul. Mulțumim!
+            </div>
           </div>
         ) : (
           <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -954,7 +972,7 @@ function ContactForm() {
             </div>
 
             <div>
-              <label htmlFor="rec-message" style={labelStyle}>Spune-mi pe scurt despre local (opțional)</label>
+              <label htmlFor="rec-message" style={labelStyle}>Spune-ne pe scurt despre local (opțional)</label>
               <textarea
                 id="rec-message"
                 value={message}
@@ -1033,8 +1051,11 @@ function ContactForm() {
             </button>
 
             <div style={{ fontSize: 12, color: D.t3, lineHeight: 1.5 }}>
-              Datele tale rămân între noi. Nu le partajăm cu nimeni. Te contactez doar pentru a
-              programa demo-ul.
+              Folosim datele doar ca să te contactăm despre demo și programul pilot. Detalii în{' '}
+              <a href="/confidentialitate" target="_blank" rel="noopener noreferrer" style={{ color: D.t2 }}>
+                politica de confidențialitate
+              </a>
+              .
             </div>
           </form>
         )}
