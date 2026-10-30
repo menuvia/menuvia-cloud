@@ -7,6 +7,7 @@ import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
+import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -137,12 +138,17 @@ export default function SettingsTab({
   restaurant,
   onUpdate,
   plan,
+  planKnown,
   onSignOut,
   modulesState,
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
   plan: string
+  // `plan` cade pe 'free' cât timp features nu s-au încărcat (DashboardPage);
+  // `planKnown` spune dacă valoarea e reală. Obligatoriu: un apel care l-ar
+  // omite ar transforma „nu știu" în „planul tău nu include".
+  planKnown: boolean
   onSignOut: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
 }) {
@@ -376,6 +382,11 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
+  // Ridicarea se pornește doar pe planurile cu `pickup_orders` (lib/pickupAvailability).
+  const pickupState = pickupToggleState(
+    planKnown ? plan : null,
+    form.pickup_settings?.enabled ?? false,
+  )
 
   return (
     <div>
@@ -1736,10 +1747,41 @@ export default function SettingsTab({
                 <Toggle
                   label="Comenzi pentru ridicare"
                   value={form.pickup_settings?.enabled ?? false}
-                  onChange={(v) => updPickup({ enabled: v })}
+                  disabled={pickupState === 'locked' || pickupState === 'unknown'}
+                  onChange={(v) => {
+                    if (canSetPickupEnabled(pickupState, v)) updPickup({ enabled: v })
+                  }}
                 />
               }
             >
+              {pickupState !== 'available' && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                    fontSize: '0.75rem',
+                    lineHeight: 1.5,
+                    color: pickupState === 'locked_on' ? D.amber : D.t2,
+                    background: D.s3,
+                    borderRadius: 8,
+                    padding: '9px 12px',
+                  }}
+                >
+                  <Icon
+                    name={pickupState === 'unknown' ? 'info' : 'lock'}
+                    size={13}
+                    color={pickupState === 'locked_on' ? D.amber : D.t2}
+                  />
+                  <span>
+                    {pickupState === 'unknown'
+                      ? 'Nu am putut verifica planul restaurantului, deci ridicarea nu se poate schimba acum. Reîncarcă pagina.'
+                      : pickupState === 'locked_on'
+                        ? `Planul tău nu include comenzile pentru ridicare: oaspeții văd formularul, dar comenzile lor sunt respinse. Oprește opțiunea sau treci la planul ${PLAN_LABELS.growth}.`
+                        : `Disponibil de la planul ${PLAN_LABELS.growth}. Pe planul tău, comenzile pentru ridicare nu pot fi primite.`}
+                  </span>
+                </div>
+              )}
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:

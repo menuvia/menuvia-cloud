@@ -1690,6 +1690,7 @@ export default function DashboardPage({
                     restaurant={restaurant}
                     onUpdate={update}
                     plan={plan}
+                    planKnown={features.features != null}
                     onSignOut={onSignOut}
                     modulesState={modulesState}
                   />
