@@ -10,7 +10,7 @@ import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
 import type { MenuTheme } from '../lib/themes'
-import { readableTextOn } from '../lib/themes'
+import { legibleOn, readableTextOn } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
@@ -65,6 +65,10 @@ export default function PickupCheckoutSheet({
   // Etichetele vizibile numesc câmpurile (înainte erau doar text deasupra lor).
   const nameId = useId()
   const phoneId = useId()
+  const slotsLabelId = useId()
+  const onAccent = readableTextOn(accent, PUB.text)
+  // Roșul erorii, lizibil pe suprafața casetei în orice temă.
+  const errorInk = legibleOn(theme.colors.error, PUB.surface)
   // Cheie de idempotență PERSISTATĂ (sessionStorage per restaurant): retry-urile
   // după un răspuns pierdut refolosesc aceeași cheie chiar dacă sheet-ul a fost
   // închis/redeschis sau pagina reîncărcată → serverul dedup-uiește, fără comenzi
@@ -293,7 +297,8 @@ export default function PickupCheckoutSheet({
 
           {slots.length > 0 ? (
             <div style={{ marginBottom: 16 }}>
-              <label
+              <div
+                id={slotsLabelId}
                 style={{
                   display: 'block',
                   fontSize: 12,
@@ -303,8 +308,10 @@ export default function PickupCheckoutSheet({
                 }}
               >
                 {T(lang, 'pk_come_at')} *
-              </label>
+              </div>
               <div
+                role="group"
+                aria-labelledby={slotsLabelId}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
@@ -314,15 +321,20 @@ export default function PickupCheckoutSheet({
                 {slots.map((iso) => {
                   const label = formatTimeInZone(iso, tz)
                   const isSel = pickupTime === iso
+                  // Selecția nu doar prin culoare (WCAG 1.4.1): bifă + `aria-pressed`;
+                  // slotul ales e plin de accent cu text lizibil (accentul ca text
+                  // pe nuanța lui avea sub 3:1 pe auriu).
                   return (
                     <button
                       key={iso}
+                      type="button"
+                      aria-pressed={isSel}
                       onClick={() => setPickupTime(iso)}
                       style={{
                         padding: '10px 6px',
                         border: `1.5px solid ${isSel ? accent : PUB.border}`,
-                        background: isSel ? `${accent}14` : PUB.surface,
-                        color: isSel ? accent : PUB.text,
+                        background: isSel ? accent : PUB.surface,
+                        color: isSel ? onAccent : PUB.text,
                         borderRadius: 8,
                         fontSize: 13,
                         fontWeight: isSel ? 700 : 500,
@@ -330,6 +342,11 @@ export default function PickupCheckoutSheet({
                         fontFamily: theme.fonts.body,
                       }}
                     >
+                      {isSel && (
+                        <span aria-hidden="true" style={{ marginRight: 4 }}>
+                          ✓
+                        </span>
+                      )}
                       {label}
                     </button>
                   )
@@ -372,13 +389,15 @@ export default function PickupCheckoutSheet({
 
           {error && (
             <div
+              role="alert"
               style={{
                 padding: '10px 14px',
-                background: '#FBE5E5',
-                border: '1px solid #C0392B22',
+                background: PUB.surface,
+                border: `1.5px solid ${errorInk}`,
                 borderRadius: 8,
                 fontSize: 13,
-                color: '#C0392B',
+                fontWeight: 600,
+                color: errorInk,
                 marginBottom: 14,
               }}
             >
@@ -404,7 +423,7 @@ export default function PickupCheckoutSheet({
               // Blocat → suprafață + text secundar (alb pe borderStrong avea ~1,6:1);
               // activ → textul lizibil peste accent, nu alb fix.
               background: submitBlocked ? PUB.surface : accent,
-              color: submitBlocked ? PUB.text3 : readableTextOn(accent, PUB.text),
+              color: submitBlocked ? PUB.text3 : onAccent,
               border: submitBlocked ? `1.5px solid ${PUB.border}` : 'none',
               borderRadius: 12,
               fontFamily: theme.fonts.body,

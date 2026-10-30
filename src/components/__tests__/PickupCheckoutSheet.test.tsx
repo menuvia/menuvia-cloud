@@ -211,3 +211,30 @@ describe('PickupCheckoutSheet — câmpurile formularului', () => {
     }
   })
 })
+
+// a11y-reservation-chips-errors (ridicare): slotul ales se vedea doar prin
+// culoare, iar eroarea nu era anunțată. Mutațiile care pică: `aria-pressed`
+// scos; bifa scoasă; `role="alert"` scos.
+describe('PickupCheckoutSheet — selecție și eroare accesibile', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+  })
+
+  it('S11 slotul ales are aria-pressed + bifă; eroarea e role=alert', async () => {
+    renderSheet()
+    const slots = screen
+      .getAllByRole('button')
+      .filter((b) => /\d{1,2}:\d{2}$/.test(b.textContent ?? ''))
+    expect(slots.length).toBe(2)
+    for (const s of slots) expect(s).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(slots[0]!)
+    expect(slots[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(slots[0]?.textContent).toContain('✓')
+    expect(slots[1]).toHaveAttribute('aria-pressed', 'false')
+    // Fără nume → eroare locală, fără server.
+    await userEvent.click(screen.getByRole('button', { name: /trimite comanda/i }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(createOrderMock).not.toHaveBeenCalled()
+  })
+})

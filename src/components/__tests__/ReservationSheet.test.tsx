@@ -81,7 +81,7 @@ vi.mock('../../lib/supabase', () => {
 import ReservationSheet from '../ReservationSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant } from './fixtures'
-import { readableTextOn } from '../../lib/themes'
+import { legibleOn, readableTextOn } from '../../lib/themes'
 
 const PUB = {
   bg: '#fff',
@@ -287,5 +287,39 @@ describe('ReservationSheet — câmpurile formularului', () => {
     expect(screen.getByPlaceholderText(/^Nume$/)).toHaveAttribute('autocomplete', 'name')
     expect(screen.getByPlaceholderText(/^Email/)).toHaveAttribute('autocomplete', 'email')
     expect(screen.getByPlaceholderText(/^Telefon$/)).toHaveAttribute('autocomplete', 'tel')
+  })
+})
+
+// a11y-reservation-chips-errors: selecția (persoane, dată, zonă, oră) se vedea
+// doar prin culoare, iar eroarea roșie (#E05555 pe roz, ~3:1) nu era anunțată.
+// Mutațiile care pică: `aria-pressed` scos; bifa scoasă; `role="alert"` scos;
+// culoarea veche a erorii.
+describe('ReservationSheet — selecție și eroare accesibile', () => {
+  it('RS-K chip-urile expun starea (aria-pressed) și o bifă, nu doar culoare', async () => {
+    renderSheet()
+    const party = within(screen.getByTestId('party-size-row'))
+    const two = party.getByRole('button', { name: /^✓?\s*2$/ })
+    const three = party.getByRole('button', { name: /^3$/ })
+    expect(two).toHaveAttribute('aria-pressed', 'true')
+    expect(two.textContent).toContain('✓')
+    expect(three).toHaveAttribute('aria-pressed', 'false')
+    expect(three.textContent).not.toContain('✓')
+    await userEvent.click(three)
+    expect(three).toHaveAttribute('aria-pressed', 'true')
+    expect(three.textContent).toContain('✓')
+    expect(two).toHaveAttribute('aria-pressed', 'false')
+    // Rândul are nume: eticheta vizibilă de deasupra.
+    expect(screen.getByRole('group', { name: /persoane/i })).toBeInTheDocument()
+  })
+
+  it('RS-L eroarea e anunțată (role=alert) și trece AA pe caseta ei', async () => {
+    renderSheet()
+    // Fără oră aleasă → eroare de validare locală, fără server.
+    await userEvent.click(byText('button', /^Rezervă$/))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent?.trim().length).toBeGreaterThan(0)
+    const theme = getTheme('cafe')
+    expect(alert).toHaveStyle({ color: legibleOn(theme.colors.error, PUB.surface) })
+    expect(alert).not.toHaveStyle({ color: '#E05555' })
   })
 })
