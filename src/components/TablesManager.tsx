@@ -17,6 +17,7 @@ import { Skeleton } from './ui/Skeleton'
 import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
 import { downloadQrPdf, type QrPdfFormat } from '../lib/qrPdf'
+import { tablesMissingActiveToken } from '../lib/qrTokens'
 
 interface QrTokenRow {
   id: string
@@ -572,11 +573,15 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       const ids = (tData || []).map((t: Record<string, unknown>) => t.id as string)
       const tokenMap: Record<string, QrTokenRow> = {}
       if (ids.length > 0) {
-        const { data: tkData } = await supabase
+        const { data: tkData, error: tkErr } = await supabase
           .from('qr_tokens')
           .select('*')
           .in('table_id', ids)
           .eq('is_active', true)
+        // Token-urile NECUNOSCUTE nu înseamnă „mese fără QR”: lista ar arăta
+        // „Generează QR”, iar un token nou oprește QR-ul deja tipărit (mig 119).
+        // Toată lista intră pe eroare, cu Reîncearcă (lib/qrTokens.ts).
+        if (tkErr) throw tkErr
         for (const tk of (tkData || []) as QrTokenRow[]) tokenMap[tk.table_id] = tk
       }
       setTables(
@@ -597,25 +602,38 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
 
   const ensureTokens = async () => {
     try {
-      const { data: tData } = await supabase
+      const { data: tData, error: tErr } = await supabase
         .from('tables')
         .select('id')
         .eq('restaurant_id', restaurant.id)
+      if (tErr) throw tErr
       const ids = (tData || []).map((t: Record<string, unknown>) => t.id as string)
       if (!ids.length) return
-      const { data: existing } = await supabase
+      const existing = await supabase
         .from('qr_tokens')
         .select('table_id')
         .in('table_id', ids)
         .eq('is_active', true)
-      const covered = new Set(
-        (existing || []).map((t: Record<string, unknown>) => t.table_id as string),
+      // Doar mesele DOVEDIT fără token activ primesc unul. Citire picată → nu
+      // generăm nimic: un token nou ar opri QR-ul tipărit al mesei (mig 119).
+      const missing = tablesMissingActiveToken(
+        ids,
+        existing as { data: Array<{ table_id: string }> | null; error: unknown },
       )
-      const missing = ids.filter((id) => !covered.has(id))
-      if (missing.length > 0)
-        await supabase
+      if (missing === null) {
+        toast(
+          'Nu am putut verifica QR-urile existente. Cele tipărite rămân valabile — reîncearcă.',
+          'error',
+        )
+        await load()
+        return
+      }
+      if (missing.length > 0) {
+        const { error: insErr } = await supabase
           .from('qr_tokens')
           .insert(missing.map((table_id) => ({ restaurant_id: restaurant.id, table_id })))
+        if (insErr) throw insErr
+      }
       await load()
     } catch {
       toast('Eroare la generarea QR-urilor', 'error')
