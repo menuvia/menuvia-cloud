@@ -18,6 +18,7 @@ import { patchPdfDiacritics } from '../lib/pdf'
 import type { Restaurant } from '../hooks/useData'
 import { publicBaseUrl, siteHost } from '../lib/domain'
 import { qrCardSubtitles } from '../lib/qrCopy'
+import { generalMenuQrText, pickupFeatureState, pickupOnlyEmptyStateText } from '../lib/pickupCopy'
 
 interface QrTokenRow {
   id: string
@@ -445,9 +446,14 @@ function TableModal({
 function GeneralMenuQrCard({
   restaurant,
   toast,
+  pickupFeature,
 }: {
   restaurant: Restaurant
   toast: (msg: string, type?: string) => void
+  // `pickup_orders` al restaurantului, tristate (lib/pickupCopy.ts): promisiunea
+  // de comenzi DOAR pe feature cunoscut activ — din mig 309 pagina publică nu
+  // arată ridicarea fără el, oricât ar fi setarea pornită.
+  pickupFeature: boolean | null
 }) {
   const [qr, setQr] = useState<string | null>(null)
   const menuUrl = `${appPublicBase()}/m/${restaurant.slug}`
@@ -496,9 +502,8 @@ function GeneralMenuQrCard({
       <div style={{ flex: 1, minWidth: 180 }}>
         <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.9rem' }}>QR meniu general</div>
         <div style={{ color: D.t2, fontSize: '0.74rem', marginTop: 2, lineHeight: 1.5 }}>
-          Duce la <span style={{ color: D.gold }}>/m/{restaurant.slug}</span> — clienții văd
-          meniul; cu comenzile pentru ridicare active pot și comanda. Bun pentru vitrină,
-          flyere sau tejghea.
+          Duce la <span style={{ color: D.gold }}>/m/{restaurant.slug}</span> —{' '}
+          {generalMenuQrText(pickupFeature)}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -568,6 +573,8 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const maxTables: number | null = restaurantFeatures.features
     ? restaurantFeatures.limit('max_tables')
     : getPlanByInternalId('free').limits.maxTables
+  // Ridicarea vizibilă oaspetelui (mig 309) — tristate, null = plan necunoscut.
+  const pickupFeature = pickupFeatureState(restaurantFeatures.features)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1107,7 +1114,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
 
       {/* QR-ul meniului GENERAL (/m/:slug) — util oricui (vitrină, flyere),
           iar în modul „doar ridicare" (food truck) devine QR-ul principal. */}
-      <GeneralMenuQrCard restaurant={restaurant} toast={toast} />
+      <GeneralMenuQrCard restaurant={restaurant} toast={toast} pickupFeature={pickupFeature} />
 
       {/* Empty state dedicat modului „doar ridicare": fără prompt de mese. */}
       {tables.length === 0 && (restaurant.pickup_settings?.pickup_only ?? false) && (
@@ -1123,9 +1130,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             lineHeight: 1.55,
           }}
         >
-          Mod „doar ridicare" activ — nu ai nevoie de mese. Printează QR-ul general de mai
-          sus; clienții comandă și ridică de la tejghea. Poți adăuga mese oricând, dacă
-          situația se schimbă.
+          {pickupOnlyEmptyStateText(restaurant.pickup_settings?.enabled ?? false, pickupFeature)}
         </div>
       )}
 

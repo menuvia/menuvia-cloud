@@ -1,6 +1,6 @@
 -- tests/sql/auto/309_public_pickup_read_gate.sql
 -- =============================================================================
--- PU1–PU9 — clichetul PERMANENT al mig 309: ridicarea pe /m/:slug se
+-- PU1–PU10 — clichetul PERMANENT al mig 309: ridicarea pe /m/:slug se
 -- gate-uiește la CITIRE (`public_pickup_settings`), ca `hide_branding` în 281.
 -- Rulează din tests/sql/auto/ (scripts/run-sql-auto.sh) pe AMBELE medii
 -- (Postgres gol din sql-verify + stack-ul Supabase din E2E). Autonom, ROLLBACK
@@ -28,7 +28,10 @@
 --        refuzat cu hint `plan_upgrade_required`; pe growth proiecția zice
 --        „pornit” ȘI aceeași comandă trece. Fără a doua jumătate, PU1 ar putea
 --        trece pe un gate care ascunde ridicarea și când ea chiar merge.
---        [PICĂ: mutația a / b; un feature greșit în helper]
+--        [PICĂ: mutația a / b. NU prinde un feature GREȘIT în helper dacă are
+--         ACELAȘI rând de plan ca `pickup_orders` (order_qr, remove_branding,
+--         loyalty, kitchen_tickets… — free/starter/growth nu le pot distinge):
+--         asta e treaba lui PU10]
 --   PU3  `get_menu_by_slug` (245, compunere PURĂ) moștenește gate-ul — calea
 --        pe care o folosește PublicMenuPage întâi.
 --        [PICĂ: mutația a; o recreare a lui 245 care citește tabela direct]
@@ -53,24 +56,49 @@
 --        apelabilă de anon ȘI de un `authenticated` fără restaurant (oaspete
 --        logat), care vede ACEEAȘI vedere gate-uită.
 --        [PICĂ: `grant execute on public_pickup_settings to anon` (mutația c)]
---   PU8  CLICHET DE CLASĂ prin descoperire: setul funcțiilor din `public`
---        apelabile de anon al căror corp pomenește `pickup_settings` e EXACT
---        registrul de mai jos (fiecare cu motiv), niciun view citibil de anon
---        nu-l pomenește, iar tabela `restaurants` nu e citibilă de anon — altfel
---        gate-ul ar avea o ușă laterală. Control POZITIV al detectorului: o
---        funcție-sondă nouă e prinsă.
+--   PU8  CLICHET DE CLASĂ prin descoperire, pe DOUĂ detectoare. (1) Literal:
+--        setul funcțiilor din `public` apelabile de anon al căror corp pomenește
+--        `pickup_settings` e EXACT registrul de mai jos (fiecare cu motiv).
+--        (2) RÂNDUL ÎNTREG: o funcție nouă scrisă `to_jsonb(r)` / `r.*` /
+--        `select * from restaurants` / `returns setof restaurants` / variabilă
+--        `restaurants%rowtype` nu pomenește NICIODATĂ numele coloanei, dar
+--        proiectează `pickup_settings` brut (și `theme_settings` fără 281,
+--        `wifi_password`/`qr_token` fără 217) — setul acestora, apelabile de
+--        anon, trebuie să fie GOL (sau în registru, cu motiv). Plus: niciun view
+--        citibil de anon nu poartă coloana, iar tabela `restaurants` nu e
+--        citibilă de anon. Control POZITIV pe fiecare detector (sonde noi
+--        TREBUIE prinse: una pe literal, patru pe formele rândului întreg) și
+--        NEGATIV (o sondă care pomenește `to_jsonb(r)`/`r.*` doar în COMENTARII
+--        nu e prinsă — detectorul citește codul, nu comentariile).
+--        [PICĂ: o proiecție anon nouă pe rândul întreg; un detector care nu
+--         mai prinde sondele]
 --   PU9  Invariantele MOȘTENITE de copia verbatim (pe IEȘIREA reală, ca anon):
 --        `wifi_password`/`qr_token` NULL deși stocate (217), `menu_languages`
 --        (219), gate-ul de branding (281), slug case-insensitive (148), `country`
---        (298); sursa: helperul folosit, `r.pickup_settings` o SINGURĂ dată;
---        numele feature-ului e ACELAȘI în gate-ul de comandă (290) și în cel de
---        citire — redenumit într-o parte, cele două ar diverge tăcut.
+--        (298); sursa (pe COD, fără comentarii): helperul folosit,
+--        `r.pickup_settings` o SINGURĂ dată. Centura TEXTUALĂ „același feature
+--        în 290 și 309” stă tot aici, dar autoritatea e PU10 (comportament).
+--   PU10 Același feature în gate-ul de CITIRE și în cel de COMANDĂ, pe
+--        COMPORTAMENT (în tranzacția suitei, deci derulat la ROLLBACK): stins
+--        DOAR `pickup_orders` pe growth → proiecția zice „oprit” ȘI
+--        `create_order(pickup)` ca anon e refuzat cu `plan_upgrade_required`.
+--        Contra-control: oricare ALT feature activ pe growth, stins pe rând,
+--        NU atinge proiecția; cu `order_qr` stins, comanda de ridicare trece.
+--        PU9 se potrivea pe TEXT (și pe comentarii): un helper cu
+--        `'remove_branding'` în cod și `'pickup_orders'` într-un comentariu
+--        trecea PU1–PU9; la fel `enforce_ordering_enabled` cu
+--        `when 'pickup' then 'order_qr'` și maparea veche comentată.
+--        [PICĂ: ambele mutații de mai sus]
 --
 -- Mutații verificate pe un cluster de replay (fiecare pică, prima asserție
 -- atinsă în paranteză): (a) proiecția revine la `r.pickup_settings` brut (PU1);
 -- (b1) helperul nu normalizează niciodată (PU1); (b2) helperul normalizează și
 -- pe planul CU feature (PU1, controlul pozitiv); (b3) predicat strict
--- `= 'true'::jsonb` (PU5); (c) `grant execute` pe helper către anon (PU7).
+-- `= 'true'::jsonb` (PU5); (c) `grant execute` pe helper către anon (PU7);
+-- (d) helperul pe `'remove_branding'`, `'pickup_orders'` rămas în comentariu
+-- (PU9 pe cod, apoi PU10); (e) `enforce_ordering_enabled` mapează `pickup` pe
+-- `order_qr`, maparea veche în comentariu (PU9 pe cod, apoi PU10); (f) o
+-- funcție anon DEFINER nouă `select to_jsonb(r) from restaurants r` (PU8).
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -180,6 +208,16 @@ $f$;
 create function pg_temp.pu_plan(p_owner uuid, p_plan text) returns void
 language sql as $f$
   update public.profiles set plan = p_plan where id = p_owner
+$f$;
+
+-- CODUL unei funcții, fără comentarii (`/* … */` apoi `-- …`). `prosrc` și
+-- `pg_get_functiondef` includ comentariile din corp, deci o potrivire textuală
+-- pe sursa brută e satisfăcută și de un literal rămas într-un comentariu
+-- (mutațiile d/e din antet). Un `--` într-un literal de șir ar tăia restul
+-- rândului — eșec ZGOMOTOS pe o asserție de prezență, nu verde tăcut.
+create function pg_temp.pu_code(p_src text) returns text
+language sql immutable as $f$
+  select regexp_replace(regexp_replace(p_src, '/\*.*?\*/', '', 'g'), '--[^\n]*', '', 'g')
 $f$;
 
 -- ── PU1: DOWNGRADE pe /m/:slug ──────────────────────────────────────────────
@@ -480,7 +518,116 @@ do $$
 begin
   if pg_temp.pu_leakers() is distinct from 'create_order,get_restaurant_by_slug' then
     raise exception 'PU8: sonda a rămas în catalog'; end if;
-  raise notice 'PU8 OK: proiecția e singura ușă anon spre pickup_settings, iar detectorul e viu';
+end $$;
+
+-- (2) RÂNDUL ÎNTREG. Detectorul literal de mai sus e ORB la forma cea mai
+-- probabilă a unei proiecții anon noi: `select to_jsonb(r) from restaurants r`
+-- (tiparul există deja în repo — `jsonb_agg(to_jsonb(r))` din exportul GDPR,
+-- mig 042, azi doar pentru autentificați) nu conține numele coloanei, dar o
+-- scoate brut, împreună cu tot rândul. Formele prinse, pe CODUL fără
+-- comentarii: tipul de retur (sau un parametru OUT/TABLE) = rândul
+-- `restaurants`; `select * [into …] from restaurants`; o variabilă de tipul
+-- rândului (`restaurants%rowtype` / `v public.restaurants;`); `restaurants.*`
+-- și `to_jsonb(restaurants)`; iar prin ALIAS (`from restaurants [as] r`):
+-- `r.*` sau `to_jsonb(r)` / `to_json` / `row_to_json` / `jsonb_agg` /
+-- `json_agg` / `array_agg` / `hstore` pe alias. Un fals pozitiv intră în
+-- registru CU MOTIV — mai bine zgomotos decât orb.
+create function pg_temp.pu_whole_row(p_code text) returns boolean
+language sql immutable as $f$
+  select
+       p_code ~* 'select\s+\*\s+(into\s+(strict\s+)?[a-z0-9_.]+\s+)?from\s+(public\.)?restaurants\M'
+    or p_code ~* '\m(public\.)?restaurants\s*%\s*rowtype'
+    or p_code ~* '\m(public\.)?restaurants\.\*'
+    or p_code ~* '\m(to_jsonb|to_json|row_to_json|jsonb_agg|json_agg|array_agg|hstore)\s*\(\s*(public\.)?restaurants\s*\)'
+    or exists (
+         select 1
+           from regexp_matches(p_code, '([a-z_][a-z0-9_]*)\s+(public\.)?restaurants\s*(;|:=)', 'gi') m
+          where lower(m[1]) not in ('from', 'join', 'into', 'update', 'table', 'only', 'on'))
+    or exists (
+         select 1
+           from regexp_matches(p_code,
+                  '(from|join)\s+(public\.)?restaurants\s+(as\s+)?([a-z_][a-z0-9_]*)', 'gi') m
+          where lower(m[4]) not in ('where', 'join', 'left', 'right', 'inner', 'full', 'cross',
+                                    'natural', 'lateral', 'on', 'using', 'group', 'order', 'limit',
+                                    'offset', 'for', 'union', 'except', 'intersect', 'having',
+                                    'window', 'returning', 'into', 'set', 'fetch')
+            and (p_code ~* ('\m' || m[4] || '\.\*')
+                 or p_code ~* ('\m(to_jsonb|to_json|row_to_json|jsonb_agg|json_agg|array_agg|hstore)\s*\(\s*'
+                               || m[4] || '\s*\)')))
+$f$;
+
+create function pg_temp.pu_whole_row_leakers() returns text
+language sql as $f$
+  select coalesce(string_agg(x, ',' order by x collate "C"), '')
+    from (select distinct p.proname::text as x
+            from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public'
+             and has_function_privilege('anon', p.oid, 'execute')
+             and (p.prorettype = 'public.restaurants'::regtype
+                  or 'public.restaurants'::regtype = any(coalesce(p.proallargtypes, p.proargtypes::oid[]))
+                  or pg_temp.pu_whole_row(pg_temp.pu_code(p.prosrc)))) d
+$f$;
+
+do $$
+declare
+  -- Registrul, cu motiv. Azi e GOL: nicio funcție apelabilă de anon nu scoate
+  -- rândul întreg al lui `restaurants`. O intrare nouă cere decizie scrisă
+  -- (și, dacă proiectează către oaspete, trecerea prin helperii 281/309).
+  c_expected constant text := '';
+  v_found text;
+begin
+  v_found := pg_temp.pu_whole_row_leakers();
+  if v_found is distinct from c_expected then
+    raise exception 'PU8 FAIL: funcții apelabile de anon scot RÂNDUL ÎNTREG al lui restaurants (deci pickup_settings brut, theme_settings fără 281, wifi_password/qr_token fără 217): % (așteptat „%”)',
+      v_found, c_expected; end if;
+end $$;
+
+-- Control POZITIV: patru sonde noi, câte una pe fiecare formă, TREBUIE prinse;
+-- control NEGATIV: o sondă care pomenește formele DOAR în comentarii și
+-- proiectează o singură coloană nu e prinsă.
+create function public.pu309_probe_to_jsonb(p_slug text) returns jsonb
+language sql stable security definer set search_path = public, pg_temp
+as $f$ select to_jsonb(r) from public.restaurants r where lower(r.slug) = lower(p_slug) $f$;
+create function public.pu309_probe_setof(p_slug text) returns setof public.restaurants
+language sql stable security definer set search_path = public, pg_temp
+as $f$ select * from public.restaurants where lower(slug) = lower(p_slug) $f$;
+create function public.pu309_probe_alias_star(p_slug text) returns json
+language sql stable security definer set search_path = public, pg_temp
+as $f$ select json_agg(x) from (select rr.name, rr.* from public.restaurants as rr where rr.slug = p_slug) x $f$;
+create function public.pu309_probe_rowvar(p_slug text) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp
+as $f$
+declare v public.restaurants;
+begin
+  select * into v from public.restaurants where slug = p_slug;
+  return to_jsonb(v);
+end $f$;
+create function public.pu309_probe_comment_only(p_slug text) returns text
+language sql stable security definer set search_path = public, pg_temp
+as $f$
+  -- to_jsonb(r), r.*, select * from public.restaurants
+  select r.name from public.restaurants r where r.slug = p_slug /* row_to_json(r) */
+$f$;
+grant execute on function public.pu309_probe_to_jsonb(text), public.pu309_probe_setof(text),
+  public.pu309_probe_alias_star(text), public.pu309_probe_rowvar(text),
+  public.pu309_probe_comment_only(text) to anon;
+do $$
+begin
+  if pg_temp.pu_whole_row_leakers()
+       is distinct from 'pu309_probe_alias_star,pu309_probe_rowvar,pu309_probe_setof,pu309_probe_to_jsonb' then
+    raise exception 'PU8 FAIL: detectorul de rând întreg nu prinde exact sondele (primit „%”) — clichetul e vacuu sau prinde comentarii',
+      pg_temp.pu_whole_row_leakers(); end if;
+end $$;
+drop function public.pu309_probe_to_jsonb(text);
+drop function public.pu309_probe_setof(text);
+drop function public.pu309_probe_alias_star(text);
+drop function public.pu309_probe_rowvar(text);
+drop function public.pu309_probe_comment_only(text);
+do $$
+begin
+  if pg_temp.pu_whole_row_leakers() <> '' then
+    raise exception 'PU8: sondele de rând întreg au rămas în catalog'; end if;
+  raise notice 'PU8 OK: proiecția e singura ușă anon spre pickup_settings (literal ȘI rând întreg), iar ambele detectoare sunt vii';
 end $$;
 
 -- ── PU9: invariantele moștenite de copia verbatim ───────────────────────────
@@ -504,22 +651,87 @@ begin
     raise exception 'PU9: slug-ul case-insensitive s-a pierdut (148)'; end if;
   perform pg_temp.pu_plan('30900000-0000-4000-8000-000000000001', 'growth');
 
-  -- Sursa: helperul e folosit, iar coloana nu mai pleacă brut pe altă cale.
-  v_src := pg_get_functiondef('public.get_restaurant_by_slug(text)'::regprocedure);
+  -- Sursa (pe COD, fără comentarii): helperul e folosit, iar coloana nu mai
+  -- pleacă brut pe altă cale.
+  v_src := pg_temp.pu_code(pg_get_functiondef('public.get_restaurant_by_slug(text)'::regprocedure));
   if position('public.public_pickup_settings(r.id, r.pickup_settings)' in v_src) = 0 then
     raise exception 'PU9: get_restaurant_by_slug nu mai trece pickup_settings prin helper'; end if;
   if (length(v_src) - length(replace(v_src, 'r.pickup_settings', ''))) / length('r.pickup_settings') <> 1 then
     raise exception 'PU9: get_restaurant_by_slug referă r.pickup_settings și în afara helperului'; end if;
 
-  -- Același feature în gate-ul de COMANDĂ (290) și în cel de CITIRE (309).
-  select prosrc into v_order from pg_proc where oid = 'public.enforce_ordering_enabled()'::regprocedure;
-  select prosrc into v_helper from pg_proc where oid = 'public.public_pickup_settings(uuid,jsonb)'::regprocedure;
+  -- Același feature în gate-ul de COMANDĂ (290) și în cel de CITIRE (309) —
+  -- centura TEXTUALĂ, pe cod fără comentarii; autoritatea e PU10.
+  select pg_temp.pu_code(prosrc) into v_order from pg_proc where oid = 'public.enforce_ordering_enabled()'::regprocedure;
+  select pg_temp.pu_code(prosrc) into v_helper from pg_proc where oid = 'public.public_pickup_settings(uuid,jsonb)'::regprocedure;
   if v_order !~ $q$when\s+'pickup'\s+then\s+'pickup_orders'$q$
      or position($q$restaurant_has_feature(p_restaurant_id, 'pickup_orders')$q$ in v_helper) = 0 then
     raise exception 'PU9: gate-ul de comandă și cel de citire nu mai folosesc același feature (pickup_orders) — ar diverge tăcut'; end if;
   raise notice 'PU9 OK: invariantele 148/217/219/281/298 + feature-ul comun cu gate-ul de comandă';
 end $$;
 
+-- ── PU10: același feature în gate-ul de CITIRE și în cel de COMANDĂ ─────────
+-- Pe COMPORTAMENT, nu pe text: `plan_features` se modifică în tranzacția
+-- suitei (ROLLBACK la final — nimic nu supraviețuiește). PU1/PU2 schimbă doar
+-- planul owner-ului, iar pe free/starter/growth `pickup_orders` are ACELAȘI
+-- rând ca order_qr, remove_branding, loyalty… — un helper pe oricare dintre ele
+-- trecea. Aici se stinge FEATURE-UL, pe planul la care owner-ul rămâne.
+do $$
+declare
+  c_owner constant uuid := '30900000-0000-4000-8000-000000000001';
+  c_rid   constant text := '309b0000-0000-4000-8000-000000000001';
+  v_items constant text := '[{"product_id":"309d0000-0000-4000-8000-000000000001","quantity":1}]';
+  c_order constant text := $q$public.create_order(%L::uuid, 'pickup', null, null, null, %L::jsonb, null,
+       now() + interval '40 minutes', 'Ion PU', %L, null)$q$;
+  v_res   jsonb;
+  v_feat  text;
+  v_seen  text[] := '{}';
+begin
+  perform pg_temp.pu_plan(c_owner, 'growth');
+  if pg_temp.pu_slug('pu309-bistro') #> '{pickup_settings,enabled}' is distinct from 'true'::jsonb then
+    raise exception 'PU10: premisa — pe growth, cu matricea neatinsă, proiecția trebuia să zică „pornit”'; end if;
+
+  -- (1) Stins DOAR pickup_orders pe growth: ambele gate-uri trebuie să-l vadă.
+  update public.plan_features set enabled = false where plan = 'growth' and feature = 'pickup_orders';
+  if not found then
+    raise exception 'PU10: fixtura — rândul (growth, pickup_orders) lipsește din plan_features'; end if;
+  if pg_temp.pu_slug('pu309-bistro') #> '{pickup_settings,enabled}' is distinct from 'false'::jsonb then
+    raise exception 'PU10 FAIL: cu pickup_orders stins pe growth proiecția anunță încă ridicarea — gate-ul de CITIRE nu întreabă de pickup_orders'; end if;
+  v_res := pg_temp.pu_as('anon', null, format(c_order, c_rid, v_items, '0722309003'));
+  if coalesce((v_res ->> 'raised')::boolean, false) is not true
+     or v_res ->> 'hint' is distinct from 'plan_upgrade_required' then
+    raise exception 'PU10 FAIL: cu pickup_orders stins pe growth create_order(pickup) trebuia refuzat cu plan_upgrade_required (primit %) — gate-ul de COMANDĂ nu întreabă de pickup_orders',
+      v_res; end if;
+  update public.plan_features set enabled = true where plan = 'growth' and feature = 'pickup_orders';
+
+  -- (2) Contra-control pe CITIRE: oricare ALT feature activ pe growth, stins pe
+  -- rând, NU atinge proiecția (un helper care depinde și de altceva pică aici).
+  for v_feat in
+    select feature from public.plan_features
+     where plan = 'growth' and enabled and feature <> 'pickup_orders'
+     order by feature collate "C"
+  loop
+    update public.plan_features set enabled = false where plan = 'growth' and feature = v_feat;
+    if pg_temp.pu_slug('pu309-bistro') #> '{pickup_settings,enabled}' is distinct from 'true'::jsonb then
+      raise exception 'PU10 FAIL: stins % pe growth, proiecția a ascuns ridicarea — gate-ul de citire depinde de alt feature decât pickup_orders', v_feat; end if;
+    update public.plan_features set enabled = true where plan = 'growth' and feature = v_feat;
+    v_seen := v_seen || v_feat;
+  end loop;
+  -- Anti-vacuitate: contra-controlul a trecut prin feature-urile pe care PU1/PU2
+  -- NU le pot deosebi de pickup_orders (același rând de plan).
+  if not (v_seen @> array['order_qr', 'remove_branding', 'loyalty', 'kitchen_tickets', 'waiter_manual']) then
+    raise exception 'PU10: contra-controlul n-a acoperit feature-urile cu același rând de plan ca pickup_orders (văzute: %)', v_seen; end if;
+
+  -- (3) Contra-control pe COMANDĂ: cu order_qr (feature-ul comenzilor QR) stins
+  -- pe growth, ridicarea rămâne ȘI vizibilă, ȘI comandabilă.
+  update public.plan_features set enabled = false where plan = 'growth' and feature = 'order_qr';
+  v_res := pg_temp.pu_as('anon', null, format(c_order, c_rid, v_items, '0722309004'));
+  if v_res is null or v_res ? 'raised' or v_res ->> 'id' is null then
+    raise exception 'PU10 FAIL: cu order_qr stins pe growth comanda de ridicare trebuia să treacă (primit %) — gate-ul de comandă nu mai e pe pickup_orders',
+      v_res; end if;
+  update public.plan_features set enabled = true where plan = 'growth' and feature = 'order_qr';
+  raise notice 'PU10 OK: citirea și comanda depind EXACT de pickup_orders (stins → ambele refuză; orice alt feature stins → niciuna)';
+end $$;
+
 rollback;
 
-\echo '✅ RIDICAREA PE /m/:slug GATE-UITĂ LA CITIRE OK (PU1-PU9)'
+\echo '✅ RIDICAREA PE /m/:slug GATE-UITĂ LA CITIRE OK (PU1-PU10)'

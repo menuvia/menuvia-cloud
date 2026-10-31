@@ -7,6 +7,8 @@ import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
+import { useFeatures } from '../hooks/useFeatures'
+import { pickupCardDescription, pickupFeatureState, pickupPlanWarning } from '../lib/pickupCopy'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
@@ -168,6 +170,15 @@ export default function SettingsTab({
       preset_id: form.theme_settings?.preset_id ?? 'cafe',
       ...patch,
     })
+  // Ridicarea VIZIBILĂ oaspetelui cere feature-ul `pickup_orders` al
+  // RESTAURANTULUI (mig 309: gate la citire pe /m/:slug; regula 3 — nu planul
+  // user-ului). Comutatorul rămâne pe orice plan (setarea se păstrează
+  // pentru re-urcare), dar textul nu promite comenzi pe care oaspetele nu le
+  // vede. `null` = plan necunoscut → nici promisiune, nici avertisment.
+  const { features: restaurantFeatures } = useFeatures(restaurant.id)
+  const pickupFeature = pickupFeatureState(restaurantFeatures)
+  const pickupDesc = pickupCardDescription(pickupFeature)
+  const pickupWarning = pickupPlanWarning(form.pickup_settings?.enabled ?? false, pickupFeature)
   // Re-sincronizează formularul când prop-ul restaurant se schimbă (ex. după salvarea
   // slug-ului prin RPC, care întoarce slug-ul normalizat) — altfel form-ul rămâne stale.
   useEffect(() => {
@@ -1709,12 +1720,11 @@ export default function SettingsTab({
               title="Comenzi pentru ridicare (click-and-collect)"
               desc={
                 <>
-                  Activează pagina ta publică{' '}
+                  {pickupDesc.lead}{' '}
                   <span style={{ color: D.gold }}>
                     {siteHost()}/m/{form.slug || 'slug'}
-                  </span>. Clienții
-                  pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
-                  ridicare.
+                  </span>
+                  {pickupDesc.tail}
                 </>
               }
               right={
@@ -1724,6 +1734,25 @@ export default function SettingsTab({
                 />
               }
             >
+              {pickupWarning && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 6,
+                    fontSize: '0.74rem',
+                    color: D.gold,
+                    padding: '8px 10px',
+                    background: D.s3,
+                    border: `1px solid ${D.border}`,
+                    borderRadius: 7,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <Icon name="info" size={13} color={D.gold} />
+                  <span>{pickupWarning}</span>
+                </div>
+              )}
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:

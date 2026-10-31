@@ -9,10 +9,17 @@
 -- decide `pickupEnabled = restaurant?.pickup_settings?.enabled ?? false` și, pe
 -- adevărat, arată badge-ul de ridicare, coșul și „Continuă spre ridicare”.
 -- Planul NU se verifica nicăieri pe drumul ăsta:
---   • nu există gate de SCRIERE pe `pickup_settings` (singurul gate e UI-ul din
---     SettingsTab, `planTier(plan) >= 2 || enabled` — comutatorul rămâne vizibil
---     tocmai când e pornit), deci un local care coboară de pe growth pe
---     starter/free cu ridicarea lăsată pornită o păstrează stocată;
+--   • NU există niciun gate pe `pickup_settings.enabled` — nici în DB (fără
+--     trigger de scriere), nici în UI. Comutatorul „Comenzi pentru ridicare
+--     (click-and-collect)” din SettingsTab se randează pe ORICE plan, iar
+--     butonul „Nu am mese — doar ridicare (food truck)” din onboarding scrie
+--     `{enabled:true, pickup_only:true}` pe Planul 1 INTENȚIONAT (flag inert,
+--     cu hint de plan sub buton). Expresia `planTier(plan) >= 2 || enabled`
+--     din SettingsTab gate-uiește o NOTĂ despre flipbook, NU comutatorul.
+--     Deci originea principală a stării „stocat pornit, plan fără ridicare” e
+--     Planul 1 ÎNSUȘI (onboarding-ul food truck sau comutatorul de pe
+--     free/starter), alături de downgrade-ul de pe growth cu ridicarea lăsată
+--     pornită;
 --   • `create_order` (191) refuză comanda abia la FINAL: `enforce_ordering_enabled`
 --     (290) cere feature-ul `pickup_orders` pe sursa `pickup`.
 -- Deci oaspetele unui local de pe Planul 1 (sau retrogradat) își umple coșul,
@@ -66,26 +73,45 @@
 -- fără recreare. `resolve_qr_token`/`resolve_qr_menu` nu proiectează
 -- `pickup_settings` deloc (QR-ul n-are ridicare). Tabela `restaurants` NU e
 -- citibilă de anon (fără politică pentru anon; pe Postgres gol nici privilegiu),
--- deci proiecția e singura ușă. Clichetul PU8 din suită îngheață setul.
+-- deci proiecția e singura ușă. Clichetul PU8 din suită îngheață setul pe DOUĂ
+-- detectoare: literalul `pickup_settings` ȘI rândul ÎNTREG (`to_jsonb(r)`,
+-- `r.*`, `select * from restaurants`, `returns setof restaurants`, variabilă
+-- de tipul rândului) — forma cea mai probabilă a unei proiecții anon noi nu
+-- pomenește numele coloanei, dar o scoate brut (azi: zero funcții anon).
 --
 -- ── Client ───────────────────────────────────────────────────────────────────
--- Nicio schimbare: forma răspunsului e neschimbată. PublicMenuPage citește
--- restaurantul DOAR prin `fetchMenuBySlug` → `get_menu_by_slug`, cu fallback pe
--- `fetchRestaurantBySlug` → `get_restaurant_by_slug` (qr.ts); ambele trec prin
--- helper, deci nici fallback-ul (care NU se șterge) nu ocolește gate-ul. Cu
--- `enabled=false` pagina cade singură pe „Lista mea” (meniu digital), adică
--- exact ce vinde Planul 1.
+-- OASPETE: nicio schimbare, forma răspunsului e neschimbată. PublicMenuPage
+-- citește restaurantul DOAR prin `fetchMenuBySlug` → `get_menu_by_slug`, cu
+-- fallback pe `fetchRestaurantBySlug` → `get_restaurant_by_slug` (qr.ts);
+-- ambele trec prin helper, deci nici fallback-ul (care NU se șterge) nu
+-- ocolește gate-ul. Cu `enabled=false` pagina cade singură pe „Lista mea”
+-- (meniu digital), adică exact ce vinde Planul 1.
+-- STAFF (același PR): gate-ul de mai sus face pagina oaspetelui corectă, dar
+-- transformă divergența stocat≠efectiv într-una TĂCUTĂ pentru owner — până
+-- acum refuzul de la `create_order` era SINGURUL semnal că ridicarea cere alt
+-- plan, iar Setările/Mesele spuneau în continuare „clienții pot comanda”.
+-- `lib/pickupCopy.ts` + SettingsTab (cardul de ridicare) + TablesManager (QR-ul
+-- general, empty state-ul „doar ridicare”) citesc `pickup_orders` prin
+-- `useFeatures(restaurant.id)` (planul RESTAURANTULUI, regula 3): feature
+-- CUNOSCUT absent → avertisment cu numele planului și fără promisiunea de
+-- comenzi; necunoscut (`null`) → nici promisiune, nici avertisment (tiparul
+-- tristate `paymentsEnabled`). Comutatorul rămâne activ: setarea se păstrează
+-- pentru re-urcare.
 --
 -- ── Reziduuri consemnate, NEadresate ────────────────────────────────────────
---   • Fără gate de SCRIERE pe `pickup_settings`: autoritatea pentru ce VEDE
---     oaspetele e la citire (singurul loc care închide clasa indiferent ce e
---     stocat), iar pentru ce se COMANDĂ, `enforce_ordering_enabled` (290).
+--   • Fără gate de SCRIERE pe `pickup_settings`, DELIBERAT: onboarding-ul food
+--     truck îl pornește pe Planul 1 prin design, iar re-urcarea trebuie să
+--     găsească setarea neatinsă. Autoritatea pentru ce VEDE oaspetele e la
+--     citire (singurul loc care închide clasa indiferent ce e stocat), pentru
+--     ce se COMANDĂ e `enforce_ordering_enabled` (290), iar pentru ce i se
+--     SPUNE owner-ului e `lib/pickupCopy.ts`.
 --   • Pe un local CU feature, un `enabled` stocat ca șir "false" e „pornit”
 --     pentru client (test de adevăr) și „oprit” pentru `create_order`
 --     (`::boolean`). Nu e o chestiune de plan, deci nu e a acestui helper;
 --     scriitorii reali (SettingsTab, Onboarding) scriu boolean.
 --
--- Teste permanente: tests/sql/auto/309_public_pickup_read_gate.sql (PU1–PU9).
+-- Teste permanente: tests/sql/auto/309_public_pickup_read_gate.sql (PU1–PU10)
+-- + src/lib/__tests__/pickupCopy.test.ts (PK1–PK6, textele de staff).
 -- =============================================================================
 
 begin;
@@ -196,15 +222,20 @@ grant execute on function public.get_restaurant_by_slug(text) to anon, authentic
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- C. Asserții fail-closed la aplicare (centură; acoperirea permanentă e suita
---    PU1–PU9, care rulează pe starea FINALĂ a lanțului la fiecare replay).
+--    PU1–PU10, care rulează pe starea FINALĂ a lanțului la fiecare replay).
 --    Se RE-afirmă și invariantele moștenite: o recreare care le pierde trebuie
---    să pice AICI.
+--    să pice AICI. Verificările TEXTUALE se fac pe COD, fără comentarii:
+--    `prosrc`/`pg_get_functiondef` includ comentariile din corp, deci un
+--    literal rămas într-un comentariu ar satisface o asserție de prezență.
 -- ─────────────────────────────────────────────────────────────────────────────
 do $$
 declare
   c_helper constant text := 'public.public_pickup_settings(uuid,jsonb)';
   c_slug   constant text := 'public.get_restaurant_by_slug(text)';
   c_none   constant uuid := '00000000-0000-0000-0000-000000000000';
+  -- comentariile (`/* … */`, apoi `-- …`) scoase înainte de orice potrivire.
+  c_block  constant text := '/\*.*?\*/';
+  c_line   constant text := '--[^\n]*';
   v_src  text;
   v_cols text;
   v_bad  text;
@@ -229,8 +260,11 @@ begin
     raise exception 'mig 309: public_pickup_settings e apelabil de roluri client: %', v_bad;
   end if;
   -- feature-ul se rezolvă prin punctul de trecere din 296, nu ocolindu-l (CC6).
+  -- Pe COD: un `'pickup_orders'` rămas într-un comentariu nu contează (suita
+  -- PU10 leagă apoi feature-ul pe COMPORTAMENT).
   if position('restaurant_has_feature(p_restaurant_id, ''pickup_orders'')'
-              in (select prosrc from pg_proc where oid = c_helper::regprocedure)) = 0 then
+              in (select regexp_replace(regexp_replace(prosrc, c_block, '', 'g'), c_line, '', 'g')
+                    from pg_proc where oid = c_helper::regprocedure)) = 0 then
     raise exception 'mig 309: public_pickup_settings nu rezolvă feature-ul pickup_orders prin restaurant_has_feature';
   end if;
 
@@ -250,7 +284,8 @@ begin
   end if;
 
   -- (c) proiecția: helperul e folosit, iar coloana NU mai pleacă brut.
-  v_src := pg_get_functiondef(c_slug::regprocedure);
+  v_src := regexp_replace(regexp_replace(pg_get_functiondef(c_slug::regprocedure),
+                                         c_block, '', 'g'), c_line, '', 'g');
   if position('public.public_pickup_settings(r.id, r.pickup_settings)' in v_src) = 0 then
     raise exception 'mig 309: get_restaurant_by_slug nu trece pickup_settings prin gate-ul de citire';
   end if;
@@ -286,9 +321,13 @@ begin
     raise exception 'mig 309: get_restaurant_by_slug nu mai e apelabil de anon/authenticated'; end if;
 
   -- (f) get_menu_by_slug rămâne compunere PURĂ → moștenește gate-ul (245).
-  v_src := pg_get_functiondef('public.get_menu_by_slug(text)'::regprocedure);
+  --     Capcană de regex: în ARE-ul Postgres `\b` e BACKSPACE, nu graniță de
+  --     cuvânt — `restaurants\b` nu se potrivea NICIODATĂ (verificare moartă în
+  --     prima variantă a acestui fișier); granița de final e `\M`.
+  v_src := regexp_replace(regexp_replace(pg_get_functiondef('public.get_menu_by_slug(text)'::regprocedure),
+                                         c_block, '', 'g'), c_line, '', 'g');
   if position('public.get_restaurant_by_slug(p_slug)' in v_src) = 0
-     or v_src ~* 'from\s+(public\.)?restaurants\b'
+     or v_src ~* '(from|join)\s+(public\.)?restaurants\M'
      or position('pickup_settings' in v_src) > 0 then
     raise exception 'mig 309: get_menu_by_slug nu mai e compunere pură peste get_restaurant_by_slug (n-ar moșteni gate-ul)'; end if;
 
