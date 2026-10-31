@@ -230,7 +230,7 @@ exports.handler = async () => {
     try {
       const res = await fetch('https://app.smso.ro/api/v1/send', {
         method: 'POST',
-        // OPT-7: un SMS agățat nu mai pierde tot tick-ul de 1 min (riscul de
+        // OPT-7: un SMS agățat nu mai consumă tot timpul funcției (riscul de
         // dublu-send pe abort e IDENTIC cu kill-ul la 10s, deja documentat).
         signal: AbortSignal.timeout(8000),
         headers: {

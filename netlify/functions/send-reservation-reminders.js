@@ -78,7 +78,7 @@ exports.handler = async () => {
   //   • niciun canal enqueued, fără eșec (email absent + enqueue_sms a întors
   //     null = skip definitiv: modul oprit între timp / plafon lunar atins /
   //     număr ne-mobil) → rămâne marcat. Un reset aici ar re-revendica aceeași
-  //     rezervare la fiecare 10 min, la nesfârșit, fără să existe vreun canal.
+  //     rezervare la fiecare tick, la nesfârșit, fără să existe vreun canal.
   let ok = 0
   let fail = 0
   for (const r of claimed) {
