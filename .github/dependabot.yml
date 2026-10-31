@@ -65,9 +65,11 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "@supabase/supabase-js"
         update-types: ["version-update:semver-major"]
-      # zod major: src/schemas/index.ts e cod speculativ (zero importuri în
-      # producție, doar propria suită de teste) — zod 4 ar cere muncă pe cod
-      # nefolosit. Se re-evaluează când schemele se cablează în formulare.
+      # zod: schemele din src/schemas/ (cod speculativ, zero importuri în
+      # producție) au fost ȘTERSE (oct 2026); pachetul a rămas în package.json
+      # doar pentru că scoaterea lui atinge lockfile-ul (pas amânat, se face cu
+      # workflow-ul regenerate-lockfile). Fără importatori, un major nu merită
+      # un PR — ignorarea cade odată cu dependența.
       - dependency-name: "zod"
         update-types: ["version-update:semver-major"]
 

@@ -46,17 +46,23 @@ Fără CLI, aplicarea manuală din SQL Editor înseamnă toate fișierele din
 bash scripts/verify-migrations-local.sh
 ```
 
-> Lista veche de aici (`supabase/schema.sql` + `migration-001…008`) trimitea la
-> copii legacy din rădăcina `supabase/`, șterse în sept 2026: erau duplicate
-> stale ale primelor 44 de migrații, iar procedura acoperea 8 fișiere din 264,
-> deci producea o bază incompletă. Sursa aplicată a fost mereu
+Pe producția existentă nu se aplică nimic de mână: după merge pe `main` cu CI
+verde, `.github/workflows/apply-prod-migrations.yml` aplică migrațiile noi
+(backup + repetiție pe o copie, apoi porțile read-only) — procedura și pauza în
+`docs/RUNBOOK.md` §6.5. Pașii de mai sus sunt pentru un proiect Supabase NOU.
+
+> Lista veche de aici (schema.sql + migration-001…008 din rădăcina supabase/)
+> trimitea la copii legacy, șterse în sept 2026: erau duplicate stale ale
+> primelor 44 de migrații, iar procedura acoperea 8 fișiere din 264, deci
+> producea o bază incompletă. Sursa aplicată a fost mereu
 > `supabase/migrations/`.
 
-### 1c. Activează Realtime
-**Dashboard → Database → Replication → Tables**
-Activează replicarea pentru tabelul: `orders`
+### 1c. Verifică Realtime
+Migrațiile adaugă singure în publicația `supabase_realtime` tabelele `orders`,
+`waiter_calls` (mig 078) și `reservations` (mig 073). Verifică în
+**Dashboard → Database → Replication** că apar toate trei.
 
-Fără asta, KitchenPage și WaiterPage nu primesc update-uri live.
+Fără ele, KitchenPage, WaiterPage și tab-ul Rezervări nu primesc update-uri live.
 
 ### 1d. Configurează Auth (opțional dar recomandat)
 **Dashboard → Authentication → Email Templates**
@@ -141,7 +147,7 @@ Rulează acest flow în ordine:
 [ ] 6. Plasează comandă din meniu QR → apare în KitchenPage în timp real?
 [ ] 7. Avansează comanda Nou → Confirmat → Preparare → Gata în Kitchen
 [ ] 8. WaiterPage vede comanda ca "Gata de servit"?
-[ ] 9. Marchează comanda ca Servit → Plătit
+[ ] 9. Marchează comanda ca Servit → Plătit (Plan 3) sau Închisă (Plan 2)
 [ ] 10. Dashboard → Analytics → apar datele comenzii?
 [ ] 11. Echipă → trimite invitație ospătar → primit email?
 [ ] 12. Click link invitație → setează parolă → redirect la /waiter?
@@ -167,11 +173,11 @@ Rulează acest flow în ordine:
 | Simptom | Cauză | Fix |
 |---------|-------|-----|
 | Build pică cu `Cannot find module 'qrcode'` | `node_modules` nu e instalat | `npm install` |
-| KitchenPage nu primește comenzi live | Realtime dezactivat | Activează tabelul `orders` în Supabase Replication |
+| KitchenPage nu primește comenzi live | `orders` lipsește din publicația Realtime | Verifică Supabase → Replication (pasul 1c) |
 | Invitație dă eroare după creare cont | Email confirmation activ | Dezactivează în Supabase Auth Settings sau gestionează flow-ul |
 | QR-urile nu se scanează | `VITE_APP_URL` greșit | Setează URL-ul exact al aplicației deploy-uite |
 | Manager vede onboarding în loc de dashboard | Vechi useRestaurants fără membership join | Asigură-te că ai versiunea v1.1.0+ |
-| `npm run lint` pică | `.eslintrc.cjs` lipsă | Prezent în v1.1.0+ |
+| `npm run lint` pică pe un warning | `--max-warnings 0` face orice warning blocant | Repară warning-ul; configurația e flat, în `eslint.config.js` |
 
 ---
 
@@ -216,7 +222,7 @@ src/
 │   ├── QrMenuPage.tsx           # Meniu la masă /q/:token
 │   └── InviteAcceptPage.tsx     # Accept invitație staff
 ├── components/
-│   ├── AnalyticsTab.tsx         # Charts (Pro/Business only)
+│   ├── AnalyticsTab.tsx         # Grafice; cifrele de bani doar pe Plan 3
 │   ├── TablesManager.tsx        # Mese + QR local + PDF export
 │   ├── TeamManager.tsx          # Invitații staff
 │   └── WaiterEntry.tsx          # Comandă nouă din WaiterPage
@@ -226,7 +232,7 @@ src/
     └── constants.ts             # Colors, roles, config
 
 netlify/functions/
-├── ai-import.js                 # Claude Haiku — parsare meniu din foto
+├── ai-proxy.js                  # AI (cheia platformei sau BYO) — import meniu din foto, traduceri
 ├── send-invite.js               # Resend — email invitație staff
 └── welcome-email.js             # Resend — email bun venit
 
@@ -234,5 +240,9 @@ supabase/
 ├── config.toml                  # Config Supabase CLI (stack local)
 ├── migrations/                  # SURSA UNICĂ — 260+ migrații, ordine lexicografică
 ├── scripts/                     # Utilitare SQL rulate manual
-└── tests/                       # Aserții SQL legate în CI
+└── tests/                       # Testul payload-ului FiscalNet (rulat în CI)
+
+tests/
+├── sql/                         # Asserțiile SQL din CI (sql-verify.yml)
+└── functions/                   # Teste node: funcțiile Netlify + clichete pe repo
 ```

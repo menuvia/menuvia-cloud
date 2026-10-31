@@ -1,3 +1,8 @@
+> ⚠️ **ARHIVAT (2026-10-31).** Note de versiune istorice, din primele iterații
+> ale proiectului; mutate din rădăcina repo-ului, unde treceau drept documentație
+> curentă. NU descriu starea de azi — conțin afirmații devenite false, de exemplu
+> setup-ul „migrațiile 001 → 022 în SQL Editor” (azi sunt peste 300, aplicate de `supabase db push` / workflow-ul `apply-prod-migrations`) și activarea manuală a Realtime (o fac migrațiile 073/078). Starea curentă: `ARCHITECTURE.md` + `CLAUDE.md`; istoria: git log + PR-uri.
+
 # Menuvia — Production Build
 
 ## Conține
