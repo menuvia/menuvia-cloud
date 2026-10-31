@@ -38,7 +38,7 @@ import {
   resolveTheme,
   resolveHideBranding,
   isDarkTheme,
-  resolveMenuLayout,
+  resolveEffectiveMenuLayout,
   resolveMenuElements,
   resolveFlipbookPages,
   readableTextOn,
@@ -137,15 +137,19 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
   // Google să indexeze „<Restaurant> — Meniu" cu rich results, nu titlul generic.
   useMenuSeo(restaurant, categories, menuCurrency)
   const isDark = useMemo(() => isDarkTheme(theme), [theme])
-  // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
-  const menuLayout = useMemo(() => resolveMenuLayout(restaurant?.theme_settings), [restaurant])
   // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
   const flipbookPages = useMemo(
     () => resolveFlipbookPages(restaurant?.theme_settings),
     [restaurant],
   )
-  // Flipbook fără pagini încărcate → fallback VIZIBIL pe 'list' (nu ecran gol).
-  const effectiveLayout = menuLayout === 'flipbook' && flipbookPages.length === 0 ? 'list' : menuLayout
+  // Layout-ul EFECTIV (listă / galerie / minimal / foto / flipbook, implicit
+  // 'list'): flipbook fără pagini încărcate → fallback VIZIBIL pe 'list' (nu
+  // ecran gol). Regula stă într-un singur loc (lib/themes), citit și de textele
+  // de staff despre comenzi — panoul nu promite comenzi pe un stil fără coș.
+  const effectiveLayout = useMemo(
+    () => resolveEffectiveMenuLayout(restaurant?.theme_settings),
+    [restaurant],
+  )
   // Pe flipbook DOAR catalogul de produse e înlocuit de viewer: fără tab-uri de
   // categorii, search/filtre, carduri sau bara de coș/„Lista mea" (comanda din
   // meniu nu e disponibilă pe acest stil) — hero-ul și CTA-urile rămân.

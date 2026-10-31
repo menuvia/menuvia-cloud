@@ -47,7 +47,7 @@ import {
 import {
   resolveTheme,
   resolveHideBranding,
-  resolveMenuLayout,
+  resolveEffectiveMenuLayout,
   resolveFlipbookPages,
   readableTextOn,
 } from '../lib/themes'
@@ -587,14 +587,14 @@ export default function QrMenuPage({ token }: Props) {
   )
   const orderingAllowed = ctx?.orderingAllowed ?? false
   const themeSettings = ctx?.restaurant.theme_settings
-  // Layout ales de restaurant (listă / galerie / minimal / foto / flipbook) — implicit 'list'.
   // Memoizate pe theme_settings (ca în PublicMenuPage) — nu recalculăm la fiecare
   // re-render (tastă în search, add-to-cart, tick realtime).
-  const menuLayout = useMemo(() => resolveMenuLayout(themeSettings), [themeSettings])
   // Paginile de flipbook validate (doar https, max 30) — [] dacă lipsesc.
   const flipbookPages = useMemo(() => resolveFlipbookPages(themeSettings), [themeSettings])
-  // Flipbook fără pagini → fallback VIZIBIL pe 'list' (nu ecran gol).
-  const effectiveLayout = menuLayout === 'flipbook' && flipbookPages.length === 0 ? 'list' : menuLayout
+  // Layout-ul EFECTIV (listă / galerie / minimal / foto / flipbook, implicit
+  // 'list'): flipbook fără pagini → fallback VIZIBIL pe 'list' (nu ecran gol).
+  // Sursa unică a regulii e lib/themes, comună cu PublicMenuPage și cu panoul.
+  const effectiveLayout = useMemo(() => resolveEffectiveMenuLayout(themeSettings), [themeSettings])
   // Pe flipbook DOAR catalogul e înlocuit: fără tab-uri/căutare/carduri și fără
   // bara „Comanda mea" (comanda din meniu nu e disponibilă pe acest stil).
   // Header-ul + „Cheamă ospătarul"/„Cere nota" rămân funcționale.

@@ -66,3 +66,38 @@ export function canSetPickupEnabled(state: PickupToggleState, next: boolean): bo
   if (state === 'unknown') return false
   return !next || state === 'available'
 }
+
+// ── Modul „doar ridicare” (food truck, E3) pe planul restaurantului ──
+//
+// `pickup_settings.pickup_only` e un mod de AFIȘARE al panoului: ascunde Harta
+// sălii și Rezervările din nav (DashboardPage), scoate pasul cu mesele din
+// checklist-ul de pe Acasă (HomeTab) și pune empty state-ul „nu ai nevoie de
+// mese” în Mese (TablesManager). Are sens DOAR dacă localul chiar primește
+// comenzi pentru ridicare. După un DOWNGRADE (sau pe rândurile scrise înainte
+// de #318/#319) ambele flag-uri rămân stocate, dar din mig 309 pagina publică
+// nu arată ridicarea, iar `create_order` o refuză (290): un panou care ar
+// ascunde mesele și rezervările ar lua localului exact uneltele de care are
+// nevoie fără ridicare.
+//
+//   'off'       — ridicarea sau modul oprite în setare: nicio schimbare de nav;
+//   'on'        — ambele pornite, iar planul include ridicarea SAU nu e încă
+//                 cunoscut (features în încărcare / RPC picat): se păstrează
+//                 comportamentul stocat, ca nav-ul să nu pâlpâie la fiecare
+//                 încărcare;
+//   'suspended' — ambele pornite, dar planul e CUNOSCUT fără `pickup_orders`:
+//                 panoul se poartă ca fără mod (nav complet, mesele în
+//                 checklist), iar Mese spune de ce. Rândul stocat NU se
+//                 rescrie: re-urcarea pe planul cu ridicare găsește setarea.
+//
+// `pickupFeature` e tristate-ul din `lib/pickupCopy.ts` (`pickupFeatureState`
+// din features, sau `pickupFeatureFromToggle` din Setări): true/false =
+// cunoscut, null = necunoscut.
+export type PickupOnlyMode = 'off' | 'on' | 'suspended'
+
+export function pickupOnlyMode(
+  settings: { enabled?: boolean | null; pickup_only?: boolean | null } | null | undefined,
+  pickupFeature: boolean | null,
+): PickupOnlyMode {
+  if (settings?.enabled !== true || settings.pickup_only !== true) return 'off'
+  return pickupFeature === false ? 'suspended' : 'on'
+}
