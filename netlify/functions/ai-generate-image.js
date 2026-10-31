@@ -60,12 +60,22 @@ function imageModelFor(provider, configuredModel) {
   return IMAGE_MODEL[provider]
 }
 
+// Modelele DALL·E întorc implicit un URL (`data[0].url`), nu base64 — fără
+// `response_format: 'b64_json'` răspunsul n-are `b64_json` și generarea pica
+// la FIECARE produs, deși modelul era respectat. gpt-image-1 întoarce mereu
+// base64 și NU acceptă parametrul, deci el se trimite doar pentru DALL·E.
+function openAiImageBody(model, prompt) {
+  const body = { model, prompt, size: '1024x1024', n: 1 }
+  if (/^dall-e/i.test(model)) body.response_format = 'b64_json'
+  return body
+}
+
 async function generateOpenAI(apiKey, model, prompt) {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, prompt, size: '1024x1024', n: 1 }),
+    body: JSON.stringify(openAiImageBody(model, prompt)),
   })
   if (!res.ok) throw new Error(`openai image ${res.status}: ${await res.text()}`)
   const data = await res.json()

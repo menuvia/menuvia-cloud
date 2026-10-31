@@ -17,8 +17,9 @@
 //         platformei ȘI modelul de imagine, nu cel de chat. Mutația care pică:
 //         `config.model` trimis ca atare.
 //   AIG3  cheia proprie (BYO) are prioritate; un model de imagine configurat
-//         explicit (`dall-e-3`) e respectat; pe Gemini, un model de text cade
-//         pe Imagen.
+//         explicit (`dall-e-3`) e respectat ȘI cerut în base64 (DALL·E întoarce
+//         implicit un URL, iar funcția citește doar `b64_json`); pe Gemini, un
+//         model de text cade pe Imagen.
 //   AIG4  Claude / personalizat → 400 provider_no_images, FĂRĂ apel la furnizor
 //         și fără cotă consumată (control: refuzul rămâne).
 //   AIG5  fără cheie proprie și fără cheia platformei → provider_key_missing,
@@ -131,6 +132,8 @@ describe('ai-generate-image: starea implicită are imagini', () => {
     assert.equal(calls[0].url, 'https://api.openai.com/v1/images/generations')
     assert.equal(calls[0].headers.Authorization, 'Bearer sk-platform')
     assert.equal(calls[0].body.model, 'gpt-image-1')
+    // gpt-image-1 întoarce mereu base64 și nu acceptă `response_format`.
+    assert.ok(!('response_format' in calls[0].body), 'response_format trimis la gpt-image-1')
     assert.equal(state.storageCalls.length, 1)
     assert.equal(state.storageCalls[0].bucket, 'product-images')
     assert.match(state.storageCalls[0].path, /^ai\/r1\/p1-\d+\.png$/)
@@ -155,6 +158,9 @@ describe('ai-generate-image: starea implicită are imagini', () => {
     assert.equal(res.statusCode, 200, res.body)
     assert.equal(calls[0].headers.Authorization, 'Bearer sk-byo')
     assert.equal(calls[0].body.model, 'dall-e-3')
+    // DALL·E întoarce implicit un URL; fără b64_json funcția pica mereu pe
+    // „răspuns fără b64_json" (mutația care pică: corpul fără response_format).
+    assert.equal(calls[0].body.response_format, 'b64_json')
 
     calls.length = 0
     withConfig({ provider: 'gemini', model: 'gemini-1.5-flash', api_key_encrypted: null, enabled: true })
