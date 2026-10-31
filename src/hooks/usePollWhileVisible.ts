@@ -16,7 +16,7 @@ import { useEffect, useRef } from 'react'
 
 /** Fila e vizibilă? Fără `document` (SSR) → da. DOAR `hidden` contează ca ascuns:
  *  starea istorică `prerender` (și jsdom fără pretendToBeVisual) nu e „ascuns". */
-export function isDocumentVisible(): boolean {
+function isDocumentVisible(): boolean {
   return typeof document === 'undefined' || document.visibilityState !== 'hidden'
 }
 
