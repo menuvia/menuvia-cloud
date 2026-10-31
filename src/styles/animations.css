@@ -40,15 +40,6 @@
     background-position: 200% 0;
   }
 }
-@keyframes pulseGold {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(200, 150, 60, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 0 8px rgba(200, 150, 60, 0);
-  }
-}
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -71,9 +62,6 @@
 }
 .animate-scale {
   animation: scaleIn 200ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-.badge--live {
-  animation: pulseGold 2s infinite;
 }
 
 /* ── Stagger generic — pe părinte; copiii primesc delay incremental ── */

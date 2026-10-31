@@ -30,18 +30,6 @@ export interface Recipe {
   created_at: string
 }
 
-export interface StockMovement {
-  id: string
-  ingredient_id: string
-  change_amount: number
-  reason: 'purchase' | 'sale' | 'waste' | 'inventory' | 'manual'
-  reference_type: 'order' | 'purchase_order' | 'manual' | null
-  reference_id: string | null
-  notes: string | null
-  created_by: string | null
-  created_at: string
-}
-
 export interface Supplier {
   id: string
   restaurant_id: string
@@ -72,16 +60,6 @@ export interface PurchaseOrder {
   created_at: string
   received_at: string | null
   paid_at: string | null
-}
-
-export interface PurchaseOrderItem {
-  id: string
-  purchase_order_id: string
-  ingredient_id: string
-  quantity: number
-  unit_price: number
-  vat_rate: number
-  line_total: number
 }
 
 export interface ProductProfitability {
@@ -207,22 +185,6 @@ export async function removeRecipeItem(productId: string, ingredientId: string):
   if (error) throw error
 }
 
-// ── CRUD: Stock movements (audit trail, read-only) ─────────────
-
-export async function fetchStockMovements(
-  ingredientId: string,
-  limit = 50,
-): Promise<StockMovement[]> {
-  const { data, error } = await supabase
-    .from('stock_movements')
-    .select('*')
-    .eq('ingredient_id', ingredientId)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-  if (error) throw error
-  return (data ?? []) as StockMovement[]
-}
-
 // ── CRUD: Suppliers ────────────────────────────────────────────
 
 export async function fetchSuppliers(restaurantId: string): Promise<Supplier[]> {
@@ -257,26 +219,6 @@ export async function createSupplier(
     .single()
   if (error) throw error
   return data as Supplier
-}
-
-export async function updateSupplier(id: string, fields: Partial<Supplier>): Promise<void> {
-  const updates: Record<string, unknown> = {}
-  for (const k of [
-    'name',
-    'vat_id',
-    'contact_name',
-    'phone',
-    'email',
-    'address',
-    'payment_terms_days',
-    'notes',
-    'is_active',
-  ] as const) {
-    if (fields[k] !== undefined) updates[k] = fields[k]
-  }
-  updates.updated_at = new Date().toISOString()
-  const { error } = await supabase.from('suppliers').update(updates).eq('id', id)
-  if (error) throw error
 }
 
 // ── CRUD: Purchase Orders (NIR) ────────────────────────────────

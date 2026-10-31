@@ -20,14 +20,15 @@ Pentru schimbări mici, păstrează doar primele 2 secțiuni.
 ## Migrații SQL
 
 - [ ] Nu am modificat `supabase/`
-- [ ] Am adăugat migrație nouă, numele e următorul disponibil (migration-XXX-...)
+- [ ] Am adăugat migrație nouă, cu numărul următor disponibil (`<14 cifre>_migration_NNN_nume.sql`) și manifestul regenerat (`node scripts/gen-schema-manifest.mjs`)
 - [ ] Migration verifier (sql-verify.yml) a trecut local
 - [ ] Migrația e idempotentă (poate fi rulată de 2 ori fără să strice)
 - [ ] Schemele NU au schimbat ENUM-uri existente fără `ALTER TYPE ... ADD VALUE`
-- [ ] ⚠️ **Aplicare manuală pe prod**: migrațiile NU se aplică automat la deploy.
-      Dacă PR-ul adaugă migrații, am notat în descriere că trebuie rulate în
-      Supabase Dashboard → SQL Editor (în ordine) imediat după merge — altfel
-      frontend-ul live va apela RPC-uri/coloane inexistente.
+- [ ] ⚠️ **Ordinea de deploy**: migrațiile se aplică pe prod de workflow-ul
+      `apply-prod-migrations` (după CI verde pe `main`; procedura în
+      `docs/RUNBOOK.md` §6.5), NU din SQL Editor. Dacă frontend-ul sau o funcție
+      cere migrația deja aplicată (RPC/coloană nouă fără fallback PGRST202), am
+      notat în descriere ordinea și ce se întâmplă în fereastra dintre ele.
 
 ## Testare
 

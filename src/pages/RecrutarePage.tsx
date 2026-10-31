@@ -757,8 +757,9 @@ function ContactForm() {
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const [message, setMessage] = useState('')
-  // Consimțământ GDPR — recrutareSchema (schemas/index.ts) îl cere, dar formularul
-  // nu-l colecta deloc; fără el, prelucrarea datelor de contact n-are bază legală.
+  // Consimțământ GDPR — formularul nu-l colecta deloc (doar o schemă zod
+  // nefolosită, ștearsă între timp, îl cerea); fără el, prelucrarea datelor de
+  // contact n-are bază legală.
   const [consent, setConsent] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)

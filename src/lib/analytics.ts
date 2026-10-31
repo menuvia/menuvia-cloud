@@ -8,11 +8,16 @@
 //   - Dacă revocă consimțământul, tracking-ul se oprește și se șterge identitatea
 //
 // Folosire:
-//   import { initAnalytics, track, identifyUser, resetAnalytics } from './lib/analytics'
+//   import { initAnalytics, track } from './lib/analytics'
 //   initAnalytics() // în main.tsx, după ce App-ul s-a montat
 //   track('order_placed', { restaurant_id, amount })
-//   identifyUser(userId, { email, plan })
-//   resetAnalytics() // la logout
+//
+// Page view-ul de la încărcare îl capturează PostHog (`capture_pageview`), prin
+// același scrubber de token-uri; navigările din SPA nu au fost urmărite niciodată
+// (helperul manual `trackPageView` n-a avut apelanți și a fost scos). NU
+// identificăm utilizatorii (fără `identify`, deci cu `person_profiles:
+// 'identified_only'` nu se creează profiluri); la revocarea consimțământului
+// `handleConsentUpdate` face opt-out + reset.
 // ─────────────────────────────────────────────────────────────────
 // OPT-2: posthog-js (~50-70KB gz) NU mai intră în entry chunk — se încarcă
 // dinamic abia la init cu consent, exact ca @sentry/react în main.tsx.
@@ -169,65 +174,5 @@ export function track(event: AppEvent, properties?: Record<string, unknown>): vo
   } catch (err) {
     // Niciodată nu lăsa analytics să facă să pice app-ul
     console.warn('[analytics] track failed:', err)
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// identifyUser — leagă eventurile de un utilizator logat
-// Apelează după login/signup. NU trimite PII sensibile (parole, CNP etc.)
-// ─────────────────────────────────────────────────────────────────
-export function identifyUser(
-  userId: string,
-  properties?: {
-    email?: string
-    plan?: string
-    role?: string
-    restaurant_id?: string
-    [key: string]: unknown
-  },
-): void {
-  if (!isInitialized || !ph) return
-  try {
-    ph.identify(userId, properties)
-  } catch (err) {
-    console.warn('[analytics] identify failed:', err)
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// resetAnalytics — apelează la logout pentru a separa session-urile
-// ─────────────────────────────────────────────────────────────────
-export function resetAnalytics(): void {
-  if (!isInitialized || !ph) return
-  try {
-    ph.reset()
-  } catch (err) {
-    console.warn('[analytics] reset failed:', err)
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Helper pentru tracking de page views manuale (route changes în SPA)
-// ─────────────────────────────────────────────────────────────────
-export function trackPageView(path: string): void {
-  if (!isInitialized || !ph) return
-  try {
-    ph.capture('$pageview', { $current_url: window.location.origin + path })
-  } catch {
-    /* silent */
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Feature flags — folosit pentru A/B testing și gradual rollout
-// Exemplu: dacă vrei să arăți buton nou doar pentru 50% utilizatori
-//   if (isFeatureEnabled('new-dashboard-layout')) { ... }
-// ─────────────────────────────────────────────────────────────────
-export function isFeatureEnabled(flag: string): boolean {
-  if (!isInitialized || !ph) return false
-  try {
-    return !!ph.isFeatureEnabled(flag)
-  } catch {
-    return false
   }
 }

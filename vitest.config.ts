@@ -21,13 +21,8 @@ export default defineConfig({
         'src/lib/orders.ts',
         'src/lib/stocks.ts',
         'src/lib/reports.ts',
-        'src/schemas/**/*.ts',
       ],
-      exclude: [
-        'src/**/*.test.ts',
-        'src/**/__tests__/**',
-        'src/schemas/index.ts', // re-exports, fără logică testabilă direct
-      ],
+      exclude: ['src/**/*.test.ts', 'src/**/__tests__/**'],
       thresholds: {
         // Pragurile sunt rachete unidirecționale — doar UP, niciodată DOWN.
         // Scăzute temporar de la 15/20/12/15 la valorile reale după Sprint 4 +
