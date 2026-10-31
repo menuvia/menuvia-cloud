@@ -96,6 +96,7 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
               </div>
             </div>
             <Toggle
+              label="SMS-uri către clienți"
               value={enabled}
               onChange={(v) => {
                 modulesState
