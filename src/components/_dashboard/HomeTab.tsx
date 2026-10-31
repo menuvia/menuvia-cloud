@@ -28,6 +28,7 @@ import { useInView, revealStyle } from '../../lib/motion'
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
 import { InlineSpinner } from '../PageLoader'
 import { useBridgeConnected } from '../../hooks/useBridgeConnected'
+import { useCodviaOrdersOpen } from '../../hooks/useCodviaOrdersOpen'
 import { BridgeOfflineBanner } from '../BridgeOfflineBanner'
 
 // Reveal local: fiecare instanță are PROPRIUL hook useInView (regula hooks —
@@ -67,6 +68,7 @@ interface Props {
   onPricing: () => void
   // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
   // pre-completat — suporturile vin cu QR-ul REAL al meniului deja tipărit.
+  // Acțiunea apare DOAR cât magazinul primește comenzi (useCodviaOrdersOpen).
   onOrderQrStands: () => void
 }
 
@@ -280,6 +282,9 @@ export default function HomeTab({
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
   const bridge = useBridgeConnected(restaurantId, isAdmin && isFiscal)
+
+  // Magazinul Codvia e în PAUZĂ (D4): scurtătura apare doar pe `true` cunoscut.
+  const qrStandsOpen = useCodviaOrdersOpen()
 
   // Cifrele care NU depind de plan: o singură citire per restaurant. Înainte
   // erau în același efect cu cele de comenzi, deci trecerea planului din
@@ -779,7 +784,9 @@ export default function HomeTab({
         >
           <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
           <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
-          <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
+          {qrStandsOpen === true && (
+            <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
+          )}
           <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
           {hasOrdering && (
             <QuickAction icon="bell" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />

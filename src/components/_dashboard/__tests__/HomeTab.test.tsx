@@ -13,13 +13,19 @@
 //   HT4  citirea categoriilor EȘUEAZĂ → pasul e „stare necunoscută", nu nebifat
 //        Mutația care pică: `(categoriesCount ?? 0) > 0`.
 //   HT5  control pozitiv pentru HT1: tier 1 CUNOSCUT → upsell-ul apare
+//   HC1  magazinul Codvia în pauză (`false`) sau necunoscut (`null`) → fără
+//        acțiunea „Suporturi QR fizice" (ux-owner-codvia-quick-action, D4)
+//        Mutația care pică: acțiunea randată necondiționat (codul vechi).
+//   HC2  control pozitiv: `true` → acțiunea apare și deschide magazinul
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 
-const { failing, counts } = vi.hoisted(() => ({
+const { failing, counts, codvia } = vi.hoisted(() => ({
   failing: new Set<string>(),
   counts: {} as Record<string, number>,
+  codvia: { open: null as boolean | null },
 }))
 
 // Builder thenable: `await from(t).select(...).eq(...)…` dă {count, data, error}.
@@ -57,6 +63,9 @@ vi.mock('../../../hooks/useBridgeConnected', () => ({
 }))
 vi.mock('../AgentCard', () => ({ AgentCard: () => null }))
 vi.mock('../SubscriptionCard', () => ({ SubscriptionCard: () => null }))
+vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
+  useCodviaOrdersOpen: () => codvia.open,
+}))
 
 import HomeTab from '../HomeTab'
 
@@ -89,6 +98,7 @@ function metric(label: string): HTMLElement {
 const UPSELL = 'Vrei să primești comenzi direct de la masă?'
 
 beforeEach(() => {
+  codvia.open = null
   failing.clear()
   for (const k of Object.keys(counts)) delete counts[k]
   Object.assign(counts, {
@@ -145,5 +155,29 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT5: control pozitiv — tier 1 CUNOSCUT → upsell-ul apare', async () => {
     renderHome({ tier: 1 })
     expect(await screen.findByText(UPSELL)).toBeInTheDocument()
+  })
+})
+
+describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește comenzi', () => {
+  it('HC1: în pauză sau necunoscut → fără acțiune', async () => {
+    for (const open of [false, null]) {
+      codvia.open = open
+      const { unmount } = renderHome({ tier: 2 })
+      expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+      // Control: celelalte acțiuni sunt acolo.
+      expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Suporturi QR fizice' })).toBeNull()
+      unmount()
+    }
+  })
+
+  it('HC2: deschis → acțiunea apare și deschide magazinul', async () => {
+    codvia.open = true
+    const onOrderQrStands = vi.fn()
+    renderHome({ tier: 2, onOrderQrStands })
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Suporturi QR fizice' }))
+    expect(onOrderQrStands).toHaveBeenCalledTimes(1)
   })
 })
