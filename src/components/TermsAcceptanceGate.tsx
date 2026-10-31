@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
+import { FocusTrap } from './ui/FocusTrap'
 import {
   TERMS_VERSION,
   clearPendingTermsConsent,
@@ -154,8 +155,14 @@ export default function TermsAcceptanceGate() {
         alignItems: 'center',
         justifyContent: 'center',
         padding: 16,
+        // FocusTrap pune focusul pe dialog la montare: fără inel peste tot ecranul.
+        outline: 'none',
       }}
     >
+      {/* Capcană de focus (a11y-focus-trap-gaps): poarta e aria-modal, dar
+          Tab-ul pleca în dashboard-ul de dedesubt. Fără Escape, deliberat —
+          poarta nu se închide; ieșirea e „Ieși din cont". */}
+      <FocusTrap />
       <div
         style={{
           background: D.s1,

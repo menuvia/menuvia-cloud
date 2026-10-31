@@ -19,6 +19,8 @@ export interface PhoneInputProps {
   /** Stilul câmpurilor formularului-gazdă, aplicat și selectului. */
   inputStyle: CSSProperties
   hintColor: string
+  /** `id` pe câmpul numărului — ca un `<label htmlFor>` din formular să-l numească. */
+  inputId?: string
 }
 
 export default function PhoneInput({
@@ -30,6 +32,7 @@ export default function PhoneInput({
   placeholder,
   inputStyle,
   hintColor,
+  inputId,
 }: PhoneInputProps) {
   const hintId = useId()
   // Un număr tastat cu „+”/„00” e deja internațional, iar toE164 IGNORĂ
@@ -60,6 +63,7 @@ export default function PhoneInput({
           <option value={FREE_CALLING_CODE}>{T(lang, 'phone_cc_other')}</option>
         </select>
         <input
+          id={inputId}
           value={national}
           onChange={(e) => onNationalChange(e.target.value)}
           placeholder={placeholder}

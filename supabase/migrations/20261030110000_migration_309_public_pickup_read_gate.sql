@@ -9,23 +9,23 @@
 -- decide `pickupEnabled = restaurant?.pickup_settings?.enabled ?? false` și, pe
 -- adevărat, arată badge-ul de ridicare, coșul și „Continuă spre ridicare”.
 -- Planul NU se verifica nicăieri pe drumul ăsta:
---   • NU există niciun gate pe `pickup_settings.enabled` — nici în DB (fără
---     trigger de scriere), nici în UI. Comutatorul „Comenzi pentru ridicare
---     (click-and-collect)” din SettingsTab se randează pe ORICE plan, iar
---     butonul „Nu am mese — doar ridicare (food truck)” din onboarding scrie
---     `{enabled:true, pickup_only:true}` pe Planul 1 INTENȚIONAT (flag inert,
---     cu hint de plan sub buton). Expresia `planTier(plan) >= 2 || enabled`
---     din SettingsTab gate-uiește o NOTĂ despre flipbook, NU comutatorul.
---     Deci originea principală a stării „stocat pornit, plan fără ridicare” e
---     Planul 1 ÎNSUȘI (onboarding-ul food truck sau comutatorul de pe
---     free/starter), alături de downgrade-ul de pe growth cu ridicarea lăsată
---     pornită;
+--   • NU există gate în DB pe `pickup_settings.enabled` (fără trigger de
+--     scriere). În UI scrierea e blocată din #318/#319: comutatorul
+--     „Comenzi pentru ridicare (click-and-collect)” din SettingsTab nu mai
+--     pornește ridicarea pe un plan fără ea (#318, `lib/pickupAvailability.ts`
+--     — pe `locked_on` se poate DOAR opri), iar butonul „Nu am mese — doar
+--     ridicare (food truck)” din onboarding nu o mai pornește fără
+--     `pickup_orders` (#319 — oferă doar QR-ul general). Înainte de ele,
+--     ambele scriau `enabled:true` pe ORICE plan, deci starea „stocat pornit,
+--     plan fără ridicare” EXISTĂ în date: rândurile scrise atunci, plus orice
+--     DOWNGRADE de pe un plan cu ridicare lăsată pornită (calea care rămâne
+--     deschisă și azi — setarea nu se atinge la schimbarea de plan, deliberat);
 --   • `create_order` (191) refuză comanda abia la FINAL: `enforce_ordering_enabled`
 --     (290) cere feature-ul `pickup_orders` pe sursa `pickup`.
--- Deci oaspetele unui local de pe Planul 1 (sau retrogradat) își umple coșul,
--- își alege ora, își scrie numele și telefonul — și primește la trimitere
--- „Comenzile nu sunt disponibile pe planul curent”. Un flux pe care serverul îl
--- refuză nu are ce căuta pe ecran.
+-- Deci oaspetele unui local retrogradat (sau rămas cu setarea veche pe Planul
+-- 1) își umple coșul, își alege ora, își scrie numele și telefonul — și
+-- primește la trimitere „Comenzile nu sunt disponibile pe planul curent”. Un
+-- flux pe care serverul îl refuză nu are ce căuta pe ecran.
 --
 -- ── Fix: normalizare la CITIRE, sursă UNICĂ ─────────────────────────────────
 -- Helperul `public_pickup_settings(uuid, jsonb)` — oglinda lui
@@ -95,28 +95,34 @@
 -- transformă divergența stocat≠efectiv într-una TĂCUTĂ pentru owner — până
 -- acum refuzul de la `create_order` era SINGURUL semnal că ridicarea cere alt
 -- plan, iar Setările/Mesele spuneau în continuare „clienții pot comanda”.
--- `lib/pickupCopy.ts` + SettingsTab (cardul de ridicare) + TablesManager (QR-ul
--- general, empty state-ul „doar ridicare”) citesc `pickup_orders` prin
--- `useFeatures(restaurant.id)` (planul RESTAURANTULUI, regula 3): feature
--- CUNOSCUT absent → avertisment cu numele planului și fără promisiunea de
--- comenzi; necunoscut (`null`) → nici promisiune, nici avertisment (tiparul
--- tristate `paymentsEnabled`). Comutatorul rămâne activ: setarea se păstrează
--- pentru re-urcare.
+-- Textele stau toate în `lib/pickupCopy.ts`, pe UN tristate al planului
+-- RESTAURANTULUI (regula 3): SettingsTab îl derivă din starea comutatorului
+-- (#318 — planul vine din `useFeatures(restaurantId)` prin DashboardPage),
+-- TablesManager (QR-ul general, empty state-ul „doar ridicare”) îl citește
+-- din `useFeatures(restaurant.id)`. Plan CUNOSCUT fără ridicare → nota de sub
+-- comutator (una singură) cu numele planului, fără promisiunea de comenzi;
+-- pe `locked_on` ea spune ce face ACEST gate: oaspeții nu văd ridicarea pe
+-- pagina publică, setarea rămâne salvată și revine la re-urcare. Necunoscut
+-- (`null`) → nici promisiune, nici avertisment (tiparul `paymentsEnabled`).
 --
 -- ── Reziduuri consemnate, NEadresate ────────────────────────────────────────
---   • Fără gate de SCRIERE pe `pickup_settings`, DELIBERAT: onboarding-ul food
---     truck îl pornește pe Planul 1 prin design, iar re-urcarea trebuie să
---     găsească setarea neatinsă. Autoritatea pentru ce VEDE oaspetele e la
---     citire (singurul loc care închide clasa indiferent ce e stocat), pentru
---     ce se COMANDĂ e `enforce_ordering_enabled` (290), iar pentru ce i se
---     SPUNE owner-ului e `lib/pickupCopy.ts`.
+--   • Fără gate de SCRIERE în DB pe `pickup_settings`, DELIBERAT: re-urcarea
+--     trebuie să găsească setarea neatinsă, iar un downgrade nu are voie s-o
+--     rescrie. UI-ul nu o mai pornește pe un plan fără ridicare (#318/#319),
+--     dar asta nu atinge rândurile existente și nici un PATCH direct.
+--     Autoritatea pentru ce VEDE oaspetele e la citire (singurul loc care
+--     închide clasa indiferent ce e stocat), pentru ce se COMANDĂ e
+--     `enforce_ordering_enabled` (290 — rămâne pentru fereastra dintre
+--     încărcarea paginii și trimitere), iar pentru ce i se SPUNE owner-ului e
+--     `lib/pickupCopy.ts`.
 --   • Pe un local CU feature, un `enabled` stocat ca șir "false" e „pornit”
 --     pentru client (test de adevăr) și „oprit” pentru `create_order`
 --     (`::boolean`). Nu e o chestiune de plan, deci nu e a acestui helper;
 --     scriitorii reali (SettingsTab, Onboarding) scriu boolean.
 --
 -- Teste permanente: tests/sql/auto/309_public_pickup_read_gate.sql (PU1–PU10)
--- + src/lib/__tests__/pickupCopy.test.ts (PK1–PK6, textele de staff).
+-- + src/lib/__tests__/pickupCopy.test.ts (PK1–PK7, textele de staff)
+-- + src/components/__tests__/SettingsTabPickup.test.tsx (PS1–PS4, comutatorul).
 -- =============================================================================
 
 begin;

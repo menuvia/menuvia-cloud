@@ -23,9 +23,10 @@
   /* ── Text (din D.t1..t3) ── */
   --color-text-1: #f0eae0;
   --color-text-2: #9a9590;
-  /* FIX AA: t3 ridicat #4a4844→#7c766c (~4.6:1 pe s1) pentru text mic informativ.
-     Vechiul #4a4844 devine --color-text-disabled (strict decorativ/disabled). */
-  --color-text-3: #7c766c;
+  /* Text mic informativ: AA ≥4.5:1 pe bg și pe surface-1…4 (= D_RAW.t3, clichet
+     palette-contrast.test.ts). Fostul #7c766c pretindea „~4.6:1 pe s1”, dar avea
+     4.26:1. Decorativul/disabled rămâne --color-text-disabled. */
+  --color-text-3: #928c82;
   --color-text-disabled: #4a4844;
 
   /* ── Semantic (din D.green/red/amber + info) ── */
@@ -33,6 +34,9 @@
   --color-success-bg: rgba(76, 175, 110, 0.12);
   --color-danger: #e05555;
   --color-danger-bg: rgba(224, 85, 85, 0.12);
+  /* Fundal PLIN pentru acțiuni distructive cu text alb: #e05555 dă doar 3.75:1 cu
+     albul, #b83a3a dă 5.67:1. --color-danger rămâne pentru text/borduri pe dark. */
+  --color-danger-solid: #b83a3a;
   --color-warning: #e8a020;
   --color-warning-bg: rgba(232, 160, 32, 0.12);
   --color-info: #7eb8f7;

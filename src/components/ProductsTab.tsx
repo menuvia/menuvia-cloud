@@ -17,7 +17,9 @@ import {
 import type { Ingredient as StocksIngredient, Recipe as StocksRecipe } from '../lib/stocks'
 import { QueryError } from './PageLoader'
 import { btn, inp, useToast, Toast, Modal, Inp, Sel, Toggle } from './_dashboard/sharedUI'
+import { ProductsToolbar } from './_dashboard/ProductsToolbar'
 import { generateNutrition, generateProductImage } from '../lib/ai'
+import { encodeForUpload, encodeSameFormat, mayHaveAlpha } from '../lib/imageEncode'
 import { track } from '../lib/analytics'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
@@ -101,37 +103,40 @@ function ProductModal({
       canvas.height = img.height * scale
       ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
-      const blob = await new Promise<Blob>((res) =>
-        canvas.toBlob((b) => res(b!), 'image/webp', 0.85),
-      )
+      // WebP unde browserul îl codează, JPEG pe Safari (iPhone) — extensia și
+      // Content-Type-ul vin din ce a codat EFECTIV browserul (lib/imageEncode).
+      const original = await encodeForUpload(canvas, {
+        quality: 0.85,
+        alpha: mayHaveAlpha(file.type),
+      })
       // OPT-6: al DOILEA blob de ~320px pentru thumbnail-uri — cardurile de
       // listă (88px) și coșul (52px) descărcau originalul de 1200px
       // (~150-400KB) pentru fiecare poză; thumb-ul e ~20KB. Convenție de nume
-      // {uuid}_t.webp lângă original (thumbUrlFor din lib/images derivă URL-ul;
-      // fallback onError la original acoperă toate imaginile vechi — fără
-      // migrație DB, fără coloană nouă).
+      // {uuid}_t.{ext} lângă original, în ACELAȘI format (thumbUrlFor din
+      // lib/images derivă URL-ul; fallback onError la original acoperă toate
+      // imaginile vechi — fără migrație DB, fără coloană nouă).
       const thumbW = 320
       const tScale = canvas.width > thumbW ? thumbW / canvas.width : 1
       const tCanvas = document.createElement('canvas')
       tCanvas.width = Math.round(canvas.width * tScale)
       tCanvas.height = Math.round(canvas.height * tScale)
       tCanvas.getContext('2d')!.drawImage(canvas, 0, 0, tCanvas.width, tCanvas.height)
-      const thumbBlob = await new Promise<Blob>((res) =>
-        tCanvas.toBlob((b) => res(b!), 'image/webp', 0.8),
-      )
+      const thumb = await encodeSameFormat(tCanvas, original, 0.8)
       const baseName = crypto.randomUUID()
-      const path = userId + '/' + restaurantId + '/' + baseName + '.webp'
-      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.webp'
+      const path = userId + '/' + restaurantId + '/' + baseName + '.' + original.ext
+      const thumbPath = userId + '/' + restaurantId + '/' + baseName + '_t.' + original.ext
       const { error } = await supabase.storage
         .from('product-images')
-        .upload(path, blob, { contentType: 'image/webp' })
+        .upload(path, original.blob, { contentType: original.contentType })
       if (error) throw error
-      // Thumb-ul e best-effort: dacă upload-ul lui pică, cardurile cad oricum
-      // pe original prin fallback-ul onError — nu blocăm salvarea produsului.
-      const { error: thumbErr } = await supabase.storage
-        .from('product-images')
-        .upload(thumbPath, thumbBlob, { contentType: 'image/webp' })
-      if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
+      // Thumb-ul e best-effort: dacă codarea sau upload-ul lui pică, cardurile
+      // cad oricum pe original prin fallback-ul onError — nu blocăm produsul.
+      if (thumb) {
+        const { error: thumbErr } = await supabase.storage
+          .from('product-images')
+          .upload(thumbPath, thumb.blob, { contentType: thumb.contentType })
+        if (thumbErr) console.warn('Thumb upload failed (fallback pe original):', thumbErr.message)
+      }
       const {
         data: { publicUrl },
       } = supabase.storage.from('product-images').getPublicUrl(path)
@@ -552,6 +557,7 @@ function ProductModal({
             Nume *
           </label>
           <Inp
+            label="Nume"
             value={form.name || ''}
             onChange={(v) => upd('name', v)}
             placeholder="Spaghete Carbonara"
@@ -563,6 +569,7 @@ function ProductModal({
               Preț (lei) *
             </label>
             <Inp
+              label="Preț (lei)"
               value={form.price != null ? String(form.price) : ''}
               onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
@@ -574,6 +581,7 @@ function ProductModal({
               Categorie
             </label>
             <Sel
+              label="Categorie"
               value={form.category_id || ''}
               onChange={(v) => {
                 // Opțiunea specială NU e o categorie: deschide input-ul inline;
@@ -593,7 +601,12 @@ function ProductModal({
             {newCatOpen && (
               <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <Inp value={newCatName} onChange={setNewCatName} placeholder="Nume categorie nouă" />
+                  <Inp
+                    label="Nume categorie nouă"
+                    value={newCatName}
+                    onChange={setNewCatName}
+                    placeholder="Nume categorie nouă"
+                  />
                 </div>
                 <button
                   type="button"
@@ -709,6 +722,7 @@ function ProductModal({
             Descriere
           </label>
           <textarea
+            aria-label="Descriere"
             value={form.description || ''}
             onChange={(e) => upd('description', e.target.value)}
             placeholder="Descriere produs..."
@@ -748,7 +762,7 @@ function ProductModal({
                   }}
                 >
                   <span style={{ fontSize: '0.82rem', color: D.t2, fontWeight: 500 }}>{l}</span>
-                  <Toggle value={!!form[k]} onChange={(v) => upd(k, v)} />
+                  <Toggle label={l} value={!!form[k]} onChange={(v) => upd(k, v)} />
                 </div>
                 <span style={{ fontSize: '0.66rem', color: D.t3, lineHeight: 1.3 }}>{desc}</span>
               </div>
@@ -1089,6 +1103,7 @@ function ProductModal({
                           Nume ({label})
                         </label>
                         <Inp
+                          label={`Nume (${label})`}
                           value={entry.name ?? ''}
                           onChange={(v) => setTranslation(code, 'name', v)}
                           placeholder={form.name || 'Nume produs'}
@@ -1106,6 +1121,7 @@ function ProductModal({
                           Descriere ({label})
                         </label>
                         <textarea
+                          aria-label={`Descriere (${label})`}
                           value={entry.description ?? ''}
                           onChange={(e) => setTranslation(code, 'description', e.target.value)}
                           placeholder={form.description || 'Descriere produs'}
@@ -1189,6 +1205,7 @@ function ProductModal({
                   </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <Inp
+                      label="Timp pregătire (minute)"
                       value={form.prep_time_minutes == null ? '' : String(form.prep_time_minutes)}
                       onChange={(v) =>
                         upd('prep_time_minutes', v.length > 0 ? parseInt(v) || null : null)
@@ -1210,6 +1227,7 @@ function ProductModal({
                     Cantitate / porție
                   </label>
                   <Inp
+                    label="Cantitate / porție"
                     value={form.portion_size || ''}
                     onChange={(v) => upd('portion_size', v.length > 0 ? v : null)}
                     placeholder="350g"
@@ -1256,6 +1274,7 @@ function ProductModal({
                     <div key={nf.key}>
                       <label style={{ display: 'block', fontSize: '0.7rem', color: D.t3, marginBottom: 4 }}>{nf.label}</label>
                       <Inp
+                        label={nf.label}
                         type="number"
                         value={form[nf.key] == null ? '' : String(form[nf.key])}
                         onChange={(v) => {
@@ -1878,6 +1897,7 @@ function RecipeAddForm({
       }}
     >
       <select
+        aria-label="Ingredient"
         value={selectedId}
         onChange={(e) => setSelectedId(e.target.value)}
         style={{
@@ -1899,7 +1919,13 @@ function RecipeAddForm({
         ))}
       </select>
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <Inp value={quantity} onChange={setQuantity} type="number" placeholder="0" />
+        <Inp
+          label={sel ? `Cantitate ${sel.name} (${sel.unit})` : 'Cantitate'}
+          value={quantity}
+          onChange={setQuantity}
+          type="number"
+          placeholder="0"
+        />
         <span style={{ fontSize: '0.7rem', color: D.t3, whiteSpace: 'nowrap' }}>
           {sel?.unit ?? ''}
         </span>
@@ -1951,9 +1977,9 @@ function ExtraForm({
         alignItems: 'center',
       }}
     >
-      <Inp value={emoji} onChange={setEmoji} placeholder="🧀" />
-      <Inp value={name} onChange={setName} placeholder="Brânză extra" />
-      <Inp value={price} onChange={setPrice} type="number" placeholder="5.00" />
+      <Inp label="Emoji extra" value={emoji} onChange={setEmoji} placeholder="🧀" />
+      <Inp label="Nume extra" value={name} onChange={setName} placeholder="Brânză extra" />
+      <Inp label="Preț extra (lei)" value={price} onChange={setPrice} type="number" placeholder="5.00" />
       <button
         type="button"
         onClick={submit}
@@ -2147,85 +2173,21 @@ export default function ProductsTab({
             {products.length} total · {products.filter((p) => p.is_active).length} active
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setAiBulkOpen(true)}
-            aria-label="Generează AI pentru tot meniul"
-            title="Generează imagini + nutriție cu AI pentru tot meniul"
-            style={btn({
-              background: D.s2,
-              color: D.gold,
-              border: `1px solid ${D.gold}55`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="sparkle" size={16} />
-            {mob ? 'AI' : 'Generează AI'}
-          </button>
-          <button
-            onClick={() => setAiImportOpen(true)}
-            aria-label="Import meniu din poză (AI)"
-            title="Import meniu din poză (AI)"
-            style={btn({
-              background: D.s2,
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="camera" size={16} />
-            {mob ? 'Poză' : 'Import din poză'}
-          </button>
-          <button
-            onClick={() => setCsvImportOpen(true)}
-            aria-label="Import CSV"
-            title="Import produse din fișier CSV"
-            style={btn({
-              background: D.s2,
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.78rem' : '0.85rem',
-              padding: mob ? '0 10px' : '0 14px',
-              gap: 6,
-            })}
-          >
-            <Icon name="download" size={16} />
-            {mob ? 'CSV' : 'Import CSV'}
-          </button>
-          <button
-            onClick={() => {
-              if (!canAdd) {
-                onUpgrade()
-                return
-              }
-              setModal('add')
-            }}
-            style={btn({
-              background: canAdd ? D.gold : D.s3,
-              color: canAdd ? '#000' : D.t2,
-              border: canAdd ? 'none' : `1px solid ${D.border}`,
-              height: 44,
-              fontSize: mob ? '0.82rem' : '0.9rem',
-              gap: 6,
-            })}
-          >
-            {canAdd ? (
-              '+ Adaugă produs'
-            ) : (
-              <>
-                <Icon name="lock" size={16} />
-                Limită atinsă — Upgrade
-              </>
-            )}
-          </button>
-        </div>
+        {/* Pe un catalog GOL antetul nu are butoane: starea goală de mai jos are
+            exact aceleași acțiuni (poză, manual, CSV), iar „Generează AI" n-ar
+            avea pe ce lucra. Înainte: 4 butoane aici + 2 jos = 6 căi spre
+            același lucru (audit UX oct 2026). */}
+        {!loading && products.length > 0 && (
+          <ProductsToolbar
+            mobile={mob}
+            canAdd={canAdd}
+            onAdd={() => setModal('add')}
+            onUpgrade={onUpgrade}
+            onImportPhoto={() => setAiImportOpen(true)}
+            onImportCsv={() => setCsvImportOpen(true)}
+            onBulkAi={() => setAiBulkOpen(true)}
+          />
+        )}
       </div>
       <div
         style={{
@@ -2333,16 +2295,18 @@ export default function ProductsTab({
             <Skeleton variant="table-row" count={5} />
           </div>
         ) : filtered.length === 0 ? (
+          // Pe un catalog gol starea goală e SINGURUL loc cu acțiuni (antetul
+          // nu le mai are) — deci le arată și când în căutare s-a tastat ceva.
           <EmptyState
-            icon={search ? 'search' : 'menu'}
-            title={search ? 'Niciun produs găsit' : 'Niciun produs încă'}
+            icon={search && products.length > 0 ? 'search' : 'menu'}
+            title={search && products.length > 0 ? 'Niciun produs găsit' : 'Niciun produs încă'}
             description={
-              search
+              search && products.length > 0
                 ? 'Încearcă alt termen de căutare sau șterge filtrul.'
                 : 'Adaugă primul produs din meniu — manual, din poză sau prin CSV.'
             }
             action={
-              !search ? (
+              !search || products.length === 0 ? (
                 // Importul din poză = acțiunea PRIMARĂ pe meniu gol (audit aug
                 // 2026): cine are meniul în mână îl fotografiază, nu tastează
                 // 30 de produse; adăugarea manuală rămâne alături, secundară.
@@ -2368,6 +2332,14 @@ export default function ProductsTab({
                     }}
                   >
                     Adaugă manual
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={<Icon name="download" size={16} />}
+                    onClick={() => setCsvImportOpen(true)}
+                  >
+                    Importă din CSV
                   </Button>
                 </div>
               ) : undefined

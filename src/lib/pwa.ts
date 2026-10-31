@@ -9,26 +9,16 @@
 // =============================================================
 
 import { useEffect, useState } from 'react'
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
-}
-
-let deferredPrompt: BeforeInstallPromptEvent | null = null
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault()
-    deferredPrompt = e as BeforeInstallPromptEvent
-    window.dispatchEvent(new CustomEvent('pwa-installable'))
-  })
-
-  window.addEventListener('appinstalled', () => {
-    deferredPrompt = null
-    window.dispatchEvent(new CustomEvent('pwa-installed'))
-  })
-}
+// Promptul de instalare se prinde în lib/pwaGate.ts (entry), pe ORICE rută:
+// modulul ăsta intră doar în chunk-ul PWAPrompt, care pe rutele fără carduri
+// (oaspete, înscriere) nu se mai încarcă — un ascultător de aici ar rata
+// evenimentul, emis o singură dată pe încărcarea paginii.
+import {
+  PWA_INSTALLABLE_EVENT,
+  PWA_INSTALLED_EVENT,
+  clearDeferredInstallPrompt,
+  deferredInstallPromptEvent,
+} from './pwaGate'
 
 const INSTALL_DISMISSED_KEY = 'pwa-install-dismissed'
 
@@ -61,26 +51,29 @@ export function usePWAInstall() {
   const [dismissed, setDismissed] = useState(readInstallDismissed)
 
   useEffect(() => {
-    if (deferredPrompt && !dismissed) setCanInstall(true)
+    // Promptul prins ÎNAINTE de montare (ex. emis pe /auth, unde cardul nu are
+    // voie) rămâne valabil: cardul apare pe ecranul pe care are voie.
+    if (deferredInstallPromptEvent() && !dismissed) setCanInstall(true)
 
     const onInstallable = () => {
       if (!dismissed) setCanInstall(true)
     }
     const onInstalled = () => setCanInstall(false)
 
-    window.addEventListener('pwa-installable', onInstallable)
-    window.addEventListener('pwa-installed', onInstalled)
+    window.addEventListener(PWA_INSTALLABLE_EVENT, onInstallable)
+    window.addEventListener(PWA_INSTALLED_EVENT, onInstalled)
     return () => {
-      window.removeEventListener('pwa-installable', onInstallable)
-      window.removeEventListener('pwa-installed', onInstalled)
+      window.removeEventListener(PWA_INSTALLABLE_EVENT, onInstallable)
+      window.removeEventListener(PWA_INSTALLED_EVENT, onInstalled)
     }
   }, [dismissed])
 
   async function install() {
-    if (!deferredPrompt) return false
-    deferredPrompt.prompt()
-    const { outcome } = await deferredPrompt.userChoice
-    deferredPrompt = null
+    const pending = deferredInstallPromptEvent()
+    if (!pending) return false
+    pending.prompt()
+    const { outcome } = await pending.userChoice
+    clearDeferredInstallPrompt()
     setCanInstall(false)
     return outcome === 'accepted'
   }

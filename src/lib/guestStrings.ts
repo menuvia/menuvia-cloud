@@ -1640,6 +1640,26 @@ export const GUEST_STRINGS = {
     hu: 'Kosárba',
     es: 'Añadir al carrito',
   },
+  // Fișa produsului pe „Lista mea" (/m fără ridicare): lista e locală, nu un coș.
+  add_to_list: {
+    ro: 'Adaugă în listă',
+    en: 'Add to list',
+    de: 'Zur Liste hinzufügen',
+    fr: 'Ajouter à la liste',
+    it: 'Aggiungi alla lista',
+    hu: 'Hozzáadás a listához',
+    es: 'Añadir a la lista',
+  },
+  // „Lista mea": „Golește lista" cere a doua atingere (MyListSheet, ux-guest-3).
+  clear_list_confirm: {
+    ro: 'Da, golește lista',
+    en: 'Yes, clear the list',
+    de: 'Ja, Liste leeren',
+    fr: 'Oui, vider la liste',
+    it: 'Sì, svuota la lista',
+    hu: 'Igen, ürítsd ki a listát',
+    es: 'Sí, vaciar la lista',
+  },
   select_required: {
     ro: 'Selectează opțiunile obligatorii',
     en: 'Select the required options',

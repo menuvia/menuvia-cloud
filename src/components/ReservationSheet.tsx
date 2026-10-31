@@ -1,7 +1,7 @@
 // ReservationSheet — bottom sheet pentru rezervări publice (anon).
 // Submit prin RPC create_reservation_public (SECURITY DEFINER, advisory lock).
 // Layout inspirat de design ialoc.ro: chip-pills orizontale + trust strip.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { CSSProperties } from 'react'
@@ -19,6 +19,7 @@ import {
 import type { FloorLayout } from '../lib/floorPlan'
 import { CANVAS_W, CANVAS_H } from '../lib/floorPlan'
 import type { MenuTheme } from '../lib/themes'
+import { legibleOn, readableTextOn } from '../lib/themes'
 import FloorPlanViewer from './menu/FloorPlanViewer'
 import {
   createReservationPublic,
@@ -245,6 +246,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   const [mapError, setMapError] = useState(false)
   // Mesaj efemer la atingerea unei mese ocupate (feedback, se stinge singur).
   const [occupiedMsg, setOccupiedMsg] = useState<string | null>(null)
+  // Etichetele vizibile („NUMĂRUL DE PERSOANE"…) numesc rândurile de chip-uri.
+  const partyLabelId = useId()
+  const dateLabelId = useId()
+  const zoneLabelId = useId()
+  const timeLabelId = useId()
+  const tableLabelId = useId()
 
   // Load public settings + zones via lightweight selects.
   // reservation_settings RLS = admin-only, dar avem nevoie de slot_interval,
@@ -531,6 +538,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
   }, [settings, chosenDateYmd, timeSlot, name, phone, phoneCc, partySize, email, notes, zone, selectedTableId, reloadAvailability, restaurant.slug, restaurant.id, tz, lang])
 
   const maxParty = settings?.max_party_size ?? 20
+  // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
+  // folosit ca TEXT (cod, linkuri) trec AA prin calcul, nu prin alb fix.
+  const onAccent = readableTextOn(accent, PUB.text)
+  const accentInk = legibleOn(accent, PUB.bg)
+  const accentInkOnSurface = legibleOn(accent, PUB.surface)
 
   const chipBase: CSSProperties = {
     padding: '10px 14px',
@@ -546,7 +558,18 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     fontFamily: theme.fonts.body,
   }
   const chipActive = (active: boolean): CSSProperties =>
-    active ? { background: accent, color: '#fff', borderColor: accent } : {}
+    active ? { background: accent, color: onAccent, borderColor: accent, fontWeight: 700 } : {}
+  // Selecția nu se vede DOAR prin culoare (WCAG 1.4.1): bifă vizibilă pe chip-ul
+  // ales + `aria-pressed` pe buton pentru cititoarele de ecran.
+  const chipMark = (active: boolean) =>
+    active ? (
+      <span aria-hidden="true" style={{ marginRight: 4 }}>
+        ✓
+      </span>
+    ) : null
+  // Roșul erorii, lizibil pe suprafața casetei în orice temă (era #E05555 pe un
+  // fundal roz: ~3:1, iar pe tema dark și mai puțin).
+  const errorInk = legibleOn(theme.colors.error, PUB.surface)
 
   const labelStyle: CSSProperties = {
     fontSize: 11,
@@ -556,12 +579,13 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
     marginTop: 22,
     marginBottom: 10,
   }
+  // 16px: sub 16px Safari pe iOS mărește pagina la fiecare focus pe câmp.
   const inputStyle: CSSProperties = {
     width: '100%',
     padding: '12px 14px',
     border: `1.5px solid ${PUB.border}`,
     borderRadius: 10,
-    fontSize: 14,
+    fontSize: 16,
     fontFamily: theme.fonts.body,
     background: PUB.surface,
     color: PUB.text,
@@ -596,7 +620,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 16px',
-              color: isConfirmed ? '#fff' : accent,
+              color: isConfirmed ? onAccent : accentInkOnSurface,
               fontSize: 30,
             }}
           >
@@ -637,7 +661,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 22,
-                color: accent,
+                color: accentInkOnSurface,
                 letterSpacing: '0.18em',
                 fontWeight: 600,
                 marginBottom: 14,
@@ -663,7 +687,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           {restaurant.phone && (
             <div style={{ fontSize: 13, color: PUB.text2, marginBottom: 10 }}>
               {T(lang, 'reserve_call_if_change')}:{' '}
-              <a href={'tel:' + restaurant.phone} style={{ color: accent, textDecoration: 'none' }}>
+              <a
+                href={'tel:' + restaurant.phone}
+                style={{ color: accentInk, textDecoration: 'none' }}
+              >
                 {restaurant.phone}
               </a>
             </div>
@@ -675,7 +702,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               {T(lang, 'rs_cannot_make_it')}{' '}
               <a
                 href={`/rezervare/${restaurant.slug}?cancel=${encodeURIComponent(result.confirmation_code)}`}
-                style={{ color: accent, textDecoration: 'underline' }}
+                style={{ color: accentInk, textDecoration: 'underline' }}
               >
                 {T(lang, 'rs_cancel_online')}
               </a>
@@ -696,7 +723,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 background: accent,
                 border: 'none',
                 borderRadius: 12,
-                color: '#fff',
+                color: onAccent,
                 fontFamily: theme.fonts.body,
                 fontSize: 14,
                 fontWeight: 600,
@@ -750,8 +777,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
       </div>
       <div style={{ padding: '6px 22px 22px', flex: 1, overflowY: 'auto' }}>
         {/* Party size */}
-        <div style={labelStyle}>{T(lang, 'reserve_party_label')}</div>
+        <div id={partyLabelId} style={labelStyle}>
+          {T(lang, 'reserve_party_label')}
+        </div>
         <div
+          role="group"
+          aria-labelledby={partyLabelId}
           style={{
             display: 'flex',
             gap: 8,
@@ -764,6 +795,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           {Array.from({ length: Math.min(maxParty, 20) }, (_, i) => i + 1).map((n) => (
             <button
               key={n}
+              type="button"
+              aria-pressed={partySize === n}
               onClick={() => setPartySize(n)}
               style={{
                 ...chipBase,
@@ -778,15 +811,24 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                 ...chipActive(partySize === n),
               }}
             >
+              {chipMark(partySize === n)}
               {n}
             </button>
           ))}
         </div>
 
         {/* Date */}
-        <div style={labelStyle}>{T(lang, 'reserve_date_label')}</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <div id={dateLabelId} style={labelStyle}>
+          {T(lang, 'reserve_date_label')}
+        </div>
+        <div
+          role="group"
+          aria-labelledby={dateLabelId}
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}
+        >
           <button
+            type="button"
+            aria-pressed={dateChoice === 'today'}
             onClick={() => setDateChoice('today')}
             style={{
               ...chipBase,
@@ -795,9 +837,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               ...chipActive(dateChoice === 'today'),
             }}
           >
+            {chipMark(dateChoice === 'today')}
             {T(lang, 'reserve_today')}
           </button>
           <button
+            type="button"
+            aria-pressed={dateChoice === 'tomorrow'}
             onClick={() => setDateChoice('tomorrow')}
             style={{
               ...chipBase,
@@ -806,9 +851,12 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               ...chipActive(dateChoice === 'tomorrow'),
             }}
           >
+            {chipMark(dateChoice === 'tomorrow')}
             {T(lang, 'reserve_tomorrow')}
           </button>
           <button
+            type="button"
+            aria-pressed={dateChoice === 'other'}
             onClick={() => setDateChoice('other')}
             style={{
               ...chipBase,
@@ -817,7 +865,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
               ...chipActive(dateChoice === 'other'),
             }}
           >
-            📅 {T(lang, 'reserve_other_date')}
+            {chipMark(dateChoice === 'other')}📅 {T(lang, 'reserve_other_date')}
           </button>
         </div>
         {dateChoice === 'other' && (
@@ -836,20 +884,32 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         {/* Zone (only if any zones defined) */}
         {zones.length > 0 && (
           <>
-            <div style={labelStyle}>{T(lang, 'reserve_zone_label')}</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div id={zoneLabelId} style={labelStyle}>
+              {T(lang, 'reserve_zone_label')}
+            </div>
+            <div
+              role="group"
+              aria-labelledby={zoneLabelId}
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
+            >
               <button
+                type="button"
+                aria-pressed={zone === null}
                 onClick={() => setZone(null)}
                 style={{ ...chipBase, ...chipActive(zone === null) }}
               >
+                {chipMark(zone === null)}
                 {T(lang, 'reserve_zone_any')}
               </button>
               {zones.map((z) => (
                 <button
                   key={z}
+                  type="button"
+                  aria-pressed={zone === z}
                   onClick={() => setZone(z)}
                   style={{ ...chipBase, ...chipActive(zone === z) }}
                 >
+                  {chipMark(zone === z)}
                   {z}
                 </button>
               ))}
@@ -858,13 +918,17 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
         )}
 
         {/* Time */}
-        <div style={labelStyle}>{T(lang, 'reserve_time_label')}</div>
+        <div id={timeLabelId} style={labelStyle}>
+          {T(lang, 'reserve_time_label')}
+        </div>
         {slots.length === 0 ? (
           <div style={{ fontSize: 13, color: PUB.text2, padding: '10px 0' }}>
             {T(lang, 'reserve_no_slots')}
           </div>
         ) : (
           <div
+            role="group"
+            aria-labelledby={timeLabelId}
             style={{
               display: 'flex',
               gap: 8,
@@ -877,6 +941,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             {slots.map((s) => (
               <button
                 key={s}
+                type="button"
+                aria-pressed={timeSlot === s}
                 onClick={() => setTimeSlot(s)}
                 style={{
                   ...chipBase,
@@ -884,6 +950,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                   ...chipActive(timeSlot === s),
                 }}
               >
+                {chipMark(timeSlot === s)}
                 {s}
               </button>
             ))}
@@ -939,12 +1006,21 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             restaurantul are o hartă a sălii cu mese și e ales un slot. */}
         {hasFloorMap && floorLayout && (
           <>
-            <div style={labelStyle}>{T(lang, 'reserve_pick_table_label')}</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div id={tableLabelId} style={labelStyle}>
+              {T(lang, 'reserve_pick_table_label')}
+            </div>
+            <div
+              role="group"
+              aria-labelledby={tableLabelId}
+              style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}
+            >
               <button
+                type="button"
+                aria-pressed={selectedTableId === null}
                 onClick={() => setSelectedTableId(null)}
                 style={{ ...chipBase, ...chipActive(selectedTableId === null) }}
               >
+                {chipMark(selectedTableId === null)}
                 {T(lang, 'reserve_any_free_table')}
               </button>
               {/* Confirmarea mesei alese, în afara SVG-ului, cu buton de deselectare. */}
@@ -971,9 +1047,11 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
                       width: 20,
                       height: 20,
                       borderRadius: '50%',
-                      border: 'none',
-                      background: 'rgba(255,255,255,0.28)',
-                      color: '#fff',
+                      // Moștenește culoarea chip-ului (textul lizibil peste accent),
+                      // conturată — nu alb fix peste accent.
+                      border: '1.5px solid currentColor',
+                      background: 'transparent',
+                      color: 'inherit',
                       cursor: 'pointer',
                       fontSize: 14,
                       lineHeight: 1,
@@ -1035,6 +1113,8 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={T(lang, 'reserve_name')}
+          aria-label={T(lang, 'reserve_name')}
+          autoComplete="name"
           style={{ ...inputStyle, marginBottom: 10 }}
         />
         <div style={{ marginBottom: 10 }}>
@@ -1053,8 +1133,10 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder={T(lang, 'reserve_email_opt')}
+          aria-label={T(lang, 'reserve_email_opt')}
           type="email"
           inputMode="email"
+          autoComplete="email"
           style={{ ...inputStyle, marginBottom: 10 }}
         />
         <textarea
@@ -1067,14 +1149,16 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
 
         {error && (
           <div
+            role="alert"
             style={{
               marginTop: 12,
               padding: '10px 14px',
               borderRadius: 10,
-              background: 'rgba(224,85,85,0.10)',
-              border: '1px solid rgba(224,85,85,0.30)',
-              color: '#E05555',
+              background: PUB.surface,
+              border: `1.5px solid ${errorInk}`,
+              color: errorInk,
               fontSize: 13,
+              fontWeight: 600,
             }}
           >
             {error}
@@ -1099,7 +1183,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             href="/confidentialitate"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: accent, textDecoration: 'underline' }}
+            style={{ color: accentInk, textDecoration: 'underline' }}
           >
             {T(lang, 'rs_privacy_policy')}
           </a>
@@ -1111,7 +1195,7 @@ export default function ReservationSheet({ restaurant, theme, accent, PUB, lang,
             width: '100%',
             padding: '16px',
             background: accent,
-            color: '#fff',
+            color: onAccent,
             border: 'none',
             borderRadius: 12,
             fontFamily: theme.fonts.body,
@@ -1140,6 +1224,10 @@ interface ShellProps {
 }
 
 function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: ShellProps) {
+  // Bara de titlu e plină de accent: textul și butonul de închidere folosesc
+  // culoarea lizibilă peste accent (butonul o are ca FUNDAL, cu „×" în accent —
+  // același contrast, inversat), nu alb fix.
+  const onAccent = readableTextOn(accent, PUB.text)
   // Semantică de dialog modal (paritate cu ProductSheet): focus în panou la
   // deschidere, restaurare la închidere + Escape → onClose. Ref-ul pe onClose
   // ține varianta curentă fără să re-monteze efectul la fiecare re-randare.
@@ -1194,7 +1282,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: Shel
         <div
           style={{
             background: accent,
-            color: '#fff',
+            color: onAccent,
             padding: '14px 18px',
             display: 'flex',
             alignItems: 'center',
@@ -1209,7 +1297,7 @@ function SheetShell({ onClose, PUB, theme, accent, title, lang, children }: Shel
               width: 32,
               height: 32,
               borderRadius: '50%',
-              background: '#fff',
+              background: onAccent,
               color: accent,
               border: 'none',
               fontSize: 18,

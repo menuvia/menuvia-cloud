@@ -14,6 +14,7 @@ import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { thumbUrlFor } from '../lib/images'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
+import { legibleOn, readableTextOn } from '../lib/themes'
 
 interface PUBColors {
   bg: string
@@ -227,6 +228,13 @@ export default function QrCartSheet({
   }
 
   const canSubmit = cart.length > 0 && !submitting
+  // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
+  // folosit ca TEXT trec AA prin calcul (alb fix pe auriu = 2,66:1).
+  const onAccent = readableTextOn(accent, PUB.text)
+  const accentInk = legibleOn(accent, PUB.bg)
+  const accentInkOnSurface = legibleOn(accent, PUB.surface)
+  // Roșul erorii, lizibil și pe tema dark (#c0392b pe fundal închis = 3,5:1).
+  const errorInk = legibleOn('#C0392B', PUB.surface)
 
   return (
     <div
@@ -256,7 +264,8 @@ export default function QrCartSheet({
           maxHeight: '88vh',
           overflowY: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: '8px 20px 28px',
+          // CTA-ul e ultimul element: îl ridicăm deasupra barei de home a iPhone-ului.
+          padding: '8px 20px calc(28px + env(safe-area-inset-bottom, 0px))',
           display: 'flex',
           flexDirection: 'column',
           gap: 16,
@@ -398,7 +407,9 @@ export default function QrCartSheet({
         )}
 
         {/* Secțiune: ÎN COȘ · DE TRIMIS */}
-        {cart.length > 0 && <div style={sectionLabelStyle(accent)}>{T(lang, 'qc_in_cart')}</div>}
+        {cart.length > 0 && (
+          <div style={sectionLabelStyle(accentInk)}>{T(lang, 'qc_in_cart')}</div>
+        )}
 
         {cart.length === 0 && (
           <div style={{ fontSize: 13, color: PUB.text2, padding: '8px 0 4px', lineHeight: 1.5 }}>
@@ -618,7 +629,8 @@ export default function QrCartSheet({
               borderRadius: 14,
               color: PUB.text,
               fontFamily: 'DM Sans, sans-serif',
-              fontSize: 14,
+              // 16px: sub 16px Safari pe iOS mărește pagina la focus.
+              fontSize: 16,
               padding: '12px 14px',
               resize: 'none',
               width: '100%',
@@ -733,7 +745,7 @@ export default function QrCartSheet({
                           fontFamily: 'Fraunces, Georgia, serif',
                           fontSize: 14,
                           fontWeight: 600,
-                          color: accent,
+                          color: accentInkOnSurface,
                         }}
                       >
                         {fmtPrice(s.price, currency)}
@@ -749,7 +761,7 @@ export default function QrCartSheet({
                           height: 44,
                           borderRadius: '50%',
                           background: accent,
-                          color: '#fff',
+                          color: onAccent,
                           border: 'none',
                           cursor: 'pointer',
                           display: 'flex',
@@ -808,15 +820,16 @@ export default function QrCartSheet({
 
         {submitError != null && (
           <div
+            role="alert"
             style={{
-              background: 'rgba(192,57,43,0.1)',
-              border: '1px solid rgba(192,57,43,0.25)',
+              background: PUB.surface,
+              border: `1px solid ${errorInk}`,
               borderRadius: 12,
               padding: '12px 14px',
               textAlign: 'center',
             }}
           >
-            <div style={{ color: '#c0392b', fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
+            <div style={{ color: errorInk, fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>
               {submitError}
             </div>
             <button
@@ -824,10 +837,10 @@ export default function QrCartSheet({
               onClick={() => onSubmit(localNotes)}
               className="pressable"
               style={{
-                background: 'rgba(192,57,43,0.15)',
-                border: '1px solid rgba(192,57,43,0.3)',
+                background: 'transparent',
+                border: `1px solid ${errorInk}`,
                 borderRadius: 8,
-                color: '#c0392b',
+                color: errorInk,
                 padding: '6px 16px',
                 fontSize: 13,
                 fontWeight: 600,
@@ -850,7 +863,7 @@ export default function QrCartSheet({
             // Coș gol / trimitere în curs → stare dezactivată clară (surface +
             // text estompat), nu accent viu la opacitate 1.
             background: canSubmit ? accent : PUB.surface,
-            color: canSubmit ? '#fff' : PUB.text3,
+            color: canSubmit ? onAccent : PUB.text3,
             border: 'none',
             borderRadius: 16,
             padding: '16px 0',

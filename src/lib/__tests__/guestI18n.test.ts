@@ -41,6 +41,7 @@ const GUEST_FILES: readonly string[] = [
   'src/pages/ReservePage.tsx',
   'src/components/QrCartSheet.tsx',
   'src/components/ProductSheet.tsx',
+  'src/components/MyListSheet.tsx',
   'src/components/OrderTracker.tsx',
   'src/components/PayTableSheet.tsx',
   'src/components/SplitBillSheet.tsx',
