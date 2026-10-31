@@ -12,6 +12,10 @@
 //   DR8  cât există draft nesalvat sau rulează o extragere, pozele noi sunt blocate
 //   DR6  promptul: pentru RON/ro e IDENTIC cu cel de dinainte; pentru alte monede /
 //        limbi se schimbă doar prețurile + „nu traduce”
+//   AQ1  „Păstrează primele N” (ux-owner-ai-import-plafon): se debifează EXACT ce
+//        trece de primele N produse selectate, în ordinea meniului; rândurile
+//        neselectate / fără nume nu se ating și nu ocupă locuri. Mutația care pică:
+//        numărarea pe toate rândurile (nu doar pe cele selectate)
 import { describe, it, expect } from 'vitest'
 import {
   IMPORT_DRAFT_TTL_MS,
@@ -19,7 +23,9 @@ import {
   clearImportDraft,
   describeProductLimit,
   isProductLimitError,
+  isSelectedDraft,
   loadImportDraft,
+  overLimitIndices,
   reconcileDraftCategories,
   remainingAfterImport,
   saveImportDraft,
@@ -232,5 +238,24 @@ describe('import parțial și blocarea pozelor noi', () => {
     expect(uploadLocked(14, false)).toBe(true)
     expect(uploadLocked(0, true)).toBe(true)
     expect(uploadLocked(0, false)).toBe(false)
+  })
+})
+
+describe('păstrează primele N (plafonul planului)', () => {
+  it('AQ1: debifează doar ce trece de primele N selectate, în ordine', () => {
+    const rows = [
+      draft({ name: 'A' }),
+      draft({ name: 'B', include: false }), // neselectat: nu ocupă loc
+      draft({ name: 'C' }),
+      draft({ name: '   ' }), // fără nume: nu se salvează, nu ocupă loc
+      draft({ name: 'D' }),
+      draft({ name: 'E' }),
+    ]
+    expect(rows.filter(isSelectedDraft).map((d) => d.name)).toEqual(['A', 'C', 'D', 'E'])
+    expect(overLimitIndices(rows, 2)).toEqual([4, 5])
+    expect(overLimitIndices(rows, 4)).toEqual([])
+    expect(overLimitIndices(rows, 10)).toEqual([])
+    expect(overLimitIndices(rows, 0)).toEqual([0, 2, 4, 5])
+    expect(overLimitIndices(rows, -3)).toEqual([0, 2, 4, 5])
   })
 })
