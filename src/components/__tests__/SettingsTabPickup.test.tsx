@@ -18,6 +18,13 @@
 //        trimite atunci 'free'): comutatorul e blocat, fără avertismentul de
 //        plan (mutația: `pickupToggleState(plan, …)` fără `planKnown` → un
 //        local pe Meniu + Comenzi vede alarma falsă și își oprește ridicarea).
+//   PS5  Meniu & aspect, stilul flipbook: nota „comanda din meniu nu e
+//        disponibilă pe acest stil” sugerează că pe celelalte stiluri se poate
+//        comanda, deci apare DOAR pe un plan cu comenzi — nu pe ridicarea
+//        pornită a unui plan fără ea (din 309 pagina publică n-o arată) și nu pe
+//        planul necunoscut. Mutația care pică: condiția veche
+//        `planTier(plan) >= 2 || pickup_settings.enabled`. Control pozitiv pe
+//        Meniu + Comenzi.
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -100,6 +107,26 @@ async function openOrders(plan: string, restaurant: Restaurant, planKnown = true
   return user
 }
 
+const FLIPBOOK: Restaurant['theme_settings'] = { preset_id: 'cafe', menu_layout: 'flipbook' }
+const FLIPBOOK_NOTE = /comanda din meniu nu e disponibilă pe acest stil/
+
+async function openMenuAspect(plan: string, restaurant: Restaurant, planKnown = true) {
+  const user = userEvent.setup()
+  render(
+    <SettingsTab
+      restaurant={restaurant}
+      onUpdate={vi.fn(async () => ({ error: null }))}
+      plan={plan}
+      planKnown={planKnown}
+      onSignOut={() => {}}
+    />,
+  )
+  await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
+  // Ancora: secțiunea flipbook e randată, deci absența notei nu vine dintr-un
+  // tab greșit sau dintr-un stil nerecunoscut.
+  expect(screen.getByText(/Paginile meniului \(\d+\/\d+\)/)).toBeInTheDocument()
+}
+
 describe('SettingsTab — ridicarea pe planul restaurantului', () => {
   it('PS1: pe un plan fără ridicare comutatorul e blocat și spune de ce', async () => {
     const user = await openOrders('starter', makeRestaurant())
@@ -161,5 +188,29 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
+  })
+})
+
+describe('SettingsTab — nota flipbook despre comanda din meniu', () => {
+  it('PS5a: plan fără ridicare, cu ridicarea pornită (downgrade) — fără notă', async () => {
+    await openMenuAspect(
+      'free',
+      makeRestaurant({ pickup_settings: PICKUP_ON, theme_settings: FLIPBOOK }),
+    )
+    expect(screen.queryByText(FLIPBOOK_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('PS5b: plan necunoscut — fără notă (nici promisiune implicită)', async () => {
+    await openMenuAspect(
+      'free',
+      makeRestaurant({ pickup_settings: PICKUP_ON, theme_settings: FLIPBOOK }),
+      false,
+    )
+    expect(screen.queryByText(FLIPBOOK_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('PS5c: control pozitiv — pe Meniu + Comenzi nota apare', async () => {
+    await openMenuAspect('growth', makeRestaurant({ theme_settings: FLIPBOOK }))
+    expect(screen.getByText(FLIPBOOK_NOTE)).toBeInTheDocument()
   })
 })

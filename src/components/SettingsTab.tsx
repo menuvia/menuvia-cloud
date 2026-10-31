@@ -1433,8 +1433,13 @@ export default function SettingsTab({
                   </label>
 
                   {/* Comanda din meniu nu are carduri pe flipbook — spunem explicit
-                      localurilor care AU comenzi active (plan cu comenzi sau pickup). */}
-                  {(planTier(plan) >= 2 || (form.pickup_settings?.enabled ?? false)) && (
+                      localurilor care AU comenzi active, adică planului cu comenzi.
+                      Nota sugerează că pe celelalte stiluri se poate comanda, deci
+                      NU se aprinde pe ridicarea pornită a unui plan fără ea: din
+                      mig 309 pagina publică n-o arată, iar fără planul cu comenzi
+                      nu există nimic de comandat pe niciun stil (PS5). Pe planul
+                      necunoscut DashboardPage trimite 'free', deci nota tace. */}
+                  {planTier(plan) >= 2 && (
                     <div
                       style={{
                         fontSize: '0.7rem',
