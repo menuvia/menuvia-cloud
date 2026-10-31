@@ -60,10 +60,11 @@ describe('Sentry: colectarea de date', () => {
     const main = readFileSync(join(ROOT, 'src/main.tsx'), 'utf8')
     const inits = main.match(/Sentry\.init\(\{[\s\S]*?\n {2}\}\)/g) ?? []
     expect(inits).toHaveLength(1)
-    expect(inits[0]).toMatch(/\bdataCollection: SENTRY_DATA_COLLECTION,/)
-    expect(inits[0]).toMatch(/\n {4}beforeSendSpan\(span\) \{\n {6}return scrubTokenPathsDeep\(span\)\n {4}\},/)
+    const init = inits[0] ?? ''
+    expect(init).toMatch(/\bdataCollection: SENTRY_DATA_COLLECTION,/)
+    expect(init).toMatch(/\n {4}beforeSendSpan\(span\) \{\n {6}return scrubTokenPathsDeep\(span\)\n {4}\},/)
     // Pe COD, nu pe comentarii (comentariul din init explică de ce lipsesc).
-    const code = inits[0].replace(/\/\/.*$/gm, '')
+    const code = init.replace(/\/\/.*$/gm, '')
     expect(code).not.toContain('beforeSendTransaction')
     expect(code).not.toContain('traceLifecycle')
 
