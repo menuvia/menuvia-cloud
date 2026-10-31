@@ -14,6 +14,10 @@
 //        folosește ultima versiune
 //        Mutația care pică: `poll` în lista de dependențe a efectului.
 //   PV7  varianta imperativă: oprirea întoarsă curăță cronometrul ȘI ascultătorul
+//   PV8  clichet: ecranele de staff migrate nu mai au `setInterval` propriu
+//        Mutația care pică: oricare dintre ele revine la `setInterval(...)`.
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { usePollWhileVisible, startPollingWhileVisible } from '../usePollWhileVisible'
@@ -142,5 +146,29 @@ describe('startPollingWhileVisible', () => {
     setVisibility('hidden')
     setVisibility('visible')
     expect(poll).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Ecranele de staff ale panoului care se reîmprospătează periodic. ÎNCĂ pe
+// setInterval propriu, consemnat: WaiterPage (apelurile de ospătar, 30 s) —
+// amânat, fișierul e ocupat de PR-ul «Bucătărie și ospătar» — și heartbeat-ul
+// din useOrders (același PR). Ceasurile de UI (minute scurse, „acum") nu fac
+// cereri, deci nu intră aici.
+const STAFF_POLLERS = [
+  'src/components/BridgeTab.tsx',
+  'src/components/CashRegisterTab.tsx',
+  'src/components/InvoicesTab.tsx',
+  'src/components/HappyHourTab.tsx',
+  'src/components/FloorPlanEditor.tsx',
+  'src/hooks/useBridgeConnected.ts',
+]
+
+describe('clichet — ecranele de staff folosesc contractul comun', () => {
+  it('PV8: fără setInterval propriu, cu usePollWhileVisible/startPollingWhileVisible', () => {
+    for (const file of STAFF_POLLERS) {
+      const src = readFileSync(resolve(process.cwd(), file), 'utf8')
+      expect(src, file).not.toMatch(/\bsetInterval\s*\(/)
+      expect(src, file).toMatch(/\b(usePollWhileVisible|startPollingWhileVisible)\(/)
+    }
   })
 })

@@ -32,6 +32,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 
 interface Props {
   restaurantId: string
@@ -146,25 +147,12 @@ export default function CashRegisterTab({ restaurantId }: Props) {
     void load()
   }, [load])
 
-  // Auto-refresh la 20s pentru live cash_collected updates.
-  // OPT-R2: sar tick-ul cât tab-ul e ascuns (zero trafic în fundal) și fac un
-  // load() complet la revenirea în vizibilitate — istoricul de ture (închise
-  // de pe alt dispozitiv) și notele de reconciliere (mig 211, server-side) NU
-  // sunt statice, deci trebuie resincronizate când userul revine.
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
-      void load()
-    }, 20_000)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void load()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      clearInterval(t)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [load])
+  // Auto-refresh la 20s pentru live cash_collected updates, DOAR cu fila
+  // vizibilă (zero trafic în fundal), cu un load() complet la revenire —
+  // istoricul de ture (închise de pe alt dispozitiv) și notele de reconciliere
+  // (mig 211, server-side) NU sunt statice. Contractul comun e în
+  // usePollWhileVisible (perf-staff-6); înainte era scris de mână aici.
+  usePollWhileVisible(() => void load(), 20_000)
 
   if (loading && current == null && recent.length === 0) {
     return <InlineSpinner label="Se încarcă casa..." />

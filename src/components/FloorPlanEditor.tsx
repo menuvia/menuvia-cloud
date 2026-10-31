@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useIsMobile } from '../hooks/useIsMobile'
+import { startPollingWhileVisible } from '../hooks/usePollWhileVisible'
 import Icon from './ui/Icon'
 // Tipurile + constantele canvas trăiesc acum în lib/floorPlan.ts (partajate cu
 // vizualizatorul public FloorPlanViewer). Re-exportăm FloorLayout ca importurile
@@ -553,10 +554,11 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       setLiveStatus(map)
     }
     void compute()
-    const iv = setInterval(() => void compute(), 15000)
+    // Reîmprospătare la 15 s DOAR cu fila vizibilă; la revenire, imediat (perf-staff-6).
+    const stopPolling = startPollingWhileVisible(() => void compute(), 15000)
     return () => {
       cancelled = true
-      clearInterval(iv)
+      stopPolling()
     }
   }, [live, restaurantId, realTables, floor.tables])
   const selDeco = sel?.type === 'deco' ? floor.decos.find((d) => d.id === sel.id) : null
