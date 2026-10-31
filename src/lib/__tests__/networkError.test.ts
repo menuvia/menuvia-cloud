@@ -15,6 +15,12 @@ describe('isNetworkError', () => {
     const messages = [
       'TypeError: Failed to fetch', // Chrome/Edge, prin supabase-js
       'TypeError: Load failed', // Safari / iPhone, prin supabase-js
+      // Chrome, conexiunea cade în timpul citirii corpului (reset HTTP/2/QUIC
+      // după antetele 200). Lista veche a oaspetelui o prindea prin `network`
+      // gol; fără ea, comanda deja înregistrată nu se mai reîncerca și
+      // oaspetele vedea „Comanda nu s-a trimis” (recenzie adversarială #321).
+      'TypeError: network error',
+      'Network request failed', // cross-fetch / React Native
       'Load failed',
       'The Internet connection appears to be offline.',
       'The network connection was lost.',

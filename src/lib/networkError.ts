@@ -13,18 +13,23 @@
 //
 // Textele, pe browser:
 //   Chrome/Edge      TypeError: Failed to fetch
+//                    TypeError: network error   (conexiunea cade în timpul citirii
+//                    corpului: reset HTTP/2/QUIC după antetele 200 — comanda poate
+//                    fi DEJA înregistrată, deci reîncercarea cu aceeași cheie de
+//                    idempotență e exact ce trebuie)
 //   Safari (iOS/mac) TypeError: Load failed
 //                    The Internet connection appears to be offline.
 //                    The network connection was lost.
 //   Firefox          TypeError: NetworkError when attempting to fetch resource.
 //   Node (teste/SSR) TypeError: fetch failed
+//   cross-fetch/RN   Network request failed
 // plus marcajele noastre interne (`network-error`, `offline`) și ECONNREFUSED.
 //
 // Fluxul OASPETELUI o folosește prin `isNetworkGuestError` (lib/guestErrors),
 // care doar deleagă aici — fără a doua listă (NE6/NE7).
 
 const NETWORK_MESSAGE =
-  /failed to fetch|load failed|networkerror|network-error|network connection was lost|internet connection appears to be offline|fetch failed|econnrefused|^offline$/i
+  /failed to fetch|load failed|networkerror|network-error|\bnetwork error\b|network request failed|network connection was lost|internet connection appears to be offline|fetch failed|econnrefused|^offline$/i
 
 function messageOf(err: unknown): string {
   if (typeof err === 'string') return err

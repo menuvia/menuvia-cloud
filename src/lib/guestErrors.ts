@@ -121,8 +121,9 @@ function str(v: unknown): string {
  *  retry din QrMenuPage. Deleagă la detecția UNICĂ din `lib/networkError.ts`
  *  (cea folosită și de ospătar și de `orders.ts`), ca oaspetele și staff-ul
  *  să nu aibă două liste care pot diverge (NE6). Lista locală de dinainte
- *  potrivea și subșirurile goale `network`/`fetch`/`offline`, deci un refuz
- *  al serverului care le conținea era luat drept cădere de rețea. */
+ *  potrivea subșirurile goale `network`/`fetch`/`offline`: prindea și textul
+ *  Chrome `TypeError: network error` (acum explicit în lista unică, NE1), dar
+ *  lua drept cădere de rețea și orice refuz al serverului care le conținea. */
 export function isNetworkGuestError(err: unknown): boolean {
   return isNetworkError(err)
 }
