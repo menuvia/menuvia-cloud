@@ -11,7 +11,8 @@
 //        produse" e „stare necunoscută" (nu „de făcut"), iar setup-ul NU e gata
 //        Mutația care pică: `done: productCount > 0` (null → pas „de făcut").
 //   HT4  citirea categoriilor EȘUEAZĂ → pasul e „stare necunoscută", nu nebifat
-//        Mutația care pică: `(categoriesCount ?? 0) > 0`.
+//        Mutația care pică: `(categoriesCount ?? 0) > 0`, și `setCategoriesCount(0)`
+//        pe eroare (verificarea vine DUPĂ ce lotul de citiri s-a așezat).
 //   HT5  control pozitiv pentru HT1: tier 1 CUNOSCUT → upsell-ul apare
 //   HT6  checklist-ul e SINGURA cale de setup: fără „asistentul detaliat"
 //        (QuickSetupTab dubla pașii și le ocolea gate-urile de plan), iar fiecare
@@ -148,8 +149,12 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT4: citirea categoriilor eșuează → pas „stare necunoscută", nu nebifat', async () => {
     failing.add('categories')
     renderHome({ tier: 2 })
+    // Întâi citirea-soră (mesele, același lot) s-a așezat — deci și cea eșuată a
+    // categoriilor. Fără așteptare, pasul era „necunoscut" doar fiindcă nimic nu
+    // sosise încă, iar mutația „eroare → 0" trecea testul.
+    await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
     expect(
-      await screen.findByRole('button', { name: 'Creează categorii (stare necunoscută)' }),
+      screen.getByRole('button', { name: 'Creează categorii (stare necunoscută)' }),
     ).toBeInTheDocument()
     // Pașii cunoscuți rămân bifați corect lângă el.
     expect(screen.getByRole('button', { name: 'Adaugă produse (completat)' })).toBeInTheDocument()
