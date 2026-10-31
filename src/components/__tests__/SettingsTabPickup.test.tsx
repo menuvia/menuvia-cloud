@@ -140,7 +140,9 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(sw).toHaveAttribute('aria-checked', 'true')
     expect(screen.queryByText(/comenzile lor sunt respinse/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
-    expect(screen.getByText(/Nu am putut verifica planul restaurantului/)).toBeInTheDocument()
+    // Textul nu pretinde un eșec: „unknown" e și starea de încărcare normală.
+    expect(screen.getByText(/Se verifică planul restaurantului/)).toBeInTheDocument()
+    expect(screen.queryByText(/Nu am putut/)).not.toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')

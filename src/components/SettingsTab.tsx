@@ -1774,8 +1774,12 @@ export default function SettingsTab({
                     color={pickupState === 'locked_on' ? D.amber : D.t2}
                   />
                   <span>
+                    {/* „unknown" acoperă și încărcarea NORMALĂ a planului (DashboardPage
+                        nu așteaptă features înainte să randeze fila), deci textul nu
+                        pretinde un eșec: un „nu am putut verifica" la fiecare deschidere
+                        directă a Setărilor ar fi o alarmă falsă. */}
                     {pickupState === 'unknown'
-                      ? 'Nu am putut verifica planul restaurantului, deci ridicarea nu se poate schimba acum. Reîncarcă pagina.'
+                      ? 'Se verifică planul restaurantului; până atunci ridicarea nu se poate schimba. Dacă mesajul nu dispare, reîncarcă pagina.'
                       : pickupState === 'locked_on'
                         ? `Planul tău nu include comenzile pentru ridicare: oaspeții văd formularul, dar comenzile lor sunt respinse. Oprește opțiunea sau treci la planul ${PLAN_LABELS.growth}.`
                         : `Disponibil de la planul ${PLAN_LABELS.growth}. Pe planul tău, comenzile pentru ridicare nu pot fi primite.`}
