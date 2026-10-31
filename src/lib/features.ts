@@ -88,17 +88,15 @@ export function getLimit(features: RestaurantFeatures | null, name: FeatureName)
 //   - 'disabled'  → feature-ul e complet dezactivat pt acest plan (getLimit → 0)
 //   - 'limited'   → feature-ul e activ, plafonat la `n` (getLimit → n)
 //   - 'unlimited' → feature-ul e activ, fără plafon      (getLimit → null)
-// Notă: getLimit() întoarce 0 și pt „dezactivat" ȘI pt „limitat la 0", ceea
-// ce e ambiguu pentru consumatori care vor să distingă cele două cazuri.
+// Exportat pentru onboarding (#319): plafonul de produse la importul AI are
+// nevoie să deosebească „fără plafon” de „feature oprit”, pe care getLimit le
+// comprimă. FX1 cere ca orice export de aici să aibă un consumator în src/.
 export type LimitDetail =
   | { kind: 'disabled' }
   | { kind: 'limited'; n: number }
   | { kind: 'unlimited' }
 
-export function getLimitDetailed(
-  features: RestaurantFeatures | null,
-  name: FeatureName,
-): LimitDetail {
+export function getLimitDetailed(features: RestaurantFeatures | null, name: FeatureName): LimitDetail {
   if (!features) return { kind: 'disabled' }
   const f = features.features[name]
   if (!f?.enabled) return { kind: 'disabled' }
@@ -229,6 +227,38 @@ export function productLimitReason(plan: string, maxProducts: number): string {
   return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
 }
 
+/** Motivul afișat în modalul de upgrade; `atLimit` decide tonul (alarmă vs. informativ). */
+export interface UpgradeReason {
+  text: string
+  atLimit: boolean
+}
+
+/**
+ * Motivul pentru modalul deschis din banda planului gratuit (ux-owner-upgrade-banner).
+ * Înainte banda deschidea mereu `productLimitReason` — „Ai atins limita de
+ * produse" — și la 0/15. Acum spune utilizarea REALĂ: limita doar când e
+ * atinsă, altfel câte produse folosește; cu numărul necunoscut (citire eșuată)
+ * nu inventează niciunul.
+ */
+export function planUsageReason(
+  plan: string,
+  productCount: number | null,
+  maxProducts: number,
+): UpgradeReason {
+  if (productCount != null && productCount >= maxProducts) {
+    return { text: productLimitReason(plan, maxProducts), atLimit: true }
+  }
+  const name = PLAN_LABELS[plan] ?? plan
+  const max = maxProducts.toLocaleString('ro-RO')
+  if (productCount == null) {
+    return { text: `Planul ${name} include până la ${max} produse.`, atLimit: false }
+  }
+  return {
+    text: `Folosești ${productCount.toLocaleString('ro-RO')} din ${max} produse pe planul ${name}.`,
+    atLimit: false,
+  }
+}
+
 // Suggest upgrade path: from current plan, what's next.
 // Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru
 // „plan necunoscut" (nu există în `order`) — semnătura publică rămâne
@@ -249,16 +279,12 @@ export function suggestUpgrade(currentPlan: string): string | null {
   return s.plan
 }
 
-// Variantă discriminată a suggestUpgrade — pentru consumatori noi care
-// vor să trateze diferit „deja la maxim" vs. „plan necunoscut" în UI
-// (ex: afișează mesaje diferite), fără să schimbe contractul funcției
-// existente (folosită de UpgradePrompt.tsx și de testele curente).
-export type UpgradeSuggestion =
-  | { kind: 'next'; plan: string }
-  | { kind: 'max' }
-  | { kind: 'unknown' }
+// Variantă discriminată a suggestUpgrade — distinge „deja la maxim" de „plan
+// necunoscut" (warn-ul de diagnostic). Internă: n-a avut niciodată alt
+// consumator decât suggestUpgrade.
+type UpgradeSuggestion = { kind: 'next'; plan: string } | { kind: 'max' } | { kind: 'unknown' }
 
-export function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {
+function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {
   const order = ['free', 'starter', 'growth', 'pro', 'enterprise']
   const idx = order.indexOf(currentPlan)
   if (idx < 0) return { kind: 'unknown' }

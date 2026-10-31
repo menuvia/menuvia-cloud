@@ -23,6 +23,7 @@ import {
   invoiceStatusColor,
 } from '../lib/invoices'
 import IssueInvoiceModal from './IssueInvoiceModal'
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 
 const PALETTE = { green: D.green, gold: D.gold, red: D.red, t3: D.t3 }
 
@@ -65,15 +66,12 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
     void load()
   }, [load])
 
-  // Auto-refresh la 10s dacă există facturi pending
-  useEffect(() => {
-    const pending = invoices.some((i) => i.status === 'queued' || i.status === 'generating')
-    if (!pending) return
-    const t = setInterval(() => {
-      void load()
-    }, 10_000)
-    return () => clearInterval(t)
-  }, [invoices, load])
+  // Auto-refresh la 10s cât există facturi în lucru (queued/generating) și
+  // DOAR cu fila vizibilă; la revenire se citește imediat (perf-staff-6).
+  const hasPendingInvoices = invoices.some(
+    (i) => i.status === 'queued' || i.status === 'generating',
+  )
+  usePollWhileVisible(() => void load(), 10_000, hasPendingInvoices)
 
   if (loading)
     return (

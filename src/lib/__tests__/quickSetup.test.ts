@@ -17,7 +17,10 @@ import { VAT_PRESETS, applyVatPreset, describeVatPresetError } from '../quickSet
 // Căile se rezolvă din `process.cwd()` (rădăcina repo-ului), NU din
 // `import.meta.url` — sub vitest acela nu e `file://` (precedentul qr-scan.test.ts).
 const MIGRATIONS_DIR = resolve(process.cwd(), 'supabase/migrations')
-const QUICK_SETUP_TAB = resolve(process.cwd(), 'src/components/QuickSetupTab.tsx')
+// Singura interfață a presetului: editorul real de cote (Setări → Cote TVA).
+// „Asistentul detaliat" (QuickSetupTab), unde trăia până în oct 2026, a fost
+// scos — dubla checklist-ul de pe Acasă (ux-owner-quicksetup-duplicate).
+const VAT_EDITOR = resolve(process.cwd(), 'src/components/VatRatesEditor.tsx')
 
 // Tabela legală grupă → cotă (L.141/2025, mig 102/109). Ancoră LITERALĂ: QS3
 // leagă clientul de SQL, dar dacă AMBELE ar deriva împreună spre o cotă
@@ -135,11 +138,14 @@ describe('applyVatPreset / describeVatPresetError', () => {
     }
   })
 
-  it('QS6 Setup Asistent nu mai afișează cote abrogate și trimite la editorul real', () => {
-    const src = readFileSync(QUICK_SETUP_TAB, 'utf8')
+  it('QS6 presetul stă în editorul REAL de cote, fără cote abrogate', () => {
+    const src = readFileSync(VAT_EDITOR, 'utf8')
     expect(src).not.toMatch(ABROGATED_PCT)
     // „Raport TVA" e un tab de Plan 3, FĂRĂ editor — cotele se schimbă din Setări.
     expect(src).not.toMatch(/Raport TVA/)
-    expect(src).toMatch(/Setări → Comenzi & plăți → Cote TVA/)
+    // Presetul are o cale în UI chiar în editorul de cote (nu o copie a lui).
+    expect(src).toMatch(/\bVAT_PRESETS\b/)
+    expect(src).toMatch(/\bapplyVatPreset\(/)
+    expect(src).toMatch(/\bdescribeVatPresetError\(/)
   })
 })

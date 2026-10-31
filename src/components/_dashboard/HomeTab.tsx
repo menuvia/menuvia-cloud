@@ -28,6 +28,7 @@ import { useInView, revealStyle } from '../../lib/motion'
 const scorePalette = { green: D.green, gold: D.gold, orange: D.amber, red: D.red }
 import { InlineSpinner } from '../PageLoader'
 import { useBridgeConnected } from '../../hooks/useBridgeConnected'
+import { useCodviaOrdersOpen } from '../../hooks/useCodviaOrdersOpen'
 import { BridgeOfflineBanner } from '../BridgeOfflineBanner'
 
 // Reveal local: fiecare instanță are PROPRIUL hook useInView (regula hooks —
@@ -45,15 +46,18 @@ function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: numb
 // mai mare/greu decât metricele secundare — ierarhie clară, nu grid identic.
 const displayFont = 'var(--font-display)'
 
-const QuickSetupTab = lazy(() => import('../QuickSetupTab'))
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
 
 interface Props {
   restaurantId: string
   restaurantName: string
-  tier: PlanTier
+  // `null` = planul NU e cunoscut (se încarcă / citirea a eșuat). Acasă nu
+  // afirmă atunci nimic dependent de plan: fără upsell, fără „totul e gata",
+  // fără pașii și cifrele de comenzi (perf-staff-3).
+  tier: PlanTier | null
   isAdmin: boolean
-  productCount: number
+  // `null` = necunoscut (citirea numărului de produse n-a reușit încă).
+  productCount: number | null
   // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
   pickupOnly: boolean
   onNavigate: (
@@ -63,6 +67,7 @@ interface Props {
   onPricing: () => void
   // Deschide magazinul Codvia (/codvia?slug=…) cu meniul restaurantului
   // pre-completat — suporturile vin cu QR-ul REAL al meniului deja tipărit.
+  // Acțiunea apare DOAR cât magazinul primește comenzi (useCodviaOrdersOpen).
   onOrderQrStands: () => void
 }
 
@@ -240,7 +245,8 @@ function ExpandableCard({
 
 interface SetupItem {
   label: string
-  done: boolean
+  // `null` = nu știm încă (citirea a eșuat sau e în zbor) — nici bifat, nici „de făcut".
+  done: boolean | null
   target?: 'products' | 'categories' | 'mese' | 'echipa'
 }
 
@@ -267,16 +273,29 @@ export default function HomeTab({
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
 
+  // Pragurile de plan, ca booleeni: pe un plan NECUNOSCUT (tier null) toate
+  // sunt false — nu se cer și nu se afișează cifre/pași de comenzi.
+  const hasOrdering = tier != null && tier >= 2
+  const isFiscal = tier != null && tier >= 3
+
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
-  const bridge = useBridgeConnected(restaurantId, isAdmin && tier >= 3)
+  const bridge = useBridgeConnected(restaurantId, isAdmin && isFiscal)
 
+  // Magazinul Codvia e în PAUZĂ (D4): scurtătura apare doar pe `true` cunoscut.
+  const qrStandsOpen = useCodviaOrdersOpen()
+
+  // Cifrele care NU depind de plan: o singură citire per restaurant. Înainte
+  // erau în același efect cu cele de comenzi, deci trecerea planului din
+  // „necunoscut" în cel real le re-cerea degeaba.
   useEffect(() => {
     setMenuChecked(wasMenuChecked(restaurantId))
+    // Reset la schimbarea restaurantului: cifrele altui local nu se arată sub numele lui.
+    setTablesCount(null)
+    setCategoriesCount(null)
     let alive = true
     const head = { count: 'exact' as const, head: true }
-
-    const counts: PromiseLike<void>[] = [
+    void Promise.all([
       supabase
         .from('tables')
         .select('id', head)
@@ -292,59 +311,70 @@ export default function HomeTab({
         .then(({ count, error }) => {
           if (alive && !error) setCategoriesCount(count ?? 0)
         }),
-    ]
+    ])
+    return () => {
+      alive = false
+    }
+  }, [restaurantId])
 
-    if (tier >= 2) {
-      // Aceeași logică de „azi" ca ReportsTab (boundary DST-aware România, lib/dates):
-      // data UTC + offset hardcodat +03:00 dădea cifra greșită lângă miezul nopții
-      // (ziua UTC ≠ ziua RO) și cu o oră deplasată iarna (EET e +02:00).
-      const todayStart = romaniaDayBoundaryISO(toRomaniaYMD(new Date()), false)
+  // Cifrele de comenzi (Plan 2+) — doar pe un plan CUNOSCUT cu comenzi.
+  useEffect(() => {
+    setOrdersToday(null)
+    setEverOrdered(null)
+    setTeamCount(null)
+    if (!hasOrdering) return
+    let alive = true
+    const head = { count: 'exact' as const, head: true }
+    const counts: PromiseLike<void>[] = []
+    // Aceeași logică de „azi" ca ReportsTab (boundary DST-aware România, lib/dates):
+    // data UTC + offset hardcodat +03:00 dădea cifra greșită lângă miezul nopții
+    // (ziua UTC ≠ ziua RO) și cu o oră deplasată iarna (EET e +02:00).
+    const todayStart = romaniaDayBoundaryISO(toRomaniaYMD(new Date()), false)
+    counts.push(
+      supabase
+        .from('orders')
+        .select('id', head)
+        .eq('restaurant_id', restaurantId)
+        .neq('status', 'cancelled')
+        .gte('created_at', todayStart)
+        .then(({ count, error }) => {
+          if (alive && !error) setOrdersToday(count ?? 0)
+        }),
+    )
+    // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
+    // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
+    // comenzile restaurantului la fiecare mount, pentru un boolean care
+    // devine permanent true după prima comandă (OPT-1).
+    counts.push(
+      supabase
+        .from('orders')
+        .select('id')
+        .eq('restaurant_id', restaurantId)
+        .limit(1)
+        .then(({ data, error }) => {
+          if (alive && !error) setEverOrdered((data?.length ?? 0) > 0)
+        }),
+    )
+    if (isAdmin) {
       counts.push(
         supabase
-          .from('orders')
-          .select('id', head)
+          .from('restaurant_memberships')
+          .select('user_id', head)
           .eq('restaurant_id', restaurantId)
-          .neq('status', 'cancelled')
-          .gte('created_at', todayStart)
           .then(({ count, error }) => {
-            if (alive && !error) setOrdersToday(count ?? 0)
+            if (alive && !error) setTeamCount(count ?? 0)
           }),
       )
-      // Prima comandă (oricând, inclusiv test) — pasul de ACTIVARE din checklist.
-      // Test de EXISTENȚĂ (limit 1), nu count exact: count-ul agrega toate
-      // comenzile restaurantului la fiecare mount, pentru un boolean care
-      // devine permanent true după prima comandă (OPT-1).
-      counts.push(
-        supabase
-          .from('orders')
-          .select('id')
-          .eq('restaurant_id', restaurantId)
-          .limit(1)
-          .then(({ data, error }) => {
-            if (alive && !error) setEverOrdered((data?.length ?? 0) > 0)
-          }),
-      )
-      if (isAdmin) {
-        counts.push(
-          supabase
-            .from('restaurant_memberships')
-            .select('user_id', head)
-            .eq('restaurant_id', restaurantId)
-            .then(({ count, error }) => {
-              if (alive && !error) setTeamCount(count ?? 0)
-            }),
-        )
-      }
     }
     void Promise.all(counts)
     return () => {
       alive = false
     }
-  }, [restaurantId, tier, isAdmin])
+  }, [restaurantId, hasOrdering, isAdmin])
 
   // Scorul — separat (RPC), doar pentru admini pe planurile cu comenzi.
   useEffect(() => {
-    if (!isAdmin || tier < 2) return
+    if (!isAdmin || !hasOrdering) return
     let alive = true
     void fetchHealthScore(restaurantId)
       .then((h) => {
@@ -356,7 +386,7 @@ export default function HomeTab({
     return () => {
       alive = false
     }
-  }, [restaurantId, isAdmin, tier])
+  }, [restaurantId, isAdmin, hasOrdering])
 
   function handleViewMenu(): void {
     try {
@@ -371,22 +401,25 @@ export default function HomeTab({
   // ── Checklist de setup: doar pași MĂSURABILI (fără bife false) ──
   // În modul „doar ridicare" pasul de mese dispare (nu e nimic de făcut —
   // fără bifă falsă), iar comanda de test se dă din meniul public.
+  // `done: null` = nu știm (citire eșuată / în zbor): un număr necunoscut nu
+  // devine nici bifă, nici pas „de făcut" (code-health-error-ignored-guards).
+  const atLeast = (n: number | null, min: number): boolean | null => (n == null ? null : n >= min)
   const setupItems: SetupItem[] = [
-    { label: 'Adaugă produse', done: productCount > 0, target: 'products' },
-    { label: 'Creează categorii', done: (categoriesCount ?? 0) > 0, target: 'categories' },
+    { label: 'Adaugă produse', done: atLeast(productCount, 1), target: 'products' },
+    { label: 'Creează categorii', done: atLeast(categoriesCount, 1), target: 'categories' },
     ...(pickupOnly
       ? []
       : [
           {
             label: 'Generează QR-uri pentru mese',
-            done: (tablesCount ?? 0) > 0,
+            done: atLeast(tablesCount, 1),
             target: 'mese' as const,
           },
         ]),
     { label: 'Verifică meniul public', done: menuChecked },
-    ...(tier >= 2 && isAdmin
+    ...(hasOrdering && isAdmin
       ? [
-          { label: 'Invită echipa', done: (teamCount ?? 0) > 1, target: 'echipa' as const },
+          { label: 'Invită echipa', done: atLeast(teamCount, 2), target: 'echipa' as const },
           // Pasul de ACTIVARE (PLAN_10 F4): fluxul e validat abia când o comandă
           // reală a intrat. Fostul item „Comenzile de la masă: active" era o bifă
           // permanentă — contrazicea regula „doar pași măsurabili" de mai sus.
@@ -394,21 +427,28 @@ export default function HomeTab({
             label: pickupOnly
               ? 'Prima comandă de test — deschide meniul public și comandă'
               : 'Prima comandă de test — deschide QR-ul unei mese și comandă',
-            done: everOrdered === true,
+            done: everOrdered,
             target: 'mese' as const,
           },
         ]
       : []),
   ]
-  const setupDone = setupItems.filter((s) => s.done).length
+  const setupDone = setupItems.filter((s) => s.done === true).length
   const setupTotal = setupItems.length
-  const setupComplete = setupDone === setupTotal
+  // „Totul e gata" e o AFIRMAȚIE: cere planul cunoscut (altfel lista e cea de
+  // tier 1, mai scurtă — un plătitor vedea „4/4 totul e gata" fără pașii de
+  // comenzi) și fiecare pas CUNOSCUT ca făcut.
+  const setupComplete = tier != null && setupItems.every((s) => s.done === true)
 
   const healthSuggestions = health ? getActionableSuggestions(health).slice(0, 2) : []
 
   // Metricele secundare — aceeași importanță între ele, sub hero.
   const secondaryMetrics = [
-    { label: 'Produse active', value: String(productCount), hint: undefined as string | undefined },
+    {
+      label: 'Produse active',
+      value: productCount == null ? '…' : String(productCount),
+      hint: undefined as string | undefined,
+    },
     pickupOnly
       ? { label: 'QR-uri active', value: '1', hint: 'QR general (doar ridicare)' }
       : {
@@ -422,8 +462,8 @@ export default function HomeTab({
       ? [
           {
             label: 'Setup',
-            value: `${setupDone}/${setupTotal}`,
-            hint: setupComplete ? 'totul e gata ✓' : 'pași completați',
+            value: tier == null ? '…' : `${setupDone}/${setupTotal}`,
+            hint: setupComplete ? 'totul e gata ✓' : tier == null ? undefined : 'pași completați',
           },
         ]
       : []),
@@ -469,7 +509,7 @@ export default function HomeTab({
       {/* Cifrele zilei — „Comenzi azi" domină vizual (hero), restul secundare.
           Tier 1 (fără comenzi): grid uniform de metrici, fără hero gol. */}
       <RevealItem delay={60}>
-        {tier >= 2 ? (
+        {hasOrdering ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
             <div style={{ flex: '1 1 220px', minWidth: 200 }}>
               <HeroMetric
@@ -506,8 +546,15 @@ export default function HomeTab({
         )}
       </RevealItem>
 
-      {/* Setup restaurant — progres cu bară + pași compacți */}
-      {isAdmin && !setupComplete && (
+      {/* Setup restaurant — progres cu bară + pași compacți. Doar pe un plan
+          CUNOSCUT: lista depinde de plan, iar o listă greșită e o promisiune falsă.
+          Fiecare pas duce în tab-ul lui, cu gate-urile lui de plan. Fostul
+          „asistent detaliat" (QuickSetupTab) dubla pașii pe alt drum, care le
+          ocolea: invitații de echipă pe Planul 1 (fila Echipă e Plan 2+, iar
+          serverul refuză apoi acceptarea), mese în bulk peste plafon, produse
+          demo publicate pe meniul real (ux-owner-quicksetup-duplicate). Presetul
+          de cote TVA — singura lui parte fără pas aici — e în Setări → Cote TVA. */}
+      {isAdmin && tier != null && !setupComplete && (
         <RevealItem delay={120}>
         <div style={card}>
           <div
@@ -564,13 +611,19 @@ export default function HomeTab({
               <button
                 key={it.label}
                 onClick={() => {
-                  if (it.done) return
+                  if (it.done === true) return
                   if (it.target) onNavigate(it.target)
                   else handleViewMenu()
                 }}
-                className={it.done ? undefined : 'pressable'}
-                aria-disabled={it.done || undefined}
-                aria-label={it.done ? it.label + ' (completat)' : undefined}
+                className={it.done === true ? undefined : 'pressable'}
+                aria-disabled={it.done === true || undefined}
+                aria-label={
+                  it.done === true
+                    ? it.label + ' (completat)'
+                    : it.done == null
+                      ? it.label + ' (stare necunoscută)'
+                      : undefined
+                }
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -581,10 +634,10 @@ export default function HomeTab({
                   padding: '12px 8px',
                   minHeight: 44,
                   margin: '0 -8px',
-                  cursor: it.done ? 'default' : 'pointer',
+                  cursor: it.done === true ? 'default' : 'pointer',
                   fontFamily: 'DM Sans,sans-serif',
                   fontSize: '0.85rem',
-                  color: it.done ? D.t3 : D.t1,
+                  color: it.done === true ? D.t3 : D.t1,
                   textAlign: 'left',
                 }}
               >
@@ -593,8 +646,8 @@ export default function HomeTab({
                     width: 18,
                     height: 18,
                     borderRadius: '50%',
-                    border: `1.5px solid ${it.done ? D.green : D.border}`,
-                    background: it.done ? 'rgba(76,175,110,0.15)' : 'transparent',
+                    border: `1.5px ${it.done == null ? 'dashed' : 'solid'} ${it.done === true ? D.green : D.border}`,
+                    background: it.done === true ? 'rgba(76,175,110,0.15)' : 'transparent',
                     color: D.green,
                     display: 'flex',
                     alignItems: 'center',
@@ -604,12 +657,12 @@ export default function HomeTab({
                     flexShrink: 0,
                   }}
                 >
-                  {it.done && <Icon name="check" size={12} color={D.green} />}
+                  {it.done === true && <Icon name="check" size={12} color={D.green} />}
                 </span>
-                <span style={{ textDecoration: it.done ? 'line-through' : 'none' }}>
+                <span style={{ textDecoration: it.done === true ? 'line-through' : 'none' }}>
                   {it.label}
                 </span>
-                {!it.done && (
+                {it.done !== true && (
                   <span style={{ marginLeft: 'auto', display: 'flex' }}>
                     <Icon name="chevronRight" size={16} color={D.t3} />
                   </span>
@@ -617,34 +670,12 @@ export default function HomeTab({
               </button>
             ))}
           </div>
-          <div style={{ marginTop: 12 }}>
-            <ExpandableCard
-              header={(open) => (
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    color: D.t2,
-                    fontSize: '0.78rem',
-                  }}
-                >
-                  <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} color={D.t2} />
-                  {open ? 'Închide asistentul detaliat' : 'Deschide asistentul detaliat'}
-                </span>
-              )}
-            >
-              <Suspense fallback={<InlineSpinner label="Se încarcă asistentul..." />}>
-                <QuickSetupTab restaurantId={restaurantId} restaurantName={restaurantName} />
-              </Suspense>
-            </ExpandableCard>
-          </div>
         </div>
         </RevealItem>
       )}
 
       {/* Scor meniu — badge mare, color-codat după scor; sugestia secundară */}
-      {isAdmin && tier >= 2 && (
+      {isAdmin && hasOrdering && (
         <RevealItem delay={180}>
         <ExpandableCard
           header={(open) => {
@@ -736,24 +767,29 @@ export default function HomeTab({
         >
           <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
           <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
-          <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
+          {qrStandsOpen === true && (
+            <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
+          )}
           <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
-          {tier >= 2 && (
+          {hasOrdering && (
             <QuickAction icon="bell" label="Vezi comenzile" onClick={() => onNavigate('comenzi')} />
           )}
-          {tier >= 2 && isAdmin && (
+          {hasOrdering && isAdmin && (
             <QuickAction icon="users" label="Invită ospătar" onClick={() => onNavigate('echipa')} />
           )}
         </div>
       </div>
       </RevealItem>
 
-      {/* Abonament & facturare — ORICE plan plătit (tier ≥ 1 = starter+).
-          Deschide Portalul Stripe: destinația reală a CTA-urilor din emailurile
-          de facturare/dunning. Starter e plan plătit (99 lei/lună) — gate-ul pe
+      {/* Abonament & facturare — ORICE plan (tier ≥ 1 = toate). Deschide
+          Portalul Stripe: destinația reală a CTA-urilor din emailurile de
+          facturare/dunning. Starter e plan plătit (99 lei/lună) — gate-ul pe
           tier ≥ 2 îl lăsa fără nicio cale în app de a-și schimba cardul, deci
-          CTA-ul „Actualizează metoda de plată" era dead-end (audit săpt. 10). */}
-      {isAdmin && tier >= 1 && (
+          CTA-ul „Actualizează metoda de plată" era dead-end (audit săpt. 10).
+          Rămâne și cu planul NECUNOSCUT: un patron cu plata picată (adesea exact
+          cel care ajunge aici din email) nu pierde calea spre card dintr-un
+          blip de citire a planului. */}
+      {isAdmin && (
         <RevealItem delay={300}>
           {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
               scroll aici, vezi efectul din DashboardPage). */}
@@ -763,8 +799,9 @@ export default function HomeTab({
         </RevealItem>
       )}
 
-      {/* Upgrade — doar tier 1, mereu ultimul */}
-      {isAdmin && tier < 2 && (
+      {/* Upgrade — doar tier 1 CUNOSCUT, mereu ultimul. Cu planul necunoscut,
+          un upsell către un plătitor ar fi exact minciuna din perf-staff-3. */}
+      {isAdmin && tier === 1 && (
         <RevealItem delay={300}>
         <Card
           variant="raised"
