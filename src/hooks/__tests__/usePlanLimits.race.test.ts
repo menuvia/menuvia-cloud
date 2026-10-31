@@ -15,7 +15,7 @@
 //         fallback-ul lui (nu pe free, nu pe al altui plan)
 //         Mutația care pică: `fromDb?.[plan] ?? PLAN_LIMITS_FALLBACK.free`.
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { PLAN_LIMIT_MATRIX } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
 interface LimitsRow {
@@ -64,7 +64,12 @@ describe('usePlanLimits — legat de planul cerut', () => {
       for (const resolve of [...pending].reverse()) resolve({ data: rows, error: null })
     })
 
-    // PLT4
+    // PLT4 — lăsăm TOATE lanțurile de promisiuni să se încheie (un macrotask),
+    // ca un răspuns întârziat să-și fi făcut efectul înainte de verificare.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.limits.plan).toBe('pro')
     expect(result.current.limits.max_products).toBe(2222)
     // PLT5
