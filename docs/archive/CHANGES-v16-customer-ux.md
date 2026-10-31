@@ -1,3 +1,8 @@
+> ⚠️ **ARHIVAT (2026-10-31).** Note de versiune istorice, din primele iterații
+> ale proiectului; mutate din rădăcina repo-ului, unde treceau drept documentație
+> curentă. NU descriu starea de azi — conțin afirmații devenite false, de exemplu
+> bacșișul adăugat la `paid_amount` (din mig 262 stă DOAR în `orders.tips_amount`) și comutatorul RO/EN `lib/i18n.ts` + `LanguageSwitcher` (înlocuite de cele 7 limbi ale oaspetelui, apoi șterse). Starea curentă: `ARCHITECTURE.md` + `CLAUDE.md`; istoria: git log + PR-uri.
+
 # Menuvia v1.6.0 — Customer-Facing UX Parity
 
 **Obiectiv:** închidere a celor mai mari găuri UX vs ialoc.ro pentru flow-ul client final

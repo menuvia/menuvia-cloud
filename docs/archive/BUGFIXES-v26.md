@@ -1,3 +1,8 @@
+> ⚠️ **ARHIVAT (2026-10-31).** Note de versiune istorice, din primele iterații
+> ale proiectului; mutate din rădăcina repo-ului, unde treceau drept documentație
+> curentă. NU descriu starea de azi — conțin afirmații devenite false, de exemplu
+> copiile legacy `supabase/migration-0NN-*.sql` (șterse în sept 2026; sursa e `supabase/migrations/`), funcția `ai-import.js` (azi `ai-proxy.js`) și `reserve_ai_import_slot` (ștearsă în mig 290). Starea curentă: `ARCHITECTURE.md` + `CLAUDE.md`; istoria: git log + PR-uri.
+
 # Bug Fixes — Menuvia v26
 
 Acest document rezumă toate modificările făcute peste codebase-ul `menuvia-v14-patched`

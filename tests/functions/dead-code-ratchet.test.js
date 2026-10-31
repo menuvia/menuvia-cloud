@@ -184,7 +184,6 @@ function realGraph() {
   return { files, roots, reachable, candidates }
 }
 
-
 /** Textul de cod: rândurile de comentariu (`//`, `*`, `/*`, `{/*`) scoase. */
 function codeOnly(text) {
   return text
@@ -218,7 +217,9 @@ function deadExports(files, scanned) {
   const has = (rel) => Object.prototype.hasOwnProperty.call(files, rel)
   const namespaced = new Set()
   for (const [rel, text] of Object.entries(files)) {
-    for (const m of text.matchAll(/^[ \t]*import\s+\*\s+as\s+[\w$]+\s+from\s*['"]([^'"\n]+)['"]/gm)) {
+    for (const m of text.matchAll(
+      /^[ \t]*import\s+\*\s+as\s+[\w$]+\s+from\s*['"]([^'"\n]+)['"]/gm,
+    )) {
       const target = resolveSpec(rel, m[1], has)
       if (target) namespaced.add(target)
     }
@@ -245,8 +246,7 @@ function realSources() {
     if (/\.(ts|tsx)$/.test(rel)) files[rel] = fs.readFileSync(path.join(ROOT, rel), 'utf8')
   }
   const scanned = Object.keys(files).filter(
-    (rel) =>
-      /^src\/(lib|hooks)\//.test(rel) && !isTestPath(rel) && !rel.endsWith('.d.ts'),
+    (rel) => /^src\/(lib|hooks)\//.test(rel) && !isTestPath(rel) && !rel.endsWith('.d.ts'),
   )
   return { files, scanned }
 }
@@ -297,11 +297,7 @@ describe('cod mort: module fără importatori', () => {
       .filter(isCandidate)
       .filter((f) => !reach.has(f))
       .sort()
-    assert.deepEqual(dead, [
-      'src/Ghost.tsx',
-      'src/lib/onlyTested.ts',
-      'src/styles/orphan.css',
-    ])
+    assert.deepEqual(dead, ['src/Ghost.tsx', 'src/lib/onlyTested.ts', 'src/styles/orphan.css'])
   })
 
   it('DC1: orice modul din src/ e importat de aplicație', () => {
@@ -383,7 +379,10 @@ describe('cod mort: exporturi pe care nu le folosește nimeni', () => {
         const text = src.files[rel] ? codeOnly(src.files[rel]) : ''
         const stillExported = new RegExp(`^export\\s[^\\n]*\\b${escapeRe(name)}\\b`, 'm').test(text)
         if (!stillExported) continue // șters între timp — rezultatul dorit
-        assert.ok(dead.has(`${rel}:${name}`), `${rel}:${name} are apelanți — scoate-l din KNOWN_DEAD`)
+        assert.ok(
+          dead.has(`${rel}:${name}`),
+          `${rel}:${name} are apelanți — scoate-l din KNOWN_DEAD`,
+        )
       }
     }
   })

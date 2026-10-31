@@ -1,3 +1,8 @@
+> ⚠️ **ARHIVAT (2026-10-31).** Note de versiune istorice, din primele iterații
+> ale proiectului; mutate din rădăcina repo-ului, unde treceau drept documentație
+> curentă. NU descriu starea de azi — conțin afirmații devenite false, de exemplu
+> schemele zod „sursă unică” din `src/schemas/` (șterse ca nefolosite), TanStack Query (nu e dependență), Renovate (botul real e Dependabot) și aplicarea de mână a unei copii legacy a migrației 042. Starea curentă: `ARCHITECTURE.md` + `CLAUDE.md`; istoria: git log + PR-uri.
+
 # Menuvia v1.5.0 — Tooling + GDPR foundation
 
 ## ✨ Tooling nou (`6.7/10 → 7.8/10` pe stack)
