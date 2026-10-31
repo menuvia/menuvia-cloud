@@ -12,9 +12,52 @@
 //
 // Modul trage doar React și `routeEvents` (fără importuri): stă în entry, iar
 // pe rutele oaspetelui chunk-ul PWAPrompt nici nu se mai cere.
+//
+// Tot AICI se prinde `beforeinstallprompt` (mai jos), nu în lib/pwa.ts: acela
+// intră doar în chunk-ul PWAPrompt, care pe rutele fără carduri nu se mai
+// încarcă deloc. Cu ascultătorul acolo, o încărcare directă pe /q, /m sau /auth
+// nu-l mai înregistra: fără `preventDefault`, Chrome pe Android își arăta singur
+// mini-infobar-ul de instalare (aplicația de staff, peste meniul oaspetelui), iar
+// evenimentul (emis o singură dată pe încărcarea paginii) se pierdea — după
+// /auth → /dashboard cardul „Instalează” nu mai apărea în sesiunea aceea, exact
+// la primul login pe tableta nouă a bucătăriei.
 // ─────────────────────────────────────────────────────────────
 import { useEffect, useSyncExternalStore } from 'react'
 import { ROUTE_CHANGE_EVENT } from './routeEvents'
+
+/** Evenimentul de instalare din Chromium (nu e în tipurile DOM standard). */
+export interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+/** Anunțate către `usePWAInstall` (lib/pwa.ts) când promptul apare / dispare. */
+export const PWA_INSTALLABLE_EVENT = 'pwa-installable'
+export const PWA_INSTALLED_EVENT = 'pwa-installed'
+
+let deferredInstallPrompt: BeforeInstallPromptEvent | null = null
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault()
+    deferredInstallPrompt = e as BeforeInstallPromptEvent
+    window.dispatchEvent(new CustomEvent(PWA_INSTALLABLE_EVENT))
+  })
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null
+    window.dispatchEvent(new CustomEvent(PWA_INSTALLED_EVENT))
+  })
+}
+
+/** Promptul de instalare păstrat (null = browserul nu l-a oferit sau a fost folosit). */
+export function deferredInstallPromptEvent(): BeforeInstallPromptEvent | null {
+  return deferredInstallPrompt
+}
+
+/** Promptul s-a folosit (`prompt()` merge o singură dată pe eveniment). */
+export function clearDeferredInstallPrompt(): void {
+  deferredInstallPrompt = null
+}
 
 /** Fluxul oaspetelui (paritate cu parsePath din App.tsx). */
 const GUEST_PREFIXES = ['/q/', '/m/', '/rezervare/']

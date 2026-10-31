@@ -17,11 +17,20 @@
 //        — închide cardul deschis (recenzie CodeRabbit pe #319). Clichet pe
 //        sursă: o randare reală a lui AppRouter cere tot contextul de auth și
 //        restaurante. Mutația care pică: efectul scos sau legat de `[]`.
+//   PA6  `beforeinstallprompt` se prinde din ENTRY (pwaGate), nu din chunk-ul
+//        PWAPrompt: pe /q, /m și /auth chunk-ul nu se mai încarcă, deci un
+//        ascultător doar în lib/pwa.ts lipsea la o încărcare directă — Chrome pe
+//        Android își arăta mini-infobar-ul nativ peste meniul oaspetelui, iar
+//        promptul (emis o dată pe încărcare) se pierdea până la /dashboard.
+//        Fișierul NU importă lib/pwa. Mutația care pică: ascultătorul înapoi
+//        doar în lib/pwa.ts (evenimentul nu mai e oprit, promptul nu e păstrat).
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import {
+  PWA_INSTALLABLE_EVENT,
+  deferredInstallPromptEvent,
   pwaPromptAllowedNow,
   pwaPromptAllowedOnPath,
   suppressPwaPrompts,
@@ -116,5 +125,23 @@ describe('pwaGate', () => {
     expect(effect).toBeGreaterThan(-1)
     expect(effect).toBeLessThan(router.indexOf('\n    return '))
     expect(effect).toBeLessThan(router.indexOf('replace(authPathWithNext('))
+  })
+
+  it('PA6 promptul de instalare se prinde din entry, fără chunk-ul cardurilor', () => {
+    const installable = vi.fn()
+    window.addEventListener(PWA_INSTALLABLE_EVENT, installable)
+    try {
+      const ev = new Event('beforeinstallprompt', { cancelable: true })
+      window.dispatchEvent(ev)
+      // Oprit: fără mini-infobar-ul nativ al lui Chrome (pe meniul oaspetelui).
+      expect(ev.defaultPrevented).toBe(true)
+      // Păstrat: cardul de pe /dashboard îl găsește după navigarea din /auth.
+      expect(deferredInstallPromptEvent()).toBe(ev)
+      expect(installable).toHaveBeenCalledTimes(1)
+      window.dispatchEvent(new Event('appinstalled'))
+      expect(deferredInstallPromptEvent()).toBeNull()
+    } finally {
+      window.removeEventListener(PWA_INSTALLABLE_EVENT, installable)
+    }
   })
 })
