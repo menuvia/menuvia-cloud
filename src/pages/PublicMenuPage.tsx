@@ -1076,6 +1076,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
               display: 'flex',
               flexDirection: 'column',
               outline: 'none',
+              position: 'relative',
             }}
           >
             <FocusTrap />
@@ -1088,6 +1089,31 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                 margin: '10px auto 0',
               }}
             />
+            {/* Ieșire VIZIBILĂ care doar închide: cu aria-modal, cititorul de
+                ecran nu mai ajunge la fundalul pe care se închidea foaia, iar
+                Escape nu există pe telefon — fără X, singura cale de ieșire
+                era „Continuă la ridicare" (paritate cu MyListSheet). */}
+            <button
+              type="button"
+              onClick={() => setShowCart(false)}
+              aria-label={T(lang, 'close')}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                border: `1px solid ${PUB.border}`,
+                background: PUB.bg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon name="close" size={18} color={PUB.text} />
+            </button>
             <div style={{ padding: '20px 22px 14px', flex: 1, overflowY: 'auto' }}>
               <div
                 style={{
@@ -1096,6 +1122,7 @@ export default function PublicMenuPage({ slug, onBack }: Props) {
                   ...t.sectionTitle,
                   color: PUB.text,
                   marginBottom: 14,
+                  paddingRight: 44,
                 }}
               >
                 {T(lang, 'order_yours')}

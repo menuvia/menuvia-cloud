@@ -658,6 +658,20 @@ export default function QrMenuPage({ token }: Props) {
     )
   }, [menuReady, orderingAllowed])
 
+  // Foaia de bacșiș e dialog modal cu capcană de focus, iar TOATE butoanele ei
+  // trimit cererea de notă (inclusiv „Fără bacșiș"). Fără o ieșire care doar
+  // închide, cine a deschis-o din greșeală de la tastatură sau cu cititorul de
+  // ecran (aria-modal ascunde restul paginii) putea ieși DOAR cerând nota
+  // (WCAG 2.1.2). Ieșirile: Escape aici + butonul X din foaie.
+  useEffect(() => {
+    if (!showTipSheet) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setShowTipSheet(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showTipSheet])
+
   // Încărcare: schelet de listă premium (componentă comună), nu text gol.
   if (resolving) return <MenuLoading PUB={PUB} lang={lang} />
 
@@ -1206,16 +1220,41 @@ export default function QrMenuPage({ token }: Props) {
               maxWidth: 480,
               fontFamily: theme.fonts.body,
               boxShadow: '0 -6px 30px rgba(0,0,0,0.35)',
+              position: 'relative',
             }}
           >
             {/* Capcană de focus: Tab-ul nu mai pleacă în meniul de sub foaie. */}
             <FocusTrap />
+            {/* Singura ieșire care NU trimite cererea de notă (vezi efectul cu
+                Escape de mai sus) — fără ea, capcana de focus ar fi o capcană. */}
+            <button
+              type="button"
+              onClick={() => setShowTipSheet(false)}
+              aria-label={T(lang, 'close')}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                border: `1px solid ${PUB.border}`,
+                background: PUB.bg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon name="close" size={18} color={PUB.text} />
+            </button>
             <div
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 19,
                 fontWeight: 700,
                 marginBottom: 4,
+                paddingRight: 48,
               }}
             >
               {T(lang, 'tip_title')}

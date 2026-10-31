@@ -17,6 +17,12 @@
 //        (a11y-focus-trap-gaps).
 //   GA6  bara de coș își anunță conținutul, iar adăugarea e anunțată
 //        (ux-guest-12); `<html lang>` urmează limba (a11y-guest-html-lang).
+//   GA7  fiecare dialog modal inline (aria-modal + capcană de focus) are o
+//        ieșire care DOAR închide — un X cu `T(lang, 'close')` —, altfel
+//        capcana de focus devine capcană reală (WCAG 2.1.2). Foaia de bacșiș
+//        de pe /q avea doar butoane care TRIMIT cererea de notă, iar coșul de
+//        ridicare de pe /m doar „Continuă la ridicare". Control pozitiv pe un
+//        eșantion; scutire cu motiv pentru confirmarea ridicării.
 //
 // Fiecare verificare pică pe codul de dinainte (alb fix pe bară, condiția
 // `&& orderingAllowed`, lista inline `msg.includes('fetch')`, foaia inline cu
@@ -130,4 +136,98 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     }
     expect(src.qr).not.toMatch(/aria-label=\{T\(lang, 'my_order'\)\}/)
   })
+
+  it('GA7 fiecare dialog modal inline are o ieșire care DOAR închide (fără capcană)', () => {
+    // Control pozitiv: extractorul vede dialogul întreg (și copiii lui), iar
+    // un dialog fără X e raportat.
+    const sample = [
+      '<div onClick={() => setOpen(false)}>',
+      '  <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={T(lang, \'a\')}>',
+      '    <FocusTrap />',
+      '    <div style={{ height: 4 }} />',
+      "    <div><button onClick={() => send()}>{T(lang, 'send')}</button></div>",
+      '  </div>',
+      '</div>',
+      '<div role="dialog" aria-modal="true" aria-label={T(lang, \'b\')}>',
+      "  <button onClick={() => setOpen(false)} aria-label={T(lang, 'close')} />",
+      '</div>',
+    ].join('\n')
+    expect(modalDialogs(sample).map((d) => [d.name, d.hasClose])).toEqual([
+      ["{T(lang, 'a')}", false],
+      ["{T(lang, 'b')}", true],
+    ])
+
+    // Dialogul de confirmare a ridicării are un singur buton, „Mulțumim",
+    // care DOAR închide (setConfirmation(null)) — ieșirea există, fără X.
+    const NO_X_ALLOWED: Record<string, string> = {
+      'pickup-confirmation-title': 'singurul buton („Mulțumim") doar închide confirmarea',
+    }
+    const found: Array<{ file: string; name: string }> = []
+    for (const [file, source] of [
+      [FILES.qr, src.qr],
+      [FILES.pub, src.pub],
+    ] as const) {
+      const dialogs = modalDialogs(source)
+      // Anti-vacuitate: paginile AU dialoguri inline (bacșiș pe /q; ridicare +
+      // confirmare pe /m) — un extractor stricat ar întoarce [] și ar trece.
+      expect({ file, n: dialogs.length > 0 }).toEqual({ file, n: true })
+      for (const d of dialogs) {
+        if (!d.hasClose && !(d.name in NO_X_ALLOWED)) found.push({ file, name: d.name })
+      }
+    }
+    expect(found).toEqual([])
+    // Foaia de bacșiș se închide și din tastatură.
+    expect(src.qr).toMatch(/e\.key === 'Escape'\) setShowTipSheet\(false\)/)
+  })
 })
+
+// Dialogurile modale inline (`role="dialog"` + `aria-modal="true"`) dintr-o
+// sursă JSX: numele (aria-label / aria-labelledby) și dacă blocul lor conține
+// un buton „Închide" (`aria-label={T(lang, 'close')}`). Blocul = de la `<div`
+// care poartă role="dialog" până la `</div>`-ul pereche; tag-urile de deschidere
+// se citesc până la `>` din afara acoladelor (`onClick={(e) => …}` conține `>`),
+// iar `<div … />` nu deschide nimic.
+function modalDialogs(source: string): Array<{ name: string; hasClose: boolean }> {
+  const out: Array<{ name: string; hasClose: boolean }> = []
+  const tagEnd = (from: number): number => {
+    let depth = 0
+    for (let i = from; i < source.length; i++) {
+      const c = source[i]
+      if (c === '{') depth++
+      else if (c === '}') depth--
+      else if (c === '>' && depth === 0) return i
+    }
+    return source.length
+  }
+  let at = source.indexOf('role="dialog"')
+  while (at !== -1) {
+    const start = source.lastIndexOf('<div', at)
+    const openEnd = tagEnd(start)
+    const opening = source.slice(start, openEnd + 1)
+    if (/aria-modal="true"/.test(opening)) {
+      let depth = 1
+      let i = openEnd + 1
+      while (i < source.length && depth > 0) {
+        const nextOpen = source.indexOf('<div', i)
+        const nextClose = source.indexOf('</div>', i)
+        if (nextClose === -1) break
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+          const e = tagEnd(nextOpen)
+          if (source[e - 1] !== '/') depth++
+          i = e + 1
+        } else {
+          depth--
+          i = nextClose + '</div>'.length
+        }
+      }
+      const block = source.slice(start, i)
+      const name =
+        opening.match(/aria-labelledby="([^"]+)"/)?.[1] ??
+        opening.match(/aria-label=(\{[^\n]*?\}|"[^"]*")/)?.[1] ??
+        ''
+      out.push({ name, hasClose: /aria-label=\{T\(lang, 'close'\)\}/.test(block) })
+    }
+    at = source.indexOf('role="dialog"', at + 1)
+  }
+  return out
+}
