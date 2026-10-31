@@ -42,6 +42,10 @@
 //        comutatorului NU mai spune „ascunde Harta sălii și Rezervările”, ci
 //        că nu se aplică. Control pozitiv pe Meniu + Comenzi și pe planul
 //        NECUNOSCUT (comportamentul stocat — fără verdict de plan).
+//        Descrierea NU repetă „Setarea rămâne salvată” din nota `locked_on`
+//        de deasupra: UN singur loc spune asta, cu modul pornit (PZ4a) ȘI
+//        oprit (PS3, unde blocul modului e ancorat ca randat — altfel
+//        `getByText` unic ar fi trecut și cu blocul ascuns).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -179,6 +183,10 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
     expect(screen.getByText(/nu văd ridicarea pe pagina publică/)).toBeInTheDocument()
     expect(screen.getByText(/Setarea rămâne salvată/)).toBeInTheDocument()
+    // Ancora: blocul „doar ridicare” e randat și el (ridicarea e pornită în
+    // formular), deci unicitatea de mai sus nu vine dintr-un bloc ascuns.
+    expect(screen.getByText(/Pe planul tău modul nu se aplică/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
     expect(screen.queryByText(/văd formularul|sunt respinse/)).not.toBeInTheDocument()
     expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
@@ -301,6 +309,9 @@ describe('SettingsTab — modul „doar ridicare” pe planul restaurantului', (
     expect(screen.getByText(SUSPENDED)).toBeInTheDocument()
     expect(screen.getByText(/panoul îți arată mesele și rezervările/)).toBeInTheDocument()
     expect(screen.queryByText(NORMAL_DESC)).not.toBeInTheDocument()
+    // UN singur loc spune că setarea rămâne și revine: nota `locked_on`.
+    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
+    expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
   })
 
   it('PZ4b: control — pe Meniu + Comenzi descrierea obișnuită', async () => {

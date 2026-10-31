@@ -43,7 +43,10 @@
 //        Setări spun că modul NU se aplică și că panoul arată mesele și
 //        rezervările — nu „nu ai nevoie de mese” / „ascunde Harta sălii”, care
 //        după R1 ar fi false. Mutația care pică: textul vechi „Mod … activ —
-//        nu ai nevoie de mese” pe feature=false.
+//        nu ai nevoie de mese” pe feature=false. Descrierea din Setări NU
+//        repetă „Setarea rămâne salvată … planul X” din nota `locked_on`, sub
+//        care apare MEREU (recenzie adversarială: owner-ul o citea de două ori,
+//        iar PS3 pica pe `getByText`) — mutația care pică: fraza repetată.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -408,8 +411,14 @@ describe('PY3: „doar ridicare” suspendat pe planul fără ridicare', () => {
     const off = pickupOnlyToggleDescription(false)
     expect(off).toMatch(/modul nu se aplică/)
     expect(off).toMatch(/panoul îți arată mesele și rezervările/)
-    expect(off).toContain(pickupPlanName())
     expect(off).not.toMatch(/ascunde Harta sălii/)
+    // Fără dublura notei `locked_on`, sub care stă mereu: nota spune deja că
+    // setarea rămâne și de la ce plan revine (control pozitiv pe notă).
+    const note = pickupToggleNotice('locked_on') ?? ''
+    expect(note).toMatch(/Setarea rămâne salvată/)
+    expect(note).toContain(pickupPlanName())
+    expect(off).not.toMatch(/Setarea rămâne salvată|revine/)
+    expect(off).not.toContain(pickupPlanName())
     for (const f of [true, null] as const) {
       const t = pickupOnlyToggleDescription(f)
       expect(t, String(f)).toMatch(/ascunde Harta sălii și Rezervările/)

@@ -187,12 +187,19 @@ export function pickupOnlyEmptyStateText(feature: boolean | null, flipbook: bool
  * modul e suspendat (`pickupOnlyMode`): descrierea obișnuită („ascunde Harta
  * sălii și Rezervările”) ar fi falsă, iar nota `locked_on` de sub comutatorul
  * principal vorbește doar despre pagina publică, nu și despre panou (PY3).
+ *
+ * Spune DOAR ce lipsește din notă (panoul), nu și „setarea rămâne salvată și
+ * revine la trecerea pe planul …”: descrierea apare numai sub nota `locked_on`
+ * (blocul cere ridicarea pornită în formular; oprită pe acest plan, starea
+ * devine `locked` și blocul dispare), care spune deja asta. Repetată, owner-ul
+ * o citea de două ori, una sub alta — și cu modul OPRIT „revine” nu avea la ce
+ * să se refere (PY3, PS3, PZ4a).
  */
 export function pickupOnlyToggleDescription(feature: boolean | null): string {
   if (feature === false) {
     return (
       'Pe planul tău modul nu se aplică: fără comenzi pentru ridicare, panoul îți arată ' +
-      `mesele și rezervările. Setarea rămâne salvată și revine la trecerea pe planul ${pickupPlanName()}.`
+      'mesele și rezervările.'
     )
   }
   return (
