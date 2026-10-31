@@ -20,8 +20,9 @@ const { livemodeGuard } = require('./lib/livemode')
 // și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
 // tests/stripe-contract/ verzi — suita care încarcă SDK-ul REAL; tests/functions/
 // înlocuiește modulul 'stripe' cu totul și e oarbă la un bump de SDK.
-// Din stripe-node 22 versiunea implicită e '2026-08-26.dahlia', deci pin-ul
-// poartă greutate reală: fără el, cererile ar trece TĂCUT pe dahlia.
+// Implicitul SDK-ului se mută la fiecare versiune majoră (v22:
+// '2026-08-26.dahlia', v23: '2026-09-30.endive'), deci pin-ul poartă greutate
+// reală: fără el, cererile ar trece TĂCUT pe implicitul SDK-ului instalat.
 const STRIPE_API_VERSION = '2023-10-16'
 
 // ── Citiri tolerante la forma payload-ului de webhook ───────────────

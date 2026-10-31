@@ -59,7 +59,8 @@ function install() {
       res.push(null)
       setImmediate(() => req.emit('response', res))
     }
-    // SDK-ul atașează ascultătorii DUPĂ ce request() întoarce → 'socket' asincron.
+    // v22 aștepta 'socket' (ascultători atașați DUPĂ ce request() întoarce →
+    // emis asincron); v23 nu-l mai ascultă și scrie direct. Inofensiv pe ambele.
     setImmediate(() => req.emit('socket', { connecting: false }))
     return req
   }
