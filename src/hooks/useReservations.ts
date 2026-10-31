@@ -358,38 +358,6 @@ export function useReservationSettings(restaurantId: string | null) {
   return { settings, loading, error, save, refetch: fetchSettings }
 }
 
-export function useTableZones(restaurantId: string | null) {
-  const [zones, setZones] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const fetchZones = useCallback(async () => {
-    if (!restaurantId) {
-      setZones([])
-      return
-    }
-    setLoading(true)
-    const { data } = await supabase
-      .from('tables')
-      .select('zone')
-      .eq('restaurant_id', restaurantId)
-      .eq('is_active', true)
-      .not('zone', 'is', null)
-    const unique = Array.from(
-      new Set(
-        ((data ?? []) as { zone: string | null }[]).map((r) => r.zone).filter(Boolean) as string[],
-      ),
-    ).sort((a, b) => a.localeCompare(b, 'ro'))
-    setZones(unique)
-    setLoading(false)
-  }, [restaurantId])
-
-  useEffect(() => {
-    void fetchZones()
-  }, [fetchZones])
-
-  return { zones, loading, refetch: fetchZones }
-}
-
 export function dayRange(date: Date): DateRange {
   const start = new Date(date)
   start.setHours(0, 0, 0, 0)

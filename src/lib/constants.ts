@@ -99,18 +99,6 @@ export const STATUS_META: Record<OrderStatus, { label: string; color: string; bg
   closed: { label: 'Închis', color: D.t2, bg: D.s2 },
 }
 
-export const TRANSITION_LABELS: Partial<Record<OrderStatus, string>> = {
-  confirmed: 'Acceptă',
-  preparing: 'Începe prepararea',
-  ready: 'Gata de servit',
-  served: 'Servit',
-  paid: 'Plătit',
-  cancelled: 'Anulează',
-}
-
-export const KITCHEN_TRANSITIONS: OrderStatus[] = ['confirmed', 'preparing', 'ready']
-export const WAITER_TRANSITIONS: OrderStatus[] = ['served', 'paid']
-
 // Numele COMERCIALE ale planurilor (taxonomia din 3 concepte — vezi
 // lib/features.ts planTier). Intern rămân free/starter/growth/pro/enterprise.
 // 'business' (legacy pre-rebranding) NU mai există: mig 062 a migrat toate
@@ -144,8 +132,6 @@ export const ALLERGENS = [
   { id: 'molusce', label: 'Moluște', emoji: '🐚', desc: 'scoici, caracatițe, calmar' },
 ] as const
 
-export type AllergenId = (typeof ALLERGENS)[number]['id']
-
 // ── Taguri dietetice (opționale, dar valoroase comercial) ────
 export const DIETARY_TAGS = [
   { id: 'signature', label: 'Signature', emoji: '★', color: '#C56B5A' },
@@ -157,8 +143,6 @@ export const DIETARY_TAGS = [
   { id: 'picant', label: 'Picant', emoji: '🌶️', color: '#E05555' },
   { id: 'raw', label: 'Raw', emoji: '🥬', color: '#66BB6A' },
 ] as const
-
-export type DietaryTagId = (typeof DIETARY_TAGS)[number]['id']
 
 // ── Amenities (afișate ca pills în hero meniu public) ────────
 // Fiecare are un label scurt RO/EN și un id stocat în

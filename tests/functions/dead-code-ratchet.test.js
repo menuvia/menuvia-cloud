@@ -26,6 +26,30 @@
 //   DC1b registrul de scutiri e ONEST: fiecare intrare există ȘI e într-adevăr
 //        inaccesibilă (o scutire care nu mai acoperă nimic pică — tiparul GI3).
 //
+// Același audit a găsit și EXPORTURI moarte în module vii (src/lib, src/hooks):
+// `useTableZones`, `trackPageView`/`identifyUser`/`resetAnalytics`/
+// `isFeatureEnabled`, `TRANSITION_LABELS` + `KITCHEN_TRANSITIONS` +
+// `WAITER_TRANSITIONS` (acesta din urmă spunea încă `['served','paid']`, adică
+// un ciclu de viață de dinaintea lui `closed`), `PARTNER_DEFAULT_TAB` (o a doua
+// sursă pentru tab-ul de pornire, pe care DashboardPage n-o citea),
+// `fetchStockMovements`, `updateSupplier` și tipurile lor.
+//
+//   DC2  niciun export din src/lib și src/hooks nu e complet nefolosit: numele
+//        lui nu apare în niciun alt fișier din src/ (cod sau test) și nici în
+//        propriul fișier în afara declarației. Comentariile nu contează ca
+//        folosire; accesul pe proprietate (`ph.isFeatureEnabled`) nici el.
+//        Mutația care îl pică: readuci oricare dintre exporturile de mai sus.
+//        Un export folosit DOAR de teste trece (e un cârlig de test, nu cod
+//        mort tăcut) — DC2 prinde exact clasa „nu-l cheamă nimeni”.
+//   DC2b control pe fișiere sintetice: exportul nefolosit, cel pomenit doar
+//        într-un comentariu și cel atins doar ca proprietate ies morți; cel
+//        importat, cel folosit în propriul fișier, cel folosit doar de test și
+//        modulul importat cu `import * as` rămân vii.
+//   DC2c registrul KNOWN_DEAD nu acoperă un export VIU (o scutire pe un nume
+//        care între timp a căpătat un apelant e o minciună). O intrare al cărei
+//        export a fost ȘTERS e tolerată: alte PR-uri din același lot șterg
+//        exact acele exporturi, iar ștergerea e rezultatul dorit.
+//
 // Rulează în jobul „Bridge tests" (`cd tests/functions && npm test`); vitest
 // nu vede tests/functions.
 'use strict'
@@ -41,6 +65,21 @@ const SRC = 'src'
 // Scutiri: modul → motiv. Un modul care NU e importat de aplicație, dar trebuie
 // să rămână (ex. un punct de intrare citit de alt instrument). Azi: niciunul.
 const ALLOWED_UNREACHABLE = {}
+
+// Exporturi moarte CUNOSCUTE, lăsate deliberat în fișiere pe care această
+// curățenie nu le atinge (fișier → nume → motiv). Se scot pe măsură ce dispar.
+const KNOWN_DEAD = {
+  'src/lib/founder.ts': {
+    listHealth: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
+    getPartnerAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
+    grantPartnerAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
+    revokeAffiliateAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
+  },
+  'src/lib/orders.ts': {
+    voidOrderPayment: 'scos în PR-ul «Bucătărie și ospătar» (orders.ts e al lui)',
+    rotateQrToken: 'scos în PR-ul «Bucătărie și ospătar» (orders.ts e al lui)',
+  },
+}
 
 const posix = path.posix
 
@@ -146,6 +185,72 @@ function realGraph() {
 }
 
 
+/** Textul de cod: rândurile de comentariu (`//`, `*`, `/*`, `{/*`) scoase. */
+function codeOnly(text) {
+  return text
+    .split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(line))
+    .join('\n')
+}
+
+const EXPORT_RE =
+  /^export\s+(?:declare\s+)?(?:async\s+)?(?:function\*?|const|let|var|class|abstract\s+class|interface|type|enum|const\s+enum)\s+([A-Za-z_$][\w$]*)/gm
+
+function escapeRe(name) {
+  return name.replace(/\$/g, '\\$')
+}
+
+/** Aparițiile lui `name` ca identificator (nu ca proprietate: `x.name` nu contează). */
+function countRefs(code, name) {
+  const re = new RegExp(`(?<![\\w$.])${escapeRe(name)}(?![\\w$])`, 'g')
+  return (code.match(re) || []).length
+}
+
+/**
+ * Exporturile complet nefolosite din fișierele `scanned` (relativ, POSIX),
+ * căutate în TOATE fișierele `files` ({rel: text}). Un fișier importat
+ * undeva cu `import * as` e sărit întreg (orice export poate fi atins prin
+ * spațiul de nume).
+ */
+function deadExports(files, scanned) {
+  const code = {}
+  for (const [rel, text] of Object.entries(files)) code[rel] = codeOnly(text)
+  const has = (rel) => Object.prototype.hasOwnProperty.call(files, rel)
+  const namespaced = new Set()
+  for (const [rel, text] of Object.entries(files)) {
+    for (const m of text.matchAll(/^[ \t]*import\s+\*\s+as\s+[\w$]+\s+from\s*['"]([^'"\n]+)['"]/gm)) {
+      const target = resolveSpec(rel, m[1], has)
+      if (target) namespaced.add(target)
+    }
+  }
+  const dead = []
+  for (const rel of scanned) {
+    if (namespaced.has(rel)) continue
+    for (const m of code[rel].matchAll(EXPORT_RE)) {
+      const name = m[1]
+      let refs = countRefs(code[rel], name) - 1
+      for (const other of Object.keys(code)) {
+        if (other === rel || refs > 0) continue
+        refs += countRefs(code[other], name)
+      }
+      if (refs === 0) dead.push(`${rel}:${name}`)
+    }
+  }
+  return dead.sort()
+}
+
+function realSources() {
+  const files = {}
+  for (const rel of listFiles(SRC)) {
+    if (/\.(ts|tsx)$/.test(rel)) files[rel] = fs.readFileSync(path.join(ROOT, rel), 'utf8')
+  }
+  const scanned = Object.keys(files).filter(
+    (rel) =>
+      /^src\/(lib|hooks)\//.test(rel) && !isTestPath(rel) && !rel.endsWith('.d.ts'),
+  )
+  return { files, scanned }
+}
+
 describe('cod mort: module fără importatori', () => {
   const g = realGraph()
 
@@ -218,6 +323,68 @@ describe('cod mort: module fără importatori', () => {
       assert.ok(typeof why === 'string' && why.length > 10, `${rel}: scutire fără motiv`)
       assert.ok(g.files.includes(rel), `${rel}: scutire pentru un fișier care nu există`)
       assert.ok(!g.reachable.has(rel), `${rel}: e importat de aplicație — scoate scutirea`)
+    }
+  })
+})
+
+describe('cod mort: exporturi pe care nu le folosește nimeni', () => {
+  const src = realSources()
+
+  it('DC2: niciun export din src/lib și src/hooks nu e complet nefolosit', () => {
+    assert.ok(src.scanned.length > 80, `prea puține module scanate: ${src.scanned.length}`)
+    const known = new Set(
+      Object.entries(KNOWN_DEAD).flatMap(([rel, names]) =>
+        Object.keys(names).map((n) => `${rel}:${n}`),
+      ),
+    )
+    const dead = deadExports(src.files, src.scanned).filter((k) => !known.has(k))
+    assert.deepEqual(
+      dead,
+      [],
+      'Exporturi pe care nu le folosește nimeni (șterge-le; dacă trebuie să rămână ' +
+        'temporar, KNOWN_DEAD cu motiv): ' +
+        dead.join(', '),
+    )
+  })
+
+  it('DC2b: detectorul, pe fișiere sintetice', () => {
+    const files = {
+      'src/lib/a.ts': [
+        'export function used() {}',
+        'export function unused() {}',
+        'export const onlyInComment = 1',
+        'export const onlyAsProperty = 1',
+        'export type Internal = { x: number }',
+        'export function usesInternal(i: Internal) { return i }',
+        'export const onlyInTest = 1',
+      ].join('\n'),
+      'src/lib/ns.ts': 'export const viaNamespace = 1',
+      'src/App.tsx': [
+        "import { used, usesInternal } from './lib/a'",
+        "import * as NS from './lib/ns'",
+        '// onlyInComment e pomenit doar aici',
+        "const o = JSON.parse('{}')",
+        'used(); usesInternal({ x: o.onlyAsProperty }); NS.viaNamespace',
+      ].join('\n'),
+      'src/lib/__tests__/a.test.ts': "import { onlyInTest } from '../a'",
+    }
+    assert.deepEqual(deadExports(files, ['src/lib/a.ts', 'src/lib/ns.ts']), [
+      'src/lib/a.ts:onlyAsProperty',
+      'src/lib/a.ts:onlyInComment',
+      'src/lib/a.ts:unused',
+    ])
+  })
+
+  it('DC2c: KNOWN_DEAD nu acoperă un export care are apelanți', () => {
+    const dead = new Set(deadExports(src.files, src.scanned))
+    for (const [rel, names] of Object.entries(KNOWN_DEAD)) {
+      for (const [name, why] of Object.entries(names)) {
+        assert.ok(typeof why === 'string' && why.length > 10, `${rel}:${name}: fără motiv`)
+        const text = src.files[rel] ? codeOnly(src.files[rel]) : ''
+        const stillExported = new RegExp(`^export\\s[^\\n]*\\b${escapeRe(name)}\\b`, 'm').test(text)
+        if (!stillExported) continue // șters între timp — rezultatul dorit
+        assert.ok(dead.has(`${rel}:${name}`), `${rel}:${name} are apelanți — scoate-l din KNOWN_DEAD`)
+      }
     }
   })
 })
