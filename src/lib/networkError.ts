@@ -19,6 +19,9 @@
 //   Firefox          TypeError: NetworkError when attempting to fetch resource.
 //   Node (teste/SSR) TypeError: fetch failed
 // plus marcajele noastre interne (`network-error`, `offline`) și ECONNREFUSED.
+//
+// Fluxul OASPETELUI o folosește prin `isNetworkGuestError` (lib/guestErrors),
+// care doar deleagă aici — fără a doua listă (NE6/NE7).
 
 const NETWORK_MESSAGE =
   /failed to fetch|load failed|networkerror|network-error|network connection was lost|internet connection appears to be offline|fetch failed|econnrefused|^offline$/i

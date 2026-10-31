@@ -34,12 +34,12 @@ test.describe('Public pages load', () => {
     await page.goto('/recrutare')
     await page.waitForLoadState('networkidle')
 
-    // Hero heading present
-    await expect(page.getByRole('heading', { name: /cafenelele tale|cafenele/i }).first())
-      .toBeVisible()
+    // Hero heading present (h1: „…pentru cafeneaua ta.”)
+    await expect(page.getByRole('heading', { level: 1, name: /cafeneaua ta/i })).toBeVisible()
 
-    // Pilot CTA visible
-    await expect(page.getByText(/program pilot|3 luni gratuit/i).first()).toBeVisible()
+    // Oferta pilot: din PILOT_DAYS (pricingCopy), nu „3 luni” scris de mână.
+    await expect(page.getByRole('heading', { name: /primesc \d+ de zile gratuite/i })).toBeVisible()
+    await expect(page.getByText(/3 luni/i)).toHaveCount(0)
 
     // Form fields present
     await expect(page.locator('input[placeholder*="Andrei"], input[placeholder*="nume"], input[type="text"]').first())

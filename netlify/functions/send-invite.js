@@ -1,9 +1,32 @@
 // netlify/functions/send-invite.js
 // Sends a team invite email with a magic link.
 // Called by owner from the Team tab in dashboard.
+//
+// O invitație nouă NU mai șterge alte invitații (întărire, oct 2026):
+//   1. emailul intra NEESCAPAT într-un filtru `ilike` — `_` și `%` sunt
+//      wildcard-uri LIKE, iar PostgREST tratează și `*` ca `%`. O adresă ca
+//      `ana_pop@x.ro` potrivea și `anaXpop@x.ro`, iar `%@%.%` (trece de regex)
+//      ștergea TOATE invitațiile în așteptare ale restaurantului. Acum `_`/`%`/`\`
+//      se escapează, iar `%`, `*` și `\` sunt refuzate în adresă.
+//   2. invitațiile vechi se ștergeau ÎNAINTE de a crea și trimite una nouă: un
+//      insert sau un email eșuat lăsa omul fără NICIUN link valid (cel vechi
+//      murise, cel nou nu plecase). Acum: insert → email → abia la succes se
+//      șterg CELELALTE invitații în așteptare (`neq token`); la un refuz clar al
+//      lui Resend se șterge doar invitația NOUĂ, cele vechi rămân valabile.
+// Erorile sunt `{ error: <română>, code }` — TeamManager afișează `error`.
 
 const { createClient } = require('@supabase/supabase-js')
 const { siteAppUrl, FROM_HELLO, LEGACY_NETLIFY_URL } = require('./lib/appUrl')
+
+function fail(statusCode, code, error) {
+  return { statusCode, body: JSON.stringify({ error, code }) }
+}
+
+// Valoare EXACTĂ într-un pattern LIKE/ILIKE: `\`, `%` și `_` devin literale
+// (escape-ul implicit al lui LIKE în Postgres e backslash).
+function likeExact(s) {
+  return String(s).replace(/[\\%_]/g, (c) => `\\${c}`)
+}
 
 // Escapează conținut controlat de user înainte de interpolare în HTML-ul emailului
 // (audit P3: restaurant_name/invited_by_name puteau injecta markup într-un email brandat).
@@ -18,7 +41,15 @@ function escapeHtml(s) {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' }
+    return fail(405, 'method_not_allowed', 'Cererea nu e permisă (doar POST).')
+  }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return fail(500, 'server_config', 'Invitațiile nu sunt pornite pe server momentan. Încearcă mai târziu.')
+  }
+  // Fără cheia Resend, emailul ar pleca cu `Bearer undefined` și ar pica DUPĂ
+  // ce invitația a fost scrisă — verificăm înaintea oricărei scrieri.
+  if (!process.env.RESEND_API_KEY) {
+    return fail(503, 'email_not_configured', 'Trimiterea emailurilor nu e pornită momentan. Scrie-ne și te ajutăm.')
   }
 
   // Parse protejat (audit aug 2026): era SINGURA funcție cu JSON.parse
@@ -27,7 +58,7 @@ exports.handler = async (event) => {
   try {
     payload = JSON.parse(event.body || '{}')
   } catch {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid JSON body' }) }
+    return fail(400, 'bad_json', 'Cererea nu a putut fi citită. Reîncearcă.')
   }
   // ★ audit v3 (SEC-06): restaurant_name / invited_by_name NU se mai citesc din
   // body — vin din DB după restaurant_id / user.id (mai jos). Altfel orice
@@ -40,21 +71,26 @@ exports.handler = async (event) => {
   const { email, role, restaurant_id, site } = payload
 
   if (!email || !role || !restaurant_id) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) }
+    return fail(400, 'missing_fields', 'Completează adresa de email și rolul.')
   }
 
   // Validare format email (audit P3) — evită relay de email cu adrese malformate.
+  // `%`, `*` și `\` sunt refuzate: sunt wildcard-uri / escape în filtrul `ilike`
+  // de mai jos (PostgREST tratează `*` ca `%` și nu-l poate escapa), iar într-o
+  // adresă reală nu apar practic niciodată.
   const cleanEmail = String(email).trim().toLowerCase()
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid email' }) }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail) || /[%*\\]/.test(cleanEmail)) {
+    return fail(400, 'invalid_email', 'Adresa de email nu e validă.')
   }
   // Pt DB folosim valoarea TRIMMED dar cu case-ul original (rezolvă mismatch-ul de
   // spații semnalat de review, fără a sparge dedup-ul rândurilor legacy mixed-case).
   const dbEmail = String(email).trim()
 
   if (!['manager', 'waiter', 'kitchen'].includes(role)) {
-    return { statusCode: 400, body: JSON.stringify({ error: 'Invalid role' }) }
+    return fail(400, 'invalid_role', 'Rolul ales nu există. Alege Manager, Ospătar sau Bucătărie.')
   }
+  // Pentru filtrele `ilike` (potrivire fără diferență de majuscule, dar EXACTĂ).
+  const emailPattern = likeExact(dbEmail)
 
   const supabase = createClient(
     process.env.SUPABASE_URL,
@@ -66,7 +102,7 @@ exports.handler = async (event) => {
   const jwt = authHeader.replace('Bearer ', '')
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt)
   if (authErr || !user) {
-    return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) }
+    return fail(401, 'auth_invalid', 'Sesiunea a expirat. Intră din nou în cont.')
   }
 
   const { data: membership } = await supabase
@@ -77,7 +113,7 @@ exports.handler = async (event) => {
     .single()
 
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return { statusCode: 403, body: JSON.stringify({ error: 'Forbidden' }) }
+    return fail(403, 'forbidden', 'Doar patronul sau managerul pot trimite invitații.')
   }
 
   // Numele restaurantului și al invitatorului — din DB (service_role), nu din body.
@@ -106,13 +142,15 @@ exports.handler = async (event) => {
   if (rateLimitErr) {
     console.error('[send-invite] Rate limit check failed:', rateLimitErr.message)
     // Fail-closed: if rate limit can't be checked, reject (better than spam vector)
-    return { statusCode: 503, body: JSON.stringify({ error: 'Rate limit service unavailable' }) }
+    return fail(503, 'rate_limit_unavailable', 'Nu am putut verifica limita de invitații. Reîncearcă în câteva momente.')
   }
 
   if (!rateLimitOk) {
-    return { statusCode: 429, body: JSON.stringify({
-      error: 'Ai trimis prea multe invitații în ultimele 24 ore. Reîncearcă mâine sau contactează suportul.'
-    }) }
+    return fail(
+      429,
+      'rate_limited',
+      'Ai trimis prea multe invitații în ultimele 24 ore. Reîncearcă mâine sau contactează suportul.',
+    )
   }
 
   // Check if already a member
@@ -121,7 +159,7 @@ exports.handler = async (event) => {
   const { data: existingProfile } = await supabase
     .from('profiles')
     .select('id')
-    .ilike('email', dbEmail)
+    .ilike('email', emailPattern)
     .single()
 
   if (existingProfile) {
@@ -133,19 +171,11 @@ exports.handler = async (event) => {
       .single()
 
     if (existingMembership) {
-      return { statusCode: 409, body: JSON.stringify({ error: 'Acest utilizator este deja membru.' }) }
+      return fail(409, 'already_member', 'Acest utilizator este deja membru.')
     }
   }
 
-  // Delete any existing pending invite for this email + restaurant (case-insensitive)
-  await supabase
-    .from('invite_tokens')
-    .delete()
-    .eq('restaurant_id', restaurant_id)
-    .ilike('email', dbEmail)
-    .is('accepted_at', null)
-
-  // Create invite token
+  // Create invite token — ÎNAINTE de a atinge invitațiile vechi (vezi antetul).
   const { data: invite, error: inviteErr } = await supabase
     .from('invite_tokens')
     .insert({
@@ -159,7 +189,7 @@ exports.handler = async (event) => {
 
   if (inviteErr) {
     console.error('Invite insert error:', inviteErr)
-    return { statusCode: 500, body: JSON.stringify({ error: 'Could not create invite' }) }
+    return fail(500, 'invite_create_failed', 'Nu am putut crea invitația. Reîncearcă.')
   }
 
   // Orice valoare a lui `site` (absent = clienți vechi, 'ro', 'com', gunoi) →
@@ -171,7 +201,9 @@ exports.handler = async (event) => {
   const ROLE_LABELS = { manager: 'Manager', waiter: 'Ospătar', kitchen: 'Bucătărie' }
 
   // Send email via Resend
-  const res = await fetch('https://api.resend.com/emails', {
+  let res
+  try {
+    res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     // OPT-3: timeout explicit — un TCP agățat nu mai blochează funcția.
     signal: AbortSignal.timeout(8000),
@@ -204,13 +236,44 @@ exports.handler = async (event) => {
         </div>
       `,
     }),
-  })
+    })
+  } catch (e) {
+    // Timeout / rețea DUPĂ ce cererea a plecat: Resend poate să fi trimis deja
+    // emailul, deci NU ștergem invitația nouă (linkul din email ar muri) și nici
+    // pe cele vechi (n-avem confirmare). Invitația nouă apare în listă.
+    console.error('Resend fetch failed:', e && e.message)
+    return fail(
+      504,
+      'email_send_uncertain',
+      'Nu am putut confirma trimiterea emailului. Invitația apare în listă; dacă nu ajunge în câteva minute, trimite-o din nou.',
+    )
+  }
 
   if (!res.ok) {
     const body = await res.text()
     console.error('Resend error:', body)
-    return { statusCode: 500, body: JSON.stringify({ error: 'Email send failed' }) }
+    // Refuz CLAR: emailul n-a plecat. Ștergem doar invitația NOUĂ (linkul ei
+    // n-a ajuns la nimeni); cele vechi rămân valabile.
+    const { error: rollbackErr } = await supabase
+      .from('invite_tokens')
+      .delete()
+      .eq('restaurant_id', restaurant_id)
+      .eq('token', invite.token)
+    if (rollbackErr) console.error('Invite rollback error:', rollbackErr.message)
+    return fail(502, 'email_send_failed', 'Emailul cu invitația nu a putut fi trimis. Reîncearcă.')
   }
+
+  // Emailul a plecat: ABIA ACUM retragem celelalte invitații în așteptare
+  // pentru aceeași adresă (potrivire exactă, fără diferență de majuscule) —
+  // ultimul link trimis e singurul valabil, ca înainte.
+  const { error: cleanupErr } = await supabase
+    .from('invite_tokens')
+    .delete()
+    .eq('restaurant_id', restaurant_id)
+    .ilike('email', emailPattern)
+    .is('accepted_at', null)
+    .neq('token', invite.token)
+  if (cleanupErr) console.error('Old invite cleanup error:', cleanupErr.message)
 
   return {
     statusCode: 200,

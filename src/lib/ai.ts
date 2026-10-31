@@ -64,12 +64,136 @@ export interface AiProxyResponse {
   }
 }
 
+// ── Contractul de eroare (netlify/functions/lib/aiErrors.js) ──
+// Orice răspuns non-200 al funcțiilor AI e `{ error: <română>, code }`. Clientul
+// afișează mesajul serverului DOAR când vine cu cod (contractul nou, garantat
+// în română); fără cod — server vechi, proxy, pagină HTML de eroare, timeout de
+// platformă — mesajul se alege după status, tot în română. Textul brut al unui
+// corp fără cod (ex. „Forbidden") nu ajunge NICIODATĂ în fața patronului.
+export interface AiErrorInfo {
+  code: string
+  message: string
+  /** Codul HTTP; 0 = cererea n-a ajuns la server (rețea). */
+  status: number
+}
+
+/** Eroarea aruncată de apelurile AI — poartă codul și statusul. */
+export type AiError = Error & { code: string; status: number }
+
+const NETWORK_FAILURE: Omit<AiErrorInfo, 'status'> = {
+  code: 'network',
+  message: 'Nu am putut contacta serverul. Verifică internetul și reîncearcă.',
+}
+
+function fallbackForStatus(status: number): Omit<AiErrorInfo, 'status'> {
+  if (status === 0) return NETWORK_FAILURE
+  if (status === 401)
+    return { code: 'auth_invalid', message: 'Sesiunea a expirat. Intră din nou în cont.' }
+  if (status === 403) {
+    return {
+      code: 'forbidden',
+      message: 'Nu ai drepturi să folosești asistentul AI pentru acest restaurant.',
+    }
+  }
+  if (status === 413) {
+    return {
+      code: 'payload_too_large',
+      message: 'Pozele trimise sunt prea mari. Încearcă cu mai puține poze sau cu poze mai mici.',
+    }
+  }
+  if (status === 429) {
+    return {
+      code: 'rate_limited',
+      message: 'Prea multe cereri către asistentul AI. Așteaptă puțin și reîncearcă.',
+    }
+  }
+  if (status === 504) {
+    return {
+      code: 'provider_timeout',
+      message: 'Asistentul AI a răspuns prea greu. Reîncearcă în câteva momente.',
+    }
+  }
+  if (status === 502 || status === 503) {
+    return {
+      code: 'provider_failed',
+      message: 'Asistentul AI nu a putut răspunde acum. Reîncearcă în câteva momente.',
+    }
+  }
+  if (status >= 500) {
+    return {
+      code: 'server_error',
+      message: 'Eroare pe server la asistentul AI. Reîncearcă în câteva momente.',
+    }
+  }
+  return { code: 'request_failed', message: 'Cererea către asistentul AI n-a reușit. Reîncearcă.' }
+}
+
+/**
+ * Traduce un răspuns non-200 al unei funcții AI într-o eroare afișabilă.
+ *
+ * @param status codul HTTP (0 pentru „n-am ajuns la server")
+ * @param body corpul parsat, sau `null` dacă nu era JSON
+ */
+export function describeAiError(status: number, body: unknown): AiErrorInfo {
+  const obj =
+    typeof body === 'object' && body !== null ? (body as { error?: unknown; code?: unknown }) : null
+  const code = obj && typeof obj.code === 'string' && obj.code.trim() ? obj.code.trim() : null
+  const message = obj && typeof obj.error === 'string' && obj.error.trim() ? obj.error.trim() : null
+  const fallback = fallbackForStatus(status)
+  if (code) return { code, message: message ?? fallback.message, status }
+  return { ...fallback, status }
+}
+
+function toAiError(info: AiErrorInfo): AiError {
+  const err = new Error(info.message) as AiError
+  err.code = info.code
+  err.status = info.status
+  return err
+}
+
+function errorMeta(e: unknown): { code?: unknown; status?: unknown } {
+  return typeof e === 'object' && e !== null ? (e as { code?: unknown; status?: unknown }) : {}
+}
+
+/** Cota AI e epuizată (sau limitată): un lot trebuie să se oprească. */
+export function isAiQuotaError(e: unknown): boolean {
+  const m = errorMeta(e)
+  return m.code === 'quota_exceeded' || m.status === 429
+}
+
+// Erori de CONFIGURARE: nu țin de produsul curent, deci se repetă identic la
+// fiecare apel. Un lot (AiBulkGenerate) le raportează o singură dată și nu mai
+// cheamă serverul pentru restul produselor.
+const CONFIG_ERROR_CODES = new Set([
+  'server_config',
+  'auth_missing',
+  'auth_invalid',
+  'forbidden',
+  'ai_disabled',
+  'provider_key_missing',
+  'key_load_failed',
+  'model_missing',
+  'base_url_rejected',
+  'provider_no_images',
+])
+
+export function isAiConfigError(e: unknown): boolean {
+  const code = errorMeta(e).code
+  return typeof code === 'string' && CONFIG_ERROR_CODES.has(code)
+}
+
 // ── Helper auth ──────────────────────────────────────────────
 async function authHeaders(): Promise<Record<string, string>> {
   const {
     data: { session },
   } = await supabase.auth.getSession()
-  if (!session?.access_token) throw new Error('Nu ești autentificat.')
+  if (!session?.access_token) {
+    throw toAiError({
+      code: 'auth_missing',
+      message: 'Nu ești autentificat. Intră din nou în cont.',
+      status: 401,
+    })
+  }
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${session.access_token}`,
@@ -78,34 +202,42 @@ async function authHeaders(): Promise<Record<string, string>> {
 
 async function postFn<T>(fn: string, payload: unknown): Promise<T> {
   const headers = await authHeaders()
-  const res = await fetch(fnUrl(fn), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) {
-    let msg = `HTTP ${res.status}`
-    // Eroarea se construiește în try și se aruncă DUPĂ (nu din catch): un corp
-    // ne-JSON cade pe mesajul generic, iar regula eslint `preserve-caught-error`
-    // (recommended, eslint 10) nu mai are un `throw` orfan în catch. `cause`
-    // nu e disponibil cu lib ES2020.
-    let code: string | undefined
-    try {
-      const body = (await res.json()) as { error?: string; code?: string }
-      if (body?.error) msg = body.error
-      code = body?.code
-    } catch {
-      // corp ne-JSON (429 cu body gol de la un proxy, HTML de eroare) → păstrăm
-      // mesajul generic, dar NU pierdem `status`: isQuota (AiBulkGenerate)
-      // testează `status === 429`, iar fără el lotul continua să lovească o
-      // cotă epuizată apel după apel (review audit v3).
-    }
-    const err = new Error(msg) as Error & { code?: string; status?: number }
-    err.code = code
-    err.status = res.status
-    throw err
+  // Erorile se construiesc în afara blocurilor catch (regula eslint
+  // `preserve-caught-error`; `cause` nu e disponibil cu lib ES2020): un
+  // `TypeError: Failed to fetch` ajungea altfel ca atare, în engleză, în toast.
+  let res: Response | null = null
+  try {
+    res = await fetch(fnUrl(fn), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    // Rețea / CORS / abort: `res` rămâne null.
   }
-  return (await res.json()) as T
+  if (!res) throw toAiError({ ...NETWORK_FAILURE, status: 0 })
+
+  // Corpul se citește o singură dată; un corp ne-JSON (429 gol de la un proxy,
+  // HTML de eroare, timeout de platformă) rămâne `null`, iar statusul se păstrează
+  // — isAiQuotaError testează și `status === 429`, altfel un lot ar continua să
+  // lovească o cotă epuizată apel după apel (review audit v3).
+  let body: unknown = null
+  let parsed = false
+  try {
+    body = await res.json()
+    parsed = true
+  } catch {
+    // Corp ne-JSON: `body` rămâne null, `parsed` false.
+  }
+  if (!res.ok) throw toAiError(describeAiError(res.status, parsed ? body : null))
+  if (!parsed) {
+    throw toAiError({
+      code: 'bad_response',
+      message: 'Răspuns neașteptat de la server. Reîncearcă în câteva momente.',
+      status: res.status,
+    })
+  }
+  return body as T
 }
 
 // ── Config BYO (Faza B) ──────────────────────────────────────
@@ -218,7 +350,8 @@ function parseNutrition(text: string): NutritionResult {
     raw = JSON.parse(m[0])
   }
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const num = (v: unknown): number | null => (typeof v === 'number' && isFinite(v) && v >= 0 ? v : null)
+  const num = (v: unknown): number | null =>
+    typeof v === 'number' && isFinite(v) && v >= 0 ? v : null
   const allergenIds = new Set(ALLERGENS.map((a) => a.id as string))
   const tagIds = new Set(DIETARY_TAGS.map((t) => t.id as string))
   const arr = (v: unknown, allowed: Set<string>): string[] =>
@@ -298,7 +431,11 @@ export async function aiTranslateBatch(input: {
     'omite câmpul "description". Traduceri naturale, apetisante și scurte.',
   ].join('\n')
   const payload = JSON.stringify(
-    input.items.map((it) => ({ id: it.id, name: it.name, description: it.description ?? undefined })),
+    input.items.map((it) => ({
+      id: it.id,
+      name: it.name,
+      description: it.description ?? undefined,
+    })),
   )
   const res = await postFn<AiProxyResponse>('ai-proxy', {
     feature: 'translate' as AiFeature,

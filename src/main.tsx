@@ -5,6 +5,9 @@ import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
 import { captureReferralFromUrl } from './lib/affiliate'
 import { scrubTokenPathsDeep } from './lib/telemetryScrub'
+// Doar valori + un `import type` din @sentry/react (șters la compilare): nu trage
+// chunk-ul Sentry în graful static al entry-ului.
+import { SENTRY_DATA_COLLECTION } from './lib/sentryPrivacy'
 // Ordinea contează: tokens (variabile) → global (reset+body) → animații
 import './styles/tokens.css'
 import './styles/global.css'
@@ -43,8 +46,10 @@ async function initSentry() {
     tracesSampleRate: 0.2,
     environment: import.meta.env.MODE,
 
-    // ✅ GDPR: nu trimite IP, user-agent extins, sau cookies
-    sendDefaultPii: false,
+    // ✅ GDPR: fără IP, date de utilizator, cookie-uri, antete, corpuri sau
+    // query string. Explicit, categorie cu categorie: din Sentry 11 implicitul
+    // e să colecteze tot (lib/sentryPrivacy.ts).
+    dataCollection: SENTRY_DATA_COLLECTION,
 
     // ✅ Filtrează datele înainte de transmitere la Sentry US
     beforeSend(event) {
@@ -65,12 +70,17 @@ async function initSentry() {
       return scrubTokenPathsDeep(event)
     },
 
-    beforeSendTransaction(event) {
-      if (event.request?.url) {
-        event.request.url = event.request.url.split('?')[0]
-      }
-      // Numele tranzacției e chiar calea paginii (/sef-vanzari/TOKEN).
-      return scrubTokenPathsDeep(event)
+    // Spanurile (pageload, navigare, click, fetch). Din Sentry 11 se trimit în
+    // flux (`traceLifecycle: 'stream'`, implicit): nu mai există evenimente de
+    // tranzacție, deci `beforeSendTransaction` NU mai rulează (în v11 doar
+    // scrie un avertisment în consolă). Calea și fragmentul URL-ului stau în
+    // atributele spanului (`url.path` = /q/TOKEN, `url.full` cu
+    // #access_token=… din linkul de resetare), iar `dataCollection` NU le
+    // acoperă: nu sunt o categorie, `urlQueryParams` taie doar query-ul.
+    // `scrubTokenPathsDeep` e pură și nu aruncă — un callback care aruncă face
+    // SDK-ul să trimită spanul NEMODIFICAT.
+    beforeSendSpan(span) {
+      return scrubTokenPathsDeep(span)
     },
 
     // Breadcrumb-urile de navigare / fetch poartă URL-uri întregi.

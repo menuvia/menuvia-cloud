@@ -106,6 +106,9 @@ describe('ReservePage — anularea publică pe cod de confirmare', () => {
 
     expect(await screen.findByText(/cod de confirmare invalid/i)).toBeInTheDocument()
     expect(screen.queryByText(/rezervarea a fost anulată/i)).not.toBeInTheDocument()
+    // Refuzul e ANUNȚAT de cititorul de ecran, nu doar colorat sub câmp
+    // (a11y-reservation-chips-errors). Mutația `<div>` fără role="alert" pică.
+    expect(screen.getByRole('alert')).toHaveTextContent(/cod de confirmare invalid/i)
   })
 
   it('hint not_cancellable → mesaj explicit că nu se mai poate online, cu trimitere la telefon', async () => {

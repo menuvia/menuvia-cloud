@@ -13,6 +13,7 @@
 // NU înlocuiește `describeCheckoutFailure` (abonamentul, dashboard).
 // ─────────────────────────────────────────────────────────────
 import { T, type PublicMenuStringKey } from './publicMenuStrings'
+import { isNetworkError } from './networkError'
 
 const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   // create_order (mig 191)
@@ -41,6 +42,9 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   qr_token_inactive: 'err_session_closed',
   qr_token_expired: 'err_session_closed',
   restaurant_inactive: 'err_restaurant_inactive',
+  // gate-ul de plan pe comenzi (enforce_ordering_enabled, mig 290): localul nu
+  // primește comenzi online de pe planul lui — o retrimitere nu poate reuși.
+  plan_upgrade_required: 'err_restaurant_inactive',
   // ridicare (mig 046/191)
   pickup_disabled: 'err_pickup_disabled',
   pickup_rate_limit: 'err_rate_limit_order',
@@ -94,10 +98,16 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /cu minim .* ore înainte/i, key: 'err_reservation_too_soon' },
   { re: /cu maxim .* zile înainte/i, key: 'err_reservation_too_far' },
   { re: /restaurantul nu a fost găsit/i, key: 'err_restaurant_not_found' },
+  // enforce_ordering_enabled (mig 014/083/290): restaurant dezactivat, plan fără
+  // comenzi, comenzi oprite manual — mesajele fără hint, de pe serverele vechi.
+  {
+    re: /restaurantul este dezactivat|comenzile (nu sunt disponibile|sunt oprite)/i,
+    key: 'err_restaurant_inactive',
+  },
   { re: /rate.?limit|too many|prea multe/i, key: 'err_rate_limit_order' },
 ]
 
-export interface GuestErrorShape {
+interface GuestErrorShape {
   message?: unknown
   hint?: unknown
   code?: unknown
@@ -108,11 +118,13 @@ function str(v: unknown): string {
 }
 
 /** Eroare de rețea (fetch picat / offline) — aceeași detecție ca bucla de
- *  retry din QrMenuPage. */
+ *  retry din QrMenuPage. Deleagă la detecția UNICĂ din `lib/networkError.ts`
+ *  (cea folosită și de ospătar și de `orders.ts`), ca oaspetele și staff-ul
+ *  să nu aibă două liste care pot diverge (NE6). Lista locală de dinainte
+ *  potrivea și subșirurile goale `network`/`fetch`/`offline`, deci un refuz
+ *  al serverului care le conținea era luat drept cădere de rețea. */
 export function isNetworkGuestError(err: unknown): boolean {
-  if (err instanceof TypeError) return true
-  const m = err != null && typeof err === 'object' ? str((err as GuestErrorShape).message) : str(err)
-  return /failed to fetch|networkerror|network-error|network|fetch|offline|econnrefused|load failed/i.test(m)
+  return isNetworkError(err)
 }
 
 export interface GuestErrorOptions {
@@ -170,6 +182,28 @@ export const PAY_TABLE_ERROR_OPTS: GuestErrorOptions = {
     err_feature_disabled: 'err_online_pay_off',
     err_rate_limit_order: 'err_rate_limit_payment',
   },
+}
+
+/** PickupCheckoutSheet — comanda cu ridicare (ux-guest-10). Pe un local fără
+ *  `pickup_orders` (Planul 1, downgrade) ridicarea apare încă oaspetelui —
+ *  proiecția publică nu expune planul — iar refuzul serverului cădea pe
+ *  fallback-ul „Comanda nu s-a trimis. Încearcă din nou.", adică invita la o
+ *  retrimitere care nu poate reuși. Acum spune pe față că ridicarea nu e
+ *  disponibilă la local. */
+export const PICKUP_ERROR_OPTS: GuestErrorOptions = {
+  fallback: 'err_order_not_sent',
+  network: 'err_order_not_sent_network',
+  overrides: {
+    err_restaurant_inactive: 'err_pickup_disabled',
+    err_feature_disabled: 'err_pickup_disabled',
+    err_module_disabled: 'err_pickup_disabled',
+  },
+}
+
+/** Refuz DEFINITIV pentru o comandă cu ridicare: o retrimitere identică nu are
+ *  cum să reușească, deci foaia nu mai oferă butonul de trimitere. */
+export function isPickupRefusal(key: PublicMenuStringKey): boolean {
+  return key === 'err_pickup_disabled'
 }
 
 /** SplitBillSheet — încărcarea notei pentru împărțire. */

@@ -219,6 +219,30 @@ export function describeProductLimit(selected: number, remaining: number | undef
   )
 }
 
+/** Rândul intră la salvare: bifat ȘI cu nume (aceeași regulă ca `confirmImport`). */
+export function isSelectedDraft(d: ImportDraftProduct): boolean {
+  return d.include && d.name.trim() !== ''
+}
+
+/**
+ * Indicii rândurilor de DEBIFAT ca selecția să încapă în `remaining` locuri:
+ * tot ce trece de primele `remaining` produse selectate, în ordinea din listă
+ * (ordinea meniului fotografiat). Rândurile neselectate nu se ating. Un meniu
+ * real de 25 de produse pe planul gratuit (15) cerea altfel 10 debifări de mână
+ * înainte ca butonul de salvare să se deblocheze.
+ */
+export function overLimitIndices(drafts: ImportDraftProduct[], remaining: number): number[] {
+  const keep = Math.max(0, Math.floor(remaining))
+  const out: number[] = []
+  let kept = 0
+  drafts.forEach((d, i) => {
+    if (!isSelectedDraft(d)) return
+    if (kept < keep) kept++
+    else out.push(i)
+  })
+  return out
+}
+
 // ── Promptul: moneda și limba de BAZĂ ale restaurantului ───────────────────────
 
 const MENU_CURRENCY_CODES: readonly string[] = ['RON', 'EUR', 'HUF', 'BGN', 'MDL', 'USD', 'GBP']

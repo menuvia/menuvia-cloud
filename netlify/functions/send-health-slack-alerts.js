@@ -1,6 +1,8 @@
 // netlify/functions/send-health-slack-alerts.js
-// Cron-triggered (Netlify scheduled): la :05, :20, :35, :50 — 5 min după
-// compute_health_scores rulează prin automation-cron (la :00, :15, :30, :45).
+// Cron-triggered (Netlify scheduled): la :05 și :35 — la 5 min după
+// compute_health_scores, care rulează prin automation-cron DOAR la :00 și :30
+// (gate-ul intern e pe 30 min). Cadența o dă netlify.toml (sursa UNICĂ;
+// clichet: tests/functions/schedule-comments.test.js).
 //
 // Pattern:
 //   1. claim_pending_slack_alerts() — atomic update + return scoruri critice
@@ -12,7 +14,7 @@
 //
 // Schedule (netlify.toml):
 //   [functions."send-health-slack-alerts"]
-//     schedule = "5,20,35,50 * * * *"
+//     schedule = "5,35 * * * *"
 //
 // Env vars:
 //   SUPABASE_URL || VITE_SUPABASE_URL

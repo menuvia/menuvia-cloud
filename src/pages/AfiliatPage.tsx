@@ -1,6 +1,8 @@
 // src/pages/AfiliatPage.tsx
 // Panoul agentului / șefului de vânzări (ruta veche /afiliat, pachetul 8b-2):
 // UN singur ecran, de sus în jos —
+//   0. „Contract nou de colaborare”: DOAR când serverul cere reacceptarea unei
+//      versiuni publicate (mig 308, components/afiliat/ContractReacceptSection);
 //   1. „Înscrie un restaurant”: codul mare, linkul, QR pe tot ecranul, „Arată demo”;
 //   2. „Banii tăi”: două propoziții din cifrele serverului (get_affiliate_dashboard,
 //      mig 295), cu „Detalii plăți” pliat (sume, comisioane, data plății, IBAN);
@@ -23,6 +25,7 @@ import { useSalesNetwork } from '../hooks/useSalesNetwork'
 import { formatRON, referralUrl } from '../lib/affiliate'
 import { summarizeEarnings, type EarningsInput } from '../lib/affiliateEarnings'
 import { moneySentences, salesRoleTitle } from '../lib/salesPanel'
+import { TRIAL_DAYS } from '../lib/pricingCopy'
 import { useToast, type ToastApi } from '../components/ui/useToast'
 import { Icon } from '../components/ui/Icon'
 import { PageSpinner } from '../components/PageLoader'
@@ -32,6 +35,7 @@ import Collapsible from '../components/afiliat/Collapsible'
 import EnrollSection from '../components/afiliat/EnrollSection'
 import TeamSection, { HeadCard } from '../components/afiliat/TeamSection'
 import ContactConsentSection from '../components/afiliat/ContactConsentSection'
+import ContractReacceptSection from '../components/afiliat/ContractReacceptSection'
 
 const card = {
   background: D.s2,
@@ -333,11 +337,29 @@ export default function AfiliatPage() {
             .
           </p>
         </div>
+        {/* mig 308 admite acceptarea pe un cont SUSPENDAT (acceptarea e dovadă, nu
+            redă nimic) — iar o suspendare poate fi tocmai „până accepți noile
+            condiții”. Fără secțiunea de aici, n-ar exista unde s-o facă. Doar ea:
+            restul panoului rămâne ascuns. Pe `closed` serverul refuză. */}
+        {aff.status === 'suspended' ? <SuspendedContractReaccept /> : null}
       </div>
     )
   }
 
   return <SalesPanel dashboard={dashboard} aff={aff} toast={toast} />
+}
+
+// Contul suspendat vede DOAR „Contract nou de colaborare”, și doar când serverul
+// cere reacceptarea (rol în rețea + needs_acceptance). Rețea necunoscută → nimic.
+function SuspendedContractReaccept() {
+  const sales = useSalesNetwork(true)
+  const network = sales.network
+  if (network === null || network.role === null || !network.contract.needsAcceptance) return null
+  return (
+    <div style={{ marginTop: 16 }}>
+      <ContractReacceptSection contract={network.contract} onAccepted={sales.reload} />
+    </div>
+  )
 }
 
 // ── Programul închis pentru cereri noi (mig 295) ───────────────────────────
@@ -401,6 +423,11 @@ function SalesPanel({
       </header>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Versiune nouă a contractului (mig 308): PRIMA, ca să nu treacă neobservată.
+            Doar pentru membrii rețelei — afiliatul vechi (rol null) n-are ce accepta. */}
+        {network !== null && network.role !== null && network.contract.needsAcceptance ? (
+          <ContractReacceptSection contract={network.contract} onAccepted={sales.reload} />
+        ) : null}
         <EnrollSection code={aff.referral_code} clientsCount={restaurants.length} toast={toast} />
 
         <section aria-labelledby="money-title" style={card}>
@@ -868,10 +895,12 @@ function HowToSell({
 }) {
   const url = referralUrl(code)
   // Mini-script de prezentare — onest (fiscal = pilot, fără promisiuni false).
+  // Durata trialului vine din TRIAL_DAYS: un literal ar fi rămas în urmă la
+  // prima schimbare a trialului (PC6 păzește doar pagina de prețuri).
   const pitch =
     `Salut! Folosesc Menuvia — meniu digital cu comenzi direct de la masă, fără aparatură nouă. ` +
     `Clienții scanează un cod QR, comanda ajunge direct în bucătărie. ` +
-    `Se configurează în câteva minute și ai 30 de zile gratuit. ` +
+    `Se configurează în câteva minute și ai ${TRIAL_DAYS} de zile gratuite. ` +
     `Uite linkul meu, dacă vrei să încerci: ${url}`
 
   const copyPitch = async () => {

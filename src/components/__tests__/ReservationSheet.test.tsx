@@ -81,6 +81,7 @@ vi.mock('../../lib/supabase', () => {
 import ReservationSheet from '../ReservationSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant } from './fixtures'
+import { legibleOn, readableTextOn } from '../../lib/themes'
 
 const PUB = {
   bg: '#fff',
@@ -92,12 +93,12 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
-function renderSheet(lang = 'ro') {
+function renderSheet(lang = 'ro', accent = '#c8102e') {
   return render(
     <ReservationSheet
       restaurant={makeRestaurant({ slug: 'demo' })}
       theme={getTheme('cafe')}
-      accent="#c8102e"
+      accent={accent}
       PUB={PUB}
       lang={lang}
       onClose={() => {}}
@@ -248,5 +249,76 @@ describe('ReservationSheet — telefonul în E.164 (PH-4)', () => {
     Object.defineProperty(window.navigator, 'languages', { value: ['en-US'], configurable: true })
     renderSheet('en')
     expect(screen.getByRole('combobox', { name: /country code/i })).toHaveValue('40')
+  })
+})
+
+// ux-guest-4 / a11y-guest-cta-white-on-accent: pe auriul implicit din Setări
+// albul are 2,66:1. Mutația care pică: `color: '#fff'` readus pe „Rezervă",
+// pe chip-ul selectat sau pe bara de titlu.
+describe('ReservationSheet — text lizibil peste accent', () => {
+  it('RS-I „Rezervă", chip-ul ales și bara de titlu folosesc culoarea calculată', () => {
+    renderSheet('ro', '#C8963C')
+    const expected = readableTextOn('#C8963C', PUB.text)
+    expect(expected).not.toBe('#FFFFFF')
+    expect(byText('button', /^Rezervă$/)).toHaveStyle({ color: expected })
+    // „Astăzi" e ales implicit — chip plin de accent.
+    expect(byText('button', /Astăzi$/)).toHaveStyle({ color: expected })
+    // Bara de titlu: numele restaurantului stă pe accent.
+    const closeBtn = within(screen.getByRole('dialog')).getByRole('button', { name: /^Închide$/ })
+    expect(closeBtn.parentElement).toHaveStyle({ color: expected })
+  })
+})
+
+// ux-guest-5 / a11y-autocomplete: sub 16px Safari pe iOS mărește pagina la
+// fiecare focus; numele și emailul n-aveau autocomplete. Mutațiile care pică:
+// `fontSize: 14` în inputStyle; `autoComplete` scos de pe nume/email.
+describe('ReservationSheet — câmpurile formularului', () => {
+  it('RS-J toate câmpurile au ≥16px, iar nume/email/telefon au autocomplete', () => {
+    const { container } = renderSheet()
+    const controls = Array.from(
+      container.querySelectorAll('input, textarea, select'),
+    ) as HTMLElement[]
+    // nume, prefix (select), telefon, email, note
+    expect(controls.length).toBeGreaterThanOrEqual(5)
+    for (const el of controls) {
+      expect(parseFloat(el.style.fontSize), el.outerHTML.slice(0, 80)).toBeGreaterThanOrEqual(16)
+    }
+    expect(screen.getByPlaceholderText(/^Nume$/)).toHaveAttribute('autocomplete', 'name')
+    expect(screen.getByPlaceholderText(/^Email/)).toHaveAttribute('autocomplete', 'email')
+    expect(screen.getByPlaceholderText(/^Telefon$/)).toHaveAttribute('autocomplete', 'tel')
+  })
+})
+
+// a11y-reservation-chips-errors: selecția (persoane, dată, zonă, oră) se vedea
+// doar prin culoare, iar eroarea roșie (#E05555 pe roz, ~3:1) nu era anunțată.
+// Mutațiile care pică: `aria-pressed` scos; bifa scoasă; `role="alert"` scos;
+// culoarea veche a erorii.
+describe('ReservationSheet — selecție și eroare accesibile', () => {
+  it('RS-K chip-urile expun starea (aria-pressed) și o bifă, nu doar culoare', async () => {
+    renderSheet()
+    const party = within(screen.getByTestId('party-size-row'))
+    const two = party.getByRole('button', { name: /^✓?\s*2$/ })
+    const three = party.getByRole('button', { name: /^3$/ })
+    expect(two).toHaveAttribute('aria-pressed', 'true')
+    expect(two.textContent).toContain('✓')
+    expect(three).toHaveAttribute('aria-pressed', 'false')
+    expect(three.textContent).not.toContain('✓')
+    await userEvent.click(three)
+    expect(three).toHaveAttribute('aria-pressed', 'true')
+    expect(three.textContent).toContain('✓')
+    expect(two).toHaveAttribute('aria-pressed', 'false')
+    // Rândul are nume: eticheta vizibilă de deasupra.
+    expect(screen.getByRole('group', { name: /persoane/i })).toBeInTheDocument()
+  })
+
+  it('RS-L eroarea e anunțată (role=alert) și trece AA pe caseta ei', async () => {
+    renderSheet()
+    // Fără oră aleasă → eroare de validare locală, fără server.
+    await userEvent.click(byText('button', /^Rezervă$/))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent?.trim().length).toBeGreaterThan(0)
+    const theme = getTheme('cafe')
+    expect(alert).toHaveStyle({ color: legibleOn(theme.colors.error, PUB.surface) })
+    expect(alert).not.toHaveStyle({ color: '#E05555' })
   })
 })

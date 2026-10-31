@@ -7,12 +7,16 @@
 //        trimitem un patron pe panoul de agent din cauza unui blip)
 //   PL9  eroarea la citirea afilierii = „nu e afiliat"
 //   PL10 o excepție oriunde → /dashboard (funcția nu aruncă niciodată)
+//   RQ5  cu intenție de plan (`loadPlanIntentDestination`): fără restaurant →
+//        /dashboard (onboarding), cu restaurant deținut → /pricing; rolurile
+//        NECUNOSCUTE (eroare/excepție) → /dashboard, niciodată Stripe. Mutația
+//        care pică: un loader care întoarce /pricing pe eroare sau fără roluri.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const { fromMock } = vi.hoisted(() => ({ fromMock: vi.fn() }))
 vi.mock('../supabase', () => ({ supabase: { from: fromMock } }))
 
-import { loadPostLoginDestination } from '../postLogin'
+import { loadPlanIntentDestination, loadPostLoginDestination } from '../postLogin'
 
 interface Result {
   data: unknown
@@ -102,5 +106,21 @@ describe('loadPostLoginDestination', () => {
       throw new Error('network down')
     })
     expect(await loadPostLoginDestination('u-1')).toBe('/dashboard')
+  })
+})
+
+describe('loadPlanIntentDestination', () => {
+  it('RQ5 întâi restaurantul: fără restaurant → onboarding; necunoscut → niciodată Stripe', async () => {
+    const { m } = setup({ data: [], error: null }, { data: null, error: null })
+    expect(await loadPlanIntentDestination('u-1')).toBe('/dashboard')
+    expect(m.eq).toHaveBeenCalledWith('user_id', 'u-1')
+    setup({ data: [{ role: 'owner' }], error: null }, { data: null, error: null })
+    expect(await loadPlanIntentDestination('u-1')).toBe('/pricing')
+    setup({ data: null, error: { message: 'boom' } }, { data: null, error: null })
+    expect(await loadPlanIntentDestination('u-1')).toBe('/dashboard')
+    fromMock.mockImplementation(() => {
+      throw new Error('network down')
+    })
+    expect(await loadPlanIntentDestination('u-1')).toBe('/dashboard')
   })
 })

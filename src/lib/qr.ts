@@ -220,12 +220,32 @@ function parseMenuLanguages(raw: unknown): string[] {
   return raw.filter((x): x is string => typeof x === 'string')
 }
 
+// Eroarea unui RPC public → `Error` real (nu PostgrestError brut), cu `code` și
+// `hint` păstrate (tiparul createOrder). supabase-js NU aruncă: o cădere de
+// rețea / timeout / 5xx vine tot în `{error}`. Înainte, cele trei funcții de mai
+// jos întorceau `null` și pe eroare, iar `null` înseamnă „nu există" — deci un
+// oaspete cu semnal slab vedea „Acest QR nu mai este activ, cere un QR nou" /
+// „Restaurant negăsit", fără „Reîncearcă" (audit oct 2026, ux-guest-1).
+function rpcFailure(fn: string, error: { message?: string; code?: string; hint?: string }): Error {
+  return Object.assign(new Error(error.message || `${fn} a eșuat`), {
+    code: error.code,
+    hint: error.hint,
+  })
+}
+
+/**
+ * Rezolvă token-ul QR al mesei (RPC `resolve_qr_token`, mig 206→298).
+ * `null` = token inexistent / inactiv / expirat (contractul RPC-ului, care NU
+ * aruncă pe aceste cazuri). Eroarea de transport ARUNCĂ — apelantul o arată ca
+ * „Conexiune slabă" cu „Reîncearcă", nu ca QR invalid.
+ */
 export async function resolveQrToken(rawToken: string): Promise<ResolvedQrToken | null> {
   // FIX: migration-015 a drop-at policy-ul public pe `restaurants`, ceea ce
   // făcea embed-ul `restaurant:restaurants(*)` să returneze null pentru anon.
   // Folosim acum RPC SECURITY DEFINER care expune doar câmpurile publice.
   const { data, error } = await supabase.rpc('resolve_qr_token', { p_token: rawToken })
-  if (error || data == null) return null
+  if (error) throw rpcFailure('resolve_qr_token', error)
+  if (data == null) return null
   return mapResolvedQrPayload(data)
 }
 
@@ -285,11 +305,19 @@ let composedQrWarned = false
  * server-side (mig 245). Fallback AUTOMAT pe fluxul în doi pași dacă RPC-ul
  * lipsește (frontend înaintea migrației) sau întoarce o formă neașteptată —
  * fallback-ul NU se șterge (aceeași disciplină ca fetchMenuForRestaurant).
+ *
+ * `null` = token invalid. Eroarea de transport ARUNCĂ (prin fallback-ul pe
+ * resolveQrToken, care aruncă și el) — nu se mai deghizează în „QR invalid".
  */
 export async function resolveQrMenu(rawToken: string): Promise<ResolvedQrMenu | null> {
   const { data, error } = await supabase.rpc('resolve_qr_menu', { p_token: rawToken })
   if (!error && data != null && typeof data === 'object') {
     const payload = data as { resolved?: unknown; menu?: unknown }
+    // Contractul mig 245: token inexistent / expirat → `resolved: null`
+    // EXPLICIT. Răspunsul e deja definitiv, deci fără al doilea RTT pe
+    // resolve_qr_token (înainte, fiecare QR invalid costa două cereri).
+    // `=== null`, nu `== null`: o cheie LIPSĂ e formă neașteptată → fallback.
+    if (payload.resolved === null) return null
     const resolved = mapResolvedQrPayload(payload.resolved)
     if (resolved) {
       return {
@@ -308,14 +336,19 @@ export async function resolveQrMenu(rawToken: string): Promise<ResolvedQrMenu | 
   return { resolved, menu }
 }
 
-/** Fetch restaurant by slug using SECURITY DEFINER RPC (no full-scan) */
+/**
+ * Restaurantul după slug (RPC SECURITY DEFINER, fără full-scan).
+ * `null` = slug inexistent. Eroarea de transport ARUNCĂ: /m/:slug și
+ * /rezervare/:slug o arată ca „Conexiune eșuată" cu „Reîncearcă", nu ca
+ * „Restaurant negăsit" (ux-guest-1).
+ */
 export async function fetchRestaurantBySlug(slug: string): Promise<Record<string, unknown> | null> {
   const { data, error } = await supabase.rpc('get_restaurant_by_slug', { p_slug: slug })
   if (error) {
     // Observabilitate: fără log, o eroare reală de backend (rețea/RLS/DB) era
     // indistinctă de „slug inexistent" și dispărea complet.
     console.error('[qr] fetchRestaurantBySlug:', error)
-    return null
+    throw rpcFailure('get_restaurant_by_slug', error)
   }
   // RPC returns setof — Supabase gives array. Take first row.
   const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null | undefined
@@ -337,7 +370,8 @@ let composedSlugWarned = false
  * get_menu_by_slug = get_restaurant_by_slug + get_menu_for_restaurant compuse
  * server-side (mig 245). `null` fără eroare = slug inexistent (404-ul
  * existent). Pe eroare (ex. RPC nedeployat) cade pe fluxul în doi pași —
- * fallback-ul NU se șterge.
+ * fallback-ul NU se șterge. Dacă și fallback-ul pică (rețea), eroarea se
+ * PROPAGĂ: apelantul arată „Conexiune eșuată", nu „Restaurant negăsit".
  */
 export async function fetchMenuBySlug(slug: string): Promise<MenuBySlug | null> {
   const { data, error } = await supabase.rpc('get_menu_by_slug', { p_slug: slug })

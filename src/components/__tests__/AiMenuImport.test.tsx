@@ -12,6 +12,11 @@
 //        nu-l poate înlocui tăcut); „Renunță la draft” cere confirmare
 //   AM10 import parțial: în draft rămân EXACT produsele nesalvate + rândurile
 //        neselectate; cele salvate dispar; ecranul „done” spune câte au rămas
+//   AQ2  peste plafon, „Păstrează primele N” debifează dintr-o apăsare ce nu încape;
+//        la salvare produsele debifate de plafon RĂMÂN în draft, bifate
+//        (ux-owner-ai-import-plafon). Mutații care pică: fără buton; produsele
+//        debifate de plafon aruncate la salvare (draftul s-ar goli); butonul și
+//        pe 0 locuri (AQ2b)
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -196,6 +201,34 @@ describe('AiMenuImport — draft și plafon', () => {
     await userEvent.click(screen.getAllByRole('checkbox')[1]!)
     expect(screen.queryByTestId('plan-limit')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Salvează/ })).toBeEnabled()
+  })
+
+  it('AQ2: „Păstrează primul produs” — salvează ce încape, restul rămâne în draft', async () => {
+    seed() // Pizza, Paste
+    createMany.mockResolvedValueOnce({ data: [{}], error: null })
+    const { onImported } = renderImport({ remainingSlots: 1 })
+    await userEvent.click(await screen.findByRole('button', { name: 'Reia importul' }))
+    await userEvent.click(await screen.findByRole('button', { name: /Păstrează primul produs/ }))
+    expect(screen.queryByTestId('plan-limit')).not.toBeInTheDocument()
+    const save = screen.getByRole('button', { name: /^Salvează 1 produse/ })
+    expect(save).toBeEnabled()
+    await userEvent.click(save)
+    expect(await screen.findByText('1 produse adăugate!')).toBeInTheDocument()
+    const rows = createMany.mock.calls[0]![0] as Array<{ name: string }>
+    expect(rows.map((r) => r.name)).toEqual(['Pizza'])
+    expect(onImported).toHaveBeenCalledWith(1)
+    expect(screen.getByTestId('deferred-by-plan')).toHaveTextContent(/Un produs n-a încăput/)
+    const left = loadImportDraft(RID)?.drafts
+    expect(left?.map((d) => d.name)).toEqual(['Paste'])
+    expect(left?.[0]?.include).toBe(true)
+  })
+
+  it('AQ2b: pe 0 locuri rămase nu există „Păstrează”, doar mesajul de limită', async () => {
+    seed()
+    renderImport({ remainingSlots: 0 })
+    await userEvent.click(await screen.findByRole('button', { name: 'Reia importul' }))
+    expect(await screen.findByTestId('plan-limit')).toHaveTextContent(/atins limita de produse/)
+    expect(screen.queryByRole('button', { name: /Păstrează/ })).not.toBeInTheDocument()
   })
 
   it('AM5: respingere de plafon de la server — un singur mesaj, fără inserări pe rând, draftul rămâne', async () => {

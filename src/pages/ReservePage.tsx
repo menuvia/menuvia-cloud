@@ -21,8 +21,14 @@ import { resolveHideBranding, resolveTheme } from '../lib/themes'
 import { PageSpinner } from '../components/PageLoader'
 import { T } from '../lib/publicMenuStrings'
 import { Tf, browserGuestLang } from '../lib/guestI18n'
+import { useDocumentLang } from '../hooks/useDocumentLang'
 
-const ReservationSheet = lazy(() => import('../components/ReservationSheet'))
+// Chunk-ul sheet-ului e cerut ÎN PARALEL cu RPC-ul restaurantului (perf-guest-5):
+// pagina îl deschide oricum din prima, iar înainte cascada era RPC → randare →
+// abia apoi descărcarea chunk-ului. Aceeași funcție de import servește și `lazy`,
+// deci modulul se descarcă o singură dată.
+const loadReservationSheet = () => import('../components/ReservationSheet')
+const ReservationSheet = lazy(loadReservationSheet)
 
 export default function ReservePage({
   slug,
@@ -34,6 +40,11 @@ export default function ReservePage({
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  // Eroare de TRANSPORT (rețea / timeout) — distinctă de „restaurant negăsit":
+  // înainte, semnalul slab spunea „restaurantul nu a fost găsit" fără nicio
+  // ieșire (ux-guest-1). `reloadNonce` re-rulează încărcarea la „Reîncearcă".
+  const [loadError, setLoadError] = useState(false)
+  const [reloadNonce, setReloadNonce] = useState(0)
   // Anulare pe cod (mig 256/257): ?cancel=COD deschide cardul cu codul
   // pre-completat (linkul din emailuri/ecranul de succes); linkul discret de
   // sub butoane îl deschide manual. Sheet-ul de REZERVARE nu se deschide
@@ -49,7 +60,8 @@ export default function ReservePage({
   const [cancelError, setCancelError] = useState<string | null>(null)
   // Sheet-ul e DESCHIS din prima — ăsta e scopul paginii. onClose nu închide
   // într-un ecran mort: rămâne hero-ul cu buton de redeschidere + link meniu.
-  const [sheetOpen, setSheetOpen] = useState(initialCancel === '')
+  const opensSheet = initialCancel === ''
+  const [sheetOpen, setSheetOpen] = useState(opensSheet)
 
   async function submitCancel() {
     const code = cancelCode.trim()
@@ -85,11 +97,20 @@ export default function ReservePage({
   // Limba: a browserului, dintre cele 7 ale meniului (pagina nu are selector
   // — vine dintr-un link, nu din meniul tradus); altfel EN, ca T().
   const lang = browserGuestLang()
+  useDocumentLang(lang)
+
+  // Prefetch-ul chunk-ului, în același commit cu efectul de încărcare de mai
+  // jos (deci în paralel cu RPC-ul). Pe fluxul de anulare (?cancel=) sheet-ul
+  // nu se deschide, deci nu-l cerem degeaba.
+  useEffect(() => {
+    if (opensSheet) void loadReservationSheet().catch(() => undefined)
+  }, [opensSheet])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setNotFound(false)
+    setLoadError(false)
     fetchRestaurantBySlug(slug)
       .then((row) => {
         if (cancelled) return
@@ -97,15 +118,16 @@ export default function ReservePage({
         else setRestaurant(row as unknown as Restaurant)
         setLoading(false)
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (cancelled) return
-        setNotFound(true)
+        console.warn('[ReservePage] încărcarea restaurantului a eșuat:', err)
+        setLoadError(true)
         setLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [slug])
+  }, [slug, reloadNonce])
 
   useEffect(() => {
     const prev = document.title
@@ -133,6 +155,53 @@ export default function ReservePage({
   const accent = restaurant?.primary_color ?? theme.colors.accent
 
   if (loading) return <PageSpinner />
+
+  // Rețea slabă: același ecran neutru ca „negăsit", dar spune adevărul și are
+  // ieșire („Reîncearcă"). Tema restaurantului nu e cunoscută încă.
+  if (loadError) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          background: '#0A0908',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'DM Sans, sans-serif',
+          textAlign: 'center',
+          padding: 24,
+        }}
+      >
+        <div>
+          <div role="alert">
+            <div style={{ color: '#F0EAE0', fontSize: 18, fontWeight: 700, marginBottom: 8 }}>
+              {T(lang, 'net_weak_title')}
+            </div>
+            <div style={{ color: '#9A9590', fontSize: 14, marginBottom: 18 }}>
+              {T(lang, 'err_menu_conn')}
+            </div>
+          </div>
+          <button
+            onClick={() => setReloadNonce((n) => n + 1)}
+            style={{
+              background: 'transparent',
+              color: '#F0EAE0',
+              border: '1px solid #F0EAE0',
+              borderRadius: 12,
+              padding: '12px 24px',
+              minHeight: 44,
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            {T(lang, 'retry')}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (notFound || !restaurant) {
     return (
@@ -253,7 +322,15 @@ export default function ReservePage({
                 }}
               />
               {cancelError && (
-                <div style={{ color: '#E05555', fontSize: 13, marginBottom: 10 }}>{cancelError}</div>
+                // role="alert": cititorul de ecran anunță refuzul (codul greșit,
+                // plafonul), nu doar o culoare care apare sub câmp. Culoarea vine
+                // din tema localului, nu un roșu fix (a11y-reservation-chips-errors).
+                <div
+                  role="alert"
+                  style={{ color: theme.colors.error, fontSize: 13, marginBottom: 10 }}
+                >
+                  {cancelError}
+                </div>
               )}
               <button
                 onClick={() => void submitCancel()}

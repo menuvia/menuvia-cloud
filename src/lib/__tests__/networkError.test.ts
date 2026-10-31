@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { isNetworkError } from '../networkError'
+import { isNetworkGuestError } from '../guestErrors'
 
 describe('isNetworkError', () => {
   it('NE1 recunoaște căderea de rețea pe FIECARE browser, ca Error și ca eroare supabase-js', () => {
@@ -83,5 +84,38 @@ describe('clichet: detecția de rețea are o singură sursă pe fluxul de comand
   it('NE5 control pozitiv: scanerul prinde forma veche', () => {
     expect(LOCAL_LIST.test("const n = msg.includes('fetch') || msg.includes('network')")).toBe(true)
     expect(LOCAL_LIST.test('if (isNetworkError(e)) retry()')).toBe(false)
+  })
+})
+
+// Oaspetele și staff-ul au aceeași detecție. #317 (meniul QR) și #321 (ospătar,
+// coada offline) reparaseră „Load failed” în paralel, fiecare cu lista lui;
+// `isNetworkGuestError` (lib/guestErrors) deleagă acum aici. Mutația care pică:
+// readuci regex-ul propriu din guestErrors, cu `network|fetch|offline` goale —
+// un refuz de server care conține „network” devine „verifică-ți conexiunea”.
+describe('clichet: oaspetele și staff-ul au aceeași detecție de rețea', () => {
+  it('NE6 isNetworkGuestError dă exact verdictul lui isNetworkError', () => {
+    const cases: unknown[] = [
+      new Error('TypeError: Load failed'),
+      { message: 'TypeError: Failed to fetch', code: '' },
+      new TypeError('orice'),
+      new Error('Not authorized for this restaurant'),
+      // Refuzuri care conțin subșirurile pe care lista veche le lua drept rețea.
+      { message: 'network policy denied', code: 'P0001' },
+      new Error('Could not fetch restaurant settings'),
+      new Error('Restaurant is offline for maintenance'),
+      null,
+      undefined,
+    ]
+    for (const c of cases) {
+      expect(isNetworkGuestError(c), String((c as { message?: unknown })?.message ?? c)).toBe(
+        isNetworkError(c),
+      )
+    }
+  })
+
+  it('NE7 guestErrors nu are o listă proprie de subșiruri de rețea', () => {
+    const src = readFileSync(resolve(process.cwd(), 'src/lib/guestErrors.ts'), 'utf8')
+    expect(src).toMatch(/from '\.\/networkError'/)
+    expect(src).not.toMatch(/load failed|failed to fetch/i)
   })
 })
