@@ -26,10 +26,12 @@
   box-shadow: none;
 }
 
-/* ── Primary — auriu, accent principal ── */
+/* ── Primary — auriu, accent principal ──
+   Text închis pe auriu (--color-on-gold, ca tot dashboard-ul): albul pe #c8963c
+   are 2.66:1, iar pe auriul deschis de la hover 1.91:1 — sub AA în ambele stări. */
 .btn--primary {
   background: var(--color-gold);
-  color: #fff;
+  color: var(--color-on-gold);
 }
 .btn--primary:hover:not(:disabled) {
   background: var(--color-gold-light);
@@ -58,13 +60,15 @@
   color: var(--color-text-1);
 }
 
-/* ── Danger — pentru acțiuni distructive ── */
+/* ── Danger — pentru acțiuni distructive ──
+   Alb pe --color-danger-solid (5.67:1). Hover-ul ÎNTUNECĂ: un brightness(1.1)
+   ar deschide roșul de sub textul alb și ar coborî contrastul. */
 .btn--danger {
-  background: var(--color-danger);
+  background: var(--color-danger-solid);
   color: #fff;
 }
 .btn--danger:hover:not(:disabled) {
-  filter: brightness(1.1);
+  filter: brightness(0.92);
   transform: translateY(-1px);
 }
 

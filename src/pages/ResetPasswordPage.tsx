@@ -286,6 +286,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             <input
               id="new-password"
               type="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Minimum 8 caractere"
@@ -334,6 +335,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             <input
               id="confirm-password"
               type="password"
+              autoComplete="new-password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="Repetă parola"

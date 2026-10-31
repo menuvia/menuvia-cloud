@@ -23,6 +23,7 @@ import PickupCheckoutSheet from '../PickupCheckoutSheet'
 import { getTheme } from '../../lib/themes'
 import { makeRestaurant, makeCartItem } from './fixtures'
 import type { CreateOrderArgs } from '../../lib/orders'
+import { readableTextOn } from '../../lib/themes'
 
 const STORAGE_KEY = 'menuvia_idem_pickup:demo'
 const PUB = {
@@ -35,16 +36,16 @@ const PUB = {
   borderStrong: '#bbb',
 }
 
-function renderSheet(onSuccess = vi.fn()) {
+function renderSheet(onSuccess = vi.fn(), accent = '#c8102e', onClose: () => void = () => {}) {
   return render(
     <PickupCheckoutSheet
       restaurant={makeRestaurant({ slug: 'demo' })}
       cart={[makeCartItem({ quantity: 1 })]}
       cartTotal={30}
       theme={getTheme('cafe')}
-      accent="#c8102e"
+      accent={accent}
       PUB={PUB}
-      onClose={() => {}}
+      onClose={onClose}
       onSuccess={onSuccess}
     />,
   )
@@ -176,3 +177,106 @@ describe('PickupCheckoutSheet — telefonul în E.164 (PH-4)', () => {
     expect(createOrderMock).not.toHaveBeenCalled()
   })
 })
+
+// ux-guest-4 / a11y-guest-cta-white-on-accent: pe auriul implicit din Setări
+// albul are 2,66:1. Mutația care pică: `color: '#fff'` readus pe CTA.
+describe('PickupCheckoutSheet — text lizibil peste accent', () => {
+  it('S9 CTA-ul activ folosește culoarea calculată, nu alb', async () => {
+    renderSheet(vi.fn(), '#C8963C')
+    const slot = screen.getAllByRole('button').find((b) => /\d{1,2}:\d{2}$/.test(b.textContent ?? ''))
+    if (!slot) throw new Error('niciun slot randat')
+    await userEvent.click(slot)
+    const expected = readableTextOn('#C8963C', PUB.text)
+    expect(expected).not.toBe('#FFFFFF')
+    const cta = screen.getByRole('button', { name: /trimite comanda/i })
+    expect(cta).toBeEnabled()
+    expect(cta).toHaveStyle({ color: expected })
+  })
+})
+
+// ux-guest-5 / a11y-autocomplete: sub 16px Safari pe iOS mărește pagina la
+// fiecare focus; etichetele vizibile nu erau legate de câmpuri, iar numele n-avea
+// autocomplete. Mutațiile care pică: `fontSize: 14`; `htmlFor` scos;
+// `autoComplete` scos de pe nume.
+describe('PickupCheckoutSheet — câmpurile formularului', () => {
+  it('S10 etichetele numesc câmpurile, cu ≥16px și autocomplete', () => {
+    const { container } = renderSheet()
+    const name = screen.getByLabelText(/^Nume/)
+    expect(name).toHaveAttribute('autocomplete', 'name')
+    expect(screen.getByLabelText(/^Telefon/)).toHaveAttribute('autocomplete', 'tel')
+    const controls = Array.from(container.querySelectorAll('input, textarea, select')) as HTMLElement[]
+    expect(controls.length).toBeGreaterThanOrEqual(3)
+    for (const el of controls) {
+      expect(parseFloat(el.style.fontSize), el.outerHTML.slice(0, 80)).toBeGreaterThanOrEqual(16)
+    }
+  })
+})
+
+// a11y-reservation-chips-errors (ridicare): slotul ales se vedea doar prin
+// culoare, iar eroarea nu era anunțată. Mutațiile care pică: `aria-pressed`
+// scos; bifa scoasă; `role="alert"` scos.
+describe('PickupCheckoutSheet — selecție și eroare accesibile', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+  })
+
+  it('S11 slotul ales are aria-pressed + bifă; eroarea e role=alert', async () => {
+    renderSheet()
+    const slots = screen
+      .getAllByRole('button')
+      .filter((b) => /\d{1,2}:\d{2}$/.test(b.textContent ?? ''))
+    expect(slots.length).toBe(2)
+    for (const s of slots) expect(s).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(slots[0]!)
+    expect(slots[0]).toHaveAttribute('aria-pressed', 'true')
+    expect(slots[0]?.textContent).toContain('✓')
+    expect(slots[1]).toHaveAttribute('aria-pressed', 'false')
+    // Fără nume → eroare locală, fără server.
+    await userEvent.click(screen.getByRole('button', { name: /trimite comanda/i }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(createOrderMock).not.toHaveBeenCalled()
+  })
+})
+
+// ux-guest-10 (pasul A): pe un local fără `pickup_orders` (Planul 1, downgrade)
+// refuzul serverului (hint `plan_upgrade_required`, mig 290) apărea ca
+// „Comanda nu s-a trimis. Încearcă din nou." cu butonul de trimitere activ —
+// o retrimitere care nu poate reuși. Mutațiile care pică: fallback-ul vechi
+// (describeGuestError fără PICKUP_ERROR_OPTS); CTA-ul lăsat după refuz.
+describe('PickupCheckoutSheet — refuzul de plan spus pe față', () => {
+  beforeEach(() => {
+    sessionStorage.clear()
+    createOrderMock.mockReset()
+  })
+
+  it('S12 refuzul de plan: mesaj de indisponibilitate și „Înapoi la meniu", fără „Trimite"', async () => {
+    createOrderMock.mockRejectedValue(
+      Object.assign(
+        new Error(
+          'Comenzile nu sunt disponibile pe planul curent al restaurantului. Funcția cere un plan superior.',
+        ),
+        { hint: 'plan_upgrade_required', code: '23514' },
+      ),
+    )
+    const onClose = vi.fn()
+    renderSheet(vi.fn(), '#c8102e', onClose)
+    await fillAndSubmit()
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/ridicare nu sunt disponibile/i)
+    expect(alert).not.toHaveTextContent(/încearcă din nou/i)
+    expect(screen.queryByRole('button', { name: /trimite comanda/i })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /înapoi la meniu/i }))
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('S13 control: o eroare de rețea lasă „Trimite" (se poate reîncerca)', async () => {
+    createOrderMock.mockRejectedValue(new TypeError('Failed to fetch'))
+    renderSheet()
+    await fillAndSubmit()
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: /trimite comanda/i })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /înapoi la meniu/i })).not.toBeInTheDocument()
+  })
+})
+

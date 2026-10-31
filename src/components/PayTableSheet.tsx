@@ -19,6 +19,7 @@ import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currenc
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { describeGuestError, PAY_TABLE_ERROR_OPTS } from '../lib/guestErrors'
+import { legibleOn, readableTextOn } from '../lib/themes'
 
 interface PUBColors {
   bg: string
@@ -313,7 +314,7 @@ export default function PayTableSheet({
                 fontFamily: 'Fraunces, Georgia, serif',
                 fontSize: 18,
                 fontWeight: 700,
-                color: accent,
+                color: legibleOn(accent, PUB.bg),
               }}
             >
               {fmtPrice(amount, currency)}
@@ -392,7 +393,12 @@ export default function PayTableSheet({
                 : canConfirm
                   ? accent
                   : PUB.surface,
-            color: phase === 'paid' || phase === 'error' ? PUB.text : canConfirm ? '#fff' : PUB.text3,
+            color:
+              phase === 'paid' || phase === 'error'
+                ? PUB.text
+                : canConfirm
+                  ? readableTextOn(accent, PUB.text)
+                  : PUB.text3,
             border:
               phase === 'paid' || phase === 'error' ? `1px solid ${PUB.borderStrong}` : 'none',
             borderRadius: 16,
