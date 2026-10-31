@@ -2,7 +2,7 @@
 // ─────────────────────────────────────────────────────────────────
 // Igiena telemetriei: tokenurile din URL nu au voie să ajungă la Sentry sau la
 // PostHog. Funcții PURE (fără DOM, fără rețea), folosite de main.tsx (Sentry:
-// beforeSend / beforeSendTransaction / beforeBreadcrumb) și de analytics.ts
+// beforeSend / beforeSendSpan / beforeBreadcrumb) și de analytics.ts
 // (PostHog: before_send).
 //
 // Ce e secret în URL-urile aplicației:

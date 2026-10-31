@@ -19,8 +19,9 @@ const { appUrl } = require('./lib/appUrl')
 // versiunea lor e setată per endpoint în Stripe Dashboard (act de fondator, A9)
 // și trebuie ținută egală cu aceasta. Se schimbă DELIBERAT, cu
 // tests/stripe-contract/ verzi (SDK-ul REAL; tests/functions/ îl înlocuiește cu
-// totul). Din stripe-node 22 implicitul e '2026-08-26.dahlia': fără pin, cererile
-// ar trece TĂCUT pe dahlia.
+// totul). Implicitul SDK-ului se mută la fiecare versiune majoră (v22:
+// '2026-08-26.dahlia', v23: '2026-09-30.endive'): fără pin, cererile ar trece
+// TĂCUT pe implicitul SDK-ului instalat.
 const STRIPE_API_VERSION = '2023-10-16'
 
 function jsonResponse(statusCode, body) {

@@ -1,11 +1,12 @@
 // tests/stripe-contract/sdk.test.js
 // Contractul cu SDK-ul Stripe REAL (pachetul din node_modules de la rădăcină,
 // instalat de `npm ci`), fără rețea. tests/functions/ înlocuiește modulul
-// 'stripe' cu un fake, deci trece identic pe v14, pe v22 și cu pin-ul șters —
-// e ORB la un bump de SDK. Suita asta e poarta bump-ului (stripe 14 → 22, #270).
+// 'stripe' cu un fake, deci trece identic pe v14, v22, v23 și cu pin-ul șters —
+// e ORB la un bump de SDK. Suita asta e poarta bump-ului (stripe 14 → 22, #270;
+// 22 → 23, #281).
 //
 //   SDK1  cele 9 construcții `new Stripe(` folosesc pin-ul; pin-urile sunt egale;
-//         clientul REAL trimite pin-ul (v22 are implicit '2026-08-26.dahlia')
+//         clientul REAL trimite pin-ul (implicitul diferă: v22 dahlia, v23 endive)
 //   SDK2  semnătura webhook-ului: dus-întors real + secret greșit + payload alterat
 //   SDK3  payload „thin" (v2) → Error simplu, NU eroare de semnătură
 //   SDK4  clichet de descoperire: fiecare apel `stripe*.x.y(` din funcții există

@@ -71,6 +71,7 @@ function CategoryModal({
             Nume *
           </label>
           <Inp
+            label="Nume categorie"
             value={form.name || ''}
             onChange={(v) => setForm((f) => ({ ...f, name: v }))}
             placeholder="Feluri principale"
@@ -81,6 +82,7 @@ function CategoryModal({
             Emoji
           </label>
           <Inp
+            label="Emoji"
             value={form.emoji || ''}
             onChange={(v) => setForm((f) => ({ ...f, emoji: v }))}
             placeholder="🍽️"
@@ -91,6 +93,7 @@ function CategoryModal({
             Text italic sub titlu (opțional)
           </label>
           <textarea
+            aria-label="Text italic sub titlu"
             value={form.meta_text || ''}
             onChange={(e) => setForm((f) => ({ ...f, meta_text: e.target.value }))}
             placeholder="ex: Servit până la ora 13:00"
@@ -148,6 +151,7 @@ function CategoryModal({
                     {meta?.flag} Nume ({label})
                   </span>
                   <Inp
+                    label={`Nume (${label})`}
                     value={names[code] ?? ''}
                     onChange={(v) => setNames((n) => ({ ...n, [code]: v }))}
                     placeholder={form.name || 'Nume categorie'}

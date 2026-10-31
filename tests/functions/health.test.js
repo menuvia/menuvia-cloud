@@ -267,7 +267,7 @@ describe('health — forma publică e ÎNGHEȚATĂ; diagnosticul complet cere to
     assertNoDiag(body, 'HL9')
   })
 
-  it('HL10: cu token, config (exact 4 booleeni), cron_last_run și detaliile sunt livrate', async () => {
+  it('HL10: cu token, config (4 booleeni + modul cheii Stripe), cron_last_run și detaliile sunt livrate', async () => {
     process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
     process.env.RESEND_API_KEY = 're_x'
     delete process.env.STRIPE_SECRET_KEY
@@ -279,13 +279,39 @@ describe('health — forma publică e ÎNGHEȚATĂ; diagnosticul complet cere to
     scriptSchema({ data: { available: true, ledger_count: 271, latest_name: 'migration_271_health_probes', latest_version: '1', missing: [] }, error: null })
     scriptQueues({ data: backlog(), error: null })
     const body = parseBody(await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } }))
-    assert.deepEqual(Object.keys(body.config).sort(), ['ai_platform', 'resend', 'slack', 'stripe'])
+    assert.deepEqual(Object.keys(body.config).sort(), ['ai_platform', 'resend', 'slack', 'stripe', 'stripe_key_mode'])
     assert.equal(body.config.resend, true)
     assert.equal(body.config.stripe, false)
+    assert.equal(body.config.stripe_key_mode, 'unknown')
     assert.equal(body.cron_last_run, computedAt)
     assert.equal(body.storage_detail.bytes, 1024)
     assert.equal(body.schema_detail.ledger_count, 271)
     assert.ok(body.queue_detail && body.queue_detail.cron)
+  })
+
+  it('HL10b: config.stripe_key_mode spune MODUL cheii, niciodată cheia', async () => {
+    process.env.HEALTH_DIAG_TOKEN = 'secret-diag-token'
+    const cases = [
+      ['sk_test_51AbCdSecretValue', 'test'],
+      ['rk_test_51AbCdSecretValue', 'test'],
+      ['sk_live_51AbCdSecretValue', 'live'],
+      ['rk_live_51AbCdSecretValue', 'live'],
+      // Cheia publicabilă pusă din greșeală în locul celei secrete.
+      ['pk_live_51AbCdSecretValue', 'unknown'],
+    ]
+    for (const [key, mode] of cases) {
+      process.env.STRIPE_SECRET_KEY = key
+      const { handler } = loadHealthFresh()
+      scriptDbOk(1024)
+      const res = await handler({ httpMethod: 'GET', headers: { 'x-health-diag': 'secret-diag-token' } })
+      const body = parseBody(res)
+      assert.equal(body.config.stripe, true, key)
+      assert.equal(body.config.stripe_key_mode, mode, key)
+      assert.ok(!res.body.includes('SecretValue'), `cheia ${key} a ajuns în corp`)
+      // Fără token: nici modul cheii (o cheie de test pe prod e informație de atac).
+      const pub = await handler({ httpMethod: 'GET' })
+      assert.ok(!pub.body.includes('stripe'), `${key}: modul cheii a ajuns pe suprafața publică`)
+    }
   })
 
   it('HL11: token greșit de aceeași lungime → nici config, nici cron_last_run', async () => {
