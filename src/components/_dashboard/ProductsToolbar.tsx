@@ -128,10 +128,17 @@ export function ProductsToolbar({
         {importOpen && (
           <div
             id={menuId}
+            // Ancorat la marginea STÂNGĂ a butonului. Pe telefon antetul se
+            // rupe pe două rânduri și bara ajunge lipită de marginea stângă:
+            // „Importă" e al doilea buton (dreapta lui la ~180 px), deci un
+            // meniu de 220 px aliniat la dreapta lui ieșea ~40 px în afara
+            // containerului cu scroll (overflow: auto) și pierdea iconițele și
+            // primele litere. La stânga e mereu loc: în dreapta lui „Importă"
+            // stă „+ Adaugă produs", iar împreună depășesc lățimea meniului.
             style={{
               position: 'absolute',
               top: 'calc(100% + 6px)',
-              right: 0,
+              left: 0,
               zIndex: 20,
               minWidth: 220,
               background: D.s2,

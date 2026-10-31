@@ -53,6 +53,12 @@ describe('ProductsToolbar', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
     const menu = document.getElementById(trigger.getAttribute('aria-controls') ?? '')
     expect(menu).not.toBeNull()
+    // Ancorat la stânga butonului: pe telefon bara stă lipită de marginea
+    // stângă și un meniu aliniat la dreapta „Importă" ieșea ~40 px în afara
+    // containerului cu scroll (mutația `right: 0` pică aici). jsdom n-are
+    // layout, deci verificarea e pe ancoră, nu pe poziția calculată.
+    expect(menu?.style.left).toBe('0px')
+    expect(menu?.style.right).toBe('')
     await user.click(within(menu as HTMLElement).getByRole('button', { name: 'Din fișier CSV' }))
 
     expect(h.onImportCsv).toHaveBeenCalledTimes(1)
