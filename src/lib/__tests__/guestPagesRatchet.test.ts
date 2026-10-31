@@ -16,7 +16,8 @@
 //   GA5  dialogurile inline de pe /m sunt dialoguri reale cu capcană de focus
 //        (a11y-focus-trap-gaps).
 //   GA6  bara de coș își anunță conținutul, iar adăugarea e anunțată
-//        (ux-guest-12); `<html lang>` urmează limba (a11y-guest-html-lang).
+//        (ux-guest-12): regiunea role="status" există ȘI fiecare append pe
+//        coș e urmat de anunț; `<html lang>` urmează limba (a11y-guest-html-lang).
 //   GA7  fiecare dialog modal inline (aria-modal + capcană de focus) are o
 //        ieșire care DOAR închide — un X cu `T(lang, 'close')` —, altfel
 //        capcana de focus devine capcană reală (WCAG 2.1.2). Foaia de bacșiș
@@ -139,6 +140,28 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
       expect(s).toMatch(/useDocumentLang\(lang\)/)
     }
     expect(src.qr).not.toMatch(/aria-label=\{T\(lang, 'my_order'\)\}/)
+
+    // Regiunea există, dar trebuie și SCRISĂ: fiecare adăugare în coș (append
+    // pe `cart`) e urmată, în cel mult 20 de linii, de anunț. O cale nouă de
+    // adăugare fără anunț ar lăsa cititorul de ecran fără confirmare exact pe
+    // ea. Anti-vacuitate: /q are patru căi (quick-add, fișă, asocieri,
+    // sugestiile din coș), /m una (addToCart, prin care trec toate).
+    const ANNOUNCE = /announceAdded\(|setLastAdded\(/
+    for (const [file, source, min] of [
+      [FILES.qr, src.qr, 4],
+      [FILES.pub, src.pub, 1],
+    ] as const) {
+      const lines = source.split('\n')
+      const appends = [...source.matchAll(/setCart\(\((\w+)\) => \[\s*\.\.\.\1,/g)].map(
+        (m) => source.slice(0, m.index).split('\n').length - 1,
+      )
+      const silent = appends.filter((ln) => !ANNOUNCE.test(lines.slice(ln, ln + 20).join('\n')))
+      expect({ file, enough: appends.length >= min, silent }).toEqual({
+        file,
+        enough: true,
+        silent: [],
+      })
+    }
   })
 
   it('GA7 fiecare dialog modal inline are o ieșire care DOAR închide (fără capcană)', () => {
