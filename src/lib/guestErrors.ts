@@ -182,11 +182,13 @@ export const PAY_TABLE_ERROR_OPTS: GuestErrorOptions = {
 }
 
 /** PickupCheckoutSheet — comanda cu ridicare (ux-guest-10). Pe un local fără
- *  `pickup_orders` (Planul 1, downgrade) ridicarea apare încă oaspetelui —
- *  proiecția publică nu expune planul — iar refuzul serverului cădea pe
+ *  `pickup_orders` (Planul 1, downgrade) refuzul serverului cădea pe
  *  fallback-ul „Comanda nu s-a trimis. Încearcă din nou.", adică invita la o
  *  retrimitere care nu poate reuși. Acum spune pe față că ridicarea nu e
- *  disponibilă la local. */
+ *  disponibilă la local. Din mig 309 (pasul B) pagina publică nici nu mai arată
+ *  ridicarea fără `pickup_orders`, deci refuzul rămâne pentru fereastra dintre
+ *  încărcarea paginii și trimitere (un downgrade între ele) și pentru o bază
+ *  fără 309. */
 export const PICKUP_ERROR_OPTS: GuestErrorOptions = {
   fallback: 'err_order_not_sent',
   network: 'err_order_not_sent_network',

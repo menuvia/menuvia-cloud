@@ -1,17 +1,30 @@
 // Setări → Comenzi & plăți: comutatorul „Comenzi pentru ridicare" pe planul
 // restaurantului. Pe Planul 1 (fără `pickup_orders`) comutatorul pornea
 // ridicarea pentru oaspeți, iar serverul (`enforce_ordering_enabled`, mig 083)
-// le respingea apoi FIECARE comandă. Ce păzesc:
-//   PS1  plan fără ridicare + oprită: comutatorul e blocat și spune de ce
-//        (pică pe codul vechi: comutatorul era activ — mutația „scoate
-//        `disabled`/`canSetPickupEnabled`").
-//   PS2  control pozitiv: pe Meniu + Comenzi pornește normal și arată opțiunile.
-//   PS3  plan fără ridicare dar PORNITĂ (downgrade): se poate opri, cu
-//        avertisment; odată oprită, nu se mai poate reporni.
+// le respingea apoi FIECARE comandă. Din mig 309 pagina publică nici nu mai
+// arată ridicarea fără `pickup_orders`, deci textele cardului (lib/pickupCopy)
+// spun asta, derivate din ACEEAȘI stare a comutatorului. Ce păzesc:
+//   PS1  plan fără ridicare + oprită: comutatorul e blocat și spune de ce, iar
+//        descrierea nu promite comenzi (pică pe codul vechi: comutatorul era
+//        activ — mutația „scoate `disabled`/`canSetPickupEnabled`"; și pe
+//        descrierea care promitea pe orice plan).
+//   PS2  control pozitiv: pe Meniu + Comenzi pornește normal, arată opțiunile
+//        și promite comenzile.
+//   PS3  plan fără ridicare dar PORNITĂ (downgrade): se poate opri, cu UN
+//        SINGUR avertisment, adevărat după 309 (oaspeții nu văd ridicarea,
+//        setarea rămâne) — nu „văd formularul, dar comenzile sunt respinse";
+//        odată oprită, nu se mai poate reporni.
 //   PS4  plan NECUNOSCUT (features în încărcare / RPC picat — DashboardPage
-//        trimite atunci 'free'): comutatorul e blocat, fără „comenzile sunt
-//        respinse" (mutația: `pickupToggleState(plan, …)` fără `planKnown` →
-//        un local pe Meniu + Comenzi vede alarma falsă și își oprește ridicarea).
+//        trimite atunci 'free'): comutatorul e blocat, fără avertismentul de
+//        plan (mutația: `pickupToggleState(plan, …)` fără `planKnown` → un
+//        local pe Meniu + Comenzi vede alarma falsă și își oprește ridicarea).
+//   PS5  Meniu & aspect, stilul flipbook: nota „comanda din meniu nu e
+//        disponibilă pe acest stil” sugerează că pe celelalte stiluri se poate
+//        comanda, deci apare DOAR pe un plan cu comenzi — nu pe ridicarea
+//        pornită a unui plan fără ea (din 309 pagina publică n-o arată) și nu pe
+//        planul necunoscut. Mutația care pică: condiția veche
+//        `planTier(plan) >= 2 || pickup_settings.enabled`. Control pozitiv pe
+//        Meniu + Comenzi.
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -94,6 +107,26 @@ async function openOrders(plan: string, restaurant: Restaurant, planKnown = true
   return user
 }
 
+const FLIPBOOK: Restaurant['theme_settings'] = { preset_id: 'cafe', menu_layout: 'flipbook' }
+const FLIPBOOK_NOTE = /comanda din meniu nu e disponibilă pe acest stil/
+
+async function openMenuAspect(plan: string, restaurant: Restaurant, planKnown = true) {
+  const user = userEvent.setup()
+  render(
+    <SettingsTab
+      restaurant={restaurant}
+      onUpdate={vi.fn(async () => ({ error: null }))}
+      plan={plan}
+      planKnown={planKnown}
+      onSignOut={() => {}}
+    />,
+  )
+  await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
+  // Ancora: secțiunea flipbook e randată, deci absența notei nu vine dintr-un
+  // tab greșit sau dintr-un stil nerecunoscut.
+  expect(screen.getByText(/Paginile meniului \(\d+\/\d+\)/)).toBeInTheDocument()
+}
+
 describe('SettingsTab — ridicarea pe planul restaurantului', () => {
   it('PS1: pe un plan fără ridicare comutatorul e blocat și spune de ce', async () => {
     const user = await openOrders('starter', makeRestaurant())
@@ -101,6 +134,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(sw).toBeDisabled()
     expect(sw).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByText(/Disponibil de la planul Meniu \+ Comenzi/)).toBeInTheDocument()
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'false')
@@ -112,6 +146,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeEnabled()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
+    expect(screen.getByText(/clienții pot comanda/i)).toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
@@ -123,7 +158,12 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeEnabled()
     expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(screen.getByText(/comenzile lor sunt respinse/)).toBeInTheDocument()
+    // UN singur avertisment (fără al doilea, paralel), cu ce e adevărat după 309.
+    expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
+    expect(screen.getByText(/nu văd ridicarea pe pagina publică/)).toBeInTheDocument()
+    expect(screen.getByText(/Setarea rămâne salvată/)).toBeInTheDocument()
+    expect(screen.queryByText(/văd formularul|sunt respinse/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
     await user.click(sw)
     const off = screen.getByRole('switch', { name: SWITCH })
@@ -138,13 +178,39 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeDisabled()
     expect(sw).toHaveAttribute('aria-checked', 'true')
-    expect(screen.queryByText(/comenzile lor sunt respinse/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Planul tău nu include/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
+    // Nici promisiunea de comenzi: planul nu e cunoscut.
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
     // Textul nu pretinde un eșec: „unknown" e și starea de încărcare normală.
     expect(screen.getByText(/Se verifică planul restaurantului/)).toBeInTheDocument()
     expect(screen.queryByText(/Nu am putut/)).not.toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
+  })
+})
+
+describe('SettingsTab — nota flipbook despre comanda din meniu', () => {
+  it('PS5a: plan fără ridicare, cu ridicarea pornită (downgrade) — fără notă', async () => {
+    await openMenuAspect(
+      'free',
+      makeRestaurant({ pickup_settings: PICKUP_ON, theme_settings: FLIPBOOK }),
+    )
+    expect(screen.queryByText(FLIPBOOK_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('PS5b: plan necunoscut — fără notă (nici promisiune implicită)', async () => {
+    await openMenuAspect(
+      'free',
+      makeRestaurant({ pickup_settings: PICKUP_ON, theme_settings: FLIPBOOK }),
+      false,
+    )
+    expect(screen.queryByText(FLIPBOOK_NOTE)).not.toBeInTheDocument()
+  })
+
+  it('PS5c: control pozitiv — pe Meniu + Comenzi nota apare', async () => {
+    await openMenuAspect('growth', makeRestaurant({ theme_settings: FLIPBOOK }))
+    expect(screen.getByText(FLIPBOOK_NOTE)).toBeInTheDocument()
   })
 })

@@ -63,8 +63,10 @@ export default function PickupCheckoutSheet({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Refuz definitiv (ux-guest-10): localul nu primește comenzi cu ridicare —
-  // Planul 1 sau downgrade (proiecția publică nu expune planul, deci ridicarea
-  // încă apare). Foaia nu mai oferă „Trimite", doar întoarcerea la meniu.
+  // Planul 1 sau downgrade. Din mig 309 pagina publică nu mai arată ridicarea
+  // fără `pickup_orders`, deci refuzul ajunge aici doar când planul a coborât
+  // între încărcarea paginii și trimitere, sau pe o bază fără 309. Foaia nu mai
+  // oferă „Trimite", doar întoarcerea la meniu.
   const [refused, setRefused] = useState(false)
   // Etichetele vizibile numesc câmpurile (înainte erau doar text deasupra lor).
   const nameId = useId()

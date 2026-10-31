@@ -1060,10 +1060,11 @@ function Step3Table({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Comenzile pentru ridicare sunt growth+ (Gate A). TRISTATE: `null` = planul
-  // nu e (încă) cunoscut. Flag-ul NU e inert: cu `pickup_settings.enabled`,
-  // meniul public oferă ridicarea oaspeților, iar pe un plan fără
-  // `pickup_orders` serverul le respinge TOATE comenzile. Deci pe tier 1 nu se
-  // pornește nimic, iar pe necunoscut nu se pornește până nu e verificat.
+  // nu e (încă) cunoscut. Pe un plan fără `pickup_orders` flag-ul nu aduce
+  // nimic oaspeților (din mig 309 pagina publică nu arată ridicarea, iar
+  // `create_order` o refuză), dar ar rămâne „pornit” în Setări, cu avertisment
+  // (lib/pickupCopy.ts). Deci pe tier 1 nu se pornește nimic, iar pe necunoscut
+  // nu se pornește până nu e verificat.
   const [hasPickup, setHasPickup] = useState<boolean | null>(null)
 
   useEffect(() => {
