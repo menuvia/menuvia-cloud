@@ -21,8 +21,11 @@ export function ActionErrorNote({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 8,
-        background: `${D.red}1A`,
-        border: `1px solid ${D.red}55`,
+        // D.red e `var(--color-danger, #…)`: un sufix de opacitate lipit de el
+        // (`${D.red}1A`) e CSS invalid și browserul aruncă tot fundalul/chenarul
+        // — de aici token-ul de fundal dedicat.
+        background: D.redA,
+        borderLeft: `3px solid ${D.red}`,
         borderRadius: 8,
         padding: '6px 4px 6px 10px',
         color: D.red,

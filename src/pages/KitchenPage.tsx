@@ -619,8 +619,10 @@ export default function KitchenPage() {
         <div
           role="status"
           style={{
-            background: `${D.amber}1F`,
-            borderBottom: `1px solid ${D.amber}44`,
+            // Token-uri D întregi: `${D.amber}1F` lipește un sufix de opacitate
+            // de un `var(...)` → CSS invalid, banner fără fundal.
+            background: D.amberA,
+            borderBottom: `1px solid ${D.amber}`,
             padding: '8px 24px',
             display: 'flex',
             alignItems: 'center',
