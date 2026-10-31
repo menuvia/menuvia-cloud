@@ -386,7 +386,7 @@ export function resolveFlipbookPages(settings: ThemeSettings | null | undefined)
 // nu există carduri, coș sau ridicare, deci panoul nu are voie să promită
 // comenzi exact acolo. O copie a regulii în altă parte ar diverge tăcut — un
 // staff care ar citi doar `menu_layout` ar spune „fără comenzi” pentru un
-// flipbook fără pagini, pe care oaspetele îl vede ca listă, cu coș (ML3).
+// flipbook fără pagini, pe care oaspetele îl vede ca listă, cu coș (EL2).
 export function resolveEffectiveMenuLayout(settings: ThemeSettings | null | undefined): MenuLayout {
   const layout = resolveMenuLayout(settings)
   return layout === 'flipbook' && resolveFlipbookPages(settings).length === 0 ? 'list' : layout
