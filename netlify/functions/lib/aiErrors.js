@@ -52,6 +52,7 @@ const AI_ERROR_MESSAGES = {
   product_not_found: 'Produsul nu a fost găsit.',
   product_update_failed: 'Imaginea s-a generat, dar nu am putut-o atașa produsului. Reîncearcă.',
   invalid_pack: 'Pachetul de credite ales nu există.',
+  checkout_failed: 'Nu am putut porni plata pentru credite. Reîncearcă în câteva momente.',
   service_unavailable: 'Serviciu temporar indisponibil. Reîncearcă în câteva momente.',
 }
 

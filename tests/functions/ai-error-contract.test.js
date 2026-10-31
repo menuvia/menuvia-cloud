@@ -21,7 +21,9 @@
 //         mesaj fără apelant e text mort).
 //   AEC4  cablajul real, pe ramurile importante ale fiecărei funcții: status,
 //         cod și mesaj EXACT din tabelă. Timeout-ul furnizorului e 504
-//         `provider_timeout` (remediu concret), nu 502 generic.
+//         `provider_timeout` (remediu concret), nu 502 generic. Un apel Stripe
+//         care aruncă în ai-credits-checkout e 502 `checkout_failed`, nu o
+//         excepție neprinsă (fără corp de contract).
 //   AEC5  control: aiError() aruncă pe un cod necunoscut (altfel AEC3 n-ar
 //         avea ce prinde la runtime).
 //
@@ -251,5 +253,48 @@ describe('AEC4: ai-generate-image și ai-credits-checkout', () => {
     expectError(await handler(post({ restaurant_id: 'r1', pack: 'constructor' })), 400, 'invalid_pack')
     state.fromHandlers['restaurant_memberships'] = () => ({ data: null, error: { message: 'no rows' } })
     expectError(await handler(post({ restaurant_id: 'r1', pack: 'small' })), 403, 'forbidden')
+  })
+
+  // Un apel Stripe care aruncă ieșea din handler NEPRINS: platforma răspundea
+  // 502 fără corp de contract, iar clientul afișa pe butonul de cumpărare
+  // „Asistentul AI nu a putut răspunde" (fallback-ul de status). Mutația care
+  // pică: oricare dintre cele două try/catch scoase (handler-ul aruncă).
+  it('ai-credits-checkout: Stripe căzut → 502 checkout_failed, nu o excepție neprinsă', async () => {
+    const savedErr = console.error
+    console.error = () => {}
+    try {
+      const { handler } = loadFunction('netlify/functions/ai-credits-checkout.js')
+      state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
+      state.stripeImpls['checkout.sessions.create'] = async () => {
+        throw new Error('Invalid API Key provided')
+      }
+      expectError(await handler(post({ restaurant_id: 'r1', pack: 'small' })), 502, 'checkout_failed')
+
+      // Sesiune fără URL: clientul ar naviga la „undefined".
+      state.stripeImpls['checkout.sessions.create'] = async () => ({ id: 'cs_1', url: null })
+      expectError(await handler(post({ restaurant_id: 'r1', pack: 'small' })), 502, 'checkout_failed')
+
+      // Customer nou: crearea lui aruncă înaintea sesiunii.
+      state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: null, email: 'a@x.test' }, error: null })
+      state.stripeImpls['customers.create'] = async () => {
+        throw new Error('connection reset')
+      }
+      const before = state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length
+      expectError(await handler(post({ restaurant_id: 'r1', pack: 'small' })), 502, 'checkout_failed')
+      assert.equal(
+        state.stripeCalls.filter((c) => c.name === 'checkout.sessions.create').length,
+        before,
+        'sesiunea de plată pornită fără customer',
+      )
+
+      // Control: drumul fericit rămâne 200 cu URL-ul sesiunii.
+      state.fromHandlers['profiles'] = () => ({ data: { stripe_customer_id: 'cus_1', email: 'a@x.test' }, error: null })
+      state.stripeImpls['checkout.sessions.create'] = async () => ({ id: 'cs_2', url: 'https://checkout.stripe.com/c/x' })
+      const ok = await handler(post({ restaurant_id: 'r1', pack: 'small' }))
+      assert.equal(ok.statusCode, 200, ok.body)
+      assert.equal(parseBody(ok).url, 'https://checkout.stripe.com/c/x')
+    } finally {
+      console.error = savedErr
+    }
   })
 })

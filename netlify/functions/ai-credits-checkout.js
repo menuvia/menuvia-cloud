@@ -100,10 +100,19 @@ exports.handler = async (event) => {
 
   let customerId = profile?.stripe_customer_id
   if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: profile?.email || user.email,
-      metadata: { supabase_user_id: user.id },
-    })
+    // Un apel Stripe care aruncă (cheie rotită, Stripe indisponibil, timeout)
+    // ar ieși din funcție ca 502 FĂRĂ corp de contract, iar clientul ar afișa
+    // pe butonul de cumpărare „Asistentul AI nu a putut răspunde" — fals.
+    let customer
+    try {
+      customer = await stripe.customers.create({
+        email: profile?.email || user.email,
+        metadata: { supabase_user_id: user.id },
+      })
+    } catch (e) {
+      console.error('[ai-credits-checkout] customers.create error:', e?.message)
+      return aiError(502, 'checkout_failed')
+    }
     customerId = customer.id
 
     // Anti race la creare concurentă (2 cereri simultane fără stripe_customer_id
@@ -142,29 +151,39 @@ exports.handler = async (event) => {
   // Cheile + fallback-ul de dinainte, EXACT (VITE_APP_URL → menuvia.netlify.app).
   const appUrl = resolveAppUrl({ keys: ['VITE_APP_URL'], fallback: LEGACY_NETLIFY_URL })
 
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    client_reference_id: user.id,
-    mode: 'payment',
-    line_items: [
-      {
-        price_data: {
-          currency: 'ron',
-          unit_amount: packDef.amount,
-          product_data: { name: `Menuvia · ${packDef.label}` },
+  let session
+  try {
+    session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      client_reference_id: user.id,
+      mode: 'payment',
+      line_items: [
+        {
+          price_data: {
+            currency: 'ron',
+            unit_amount: packDef.amount,
+            product_data: { name: `Menuvia · ${packDef.label}` },
+          },
+          quantity: 1,
         },
-        quantity: 1,
+      ],
+      success_url: `${appUrl}/dashboard?ai_credits=success`,
+      cancel_url: `${appUrl}/dashboard?ai_credits=cancelled`,
+      // Metadata citită de webhook pentru fulfilment-ul idempotent al creditelor.
+      metadata: {
+        type: 'ai_credits',
+        restaurant_id,
+        tokens: String(packDef.tokens),
       },
-    ],
-    success_url: `${appUrl}/dashboard?ai_credits=success`,
-    cancel_url: `${appUrl}/dashboard?ai_credits=cancelled`,
-    // Metadata citită de webhook pentru fulfilment-ul idempotent al creditelor.
-    metadata: {
-      type: 'ai_credits',
-      restaurant_id,
-      tokens: String(packDef.tokens),
-    },
-  })
+    })
+  } catch (e) {
+    console.error('[ai-credits-checkout] checkout.sessions.create error:', e?.message)
+    return aiError(502, 'checkout_failed')
+  }
+  // Fără URL clientul ar naviga la „undefined" (window.location.href = url).
+  if (!session || typeof session.url !== 'string' || !session.url) {
+    return aiError(502, 'checkout_failed')
+  }
 
   return jsonResponse(200, { url: session.url })
 }
