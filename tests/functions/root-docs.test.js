@@ -30,6 +30,12 @@
 //   DOC5  un document viu care pomenește „SQL Editor” trimite și la workflow-ul
 //         care aplică migrațiile pe producție. Mutația: README-ul vechi
 //         („Production: prin SQL Editor în Dashboard”).
+//   DOC6  orice identificator snake_case dintr-un document viu (RPC, tabelă,
+//         trigger, coloană) apare în cod: migrații, src/, funcții, teste,
+//         workflow-uri. Mutația: fluxul vechi din ARCHITECTURE.md numea
+//         `start_table_session`; RPC-ul real e `open_table_session`. Scutirile
+//         (ex. o tabelă doar PROIECTATĂ) au motiv și trebuie să lipsească
+//         într-adevăr din cod — una care a apărut între timp pică.
 //
 // Rulează în jobul „Bridge tests" (node --test, fără dependențe).
 'use strict'
@@ -58,6 +64,15 @@ const RENOVATE_CONFIGS = [
   '.github/renovate.json5',
   '.gitlab/renovate.json',
 ]
+
+// Identificatori pe care documentele îi pot numi deși NU există încă în cod.
+const PLANNED_IDENTIFIERS = {
+  restaurant_subscriptions:
+    'tabelă proiectată în docs/RESTAURANT_SUBSCRIPTIONS.md, încă necreată (ARCHITECTURE: datorii)',
+}
+// Unde se caută identificatorii (fără .md: documentația nu dovedește codul).
+const CODE_DIRS = ['supabase', 'src', 'netlify', 'tests', 'bridge', 'scripts', '.github', 'deploy']
+const SELF = path.relative(ROOT, __filename).split(path.sep).join('/')
 
 const REPO_DIRS = [
   '.github',
@@ -151,6 +166,34 @@ function liveFunnelEscapes(fnName) {
     if (m[1].toLowerCase() !== 'exists') names.add(m[1])
   }
   return { file: last, names }
+}
+
+/** Identificatorii snake_case dintr-un text (nu părți de căi sau de nume de fișier). */
+function snakeIdentifiers(text) {
+  const ids = new Set()
+  for (const m of text.matchAll(/(?<![\w./-])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\w-])/g))
+    ids.add(m[0])
+  return [...ids].sort()
+}
+
+/** Tot codul din CODE_DIRS, concatenat (fără .md, fără node_modules, fără acest test). */
+function codeCorpus() {
+  const parts = []
+  const walk = (abs) => {
+    for (const ent of fs.readdirSync(abs, { withFileTypes: true })) {
+      if (ent.name === 'node_modules' || ent.name === '.git') continue
+      const full = path.join(abs, ent.name)
+      if (ent.isDirectory()) walk(full)
+      else {
+        const rel = path.relative(ROOT, full).split(path.sep).join('/')
+        if (rel === SELF || /\.md$/i.test(rel)) continue
+        if (!/\.(sql|ts|tsx|js|mjs|cjs|json|ya?ml|toml|sh|css|html)$/i.test(rel)) continue
+        parts.push(fs.readFileSync(full, 'utf8'))
+      }
+    }
+  }
+  for (const dir of CODE_DIRS) if (exists(dir)) walk(path.join(ROOT, dir))
+  return parts.join('\n')
 }
 
 describe('documentele din rădăcină', () => {
@@ -256,5 +299,26 @@ describe('documentele din rădăcină', () => {
       return /SQL Editor/i.test(text) && !text.includes('apply-prod-migrations')
     })
     assert.deepEqual(bad, [])
+  })
+
+  it('DOC6: identificatorii din documentele vii există în cod', () => {
+    const corpus = codeCorpus()
+    const inCode = (id) => new RegExp(`(?<![\\w])${id}(?![\\w])`).test(corpus)
+    const missing = []
+    let seen = 0
+    for (const doc of LIVING_DOCS) {
+      for (const id of snakeIdentifiers(read(doc))) {
+        seen++
+        if (Object.prototype.hasOwnProperty.call(PLANNED_IDENTIFIERS, id)) continue
+        if (!inCode(id)) missing.push(`${doc}: ${id}`)
+      }
+    }
+    assert.ok(seen > 100, `prea puțini identificatori găsiți (${seen}) — extractorul e stricat?`)
+    assert.ok(inCode('open_table_session'), 'corpusul de cod nu vede migrațiile?')
+    assert.deepEqual(missing, [])
+    for (const [id, why] of Object.entries(PLANNED_IDENTIFIERS)) {
+      assert.ok(why.length > 10, `${id}: scutire fără motiv`)
+      assert.ok(!inCode(id), `${id} există acum în cod — scoate-l din PLANNED_IDENTIFIERS`)
+    }
   })
 })

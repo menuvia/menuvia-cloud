@@ -32,7 +32,7 @@ Din mig 296 regula de aur e și pe ȚARĂ: funcțiile de bani/bon (`feature_requ
 ## Fluxul central: comanda QR
 
 ```
-Client scanează QR (masă) → QrMenuPage → start_table_session (token)
+Client scanează QR (masă) → QrMenuPage → open_table_session (token)
   → create_order RPC (validări: sesiune, plan, stoc, limite)
   → KDS (KitchenPage): new → confirmed → preparing → ready
   → WaiterPage: served → [Plan 2] closed | [Plan 3] paid (PayModal, split, tips)
