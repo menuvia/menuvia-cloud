@@ -5,7 +5,7 @@
 // canalului, la revenirea în prim-plan după o pauză și la `online`.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import type { RealtimeConnectionStatus } from '../../lib/orders'
+import type { RealtimeConnectionStatus, StaffOrdersPage } from '../../lib/orders'
 
 const m = vi.hoisted(() => ({
   fetchKitchenOrders: vi.fn(),
@@ -163,5 +163,104 @@ describe('useOrders — resincronizare', () => {
     })
     await tick(0)
     expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(2)
+  })
+
+  it('RS7 un semnal venit în fereastra de 2 s e AMÂNAT, nu pierdut: reconectarea de după `online` tot reîncarcă', async () => {
+    // Telefonul revine: `online` (sau `visibilitychange`) la t=0, canalul se
+    // reabonează la ~1 s. Comanda B e creată între cele două — nu e în lista de
+    // la t=0 și evenimentul ei nu vine pe canal. Mutație: semnalul din fereastră
+    // e aruncat (`return`, varianta de dinainte) → fetch-ul rămâne la 2 și B
+    // apare abia la heartbeat (~120 s cu realtime conectat).
+    const { result } = renderHook(() => useOrders('r1', 'kitchen'))
+    await tick(0)
+    await status('connected')
+    await status('disconnected')
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+    await tick(0)
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(2)
+
+    m.fetchKitchenOrders.mockResolvedValue({
+      orders: [makeOrder({ id: 'A', status: 'new' }), makeOrder({ id: 'B', status: 'new' })],
+      truncated: false,
+    })
+    await tick(1_000)
+    await status('connected')
+    // În fereastră: încă niciun fetch nou...
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(2)
+    // ...dar la capătul ei pleacă unul, iar B apare.
+    await tick(1_000)
+    await tick(0)
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(3)
+    expect(result.current.orders.map((o) => o.id).sort()).toEqual(['A', 'B'])
+  })
+
+  it('RS8 o listă cerută ÎNAINTEA unei acțiuni și sosită DUPĂ ea nu readuce comanda pe pasul vechi', async () => {
+    // Bucătarul se întoarce la tabletă (resync pornit) și apasă imediat
+    // „Confirmă"; RPC-ul reușește înainte să sosească lista, care e de
+    // dinainte de acțiune. Mutație: fără contorul de epocă, lista veche se
+    // aplică (pendingAdvances e deja 0) → A revine la `new`, iar cu realtime
+    // conectat nimic n-o mai corecta până la heartbeat.
+    const { result } = renderHook(() => useOrders('r1', 'kitchen'))
+    await tick(0)
+    let resolveStale: (p: StaffOrdersPage) => void = () => {}
+    m.fetchKitchenOrders.mockImplementationOnce(
+      () =>
+        new Promise<StaffOrdersPage>((r) => {
+          resolveStale = r
+        }),
+    )
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(2)
+
+    m.advanceOrderStatus.mockResolvedValueOnce(null)
+    await act(async () => {
+      await result.current.advance('A', 'new', { status: 'confirmed' })
+    })
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
+
+    m.fetchKitchenOrders.mockResolvedValue({
+      orders: [makeOrder({ id: 'A', status: 'confirmed' })],
+      truncated: false,
+    })
+    await act(async () => {
+      resolveStale({ orders: [makeOrder({ id: 'A', status: 'new' })], truncated: false })
+    })
+    await tick(0)
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
+    // Lista veche e înlocuită de una cerută DUPĂ acțiune.
+    await tick(2_000)
+    await tick(0)
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(3)
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
+  })
+
+  it('RS9 la fel pentru heartbeat: lista pornită înaintea acțiunii nu se aplică după ea', async () => {
+    // Mutație: heartbeat-ul verifică doar `pendingAdvances > 0` (acțiunea s-a
+    // terminat deja când sosește lista) → A revine la `new`.
+    const { result } = renderHook(() => useOrders('r1', 'kitchen'))
+    await tick(0)
+    let resolveStale: (p: StaffOrdersPage) => void = () => {}
+    m.fetchKitchenOrders.mockImplementationOnce(
+      () =>
+        new Promise<StaffOrdersPage>((r) => {
+          resolveStale = r
+        }),
+    )
+    await tick(30_000) // canal neconectat → heartbeat la fiecare tick
+    expect(m.fetchKitchenOrders).toHaveBeenCalledTimes(2)
+
+    m.advanceOrderStatus.mockResolvedValueOnce(null)
+    await act(async () => {
+      await result.current.advance('A', 'new', { status: 'confirmed' })
+    })
+    await act(async () => {
+      resolveStale({ orders: [makeOrder({ id: 'A', status: 'new' })], truncated: false })
+    })
+    await tick(0)
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
   })
 })

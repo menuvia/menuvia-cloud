@@ -258,6 +258,11 @@ export function useOrders(
   // Câte operații advance() sunt in-flight. Polling-ul nu suprascrie state-ul
   // cât timp > 0 (altfel ar reverti update-ul optimist înainte de RPC).
   const pendingAdvancesRef = useRef(0)
+  // Câte advance()-uri au PORNIT. O listă cerută ÎNAINTEA unui advance și
+  // sosită DUPĂ ce el s-a terminat e mai veche decât rezultatul lui: aplicată,
+  // ar readuce comanda pe pasul de dinainte (iar cu realtime conectat nimic nu
+  // o mai corecta până la heartbeat). Contorul spune dacă s-a întâmplat asta.
+  const advanceEpochRef = useRef(0)
   // OPT-3: statusul realtime într-un ref — polling-ul îl consultă fără să
   // re-creeze intervalul la fiecare flap de status.
   const connectionStatusRef = useRef<RealtimeConnectionStatus>('connecting')
@@ -275,22 +280,46 @@ export function useOrders(
     if (!restaurantId) return
     const fetcher = view === 'kitchen' ? fetchKitchenOrders : fetchWaiterOrders
     let cancelled = false
+    // Un semnal venit în fereastra de RESYNC_MIN_GAP_MS e AMÂNAT până la
+    // capătul ei, nu aruncat. Pe telefonul care se trezește, `visibilitychange`
+    // (sau `online`) și reconectarea canalului vin la ~1 s una de alta, iar
+    // fetch-ul care contează e cel de DUPĂ reconectare: comenzile create între
+    // cele două nu mai vin pe canal. Aruncat, al doilea semnal lăsa lista
+    // incompletă până la heartbeat (~120 s cu realtime „conectat").
+    let trailing: ReturnType<typeof setTimeout> | null = null
     resyncRef.current = (force = false) => {
       if (pendingAdvancesRef.current > 0) {
         resyncWantedRef.current = true
         return
       }
       const now = Date.now()
-      if (!force && now - lastResyncAtRef.current < RESYNC_MIN_GAP_MS) return
+      // `since < 0` = ceasul a sărit înapoi: nu așteptăm o fereastră falsă.
+      const since = now - lastResyncAtRef.current
+      if (!force && since >= 0 && since < RESYNC_MIN_GAP_MS) {
+        if (trailing == null) {
+          trailing = setTimeout(() => {
+            trailing = null
+            resyncRef.current()
+          }, RESYNC_MIN_GAP_MS - since)
+        }
+        return
+      }
+      if (trailing != null) {
+        clearTimeout(trailing)
+        trailing = null
+      }
       lastResyncAtRef.current = now
       resyncWantedRef.current = false
+      const epoch = advanceEpochRef.current
       fetcher(restaurantId)
         .then((page) => {
           if (cancelled) return
-          if (pendingAdvancesRef.current > 0) {
-            // A pornit un advance între timp: lista asta ar reverti starea
-            // optimistă. Reluăm resync-ul la finalul lui.
+          if (pendingAdvancesRef.current > 0 || advanceEpochRef.current !== epoch) {
+            // A pornit un advance DUPĂ ce lista a fost cerută: lista poate fi
+            // mai veche decât rezultatul lui. N-o aplicăm; o cerem din nou (la
+            // finalul advance-ului, dacă e încă în curs).
             resyncWantedRef.current = true
+            if (pendingAdvancesRef.current === 0) resyncRef.current()
             return
           }
           setOrders((prev) => reconcileOrders(prev, page.orders))
@@ -318,6 +347,7 @@ export function useOrders(
     window.addEventListener('online', onOnline)
     return () => {
       cancelled = true
+      if (trailing != null) clearTimeout(trailing)
       resyncRef.current = () => {}
       resyncWantedRef.current = false
       lastResyncAtRef.current = 0
@@ -441,11 +471,14 @@ export function useOrders(
       if (typeof document !== 'undefined' && document.hidden) return
       if (pendingAdvancesRef.current > 0) return
       if (connectionStatusRef.current === 'connected' && tick % 4 !== 0) return
+      const epoch = advanceEpochRef.current
       fetcher(restaurantId)
         .then((page) => {
           if (cancelled) return
-          // Dublu-check: dacă între timp a pornit un advance, nu suprascrie.
-          if (pendingAdvancesRef.current > 0) return
+          // Dublu-check: dacă între timp a pornit un advance — chiar și unul
+          // deja terminat (epoca s-a schimbat) — lista e posibil mai veche
+          // decât rezultatul lui: nu suprascrie.
+          if (pendingAdvancesRef.current > 0 || advanceEpochRef.current !== epoch) return
           // OPT-7: reconciliere pe id cu păstrarea REFERINȚELOR — altfel
           // fiecare heartbeat crea obiecte noi pentru comenzi neschimbate,
           // re-randând tot arborele și invalidând orice memo pe carduri.
@@ -516,6 +549,7 @@ export function useOrders(
         return false
       }
       const gen = genRef.current
+      advanceEpochRef.current += 1
       pendingSetRef.current.add(orderId)
       setPendingIds(new Set(pendingSetRef.current))
       dismissActionError(orderId)
