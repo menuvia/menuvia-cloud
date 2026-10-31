@@ -48,6 +48,18 @@ const COLUMNS: { statuses: OrderStatus[]; label: string }[] = [
   { statuses: ['ready'], label: 'Gata de servit' },
 ]
 
+// Acțiunea MUTĂ cardul în altă coloană? Atunci cardul de dedesubt urcă sub
+// deget și garda de dublu-tap respinge în fereastră un tap pe ORICE card;
+// altfel („Confirmă": new → confirmed, aceeași coloană) doar pe același card.
+function columnOf(status: OrderStatus): number {
+  return COLUMNS.findIndex((c) => c.statuses.includes(status))
+}
+// NU se exportă: un export ne-componentă dintr-o pagină .tsx pică
+// react-refresh/only-export-components (lint-ul e --max-warnings 0).
+function kitchenActionMovesCard(current: OrderStatus, next: OrderStatus): boolean {
+  return columnOf(current) !== columnOf(next)
+}
+
 // elapsed, urgencyColor, playSound — imported from ../lib/utils
 
 // Nivel de urgență derivat din vârsta comenzii. Refolosește exact pragurile
@@ -431,7 +443,7 @@ export default function KitchenPage() {
   // OPT-8: stabil — altfel memo-ul de pe OrderCard e inert (prop nou/render).
   const handleAdvance = useCallback(
     (orderId: string, current: OrderStatus, next: OrderStatus): void => {
-      if (!tapGuard()) return
+      if (!tapGuard(orderId, kitchenActionMovesCard(current, next) ? 'list' : 'card')) return
       void advance(orderId, current, { status: next })
     },
     [advance, tapGuard],
