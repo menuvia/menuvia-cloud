@@ -116,6 +116,19 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     void fetchReservations()
   }, [fetchReservations])
 
+  // Ce citește handler-ul realtime: intervalul și fetch-ul CURENTE, prin ref-uri.
+  // Canalul depinde DOAR de restaurant. Înainte depindea și de `fetchReservations`,
+  // care se recreează la fiecare schimbare de interval (Azi → Mâine → Săptămâna),
+  // deci fiecare clic dezabona și re-abona canalul — exact churn-ul pe care
+  // comentariul de sub efect pretindea că-l evită; un eveniment sosit între
+  // dezabonare și noul SUBSCRIBED se pierdea.
+  const rangeRef = useRef<DateRange>({ from: range.from, to: range.to })
+  const fetchRef = useRef(fetchReservations)
+  useEffect(() => {
+    rangeRef.current = { from: range.from, to: range.to }
+    fetchRef.current = fetchReservations
+  }, [range.from, range.to, fetchReservations])
+
   useEffect(() => {
     if (!restaurantId) return
     const ch = supabase
@@ -153,13 +166,13 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
               setReservations((prev) => prev.filter((r) => r.id !== id))
               return
             }
-            void fetchReservations()
+            void fetchRef.current()
             return
           }
           const row = payload.new as (Partial<Reservation> & { id?: string }) | null
           const id = row?.id
           if (!id) {
-            void fetchReservations()
+            void fetchRef.current()
             return
           }
           if (payload.eventType === 'UPDATE') {
@@ -182,14 +195,15 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
             .maybeSingle()
             .then(({ data: fresh, error: fe }) => {
               if (fe) {
-                void fetchReservations()
+                void fetchRef.current()
                 return
               }
+              const { from, to } = rangeRef.current
               setReservations((prev) => {
                 const without = prev.filter((r) => r.id !== id)
                 const f = fresh as Reservation | null
                 // Rând dispărut sau ieșit din fereastra curentă → doar scoatere.
-                if (!f || f.starts_at < range.from || f.starts_at > range.to) {
+                if (!f || f.starts_at < from || f.starts_at > to) {
                   return without
                 }
                 const next = [...without, f]
@@ -203,11 +217,7 @@ export function useReservations(restaurantId: string | null, range: DateRange) {
     return () => {
       void supabase.removeChannel(ch)
     }
-    // `range.from/to` sunt citite în handler dar NU sunt dependențe: canalul
-    // s-ar re-abona la fiecare schimbare de interval (churn + evenimente
-    // pierdute); filtrarea pe interval se re-face oricum la fetch.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [restaurantId, fetchReservations])
+  }, [restaurantId])
 
   const updateStatus = useCallback(
     async (id: string, status: ReservationStatus) => {
