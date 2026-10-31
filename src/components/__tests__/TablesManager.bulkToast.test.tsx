@@ -18,7 +18,10 @@ type Result = { data: Row[] | null; error: { message: string } | null }
 
 const h = vi.hoisted(() => ({
   tableRows: [] as Record<string, unknown>[],
-  tokenReads: [] as Array<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>,
+  tokenReads: [] as Array<{
+    data: Record<string, unknown>[] | null
+    error: { message: string } | null
+  }>,
   tokenInserts: 0,
 }))
 
