@@ -65,7 +65,12 @@ describe('EditOrderSheet — editarea comenzii (bani + optimistic lock)', () => 
     fetchMenuMock.mockResolvedValue(MENU)
     // Default: refetch-ul întoarce exact aceeași stare (fără edit concurent).
     fetchOrderByIdMock.mockResolvedValue(baseOrder())
-    updateOrderItemsMock.mockResolvedValue({ id: 'o1', total: 30, discount_amount: 0, items_count: 1 })
+    updateOrderItemsMock.mockResolvedValue({
+      id: 'o1',
+      total: 30,
+      discount_amount: 0,
+      items_count: 1,
+    })
   })
 
   it('salvarea trimite option_ids + baselineTotal către update_order_items', async () => {
@@ -148,6 +153,38 @@ describe('EditOrderSheet — editarea comenzii (bani + optimistic lock)', () => 
     expect(await screen.findByText(/produse șterse din meniu/i)).toBeInTheDocument()
     // RPC-ul validează oricum, dar nu trebuie să ajungem la el.
     expect(updateOrderItemsMock).not.toHaveBeenCalled()
+  })
+
+  it('ES1 refuzul serverului ajunge în română, cu motivul real (nu „Eroare la salvare")', async () => {
+    const user = userEvent.setup()
+    // Forma PostgREST brută (nu `instanceof Error`) — exact ce arunca vechiul
+    // updateOrderItems; sheet-ul arăta „Eroare la salvare". Mutație: revino la
+    // `e instanceof Error ? e.message : 'Eroare la salvare'` → ES1 pică.
+    updateOrderItemsMock.mockRejectedValueOnce({
+      message:
+        'update_order_items: comanda a fost modificată între timp (total 25, așteptat 20). Redeschide comanda și încearcă din nou.',
+      code: '40001',
+    })
+
+    render(<EditOrderSheet order={baseOrder()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /salvează/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/modificată între timp de altcineva/i)
+    expect(alert).not.toHaveTextContent(/eroare la salvare/i)
+    expect(alert).not.toHaveTextContent(/update_order_items/)
+  })
+
+  it('ES2 căderea de rețea (iPhone: „Load failed") → mesaj de conexiune, nu textul brut', async () => {
+    const user = userEvent.setup()
+    updateOrderItemsMock.mockRejectedValueOnce(new Error('TypeError: Load failed'))
+
+    render(<EditOrderSheet order={baseOrder()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /salvează/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/fără conexiune/i)
+    expect(alert).not.toHaveTextContent(/load failed/i)
   })
 
   it('coșul golit complet blochează salvarea (anularea are alt buton)', async () => {

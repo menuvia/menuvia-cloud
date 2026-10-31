@@ -13,6 +13,7 @@
 // NU înlocuiește `describeCheckoutFailure` (abonamentul, dashboard).
 // ─────────────────────────────────────────────────────────────
 import { T, type PublicMenuStringKey } from './publicMenuStrings'
+import { isNetworkError } from './networkError'
 
 const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   // create_order (mig 191)
@@ -117,11 +118,13 @@ function str(v: unknown): string {
 }
 
 /** Eroare de rețea (fetch picat / offline) — aceeași detecție ca bucla de
- *  retry din QrMenuPage. */
+ *  retry din QrMenuPage. Deleagă la detecția UNICĂ din `lib/networkError.ts`
+ *  (cea folosită și de ospătar și de `orders.ts`), ca oaspetele și staff-ul
+ *  să nu aibă două liste care pot diverge (NE6). Lista locală de dinainte
+ *  potrivea și subșirurile goale `network`/`fetch`/`offline`, deci un refuz
+ *  al serverului care le conținea era luat drept cădere de rețea. */
 export function isNetworkGuestError(err: unknown): boolean {
-  if (err instanceof TypeError) return true
-  const m = err != null && typeof err === 'object' ? str((err as GuestErrorShape).message) : str(err)
-  return /failed to fetch|networkerror|network-error|network|fetch|offline|econnrefused|load failed/i.test(m)
+  return isNetworkError(err)
 }
 
 export interface GuestErrorOptions {

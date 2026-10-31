@@ -6,18 +6,22 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { fetchTables, createOrder } from '../lib/orders'
-import { fetchMenuForRestaurant } from '../lib/qr'
-import type { RestaurantTable, CartItem } from '../lib/orders'
+import { loadStaffMenu } from '../lib/staffMenuCache'
+import type { RestaurantTable, CartItem, OrderConfirmationPayload } from '../lib/orders'
 import type { Category, Product } from '../lib/qr'
 import { D } from '../lib/constants'
+import { isNetworkError } from '../lib/networkError'
 import ModifierSheet from './ModifierSheet'
+import { confirm as confirmDialog } from './ui/confirm'
 
 // D imported from constants
 
 interface Props {
   restaurantId: string
   onClose: () => void
-  onOrderCreated: () => void
+  // Primește confirmarea: pagina îi spune ospătarului unde a ajuns comanda —
+  // trimisă la bucătărie sau salvată DOAR pe telefon (`LOCAL-…`, coada offline).
+  onOrderCreated: (confirmation: OrderConfirmationPayload) => void
   // Masă pre-selectată (din panoul „Stadiu mese" → „Adaugă la masă"): sare direct
   // la meniu pe masa aia, ca o rundă nouă pe aceeași masă, fără să mai alegi.
   initialTableId?: string | null
@@ -50,9 +54,38 @@ export default function WaiterEntry({
   // 2 comenzi (index UNIQUE pe (restaurant_id, idempotency_key) deduplică).
   // Regenerat după fiecare comandă trimisă cu succes.
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID())
+  // Meniul pornește la MONTARE, în paralel cu mesele (perf-staff-2): cât
+  // ospătarul alege masa, arborele e deja pe drum. Înainte se cerea abia după
+  // alegerea mesei, iar la fiecare masă aleasă se re-descărca de la zero.
+  const menuRef = useRef<Promise<Category[]> | null>(null)
+
+  function openMenu(table: RestaurantTable | null, isCancelled: () => boolean): void {
+    setSelectedTable(table)
+    setLoadError(null)
+    const menu = menuRef.current ?? loadStaffMenu(restaurantId)
+    menuRef.current = menu
+    menu
+      .then((cats) => {
+        if (isCancelled()) return
+        setCategories(cats)
+        setActiveCatId(cats[0]?.id ?? null)
+        setStep('menu')
+      })
+      .catch(() => {
+        // Eșecul nu rămâne „lipit": următoarea alegere de masă reîncearcă.
+        if (menuRef.current === menu) menuRef.current = null
+        if (!isCancelled()) setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.')
+      })
+  }
 
   useEffect(() => {
     let cancelled = false
+    const menu = loadStaffMenu(restaurantId)
+    menuRef.current = menu
+    // Eroarea meniului se arată la alegerea mesei (openMenu), nu aici.
+    menu.catch(() => {
+      if (menuRef.current === menu) menuRef.current = null
+    })
     fetchTables(restaurantId)
       .then((ts) => {
         if (cancelled) return
@@ -61,35 +94,37 @@ export default function WaiterEntry({
         // meniu (rundă nouă pe aceeași masă). Fără initialTableId → flux normal.
         if (initialTableId) {
           const match = ts.find((t) => t.id === initialTableId)
-          if (match) {
-            setSelectedTable(match)
-            fetchMenuForRestaurant(restaurantId)
-              .then((cats) => {
-                if (cancelled) return
-                setCategories(cats)
-                setActiveCatId(cats[0]?.id ?? null)
-                setStep('menu')
-              })
-              .catch(() => setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.'))
-          }
+          if (match) openMenu(match, () => cancelled)
         }
       })
       .catch(() => setLoadError('Nu s-au putut încărca mesele. Verifică conexiunea.'))
     return () => {
       cancelled = true
     }
+    // openMenu e o funcție locală fără stare proprie (citește doar ref-uri și
+    // setteri stabili) — re-rularea efectului la fiecare randare ar re-cere mesele.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId, initialTableId])
 
   function goToMenu(table: RestaurantTable | null): void {
-    setSelectedTable(table)
-    setLoadError(null)
-    fetchMenuForRestaurant(restaurantId)
-      .then((cats) => {
-        setCategories(cats)
-        setActiveCatId(cats[0]?.id ?? null)
-        setStep('menu')
+    openMenu(table, () => false)
+  }
+
+  // „✕" stă lângă „Coș (N)": un tap scăpat arunca TOT coșul fără întrebare
+  // (ux-staff-entry-discard). Cu produse în coș, cerem confirmare.
+  async function requestClose(): Promise<void> {
+    if (cart.length > 0) {
+      const n = cart.reduce((sum, i) => sum + i.quantity, 0)
+      const ok = await confirmDialog({
+        title: 'Renunți la comanda începută?',
+        description: `${n} ${n === 1 ? 'produs din coș se pierde' : 'produse din coș se pierd'}. Comanda NU a fost trimisă la bucătărie.`,
+        confirmLabel: 'Renunță la comandă',
+        cancelLabel: 'Continuă comanda',
+        destructive: true,
       })
-      .catch(() => setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.'))
+      if (!ok) return
+    }
+    onClose()
   }
 
   function addToCart(item: CartItem): void {
@@ -120,7 +155,7 @@ export default function WaiterEntry({
     let lastError: unknown = null
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await createOrder({
+        const confirmation = await createOrder({
           restaurant_id: restaurantId,
           source: 'waiter',
           table_id: selectedTable?.id ?? null,
@@ -131,22 +166,20 @@ export default function WaiterEntry({
         })
         // Comandă trimisă — rotim key-ul pentru următoarea comandă.
         idempotencyKeyRef.current = crypto.randomUUID()
-        onOrderCreated()
+        onOrderCreated(confirmation)
         return
       } catch (e: unknown) {
         lastError = e
-        const msg = e instanceof Error ? e.message : ''
-        const isNetworkError =
-          msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')
-        if (!isNetworkError || attempt === 2) break
+        // Detecția unică (lib/networkError.ts) — cunoaște și „Load failed" de pe iPhone.
+        if (!isNetworkError(e) || attempt === 2) break
         await new Promise((r) => setTimeout(r, (attempt + 1) * 1000))
       }
     }
 
     const msg = lastError instanceof Error ? lastError.message : 'Eroare la trimiterea comenzii'
-    const isOffline =
-      msg.includes('fetch') || msg.includes('network') || msg.includes('Failed to fetch')
-    setSubmitError(isOffline ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg)
+    setSubmitError(
+      isNetworkError(lastError) ? 'Conexiune slabă. Verifică internetul și încearcă din nou.' : msg,
+    )
     setSubmitting(false)
   }
 
@@ -187,13 +220,16 @@ export default function WaiterEntry({
             Selectează masa
           </span>
           <button
-            onClick={onClose}
+            onClick={() => void requestClose()}
+            aria-label={'Închide comanda nouă'}
             style={{
               background: 'none',
               border: 'none',
               color: D.t2,
               fontSize: 22,
               cursor: 'pointer',
+              minWidth: 44,
+              minHeight: 44,
             }}
           >
             ✕
@@ -309,7 +345,8 @@ export default function WaiterEntry({
         >
           {selectedTable != null ? selectedTable.name : 'Fără masă'}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        {/* Distanță mare între „Coș" și „✕": cele două erau la 12 px. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 24 }}>
           {cart.length > 0 && (
             <button
               onClick={() => setShowCart(true)}
@@ -329,13 +366,16 @@ export default function WaiterEntry({
             </button>
           )}
           <button
-            onClick={onClose}
+            onClick={() => void requestClose()}
+            aria-label={'Închide comanda nouă'}
             style={{
               background: 'none',
               border: 'none',
               color: D.t2,
               fontSize: 22,
               cursor: 'pointer',
+              minWidth: 44,
+              minHeight: 44,
             }}
           >
             ✕

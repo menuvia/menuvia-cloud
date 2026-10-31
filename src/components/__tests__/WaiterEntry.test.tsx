@@ -3,14 +3,19 @@
 //   - idempotency key: STABIL pe durata unui coș, ROTIT după succes
 //   - eroare de validare server (ex. missing_required_group): NU se
 //     retry-uiește, mesajul real ajunge la ospătar
+//   - meniul pornește la montare, în PARALEL cu mesele, și nu se re-descarcă
+//     la fiecare masă / redeschidere (perf-staff-2)
+//   - „✕" cu produse în coș cere confirmare (ux-staff-entry-discard)
+//   - pagina primește confirmarea (ux-staff-order-sent-feedback)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-const { fetchTablesMock, createOrderMock, fetchMenuMock } = vi.hoisted(() => ({
+const { fetchTablesMock, createOrderMock, fetchMenuMock, confirmMock } = vi.hoisted(() => ({
   fetchTablesMock: vi.fn(),
   createOrderMock: vi.fn(),
   fetchMenuMock: vi.fn(),
+  confirmMock: vi.fn(),
 }))
 
 vi.mock('../../lib/orders', async (importOriginal) => {
@@ -21,6 +26,8 @@ vi.mock('../../lib/qr', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/qr')>()
   return { ...actual, fetchMenuForRestaurant: fetchMenuMock }
 })
+// Dialogul de confirmare e un singleton montat în App; aici e controlabil.
+vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
 
 import WaiterEntry from '../WaiterEntry'
 import type { CreateOrderArgs } from '../../lib/orders'
@@ -68,6 +75,9 @@ describe('WaiterEntry — fluxul de bani al comenzii manuale', () => {
     await placeOneOrder(user)
 
     await waitFor(() => expect(onOrderCreated).toHaveBeenCalledTimes(1))
+    // Pagina primește CONFIRMAREA (ca să-i spună ospătarului unde a ajuns
+    // comanda). Mutație: vechiul `onOrderCreated()` fără argument → pică.
+    expect(onOrderCreated).toHaveBeenCalledWith(expect.objectContaining({ short_id: 'ABC123' }))
     expect(createOrderMock).toHaveBeenCalledTimes(1)
     const args: CreateOrderArgs = createOrderMock.mock.calls[0][0]
     expect(args.restaurant_id).toBe('r1')
@@ -143,5 +153,98 @@ describe('WaiterEntry — fluxul de bani al comenzii manuale', () => {
     // Erorile non-network NU se retry-uiesc (ar dubla latența degeaba).
     expect(createOrderMock).toHaveBeenCalledTimes(1)
     expect(onOrderCreated).not.toHaveBeenCalled()
+  })
+})
+
+describe('WaiterEntry — meniul în paralel, fără re-descărcare', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchTablesMock.mockResolvedValue([TABLE])
+    fetchMenuMock.mockResolvedValue(MENU)
+  })
+
+  it('WE1 meniul se cere la MONTARE, în paralel cu mesele — nu după alegerea mesei', async () => {
+    // Mutație: revino la cererea meniului din goToMenu → 0 apeluri înainte de tap.
+    render(<WaiterEntry restaurantId="r-we1" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await screen.findByRole('button', { name: 'Masa 7' })
+    expect(fetchMenuMock).toHaveBeenCalledWith('r-we1')
+    expect(fetchMenuMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('WE2 alegerea mesei și redeschiderea foii NU re-descarcă arborele meniului', async () => {
+    // Mutație: `fetchMenuForRestaurant` la fiecare goToMenu / montare → 2+ apeluri.
+    const user = userEvent.setup()
+    const first = render(
+      <WaiterEntry restaurantId="r-we2" onClose={vi.fn()} onOrderCreated={vi.fn()} />,
+    )
+    await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
+    expect(await screen.findByRole('button', { name: /ciorbă de burtă/i })).toBeInTheDocument()
+    first.unmount()
+
+    render(<WaiterEntry restaurantId="r-we2" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
+    expect(await screen.findByRole('button', { name: /ciorbă de burtă/i })).toBeInTheDocument()
+    expect(fetchMenuMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('WE3 meniul picat la montare nu rămâne „lipit": alegerea mesei îl cere din nou', async () => {
+    // Mutație: fără resetarea promisiunii la eșec, alegerea mesei refolosește
+    // promisiunea respinsă → „Nu s-a putut încărca meniul" la nesfârșit.
+    const user = userEvent.setup()
+    fetchMenuMock.mockRejectedValueOnce(new Error('TypeError: Load failed'))
+    render(<WaiterEntry restaurantId="r-we3" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
+    expect(await screen.findByRole('button', { name: /ciorbă de burtă/i })).toBeInTheDocument()
+    expect(fetchMenuMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('WaiterEntry — „✕" nu aruncă coșul fără întrebare', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchTablesMock.mockResolvedValue([TABLE])
+    fetchMenuMock.mockResolvedValue(MENU)
+  })
+
+  async function addOne(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
+    await user.click(await screen.findByRole('button', { name: /ciorbă de burtă/i }))
+    await user.click(screen.getByRole('button', { name: /adaugă în comandă/i }))
+    await screen.findByRole('button', { name: /coș \(1\)/i })
+  }
+
+  it('ED1 cu produse în coș, „✕" cere confirmare; „Continuă comanda" păstrează coșul', async () => {
+    // Mutație: `onClick={onClose}` pe „✕" → onClose chemat fără întrebare.
+    const user = userEvent.setup()
+    confirmMock.mockResolvedValue(false)
+    const onClose = vi.fn()
+    render(<WaiterEntry restaurantId="r1" onClose={onClose} onOrderCreated={vi.fn()} />)
+    await addOne(user)
+
+    await user.click(screen.getByRole('button', { name: 'Închide comanda nouă' }))
+    await waitFor(() => expect(confirmMock).toHaveBeenCalledTimes(1))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /coș \(1\)/i })).toBeInTheDocument()
+  })
+
+  it('ED2 confirmarea „Renunță la comandă" închide foaia', async () => {
+    const user = userEvent.setup()
+    confirmMock.mockResolvedValue(true)
+    const onClose = vi.fn()
+    render(<WaiterEntry restaurantId="r1" onClose={onClose} onOrderCreated={vi.fn()} />)
+    await addOne(user)
+
+    await user.click(screen.getByRole('button', { name: 'Închide comanda nouă' }))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+  })
+
+  it('ED3 control: coș gol → „✕" închide direct, fără dialog', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<WaiterEntry restaurantId="r1" onClose={onClose} onOrderCreated={vi.fn()} />)
+    await screen.findByRole('button', { name: 'Masa 7' })
+    await user.click(screen.getByRole('button', { name: 'Închide comanda nouă' }))
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1))
+    expect(confirmMock).not.toHaveBeenCalled()
   })
 })
