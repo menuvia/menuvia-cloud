@@ -58,8 +58,10 @@
 --        [PICĂ: `grant execute on public_pickup_settings to anon` (mutația c)]
 --   PU8  CLICHET DE CLASĂ prin descoperire, pe DOUĂ detectoare, cu REGISTRUL
 --        într-un singur loc (tabela temporară `pu_registry`, fiecare intrare
---        cu motiv). (1) Literal: setul funcțiilor din `public` apelabile de
---        anon al căror corp (brut, comentarii incluse) pomenește
+--        cu motiv). „Corpul” e `prosrc` SAU, pentru un corp SQL-standard
+--        (`return (…)` / `begin atomic`, cu `prosrc` GOL), `prosqlbody`
+--        deparsat (`pu_src`). (1) Literal: setul funcțiilor din `public`
+--        apelabile de anon al căror corp (brut, comentarii incluse) pomenește
 --        `pickup_settings` e EXACT registrul. (2) RÂNDUL ÎNTREG: o proiecție
 --        anon nouă scrisă `to_jsonb(r)` / `r.*` / `select *` nu pomenește
 --        NICIODATĂ numele coloanei, dar o scoate brut (și `theme_settings`
@@ -75,14 +77,20 @@
 --        join cu virgulă, `jsonb_build_object('k', r)`, `select r` într-o
 --        subinterogare și două sonde pe `pu_code` (`'--'` într-un literal pe
 --        rândul folosirii; `/*` într-un comentariu de linie, urmat de cod și
---        de un comentariu de bloc). Control NEGATIV: formele doar în
---        comentarii; același alias pentru ALTĂ tabelă și într-un literal;
---        `select *` peste altă tabelă cu `restaurants` doar într-o
---        subinterogare. Seturile se compară „registru” → „registru + sonde
+--        de un comentariu de bloc) și câte o sondă cu corp SQL-standard pe
+--        fiecare detector. Control NEGATIV: formele doar în comentarii;
+--        același alias pentru ALTĂ tabelă și într-un literal; `select *`
+--        peste altă tabelă cu `restaurants` doar într-o subinterogare;
+--        `for v in select * … loop` + instrucțiune pe `restaurants` și
+--        `exists (select * from restaurants …)`; aliasul în poziții-ȚINTĂ
+--        (`r record`, `for r in`, `into strict r`, `for share of r`,
+--        `of o, r`) — un fals pozitiv nu e doar zgomot: intrarea de registru
+--        pusă pentru el orbește detectorul pe TOATĂ funcția. Seturile se compară „registru” → „registru + sonde
 --        pozitive” → „registru” după ștergerea sondelor, cu un mesaj care
 --        spune ce e prins în PLUS și ce LIPSEȘTE.
 --        [PICĂ: o proiecție anon nouă pe rândul întreg; oricare ramură
---         scoasă; o intrare de registru moartă; `pu_code` în doi pași]
+--         scoasă; o intrare de registru moartă; `pu_code` în doi pași;
+--         detectoarele citite din `prosrc` singur]
 --   PU9  Invariantele MOȘTENITE de copia verbatim (pe IEȘIREA reală, ca anon):
 --        `wifi_password`/`qr_token` NULL deși stocate (217), `menu_languages`
 --        (219), gate-ul de branding (281), slug case-insensitive (148), `country`
@@ -119,8 +127,13 @@
 -- line_comment_star); (j) o intrare MOARTĂ în registru (PU8: NEPRINSE);
 -- (k) capcanele negative: definițiile de alias nescoase (`public_happy_hour_now`
 -- prins fals), literalele necurățate (alias_reuse), stea fără nivel de
--- paranteze (star_subquery). Control: o funcție anon legitimă nouă pe rândul
--- întreg trece cu UN SINGUR insert în `pu_registry` — pe structura veche
+-- paranteze (star_subquery); (l) detectoarele pe `prosrc` singur, fără
+-- `prosqlbody` (std_literal pe literal, std_whole_row pe rândul întreg);
+-- (m) `star` fără granița `loop` / fără rescrierea `exists (select *`
+-- (star_boundaries); (n) `alias_bare` fără scoaterea, pe rând, a lui
+-- `x record`, `into [strict] x`, `for x`, `of [y, ]x` (alias_targets).
+-- Control: o funcție anon legitimă nouă pe rândul întreg trece cu UN SINGUR
+-- insert în `pu_registry` — pe structura veche
 -- (registrul ca constante locale în blocuri diferite), aceeași intrare rupea
 -- verificarea sondelor cu „sonda a rămas în catalog” / „clichetul e vacuu”.
 -- =============================================================================
@@ -562,6 +575,21 @@ begin
   end if;
 end $f$;
 
+-- CORPUL unei funcții, pentru AMBELE detectoare. O funcție cu corp SQL-standard
+-- (`returns … language sql return (…)` sau `begin atomic … end`, PG 14+) are
+-- `prosrc` GOL — corpul stă parsat în `prosqlbody`. Pe `prosrc` singur, o
+-- proiecție anon nouă scrisă așa trecea de AMBELE detectoare (reprodus pe
+-- replay: `return (select r.pickup_settings from restaurants r …)` și
+-- `return (select to_jsonb(r) …)` nu erau prinse). Corpul DEPARSAT n-are
+-- comentarii, califică coloanele (`r.*` în loc de `r`) și EXPANDEAZĂ `select *`
+-- în lista coloanelor (deci și `restaurants.pickup_settings` — îl prinde
+-- detectorul literal).
+create function pg_temp.pu_src(p_oid oid) returns text
+language sql stable as $f$
+  select case when p.prosqlbody is not null then pg_get_function_sqlbody(p.oid) else p.prosrc end
+    from pg_proc p where p.oid = p_oid
+$f$;
+
 -- (1) LITERAL: corpul (brut, cu tot cu comentarii — aici zgomotul e sigur)
 -- pomenește `pickup_settings`.
 create function pg_temp.pu_leakers() returns text
@@ -570,7 +598,7 @@ language sql as $f$
     from (select distinct p.proname::text as x
             from pg_proc p join pg_namespace n on n.oid = p.pronamespace
            where n.nspname = 'public'
-             and p.prosrc like '%pickup_settings%'
+             and pg_temp.pu_src(p.oid) like '%pickup_settings%'
              and has_function_privilege('anon', p.oid, 'execute')) d
 $f$;
 
@@ -580,7 +608,8 @@ $f$;
 -- pentru autentificați) nu conține numele coloanei, dar o scoate brut, împreună
 -- cu tot rândul. Întoarce RAMURILE care se declanșează (vid = neprins), ca
 -- fiecare sondă să poată cere exact ramura ei. Pe CODUL fără comentarii
--- (`pu_code`, literalele păstrate), o funcție e prinsă dacă:
+-- (`pu_code` peste `pu_src` — deci și corpurile SQL-standard, deparsate;
+-- literalele păstrate), o funcție e prinsă dacă:
 --   rettype     tipul de retur e rândul `restaurants` (și `setof`, și un
 --               `returns table` cu o singură coloană de tipul rândului);
 --   argtypes    un parametru IN/OUT/TABLE are tipul rândului;
@@ -593,8 +622,11 @@ $f$;
 --               `select * into v from restaurants`, `select * from orders o
 --               join restaurants r …`; NU prinde `select * from orders where …
 --               in (select id from restaurants)` (`restaurants` doar în
---               paranteze). Fals pozitiv posibil: un `union` după `select *`
---               cu `restaurants` în FROM-ul celeilalte ramuri;
+--               paranteze). `loop` închide interogarea ca `;` (un `for v in
+--               select * from orders loop` urmat de o instrucțiune pe
+--               `restaurants` NU e prins), iar `exists (select * …)` se
+--               citește `exists (select 1 …)`. Fals pozitiv posibil: un `union`
+--               după `select *` cu `restaurants` în FROM-ul celeilalte ramuri;
 --   rowtype     `restaurants%rowtype`;
 --   table_star  `restaurants.*`;
 --   table_func  `to_jsonb` / `to_json` / `row_to_json` / `jsonb_agg` /
@@ -611,16 +643,28 @@ $f$;
 --               `<relație> x` după from/join/update/virgulă, `) x`): deci
 --               `to_jsonb(x)`, `jsonb_agg(x order by x.name)`,
 --               `jsonb_agg(distinct x)`, `jsonb_build_object('k', x)`,
---               `select x`, `x::text`; NU `x.col`, nici `o.x` (coloană a
---               altei tabele), nici reutilizarea aceluiași nume ca alias al
---               ALTEI tabele (definiția e scoasă).
+--               `select x`, `x::text`, `array[x]`; NU `x.col`, nici `o.x`
+--               (coloană a altei tabele), nici reutilizarea aceluiași nume ca
+--               alias al ALTEI tabele (definiția e scoasă), nici pozițiile-
+--               ȚINTĂ ale aceluiași nume: `x record`, `for x in`, `into
+--               [strict] x`, `for update|share … of [y, ]x` (scoase și ele).
 -- NU prinde (consemnat): tabela folosită ca valoare FĂRĂ alias în altă formă
 -- decât `table_func` (`jsonb_agg(restaurants order by …)`, `select restaurants
 -- from restaurants`); `returning *`; `table restaurants`; un alias folosit ca
--- valoare doar într-un literal (SQL dinamic: `execute '… to_jsonb(r) …'`).
+-- valoare doar într-un literal (SQL dinamic: `execute '… to_jsonb(r) …'`);
+-- `from only restaurants`, numele între ghilimele (`"restaurants"`) sau
+-- `public . restaurants` cu spații; tipul TABLOU al rândului
+-- (`restaurants[]`) în semnătură sau declarație, și o declarație cu
+-- `default` / `=` / `not null` în loc de `;` / `:=`. Un view citibil de anon
+-- cu `to_jsonb(r)` nu e treaba lui: RP9 cere `security_invoker` pe orice view
+-- citibil de client, iar anon nu citește `restaurants` (verificat mai jos).
 -- Fals pozitiv posibil: același nume de alias folosit ca VALOARE pentru altă
--- tabelă în aceeași funcție. Un fals pozitiv intră în registru CU MOTIV — mai
--- bine zgomotos decât orb.
+-- tabelă sau ca variabilă cu altă origine (`return next r` pe un `r` din
+-- `orders`) în aceeași funcție; `(r).col`. Un fals pozitiv NU e inofensiv:
+-- registrul e pe NUME de funcție, deci o intrare pusă pentru el orbește
+-- detectorul pe toată funcția, pentru totdeauna — de aceea formele uzuale ale
+-- casei (`r record` + `restaurants r`, `for v in select * … loop`,
+-- `for update of r`) NU sunt fals pozitive (sonde negative mai jos).
 create function pg_temp.pu_whole_row_branches(p_oid oid) returns text[]
 language plpgsql stable as $f$
 declare
@@ -632,19 +676,25 @@ declare
     'with', 'select', 'values', 'from', 'only', 'is', 'in'];
   v_p     pg_proc;
   v_code  text;
+  v_star  text;
   v_nolit text;
   v_alias text;
   v_out   text[] := '{}';
 begin
   select * into v_p from pg_proc where oid = p_oid;
-  v_code  := pg_temp.pu_code(v_p.prosrc);
+  v_code  := pg_temp.pu_code(pg_temp.pu_src(p_oid));
   v_nolit := regexp_replace(v_code, $re$'([^']|'')*'$re$, $q$''$q$, 'g');
+  -- Pentru `star`: `loop` închide interogarea unui `for … in select … loop`
+  -- (fără `;`), iar un `exists (select * …)` nu proiectează nimic.
+  v_star  := regexp_replace(
+               regexp_replace(v_code, $re$\mloop\M$re$, ';', 'gi'),
+               $re$\mexists\s*\(\s*select\s+(distinct\s+|all\s+)?\*$re$, 'exists (select 1', 'gi');
 
   if v_p.prorettype = 'public.restaurants'::regtype then
     v_out := v_out || 'rettype'::text; end if;
   if 'public.restaurants'::regtype = any(coalesce(v_p.proallargtypes, v_p.proargtypes::oid[])) then
     v_out := v_out || 'argtypes'::text; end if;
-  if v_code ~* $re$\mselect\s+(distinct\s+|all\s+)?\*(?=\s*(,|\minto\M|\mfrom\M))([^;()]|\(([^;()]|\([^;()]*\))*\))*(\mfrom|\mjoin|,)\s*(public\.)?restaurants\M$re$ then
+  if v_star ~* $re$\mselect\s+(distinct\s+|all\s+)?\*(?=\s*(,|\minto\M|\mfrom\M))([^;()]|\(([^;()]|\([^;()]*\))*\))*(\mfrom|\mjoin|,)\s*(public\.)?restaurants\M$re$ then
     v_out := v_out || 'star'::text; end if;
   if v_code ~* $re$\m(public\.)?restaurants\s*%\s*rowtype$re$ then
     v_out := v_out || 'rowtype'::text; end if;
@@ -667,9 +717,13 @@ begin
     if v_code ~* ('\m' || v_alias || '\s*\.\s*\*') then
       v_out := v_out || 'alias_star'::text; end if;
     -- Definițiile de alias cu acest nume scoase (prefixul rămâne, numele
-    -- dispare), apoi orice apariție ca cuvânt întreg neurmată de punct.
-    if regexp_replace(v_nolit,
-         '(\mas\s+|(\mfrom|\mjoin|\mupdate|,)\s*[a-z_][a-z0-9_$]*(\.[a-z_][a-z0-9_$]*)?\s+|\)\s*)'
+    -- dispare), la fel pozițiile-ȚINTĂ, care nu sunt valori: declarația unei
+    -- variabile `x record`, `for x in`, `into [strict] x`, blocarea
+    -- `for … of [y, ]x`. Apoi orice apariție ca cuvânt întreg neurmată de punct.
+    if regexp_replace(
+         regexp_replace(v_nolit, '(^|[^.[:alnum:]_$])' || v_alias || '\s+record\M', '\1', 'gi'),
+         '(\mas\s+|(\mfrom|\mjoin|\mupdate|,)\s*[a-z_][a-z0-9_$]*(\.[a-z_][a-z0-9_$]*)?\s+|\)\s*'
+           || '|\minto\s+(strict\s+)?|\mfor\s+|\mof\s+([a-z_][a-z0-9_$]*\s*,\s*)*)'
            || v_alias || '(?![[:alnum:]_$])', '\1', 'gi')
          ~* ('(^|[^.[:alnum:]_$])' || v_alias || '(?![[:alnum:]_$])(?!\s*\.)') then
       v_out := v_out || 'alias_bare'::text; end if;
@@ -723,6 +777,8 @@ end $$;
 -- scoaterea ORICĂREI ramuri din detector lasă o sondă neprinsă și pică.
 insert into pu_probe (proname, detector, expect) values
   ('pu309_probe_leak',               'literal',   '{literal}'),  -- pe literal `expect` doar o marchează POZITIVĂ
+  ('pu309_probe_std_literal',        'literal',   '{literal}'),
+  ('pu309_probe_std_whole_row',      'whole_row', '{alias_star}'),
   ('pu309_probe_rettype',            'whole_row', '{rettype}'),
   ('pu309_probe_argtypes',           'whole_row', '{argtypes}'),
   ('pu309_probe_star',               'whole_row', '{star}'),
@@ -745,12 +801,23 @@ insert into pu_probe (proname, detector, expect) values
   ('pu309_probe_line_comment_star',  'whole_row', '{alias_bare}'),
   ('pu309_probe_comment_only',       'whole_row', '{}'),
   ('pu309_probe_alias_reuse',        'whole_row', '{}'),
-  ('pu309_probe_star_subquery',      'whole_row', '{}');
+  ('pu309_probe_star_subquery',      'whole_row', '{}'),
+  ('pu309_probe_star_boundaries',    'whole_row', '{}'),
+  ('pu309_probe_alias_targets',      'whole_row', '{}');
 
 -- literal: scoate coloana brut.
 create function public.pu309_probe_leak(p_slug text) returns jsonb
 language sql stable security definer set search_path = public, pg_temp
 as $f$ select r.pickup_settings from public.restaurants r where r.slug = p_slug $f$;
+-- Corp SQL-standard (`prosrc` gol, corpul în `prosqlbody`): forma `return (…)`,
+-- fără `;` interior, ca să nu depindă de cum împarte psql `begin atomic`.
+create function public.pu309_probe_std_literal(p_slug text) returns jsonb
+language sql stable security definer set search_path = public, pg_temp
+return (select r.pickup_settings from public.restaurants r where r.slug = p_slug);
+-- Deparsat, `to_jsonb(r)` devine `to_jsonb(r.*)` — de aici `alias_star`.
+create function public.pu309_probe_std_whole_row(p_slug text) returns jsonb
+language sql stable security definer set search_path = public, pg_temp
+return (select to_jsonb(r) from public.restaurants r where r.slug = p_slug);
 -- rettype: corp FĂRĂ nicio mențiune — doar tipul de retur.
 create function public.pu309_probe_rettype() returns setof public.restaurants
 language plpgsql stable security definer set search_path = public, pg_temp
@@ -858,6 +925,38 @@ end $f$;
 create function public.pu309_probe_star_subquery() returns bigint
 language sql stable security definer set search_path = public, pg_temp
 as $f$ select count(*) from (select * from public.orders o where o.restaurant_id in (select id from public.restaurants)) x $f$;
+-- NEGATIV: `select *` care NU proiectează restaurante — interogarea unui
+-- `for … in select * … loop` (se închide la `loop`, nu la `;`) urmată de o
+-- instrucțiune pe `restaurants`, și un `exists (select * from restaurants …)`.
+create function public.pu309_probe_star_boundaries(p_items jsonb, p_slug text) returns int
+language plpgsql stable security definer set search_path = public, pg_temp
+as $f$
+declare v record; n int := 0;
+begin
+  if exists (select * from public.restaurants where slug = p_slug) then n := 1; end if;
+  for v in select * from jsonb_array_elements(p_items) loop
+    perform 1 from public.restaurants where id = (v.value ->> 'id')::uuid;
+    n := n + 1;
+  end loop;
+  return n;
+end $f$;
+-- NEGATIV: aliasul rândului în poziții-ȚINTĂ, nu ca valoare — variabilă
+-- `r record` (convenția casei, ca aliasul `restaurants r`), `into strict r`,
+-- `for r in`, blocările `for share of r` și `for no key update of o, r`.
+create function public.pu309_probe_alias_targets(p_slug text) returns uuid
+language plpgsql volatile security definer set search_path = public, pg_temp
+as $f$
+declare r record; v_id uuid;
+begin
+  select r.id into v_id from public.restaurants r where r.slug = p_slug for share of r;
+  select r.id into v_id from public.restaurants r join public.orders o on o.restaurant_id = r.id
+   where r.slug = p_slug limit 1 for no key update of o, r;
+  select o.id into strict r from public.orders o where o.restaurant_id = v_id limit 1;
+  for r in select o.id from public.orders o where o.restaurant_id = v_id loop
+    v_id := r.id;
+  end loop;
+  return v_id;
+end $f$;
 
 do $$
 declare r record; v_bad text := ''; v_n int;
@@ -907,7 +1006,7 @@ begin
                                pg_temp.pu_expected('literal', false));
   perform pg_temp.pu_check_set('rând întreg, după sonde', pg_temp.pu_whole_row_leakers(),
                                pg_temp.pu_expected('whole_row', false));
-  raise notice 'PU8 OK: proiecția e singura ușă anon spre pickup_settings (literal ȘI rând întreg); fiecare ramură a detectorului prinde sonda ei, iar capcanele (comentarii, alias reutilizat, select * peste altă tabelă) nu sunt prinse';
+  raise notice 'PU8 OK: proiecția e singura ușă anon spre pickup_settings (literal ȘI rând întreg); fiecare ramură a detectorului prinde sonda ei, corpurile SQL-standard sunt citite, iar capcanele (comentarii, alias reutilizat sau în poziții-țintă, select * peste altă tabelă / închis de loop / în exists) nu sunt prinse';
 end $$;
 
 -- ── PU9: invariantele moștenite de copia verbatim ───────────────────────────
