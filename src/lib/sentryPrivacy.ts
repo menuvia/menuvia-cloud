@@ -11,9 +11,13 @@
 // SDK-ului). Pe meniul QR, oaspetele n-are cont: n-are ce căuta la Sentry nici
 // IP-ul lui, nici telefonul din formularul de ridicare.
 //
-// `beforeSend`/`beforeSendTransaction` din main.tsx rămân (tai query string-ul
-// și antetele de autentificare din `event.request`) — sunt a doua plasă, nu
-// prima: o categorie nouă de date nu trece neapărat prin `event.request`.
+// `dataCollection` NU acoperă calea și fragmentul URL-ului (tokenul din /q/,
+// /invite/, /echipa/, /sef-vanzari/; #access_token=… din linkul de resetare a
+// parolei): pentru ele rămân hook-urile din main.tsx, toate prin
+// `scrubTokenPathsDeep` — `beforeSend` (erori), `beforeSendSpan` (spanuri; în
+// v11 se trimit în flux, iar `beforeSendTransaction` NU mai rulează) și
+// `beforeBreadcrumb`. Sunt a doua plasă pentru categoriile de mai jos și
+// SINGURA pentru căi.
 import type { BrowserOptions } from '@sentry/react'
 
 export type SentryDataCollection = NonNullable<BrowserOptions['dataCollection']>

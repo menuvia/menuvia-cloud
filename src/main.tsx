@@ -70,12 +70,17 @@ async function initSentry() {
       return scrubTokenPathsDeep(event)
     },
 
-    beforeSendTransaction(event) {
-      if (event.request?.url) {
-        event.request.url = event.request.url.split('?')[0]
-      }
-      // Numele tranzacției e chiar calea paginii (/sef-vanzari/TOKEN).
-      return scrubTokenPathsDeep(event)
+    // Spanurile (pageload, navigare, click, fetch). Din Sentry 11 se trimit în
+    // flux (`traceLifecycle: 'stream'`, implicit): nu mai există evenimente de
+    // tranzacție, deci `beforeSendTransaction` NU mai rulează (în v11 doar
+    // scrie un avertisment în consolă). Calea și fragmentul URL-ului stau în
+    // atributele spanului (`url.path` = /q/TOKEN, `url.full` cu
+    // #access_token=… din linkul de resetare), iar `dataCollection` NU le
+    // acoperă: nu sunt o categorie, `urlQueryParams` taie doar query-ul.
+    // `scrubTokenPathsDeep` e pură și nu aruncă — un callback care aruncă face
+    // SDK-ul să trimită spanul NEMODIFICAT.
+    beforeSendSpan(span) {
+      return scrubTokenPathsDeep(span)
     },
 
     // Breadcrumb-urile de navigare / fetch poartă URL-uri întregi.
