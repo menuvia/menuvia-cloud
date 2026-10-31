@@ -12,6 +12,7 @@ import {
   planNameForTier,
   PLAN_NAMES,
   productLimitReason,
+  planUsageReason,
   suggestUpgrade,
 } from '../features'
 import { PLAN_LABELS } from '../constants'
@@ -32,6 +33,34 @@ describe('productLimitReason — mesajul de limită pe planul REAL', () => {
 
   it('plan necunoscut: id-ul brut, fără să arunce', () => {
     expect(productLimitReason('xyz', 5)).toContain('planul xyz (5 produse)')
+  })
+})
+
+// ux-owner-upgrade-banner: banda „Demo gratuit" din sidebar deschidea modalul cu
+// „Ai atins limita de produse" și la 0/15. Mutația care pică (PU1/PU3): banda
+// revine la productLimitReason necondiționat.
+describe('planUsageReason — motivul spune utilizarea REALĂ', () => {
+  it('PU1: sub limită → informativ, fără „Ai atins"', () => {
+    const r = planUsageReason('free', 0, 15)
+    expect(r.atLimit).toBe(false)
+    expect(r.text).not.toMatch(/atins/i)
+    expect(r.text).toContain('0 din 15 produse')
+    expect(r.text).toContain(PLAN_LABELS.free)
+  })
+
+  it('PU2: la limită (și peste) → exact mesajul de limită', () => {
+    expect(planUsageReason('free', 15, 15)).toEqual({
+      text: productLimitReason('free', 15),
+      atLimit: true,
+    })
+    expect(planUsageReason('starter', 301, 300).atLimit).toBe(true)
+  })
+
+  it('PU3: număr necunoscut → nu inventează nici „0", nici limita atinsă', () => {
+    const r = planUsageReason('free', null, 15)
+    expect(r.atLimit).toBe(false)
+    expect(r.text).not.toMatch(/atins|\b0 din/i)
+    expect(r.text).toContain('15 produse')
   })
 })
 

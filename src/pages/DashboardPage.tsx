@@ -2,7 +2,13 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
-import { productLimitReason, surfaceTiers, type PlanTier } from '../lib/features'
+import {
+  planUsageReason,
+  productLimitReason,
+  surfaceTiers,
+  type PlanTier,
+  type UpgradeReason,
+} from '../lib/features'
 import { retryPendingCountry } from '../lib/pendingCountry'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -50,6 +56,7 @@ import { isPartnerTab } from '../lib/partnerAccess'
 import { HelpButton } from '../components/HelpButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
+import { FreePlanBanner, PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -58,7 +65,7 @@ function UpgradeModal({
   onClose,
   onGoToPricing,
 }: {
-  reason: string
+  reason: UpgradeReason
   onClose: () => void
   onGoToPricing: () => void
 }) {
@@ -150,18 +157,20 @@ function UpgradeModal({
           >
             Deblochează mai mult
           </div>
+          {/* Roșu DOAR la limita atinsă; din banda planului gratuit, sub limită,
+              motivul e informativ (planUsageReason). */}
           <div
             style={{
               fontSize: '0.82rem',
-              color: D.t3,
+              color: reason.atLimit ? D.t3 : D.t2,
               lineHeight: 1.5,
-              background: D.redA,
-              border: `1px solid rgba(224,85,85,.25)`,
+              background: reason.atLimit ? D.redA : D.s3,
+              border: reason.atLimit ? `1px solid rgba(224,85,85,.25)` : `1px solid ${D.border}`,
               borderRadius: 7,
               padding: '8px 12px',
             }}
           >
-            {reason}
+            {reason.text}
           </div>
         </div>
 
@@ -300,7 +309,9 @@ function UpgradeModal({
                 cursor: 'pointer',
               }}
             >
-              Continuă cu planul gratuit
+              {/* Modalul se deschide și pe planuri PLĂTITE (limita de produse pe
+                  Meniu Digital) — „Continuă cu planul gratuit" mințea acolo. */}
+              Nu acum
             </button>
           </div>
         </div>
@@ -309,96 +320,8 @@ function UpgradeModal({
   )
 }
 
-// ── Upgrade Banner (sidebar bottom) ───────────────────────────
-function UpgradeBanner({
-  plan,
-  productCount,
-  maxProducts,
-  onUpgrade,
-}: {
-  plan: string
-  productCount: number
-  maxProducts: number
-  onUpgrade: () => void
-}) {
-  if (plan !== 'free') return null
-  const pct = Math.min(100, Math.round((productCount / Math.max(1, maxProducts)) * 100))
-  const isNearLimit = pct >= 70
-  const isAtLimit = pct >= 100
-
-  return (
-    <div
-      style={{
-        margin: '8px 8px 4px',
-        background: D.s2,
-        border: `1px solid ${isAtLimit ? D.red + '44' : isNearLimit ? D.gold + '44' : D.border}`,
-        borderRadius: 10,
-        padding: '12px 14px',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 7,
-        }}
-      >
-        <span
-          style={{
-            fontSize: '0.7rem',
-            fontWeight: 600,
-            color: isAtLimit ? D.red : isNearLimit ? D.gold : D.t3,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-          }}
-        >
-          Plan Gratuit
-        </span>
-        <span style={{ fontSize: '0.7rem', color: isAtLimit ? D.red : D.t3 }}>
-          {productCount}/{maxProducts}
-        </span>
-      </div>
-      {/* Progress bar */}
-      <div
-        style={{
-          height: 3,
-          background: D.s3,
-          borderRadius: 2,
-          overflow: 'hidden',
-          marginBottom: 10,
-        }}
-      >
-        <div
-          style={{
-            height: '100%',
-            borderRadius: 2,
-            background: isAtLimit ? D.red : isNearLimit ? D.amber : D.t3,
-            width: `${pct}%`,
-            transition: 'width .4s',
-          }}
-        />
-      </div>
-      <button
-        onClick={onUpgrade}
-        style={{
-          width: '100%',
-          background: D.gold,
-          color: '#000',
-          border: 'none',
-          borderRadius: 7,
-          padding: '8px 0',
-          fontFamily: 'DM Sans,sans-serif',
-          fontSize: '0.78rem',
-          fontWeight: 700,
-          cursor: 'pointer',
-        }}
-      >
-        Upgrade la Pro →
-      </button>
-    </div>
-  )
-}
+// Banda planului gratuit din sidebar + banda „planul nu s-a încărcat":
+// components/_dashboard/PlanBanners.tsx (testate separat, FB1–FB4).
 
 // ── Main Dashboard ────────────────────────────────────────────
 export type Tab =
@@ -686,7 +609,7 @@ export default function DashboardPage({
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
+  const [upgradeReason, setUpgradeReason] = useState<UpgradeReason | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
 
@@ -763,8 +686,13 @@ export default function DashboardPage({
   // Planul aparține RESTAURANTULUI, nu user-ului (CLAUDE.md §3): citim
   // get_restaurant_features, corect și pentru staff (un waiter pe restaurant
   // 'free' care e owner 'pro' altundeva nu trebuie să vadă limite/tab-uri 'pro').
-  // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv).
+  // Cât timp features se încarcă → fallback 'free' (cel mai restrictiv) pentru
+  // GATING. Dar fallback-ul nu e un fapt: `planKnown` (perf-staff-3) ține
+  // separat „știm planul" de „planul e free" — banda „Demo gratuit", eticheta
+  // planului și upsell-ul de pe Acasă apar DOAR pe un plan cunoscut, altfel un
+  // plătitor vedea „Plan Gratuit 0/15" la fiecare încărcare sau blip de RPC.
   const plan = features.features?.plan ?? 'free'
+  const planKnown = features.features != null
 
   // DOUĂ tier-uri (surfaceTiers, lib/features.ts): `tier` = planul (gating
   // general, inclusiv feature-urile NEfiscale de Plan 3: harta sălii,
@@ -802,25 +730,36 @@ export default function DashboardPage({
     if (activeGroup == null) setTab(isPartner ? 'products' : 'home')
   }, [activeGroup, isPartner])
 
-  // FIX: UpgradeBanner afișa mereu 0/15 (hardcoded). Acum citește count-ul real.
   const { limits: planLimits } = usePlanLimits(plan)
-  const [productCount, setProductCount] = useState(0)
+  // Numărul de produse, TRISTATE: `null` = necunoscut (încă se citește sau
+  // citirea a eșuat). Înainte o eroare devenea tăcut 0 — „0/15" în bandă și
+  // „Adaugă produse" nebifat pe Acasă la un meniu plin (code-health-error-ignored-guards).
+  const [productCount, setProductCount] = useState<number | null>(null)
+  // Restaurantul pentru care e valid `productCount` — la comutare nu se scurge
+  // numărul altui local.
+  const productCountForRef = useRef<string | null>(null)
   React.useEffect(() => {
     if (!restaurant) {
-      setProductCount(0)
+      productCountForRef.current = null
+      setProductCount(null)
       return
     }
-    // OPT-2: count-ul alimentează DOAR UpgradeBanner (vizibil doar pe free)
-    // și HomeTab (tab 'home') — pe un plan plătit, navigarea între celelalte
-    // tab-uri emitea un query per click fără niciun efect vizibil.
+    if (productCountForRef.current !== restaurant.id) setProductCount(null)
+    // OPT-2: count-ul alimentează DOAR banda planului gratuit și HomeTab (tab
+    // 'home') — pe un plan plătit, navigarea între celelalte tab-uri emitea un
+    // query per click fără niciun efect vizibil.
     if (plan !== 'free' && tab !== 'home') return
     let cancelled = false
+    const countedId = restaurant.id
     void supabase
       .from('products')
       .select('id', { count: 'exact', head: true })
-      .eq('restaurant_id', restaurant.id)
-      .then(({ count }) => {
-        if (!cancelled) setProductCount(count ?? 0)
+      .eq('restaurant_id', countedId)
+      .then(({ count, error }) => {
+        // Eroare → rămâne ultima valoare CUNOSCUTĂ (sau null), nu 0.
+        if (cancelled || error) return
+        productCountForRef.current = countedId
+        setProductCount(count ?? 0)
       })
     return () => {
       cancelled = true
@@ -974,9 +913,12 @@ export default function DashboardPage({
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: D.green }} />
             <span style={{ fontSize: '0.68rem', color: D.green }}>Activ</span>
-            <span style={{ fontSize: '0.68rem', color: D.t3, marginLeft: 4 }}>
-              · {PLAN_LABELS[plan] || plan}
-            </span>
+            {/* Numele planului doar când îl ȘTIM — nu „Demo gratuit" din fallback. */}
+            {planKnown && (
+              <span style={{ fontSize: '0.68rem', color: D.t3, marginLeft: 4 }}>
+                · {PLAN_LABELS[plan] || plan}
+              </span>
+            )}
           </div>
         </div>
       )}
@@ -1041,14 +983,15 @@ export default function DashboardPage({
           )
         })}
       </nav>
-      <UpgradeBanner
-        plan={plan}
-        productCount={productCount}
-        maxProducts={planLimits.max_products}
-        onUpgrade={() =>
-          setUpgradeReason(productLimitReason(plan, planLimits.max_products))
-        }
-      />
+      {planKnown && plan === 'free' && (
+        <FreePlanBanner
+          productCount={productCount}
+          maxProducts={planLimits.max_products}
+          onShowPlans={() =>
+            setUpgradeReason(planUsageReason(plan, productCount, planLimits.max_products))
+          }
+        />
+      )}
       <div
         style={{
           padding: '10px 8px',
@@ -1366,6 +1309,9 @@ export default function DashboardPage({
             </div>
           ) : (
             <>
+              {features.loadError && !planKnown && (
+                <PlanUnknownBanner onRetry={() => void features.reload()} />
+              )}
               {/* Sub-navigație internă a grupului activ (chips).
                   Tab-ul activ e clar evidențiat (fundal gold + bordură).
                   Numele grupului peste chips dă context ierarhic. */}
@@ -1472,8 +1418,9 @@ export default function DashboardPage({
                     restaurantName={restaurant.name}
                     // HomeTab folosește tier ≥ 3 DOAR pentru banner-ul casei
                     // fiscale (bani/bon) → tier-ul `money`; pragurile ≥ 2 sunt
-                    // identice pe ambele tier-uri.
-                    tier={money}
+                    // identice pe ambele tier-uri. `null` = planul NU e încă
+                    // cunoscut: fără upsell și fără „totul e gata" (perf-staff-3).
+                    tier={planKnown ? money : null}
                     isAdmin={isAdminRole}
                     productCount={productCount}
                     pickupOnly={pickupOnly}
@@ -1508,9 +1455,18 @@ export default function DashboardPage({
                   <ProductsTab
                     restaurantId={restaurant.id}
                     plan={plan}
-                    onUpgrade={() =>
-                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
-                    }
+                    onUpgrade={() => {
+                      // Cu planul NECUNOSCUT limita e cea de fallback (free), deci un
+                      // „Ai atins limita" ar minți un plătitor: reîncercăm planul.
+                      if (!planKnown) {
+                        void features.reload()
+                        return
+                      }
+                      setUpgradeReason({
+                        text: productLimitReason(plan, planLimits.max_products),
+                        atLimit: true,
+                      })
+                    }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
                   />

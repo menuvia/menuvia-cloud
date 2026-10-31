@@ -224,6 +224,38 @@ export function productLimitReason(plan: string, maxProducts: number): string {
   return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
 }
 
+/** Motivul afișat în modalul de upgrade; `atLimit` decide tonul (alarmă vs. informativ). */
+export interface UpgradeReason {
+  text: string
+  atLimit: boolean
+}
+
+/**
+ * Motivul pentru modalul deschis din banda planului gratuit (ux-owner-upgrade-banner).
+ * Înainte banda deschidea mereu `productLimitReason` — „Ai atins limita de
+ * produse" — și la 0/15. Acum spune utilizarea REALĂ: limita doar când e
+ * atinsă, altfel câte produse folosește; cu numărul necunoscut (citire eșuată)
+ * nu inventează niciunul.
+ */
+export function planUsageReason(
+  plan: string,
+  productCount: number | null,
+  maxProducts: number,
+): UpgradeReason {
+  if (productCount != null && productCount >= maxProducts) {
+    return { text: productLimitReason(plan, maxProducts), atLimit: true }
+  }
+  const name = PLAN_LABELS[plan] ?? plan
+  const max = maxProducts.toLocaleString('ro-RO')
+  if (productCount == null) {
+    return { text: `Planul ${name} include până la ${max} produse.`, atLimit: false }
+  }
+  return {
+    text: `Folosești ${productCount.toLocaleString('ro-RO')} din ${max} produse pe planul ${name}.`,
+    atLimit: false,
+  }
+}
+
 // Suggest upgrade path: from current plan, what's next.
 // Notă: întoarce null atât pentru „deja la maxim" (enterprise) cât și pentru
 // „plan necunoscut" (nu există în `order`) — semnătura publică rămâne
