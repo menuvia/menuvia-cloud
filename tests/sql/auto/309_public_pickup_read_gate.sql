@@ -210,15 +210,38 @@ language sql as $f$
   update public.profiles set plan = p_plan where id = p_owner
 $f$;
 
--- CODUL unei funcții, fără comentarii (`/* … */` apoi `-- …`). `prosrc` și
--- `pg_get_functiondef` includ comentariile din corp, deci o potrivire textuală
--- pe sursa brută e satisfăcută și de un literal rămas într-un comentariu
--- (mutațiile d/e din antet). Un `--` într-un literal de șir ar tăia restul
--- rândului — eșec ZGOMOTOS pe o asserție de prezență, nu verde tăcut.
+-- CODUL unei funcții, fără comentarii, cu literalele de șir PĂSTRATE.
+-- `prosrc` și `pg_get_functiondef` includ comentariile din corp, deci o
+-- potrivire textuală pe sursa brută e satisfăcută și de un literal rămas
+-- într-un comentariu (mutațiile d/e din antet). O SINGURĂ trecere, alternanță
+-- de trei ramuri: literal `'…'` (cu `''` dublat) — CAPTURAT și pus la loc prin
+-- `\1`; comentariu de linie `--…` până la capătul rândului; comentariu de bloc
+-- `/* … */`, scris fără cuantificator leneș (`([^*]|\*+[^*/])*\*+/` nu poate
+-- trece de primul `*/`). Potrivirile încep de la stânga, deci ce începe ÎNTÂI
+-- câștigă: un `'--'` dintr-un literal rămâne cod, iar un `/*` dintr-un
+-- comentariu de linie dispare odată cu rândul (scoaterea în doi pași de
+-- dinainte tăia restul rândului după `'--'` și înghițea codul dintre un `/*`
+-- dintr-un comentariu de linie și următorul `*/`).
+-- Nu tratează: șirurile dollar-quoted din corp (comentariile din ele se scot
+-- ca și cum ar fi cod), escape-ul `\'` din șirurile E'…' și comentariile de
+-- bloc IMBRICATE (Postgres le acceptă; trecerea se oprește la primul `*/`).
 create function pg_temp.pu_code(p_src text) returns text
 language sql immutable as $f$
-  select regexp_replace(regexp_replace(p_src, '/\*.*?\*/', '', 'g'), '--[^\n]*', '', 'g')
+  select regexp_replace(p_src,
+           $re$('([^']|'')*')|--[^\n]*|/\*([^*]|\*+[^*/])*\*+/$re$, '\1', 'g')
 $f$;
+
+-- Controlul direct al lui pu_code (PU8 îl exersează și prin detector).
+do $$
+begin
+  if pg_temp.pu_code($s$select '--' as sep, x -- tăiat$s$) is distinct from $s$select '--' as sep, x $s$
+     or pg_temp.pu_code($s$select 'it''s -- încă literal' as a$s$) is distinct from $s$select 'it''s -- încă literal' as a$s$
+     or pg_temp.pu_code(E'-- vezi tests/sql/auto/*.sql\nselect jsonb_agg(r) from t r /* bloc */')
+          is distinct from E'\nselect jsonb_agg(r) from t r '
+     or pg_temp.pu_code($s$a /* x -- y ' z */ b /** c **/ d$s$) is distinct from $s$a  b  d$s$ then
+    raise exception 'pu_code: comentariile nu se scot corect sau literalele nu se păstrează';
+  end if;
+end $$;
 
 -- ── PU1: DOWNGRADE pe /m/:slug ──────────────────────────────────────────────
 do $$
