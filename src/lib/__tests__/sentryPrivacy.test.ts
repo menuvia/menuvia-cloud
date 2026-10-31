@@ -15,7 +15,8 @@
 //        de `scrubTokenPathsDeep`: calea cu token și fragmentul de autentificare
 //        dispar, restul atributelor rămâne neatins
 //
-// Categoriile NOI dintr-un SDK viitor le prinde typecheck-ul, nu testul:
+// Categoriile NOI dintr-un SDK viitor și o categorie NESETATĂ în obiect (cum
+// fusese `mcp`) le prinde typecheck-ul, nu testul:
 // SENTRY_DATA_COLLECTION_IS_EXHAUSTIVE din lib/sentryPrivacy.ts.
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -49,6 +50,7 @@ describe('Sentry: colectarea de date', () => {
       urlQueryParams: false,
       graphQL: { document: false, variables: false },
       genAI: { inputs: false, outputs: false },
+      mcp: { inputs: false, outputs: false },
       databaseQueryData: false,
       queues: false,
       stackFrameVariables: false,

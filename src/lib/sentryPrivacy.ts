@@ -22,7 +22,10 @@ import type { BrowserOptions } from '@sentry/react'
 
 export type SentryDataCollection = NonNullable<BrowserOptions['dataCollection']>
 
-export const SENTRY_DATA_COLLECTION: SentryDataCollection = {
+// `satisfies`, nu adnotare: tipul obiectului își păstrează cheile, deci
+// clichetul de mai jos poate cere ca fiecare categorie să fie SETATĂ aici, nu
+// doar „decisă” într-o listă separată.
+export const SENTRY_DATA_COLLECTION = {
   // Fără id/email/username completate automat și fără cererea ca serverul
   // Sentry să deducă IP-ul din conexiune.
   userInfo: false,
@@ -31,39 +34,31 @@ export const SENTRY_DATA_COLLECTION: SentryDataCollection = {
   httpBodies: [],
   urlQueryParams: false,
   graphQL: { document: false, variables: false },
-  // Acoperă și categoria `mcp` acolo unde SDK-ul o are: cade pe `genAI` când
-  // nu e setată.
   genAI: { inputs: false, outputs: false },
+  // Explicit, nu „cade pe genAI”: în 11.9.0 configurația REZOLVATĂ pune `mcp`
+  // pe `{ inputs: true, outputs: true }` (resolveDataCollectionOptions);
+  // fallback-ul pe `genAI` e doar în instrumentarea MCP de azi, cu TODO(v12)
+  // să citească valoarea rezolvată (recenzie CodeRabbit pe #323).
+  mcp: { inputs: false, outputs: false },
   databaseQueryData: false,
   queues: false,
   stackFrameVariables: false,
-}
+} satisfies SentryDataCollection
 
-// Cheile pe care le-am DECIS. `frameContextLines` rămâne pe implicit deliberat:
-// sunt liniile din codul NOSTRU din jurul unui cadru de stivă, nu date de
-// utilizator. `mcp` cade pe `genAI` (comentariul de mai sus).
-type DecidedKey =
-  | 'userInfo'
-  | 'cookies'
-  | 'httpHeaders'
-  | 'httpBodies'
-  | 'urlQueryParams'
-  | 'graphQL'
-  | 'genAI'
-  | 'databaseQueryData'
-  | 'queues'
-  | 'stackFrameVariables'
-  | 'mcp'
-  | 'frameContextLines'
+// Cheile lăsate DELIBERAT pe implicit, fiecare cu motiv. `frameContextLines`:
+// liniile din codul NOSTRU din jurul unui cadru de stivă, nu date de
+// utilizator. Orice altă categorie se SETEAZĂ în obiectul de mai sus.
+type DefaultedKey = 'frameContextLines'
 
-type UndecidedKey = Exclude<keyof SentryDataCollection, DecidedKey>
+type UnsetKey = Exclude<keyof SentryDataCollection, keyof typeof SENTRY_DATA_COLLECTION | DefaultedKey>
 
 /**
- * Clichet la typecheck: dacă un SDK nou adaugă o categorie de date în
- * `dataCollection`, tipul de aici devine `never`, atribuirea lui `true` pică și
- * bump-ul nu trece până nu decide cineva categoria nouă. Implicitul unei
- * categorii noi e, de la v11, COLECTAREA — exact ce nu vrem să se întâmple tăcut.
+ * Clichet la typecheck: orice categorie din `dataCollection` care nu e nici
+ * setată în SENTRY_DATA_COLLECTION, nici trecută în `DefaultedKey`, face tipul
+ * de aici `never`, deci atribuirea lui `true` pică. Prinde și o categorie NOUĂ
+ * dintr-un SDK viitor (implicitul ei e, de la v11, COLECTAREA) și o cheie scoasă
+ * din obiect din greșeală (cazul `mcp`, decisă pe hârtie dar nesetată).
  */
-export const SENTRY_DATA_COLLECTION_IS_EXHAUSTIVE: [UndecidedKey] extends [never]
+export const SENTRY_DATA_COLLECTION_IS_EXHAUSTIVE: [UnsetKey] extends [never]
   ? true
   : never = true
