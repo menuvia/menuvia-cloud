@@ -88,17 +88,12 @@ export function getLimit(features: RestaurantFeatures | null, name: FeatureName)
 //   - 'disabled'  → feature-ul e complet dezactivat pt acest plan (getLimit → 0)
 //   - 'limited'   → feature-ul e activ, plafonat la `n` (getLimit → n)
 //   - 'unlimited' → feature-ul e activ, fără plafon      (getLimit → null)
-// Notă: getLimit() întoarce 0 și pt „dezactivat" ȘI pt „limitat la 0", ceea
-// ce e ambiguu pentru consumatori care vor să distingă cele două cazuri.
-export type LimitDetail =
-  | { kind: 'disabled' }
-  | { kind: 'limited'; n: number }
-  | { kind: 'unlimited' }
+// Intern (code-health-dead-lib-exports): era exportat „pentru consumatori noi"
+// care n-au venit niciodată; singurul cititor e getLimit. Un consumator care
+// chiar are nevoie de distincție îl exportă ATUNCI, cu apelantul în același PR.
+type LimitDetail = { kind: 'disabled' } | { kind: 'limited'; n: number } | { kind: 'unlimited' }
 
-export function getLimitDetailed(
-  features: RestaurantFeatures | null,
-  name: FeatureName,
-): LimitDetail {
+function getLimitDetailed(features: RestaurantFeatures | null, name: FeatureName): LimitDetail {
   if (!features) return { kind: 'disabled' }
   const f = features.features[name]
   if (!f?.enabled) return { kind: 'disabled' }
@@ -249,16 +244,12 @@ export function suggestUpgrade(currentPlan: string): string | null {
   return s.plan
 }
 
-// Variantă discriminată a suggestUpgrade — pentru consumatori noi care
-// vor să trateze diferit „deja la maxim" vs. „plan necunoscut" în UI
-// (ex: afișează mesaje diferite), fără să schimbe contractul funcției
-// existente (folosită de UpgradePrompt.tsx și de testele curente).
-export type UpgradeSuggestion =
-  | { kind: 'next'; plan: string }
-  | { kind: 'max' }
-  | { kind: 'unknown' }
+// Variantă discriminată a suggestUpgrade — distinge „deja la maxim" de „plan
+// necunoscut" (warn-ul de diagnostic). Internă, ca getLimitDetailed: n-a avut
+// niciodată alt consumator decât suggestUpgrade.
+type UpgradeSuggestion = { kind: 'next'; plan: string } | { kind: 'max' } | { kind: 'unknown' }
 
-export function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {
+function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {
   const order = ['free', 'starter', 'growth', 'pro', 'enterprise']
   const idx = order.indexOf(currentPlan)
   if (idx < 0) return { kind: 'unknown' }

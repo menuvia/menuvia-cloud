@@ -4,6 +4,8 @@
 // e folosit ca semn de gating peste tot; getPlanByInternalId() decide
 // numele comercial văzut pe AuthPage pill, Pricing, Upgrade.
 
+import { readFileSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
   planTier,
@@ -222,5 +224,37 @@ describe('getPlan — accesare directă config', () => {
     // Fiscalizare e pilot. Doar growth e highlight=true.
     expect(getPlan('growth').highlight).toBe(true)
     expect(getPlan('starter').highlight).toBe(false)
+  })
+})
+
+// code-health-dead-lib-exports (partea acestui PR): getLimitDetailed și
+// suggestUpgradeDetailed erau exportate „pentru consumatori noi" care n-au venit
+// niciodată. Clichetul (tiparul TC6 din themes-contrast.test.ts): orice valoare
+// exportată din modulele de mai jos are un consumator în src/, în afara
+// modulului și a testelor. Mutația care pică: `export` readus pe
+// getLimitDetailed / suggestUpgradeDetailed.
+const NO_DEAD_EXPORTS = ['lib/features.ts']
+
+describe('fără exporturi moarte', () => {
+  it('FX1: fiecare valoare exportată are un consumator în afara modulului', () => {
+    const root = resolve(process.cwd(), 'src')
+    const files = (readdirSync(root, { recursive: true }) as string[])
+      .map((f) => f.replace(/\\/g, '/'))
+      .filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('__tests__'))
+    for (const mod of NO_DEAD_EXPORTS) {
+      const src = readFileSync(resolve(root, mod), 'utf8')
+      const exported = [...src.matchAll(/^export (?:const|function|async function) (\w+)/gm)].map(
+        (m) => m[1] ?? '',
+      )
+      // Anti-vacuitate: scanerul chiar vede exporturile modulului.
+      expect(exported.length, mod).toBeGreaterThan(3)
+      const others = files
+        .filter((f) => f !== mod)
+        .map((f) => readFileSync(resolve(root, f), 'utf8'))
+      const unused = exported.filter(
+        (name) => !others.some((other) => new RegExp(`\\b${name}\\b`).test(other)),
+      )
+      expect(unused, mod).toEqual([])
+    }
   })
 })
