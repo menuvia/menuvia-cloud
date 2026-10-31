@@ -258,11 +258,19 @@ describe('getPlan — accesare directă config', () => {
 
 // code-health-dead-lib-exports (partea acestui PR): getLimitDetailed și
 // suggestUpgradeDetailed erau exportate „pentru consumatori noi" care n-au venit
-// niciodată. Clichetul (tiparul TC6 din themes-contrast.test.ts): orice valoare
-// exportată din modulele de mai jos are un consumator în src/, în afara
-// modulului și a testelor. Mutația care pică: `export` readus pe
-// getLimitDetailed / suggestUpgradeDetailed.
-const NO_DEAD_EXPORTS = ['lib/features.ts']
+// niciodată; în lib/quickSetup, BUSINESS_TYPES, bulkCreateTables și sendInvite
+// rămăseseră fără consumator odată cu scoaterea „asistentului detaliat".
+// Clichetul (tiparul TC6 din themes-contrast.test.ts): orice valoare exportată
+// din modulele de mai jos are un consumator în src/, în afara modulului și a
+// testelor. Mutația care pică: `export` readus pe getLimitDetailed /
+// suggestUpgradeDetailed, sau BUSINESS_TYPES/bulkCreateTables puse înapoi.
+const NO_DEAD_EXPORTS = ['lib/features.ts', 'lib/quickSetup.ts']
+// Scutiri CU MOTIV. applyBusinessTypePreset are azi un consumator (onboarding-ul),
+// dar PR-ul paralel «Onboarding» scoate meniurile demo de acolo; exportul pleacă
+// odată cu ultimul consumator, în PR-ul care îl scoate — nu aici, pe ghicite.
+const DEAD_EXPORT_EXEMPT: Record<string, readonly string[]> = {
+  'lib/quickSetup.ts': ['applyBusinessTypePreset'],
+}
 
 describe('fără exporturi moarte', () => {
   it('FX1: fiecare valoare exportată are un consumator în afara modulului', () => {
@@ -276,12 +284,15 @@ describe('fără exporturi moarte', () => {
         (m) => m[1] ?? '',
       )
       // Anti-vacuitate: scanerul chiar vede exporturile modulului.
-      expect(exported.length, mod).toBeGreaterThan(3)
+      expect(exported.length, mod).toBeGreaterThanOrEqual(3)
       const others = files
         .filter((f) => f !== mod)
         .map((f) => readFileSync(resolve(root, f), 'utf8'))
+      const exempt = DEAD_EXPORT_EXEMPT[mod] ?? []
       const unused = exported.filter(
-        (name) => !others.some((other) => new RegExp(`\\b${name}\\b`).test(other)),
+        (name) =>
+          !exempt.includes(name) &&
+          !others.some((other) => new RegExp(`\\b${name}\\b`).test(other)),
       )
       expect(unused, mod).toEqual([])
     }

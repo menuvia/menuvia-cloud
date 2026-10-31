@@ -46,7 +46,6 @@ function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: numb
 // mai mare/greu decât metricele secundare — ierarhie clară, nu grid identic.
 const displayFont = 'var(--font-display)'
 
-const QuickSetupTab = lazy(() => import('../QuickSetupTab'))
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
 
 interface Props {
@@ -548,7 +547,13 @@ export default function HomeTab({
       </RevealItem>
 
       {/* Setup restaurant — progres cu bară + pași compacți. Doar pe un plan
-          CUNOSCUT: lista depinde de plan, iar o listă greșită e o promisiune falsă. */}
+          CUNOSCUT: lista depinde de plan, iar o listă greșită e o promisiune falsă.
+          Fiecare pas duce în tab-ul lui, cu gate-urile lui de plan. Fostul
+          „asistent detaliat" (QuickSetupTab) dubla pașii pe alt drum, care le
+          ocolea: invitații de echipă pe Planul 1 (fila Echipă e Plan 2+, iar
+          serverul refuză apoi acceptarea), mese în bulk peste plafon, produse
+          demo publicate pe meniul real (ux-owner-quicksetup-duplicate). Presetul
+          de cote TVA — singura lui parte fără pas aici — e în Setări → Cote TVA. */}
       {isAdmin && tier != null && !setupComplete && (
         <RevealItem delay={120}>
         <div style={card}>
@@ -664,28 +669,6 @@ export default function HomeTab({
                 )}
               </button>
             ))}
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <ExpandableCard
-              header={(open) => (
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    color: D.t2,
-                    fontSize: '0.78rem',
-                  }}
-                >
-                  <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} color={D.t2} />
-                  {open ? 'Închide asistentul detaliat' : 'Deschide asistentul detaliat'}
-                </span>
-              )}
-            >
-              <Suspense fallback={<InlineSpinner label="Se încarcă asistentul..." />}>
-                <QuickSetupTab restaurantId={restaurantId} restaurantName={restaurantName} />
-              </Suspense>
-            </ExpandableCard>
           </div>
         </div>
         </RevealItem>

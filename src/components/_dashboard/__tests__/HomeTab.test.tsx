@@ -13,6 +13,10 @@
 //   HT4  citirea categoriilor EȘUEAZĂ → pasul e „stare necunoscută", nu nebifat
 //        Mutația care pică: `(categoriesCount ?? 0) > 0`.
 //   HT5  control pozitiv pentru HT1: tier 1 CUNOSCUT → upsell-ul apare
+//   HT6  checklist-ul e SINGURA cale de setup: fără „asistentul detaliat"
+//        (QuickSetupTab dubla pașii și le ocolea gate-urile de plan), iar fiecare
+//        pas duce în tab-ul lui (ux-owner-quicksetup-duplicate)
+//        Mutația care pică: cardul expandabil cu asistentul readus.
 //   HC1  magazinul Codvia în pauză (`false`) sau necunoscut (`null`) → fără
 //        acțiunea „Suporturi QR fizice" (ux-owner-codvia-quick-action, D4)
 //        Mutația care pică: acțiunea randată necondiționat (codul vechi).
@@ -155,6 +159,20 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT5: control pozitiv — tier 1 CUNOSCUT → upsell-ul apare', async () => {
     renderHome({ tier: 1 })
     expect(await screen.findByText(UPSELL)).toBeInTheDocument()
+  })
+})
+
+describe('HomeTab — checklist-ul e singura cale de setup', () => {
+  it('HT6: fără „asistentul detaliat"; pasul de mese duce în tab-ul Mese', async () => {
+    counts.tables = 0
+    const onNavigate = vi.fn()
+    renderHome({ tier: 1, onNavigate })
+    const step = await screen.findByRole('button', { name: 'Generează QR-uri pentru mese' })
+    expect(screen.getByText('Setup restaurant')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /asistentul detaliat/i })).toBeNull()
+    expect(screen.queryByText(/Setup Asistent/i)).toBeNull()
+    await userEvent.setup().click(step)
+    expect(onNavigate).toHaveBeenCalledWith('mese')
   })
 })
 

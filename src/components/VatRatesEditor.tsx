@@ -6,6 +6,14 @@ import { D } from '../lib/constants'
 import { useToast } from './ui/useToast'
 import { fetchVatRates, updateVatRate } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
+import { confirm as confirmDialog } from './ui/confirm'
+import { VAT_PRESETS, applyVatPreset, describeVatPresetError } from '../lib/quickSetup'
+
+// Presetul legal (L.141/2025) — aceeași sursă ca serverul (`vat_rate_defaults_ro`,
+// mig 285; QS3 leagă preview-ul de SQL). A stat în „asistentul detaliat" de pe
+// Acasă, care a fost scos (dubla checklist-ul); locul lui firesc e lângă cote.
+const LEGAL_PRESET = VAT_PRESETS[0]
+const LEGAL_RATES_TEXT = LEGAL_PRESET.rates.map((r) => `grupa ${r.group}: ${r.rate}%`).join(', ')
 
 interface Props {
   restaurantId: string
@@ -24,6 +32,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
   const [rates, setRates] = useState<VatRate[]>([])
   const [loading, setLoading] = useState(true)
   const [savingGroup, setSavingGroup] = useState<number | null>(null)
+  const [applyingPreset, setApplyingPreset] = useState(false)
   const [editing, setEditing] = useState<
     Map<number, { rate_percent: string; label: string; description: string }>
   >(new Map())
@@ -98,6 +107,31 @@ export default function VatRatesEditor({ restaurantId }: Props) {
     setSavingGroup(null)
   }
 
+  /** Readuce cele 4 grupe la cotele legale (apply_vat_preset), după confirmare. */
+  async function applyLegalRates() {
+    const ok = await confirmDialog({
+      title: 'Aplici cotele legale?',
+      description:
+        `Grupele primesc cotele din Legea 141/2025 (${LEGAL_RATES_TEXT}) și etichetele ` +
+        'implicite. Produsele își păstrează grupa, iar maparea pe casa de marcat rămâne neatinsă.',
+      confirmLabel: 'Aplică cotele legale',
+    })
+    if (!ok) return
+    setApplyingPreset(true)
+    try {
+      const r = await applyVatPreset(restaurantId, LEGAL_PRESET.id)
+      toast.success(`Cotele legale au fost aplicate pe ${r.rates_applied} grupe TVA.`)
+    } catch (e) {
+      toast.error(describeVatPresetError(e))
+      return
+    } finally {
+      setApplyingPreset(false)
+    }
+    await load().catch(() => {
+      toast.error('Cotele au fost aplicate, dar lista nu s-a reîncărcat. Reîncarcă pagina.')
+    })
+  }
+
   if (loading) {
     return <div style={{ fontSize: '0.82rem', color: D.t3, padding: 14 }}>Se încarcă cotele...</div>
   }
@@ -117,6 +151,43 @@ export default function VatRatesEditor({ restaurantId }: Props) {
         💡 <strong style={{ color: D.t2 }}>Despre cote TVA:</strong> ai 4 grupe configurabile.
         Fiecare produs și ingredient se asociază cu o grupă (1, 2, 3 sau 4). Dacă statul schimbă
         cotele, modifici aici procentul fără să atingi produsele individual.
+      </div>
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          flexWrap: 'wrap',
+          padding: '10px 12px',
+          background: D.s2,
+          border: `1px solid ${D.border}`,
+          borderRadius: 10,
+        }}
+      >
+        <div style={{ flex: '1 1 220px', fontSize: '0.78rem', lineHeight: 1.5 }}>
+          <div style={{ color: D.t1, fontWeight: 600 }}>{LEGAL_PRESET.label}</div>
+          <div style={{ color: D.t3, marginTop: 2 }}>{LEGAL_PRESET.description}</div>
+        </div>
+        <button
+          disabled={applyingPreset}
+          onClick={() => void applyLegalRates()}
+          style={{
+            padding: '8px 14px',
+            minHeight: 40,
+            background: 'transparent',
+            color: D.gold,
+            border: `1px solid ${D.gold}66`,
+            borderRadius: 8,
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            cursor: applyingPreset ? 'wait' : 'pointer',
+            opacity: applyingPreset ? 0.6 : 1,
+            fontFamily: 'DM Sans, sans-serif',
+          }}
+        >
+          {applyingPreset ? 'Se aplică…' : 'Aplică cotele legale'}
+        </button>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
