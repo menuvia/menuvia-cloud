@@ -23,6 +23,10 @@
 //        de pe /q avea doar butoane care TRIMIT cererea de notă, iar coșul de
 //        ridicare de pe /m doar „Continuă la ridicare". Control pozitiv pe un
 //        eșantion; scutire cu motiv pentru confirmarea ridicării.
+//   GA8  tabul de categorie trece prin `selectCategory` pe /q și /m: lista urcă
+//        sub bara de categorii (ținta e testată în menuUi, BL3), iar pe /q
+//        căutarea se golește (ux-guest-6). Fără clichet, `onSelect` putea
+//        reveni la setter-ul gol fără ca vreun test să pice.
 //
 // Fiecare verificare pică pe codul de dinainte (alb fix pe bară, condiția
 // `&& orderingAllowed`, lista inline `msg.includes('fetch')`, foaia inline cu
@@ -178,6 +182,38 @@ describe('clichete pe sursa paginilor oaspetelui', () => {
     expect(found).toEqual([])
     // Foaia de bacșiș se închide și din tastatură.
     expect(src.qr).toMatch(/e\.key === 'Escape'\) setShowTipSheet\(false\)/)
+  })
+
+  it('GA8 tabul de categorie câștigă peste căutare și urcă lista sub bară (ux-guest-6)', () => {
+    // Corpul lui `selectCategory`, de la declarație până la `}, [])`.
+    const body = (s: string): string => {
+      const at = s.indexOf('const selectCategory = useCallback(')
+      if (at === -1) return ''
+      const end = s.indexOf('\n  }, [])', at)
+      return end === -1 ? '' : s.slice(at, end)
+    }
+    const qr = body(src.qr)
+    const pub = body(src.pub)
+    // Anti-vacuitate: extractorul găsește funcția în ambele pagini.
+    expect(qr).toMatch(/setActiveCatId\(id\)/)
+    expect(pub).toMatch(/setActiveCat\(id\)/)
+    for (const [file, source, fn] of [
+      [FILES.qr, src.qr, qr],
+      [FILES.pub, src.pub, pub],
+    ] as const) {
+      expect({
+        file,
+        // CategoryTabs primește funcția, nu setter-ul gol al stării.
+        wired: /onSelect=\{selectCategory\}/.test(source),
+        // Ținta derulării e containerul listei.
+        listRef: /ref=\{listRef\}/.test(source),
+        scrolls: /listScrollTarget\(/.test(fn) && /window\.scrollTo\(/.test(fn),
+        reducedMotion: /prefersReducedMotion\(\)/.test(fn),
+      }).toEqual({ file, wired: true, listRef: true, scrolls: true, reducedMotion: true })
+    }
+    // Pe /q căutarea caută în TOT meniul și ascunde categoria: fără golirea
+    // ei, tabul atins în timpul căutării nu schimba nimic pe ecran.
+    expect(qr).toMatch(/setSearch\(''\)/)
   })
 })
 
