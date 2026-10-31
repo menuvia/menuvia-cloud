@@ -35,6 +35,11 @@ const state = {
   // care uită să scripteze autentificarea să nu treacă din greșeală.
   authUser: null,
   authCalls: [],
+  // supabase.storage.from(bucket).upload(path, body, opts) → handler-ul
+  // (bucket, path) întoarce {data, error}; nescriptat = succes. getPublicUrl
+  // întoarce `https://storage.test/<bucket>/<path>` (ai-generate-image).
+  storageHandler: null,
+  storageCalls: [],
 }
 
 function resetMocks() {
@@ -47,6 +52,8 @@ function resetMocks() {
   state.stripeCtors = []
   state.authUser = null
   state.authCalls = []
+  state.storageHandler = null
+  state.storageCalls = []
 }
 
 // ── Fake supabase-js ─────────────────────────────────────────────────────────
@@ -69,6 +76,8 @@ const CHAIN_METHODS = [
   'in',
   'gte',
   'lte',
+  // automation-cron (scanarea stripe_events blocate, founder-alert.test.js).
+  'lt',
   'abortSignal',
   // send-invite / stripe-connect (testele de origine din app-url-callsites).
   'delete',
@@ -126,6 +135,16 @@ const fakeSupabaseModule = {
       return thenable
     },
     from: (table) => makeBuilder(table),
+    storage: {
+      from: (bucket) => ({
+        upload: async (path, body, opts) => {
+          state.storageCalls.push({ bucket, path, body, opts })
+          const h = state.storageHandler
+          return h ? h(bucket, path) : { data: { path }, error: null }
+        },
+        getPublicUrl: (path) => ({ data: { publicUrl: `https://storage.test/${bucket}/${path}` } }),
+      }),
+    },
     auth: {
       getUser: async (token) => {
         state.authCalls.push({ token })

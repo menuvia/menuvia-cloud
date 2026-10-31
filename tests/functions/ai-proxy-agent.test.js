@@ -140,7 +140,8 @@ describe('ai-proxy: agentul de vânzări', () => {
     for (const feature of ['chat', 'nutrition']) {
       const res = await handler(req(feature))
       assert.equal(res.statusCode, 403, `${feature} trebuie respins pentru agent`)
-      assert.equal(parseBody(res).error, 'Forbidden')
+      // Contractul de eroare (lib/aiErrors.js): decizia stă pe COD, textul e în română.
+      assert.equal(parseBody(res).code, 'forbidden')
     }
     assert.equal(fetchCalls.length, 0, 'providerul nu are voie să fie atins')
     assert.equal(rpcCallsFor('ai_can_use').length, 0, 'cota nu se consultă')

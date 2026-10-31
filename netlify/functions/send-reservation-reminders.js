@@ -1,12 +1,13 @@
 // netlify/functions/send-reservation-reminders.js
-// Cron-triggered (Netlify scheduled): la fiecare 10 min.
+// Cron-triggered (Netlify scheduled): la fiecare 30 min (regimul de avarie din
+// netlify.toml — sursa UNICĂ a cadenței; clichet: schedule-comments.test.js).
 // Atomic claim via RPC `claim_reservation_reminders` → enqueue în
 // email_queue + sms_queue (mig 233/234) cu dedup_key per rezervare.
 // Idempotent — re-run nu trimite duplicate (RPC marchează `reminder_sent_at`).
 //
 // Schedule (netlify.toml):
 //   [functions."send-reservation-reminders"]
-//     schedule = "*/10 * * * *"
+//     schedule = "*/30 * * * *"
 
 const { createClient } = require('@supabase/supabase-js')
 
@@ -77,7 +78,7 @@ exports.handler = async () => {
   //   • niciun canal enqueued, fără eșec (email absent + enqueue_sms a întors
   //     null = skip definitiv: modul oprit între timp / plafon lunar atins /
   //     număr ne-mobil) → rămâne marcat. Un reset aici ar re-revendica aceeași
-  //     rezervare la fiecare 10 min, la nesfârșit, fără să existe vreun canal.
+  //     rezervare la fiecare tick, la nesfârșit, fără să existe vreun canal.
   let ok = 0
   let fail = 0
   for (const r of claimed) {

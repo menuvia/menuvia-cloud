@@ -2,21 +2,26 @@
 // Rulează secvențial pe produsele care nu au încă imagine / nutriție, cu
 // progres vizibil. Tot ce se generează e marcat ca „AI" (ai_generated_fields)
 // → owner-ul vede badge „verifică" în fiecare produs. Se oprește la depășirea
-// cotei (429) și raportează clar.
+// cotei (429) și raportează clar. O eroare de CONFIGURARE (furnizor fără
+// imagini, AI dezactivat, cheie lipsă — vezi isAiConfigError) se repetă identic
+// la fiecare produs: o raportăm O DATĂ și sărim restul pentru acel tip de
+// generare, în loc să chemăm serverul de N ori și să umplem lista cu N erori.
 import { useState } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { supabase } from '../lib/supabase'
 import type { Product, Category } from '../hooks/useData'
-import { generateNutrition, generateProductImage, aiTranslateBatch } from '../lib/ai'
+import {
+  generateNutrition,
+  generateProductImage,
+  aiTranslateBatch,
+  isAiConfigError,
+  isAiQuotaError,
+} from '../lib/ai'
 import type { Translations } from '../lib/i18nMenu'
 
-type ErrWithMeta = Error & { code?: string; status?: number }
-function isQuota(e: unknown): boolean {
-  const m = e as ErrWithMeta
-  return m?.code === 'quota_exceeded' || m?.status === 429
-}
+const errText = (e: unknown): string => (e instanceof Error ? e.message : 'eroare')
 
 // Împarte un array în grupuri de câte `n` (pentru apeluri AI de traducere în lot).
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -113,6 +118,10 @@ export default function AiBulkGenerate({
     setErrors([])
     setQuotaHit(false)
     let stop = false
+    // Eroare de configurare pe un tip de generare → restul produselor se sar
+    // pentru acel tip (imaginile pot fi oprite, nutriția continuă).
+    let stopText = false
+    let stopImages = false
 
     // Pre-pass BATCHED de traducere: categorii + produse, în loturi de câte un
     // apel AI. Dimensiunea lotului SCADE cu numărul de limbi, ca output-ul AI
@@ -136,8 +145,14 @@ export default function AiBulkGenerate({
             targetLangs: langs,
           })
         } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `Traducere categorii: ${e instanceof Error ? e.message : 'eroare'}`])
+          if (isAiQuotaError(e)) {
+            setQuotaHit(true)
+            stop = true
+          } else if (isAiConfigError(e)) {
+            stopText = true
+            setErrors((prev) => [...prev, `Traduceri oprite: ${errText(e)}`])
+            break
+          } else setErrors((prev) => [...prev, `Traducere categorii: ${errText(e)}`])
           continue
         }
         // Scrierile per-item NU opresc lotul: o eroare de UPDATE pe un item nu
@@ -159,7 +174,7 @@ export default function AiBulkGenerate({
       }
       // Produse — nume + descriere.
       const prodGroups = chunk(products.filter(needsTr), prodChunkSize)
-      for (let g = 0; g < prodGroups.length && !stop; g++) {
+      for (let g = 0; g < prodGroups.length && !stop && !stopText; g++) {
         const group = prodGroups[g]
         setCurrent(`Traduc produse (${group.length})…`)
         let map: Record<string, Translations>
@@ -170,8 +185,14 @@ export default function AiBulkGenerate({
             targetLangs: langs,
           })
         } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `Traducere produse: ${e instanceof Error ? e.message : 'eroare'}`])
+          if (isAiQuotaError(e)) {
+            setQuotaHit(true)
+            stop = true
+          } else if (isAiConfigError(e)) {
+            stopText = true
+            setErrors((prev) => [...prev, `Traduceri oprite: ${errText(e)}`])
+            break
+          } else setErrors((prev) => [...prev, `Traducere produse: ${errText(e)}`])
           continue
         }
         for (const p of group) {
@@ -196,7 +217,7 @@ export default function AiBulkGenerate({
       setCurrent(p.name)
 
       // Nutriție
-      if (doNutrition && p.calories == null) {
+      if (doNutrition && !stopText && p.calories == null) {
         try {
           const n = await generateNutrition({
             restaurant_id: restaurantId,
@@ -220,13 +241,21 @@ export default function AiBulkGenerate({
           if (error) throw new Error(error.message)
           setOkNutri((x) => x + 1)
         } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `${p.name} (nutriție): ${e instanceof Error ? e.message : 'eroare'}`])
+          if (isAiQuotaError(e)) {
+            setQuotaHit(true)
+            stop = true
+          } else if (isAiConfigError(e)) {
+            stopText = true
+            setErrors((prev) => [
+              ...prev,
+              `Macronutrienți opriți: ${errText(e)} Restul produselor au fost sărite.`,
+            ])
+          } else setErrors((prev) => [...prev, `${p.name} (nutriție): ${errText(e)}`])
         }
       }
 
       // Imagine
-      if (!stop && doImages && !p.image_url) {
+      if (!stop && doImages && !stopImages && !p.image_url) {
         try {
           await generateProductImage({
             restaurant_id: restaurantId,
@@ -237,12 +266,22 @@ export default function AiBulkGenerate({
           })
           setOkImg((x) => x + 1)
         } catch (e) {
-          if (isQuota(e)) { setQuotaHit(true); stop = true }
-          else setErrors((prev) => [...prev, `${p.name} (imagine): ${e instanceof Error ? e.message : 'eroare'}`])
+          if (isAiQuotaError(e)) {
+            setQuotaHit(true)
+            stop = true
+          } else if (isAiConfigError(e)) {
+            stopImages = true
+            setErrors((prev) => [
+              ...prev,
+              `Imagini oprite: ${errText(e)} Restul produselor au fost sărite.`,
+            ])
+          } else setErrors((prev) => [...prev, `${p.name} (imagine): ${errText(e)}`])
         }
       }
 
       setProgress(i + 1)
+      // Nimic de făcut mai departe: ambele tipuri cerute s-au oprit.
+      if ((!doNutrition || stopText) && (!doImages || stopImages)) stop = true
     }
 
     setDone(true)
@@ -272,7 +311,7 @@ export default function AiBulkGenerate({
                 <span style={{ color: D.t1, fontSize: '0.9rem' }}>Imagini ({missingImg.length} fără imagine)</span>
               </label>
               <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
-                Necesită furnizor OpenAI sau Gemini. Pe Claude/custom, imaginile vor fi sărite.
+                Merg cu furnizorul implicit (OpenAI) sau cu Gemini. Pe Claude sau pe un furnizor personalizat, imaginile se sar, cu un singur mesaj.
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                 <input type="checkbox" checked={doNutrition} disabled={running} onChange={(e) => setDoNutrition(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
