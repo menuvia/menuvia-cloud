@@ -25,7 +25,7 @@ import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError } from '../lib/guestErrors'
+import { describeGuestError, isNetworkGuestError } from '../lib/guestErrors'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -52,6 +52,10 @@ import {
   readableTextOn,
 } from '../lib/themes'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
+import { useDocumentLang } from '../hooks/useDocumentLang'
+import { cartBarLabel, listScrollTarget, prefetchOnIdle, stickyTabsBottom } from '../lib/menuUi'
+import { prefersReducedMotion } from '../lib/motion'
+import { FocusTrap } from '../components/ui/FocusTrap'
 import { OrderTracker, ActiveOrdersBanner } from '../components/OrderTracker'
 import { useToast } from '../components/ui/useToast'
 import { qrPayTableLabel } from '../lib/qrPayLabel'
@@ -70,9 +74,14 @@ import { MenuLoading, MenuError, MenuCatalogEmpty } from '../components/menu/Men
 // Lazy: ies din bundle-ul inițial al meniului QR (calea fierbinte = time-to-menu
 // pe telefoane slabe). ProductSheet (~1000 linii) se cere doar la tap pe produs;
 // FlipbookViewer doar pe layout-ul rar „flipbook". Precedent: PublicMenuPage.
-const ProductSheet = lazy(() => import('../components/ProductSheet'))
+// Funcțiile de import stau la nivel de modul ca prefetch-ul de după primul
+// paint (prefetchOnIdle, perf-guest-5) să ceară EXACT chunk-urile pe care le
+// folosește `lazy` — primul tap pe un produs / pe coș nu mai așteaptă rețeaua.
+const loadProductSheet = () => import('../components/ProductSheet')
+const loadQrCartSheet = () => import('../components/QrCartSheet')
+const ProductSheet = lazy(loadProductSheet)
 const FlipbookViewer = lazy(() => import('../components/menu/FlipbookViewer'))
-const QrCartSheet = lazy(() => import('../components/QrCartSheet'))
+const QrCartSheet = lazy(loadQrCartSheet)
 const PayTableSheet = lazy(() => import('../components/PayTableSheet'))
 const SplitBillSheet = lazy(() => import('../components/SplitBillSheet'))
 
@@ -267,8 +276,17 @@ export default function QrMenuPage({ token }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => loadQr(), [token])
 
+  // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
+  // ea, adăugarea în coș nu era confirmată deloc pentru cititorul de ecran.
+  // `n` crește la fiecare adăugare → același produs e anunțat de fiecare dată.
+  const [lastAdded, setLastAdded] = useState<{ n: number; name: string } | null>(null)
+  const announceAdded = useCallback((name: string): void => {
+    setLastAdded((prev) => ({ n: (prev?.n ?? 0) + 1, name }))
+  }, [])
+
   function addToCart(item: CartItem): void {
     setCart((p) => [...p, item])
+    announceAdded(item.product_name_snapshot)
     // Trigger pairing popup if product has pairings and they're not already in cart
     const allProducts = categories.flatMap((c) => c.products)
     const sourceProduct = allProducts.find((p) => p.id === item.product_id)
@@ -346,15 +364,12 @@ export default function QrMenuPage({ token }: Props) {
         return
       } catch (e: unknown) {
         lastError = e
-        const msg = e instanceof Error ? e.message : ''
-        // Only retry on network-level failures, not on server validation errors
-        const isNetworkError =
-          msg.includes('fetch') ||
-          msg.includes('network') ||
-          msg.includes('Failed to fetch') ||
-          msg.includes('NetworkError') ||
-          msg.includes('ECONNREFUSED')
-        if (!isNetworkError || attempt === 2) break
+        // Reîncercăm DOAR pe căderi de rețea, nu pe refuzuri de validare.
+        // Detecția e cea comună (lib/guestErrors): lista inline de aici nu
+        // cunoștea „Load failed" — mesajul Safari pe iPhone —, deci pe iOS
+        // reîncercarea automată nu rula niciodată (ux-guest-9). Cheia de
+        // idempotență e aceeași la fiecare încercare: serverul deduplică.
+        if (!isNetworkGuestError(e) || attempt === 2) break
         // Wait 1s, then 2s before retrying
         await new Promise((r) => setTimeout(r, (attempt + 1) * 1000))
       }
@@ -464,6 +479,9 @@ export default function QrMenuPage({ token }: Props) {
     // de la rotateQrIdempotencyKey (lib/orders).
     setIdempotencyKey(rotateQrIdempotencyKey(token))
   }
+
+  // `<html lang>` = limba afișată (WCAG 3.1.1, a11y-guest-html-lang).
+  useDocumentLang(lang)
 
   // ── Resolve theme from restaurant settings ──────────────────
   const theme = useMemo(() => resolveTheme(ctx?.restaurant.theme_settings), [ctx])
@@ -583,16 +601,15 @@ export default function QrMenuPage({ token }: Props) {
   const isFlipbook = effectiveLayout === 'flipbook'
 
   // Handlere de produs partajate între layout-uri (listă / galerie), ca să nu
-  // duplicăm gate-ul de deschidere + quick-add-ul în fiecare ramură.
-  const openProductQr = useCallback(
-    (p: Product): void => {
-      // Deschidem detaliile doar dacă se poate comanda (sold-out tratat intern de card).
-      if (orderingAllowed) setActiveProduct(p)
-    },
-    [orderingAllowed],
-  )
+  // duplicăm deschiderea + quick-add-ul în fiecare ramură.
+  // Fișa se deschide pe ORICE plan (ux-guest-2): fără comenzi (Planul 1 sau
+  // comenzile oprite) devine fișă de citire — descrierea completă și
+  // ALERGENII, care altfel nu se vedeau nicăieri. Sold-out e tratat de card.
+  const openProductQr = useCallback((p: Product): void => {
+    setActiveProduct(p)
+  }, [])
   const quickAddProductQr = useCallback(
-    (p: Product): void =>
+    (p: Product): void => {
       // Quick-add: direct în coș (fără pairing popup — la fel ca butonul „+" vechi).
       setCart((prev) => [
         ...prev,
@@ -605,9 +622,55 @@ export default function QrMenuPage({ token }: Props) {
           selected_modifiers: [],
           notes: null,
         },
-      ]),
-    [],
+      ])
+      announceAdded(p.name)
+    },
+    [announceAdded],
   )
+
+  // Atingerea unei categorii în timpul căutării nu schimba nimic: lista
+  // rămânea pe rezultatele căutării (ux-guest-6). Acum categoria aleasă
+  // câștigă (căutarea se golește), iar lista urcă la începutul ei, sub bara
+  // de categorii. Callback stabil → memo-ul de pe CategoryTabs (OPT-2) rămâne.
+  const listRef = useRef<HTMLDivElement>(null)
+  const selectCategory = useCallback((id: string): void => {
+    setSearch('')
+    setActiveCatId(id)
+    const el = listRef.current
+    if (!el) return
+    const target = listScrollTarget(
+      el.getBoundingClientRect().top,
+      window.scrollY,
+      stickyTabsBottom(),
+    )
+    if (target != null) {
+      window.scrollTo({ top: target, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+    }
+  }, [])
+
+  // Prefetch-ul foilor după ce meniul s-a randat (perf-guest-5): fișa
+  // produsului pe orice plan, coșul doar unde se poate comanda.
+  const menuReady = !resolving && ctx != null
+  useEffect(() => {
+    if (!menuReady) return
+    return prefetchOnIdle(
+      orderingAllowed ? [loadProductSheet, loadQrCartSheet] : [loadProductSheet],
+    )
+  }, [menuReady, orderingAllowed])
+
+  // Foaia de bacșiș e dialog modal cu capcană de focus, iar TOATE butoanele ei
+  // trimit cererea de notă (inclusiv „Fără bacșiș"). Fără o ieșire care doar
+  // închide, cine a deschis-o din greșeală de la tastatură sau cu cititorul de
+  // ecran (aria-modal ascunde restul paginii) putea ieși DOAR cerând nota
+  // (WCAG 2.1.2). Ieșirile: Escape aici + butonul X din foaie.
+  useEffect(() => {
+    if (!showTipSheet) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setShowTipSheet(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showTipSheet])
 
   // Încărcare: schelet de listă premium (componentă comună), nu text gol.
   if (resolving) return <MenuLoading PUB={PUB} lang={lang} />
@@ -744,7 +807,7 @@ export default function QrMenuPage({ token }: Props) {
         <CategoryTabs
           items={categoryTabItems}
           activeId={activeCatId}
-          onSelect={setActiveCatId}
+          onSelect={selectCategory}
           accent={accent}
           PUB={PUB}
           theme={theme}
@@ -787,7 +850,7 @@ export default function QrMenuPage({ token }: Props) {
       {/* Product list — layout ales de restaurant (listă / galerie foto).
           Pe flipbook, DOAR catalogul e înlocuit de viewer — header-ul și
           butoanele de sesiune („Cheamă ospătarul"/„Cere nota") rămân. */}
-      <div style={{ flex: 1, padding: '14px 16px 120px' }}>
+      <div ref={listRef} style={{ flex: 1, padding: '14px 16px 120px' }}>
         {isFlipbook && (
           <Suspense fallback={null}>
             <FlipbookViewer pages={flipbookPages} theme={theme} PUB={PUB} lang={lang} />
@@ -990,7 +1053,8 @@ export default function QrMenuPage({ token }: Props) {
                       border: `1.5px solid ${PUB.border}`,
                       background: PUB.bg,
                       color: PUB.text,
-                      fontSize: 13,
+                      // 16px minim: sub 16 iOS face zoom la focus (ux-guest-5).
+                      fontSize: 16,
                       fontFamily: theme.fonts.body,
                       boxSizing: 'border-box',
                     }}
@@ -1145,6 +1209,7 @@ export default function QrMenuPage({ token }: Props) {
           <div
             onClick={(e) => e.stopPropagation()}
             role="dialog"
+            aria-modal="true"
             aria-label={T(lang, 'tip_sheet_aria')}
             style={{
               background: PUB.bg,
@@ -1155,14 +1220,41 @@ export default function QrMenuPage({ token }: Props) {
               maxWidth: 480,
               fontFamily: theme.fonts.body,
               boxShadow: '0 -6px 30px rgba(0,0,0,0.35)',
+              position: 'relative',
             }}
           >
+            {/* Capcană de focus: Tab-ul nu mai pleacă în meniul de sub foaie. */}
+            <FocusTrap />
+            {/* Singura ieșire care NU trimite cererea de notă (vezi efectul cu
+                Escape de mai sus) — fără ea, capcana de focus ar fi o capcană. */}
+            <button
+              type="button"
+              onClick={() => setShowTipSheet(false)}
+              aria-label={T(lang, 'close')}
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                width: 44,
+                height: 44,
+                borderRadius: '50%',
+                border: `1px solid ${PUB.border}`,
+                background: PUB.bg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <Icon name="close" size={18} color={PUB.text} />
+            </button>
             <div
               style={{
                 fontFamily: theme.fonts.heading,
                 fontSize: 19,
                 fontWeight: 700,
                 marginBottom: 4,
+                paddingRight: 48,
               }}
             >
               {T(lang, 'tip_title')}
@@ -1249,7 +1341,8 @@ export default function QrMenuPage({ token }: Props) {
                   border: `1.5px solid ${customTipInvalid ? '#E05555' : PUB.border}`,
                   background: PUB.surface,
                   color: PUB.text,
-                  fontSize: 14,
+                  // 16px minim: sub 16 iOS face zoom la focus (ux-guest-5).
+                  fontSize: 16,
                   fontFamily: theme.fonts.body,
                   boxSizing: 'border-box',
                 }}
@@ -1315,10 +1408,18 @@ export default function QrMenuPage({ token }: Props) {
         >
           <button
             onClick={() => setShowCart(true)}
-            aria-label={T(lang, 'my_order')}
+            // Numele accesibil poartă numărul și totalul (ux-guest-12): un
+            // aria-label fix („Comanda mea") înlocuia tot conținutul vizibil.
+            aria-label={cartBarLabel(
+              lang,
+              'my_order',
+              cartItemCount,
+              fmtPrice(cartTotal, menuCurrency),
+            )}
             style={{
               background: cart.length > 0 ? accent : PUB.surface,
-              color: cart.length > 0 ? '#fff' : PUB.text,
+              // Text pe accent ales pe contrast (a11y-guest-cta-white-on-accent).
+              color: cart.length > 0 ? readableTextOn(accent, PUB.text) : PUB.text,
               border: cart.length > 0 ? 'none' : `1px solid ${PUB.borderStrong}`,
               borderRadius: 12,
               padding: '14px 20px',
@@ -1357,8 +1458,15 @@ export default function QrMenuPage({ token }: Props) {
         </div>
       )}
 
-      {/* Product sheet */}
-      {activeProduct != null && orderingAllowed && (
+      {/* Anunțul adăugării în coș, pentru cititorul de ecran (ux-guest-12). */}
+      <div role="status" aria-live="polite" className="visually-hidden">
+        {lastAdded && (
+          <span key={lastAdded.n}>{Tf(lang, 'pairing_added', { name: lastAdded.name })}</span>
+        )}
+      </div>
+
+      {/* Product sheet — pe orice plan; fără comenzi e doar de citire (ux-guest-2). */}
+      {activeProduct != null && (
         <Suspense fallback={null}>
           <ProductSheet
             product={activeProduct}
@@ -1368,6 +1476,7 @@ export default function QrMenuPage({ token }: Props) {
             currency={menuCurrency}
             happyHourPct={happyHourPercentForProduct(activeProduct, happyHour)}
             lang={lang}
+            mode={orderingAllowed ? 'order' : 'view'}
             onClose={() => setActiveProduct(null)}
           />
         </Suspense>
@@ -1574,6 +1683,7 @@ export default function QrMenuPage({ token }: Props) {
                             upsell_source: 'pairing',
                           }
                           setCart((prev) => [...prev, newItem])
+                          announceAdded(p.name)
                         }
                       }}
                       aria-label={Tf(lang, 'add_named', { name: p.name })}
@@ -1655,7 +1765,10 @@ export default function QrMenuPage({ token }: Props) {
             onOpenProduct={(product) => {
               setActiveProduct(product)
             }}
-            onAddToCart={(item) => setCart((prev) => [...prev, item])}
+            onAddToCart={(item) => {
+              setCart((prev) => [...prev, item])
+              announceAdded(item.product_name_snapshot)
+            }}
             sentOrders={previousOrders}
             // „Plătește masa": cu modulul de plăți online activ + sesiune → plata
             // din telefon (PayTableSheet, suma se recalculează pe server); altfel

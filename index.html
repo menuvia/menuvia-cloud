@@ -38,10 +38,19 @@
     />
 
     <!--
-      Preconnect: deschide TCP+TLS la origin-uri externe critice înainte ca JS
-      să apuce să le ceară. Vite substituie https://swjcptdylfmpvopdepqf.supabase.co la build.
+      Preconnect: deschide TCP+TLS la origin-urile externe critice înainte ca JS
+      să apuce să le ceară. Originea Supabase vine din variabila de build
+      VITE_SUPABASE_URL (Vite o înlocuiește în index.html), ca un deploy
+      preview sau E2E-ul pe Supabase local să nu încălzească producția (înainte
+      URL-ul de producție era scris de mână aici).
+      DOUĂ intrări, deliberat: browserul ține pool-uri de conexiuni separate
+      pentru cererile fără credențiale (RPC-urile supabase-js, fetch CORS →
+      `crossorigin`) și pentru cele cu (imaginile din Storage încărcate de
+      img fără crossorigin, inclusiv cover-ul LCP al meniului). Cu o singură
+      intrare, cover-ul deschidea o conexiune nouă (perf-guest-4).
     -->
-    <link rel="preconnect" href="https://swjcptdylfmpvopdepqf.supabase.co" crossorigin />
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" crossorigin />
+    <link rel="preconnect" href="%VITE_SUPABASE_URL%" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!--
