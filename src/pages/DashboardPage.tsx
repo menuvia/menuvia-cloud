@@ -47,6 +47,7 @@ const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
+import { HelpButton } from '../components/HelpButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 
@@ -1151,6 +1152,8 @@ export default function DashboardPage({
             <Icon name="settings" size={16} /> Panou fondator
           </button>
         )}
+        {/* „Ajutor” (mig 303): agentul (cu consimțământ) sau adresa de suport. */}
+        <HelpButton restaurantId={restaurant?.id ?? null} enabled={isAdminRole} />
       </div>
     </>
   )
@@ -1185,7 +1188,7 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Mod partener'} —{' '}
+            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Vizită de agent de vânzări'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button

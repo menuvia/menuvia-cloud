@@ -20,6 +20,7 @@ import {
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
 import { SubscriptionCard } from './SubscriptionCard'
+import { AgentCard } from './AgentCard'
 import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
 
@@ -459,6 +460,11 @@ export default function HomeTab({
           onOpenBridge={() => onNavigate('casa-marcat')}
         />
       )}
+
+      {/* „Agentul tău Menuvia” (mig 303): apare DOAR când restaurantul are un agent
+          atribuit; acordarea accesului la meniu merge pe ORICE plan. Fără agent,
+          componenta nu randează nimic (patronii veniți singuri nu văd nimic nou). */}
+      <AgentCard restaurantId={restaurantId} enabled={isAdmin} />
 
       {/* Cifrele zilei — „Comenzi azi" domină vizual (hero), restul secundare.
           Tier 1 (fără comenzi): grid uniform de metrici, fără hero gol. */}

@@ -6,7 +6,7 @@
 // ca la `paid` (Plan 3): „Plată confirmată!" + sumar de plată — o afirmație
 // falsă, fiindcă aplicația n-a încasat și n-a verificat nimic.
 //
-// Păstrează ce are sens după masă: feedback-ul privat + recenzia Google
+// Păstrează ce are sens după masă: feedback-ul + recenzia Google
 // (submit_order_feedback cere sesiunea mesei, mig 094), pornind de la
 // servire — întrebarea despre plată n-are obiect aici.
 // ─────────────────────────────────────────────────────────────────

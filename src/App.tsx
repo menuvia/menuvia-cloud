@@ -12,10 +12,13 @@ import { PageSpinner, ConfigError, ErrorBoundary, QueryError } from './component
 import CookieBanner from './components/CookieBanner'
 import { ToastProvider } from './components/ui/Toast'
 import { ConfirmRoot } from './components/ui/ConfirmDialog'
-import type { MemberRole } from './lib/constants'
 import type { UiRole } from './lib/partnerAccess'
 import { D } from './lib/constants'
-import { planIntentDestination, writePlanIntent } from './lib/planIntent'
+import { planIntentDestination, signupPath, writePlanIntent } from './lib/planIntent'
+import { authPathWithNext, nextFromSearch } from './lib/authRedirect'
+import { loadPostLoginDestination } from './lib/postLogin'
+import { leaveAuth } from './lib/postLoginRedirect'
+import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
 import { fnUrl } from './lib/fn'
 import { browserSite, currentSite, defaultUiLang } from './lib/domain'
@@ -57,6 +60,9 @@ if (typeof window !== 'undefined') {
   else if (/^\/m\/.+$/.test(p)) import('./pages/PublicMenuPage').catch(() => undefined)
 }
 const InviteAcceptPage = lazy(() => import('./pages/InviteAcceptPage'))
+// Invitațiile de rețea (șef / agent): pagina cere sesiune, dar ruta e înaintea
+// gate-ului de onboarding — un agent nu are restaurant.
+const SalesInviteRedeemPage = lazy(() => import('./pages/SalesInviteRedeemPage'))
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const RecrutarePage = lazy(() => import('./pages/RecrutarePage'))
@@ -89,6 +95,8 @@ type View =
   | 'kitchen'
   | 'waiter'
   | 'invite'
+  | 'sales-head-invite'
+  | 'sales-agent-invite'
   | 'pricing'
   | 'reset-password'
   | 'demo'
@@ -116,7 +124,14 @@ interface RouteState {
 }
 
 function parsePath(): RouteState {
-  const p = window.location.pathname
+  // Alias vechi (ex. /preturi → /pricing): corectăm URL-ul din bară fără intrare
+  // nouă în istoric (replaceState), apoi rutăm pe calea canonică. Idempotent —
+  // parsePath poate rula de mai multe ori (inițializator de state, StrictMode).
+  const alias = legacyPathRedirect(window.location.pathname)
+  if (alias) {
+    window.history.replaceState({}, '', alias + window.location.search + window.location.hash)
+  }
+  const p = alias ?? window.location.pathname
   const qrMatch = p.match(/^\/q\/(.+)$/)
   const menuMatch = p.match(/^\/m\/(.+)$/)
   // /rezervare/:slug — pagina publică de rezervare (linkul din Google Business
@@ -125,6 +140,14 @@ function parsePath(): RouteState {
   // orice /r/* la '/' — coliziunea a fost prinsă de audit, ruta nu se randa).
   const reserveMatch = p.match(/^\/rezervare\/(.+)$/)
   const inviteMatch = p.match(/^\/invite\/(.+)$/)
+  // Invitații de rețea. Fără token (`/sef-vanzari` simplu) = linkul a fost deja
+  // deschis și curățat din URL (apoi reîncărcat / copiat / deschis în alt
+  // browser): pagina cere redeschiderea linkului primit, nu 404 și NU
+  // „invitație invalidă” (invitația n-a ajuns la server, e încă bună).
+  const headInviteMatch = p.match(/^\/sef-vanzari(?:\/(.*))?$/)
+  const agentInviteMatch = p.match(/^\/echipa(?:\/(.*))?$/)
+  if (headInviteMatch) return { view: 'sales-head-invite', token: headInviteMatch[1] ?? '' }
+  if (agentInviteMatch) return { view: 'sales-agent-invite', token: agentInviteMatch[1] ?? '' }
   if (qrMatch) return { view: 'qr', token: qrMatch[1] }
   if (menuMatch) return { view: 'menu', slug: menuMatch[1] }
   if (reserveMatch) return { view: 'reserve', slug: reserveMatch[1] }
@@ -150,20 +173,12 @@ function parsePath(): RouteState {
   if (p === '/confidentialitate' || p === '/privacy') return { view: 'legal-privacy' }
   if (p === '/cookies') return { view: 'legal-cookies' }
   if (p === '/dpa') return { view: 'legal-dpa' }
-  // menuvia.com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
+  // hostul .com (lib/domain.ts): rădăcina e landing-ul EN; orice alt host
   // (menuvia.ro, preview-uri, localhost) rămâne pe landing-ul RO de azi.
   if (p === '/')
     return { view: currentSite(window.location.hostname) === 'com' ? 'landing-en' : 'landing' }
   if (p === '/en') return { view: 'landing-en' }
   return { view: 'notfound' }
-}
-
-async function getUserRoles(userId: string): Promise<MemberRole[]> {
-  const { data } = await supabase
-    .from('restaurant_memberships')
-    .select('role')
-    .eq('user_id', userId)
-  return (data ?? []).map((r) => r.role as MemberRole)
 }
 
 function NotFoundPage({ navigate }: { navigate: (p: string) => void }) {
@@ -263,13 +278,14 @@ function ProtectedRoute({
   navigate: (p: string) => void
 }) {
   const { user, loading: authLoading } = useAuth()
-  // FIX: Folosim activeRole din RestaurantContext în loc de getUserRoles() (DB call extra)
+  // FIX: Folosim activeRole din RestaurantContext în loc de o interogare de roluri (DB call extra)
   const { activeRole, loading: ctxLoading, error: ctxError } = useRestaurantCtx()
 
   useEffect(() => {
     if (authLoading || ctxLoading) return
     if (!user) {
-      navigate('/auth')
+      // `?next=` readuce omul aici după login (cale internă, validată).
+      navigate(authPathWithNext(window.location.pathname, window.location.search))
       return
     }
   }, [user, authLoading, ctxLoading]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -339,9 +355,31 @@ function AppRouter() {
     // consimțământul nu se mai consemna deloc (recenzie CodeRabbit pe #261).
     window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
   }
+  // Track if we've already auto-redirected this user this session.
+  // Prevents redirect loop when user clicks back after login.
+  const autoRedirectedRef = useRef(false)
+
   const replace = (path: string) => {
     window.history.replaceState({}, '', path)
     setState(parsePath())
+  }
+  // Ieșirea din /auth după login: mereu replace, o singură dată
+  // (lib/postLoginRedirect.ts). Anunță ruta ca `navigate`: replaceState nu emite
+  // nimic, iar TermsAcceptanceGate (montat în afara routerului) a citit /auth la
+  // montare — fără anunț ar rămâne suprimat toată sesiunea. Se cheamă doar din
+  // handlere/async, niciodată din randare (un setState în listener ar avertiza).
+  const exitAuth = (dest: string) => {
+    const moved = leaveAuth(
+      {
+        pathname: () => window.location.pathname,
+        replace: (path) => {
+          replace(path)
+          window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+        },
+      },
+      dest,
+    )
+    if (moved) autoRedirectedRef.current = true
   }
 
   useEffect(() => {
@@ -349,10 +387,6 @@ function AppRouter() {
     window.addEventListener('popstate', h)
     return () => window.removeEventListener('popstate', h)
   }, [])
-
-  // Track if we've already auto-redirected this user this session.
-  // Prevents redirect loop when user clicks back after login.
-  const autoRedirectedRef = useRef(false)
 
   useEffect(() => {
     if (loading || !user || state.view !== 'auth') return
@@ -371,6 +405,13 @@ function AppRouter() {
       }
       if (cancelled || autoRedirectedRef.current) return
       autoRedirectedRef.current = true
+      // `?next=` explicit (redirect de la o rută protejată): întoarcem omul
+      // unde era. Doar cale internă validată (lib/authRedirect.ts).
+      const nextDest = nextFromSearch(window.location.search)
+      if (nextDest) {
+        exitAuth(nextDest)
+        return
+      }
       // Intenția de afiliere are prioritate (concurează cu onSuccess din
       // AuthPage — oricare rulează primul, destinația trebuie să fie /afiliat).
       let afiliatIntent: string | null = null
@@ -385,7 +426,7 @@ function AppRouter() {
         } catch {
           /* ignore */
         }
-        replace('/afiliat')
+        exitAuth('/afiliat')
         return
       }
       // Intenția de plan (localStorage, TTL 24 h): contul confirmat din linkul
@@ -398,35 +439,25 @@ function AppRouter() {
       // să moștenească planul ales de altcineva (planIntent.ts).
       const intentDest = planIntentDestination(user.email ?? null, window.location.search)
       if (intentDest) {
-        replace(intentDest)
+        exitAuth(intentDest)
         return
       }
-      getUserRoles(user.id)
-        .then((roles) => {
-          if (roles.length === 0) {
-            replace('/dashboard')
-            return
-          }
-          const isOnlyKitchen = roles.every((r) => r === 'kitchen')
-          const isOnlyWaiter = roles.every((r) => r === 'waiter')
-          if (isOnlyKitchen) {
-            replace('/kitchen')
-            return
-          }
-          if (isOnlyWaiter) {
-            replace('/waiter')
-            return
-          }
-          replace('/dashboard')
-        })
-        .catch(() => {
-          replace('/dashboard')
-        })
+      // Fiecare rol pe ecranul lui (lib/postLogin.ts): personalul pe pagina lui,
+      // agentul fără restaurant pe panoul de afiliat, restul pe /dashboard
+      // (patronul fără restaurant ajunge acolo pe onboarding).
+      // Doar cât omul e încă pe /auth: dacă `onSuccess` a ajuns primul, drumul e
+      // deja ales și nu-l suprascriem (lib/postLoginRedirect.ts).
+      void loadPostLoginDestination(user.id).then((dest) => {
+        exitAuth(dest)
+      })
     })()
     return () => {
       cancelled = true
     }
-  }, [user, loading, state.view])
+    // `exitAuth` se re-creează la fiecare randare și citește doar ref-uri și
+    // `window` (nu state): efectul trebuie să ruleze la schimbarea utilizatorului
+    // sau a vederii, nu la fiecare randare (altfel ar reface redirectul în buclă).
+  }, [user, loading, state.view]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset auto-redirect flag when user signs out
   useEffect(() => {
@@ -441,6 +472,8 @@ function AppRouter() {
         'qr',
         'menu',
         'invite',
+        'sales-head-invite',
+        'sales-agent-invite',
         'kitchen',
         'waiter',
         'pricing',
@@ -495,6 +528,20 @@ function AppRouter() {
         <InviteAcceptPage token={state.token} navigate={navigate} />
       </Suspense>
     )
+  if (state.view === 'sales-head-invite' || state.view === 'sales-agent-invite')
+    return (
+      <Suspense fallback={<PageSpinner />}>
+        <SalesInviteRedeemPage
+          kind={state.view === 'sales-head-invite' ? 'head' : 'agent'}
+          token={state.token ?? ''}
+          navigate={navigate}
+          replace={(path) => {
+            replace(path)
+            window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+          }}
+        />
+      </Suspense>
+    )
   if (state.view === 'reset-password')
     return (
       <Suspense fallback={<PageSpinner />}>
@@ -504,7 +551,7 @@ function AppRouter() {
   if (state.view === 'demo')
     return (
       <Suspense fallback={<PageSpinner />}>
-        <DemoPage onBack={() => navigate('/')} onStart={() => navigate('/auth?lang=ro')} />
+        <DemoPage onBack={() => navigate('/')} onStart={() => navigate(signupPath())} />
       </Suspense>
     )
   if (state.view === 'recrutare')
@@ -587,7 +634,7 @@ function AppRouter() {
           onBack={() => navigate('/')}
           onLogin={() => navigate('/auth?lang=' + defaultUiLang(browserSite()))}
           onCheckout={async (plan) => {
-            // menuvia.com: prețurile Stripe sunt doar în RON și Plan 3 nu se
+            // hostul .com: prețurile Stripe sunt doar în RON și Plan 3 nu se
             // vinde acolo — checkout-ul e închis cu mesaj explicit (lib/siteMarket).
             // Pe menuvia.ro condiția e mereu adevărată → flux neschimbat.
             if (!checkoutOpenOnSite(browserSite())) {
@@ -725,16 +772,26 @@ function AppRouter() {
     // (contul cu MFA ar sări peste cod). Post-login, efectul de auto-redirect
     // duce oricum userul la destinația corectă pe roluri.
     if (state.view !== 'auth') {
-      replace('/auth')
+      replace(authPathWithNext(window.location.pathname, window.location.search))
       return <PageSpinner />
     }
     return (
       <Suspense fallback={<PageSpinner />}>
         <AuthPage
           onSuccess={(email) => {
+            // Ieșirea din /auth se face MEREU cu replace, o singură dată
+            // (exitAuth → lib/postLoginRedirect.ts): intrarea /auth nu rămâne în
+            // istoric, indiferent dacă efectul de auto-redirect sau acest closure
+            // ajunge primul (E2E „back button does not redirect to /auth").
+            // `?next=` explicit (de la o rută protejată) bate orice intenție.
+            const nextDest = nextFromSearch(window.location.search)
+            if (nextDest) {
+              exitAuth(nextDest)
+              return
+            }
             // Dacă userul a venit din pricing cu un plan ales, îl ducem direct
             // înapoi la pricing — onCheckout va detecta că e logat și va sări
-            // la Stripe. Fără intent, mergem la dashboard ca până acum.
+            // la Stripe. Fără intent, mergem pe ecranul rolului.
             const intentDest = planIntentDestination(email, window.location.search)
             let afiliatIntent: string | null = null
             try {
@@ -743,7 +800,7 @@ function AppRouter() {
               /* ignore (private mode) */
             }
             if (intentDest) {
-              navigate(intentDest)
+              exitAuth(intentDest)
               return
             }
             // Venit de pe pagina programului de parteneriat → înapoi la /afiliat
@@ -754,15 +811,18 @@ function AppRouter() {
               } catch {
                 /* ignore */
               }
-              navigate('/afiliat')
+              exitAuth('/afiliat')
               return
             }
-            // Cursă cu efectul de auto-redirect din AppRouter: dacă el a apucat
-            // deja să consume afiliat_intent și a dus userul pe /afiliat, acest
-            // closure (care rulează după `await signIn`, chiar și demontat) NU
-            // are voie să-l suprascrie cu /dashboard.
-            if (window.location.pathname === '/afiliat') return
-            navigate('/dashboard')
+            // Fiecare rol pe ecranul lui — ACELAȘI calcul ca efectul de
+            // auto-redirect (lib/postLogin.ts). Dacă efectul a mutat deja omul
+            // (pathname ≠ /auth), exitAuth nu mai face nimic.
+            void (async () => {
+              const { data } = await supabase.auth.getSession()
+              const uid = data.session?.user.id
+              const dest = uid ? await loadPostLoginDestination(uid) : '/dashboard'
+              exitAuth(dest)
+            })()
           }}
         />
       </Suspense>

@@ -25,7 +25,7 @@ Modelul comunicat în toate materialele de mai jos, pe **toate planurile plătit
 
 - **Activare: 30% din PRIMA factură** a restaurantului, plătibil după ce restaurantul achită și **a doua** factură (anti-churn: un cont care plătește o lună și pleacă nu generează comision de activare).
 - **Recurent: 10% din fiecare dintre următoarele 12 facturi lunare** — 12 FACTURI, nu „12 luni de la ceva"; nu există facturare anuală.
-- **Sub-parteneri: 2%** din comisioanele partenerilor aduși, un singur nivel.
+- **Echipă:** doar șefii de vânzări, invitați de Menuvia, au agenți în echipă; șeful primește **20%** din comisioanele efectiv plătite ale agenților lui, un singur nivel. Un agent nu recrutează (mig 304).
 - **Stornare (clawback):** un refund sau o dispută a clientului stornează comisionul aferent, inclusiv după perioada de siguranță. Comisioanele NU sunt „garantate".
 
 Lărgirea gate-ului de la Plan 3 la toate planurile plătite și plata activării după a doua factură sunt implementate de migrația de comision a valului de afiliere (mig 293). **Până când aceasta e aplicată pe producție, comisionul automat curge doar pe Fiscalizare** — nu trimite materialele înainte.
@@ -90,7 +90,7 @@ Trei componente. Toate se calculează pe **abonamentul real plătit**, niciodat�
 |---|---|---|
 | **Activare** | **30%** din prima factură a restaurantului | o singură dată, per restaurant; plătibil după ce restaurantul achită și **a doua** factură |
 | **Recurent** | **10%** din fiecare factură lunară | următoarele **12 facturi** după prima |
-| **Sub-parteneri** | **2%** din comisioanele partenerilor pe care îi aduci tu | un singur nivel |
+| **Bonus de șef** | **20%** din comisioanele agenților din echipa ta | doar pentru șefii de vânzări invitați de Menuvia; un singur nivel |
 
 Concret, per restaurant adus (13 facturi lunare: prima = activarea, următoarele 12 = recurent):
 
@@ -122,15 +122,16 @@ Sumele sunt bază fără TVA. Dacă ești plătitor de TVA, o adaugi pe factura 
 
 **7. Plata.** În prima zi a lunii, sistemul generează automat lista de plată din soldul devenit plătibil. Emiți factura către Menuvia (de pe PFA sau SRL) și primești transferul. Prag minim **50 lei** — sub el, suma se reportează în luna următoare, nu se pierde. În panou vezi „Disponibil pentru plată" (net, după stornări și după plățile deja în curs) și data următoarei liste de plată.
 
-## Panoul de partener
+## Panoul agentului de vânzări
 
-Cinci secțiuni, fără să ceri nimic nimănui:
+Un singur ecran (`/afiliat`), de sus în jos, fără să ceri nimic nimănui:
 
-- **Acasă** — câștiguri totale, confirmate, în hold, următoarea plată.
-- **Restaurante** — fiecare local adus, planul lui, comisionul generat.
-- **Sub-parteneri** — partenerii aduși de tine și câți clienți au adus.
-- **Unelte** — linkul tău, codul QR descărcabil, datele tale de plată.
-- **Ghid** — pași, mesaje gata scrise, răspunsuri la obiecții.
+- **Înscrie un restaurant** — codul tău de agent, linkul, codul QR (pe tot ecranul la atingere, descărcabil) și „Arată demo”.
+- **Banii tăi** — cât ai câștigat și cât poți primi acum; sub **Detalii plăți**: sumele pe categorii, comisioanele tale, data următoarei plăți și datele de plată (IBAN).
+- **Clienții mei** — fiecare local adus, starea contului, comisionul generat și accesul la meniul lui (cerere / aprobat / retras).
+- **Echipa ta** — doar pentru șefii de vânzări: agenții invitați, invitațiile deschise, „Invită agent”.
+- **Consimțământ de contact** — comutatorul care arată (sau ascunde) telefonul și emailul tău patronilor restaurantelor aduse și rețelei.
+- **Cum vând** — pași, mesaj gata scris, răspunsuri la întrebările de la început.
 
 ## Pentru agenții web și de marketing: white-label
 
@@ -454,7 +455,7 @@ Nu arăți dashboardul, rapoartele, stocurile sau setările. Patronul nu cumpăr
 | **Activare** | 30% din prima factură plătită, o dată per restaurant; plătibil după ce restaurantul achită și a doua factură |
 | **Recurent** | 10% din fiecare dintre următoarele 12 facturi lunare per restaurant (nu există facturare anuală) |
 | **Planuri** | toate planurile plătite |
-| **Sub-parteneri** | 2% din comisioanele efectiv plătite ale partenerilor aduși de tine, **un singur nivel** |
+| **Bonus de șef** | 20% din comisioanele efectiv plătite ale agenților din echipa ta, **un singur nivel** — doar pentru șefii de vânzări invitați de Menuvia; agenții nu au echipă |
 | **Bază de calcul** | factura efectiv **plătită**. Nu pe abonamente în trial, neplătite sau restante |
 | **Monedă** | RON |
 | **TVA** | sumele sunt bază fără TVA; dacă ești plătitor, o adaugi pe factura ta |
@@ -476,7 +477,7 @@ Notă onestă: până la aplicarea migrației de comision (vezi 0.1), comisionul
 - ✅ Să scrii articole, postări, recenzii pe social media — cu mențiunea că e o recomandare din care câștigi comision (cerută de lege).
 - ✅ Să oferi tu servicii plătite în jurul Menuvia: configurare, încărcarea meniului, fotografie, mentenanță. Banii ăia sunt integral ai tăi și nu mă privesc.
 - ✅ Să folosești logo-ul și materialele Menuvia în forma primită, nemodificate.
-- ✅ Să recrutezi sub-parteneri și să câștigi 2% din comisioanele lor.
+- ✅ Dacă ești șef de vânzări (invitat de Menuvia): să inviți agenți în echipa ta, din panou, și să primești 20% din comisioanele lor reale.
 - ✅ Să folosești accesul de partener pe dashboardul restaurantelor aduse prin tine, **exclusiv** pentru a-i ajuta pe ei.
 
 ## D.5 Ce nu ai voie
@@ -489,7 +490,7 @@ Notă onestă: până la aplicarea migrației de comision (vezi 0.1), comisionul
 - ❌ **Licitare pe brand.** Fără reclame plătite pe cuvântul „Menuvia" sau variante apropiate; fără domenii, conturi de social media sau adrese de email care conțin „Menuvia" și pot fi confundate cu cele oficiale.
 - ❌ **Auto-recomandare sau conturi-paravan** pentru a genera comision artificial.
 - ❌ **Să folosești datele clienților** la care ai acces de partener (meniu, comenzi, clienți, cifre) în alt scop decât ajutarea acelui restaurant. Fără export, fără revânzare, fără liste. Patronul vede accesul tău și îl poate opri oricând, fără explicații.
-- ❌ **Să ceri bani de la sub-parteneri** ca să intre în program, sau să le promiți „câștiguri din echipă". Comisionul curge **numai** dintr-un abonament real plătit, niciodată din recrutare. Regula asta nu e negociabilă și nu are excepții.
+- ❌ **Să ceri bani de la agenții din echipa ta** ca să intre în program, sau să le promiți „câștiguri din echipă". Comisionul curge **numai** dintr-un abonament real plătit, niciodată din recrutare. Regula asta nu e negociabilă și nu are excepții.
 
 ## D.6 Ce se întâmplă la încălcare
 
@@ -587,8 +588,8 @@ După aprobarea în panoul de fondator:
 
 - [ ] Îi confirmi aprobarea pe telefon sau WhatsApp (nu doar prin sistem).
 - [ ] Îi trimiți pe email: linkul lui `menuvia.ro/r/COD`, secțiunile **A, C, D** din kitul ăsta, și linkul de demo.
-- [ ] Îi ceri să-și completeze **datele de plată** în panou → „Unelte" → Date de plată. Fără ele, plata nu se poate face.
-- [ ] Îi ceri să-și descarce **codul QR** din „Unelte" (util pe cărți de vizită, la standuri, la târguri).
+- [ ] Îi ceri să-și completeze **datele de plată** în panou → „Banii tăi” → „Detalii plăți” → Date de plată. Fără ele, plata nu se poate face.
+- [ ] Îi ceri să-și descarce **codul QR** din „Înscrie un restaurant” (util pe cărți de vizită, la standuri, la târguri).
 - [ ] Îi spui explicit cele trei lucruri care nu se promit: fiscalizare funcțională, cifre inventate, delivery.
 - [ ] Îi dai numărul tău de WhatsApp și îi spui că răspunzi în aceeași zi. Primii afiliați au nevoie de asta.
 - [ ] Îți pui în calendar telefonul de la 2 săptămâni, cu întrebarea: „cu cine ai vorbit și ce ți-a spus?".
@@ -603,4 +604,4 @@ Abonament lunar (singurul care există), per restaurant adus:
 | Meniu + Comenzi | 249 lei | 74,70 | 24,90 | 298,80 | **373,50 lei** | 348,60 lei |
 | Fiscalizare | 499 lei | 149,70 | 49,90 | 598,80 | **748,50 lei** | 698,60 lei |
 
-Sumele sunt bază fără TVA. Activarea devine plătibilă după ce restaurantul achită a doua factură. Sub-partenerii aduc 2% din comisioanele efectiv plătite ale partenerului recrutat, pe un singur nivel. Orice comision poate fi stornat de un refund sau de o dispută a clientului.
+Sumele sunt bază fără TVA. Activarea devine plătibilă după ce restaurantul achită a doua factură. Șeful de vânzări primește 20% din comisioanele efectiv plătite ale agenților din echipa lui, pe un singur nivel. Orice comision poate fi stornat de un refund sau de o dispută a clientului.

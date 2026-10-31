@@ -34,8 +34,10 @@ function setEnv() {
 
 // Trimite un eveniment prin handler cu semnătura „validă" (constructEvent
 // scriptat să întoarcă evenimentul — nu testăm criptografia stripe-node).
-async function fire(type, object, { eventId = 'evt_1', apiVersion } = {}) {
-  const ev = { id: eventId, type, created: 1_700_000_000, data: { object } }
+// `livemode: false` = coerent cu cheia de test din setEnv() (sk_test_x) — garda
+// livemode (lib/livemode.js) respinge tăcut orice eveniment din alt mod.
+async function fire(type, object, { eventId = 'evt_1', apiVersion, livemode = false } = {}) {
+  const ev = { id: eventId, type, created: 1_700_000_000, livemode, data: { object } }
   if (apiVersion) ev.api_version = apiVersion
   state.stripeImpls['webhooks.constructEvent'] = () => ev
   return handler({
@@ -96,7 +98,7 @@ describe('stripe-webhook: intrare + semnătură', () => {
     let received
     state.stripeImpls['webhooks.constructEvent'] = (body) => {
       received = body
-      return { id: 'evt_b64', type: 'noop.event', created: 1, data: { object: {} } }
+      return { id: 'evt_b64', type: 'noop.event', created: 1, livemode: false, data: { object: {} } }
     }
     await handler({
       httpMethod: 'POST',
@@ -689,5 +691,149 @@ describe('stripe-webhook: payload dahlia (endpoint pe altă versiune decât pin-
     resetMocks(); setEnv()
     const quiet = await withConsoleError(() => fire('customer.unknown', {}, { apiVersion: '2023-10-16' }))
     assert.ok(!quiet.some((l) => l.includes('ALERT api_version mismatch')), quiet.join('\n'))
+  })
+})
+
+// ── Gardă livemode (lib/livemode.js) ───────────────────────────────────────────
+// Cheia TEST nu are voie să ajungă în producție (cardul 4242 ar da Planul 3
+// gratuit), iar rândurile de test nu intră în registrul real de comisioane.
+// Semnătura NU apără: un endpoint de test își semnează corect evenimentele. Garda
+// compară `event.livemode` cu modul din STRIPE_SECRET_KEY, după semnătură și
+// ÎNAINTE de orice efect.
+describe('stripe-webhook: gardă livemode', () => {
+  function withConsoleError(fn) {
+    const orig = console.error
+    const lines = []
+    console.error = (...a) => { lines.push(a.join(' ')) }
+    return Promise.resolve(fn()).finally(() => { console.error = orig }).then(() => lines)
+  }
+  // Eveniment cu EFECTE multiple dacă ar fi procesat (dedup în stripe_events,
+  // citire refunds în Stripe, clawback prin RPC).
+  async function fireRefund(ev, { omitLivemode = false } = {}) {
+    const full = {
+      id: 'evt_lm', type: 'charge.refunded', created: 1_700_000_000,
+      data: { object: { id: 'ch_1', invoice: 'in_1', amount: 9900 } },
+      ...ev,
+    }
+    if (omitLivemode) delete full.livemode
+    state.stripeImpls['webhooks.constructEvent'] = () => full
+    state.stripeImpls['refunds.list'] = async () => ({ data: [{ id: 're_1', amount: 3000 }] })
+    state.rpcHandlers.process_affiliate_refund = () => ({ data: null, error: null })
+    return handler({ httpMethod: 'POST', headers: { 'stripe-signature': 'sig' }, body: '{}' })
+  }
+  function assertNoEffects() {
+    assert.equal(state.fromCalls.length, 0, 'nicio scriere/citire DB')
+    assert.equal(state.rpcCalls.length, 0, 'niciun RPC')
+    assert.deepEqual(
+      state.stripeCalls.map((c) => c.name),
+      ['webhooks.constructEvent'],
+      'niciun apel Stripe în afară de verificarea semnăturii',
+    )
+  }
+  function assertProcessed(res) {
+    assert.equal(res.statusCode, 200)
+    assert.ok(state.fromCalls.some((c) => c.table === 'stripe_events'), 'dedup inserat = procesat')
+    assert.equal(rpcCallsFor('process_affiliate_refund').length, 1, 'clawback chemat')
+  }
+
+  it('LM1: cheie live + eveniment live → procesat', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_live_x'
+    assertProcessed(await fireRefund({ livemode: true }))
+  })
+
+  it('LM2: cheie test + eveniment test → procesat (și cheie restricționată rk_test_)', async () => {
+    assertProcessed(await fireRefund({ livemode: false }))
+    resetMocks(); setEnv()
+    process.env.STRIPE_SECRET_KEY = 'rk_test_x'
+    assertProcessed(await fireRefund({ livemode: false }))
+    resetMocks(); setEnv()
+    process.env.STRIPE_SECRET_KEY = 'rk_live_x'
+    assertProcessed(await fireRefund({ livemode: true }))
+  })
+
+  it('LM3: cheie TEST + eveniment LIVE → 200 ignorat, zero efecte, ALERT fără secrete', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_SUPERSECRET'
+    let res
+    const lines = await withConsoleError(async () => { res = await fireRefund({ livemode: true }) })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(parseBody(res), { received: true, ignored: 'livemode_mismatch' })
+    assertNoEffects()
+    const alert = lines.find((l) => l.includes('ALERT livemode mismatch'))
+    assert.ok(alert, lines.join('\n'))
+    for (const part of ['evt_lm', 'charge.refunded', 'livemode=true', 'key_mode=test']) {
+      assert.ok(alert.includes(part), `${part} lipsește din: ${alert}`)
+    }
+    assert.ok(!alert.includes('SUPERSECRET') && !alert.includes('ch_1') && !alert.includes('in_1'), alert)
+  })
+
+  it('LM4: cheie LIVE + eveniment TEST → 200 ignorat, zero efecte (celălalt sens)', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_live_x'
+    let res
+    const lines = await withConsoleError(async () => { res = await fireRefund({ livemode: false }) })
+    assert.equal(res.statusCode, 200)
+    assert.deepEqual(parseBody(res), { received: true, ignored: 'livemode_mismatch' })
+    assertNoEffects()
+    const alert = lines.find((l) => l.includes('ALERT livemode mismatch'))
+    assert.ok(alert && alert.includes('livemode=false') && alert.includes('key_mode=live'), lines.join('\n'))
+  })
+
+  it('LM5: eveniment FĂRĂ câmpul livemode → nepotrivire (fail-closed), pe ambele chei', async () => {
+    for (const key of ['sk_test_x', 'sk_live_x']) {
+      resetMocks(); setEnv()
+      process.env.STRIPE_SECRET_KEY = key
+      let res
+      const lines = await withConsoleError(async () => { res = await fireRefund({}, { omitLivemode: true }) })
+      assert.deepEqual(parseBody(res), { received: true, ignored: 'livemode_mismatch' }, key)
+      assertNoEffects()
+      assert.ok(lines.some((l) => l.includes('ALERT livemode mismatch') && l.includes('livemode=missing')), lines.join('\n'))
+    }
+  })
+
+  it('LM5b: livemode ne-boolean ("false", 0, null) → nepotrivire, nu coerciție', async () => {
+    for (const bad of ['false', 0, null, 'true', 1]) {
+      resetMocks(); setEnv() // cheie test: "false"/0/null ar trece la o comparație lejeră
+      const lines = await withConsoleError(() => fireRefund({ livemode: bad }))
+      assertNoEffects()
+      assert.ok(lines.some((l) => l.includes('ALERT livemode mismatch')), String(bad))
+    }
+  })
+
+  it('LM6: cheie cu mod necunoscut → 500 livemode_unknown, zero efecte, ALERT', async () => {
+    for (const key of ['pk_test_x', 'whsec_x', 'garbage', 'sk_prod_x', ' sk_test_x']) {
+      resetMocks(); setEnv()
+      process.env.STRIPE_SECRET_KEY = key
+      let res
+      const lines = await withConsoleError(async () => { res = await fireRefund({ livemode: false }) })
+      assert.equal(res.statusCode, 500, key)
+      assert.deepEqual(parseBody(res), { error: 'livemode_unknown' })
+      assertNoEffects()
+      const alert = lines.find((l) => l.includes('ALERT livemode mismatch'))
+      assert.ok(alert && alert.includes('key_mode=unknown'), lines.join('\n'))
+      assert.ok(!alert.includes('whsec_x') && !alert.includes('pk_test_x') && !alert.includes('sk_prod_x'), alert)
+    }
+  })
+
+  it('LM7: semnătura se verifică ÎNAINTEA gărzii (semnătură greșită → 400, chiar și cu cheie necunoscută)', async () => {
+    process.env.STRIPE_SECRET_KEY = 'garbage'
+    state.stripeImpls['webhooks.constructEvent'] = () => { throw new Error('bad sig') }
+    const res = await handler({ httpMethod: 'POST', headers: { 'stripe-signature': 'x' }, body: '{}' })
+    assert.equal(res.statusCode, 400)
+  })
+
+  it('LM8: ALERT api_version mismatch rămâne pe evenimentele procesate (garda nu-l înlocuiește)', async () => {
+    const lines = await withConsoleError(async () => {
+      const res = await fire('customer.unknown', {}, { apiVersion: '2026-08-26.dahlia', livemode: false })
+      assert.equal(res.statusCode, 200)
+    })
+    assert.ok(lines.some((l) => l.includes('ALERT api_version mismatch')), lines.join('\n'))
+    assert.ok(!lines.some((l) => l.includes('ALERT livemode mismatch')), lines.join('\n'))
+  })
+
+  it('LM9: `fire` cu livemode live pe cheia de test (harness) → ignorat, nu procesat', async () => {
+    scriptProfile({ id: 'u1' })
+    const res = await fire('customer.subscription.deleted', { id: 'sub_1', customer: 'cus_1' }, { livemode: true })
+    assert.deepEqual(parseBody(res), { received: true, ignored: 'livemode_mismatch' })
+    assert.equal(profileUpdates().length, 0)
+    assertNoEffects()
   })
 })

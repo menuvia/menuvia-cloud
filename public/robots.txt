@@ -9,6 +9,10 @@ Disallow: /waiter
 Disallow: /kitchen
 Disallow: /auth
 Disallow: /reset-password
+# Invitații cu token în cale: nu au ce căuta într-un index.
+Disallow: /sef-vanzari
+Disallow: /echipa
+Disallow: /invite
 
 # La schimbarea domeniului primar în Netlify, linia de mai jos rămâne corectă
 # doar dacă e actualizată — sitemap-ul propriu-zis își ia baza automat din

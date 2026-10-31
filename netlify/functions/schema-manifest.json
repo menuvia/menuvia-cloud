@@ -296,6 +296,16 @@
     "migration_294_affiliate_payout_flow",
     "migration_295_affiliate_program_gdpr",
     "migration_296_restaurant_country",
-    "migration_297_advisor_hardening"
+    "migration_297_advisor_hardening",
+    "migration_298_restaurant_tz_base_language",
+    "migration_299_email_kinds_sales_network",
+    "migration_300_health_alert_to_agent",
+    "migration_301_agent_code_signup_attribution",
+    "migration_303_agent_remote_access",
+    "migration_304_sales_network_invites",
+    "migration_305_admin_list_affiliates_sales_role",
+    "migration_306_service_role_rpc_grants",
+    "migration_307_audit_actor_erasure",
+    "migration_308_sales_contract_reacceptance"
   ]
 }

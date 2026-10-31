@@ -1,6 +1,6 @@
 // src/lib/pendingCountry.ts
 // ─────────────────────────────────────────────────────────────
-// Țara aleasă la onboarding (menuvia.com), încă NESALVATĂ pe restaurant.
+// Țara aleasă la onboarding (hostul .com), încă NESALVATĂ pe restaurant.
 //
 // Problema (review #288): `create_restaurant` (mig 221) nu primește țara, deci
 // onboarding-ul o scrie printr-un UPDATE separat, DUPĂ creare. Dacă UPDATE-ul

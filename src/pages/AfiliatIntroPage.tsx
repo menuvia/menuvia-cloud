@@ -61,7 +61,11 @@ const TRUST_ITEMS: { icon: IconName; text: string }[] = [
     icon: 'lock',
     text: 'Reguli clare: comisioanele devin plătibile după 60/14 zile; un refund sau o dispută a clientului le stornează și ulterior',
   },
-  { icon: 'users', text: 'Recrutezi sub-parteneri și câștigi și din echipa ta' },
+  // Aici stătea o promisiune de recrutare deschisă (o echipă proprie pentru oricine):
+  // recrutarea prin cod a dispărut (pachetul 8b-2), echipe au doar șefii de vânzări
+  // invitați de Menuvia (mig 304). În locul ei, ce primește REAL un agent nou
+  // („Cum vând”). PT6 din publicTruth.test.ts păzește absența ei.
+  { icon: 'send', text: 'Ghid de start și un mesaj gata de trimis, direct în panoul tău' },
 ]
 
 const FAQ: { q: string; a: string }[] = [
@@ -83,7 +87,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: 'Pot să-mi văd câștigurile în timp real?',
-    a: 'Da. În panoul tău de partener vezi live fiecare restaurant adus, fiecare comision generat și statusul plăților.',
+    a: 'Da. În panoul tău vezi live fiecare restaurant adus, fiecare comision generat și statusul plăților.',
   },
 ]
 
@@ -239,7 +243,8 @@ export default function AfiliatIntroPage({ onLogin }: Props) {
                 }}
               >
                 Recomanzi Menuvia localurilor pe care le știi și primești comision din fiecare
-                abonament — o dată la activare, apoi în fiecare lună.
+                abonament — o dată la activare, apoi din următoarele{' '}
+                {defaults.recurring_cap_months} facturi lunare.
               </p>
               <button onClick={onLogin} className="pressable hover-lift" style={goldCta}>
                 Înscrie-te în program →

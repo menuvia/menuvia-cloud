@@ -354,10 +354,10 @@ export function formatRON(cents: number | null | undefined, currency = 'RON'): s
 
 /**
  * URL-ul public de referral, PUR (testabil fără DOM). Baza trece prin
- * `publicBaseUrl` (lib/domain.ts), ca QR-ul mesei: pe menuvia.com originea
- * canonică .com — `VITE_APP_URL` e fixat pe .ro în netlify.toml, deci formula
- * veche (`VITE_APP_URL || origin`) dădea unui afiliat de pe .com un link .ro;
- * pe .ro și pe orice alt host rezultatul e IDENTIC cu cel de dinainte.
+ * `publicBaseUrl` (lib/domain.ts), ca QR-ul mesei: linkul de afiliat NU
+ * pleacă niciodată spre domeniul .com (nu ne aparține, D3) — pe un host .com
+ * baza e `VITE_APP_URL` sau .ro; pe .ro și pe orice alt host rezultatul e
+ * IDENTIC cu cel de dinainte.
  */
 export function buildReferralUrl(
   code: string,

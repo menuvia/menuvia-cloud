@@ -39,6 +39,8 @@ export const RESTAURANT_UPDATE_FIELDS = [
   'currency',
   // mig 296 — țara (regula de aur pe țară); schimbarea e owner-only în DATE.
   'country',
+  // mig 298 — limba de bază a meniului (CHECK pe cele 7 limbi ale meniului).
+  'language',
 ] as const satisfies readonly (keyof Restaurant)[]
 
 export const CATEGORY_UPDATE_FIELDS = [

@@ -143,14 +143,16 @@ reset role;
 
 -- ═══════ RP2. RLS pe TOT public + clichet pe setul deny-all-by-absence ═══════
 -- Setul „RLS pornit + ZERO politici" e negare prin ABSENȚĂ. Verificat identic pe
--- replay ȘI pe producție: exact aceste 10 tabele (a 10-a, `pg_cron_janitor_manifest`,
--- vine din mig 274). Un tabel care INTRĂ în set
+-- replay ȘI pe producție: exact aceste tabele (`pg_cron_janitor_manifest` vine din
+-- mig 274; `affiliate_invitations` + `affiliate_contract_acceptances` din mig 304 —
+-- acces doar prin RPC-urile DEFINER, deny-all-by-absence ca `retained_receipts`). Un tabel care INTRĂ în set
 -- nedeclarat = politici PIERDUTE (restore parțial, replay oprit la mijloc). Un
 -- tabel care IESE = a primit o politică ce nu a fost revizuită.
 do $$
 declare
   v_total int; v_off text; v_pol int; v_nopol text; v_nucleu text;
   v_denyall text[] := array[
+    'affiliate_contract_acceptances','affiliate_invitations',
     'affiliate_touches','function_rate_limits','gdpr_deletion_config','leads',
     'order_stock_deductions','pg_cron_janitor_manifest','recrutare_leads',
     'retained_invoices','retained_receipts','security_ownership_remediations','stripe_events'];
