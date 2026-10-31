@@ -55,9 +55,13 @@
 //        leagă modulul” și excepția `typeof` scoasă (ultimele două pică și DC2c:
 //        orders.ts ieșea din detecție).
 //   DC2c registrul KNOWN_DEAD nu acoperă un export VIU (o scutire pe un nume
-//        care între timp a căpătat un apelant e o minciună). O intrare al cărei
-//        export a fost ȘTERS e tolerată: alte PR-uri din același lot șterg
-//        exact acele exporturi, iar ștergerea e rezultatul dorit.
+//        care între timp a căpătat un apelant e o minciună) și nici un export
+//        care NU MAI EXISTĂ: o intrare rămasă după ștergere e tot o minciună
+//        (spune că exportul e acolo, mort). Cât timp PR-urile lotului de
+//        curățenie erau deschise în paralel, intrările șterse erau tolerate;
+//        #321 a scos ultimele (voidOrderPayment, rotateQrToken din orders.ts),
+//        deci toleranța a devenit cerință. Mutația care pică: o intrare
+//        readusă pentru un export șters.
 //
 // Rulează în jobul „Bridge tests" (`cd tests/functions && npm test`); vitest
 // nu vede tests/functions.
@@ -79,7 +83,8 @@ const ALLOWED_UNREACHABLE = {}
 // curățenie nu le atinge (fișier → nume → motiv). Se scot pe măsură ce dispar.
 // founder.ts nu se atinge în această rundă (fișier rezervat altei lucrări în
 // curs), iar niciun PR deschis nu scoate exporturile de mai jos: rămân aici
-// până când cineva atinge fișierul — atunci DC2c tolerează ștergerea.
+// până când cineva atinge fișierul. Cine le șterge scoate și intrarea, în
+// același PR — DC2c pică pe o intrare pentru un export care nu mai există.
 const FOUNDER_WHY = 'founder.ts e exclus din runda de curățenie; se scot la următoarea atingere'
 const KNOWN_DEAD = {
   'src/lib/founder.ts': {
@@ -87,10 +92,6 @@ const KNOWN_DEAD = {
     getPartnerAccess: FOUNDER_WHY,
     grantPartnerAccess: FOUNDER_WHY,
     revokeAffiliateAccess: FOUNDER_WHY,
-  },
-  'src/lib/orders.ts': {
-    voidOrderPayment: 'scos în PR-ul «Bucătărie și ospătar» (orders.ts e al lui)',
-    rotateQrToken: 'scos în PR-ul «Bucătărie și ospătar» (orders.ts e al lui)',
   },
 }
 
@@ -465,14 +466,17 @@ describe('cod mort: exporturi pe care nu le folosește nimeni', () => {
     )
   })
 
-  it('DC2c: KNOWN_DEAD nu acoperă un export care are apelanți', () => {
+  it('DC2c: KNOWN_DEAD acoperă doar exporturi care există și sunt moarte', () => {
     const dead = new Set(deadExports(src.files, src.scanned))
     for (const [rel, names] of Object.entries(KNOWN_DEAD)) {
       for (const [name, why] of Object.entries(names)) {
         assert.ok(typeof why === 'string' && why.length > 10, `${rel}:${name}: fără motiv`)
         const text = src.files[rel] ? codeOnly(src.files[rel]) : ''
         const stillExported = new RegExp(`^export\\s[^\\n]*\\b${escapeRe(name)}\\b`, 'm').test(text)
-        if (!stillExported) continue // șters între timp — rezultatul dorit
+        assert.ok(
+          stillExported,
+          `${rel}:${name} nu mai e exportat — scoate intrarea din KNOWN_DEAD`,
+        )
         assert.ok(
           dead.has(`${rel}:${name}`),
           `${rel}:${name} are apelanți — scoate-l din KNOWN_DEAD`,
