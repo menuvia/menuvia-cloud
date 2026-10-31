@@ -6,7 +6,8 @@
 //   - eroarea ajunge PE COMANDĂ, în română, și dispare singură — nu mai e un
 //     banner de pagină lipicios, cu textul englezesc al serverului;
 //   - rollback-ul nu se oprește la instantaneu: cere rândul REAL (de obicei
-//     acțiunea e respinsă tocmai fiindcă un coleg a mutat deja comanda).
+//     acțiunea e respinsă tocmai fiindcă un coleg a mutat deja comanda), dar
+//     nu-l aplică peste o acțiune nouă pornită între timp pe aceeași comandă.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
@@ -152,6 +153,64 @@ describe('useOrders.advance — eroarea, lângă acțiune', () => {
     await tick(0)
     expect(m.fetchOrderById).toHaveBeenCalledWith('B')
     expect(result.current.orders.find((o) => o.id === 'B')?.status).toBe('ready')
+  })
+
+  it('UA9 rândul real sosit DUPĂ o acțiune nouă pe aceeași comandă nu-i șterge starea optimistă', async () => {
+    // Recenzie CodeRabbit pe #321. Mutația care pică: fără garda pe
+    // actionSeqRef în rollback → rândul vechi („new") suprascrie starea
+    // optimistă a celei de-a doua acțiuni („confirmed").
+    const { result } = await mountKitchen()
+    let resolveFetch: (o: ReturnType<typeof makeOrder>) => void = () => {}
+    m.fetchOrderById.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFetch = r
+        }),
+    )
+    m.advanceOrderStatus.mockRejectedValueOnce(new Error('TypeError: Failed to fetch'))
+    await act(async () => {
+      await result.current.advance('A', 'new', { status: 'confirmed' })
+    })
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('new')
+    // A doua acțiune pe A, cât citirea rândului real e încă pe fir.
+    m.advanceOrderStatus.mockImplementationOnce(() => new Promise(() => {}))
+    await act(async () => {
+      void result.current.advance('A', 'new', { status: 'confirmed' })
+    })
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
+    await act(async () => {
+      resolveFetch(makeOrder({ id: 'A', status: 'new' }))
+    })
+    await tick(0)
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('confirmed')
+  })
+
+  it('UA10 control: o acțiune pe ALTĂ comandă nu aruncă corectura rândului real', async () => {
+    // Garda e per comandă: cu o epocă globală, acțiunea pe B ar fi aruncat
+    // rândul real al lui A, care rămânea pe instantaneul greșit.
+    const { result } = await mountKitchen()
+    let resolveFetch: (o: ReturnType<typeof makeOrder>) => void = () => {}
+    m.fetchOrderById.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFetch = r
+        }),
+    )
+    m.advanceOrderStatus.mockRejectedValueOnce(
+      hint('Order not in a confirmable state (current: preparing)', 'invalid_transition'),
+    )
+    await act(async () => {
+      await result.current.advance('A', 'new', { status: 'confirmed' })
+    })
+    m.advanceOrderStatus.mockImplementationOnce(() => new Promise(() => {}))
+    await act(async () => {
+      void result.current.advance('B', 'preparing', { status: 'ready' })
+    })
+    await act(async () => {
+      resolveFetch(makeOrder({ id: 'A', status: 'preparing' }))
+    })
+    await tick(0)
+    expect(result.current.orders.find((o) => o.id === 'A')?.status).toBe('preparing')
   })
 
   it('UA6 fără rețea (iPhone): rollback la instantaneu + „Fără conexiune"', async () => {

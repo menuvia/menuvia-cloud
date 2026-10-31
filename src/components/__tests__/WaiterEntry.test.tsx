@@ -30,6 +30,7 @@ vi.mock('../../lib/qr', async (importOriginal) => {
 vi.mock('../ui/confirm', () => ({ confirm: confirmMock }))
 
 import WaiterEntry from '../WaiterEntry'
+import { STAFF_MENU_TTL_MS } from '../../lib/staffMenuCache'
 import type { CreateOrderArgs } from '../../lib/orders'
 import { makeTable, makeCategory, makeProduct } from './fixtures'
 
@@ -185,6 +186,27 @@ describe('WaiterEntry — meniul în paralel, fără re-descărcare', () => {
     await user.click(await screen.findByRole('button', { name: 'Masa 7' }))
     expect(await screen.findByRole('button', { name: /ciorbă de burtă/i })).toBeInTheDocument()
     expect(fetchMenuMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('WE4 foaia ținută deschisă peste TTL: alegerea mesei cere meniul din nou', async () => {
+    // Recenzie CodeRabbit pe #321. Mutația care pică: promisiunea de la montare
+    // ținută într-un ref și refolosită la alegerea mesei → 1 apel, meniu vechi
+    // (prețuri / „Epuizat") cât stă foaia deschisă.
+    const user = userEvent.setup()
+    const realNow = Date.now.bind(Date)
+    let offset = 0
+    const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => realNow() + offset)
+    try {
+      render(<WaiterEntry restaurantId="r-we4" onClose={vi.fn()} onOrderCreated={vi.fn()} />)
+      const table = await screen.findByRole('button', { name: 'Masa 7' })
+      expect(fetchMenuMock).toHaveBeenCalledTimes(1)
+      offset = STAFF_MENU_TTL_MS + 1_000
+      await user.click(table)
+      expect(await screen.findByRole('button', { name: /ciorbă de burtă/i })).toBeInTheDocument()
+      expect(fetchMenuMock).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('WE3 meniul picat la montare nu rămâne „lipit": alegerea mesei îl cere din nou', async () => {

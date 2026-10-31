@@ -263,6 +263,14 @@ export function useOrders(
   // ar readuce comanda pe pasul de dinainte (iar cu realtime conectat nimic nu
   // o mai corecta până la heartbeat). Contorul spune dacă s-a întâmplat asta.
   const advanceEpochRef = useRef(0)
+  // Câte acțiuni au pornit PE FIECARE comandă. Citirea rândului real după un
+  // refuz (rollback-ul de mai jos) se aplică doar dacă între timp nu a pornit
+  // altă acțiune pe ACEEAȘI comandă: altfel rândul, cerut înaintea ei, ar
+  // suprascrie starea ei optimistă, iar cu realtime conectat nimic nu l-ar mai
+  // corecta până la heartbeat (recenzie CodeRabbit pe #321, UA9). Per comandă,
+  // nu epoca globală: o acțiune pe ALTĂ comandă nu are voie să arunce
+  // corectura (UA10).
+  const actionSeqRef = useRef(new Map<string, number>())
   // OPT-3: statusul realtime într-un ref — polling-ul îl consultă fără să
   // re-creeze intervalul la fiecare flap de status.
   const connectionStatusRef = useRef<RealtimeConnectionStatus>('connecting')
@@ -550,6 +558,8 @@ export function useOrders(
       }
       const gen = genRef.current
       advanceEpochRef.current += 1
+      const seq = (actionSeqRef.current.get(orderId) ?? 0) + 1
+      actionSeqRef.current.set(orderId, seq)
       pendingSetRef.current.add(orderId)
       setPendingIds(new Set(pendingSetRef.current))
       dismissActionError(orderId)
@@ -588,7 +598,9 @@ export function useOrders(
           // (rețea), rămâne instantaneul.
           void fetchOrderById(orderId)
             .then((fresh) => {
-              if (gen === genRef.current) upsertOrder(fresh)
+              if (gen === genRef.current && actionSeqRef.current.get(orderId) === seq) {
+                upsertOrder(fresh)
+              }
             })
             .catch(() => {
               /* rămâne instantaneul */

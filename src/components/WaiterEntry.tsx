@@ -57,14 +57,17 @@ export default function WaiterEntry({
   // Meniul pornește la MONTARE, în paralel cu mesele (perf-staff-2): cât
   // ospătarul alege masa, arborele e deja pe drum. Înainte se cerea abia după
   // alegerea mesei, iar la fiecare masă aleasă se re-descărca de la zero.
-  const menuRef = useRef<Promise<Category[]> | null>(null)
+  // Fiecare alegere de masă trece din nou prin `loadStaffMenu`: în TTL-ul de
+  // 60 s primește aceeași promisiune (fără re-descărcare), peste el cere
+  // arborele din nou. O promisiune ținută într-un ref de la montare ar fi
+  // ocolit TTL-ul cât foaia stă deschisă (prețuri / „Epuizat" vechi — recenzie
+  // CodeRabbit pe #321, WE4). Eșecul nu rămâne „lipit": cache-ul șterge
+  // intrarea respinsă, deci următoarea alegere reîncearcă (WE3).
 
   function openMenu(table: RestaurantTable | null, isCancelled: () => boolean): void {
     setSelectedTable(table)
     setLoadError(null)
-    const menu = menuRef.current ?? loadStaffMenu(restaurantId)
-    menuRef.current = menu
-    menu
+    loadStaffMenu(restaurantId)
       .then((cats) => {
         if (isCancelled()) return
         setCategories(cats)
@@ -72,19 +75,16 @@ export default function WaiterEntry({
         setStep('menu')
       })
       .catch(() => {
-        // Eșecul nu rămâne „lipit": următoarea alegere de masă reîncearcă.
-        if (menuRef.current === menu) menuRef.current = null
         if (!isCancelled()) setLoadError('Nu s-a putut încărca meniul. Verifică conexiunea.')
       })
   }
 
   useEffect(() => {
     let cancelled = false
-    const menu = loadStaffMenu(restaurantId)
-    menuRef.current = menu
-    // Eroarea meniului se arată la alegerea mesei (openMenu), nu aici.
-    menu.catch(() => {
-      if (menuRef.current === menu) menuRef.current = null
+    // Încălzește cache-ul; eroarea meniului se arată la alegerea mesei
+    // (openMenu), nu aici.
+    loadStaffMenu(restaurantId).catch(() => {
+      /* arătată la alegerea mesei */
     })
     fetchTables(restaurantId)
       .then((ts) => {
