@@ -4,12 +4,16 @@
 // stocată n-are gate (comutatorul din Setări apare pe orice plan, onboarding-ul
 // food truck o pornește intenționat pe Planul 1), deci fără textele astea
 // owner-ul vedea „clienții pot comanda” în Setări și „clienții comandă și
-// ridică” în Mese, iar oaspeții lui doar meniul — refuzul de la `create_order`,
-// singurul semnal de până atunci, dispăruse odată cu fluxul.
+// ridică” în Mese, iar oaspeții lui nu mai puteau comanda pentru ridicare —
+// refuzul de la `create_order`, singurul semnal de până atunci, dispăruse
+// odată cu fluxul.
 //
 //   PK1  `pickupFeatureState` e TRISTATE: features neîncărcate → null.
 //   PK2  Nicio promisiune de comenzi fără feature CUNOSCUT activ (null = nu știm).
-//   PK3  Avertismentul de plan DOAR pe feature CUNOSCUT absent, cu numele planului.
+//   PK3  Avertismentul de plan DOAR pe feature CUNOSCUT absent, cu numele planului,
+//        și spune DOAR ce e adevărat pe orice plan: oaspeții nu pot comanda
+//        pentru ridicare. NU „doar meniul” — cu modulul Rezervări pornit (permis
+//        pe orice plan, mig 086) /m/:slug are și „Rezervă o masă”.
 //   PK4  Planul numit e cel minim care chiar are `pickup_orders` în matricea DB.
 //   PK5  Clichet pe SURSĂ: SettingsTab și TablesManager nu mai au promisiunile
 //        scrise de mână și citesc feature-ul RESTAURANTULUI (pică pe codul vechi).
@@ -43,6 +47,13 @@ const features = (pickup: boolean | undefined): RestaurantFeatures => ({
 })
 
 const STATES: ReadonlyArray<boolean | null> = [true, false, null]
+
+// Afirmația FALSĂ pe care textele o făceau: pagina publică arată „doar meniul”.
+// Pe Planul 1 cu Rezervări pornit, /m/:slug are și „Rezervă o masă”
+// (PublicMenuPage, `reservationsModuleEnabled`).
+const ONLY_MENU = /\b(doar|numai|exclusiv)\s+(cu\s+)?meniul?\b/i
+// Ce e adevărat pe ORICE plan fără `pickup_orders`.
+const NO_PICKUP_ORDER = /nu pot comanda pentru ridicare|fără comanda pentru ridicare/
 
 describe('PK1: feature-ul de ridicare, tristate', () => {
   it('null pe features neîncărcate; true/false doar când planul e cunoscut', () => {
@@ -80,16 +91,39 @@ describe('PK3: avertismentul de plan', () => {
       const w = pickupPlanWarning(enabled, false)
       expect(w).not.toBeNull()
       expect(w).toContain(pickupPlanName())
-      expect(w).toMatch(/doar meniul/)
+      expect(w).toMatch(NO_PICKUP_ORDER)
+      expect(w).not.toMatch(ONLY_MENU)
     }
   })
 
-  it('cu ridicarea pornită spune explicit că oaspeții nu pot comanda', () => {
+  it('cu ridicarea pornită spune explicit că oaspeții nu pot comanda pentru ridicare', () => {
     const on = pickupPlanWarning(true, false)
     const off = pickupPlanWarning(false, false)
-    expect(on).toMatch(/nu pot comanda/)
+    expect(on).toMatch(/nu pot comanda pentru ridicare/)
     expect(on).toMatch(/setarea rămâne salvată/)
     expect(off).not.toEqual(on)
+  })
+
+  it('niciun text de staff nu afirmă că pagina publică arată „doar meniul”', () => {
+    // Control pozitiv al regex-ului: formularea veche e prinsă.
+    expect('pe planul curent pagina publică arată doar meniul.').toMatch(ONLY_MENU)
+    expect('clienții văd doar meniul și nu pot comanda').toMatch(ONLY_MENU)
+    expect('Mod „doar ridicare" activ').not.toMatch(ONLY_MENU)
+    for (const enabled of [true, false]) {
+      for (const f of STATES) {
+        const d = pickupCardDescription(f)
+        for (const t of [
+          pickupPlanWarning(enabled, f) ?? '',
+          pickupOnlyEmptyStateText(enabled, f),
+          generalMenuQrText(f),
+          `${d.lead} /m/x${d.tail}`,
+        ]) {
+          expect(t, `enabled=${enabled} feature=${String(f)}`).not.toMatch(ONLY_MENU)
+        }
+      }
+    }
+    // Empty state-ul fără feature spune ce lipsește, nu ce rămâne.
+    expect(pickupOnlyEmptyStateText(true, false)).toMatch(NO_PICKUP_ORDER)
   })
 })
 

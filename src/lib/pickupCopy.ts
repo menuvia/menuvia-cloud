@@ -8,7 +8,14 @@
 // onboarding o pornește INTENȚIONAT pe Planul 1. Înainte de 309, refuzul de la
 // `create_order` era singurul semnal că ridicarea cere alt plan; după 309,
 // fără textele de aici, owner-ul vedea „pornit” în dashboard (Setări, Mese),
-// punea QR-ul general pe tejghea, iar oaspeții lui vedeau doar meniul — tăcut.
+// punea QR-ul general pe tejghea, iar oaspeții lui nu mai puteau comanda pentru
+// ridicare — tăcut.
+//
+// Textele NU spun că pagina publică arată „doar meniul”: pe orice plan, cu
+// modulul Rezervări pornit (permis pe orice plan, mig 086), /m/:slug are și
+// „Rezervă o masă” (PublicMenuPage, `reservationsModuleEnabled`). Singurul lucru
+// adevărat pe orice plan fără `pickup_orders` e că oaspeții NU pot comanda
+// pentru ridicare de pe pagina publică (PK3).
 //
 // Tristate pe feature (tiparul `paymentsEnabled`): `null` = planul NU e
 // cunoscut (features neîncărcate / RPC picat) → nici promisiunea „clienții pot
@@ -58,20 +65,23 @@ export function pickupCardDescription(feature: boolean | null): { lead: string; 
 
 /**
  * Avertismentul de plan din cardul de ridicare — DOAR pe feature CUNOSCUT
- * absent. Cu ridicarea pornită spune explicit ce vede oaspetele; comutatorul
- * rămâne activ (setarea se păstrează pentru re-urcare).
+ * absent. Cu ridicarea pornită spune explicit că oaspeții nu pot comanda pentru
+ * ridicare; comutatorul rămâne activ (setarea se păstrează pentru re-urcare).
  */
 export function pickupPlanWarning(enabled: boolean, feature: boolean | null): string | null {
   if (feature !== false) return null
   const plan = pickupPlanName()
   if (enabled) {
     return (
-      `Ridicarea e pornită, dar planul curent nu o include: pe pagina publică clienții văd ` +
-      `doar meniul și nu pot comanda. Comenzile pentru ridicare necesită planul ${plan} — ` +
+      `Ridicarea e pornită, dar planul curent nu o include: clienții nu pot comanda pentru ` +
+      `ridicare de pe pagina publică. Comenzile pentru ridicare necesită planul ${plan} — ` +
       `setarea rămâne salvată și se aplică la trecerea pe acest plan.`
     )
   }
-  return `Comenzile pentru ridicare necesită planul ${plan} — pe planul curent pagina publică arată doar meniul.`
+  return (
+    `Comenzile pentru ridicare necesită planul ${plan} — pe planul curent clienții văd meniul ` +
+    `pe pagina publică, fără comanda pentru ridicare.`
+  )
 }
 
 /** Textul cardului „QR meniu general” (Mese), după „Duce la /m/slug — ”. */
@@ -91,7 +101,7 @@ export function pickupOnlyEmptyStateText(enabled: boolean, feature: boolean | nu
   if (feature === false) {
     return (
       `${head} Comenzile pentru ridicare necesită planul ${pickupPlanName()}: pe planul curent, ` +
-      `prin QR-ul general de mai sus, clienții văd doar meniul. ${tail}`
+      `prin QR-ul general de mai sus, clienții văd meniul, fără comanda pentru ridicare. ${tail}`
     )
   }
   if (feature === true && enabled) {
