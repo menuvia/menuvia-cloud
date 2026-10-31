@@ -5,6 +5,9 @@ import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
 import { captureReferralFromUrl } from './lib/affiliate'
 import { scrubTokenPathsDeep } from './lib/telemetryScrub'
+// Doar valori + un `import type` din @sentry/react (șters la compilare): nu trage
+// chunk-ul Sentry în graful static al entry-ului.
+import { SENTRY_DATA_COLLECTION } from './lib/sentryPrivacy'
 // Ordinea contează: tokens (variabile) → global (reset+body) → animații
 import './styles/tokens.css'
 import './styles/global.css'
@@ -43,8 +46,10 @@ async function initSentry() {
     tracesSampleRate: 0.2,
     environment: import.meta.env.MODE,
 
-    // ✅ GDPR: nu trimite IP, user-agent extins, sau cookies
-    sendDefaultPii: false,
+    // ✅ GDPR: fără IP, date de utilizator, cookie-uri, antete, corpuri sau
+    // query string. Explicit, categorie cu categorie: din Sentry 11 implicitul
+    // e să colecteze tot (lib/sentryPrivacy.ts).
+    dataCollection: SENTRY_DATA_COLLECTION,
 
     // ✅ Filtrează datele înainte de transmitere la Sentry US
     beforeSend(event) {
