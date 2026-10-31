@@ -1,7 +1,8 @@
 // src/lib/__tests__/guestErrors-pickup.test.ts
 // ux-guest-10 (pasul A): pe un local fără `pickup_orders` (Planul 1, downgrade)
-// ridicarea apare încă oaspetelui — proiecția publică nu expune planul, iar
-// helperul public e o migrație separată (pasul B, amânat). Refuzul serverului
+// ridicarea apărea oaspetelui — proiecția publică nu expunea planul (pasul B,
+// mig 309, o ascunde acum; refuzul rămâne pentru fereastra dintre încărcarea
+// paginii și trimitere și pentru o bază fără 309). Refuzul serverului
 // (enforce_ordering_enabled, mig 290: hint `plan_upgrade_required`) cădea pe
 // fallback-ul „Comanda nu s-a trimis. Încearcă din nou." — o invitație la o
 // retrimitere care nu poate reuși. Acum se spune pe față.

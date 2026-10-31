@@ -8,6 +8,7 @@ import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
 import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
+import { pickupCardDescription, pickupFeatureFromToggle, pickupToggleNotice } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -383,10 +384,17 @@ export default function SettingsTab({
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
   // Ridicarea se pornește doar pe planurile cu `pickup_orders` (lib/pickupAvailability).
+  // Din aceeași stare se derivă și textele cardului (lib/pickupCopy.ts): pagina
+  // publică arată ridicarea doar cu `pickup_orders` (mig 309), deci descrierea
+  // promite comenzi DOAR pe `available`, iar nota de sub comutator e UNA. Fără
+  // `useFeatures` aici: `plan` vine deja din `useFeatures(restaurantId)` din
+  // DashboardPage (planul RESTAURANTULUI, regula 3).
   const pickupState = pickupToggleState(
     planKnown ? plan : null,
     form.pickup_settings?.enabled ?? false,
   )
+  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState))
+  const pickupNotice = pickupToggleNotice(pickupState)
 
   return (
     <div>
@@ -1735,12 +1743,11 @@ export default function SettingsTab({
               title="Comenzi pentru ridicare (click-and-collect)"
               desc={
                 <>
-                  Activează pagina ta publică{' '}
+                  {pickupDesc.lead}{' '}
                   <span style={{ color: D.gold }}>
                     {siteHost()}/m/{form.slug || 'slug'}
-                  </span>. Clienții
-                  pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
-                  ridicare.
+                  </span>
+                  {pickupDesc.tail}
                 </>
               }
               right={
@@ -1754,7 +1761,7 @@ export default function SettingsTab({
                 />
               }
             >
-              {pickupState !== 'available' && (
+              {pickupNotice && (
                 <div
                   style={{
                     display: 'flex',
@@ -1773,17 +1780,7 @@ export default function SettingsTab({
                     size={13}
                     color={pickupState === 'locked_on' ? D.amber : D.t2}
                   />
-                  <span>
-                    {/* „unknown" acoperă și încărcarea NORMALĂ a planului (DashboardPage
-                        nu așteaptă features înainte să randeze fila), deci textul nu
-                        pretinde un eșec: un „nu am putut verifica" la fiecare deschidere
-                        directă a Setărilor ar fi o alarmă falsă. */}
-                    {pickupState === 'unknown'
-                      ? 'Se verifică planul restaurantului; până atunci ridicarea nu se poate schimba. Dacă mesajul nu dispare, reîncarcă pagina.'
-                      : pickupState === 'locked_on'
-                        ? `Planul tău nu include comenzile pentru ridicare: oaspeții văd formularul, dar comenzile lor sunt respinse. Oprește opțiunea sau treci la planul ${PLAN_LABELS.growth}.`
-                        : `Disponibil de la planul ${PLAN_LABELS.growth}. Pe planul tău, comenzile pentru ridicare nu pot fi primite.`}
-                  </span>
+                  <span>{pickupNotice}</span>
                 </div>
               )}
               {form.pickup_settings?.enabled && (

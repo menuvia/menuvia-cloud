@@ -8,7 +8,8 @@
 //        pică: `if (tkErr) throw tkErr` scos din load() (comportamentul vechi:
 //        toate mesele „Fără QR”, fiecare cu „Generează QR”).
 //   TK1b control pozitiv: citire reușită, masă FĂRĂ token → „Generează QR” apare
-//        (altfel TK1 ar trece și cu lista ruptă de tot).
+//        (altfel TK1 ar trece și cu lista ruptă de tot). Pe planul necunoscut,
+//        QR-ul general nu promite comenzi pentru ridicare (mig 309, pickupCopy).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Restaurant } from '../../hooks/useData'
@@ -92,5 +93,10 @@ describe('TablesManager — token-uri QR necunoscute', () => {
     render(<TablesManager restaurant={restaurant} />)
     expect(await screen.findByRole('button', { name: 'Generează QR' })).toBeInTheDocument()
     expect(screen.queryByText('Nu s-au putut încărca mesele')).not.toBeInTheDocument()
+    // Planul e necunoscut aici (`useFeatures` cu `features: null`): QR-ul general
+    // nu promite comenzi pentru ridicare (lib/pickupCopy.ts — din mig 309 pagina
+    // publică arată ridicarea doar cu `pickup_orders`), ci textul neutru.
+    expect(screen.getByText(/clienții văd meniul\. Bun pentru vitrină/)).toBeInTheDocument()
+    expect(screen.queryByText(/pot și comanda/)).not.toBeInTheDocument()
   })
 })
