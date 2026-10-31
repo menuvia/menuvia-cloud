@@ -204,11 +204,22 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   // Guard de secvență: la schimbarea restaurantului, un răspuns vechi nu trebuie
   // să afișeze device-urile/bonurile altui restaurant.
   const loadSeqRef = useRef(0)
+  // Maparea TVA cerută (montare / după salvare) și încă NEAPLICATĂ. Guard-ul de
+  // secvență de mai sus ARUNCĂ răspunsul unei încărcări depășite — iar cea care
+  // o depășește e, de regulă, una live (revenirea în filă chiar în timpul
+  // încărcării inițiale, sau tick-ul de 15 s în timpul reîncărcării de după
+  // salvare). Fără acest flag cotele nu se mai citeau până la remontare:
+  // modalul „Mapare TVA" spunea fals „Nu ai cote TVA configurate încă" sau
+  // arăta maparea DINAINTEA salvării. La fel după o citire de cote eșuată.
+  // Cât e true, ORICE încărcare (și cea live) cere și cotele.
+  const configPendingRef = useRef(true)
   // `withConfig` = și maparea TVA (configurare, nu stare live): se citește la
   // montare și după salvarea mapării, NU la fiecare 15 s. Pe tier 2 (fără
   // fiscal) bonurile și cotele nici nu se cer — secțiunile lor sunt ascunse.
   const load = useCallback(
     async (opts: { withConfig?: boolean } = {}) => {
+      if (opts.withConfig === true) configPendingRef.current = true
+      const withConfig = configPendingRef.current
       const seq = ++loadSeqRef.current
       setLoading(true)
       setErr(null)
@@ -233,7 +244,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                 .order('created_at', { ascending: false })
                 .limit(100)
             : null,
-          fiscalEnabled && opts.withConfig === true
+          fiscalEnabled && withConfig
             ? supabase
                 .from('vat_rates')
                 .select(VAT_COLUMNS)
@@ -249,7 +260,10 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         // pe un DB vechi) — nu blocăm tab-ul fiscal pentru asta.
         setDevices((dRes.data || []) as BridgeDevice[])
         setReceipts(rRes ? ((rRes.data || []) as PendingReceipt[]) : [])
-        if (vRes) setVatRates((vRes.data || []) as VatRateRow[])
+        if (vRes) {
+          setVatRates((vRes.data || []) as VatRateRow[])
+          configPendingRef.current = false
+        }
         setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
       } catch (e) {
         if (seq === loadSeqRef.current)
