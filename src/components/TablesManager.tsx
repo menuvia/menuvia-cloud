@@ -600,7 +600,11 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     load()
   }, [load])
 
-  const ensureTokens = async () => {
+  // `true` = acoperirea cu token-uri a fost VERIFICATĂ (și completată unde
+  // lipsea). `false` = nu se știe sau inserarea a picat: eroarea a fost deja
+  // afișată, iar apelantul NU are voie să anunțe succesul („fiecare cu QR-ul
+  // ei”) imediat sub ea — toast-urile se stivuiesc, deci s-ar vedea amândouă.
+  const ensureTokens = async (): Promise<boolean> => {
     try {
       const { data: tData, error: tErr } = await supabase
         .from('tables')
@@ -608,7 +612,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         .eq('restaurant_id', restaurant.id)
       if (tErr) throw tErr
       const ids = (tData || []).map((t: Record<string, unknown>) => t.id as string)
-      if (!ids.length) return
+      if (!ids.length) return true
       const existing = await supabase
         .from('qr_tokens')
         .select('table_id')
@@ -626,7 +630,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
           'error',
         )
         await load()
-        return
+        return false
       }
       if (missing.length > 0) {
         const { error: insErr } = await supabase
@@ -635,8 +639,10 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         if (insErr) throw insErr
       }
       await load()
+      return true
     } catch {
       toast('Eroare la generarea QR-urilor', 'error')
+      return false
     }
   }
 
@@ -646,8 +652,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       // OPT-R2: fără load() redundant înainte — ensureTokens re-interoghează
       // el însuși id-urile proaspete (inclusiv masa tocmai adăugată) și se
       // termină cu un load() complet. Un singur ciclu de reload, nu două.
-      await ensureTokens()
-      toast(modal === 'add' ? 'Masă adăugată' : 'Masă actualizată')
+      if (await ensureTokens()) toast(modal === 'add' ? 'Masă adăugată' : 'Masă actualizată')
     } catch {
       toast('Eroare la salvare', 'error')
     }
@@ -739,9 +744,9 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       if (error) throw error
       // OPT-R2: 3 load()-uri complete → 1. ensureTokens re-interoghează
       // id-urile proaspete (insert-ul nu le întoarce) și termină cu load().
-      await ensureTokens()
+      const tokensOk = await ensureTokens()
       setBulkCount('')
-      toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
+      if (tokensOk) toast(`${rows.length} mese create, fiecare cu QR-ul ei`)
     } catch (e) {
       // Copy: mesaj în română pentru patron; detaliul tehnic doar în consolă.
       console.error('[TablesManager] bulkGenerate:', e)

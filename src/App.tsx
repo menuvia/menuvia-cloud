@@ -362,6 +362,19 @@ function AppRouter() {
   const { restaurants, loading: rLoading, refetch, update } = useRestaurants()
   const [state, setState] = useState<RouteState>(parsePath)
 
+  // Ruta se anunță și DUPĂ fiecare commit al routerului, nu doar din
+  // `navigate`/`exitAuth`: `replace()` se cheamă și din RANDARE (view protejat
+  // fără sesiune → /auth, landing → /dashboard), unde un `dispatchEvent`
+  // sincron ar re-randa alte componente în timpul randării acesteia. Fără
+  // anunț, ascultătorii din AFARA routerului (cardurile PWA din lib/pwaGate.ts,
+  // gate-ul de Termeni) rămâneau pe ruta veche: cardul „Instalează” deschis pe
+  // /dashboard stătea peste formularul de autentificare după expirarea
+  // sesiunii (recenzie CodeRabbit pe #319). Anunțul dublu de după `navigate`
+  // e inofensiv: ascultătorii doar recitesc `location`.
+  useEffect(() => {
+    window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))
+  }, [state])
+
   // FE-001 FIX: separate navigate (push) from replace (no history entry).
   // Redirects after auth use replace → back button doesn't return to /auth → no infinite loop.
   const navigate = (path: string) => {

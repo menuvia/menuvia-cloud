@@ -12,6 +12,11 @@
 //   PA3  hook-ul reacționează la suprimare și la navigare (ROUTE_CHANGE_EVENT)
 //   PA4  cablajul: App montează PWAPrompt DOAR prin poartă, iar onboarding-ul îl
 //        suprimă. Mutația care pică: `<PWAPrompt />` global, ca înainte
+//   PA5  routerul anunță ruta după FIECARE commit (efect pe `state`), deci și
+//        `replace()` chemat din randare — sesiune expirată pe /dashboard → /auth
+//        — închide cardul deschis (recenzie CodeRabbit pe #319). Clichet pe
+//        sursă: o randare reală a lui AppRouter cere tot contextul de auth și
+//        restaurante. Mutația care pică: efectul scos sau legat de `[]`.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, afterEach } from 'vitest'
@@ -98,5 +103,18 @@ describe('pwaGate', () => {
     expect(read('src/components/PWAPrompt.tsx')).toContain(
       'if (!pwaPromptAllowedNow()) return null',
     )
+  })
+
+  it('PA5 routerul anunță ruta după fiecare commit, inclusiv după replace() din randare', () => {
+    const app = read('src/App.tsx')
+    const router = app.slice(app.indexOf('function AppRouter()'))
+    // Efectul stă înaintea oricărui `return` al routerului (regula hook-urilor),
+    // deci și înaintea randării care face replace('/auth').
+    const effect = router.indexOf(
+      'useEffect(() => {\n    window.dispatchEvent(new Event(ROUTE_CHANGE_EVENT))\n  }, [state])',
+    )
+    expect(effect).toBeGreaterThan(-1)
+    expect(effect).toBeLessThan(router.indexOf('\n    return '))
+    expect(effect).toBeLessThan(router.indexOf('replace(authPathWithNext('))
   })
 })
