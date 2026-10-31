@@ -18,39 +18,43 @@ import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { receiptStatsForRomaniaDay } from '../lib/receiptStats'
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
+
+// Coloanele EXPLICITE pe care ecranul le afișează (perf-staff-5). Înainte
+// `select('*')` aducea, la fiecare 15 s, `device_secret` (cheia cu care
+// bridge-ul se autentifică la RPC-urile bridge_* — nu are ce căuta în memoria
+// unei file de browser care nu-l arată) și payload-urile FiscalNet / ESC-POS
+// ale celor 100 de bonuri + 50 de tichete, pe care ecranul nu le randează.
+// Secretul se vede O SINGURĂ dată, din răspunsul lui bridge_register.
+const DEVICE_COLUMNS =
+  'id,name,status,last_seen_at,fiscalnet_brand,fiscalnet_model,prints_kitchen_receipts'
+const RECEIPT_COLUMNS =
+  'id,order_id,status,bon_number,error_code,error_info,retry_count,total_snapshot,created_at'
+const TICKET_COLUMNS = 'id,order_id,status,error_code,retry_count,is_reprint,created_at'
+const VAT_COLUMNS = 'vat_group,rate_percent,label,fiscalnet_group'
+// Ritmul „live" (status casă, bonuri, tichete) — DOAR cu fila vizibilă.
+const LIVE_POLL_MS = 15_000
 
 interface BridgeDevice {
   id: string
-  restaurant_id: string
   name: string
-  device_secret: string
   status: 'online' | 'offline' | 'error'
   last_seen_at: string | null
-  last_error: string | null
   fiscalnet_brand: string | null
   fiscalnet_model: string | null
-  fiscalnet_license_type: 'pro' | 'plus' | null
   prints_kitchen_receipts: boolean
-  notes: string | null
-  created_at: string
-  updated_at: string
 }
 
 interface PendingReceipt {
   id: string
-  restaurant_id: string
   order_id: string
-  payload: string
   status: 'pending' | 'sent' | 'success' | 'error' | 'cancelled'
-  bridge_device_id: string | null
   bon_number: string | null
   error_code: string | null
   error_info: string | null
   retry_count: number
   total_snapshot: number
   created_at: string
-  claimed_at: string | null
-  completed_at: string | null
 }
 
 interface VatRateRow {
@@ -68,11 +72,11 @@ interface Props {
 }
 
 // Tichet de bucătărie (mig 227) — oglinda lui PendingReceipt, fără câmpurile
-// fiscale (bon_number/total_snapshot), plus is_reprint.
+// fiscale (bon_number/total_snapshot), plus is_reprint. Fără payload-ul ESC/POS:
+// e treaba bridge-ului, ecranul nu-l afișează.
 interface KitchenTicket {
   id: string
   order_id: string
-  payload: string
   status: 'pending' | 'sent' | 'success' | 'error' | 'cancelled'
   error_code: string | null
   retry_count: number
@@ -198,65 +202,86 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   const [printedErr, setPrintedErr] = useState<string | null>(null)
 
   // Guard de secvență: la schimbarea restaurantului, un răspuns vechi nu trebuie
-  // să afișeze device-urile/bonurile/device_secret ale altui restaurant.
+  // să afișeze device-urile/bonurile altui restaurant.
   const loadSeqRef = useRef(0)
-  const load = useCallback(async () => {
-    const seq = ++loadSeqRef.current
-    setLoading(true)
-    setErr(null)
-    try {
-      const [dRes, rRes, vRes, tRes] = await Promise.all([
-        supabase
-          .from('bridge_devices')
-          .select('*')
-          .eq('restaurant_id', restaurantId)
-          .order('created_at'),
-        supabase
-          .from('pending_receipts')
-          .select('*')
-          .eq('restaurant_id', restaurantId)
-          .order('created_at', { ascending: false })
-          .limit(100),
-        supabase
-          .from('vat_rates')
-          .select('vat_group,rate_percent,label,fiscalnet_group')
-          .eq('restaurant_id', restaurantId)
-          .order('vat_group'),
-        supabase
-          .from('kitchen_tickets')
-          .select('id,order_id,payload,status,error_code,retry_count,is_reprint,created_at')
-          .eq('restaurant_id', restaurantId)
-          .order('created_at', { ascending: false })
-          .limit(50),
-      ])
-      if (seq !== loadSeqRef.current) return
-      if (dRes.error) throw dRes.error
-      if (rRes.error) throw rRes.error
-      if (vRes.error) throw vRes.error
-      // Tichetele sunt tolerante la absența migrației 227 (tabel inexistent
-      // pe un DB vechi) — nu blocăm tab-ul fiscal pentru asta.
-      setDevices((dRes.data || []) as BridgeDevice[])
-      setReceipts((rRes.data || []) as PendingReceipt[])
-      setVatRates((vRes.data || []) as VatRateRow[])
-      setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
-    } catch (e) {
-      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
-    } finally {
-      if (seq === loadSeqRef.current) setLoading(false)
-    }
-  }, [restaurantId])
+  // Maparea TVA cerută (montare / după salvare) și încă NEAPLICATĂ. Guard-ul de
+  // secvență de mai sus ARUNCĂ răspunsul unei încărcări depășite — iar cea care
+  // o depășește e, de regulă, una live (revenirea în filă chiar în timpul
+  // încărcării inițiale, sau tick-ul de 15 s în timpul reîncărcării de după
+  // salvare). Fără acest flag cotele nu se mai citeau până la remontare:
+  // modalul „Mapare TVA" spunea fals „Nu ai cote TVA configurate încă" sau
+  // arăta maparea DINAINTEA salvării. La fel după o citire de cote eșuată.
+  // Cât e true, ORICE încărcare (și cea live) cere și cotele.
+  const configPendingRef = useRef(true)
+  // `withConfig` = și maparea TVA (configurare, nu stare live): se citește la
+  // montare și după salvarea mapării, NU la fiecare 15 s. Pe tier 2 (fără
+  // fiscal) bonurile și cotele nici nu se cer — secțiunile lor sunt ascunse.
+  const load = useCallback(
+    async (opts: { withConfig?: boolean } = {}) => {
+      if (opts.withConfig === true) configPendingRef.current = true
+      const withConfig = configPendingRef.current
+      const seq = ++loadSeqRef.current
+      setLoading(true)
+      setErr(null)
+      try {
+        const [dRes, tRes, rRes, vRes] = await Promise.all([
+          supabase
+            .from('bridge_devices')
+            .select(DEVICE_COLUMNS)
+            .eq('restaurant_id', restaurantId)
+            .order('created_at'),
+          supabase
+            .from('kitchen_tickets')
+            .select(TICKET_COLUMNS)
+            .eq('restaurant_id', restaurantId)
+            .order('created_at', { ascending: false })
+            .limit(50),
+          fiscalEnabled
+            ? supabase
+                .from('pending_receipts')
+                .select(RECEIPT_COLUMNS)
+                .eq('restaurant_id', restaurantId)
+                .order('created_at', { ascending: false })
+                .limit(100)
+            : null,
+          fiscalEnabled && withConfig
+            ? supabase
+                .from('vat_rates')
+                .select(VAT_COLUMNS)
+                .eq('restaurant_id', restaurantId)
+                .order('vat_group')
+            : null,
+        ])
+        if (seq !== loadSeqRef.current) return
+        if (dRes.error) throw dRes.error
+        if (rRes?.error) throw rRes.error
+        if (vRes?.error) throw vRes.error
+        // Tichetele sunt tolerante la absența migrației 227 (tabel inexistent
+        // pe un DB vechi) — nu blocăm tab-ul fiscal pentru asta.
+        setDevices((dRes.data || []) as BridgeDevice[])
+        setReceipts(rRes ? ((rRes.data || []) as PendingReceipt[]) : [])
+        if (vRes) {
+          setVatRates((vRes.data || []) as VatRateRow[])
+          configPendingRef.current = false
+        }
+        setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
+      } catch (e) {
+        if (seq === loadSeqRef.current)
+          setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      } finally {
+        if (seq === loadSeqRef.current) setLoading(false)
+      }
+    },
+    [restaurantId, fiscalEnabled],
+  )
 
   useEffect(() => {
-    void load()
+    void load({ withConfig: true })
   }, [load])
 
-  // Auto-refresh la 15s pentru live status
-  useEffect(() => {
-    const t = setInterval(() => {
-      void load()
-    }, 15_000)
-    return () => clearInterval(t)
-  }, [load])
+  // Status live (casă, bonuri, tichete) la 15 s, DOAR cu fila vizibilă; la
+  // revenirea în filă se citește imediat (usePollWhileVisible, perf-staff-6).
+  usePollWhileVisible(() => void load(), LIVE_POLL_MS)
 
   async function handleRegister() {
     if (!regName.trim()) return
@@ -463,7 +488,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         if (error) throw error
       }
       setShowVatMap(false)
-      await load()
+      await load({ withConfig: true })
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Eroare la salvare mapare TVA')
     } finally {

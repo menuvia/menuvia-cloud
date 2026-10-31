@@ -25,6 +25,7 @@ import {
   type ActiveRule,
 } from '../lib/happyHour'
 import { supabase } from '../lib/supabase'
+import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
 
 interface Props {
   restaurantId: string
@@ -131,15 +132,13 @@ export default function HappyHourTab({ restaurantId }: Props) {
     void load()
   }, [load])
 
-  // Re-evaluate active every 60s
-  useEffect(() => {
-    const t = setInterval(() => {
-      evaluateHappyHourForNow(restaurantId)
-        .then(setActive)
-        .catch(() => {})
-    }, 60_000)
-    return () => clearInterval(t)
-  }, [restaurantId])
+  // Re-evaluează regula activă la 60 s, DOAR cu fila vizibilă (perf-staff-6);
+  // la revenire, imediat — ora a trecut cât timp n-a privit nimeni.
+  usePollWhileVisible(() => {
+    evaluateHappyHourForNow(restaurantId)
+      .then(setActive)
+      .catch(() => {})
+  }, 60_000)
 
   async function handleSave(
     rule: Omit<HappyHourRule, 'id' | 'restaurant_id' | 'created_at' | 'updated_at'>,

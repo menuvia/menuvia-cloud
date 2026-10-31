@@ -238,7 +238,8 @@ export default function ProductsCsvImport({
   const importedCsvRef = useRef<string | null>(null)
   const attemptedImportRef = useRef(false)
   // Numele produselor dinaintea PRIMEI încercări — baseline pentru dedup-ul de
-  // pe retry (vezi doImport). null = n-am putut citi ⇒ dedup dezactivat.
+  // pe retry (vezi doImport). Se citește o singură dată, ÎNAINTE de orice
+  // inserare; fără el importul nu pornește.
   const baselineNamesRef = useRef<Set<string> | null>(null)
   // Total inserat de-a lungul TUTUROR încercărilor din această sesiune de modal
   // — altfel, după un retry, mesajul de final raporta doar rândurile ultimei
@@ -375,18 +376,35 @@ export default function ProductsCsvImport({
 
       // Baseline = numele dinaintea PRIMEI încercări. Fără el nu putem distinge
       // „produs pus de importul ăsta" de „produs care era deja în meniu".
-      // (Re)încercăm baseline-ul cât timp lipsește: dacă prima citire a picat
-      // (blip), a NU reîncerca lăsa dedup-ul stins pentru tot restul sesiunii,
-      // tăcut. Abia după ce avem baseline marcăm sesiunea drept „a încercat".
-      if (!baselineNamesRef.current) baselineNamesRef.current = await readNames()
+      // Gardă FAIL-CLOSED (code-health-error-ignored-guards): înainte, o citire
+      // eșuată lăsa baseline-ul gol, importul pornea oricum, iar la retry
+      // baseline-ul se recitea DUPĂ încercarea parțială — conținea chiar rândurile
+      // ei, deci dedup-ul era orb exact la ele. Acum, fără baseline, importul NU
+      // pornește: nimic nu s-a inserat, deci următorul click e tot „prima" încercare.
+      if (!hasAttempted) {
+        const baseline = await readNames()
+        if (!baseline) {
+          throw new Error(
+            'Nu am putut citi meniul existent, deci importul nu a pornit (nu s-a adăugat nimic). Reîncearcă.',
+          )
+        }
+        baselineNamesRef.current = baseline
+      }
       attemptedImportRef.current = true
 
       let dbNames: Set<string> | null = null
-      if (hasAttempted && baselineNamesRef.current) {
-        const current = await readNames()
+      if (hasAttempted) {
+        // Pe RETRY, dedup-ul E garda anti-dublură: o citire eșuată nu înseamnă
+        // „nimic importat încă" — oprim, în loc să inserăm orbește a doua oară.
         const baseline = baselineNamesRef.current
+        const current = await readNames()
+        if (!baseline || !current) {
+          throw new Error(
+            'Nu am putut verifica ce s-a importat deja, deci nu am reluat importul (ca să nu dublăm produse). Reîncearcă.',
+          )
+        }
         // Doar ce a apărut ÎNTRE timp = inserat de acest import.
-        if (current) dbNames = new Set([...current].filter((n) => !baseline.has(n)))
+        dbNames = new Set([...current].filter((n) => !baseline.has(n)))
       }
 
       // 1. Auto-create missing categories (sar peste cele deja create într-o
@@ -400,10 +418,17 @@ export default function ProductsCsvImport({
       // nu reține categoriile create de un request COMIS-dar-neconfirmat → fără
       // asta, fiecare retry mai adăuga o categorie cu același nume în meniu.
       if (hasAttempted) {
-        const { data: freshCats } = await supabase
+        const { data: freshCats, error: catsErr } = await supabase
           .from('categories')
           .select('id, name')
           .eq('restaurant_id', restaurantId)
+        // Aceeași gardă: fără lista proaspătă, o categorie creată de un request
+        // comis-dar-neconfirmat s-ar crea a doua oară.
+        if (catsErr) {
+          throw new Error(
+            'Nu am putut verifica categoriile create deja, deci nu am reluat importul (ca să nu dublăm categorii). Reîncearcă.',
+          )
+        }
         for (const c of freshCats ?? []) {
           catMap.set((c.name as string).toLowerCase(), c.id as string)
         }

@@ -4,12 +4,15 @@
 // e folosit ca semn de gating peste tot; getPlanByInternalId() decide
 // numele comercial văzut pe AuthPage pill, Pricing, Upgrade.
 
+import { readFileSync, readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
   planTier,
   planNameForTier,
   PLAN_NAMES,
   productLimitReason,
+  planUsageReason,
   suggestUpgrade,
 } from '../features'
 import { PLAN_LABELS } from '../constants'
@@ -30,6 +33,34 @@ describe('productLimitReason — mesajul de limită pe planul REAL', () => {
 
   it('plan necunoscut: id-ul brut, fără să arunce', () => {
     expect(productLimitReason('xyz', 5)).toContain('planul xyz (5 produse)')
+  })
+})
+
+// ux-owner-upgrade-banner: banda „Demo gratuit" din sidebar deschidea modalul cu
+// „Ai atins limita de produse" și la 0/15. Mutația care pică (PU1/PU3): banda
+// revine la productLimitReason necondiționat.
+describe('planUsageReason — motivul spune utilizarea REALĂ', () => {
+  it('PU1: sub limită → informativ, fără „Ai atins"', () => {
+    const r = planUsageReason('free', 0, 15)
+    expect(r.atLimit).toBe(false)
+    expect(r.text).not.toMatch(/atins/i)
+    expect(r.text).toContain('0 din 15 produse')
+    expect(r.text).toContain(PLAN_LABELS.free)
+  })
+
+  it('PU2: la limită (și peste) → exact mesajul de limită', () => {
+    expect(planUsageReason('free', 15, 15)).toEqual({
+      text: productLimitReason('free', 15),
+      atLimit: true,
+    })
+    expect(planUsageReason('starter', 301, 300).atLimit).toBe(true)
+  })
+
+  it('PU3: număr necunoscut → nu inventează nici „0", nici limita atinsă', () => {
+    const r = planUsageReason('free', null, 15)
+    expect(r.atLimit).toBe(false)
+    expect(r.text).not.toMatch(/atins|\b0 din/i)
+    expect(r.text).toContain('15 produse')
   })
 })
 
@@ -222,5 +253,47 @@ describe('getPlan — accesare directă config', () => {
     // Fiscalizare e pilot. Doar growth e highlight=true.
     expect(getPlan('growth').highlight).toBe(true)
     expect(getPlan('starter').highlight).toBe(false)
+  })
+})
+
+// code-health-dead-lib-exports (partea acestui PR): suggestUpgradeDetailed era
+// exportat „pentru consumatori noi" care n-au venit niciodată; în lib/quickSetup,
+// BUSINESS_TYPES, bulkCreateTables și sendInvite rămăseseră fără consumator odată
+// cu scoaterea „asistentului detaliat", iar applyBusinessTypePreset odată cu
+// onboarding-ul fără meniuri demo (#319). getLimitDetailed a rămas exportat:
+// onboarding-ul (#319) îl folosește pentru plafonul de produse.
+// Clichetul (tiparul TC6 din themes-contrast.test.ts): orice valoare exportată
+// din modulele de mai jos are un consumator în src/, în afara modulului și a
+// testelor. Mutația care pică: `export` readus pe suggestUpgradeDetailed, sau
+// BUSINESS_TYPES/bulkCreateTables/applyBusinessTypePreset puse înapoi.
+const NO_DEAD_EXPORTS = ['lib/features.ts', 'lib/quickSetup.ts']
+// Scutiri CU MOTIV (azi niciuna). O scutire nouă spune de ce exportul rămâne
+// fără consumator și în ce PR pleacă.
+const DEAD_EXPORT_EXEMPT: Record<string, readonly string[]> = {}
+
+describe('fără exporturi moarte', () => {
+  it('FX1: fiecare valoare exportată are un consumator în afara modulului', () => {
+    const root = resolve(process.cwd(), 'src')
+    const files = (readdirSync(root, { recursive: true }) as string[])
+      .map((f) => f.replace(/\\/g, '/'))
+      .filter((f) => /\.(ts|tsx)$/.test(f) && !f.includes('__tests__'))
+    for (const mod of NO_DEAD_EXPORTS) {
+      const src = readFileSync(resolve(root, mod), 'utf8')
+      const exported = [...src.matchAll(/^export (?:const|function|async function) (\w+)/gm)].map(
+        (m) => m[1] ?? '',
+      )
+      // Anti-vacuitate: scanerul chiar vede exporturile modulului.
+      expect(exported.length, mod).toBeGreaterThanOrEqual(3)
+      const others = files
+        .filter((f) => f !== mod)
+        .map((f) => readFileSync(resolve(root, f), 'utf8'))
+      const exempt = DEAD_EXPORT_EXEMPT[mod] ?? []
+      const unused = exported.filter(
+        (name) =>
+          !exempt.includes(name) &&
+          !others.some((other) => new RegExp(`\\b${name}\\b`).test(other)),
+      )
+      expect(unused, mod).toEqual([])
+    }
   })
 })

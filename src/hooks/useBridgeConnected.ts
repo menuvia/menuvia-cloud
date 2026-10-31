@@ -4,6 +4,7 @@
 // =============================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchBridgeConnectionStatus, type BridgeConnectionStatus } from '../lib/bridgeStatus'
+import { startPollingWhileVisible } from './usePollWhileVisible'
 
 /** Reîmprospătare periodică: bridge-ul poate cădea cu pagina deschisă.
  *  60 s e de două ori pragul din RPC (3 min), deci banner-ul apare în cel mult
@@ -63,8 +64,8 @@ export function useBridgeConnected(
       return
     }
     void run()
-    const t = setInterval(() => void run(), POLL_MS)
-    return () => clearInterval(t)
+    // DOAR cu fila vizibilă; la revenire se citește imediat (perf-staff-6).
+    return startPollingWhileVisible(() => void run(), POLL_MS)
   }, [restaurantId, enabled, run])
 
   return { status, loading, reload: run }

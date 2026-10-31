@@ -47,6 +47,9 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
   })
   const [issuing, setIssuing] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Lista NU s-a putut construi (citire eșuată): nu se afișează nici comenzi,
+  // nici „Nicio comandă plătită fără factură" — ambele ar fi afirmații false.
+  const [loadFailed, setLoadFailed] = useState(false)
 
   // Load recent paid orders (last 90 days, no invoice yet)
   useEffect(() => {
@@ -65,7 +68,8 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
 
       if (!alive) return
       if (error) {
-        setErr(error.message)
+        setErr('Nu am putut încărca comenzile plătite. Închide fereastra și reîncearcă.')
+        setLoadFailed(true)
         setLoading(false)
         return
       }
@@ -75,11 +79,24 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
       // (POSIBIL DUPLICAT / STUCK_GENERATING — Oblio POATE fi emis-o deja).
       // RPC-ul enqueue_invoice_for_order le respinge oricum (hint
       // ambiguous_failed_exists); aici doar nu le mai oferim ca „libere".
-      const { data: existing } = await supabase
+      const { data: existing, error: existingErr } = await supabase
         .from('invoices')
         .select('order_id, status, last_error')
         .eq('restaurant_id', restaurantId)
         .in('status', ['queued', 'generating', 'issued', 'failed'])
+
+      if (!alive) return
+      // Filtrul de mai sus e o GARDĂ: fără el, comenzile deja facturate (sau cu
+      // un eșec ambiguu la Oblio) apăreau ca „libere". O citire eșuată nu e „nicio
+      // factură" (code-health-error-ignored-guards) — nu oferim nimic, spunem de ce.
+      if (existingErr) {
+        setErr(
+          'Nu am putut verifica ce comenzi au deja factură, deci nu le afișăm ca libere. Închide fereastra și reîncearcă.',
+        )
+        setLoadFailed(true)
+        setLoading(false)
+        return
+      }
 
       const rows = (existing || []) as { order_id: string; status: string; last_error: string | null }[]
       const taken = new Set(
@@ -197,6 +214,7 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
 
         {err && (
           <div
+            role="alert"
             style={{
               background: 'rgba(224,85,85,0.1)',
               color: D.red,
@@ -231,6 +249,10 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
               {loading ? (
                 <div style={{ padding: 30, textAlign: 'center', color: D.t2 }}>
                   Se încarcă comenzile…
+                </div>
+              ) : loadFailed ? (
+                <div style={{ padding: 30, textAlign: 'center', color: D.t2 }}>
+                  Lista comenzilor nu e disponibilă.
                 </div>
               ) : filteredOrders.length === 0 ? (
                 <div style={{ padding: 30, textAlign: 'center', color: D.t2 }}>
