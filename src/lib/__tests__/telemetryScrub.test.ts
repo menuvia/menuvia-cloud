@@ -9,7 +9,7 @@
 //   TS7  parcurgere profundă: obiecte, array-uri, câmpuri imbricate; netextul rămâne
 //   TS8  referință circulară nu blochează și nu scurge
 //   TS9  forma evenimentelor reale (Sentry, PostHog) — fiecare câmp cu URL
-//   TS10 CABLAJUL: Sentry (beforeSend, beforeSendTransaction, beforeBreadcrumb) și PostHog
+//   TS10 CABLAJUL: Sentry (beforeSend, beforeSendSpan, beforeBreadcrumb) și PostHog
 //        (before_send) trec prin scrubTokenPathsDeep — funcția pură nu ajută dacă nu e chemată
 //   TS11 CHEILE obiectelor se redactează (heatmap-ul PostHog pune URL-ul curent drept cheie);
 //        două chei care devin identice după redactare își îmbină array-urile
@@ -203,7 +203,9 @@ describe('cablajul telemetriei', () => {
     const main = read('src/main.tsx')
     for (const hook of [
       'beforeSend(event)',
-      'beforeSendTransaction(event)',
+      // Sentry 11 trimite spanurile în flux: `beforeSendTransaction` nu mai
+      // rulează, deci hook-ul viu pentru căile din spanuri e `beforeSendSpan`.
+      'beforeSendSpan(span)',
       'beforeBreadcrumb(breadcrumb)',
     ]) {
       const start = main.indexOf(hook)
