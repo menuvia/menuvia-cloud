@@ -14,7 +14,7 @@ import { fmtPrice, resolveMenuCurrency, type MenuCurrency } from '../lib/currenc
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
 import { describeGuestError, SPLIT_BILL_ERROR_OPTS } from '../lib/guestErrors'
-import { readableTextOn } from '../lib/themes'
+import { legibleOn, readableTextOn } from '../lib/themes'
 
 const PayTableSheet = lazy(() => import('./PayTableSheet'))
 
@@ -136,6 +136,10 @@ export default function SplitBillSheet({
       void load()
     }
   }
+
+  // Cantitatea aleasă e scrisă în accent pe cardul comenzii (PUB.surface):
+  // accentul brut ca text are sub 3:1 pe auriul implicit (ux-guest-4).
+  const accentInkOnSurface = legibleOn(accent, PUB.surface)
 
   return (
     <div
@@ -308,7 +312,7 @@ export default function SplitBillSheet({
                             textAlign: 'center',
                             fontSize: 15,
                             fontWeight: 700,
-                            color: q > 0 ? accent : PUB.text2,
+                            color: q > 0 ? accentInkOnSurface : PUB.text2,
                           }}
                         >
                           {q}

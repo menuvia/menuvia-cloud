@@ -14,6 +14,7 @@ import type { OrderConfirmationPayload } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { FeedbackWidget } from './PaymentConfirmedScreen'
+import { legibleOn } from '../lib/themes'
 
 const PUB = { bg: '#F8F3EB', text: '#1A1208', muted: '#6B5A3F' } as const
 
@@ -89,7 +90,8 @@ export default function OrderClosedScreen({
           }}
         >
           #{confirmation.short_id} · {T(lang, 'total')}{' '}
-          <strong style={{ color: accent, fontVariantNumeric: 'tabular-nums' }}>
+          {/* Totalul e text în accent pe crem: auriul brut avea ~2,5:1 (ux-guest-4). */}
+          <strong style={{ color: legibleOn(accent, PUB.bg), fontVariantNumeric: 'tabular-nums' }}>
             {fmtPrice(Number(confirmation.total) || 0, currency)}
           </strong>
         </div>
