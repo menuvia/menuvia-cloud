@@ -88,12 +88,15 @@ export function getLimit(features: RestaurantFeatures | null, name: FeatureName)
 //   - 'disabled'  → feature-ul e complet dezactivat pt acest plan (getLimit → 0)
 //   - 'limited'   → feature-ul e activ, plafonat la `n` (getLimit → n)
 //   - 'unlimited' → feature-ul e activ, fără plafon      (getLimit → null)
-// Intern (code-health-dead-lib-exports): era exportat „pentru consumatori noi"
-// care n-au venit niciodată; singurul cititor e getLimit. Un consumator care
-// chiar are nevoie de distincție îl exportă ATUNCI, cu apelantul în același PR.
-type LimitDetail = { kind: 'disabled' } | { kind: 'limited'; n: number } | { kind: 'unlimited' }
+// Exportat pentru onboarding (#319): plafonul de produse la importul AI are
+// nevoie să deosebească „fără plafon” de „feature oprit”, pe care getLimit le
+// comprimă. FX1 cere ca orice export de aici să aibă un consumator în src/.
+export type LimitDetail =
+  | { kind: 'disabled' }
+  | { kind: 'limited'; n: number }
+  | { kind: 'unlimited' }
 
-function getLimitDetailed(features: RestaurantFeatures | null, name: FeatureName): LimitDetail {
+export function getLimitDetailed(features: RestaurantFeatures | null, name: FeatureName): LimitDetail {
   if (!features) return { kind: 'disabled' }
   const f = features.features[name]
   if (!f?.enabled) return { kind: 'disabled' }
@@ -277,8 +280,8 @@ export function suggestUpgrade(currentPlan: string): string | null {
 }
 
 // Variantă discriminată a suggestUpgrade — distinge „deja la maxim" de „plan
-// necunoscut" (warn-ul de diagnostic). Internă, ca getLimitDetailed: n-a avut
-// niciodată alt consumator decât suggestUpgrade.
+// necunoscut" (warn-ul de diagnostic). Internă: n-a avut niciodată alt
+// consumator decât suggestUpgrade.
 type UpgradeSuggestion = { kind: 'next'; plan: string } | { kind: 'max' } | { kind: 'unknown' }
 
 function suggestUpgradeDetailed(currentPlan: string): UpgradeSuggestion {

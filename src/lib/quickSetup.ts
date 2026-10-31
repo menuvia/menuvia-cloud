@@ -1,11 +1,9 @@
-// src/lib/quickSetup.ts — Setup Asistent (migration 034)
+// src/lib/quickSetup.ts — presetul TVA legal (mig 034 → 285), aplicat din
+// Setări → Cote TVA (VatRatesEditor). Presetul de meniu demo
+// (apply_business_type_preset, mig 034) nu mai are client: „asistentul
+// detaliat” de pe Acasă a fost scos (dubla checklist-ul), iar onboarding-ul nu
+// mai pune produse demo pe meniul real (#319). RPC-ul rămâne în bază.
 import { supabase } from './supabase'
-
-// Tipul de local pentru presetul demo (apply_business_type_preset, mig 034) —
-// consumatorul e onboarding-ul. Catalogul de previzualizare (BUSINESS_TYPES)
-// trăia doar în „asistentul detaliat" de pe Acasă, scos fiindcă dubla
-// checklist-ul (ux-owner-quicksetup-duplicate).
-export type BusinessType = 'cafenea' | 'bar' | 'restaurant' | 'pizzerie' | 'cocktail_bar' | 'altul'
 
 // ── VAT preset (mig 034 → 285) ───────────────────────────────
 // Legea 141/2025 (în vigoare din 1 aug 2025) a lăsat o SINGURĂ cotă redusă
@@ -41,29 +39,6 @@ export const VAT_PRESETS: VatPresetPreview[] = [
 ]
 
 // ── RPC wrappers ──────────────────────────────────────────────
-
-export interface BusinessPresetResult {
-  status: 'success' | 'skipped'
-  business_type?: BusinessType
-  categories_added?: number
-  products_added?: number
-  reason?: string
-  existing_categories?: number
-}
-
-export async function applyBusinessTypePreset(
-  restaurantId: string,
-  businessType: BusinessType,
-  force: boolean = false,
-): Promise<BusinessPresetResult> {
-  const { data, error } = await supabase.rpc('apply_business_type_preset', {
-    p_restaurant_id: restaurantId,
-    p_business_type: businessType,
-    p_force: force,
-  })
-  if (error) throw error
-  return data as BusinessPresetResult
-}
 
 export interface VatPresetResult {
   status: 'success'

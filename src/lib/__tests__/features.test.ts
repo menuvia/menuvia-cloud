@@ -256,21 +256,20 @@ describe('getPlan — accesare directă config', () => {
   })
 })
 
-// code-health-dead-lib-exports (partea acestui PR): getLimitDetailed și
-// suggestUpgradeDetailed erau exportate „pentru consumatori noi" care n-au venit
-// niciodată; în lib/quickSetup, BUSINESS_TYPES, bulkCreateTables și sendInvite
-// rămăseseră fără consumator odată cu scoaterea „asistentului detaliat".
+// code-health-dead-lib-exports (partea acestui PR): suggestUpgradeDetailed era
+// exportat „pentru consumatori noi" care n-au venit niciodată; în lib/quickSetup,
+// BUSINESS_TYPES, bulkCreateTables și sendInvite rămăseseră fără consumator odată
+// cu scoaterea „asistentului detaliat", iar applyBusinessTypePreset odată cu
+// onboarding-ul fără meniuri demo (#319). getLimitDetailed a rămas exportat:
+// onboarding-ul (#319) îl folosește pentru plafonul de produse.
 // Clichetul (tiparul TC6 din themes-contrast.test.ts): orice valoare exportată
 // din modulele de mai jos are un consumator în src/, în afara modulului și a
-// testelor. Mutația care pică: `export` readus pe getLimitDetailed /
-// suggestUpgradeDetailed, sau BUSINESS_TYPES/bulkCreateTables puse înapoi.
+// testelor. Mutația care pică: `export` readus pe suggestUpgradeDetailed, sau
+// BUSINESS_TYPES/bulkCreateTables/applyBusinessTypePreset puse înapoi.
 const NO_DEAD_EXPORTS = ['lib/features.ts', 'lib/quickSetup.ts']
-// Scutiri CU MOTIV. applyBusinessTypePreset are azi un consumator (onboarding-ul),
-// dar PR-ul paralel «Onboarding» scoate meniurile demo de acolo; exportul pleacă
-// odată cu ultimul consumator, în PR-ul care îl scoate — nu aici, pe ghicite.
-const DEAD_EXPORT_EXEMPT: Record<string, readonly string[]> = {
-  'lib/quickSetup.ts': ['applyBusinessTypePreset'],
-}
+// Scutiri CU MOTIV (azi niciuna). O scutire nouă spune de ce exportul rămâne
+// fără consumator și în ce PR pleacă.
+const DEAD_EXPORT_EXEMPT: Record<string, readonly string[]> = {}
 
 describe('fără exporturi moarte', () => {
   it('FX1: fiecare valoare exportată are un consumator în afara modulului', () => {
