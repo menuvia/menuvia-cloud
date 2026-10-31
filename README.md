@@ -25,8 +25,8 @@ npm run test          # Vitest unit tests
 npm run test:e2e      # Playwright E2E
 npm run typecheck     # tsc --noEmit
 npm run lint          # ESLint
-npm run format        # Prettier
-npm run check-all     # toate de mai sus
+npm run format        # Prettier (doar src/)
+npm run check-all     # typecheck + lint + format:check + test (fără E2E și build)
 npm run build         # production build
 ```
 
