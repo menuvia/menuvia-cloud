@@ -45,6 +45,15 @@
 //        într-un comentariu și cel atins doar ca proprietate ies morți; cel
 //        importat, cel folosit în propriul fișier, cel folosit doar de test și
 //        modulul importat cu `import * as` rămân vii.
+//   DC2d importul DINAMIC: `import('x').Tip` (forma din useData.ts) și modulul
+//        legat de o variabilă (`.then((m) => m.f())`, `(await import('x')).f`)
+//        țin exporturile în viață; destructurarea păstrează precizia (numele
+//        nedestructurat moare), iar `typeof import('x')` din mock-urile parțiale
+//        nu scoate modulul din detecție. Mutațiile care îl pică: ramura de import
+//        dinamic scoasă din `deadExports` (DC2 cerea ștergerea unui export
+//        folosit, iar urmarea mesajului rupea `tsc`), „orice import dinamic
+//        leagă modulul” și excepția `typeof` scoasă (ultimele două pică și DC2c:
+//        orders.ts ieșea din detecție).
 //   DC2c registrul KNOWN_DEAD nu acoperă un export VIU (o scutire pe un nume
 //        care între timp a căpătat un apelant e o minciună). O intrare al cărei
 //        export a fost ȘTERS e tolerată: alte PR-uri din același lot șterg
@@ -68,12 +77,16 @@ const ALLOWED_UNREACHABLE = {}
 
 // Exporturi moarte CUNOSCUTE, lăsate deliberat în fișiere pe care această
 // curățenie nu le atinge (fișier → nume → motiv). Se scot pe măsură ce dispar.
+// founder.ts nu se atinge în această rundă (fișier rezervat altei lucrări în
+// curs), iar niciun PR deschis nu scoate exporturile de mai jos: rămân aici
+// până când cineva atinge fișierul — atunci DC2c tolerează ștergerea.
+const FOUNDER_WHY = 'founder.ts e exclus din runda de curățenie; se scot la următoarea atingere'
 const KNOWN_DEAD = {
   'src/lib/founder.ts': {
-    listHealth: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
-    getPartnerAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
-    grantPartnerAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
-    revokeAffiliateAccess: 'founder.ts e ocupat de alt PR din lot; se curăță acolo',
+    listHealth: FOUNDER_WHY,
+    getPartnerAccess: FOUNDER_WHY,
+    grantPartnerAccess: FOUNDER_WHY,
+    revokeAffiliateAccess: FOUNDER_WHY,
   },
   'src/lib/orders.ts': {
     voidOrderPayment: 'scos în PR-ul «Bucătărie și ospătar» (orders.ts e al lui)',
@@ -210,12 +223,24 @@ function countRefs(code, name) {
  * căutate în TOATE fișierele `files` ({rel: text}). Un fișier importat
  * undeva cu `import * as` e sărit întreg (orice export poate fi atins prin
  * spațiul de nume).
+ *
+ * Importul DINAMIC are trei forme, iar doar una păstrează numele ca
+ * identificator: `const { a } = await import('x')` (destructurare — `a` se
+ * numără normal). `import('x').Tip` (tip, ex. `useData.ts`) pune numele DUPĂ
+ * punct, unde `countRefs` nu-l vede: se numără explicit. Orice altă formă
+ * (`.then((m) => m.f())`, `(await import('x')).f`, `const m = await
+ * import('x')`) leagă modulul de o variabilă, ca `import * as`: fișierul e sărit
+ * întreg. Fără asta, un export folosit doar așa ieșea „mort”, iar mesajul
+ * clichetului cerea ștergerea lui — adică un `tsc` roșu. `typeof import('x')`
+ * (tipul modulului, în mock-urile parțiale din teste) NU leagă nimic: altfel
+ * orice modul mock-uit cu `importOriginal` ar fi ieșit din detecție.
  */
 function deadExports(files, scanned) {
   const code = {}
   for (const [rel, text] of Object.entries(files)) code[rel] = codeOnly(text)
   const has = (rel) => Object.prototype.hasOwnProperty.call(files, rel)
   const namespaced = new Set()
+  const usedByName = new Set()
   for (const [rel, text] of Object.entries(files)) {
     for (const m of text.matchAll(
       /^[ \t]*import\s+\*\s+as\s+[\w$]+\s+from\s*['"]([^'"\n]+)['"]/gm,
@@ -223,12 +248,30 @@ function deadExports(files, scanned) {
       const target = resolveSpec(rel, m[1], has)
       if (target) namespaced.add(target)
     }
+    const src = code[rel]
+    for (const m of src.matchAll(
+      /\bimport\(\s*['"]([^'"\n]+)['"]\s*\)(\s*\.\s*([A-Za-z_$][\w$]*))?/g,
+    )) {
+      const target = resolveSpec(rel, m[1], has)
+      if (!target) continue
+      const prop = m[3]
+      const before = src.slice(Math.max(0, m.index - 40), m.index)
+      // `.catch`/`.finally` pe un import de prefetch nu ating niciun export.
+      if (prop === 'catch' || prop === 'finally') continue
+      if (prop && prop !== 'then') usedByName.add(`${target}:${prop}`)
+      // `typeof import('x')` (tipul modulului, ex. `importOriginal<…>` din
+      // mock-urile vitest) nu numește niciun export; destructurarea le numește
+      // ca identificatori, deci se numără deja.
+      else if (/\btypeof\s*$/.test(before) || /\}\s*=\s*await\s*$/.test(before)) continue
+      else namespaced.add(target)
+    }
   }
   const dead = []
   for (const rel of scanned) {
     if (namespaced.has(rel)) continue
     for (const m of code[rel].matchAll(EXPORT_RE)) {
       const name = m[1]
+      if (usedByName.has(`${rel}:${name}`)) continue
       let refs = countRefs(code[rel], name) - 1
       for (const other of Object.keys(code)) {
         if (other === rel || refs > 0) continue
@@ -369,6 +412,57 @@ describe('cod mort: exporturi pe care nu le folosește nimeni', () => {
       'src/lib/a.ts:onlyInComment',
       'src/lib/a.ts:unused',
     ])
+  })
+
+  it('DC2d: importul dinamic — tip după punct, destructurare, modul legat de o variabilă', () => {
+    const files = {
+      'src/lib/typed.ts': [
+        'export type ViaImportType = { x: number }',
+        'export type UnusedType = { y: number }',
+      ].join('\n'),
+      'src/lib/picked.ts': ['export function picked() {}', 'export function notPicked() {}'].join(
+        '\n',
+      ),
+      'src/lib/lazyThen.ts': 'export function viaThen() {}',
+      'src/lib/lazyAwait.ts': 'export function viaAwait() {}',
+      'src/lib/prefetched.ts': 'export function neverCalled() {}',
+      // Mock parțial vitest: tipul modulului nu numește niciun export.
+      'src/lib/__tests__/picked.test.ts': [
+        "vi.mock('../picked', async (importOriginal) => ({",
+        "  ...(await importOriginal<typeof import('../picked')>()),",
+        '}))',
+      ].join('\n'),
+      'src/App.tsx': [
+        "type T = import('./lib/typed').ViaImportType",
+        'export async function go(t: T) {',
+        "  const { picked } = await import('./lib/picked')",
+        "  void import('./lib/lazyThen').then((m) => m.viaThen())",
+        "  ;(await import('./lib/lazyAwait')).viaAwait()",
+        "  void import('./lib/prefetched').catch(() => undefined)",
+        '  picked()',
+        '  return t',
+        '}',
+      ].join('\n'),
+    }
+    // Pe detectorul fără ramura de import dinamic, `ViaImportType`, `viaThen`
+    // și `viaAwait` ieșeau morți (toți trei sunt folosiți — `tsc` ar fi picat
+    // după ștergerea lor). Precizia rămâne: `UnusedType`, `notPicked` (deși
+    // modulul e mock-uit cu `typeof import`) și `neverCalled` (doar prefetch)
+    // mor. Mutația „orice import dinamic leagă modulul” pică pe ele.
+    assert.deepEqual(
+      deadExports(files, [
+        'src/lib/typed.ts',
+        'src/lib/picked.ts',
+        'src/lib/lazyThen.ts',
+        'src/lib/lazyAwait.ts',
+        'src/lib/prefetched.ts',
+      ]),
+      [
+        'src/lib/picked.ts:notPicked',
+        'src/lib/prefetched.ts:neverCalled',
+        'src/lib/typed.ts:UnusedType',
+      ],
+    )
   })
 
   it('DC2c: KNOWN_DEAD nu acoperă un export care are apelanți', () => {
