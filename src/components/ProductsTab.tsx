@@ -2777,6 +2777,8 @@ export default function ProductsTab({
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
+            // Plafonul planului se verifică ÎNAINTE de salvare (UN singur mesaj).
+            remainingSlots={Math.max(0, limits.max_products - products.length)}
             onImported={(count) => track('product_imported_ai', { count, source: 'products_tab' })}
             // Eroarea AI nu mai e fundătură: ieșiri directe spre CSV / manual.
             onFallbackCsv={() => {

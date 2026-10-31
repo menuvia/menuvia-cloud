@@ -6,7 +6,7 @@
 // ecran, toate invizibile pentru orice test, fiindcă erau text în markup:
 //   1. „30 de zile gratuite pe ORICE plan" lângă „Program Pilot — 60 de zile
 //      gratis"; în plus Fiscalizarea nici măcar nu trece prin Stripe (CTA-ul
-//      ei e WhatsApp), deci acolo nu există trial deloc;
+//      ei e „Cere ofertă"), deci acolo nu există trial deloc;
 //   2. „Backup zilnic" — afirmație pe care o știm FALSĂ (workflow-ul de
 //      backup n-a produs niciodată un artefact);
 //   3. plata online vândută ca „în curând / în dezvoltare", în timp ce
@@ -32,7 +32,7 @@ export const PILOT_DAYS = 60
 
 /**
  * Planurile care primesc efectiv trial: cele care trec prin Stripe Checkout.
- * `pro` (Fiscalizare) NU e aici — CTA-ul lui deschide WhatsApp (pilot cu setup
+ * `pro` (Fiscalizare) NU e aici — CTA-ul lui e „Cere ofertă" (pilot cu setup
  * asistat), deci o promisiune de trial pe „orice plan" ar fi falsă.
  */
 export const TRIAL_PLAN_IDS: PlanId[] = ['starter', 'growth']
@@ -78,7 +78,7 @@ export const PILOT_BANNER = {
 export const INCLUDED_EVERYWHERE = [
   'Migrare gratuită a meniului',
   'Export date + ștergere cont (GDPR)',
-  'Suport WhatsApp direct',
+  'Suport prin agentul tău Menuvia și pe email',
 ]
 
 /**

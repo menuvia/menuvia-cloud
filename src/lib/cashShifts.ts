@@ -24,7 +24,8 @@ export const MOVEMENT_LABELS: Record<
 export interface CurrentShift {
   id: string
   opened_at: string
-  opened_by: string
+  // NULL când contul care a deschis tura a fost șters (GDPR, mig 307).
+  opened_by: string | null
   initial_float: number
   cash_collected: number
   cash_movements_total: number

@@ -12,6 +12,7 @@
 // =============================================================
 import { useEffect } from 'react'
 import { MKT } from '../lib/marketing'
+import { signupPath } from '../lib/planIntent'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -172,7 +173,7 @@ const VERTICALS: Record<VerticalKey, VerticalConfig> = {
       {
         icon: 'star',
         t: 'Recenzii Google după comandă',
-        d: 'Clienții mulțumiți sunt invitați să lase o recenzie pe Google; feedback-ul mai puțin bun vine la tine, privat.',
+        d: 'Când ai configurat linkul paginii tale de Google, clientul îl vede după ce termină feedback-ul și poate lăsa o recenzie; notele slabe deschid și un câmp de comentariu, ca să afli ce a mers prost.',
       },
       {
         icon: 'leaf',
@@ -242,7 +243,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
     >
       <MarketingHeader
         onBack={() => navigate('/')}
-        cta={{ label: 'Începe gratuit', onClick: () => navigate('/auth?lang=ro') }}
+        cta={{ label: 'Începe gratuit', onClick: () => navigate(signupPath()) }}
       />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
@@ -289,7 +290,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button
-              onClick={() => navigate('/auth?lang=ro')}
+              onClick={() => navigate(signupPath())}
               className="pressable"
               style={{
                 background: MKT.accent,
@@ -479,7 +480,7 @@ export default function VerticalPage({ vertical, navigate }: Props) {
             {cfg.ctaSub}
           </p>
           <button
-            onClick={() => navigate('/auth?lang=ro')}
+            onClick={() => navigate(signupPath())}
             className="pressable"
             style={{
               background: MKT.accent,

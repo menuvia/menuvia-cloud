@@ -18,6 +18,7 @@
 // dinamic abia la init cu consent, exact ca @sentry/react în main.tsx.
 // Import doar de TIP (zero cod la runtime); referința de modul stă în `ph`.
 import type { PostHog } from 'posthog-js'
+import { scrubTokenPathsDeep } from './telemetryScrub'
 
 let ph: PostHog | null = null
 
@@ -112,9 +113,20 @@ async function doInit(key: string, host: string): Promise<void> {
     capture_pageview: true,
     capture_pageleave: true,
     autocapture: false, // dezactivează capturarea automată clicks (mai puțin zgomot)
+    // Heatmap-urile OPRITE explicit: fără cheie, decide comutatorul din proiectul
+    // PostHog (remote config), iar `$$heatmap` pune URL-ul curent (cu ?next=…)
+    // drept CHEIE de obiect. Scrubber-ul redactează și cheile, dar un canal nou
+    // nu se deschide dintr-un dashboard extern.
+    capture_heatmaps: false,
     persistence: 'localStorage', // în loc de cookies (mai curat pentru GDPR)
     ip: false, // nu trimite IP (poate fi reactivat la nivel de proiect PostHog)
     respect_dnt: true, // respectă Do Not Track header
+
+    // Tokenurile din URL (/sef-vanzari/, /echipa/, /invite/, /q/ și ?next=…)
+    // nu pleacă la PostHog: $current_url, $pathname, $referrer, valorile
+    // „initial” persistate — toate trec prin același scrubber (telemetryScrub.ts).
+    before_send: (captureResult) =>
+      captureResult === null ? null : scrubTokenPathsDeep(captureResult),
 
     // Loader async pentru a nu bloca app-ul
     loaded: (client) => {

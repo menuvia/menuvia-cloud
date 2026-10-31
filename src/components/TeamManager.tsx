@@ -11,7 +11,6 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
-import PartnerAccessSection from './PartnerAccessSection'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Owner',
@@ -666,11 +665,8 @@ export default function TeamManager({
         </div>
       )}
 
-      {/* Acces partener (afiliatul care a adus restaurantul; opt-in, mig 286) —
-          vizibil doar ownerului; gate-ul real e server-side în RPC. */}
-      {currentUserId === restaurant.owner_id && (
-        <PartnerAccessSection restaurantId={restaurant.id} toast={toast} />
-      )}
+      {/* Accesul agentului de vânzări NU mai trăiește aici (cerea planul 2): cardul
+          „Agentul tău Menuvia” de pe Acasă / Setări (mig 303) funcționează pe orice plan. */}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import App from './App'
 import { hasConsent } from './lib/cookieConsent'
 import { initAnalytics } from './lib/analytics'
 import { captureReferralFromUrl } from './lib/affiliate'
+import { scrubTokenPathsDeep } from './lib/telemetryScrub'
 // Ordinea contează: tokens (variabile) → global (reset+body) → animații
 import './styles/tokens.css'
 import './styles/global.css'
@@ -59,14 +60,22 @@ async function initSentry() {
       // Elimină extra context care poate conține date utilizator
       if (event.extra?.email) delete event.extra.email
       if (event.extra?.phone) delete event.extra.phone
-      return event
+      // Tokenurile din căi (/sef-vanzari/, /echipa/, /invite/, /q/), inclusiv
+      // cele împachetate în ?next=, nu pleacă la Sentry (lib/telemetryScrub.ts).
+      return scrubTokenPathsDeep(event)
     },
 
     beforeSendTransaction(event) {
       if (event.request?.url) {
         event.request.url = event.request.url.split('?')[0]
       }
-      return event
+      // Numele tranzacției e chiar calea paginii (/sef-vanzari/TOKEN).
+      return scrubTokenPathsDeep(event)
+    },
+
+    // Breadcrumb-urile de navigare / fetch poartă URL-uri întregi.
+    beforeBreadcrumb(breadcrumb) {
+      return scrubTokenPathsDeep(breadcrumb)
     },
   })
 }

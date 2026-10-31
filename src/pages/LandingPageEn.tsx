@@ -56,7 +56,7 @@ const BENEFITS: { icon: IconName; title: string; desc: string }[] = [
 const ROMANIA_POINTS: { icon: IconName; text: string }[] = [
   { icon: 'mapPin', text: 'Built in Romania, made for restaurants everywhere' },
   { icon: 'lock', text: 'EU data residency, GDPR by default' },
-  { icon: 'phone', text: 'Support on WhatsApp, direct with the founder' },
+  { icon: 'phone', text: 'Support by email, and through your Menuvia agent' },
 ]
 
 const STEPS = [
@@ -325,7 +325,7 @@ export default function LandingPageEn({
           </button>
         </div>
         <div style={{ color: MKT.text3, fontSize: 13, marginTop: 18 }}>
-          Live in 10 minutes · Cancel anytime · Support on WhatsApp
+          Live in 10 minutes · Cancel anytime · Support by email
         </div>
       </div>
 

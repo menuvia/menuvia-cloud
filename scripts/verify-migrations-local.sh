@@ -125,6 +125,21 @@ if grep -q "tests/sql/catalog_drift/\*.sql" "$WORKFLOW"; then
   fi
 fi
 
+# Suitele din tests/sql/auto/ (scripts/run-sql-auto.sh): în workflow sunt un
+# GLOB rulat de runner, pe care grep-ul de mai sus NU-l prinde — fără blocul
+# ăsta, o suită pusă doar acolo n-ar rula local deloc. Runner-ul pică pe
+# director gol, ca în CI.
+if grep -q "scripts/run-sql-auto.sh" "$WORKFLOW"; then
+  if bash "$REPO_ROOT/scripts/run-sql-auto.sh" "postgresql:///menuvia_test?host=$WORKDIR&port=$PORT&user=postgres" >"$WORKDIR/test.log" 2>&1; then
+    PASS=$((PASS + 1))
+    echo "  ✓ tests/sql/auto: $(grep -o '[0-9]* PASS' "$WORKDIR/test.log" | tail -1)"
+  else
+    FAIL=$((FAIL + 1))
+    echo "  ✗ FAIL: tests/sql/auto"
+    tail -12 "$WORKDIR/test.log"
+  fi
+fi
+
 # ── Asserțiile INLINE din workflow (heredoc `<<'ASSERTION'`) ────────────────
 # CI le rulează, dar bucla de mai sus prinde doar fișierele `tests/...sql`.
 # Golul a fost dovedit costisitor: mig 264 a trecut local 82/82 și a picat în

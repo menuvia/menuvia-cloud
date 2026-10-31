@@ -19,6 +19,8 @@
 // intenție", niciodată pe o excepție care ar urca la ErrorBoundary.
 // ─────────────────────────────────────────────────────────────
 
+import { safeNextPath } from './authRedirect'
+
 const PLAN_INTENT_KEY = 'menuvia.plan_intent'
 /**
  * Marcajul de TAB (sessionStorage) al unei intenții încă NElegate de un cont:
@@ -206,22 +208,55 @@ export function planFromSearch(search: string): PlanIntentId | null {
 }
 
 /**
- * Modul inițial al formularului de pe /auth. `/auth?plan=…` vine din „Începe"
- * pe un plan — adică de la cineva care NU are încă cont; a-l pune pe
- * „Autentificare" îl obliga să găsească singur comutatorul. Intenția păstrată
- * în storage NU contează aici: un om care revine să se logheze are deja cont.
+ * Modul inițial al formularului de pe /auth. Două semnale duc pe „Cont nou”:
+ *  - `/auth?plan=…` vine din „Începe" pe un plan;
+ *  - `/auth?mode=signup` vine din „Începe gratuit” de pe paginile de marketing
+ *    care nu aleg un plan (comparație, verticale, case de marcat, rezervări,
+ *    demo) — înainte duceau pe `/auth?lang=ro`, adică pe „Autentificare”, și
+ *    cel care voia să-și facă cont trebuia să găsească singur comutatorul.
+ * Intenția păstrată în storage NU contează aici: un om care revine să se logheze
+ * are deja cont. Orice altă valoare a lui `mode` rămâne pe „Autentificare”.
  */
 export function initialAuthMode(search: string): 'login' | 'signup' {
-  return planFromSearch(search) ? 'signup' : 'login'
+  if (planFromSearch(search)) return 'signup'
+  try {
+    return new URLSearchParams(search).get('mode') === 'signup' ? 'signup' : 'login'
+  } catch {
+    return 'login'
+  }
+}
+
+/**
+ * Calea spre formularul de ÎNSCRIERE (nu de login), pentru CTA-urile „Începe”
+ * care nu aleg un plan. Singura sursă: un CTA nou folosește funcția asta, nu
+ * un literal `/auth?lang=ro`.
+ */
+export function signupPath(lang: 'ro' | 'en' = 'ro'): string {
+  return '/auth?lang=' + lang + '&mode=signup'
 }
 
 /**
  * URL-ul din linkul de confirmare a contului. Poartă `?plan=` când există o
  * intenție, ca funelul să supraviețuiască și unui click pe ALT dispozitiv.
+ *
+ * Poartă și `next=` (calea din care a venit omul, ex. invitația de rețea
+ * `/sef-vanzari/<token>`): linkul din email se deschide într-un tab NOU, unde
+ * `?next=` din tab-ul original nu există, iar App.tsx onorează `next` înaintea
+ * oricărei alte destinații. Doar o cale internă VALIDATĂ (`safeNextPath`); una
+ * nesigură (`//evil.com`, `https://…`, `/\evil`, `/auth`) se ignoră tăcut —
+ * linkul rămâne cel de dinainte.
  */
-export function authRedirectUrl(origin: string, plan: PlanIntentId | null): string {
+export function authRedirectUrl(
+  origin: string,
+  plan: PlanIntentId | null,
+  next?: string | null,
+): string {
   const base = origin.replace(/\/+$/, '') + '/auth'
-  return plan ? base + '?plan=' + encodeURIComponent(plan) : base
+  const params: string[] = []
+  if (plan) params.push('plan=' + encodeURIComponent(plan))
+  const safeNext = safeNextPath(next)
+  if (safeNext !== null) params.push('next=' + encodeURIComponent(safeNext))
+  return params.length === 0 ? base : base + '?' + params.join('&')
 }
 
 /**

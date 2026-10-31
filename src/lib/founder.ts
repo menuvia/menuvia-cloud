@@ -214,17 +214,30 @@ export interface AdminAffiliateRow {
   brand_logo_url?: string | null
   // mig 295: tombstone GDPR. Opțional (FE înaintea migrației).
   erased_at?: string | null
+  // mig 304: rolul în rețeaua pe invitații; NULL = program public / afiliat vechi.
+  // Proiectat de `admin_list_affiliates` din mig 305 (cheia e MEREU prezentă,
+  // cu `null` JSON pe programul public). Rămâne OPȚIONAL fiindcă FE poate ajunge
+  // înaintea migrației: câmpul ABSENT = rol necunoscut — lista „Rețeaua” nu-l
+  // ghicește din părinte. Nu există parser: valoarea se validează la citire
+  // (`networkRoleOf` din lib/salesInviteFlow.ts acceptă DOAR 'head' / 'agent' /
+  // null; orice altceva = necunoscut, deci niciodată „Șef”).
+  sales_role?: 'head' | 'agent' | null
 }
 
 export interface AdminAuditRow {
   id: string
-  actor_email: string
+  // NULL când contul actorului a fost șters (GDPR, mig 307): rândul de jurnal
+  // rămâne, fără legătură spre profil.
+  actor_email: string | null
   actor_kind: string
   restaurant_id: string | null
   restaurant_name: string | null
   action: string
   details: Record<string, unknown>
   created_at: string
+  // mig 307 — opționale: clientul poate rula înaintea migrației.
+  actor_erased?: boolean
+  actor_erased_at?: string | null
 }
 
 export interface AdminActionResult {

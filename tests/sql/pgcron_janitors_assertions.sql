@@ -534,7 +534,10 @@ begin
     'public.detect_winback_inactive()',
     'public.detect_nps_due()',
     'public.compute_weekly_report(uuid, date)',
-    'public.compute_daily_report(uuid, date)'
+    'public.compute_daily_report(uuid, date)',
+    -- mig 306: enqueue_email (automation-cron.js, rapoartele zilnice/săptămânale)
+    -- lipsea din listă, deci CJ13 era orb exact pe un RPC fără grant
+    'public.enqueue_email(text, email_template_kind, jsonb, uuid, text, timestamptz, text)'
   ] loop
     if to_regprocedure(v_sig) is null then
       raise exception 'CJ13: % nu mai exista cu aceasta semnatura - actualizeaza lista SI automation-cron.js', v_sig; end if;
@@ -543,7 +546,7 @@ begin
   end loop;
   if array_length(v_bad, 1) > 0 then
     raise exception 'CJ13: automation-cron cheama RPC-uri pe care service_role NU le poate executa (42501, clasa mig 039/042/179/182): %', v_bad; end if;
-  raise notice 'CJ13 OK: toate cele 14 RPC-uri ale lui automation-cron sunt executabile de service_role';
+  raise notice 'CJ13 OK: toate cele 15 RPC-uri ale lui automation-cron sunt executabile de service_role';
 end $$;
 
 rollback;

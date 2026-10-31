@@ -15,6 +15,7 @@
 // =============================================================
 import { useEffect } from 'react'
 import { MKT } from '../lib/marketing'
+import { signupPath } from '../lib/planIntent'
 import { RevealItem } from '../components/marketing/Reveal'
 import MarketingHeader from '../components/marketing/MarketingHeader'
 import MarketingFooter from '../components/marketing/MarketingFooter'
@@ -64,7 +65,7 @@ export default function RezervariPage({ navigate }: { navigate: (p: string) => v
   const startCta = () => {
     // Intenția supraviețuiește redirectului de auth → OnboardingPage o consumă.
     setOnboardingPreset('rezervari')
-    navigate('/auth?lang=ro')
+    navigate(signupPath())
   }
 
   const card: React.CSSProperties = {

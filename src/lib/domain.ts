@@ -1,6 +1,6 @@
 // src/lib/domain.ts
 // ─────────────────────────────────────────────────────────────
-// Site-ul curent (menuvia.ro vs menuvia.com) și domeniile platformei —
+// Site-ul curent (menuvia.ro vs un host .com) și domeniile platformei —
 // sursa UNICĂ pe client. Decizie de fondator: UN cod, UN deploy; site-ul se
 // alege la RUNTIME pe `window.location.hostname` (Netlify servește același
 // bundle pe orice domeniu atașat, ca la white-label).
@@ -9,8 +9,14 @@
 //           e explicit .com cade aici (localhost, deploy preview-uri,
 //           *.netlify.app, staging, domeniile de agenție) — comportamentul de
 //           azi rămâne neschimbat peste tot unde nu s-a cerut altfel.
-//   'com' → menuvia.com, www.menuvia.com, *.menuvia.com: engleză unde există
-//           copy EN, EUR, DOAR Planurile 1–2 (Plan 3 = fiscalizare RO).
+//   'com' → un host .com al platformei: engleză unde există copy EN, EUR,
+//           DOAR Planurile 1–2 (Plan 3 = fiscalizare RO).
+//
+// DOMENIUL .com NU ne aparține (decizia D3, docs/dosar/04): hostul .com e
+// recunoscut DOAR pentru DETECȚIE (ce limbă/piață afișăm dacă bundle-ul ajunge
+// vreodată pe un asemenea host). NICIUN URL generat de aplicație — QR, link de
+// meniu, referral, redirect de autentificare, PDF — nu duce spre el: baza lor
+// cade pe menuvia.ro (`siteOrigin()`/`siteHost()` nu mai primesc un site).
 //
 // Funcțiile sunt PURE (primesc hostname-ul), ca să fie testabile fără DOM.
 // `browserSite()` e singurul punct care citește `window`.
@@ -39,22 +45,25 @@ function isUnder(host: string, root: string): boolean {
   return host === root || host.endsWith('.' + root)
 }
 
-/** Site-ul pentru un hostname. Tot ce nu e menuvia.com (sau subdomeniu) → 'ro'. */
+/** Site-ul pentru un hostname. Tot ce nu e un host .com al platformei → 'ro'. */
 export function currentSite(hostname: string): Site {
   return isUnder(normalizeHost(hostname), SITE_HOSTS.com) ? 'com' : 'ro'
 }
 
-/** Hostname-ul public al site-ului (fără protocol), ex. pentru „menuvia.ro/m/slug”. */
-export function siteHost(site: Site): string {
-  return SITE_HOSTS[site]
+/**
+ * Hostname-ul public al platformei (fără protocol), ex. pentru „menuvia.ro/m/slug”.
+ * Mereu .ro: nu există un hostname public .com pe care să-l tipărim.
+ */
+export function siteHost(): string {
+  return SITE_HOSTS.ro
 }
 
-/** Originea canonică a site-ului. */
-export function siteOrigin(site: Site): string {
-  return `https://${SITE_HOSTS[site]}`
+/** Originea canonică a platformei — mereu .ro (vezi nota de sus). */
+export function siteOrigin(): string {
+  return `https://${SITE_HOSTS.ro}`
 }
 
-/** True pentru menuvia.ro / menuvia.com și orice subdomeniu al lor. */
+/** True pentru domeniile platformei (.ro și .com, DETECȚIE) și orice subdomeniu al lor. */
 export function isMenuviaRootHost(hostname: string): boolean {
   const h = normalizeHost(hostname)
   return MENUVIA_ROOT_DOMAINS.some((root) => isUnder(h, root))
@@ -73,37 +82,44 @@ export function browserSite(): Site {
 
 // ── Baza link-urilor generate de aplicație ───────────────────
 // `VITE_APP_URL` e fixat în netlify.toml pe contextul production la originea
-// .ro — același bundle servit pe menuvia.com l-ar trimite pe utilizator pe .ro.
-// Pe 'ro' comportamentul rămâne EXACT cel de dinainte (`VITE_APP_URL || origin`);
-// doar pe 'com' decizia se schimbă. Funcții PURE: apelantul le dă hostname-ul,
-// valoarea lui `import.meta.env.VITE_APP_URL` și `window.location.origin`.
+// .ro. Pe 'ro' comportamentul rămâne EXACT cel de dinainte
+// (`VITE_APP_URL || origin`). Pe un host 'com' baza NU e niciodată .com:
+// `VITE_APP_URL` dacă e setat, altfel originea .ro. Funcții PURE: apelantul le
+// dă hostname-ul, valoarea lui `import.meta.env.VITE_APP_URL` și
+// `window.location.origin`.
 
 function legacyBase(viteAppUrl: string | null | undefined, origin: string): string {
   return viteAppUrl || origin
 }
 
+/** Baza pe un host 'com': niciodată .com — VITE_APP_URL sau originea .ro. */
+function comHostBase(viteAppUrl: string | null | undefined): string {
+  return viteAppUrl || siteOrigin()
+}
+
 /**
  * Baza pentru redirect-urile de AUTENTIFICARE (confirmarea de signup, resetarea
- * parolei): pe 'com' originea CURENTĂ — sesiunea și localStorage-ul sunt per
- * origine, deci omul trebuie să se întoarcă exact unde a pornit.
+ * parolei): pe 'ro' `VITE_APP_URL || origin`; pe un host 'com' tot .ro (nu
+ * generăm redirect-uri spre .com).
  */
 export function authRedirectBase(
   hostname: string,
   viteAppUrl: string | null | undefined,
   origin: string,
 ): string {
-  return currentSite(hostname) === 'com' ? origin : legacyBase(viteAppUrl, origin)
+  return currentSite(hostname) === 'com' ? comHostBase(viteAppUrl) : legacyBase(viteAppUrl, origin)
 }
 
 /**
  * Baza pentru URL-urile PUBLICE tipărite/distribuite (QR-ul mesei, linkul
- * meniului): pe 'com' originea CANONICĂ a site-ului (un QR tipărit nu are voie
- * să poarte un subdomeniu întâmplător, ex. www).
+ * meniului): pe 'ro' `VITE_APP_URL || origin`; pe un host 'com' tot .ro — un QR
+ * tipărit nu are voie să poarte domeniul .com (nu ne aparține) și nici un
+ * subdomeniu întâmplător.
  */
 export function publicBaseUrl(
   hostname: string,
   viteAppUrl: string | null | undefined,
   origin: string,
 ): string {
-  return currentSite(hostname) === 'com' ? siteOrigin('com') : legacyBase(viteAppUrl, origin)
+  return currentSite(hostname) === 'com' ? comHostBase(viteAppUrl) : legacyBase(viteAppUrl, origin)
 }
