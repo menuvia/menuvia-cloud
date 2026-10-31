@@ -21,9 +21,6 @@ export function isPartnerTab(tabId: string): boolean {
   return PARTNER_TAB_IDS.includes(tabId)
 }
 
-// Tab-ul de pornire al partenerului (nu „home": Acasă citește comenzi/rapoarte).
-export const PARTNER_DEFAULT_TAB = 'products'
-
 // Rolul sintetic pentru o vizită „Intră pe cont" pe un restaurant fără
 // membership real. `myRole` = rezultatul `my_role(restaurant)`: non-null doar
 // pentru fondator (escape-ul is_platform_admin → manager virtual, mig 186);
