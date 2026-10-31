@@ -22,9 +22,28 @@
 //   PK5  Clichet pe SURSĂ: SettingsTab și TablesManager n-au texte de ridicare
 //        scrise de mână; SettingsTab derivă textele din starea comutatorului și
 //        NU cheamă `useFeatures` (pică pe codul vechi al ambelor PR-uri).
-//   PK6  Empty state-ul „doar ridicare”: „clienții comandă” doar pornit + feature.
+//   PK6  Empty state-ul „doar ridicare”: „clienții comandă” doar cu feature-ul
+//        cunoscut activ și fără flipbook; pe planul fără ridicare modul e
+//        SUSPENDAT (nu „activ”).
 //   PK7  Un singur adevăr: Setări (din plan) și Mese (din feature) dau același
 //        tristate pe fiecare plan din matricea DB.
+//
+// Reziduurile lui #324, închise aici:
+//   PY1  Stilul Flipbook (EFECTIV — `resolveEffectiveMenuLayout`): pagina
+//        publică n-are carduri, coș sau ridicare, deci NICIUN text de staff nu
+//        promite comenzi, nici pe planul care le include; fiecare spune DE CE
+//        (Flipbook, fără coș) și CE face owner-ul (alt stil din „Meniu &
+//        aspect”). Mutația care pică: textele vechi, fără parametrul de stil
+//        (`pickupCardDescription(true)` promitea și pe flipbook).
+//   PY2  Control pozitiv: fără flipbook, pe feature activ, promisiunea rămâne;
+//        pe planul fără ridicare sau necunoscut flipbook-ul nu adaugă nimic
+//        (fără avertisment fals pe „nu știm”).
+//   PY3  „Doar ridicare” pe planul CUNOSCUT fără ridicare (`pickupOnlyMode` =
+//        'suspended'): empty state-ul din Mese și descrierea comutatorului din
+//        Setări spun că modul NU se aplică și că panoul arată mesele și
+//        rezervările — nu „nu ai nevoie de mese” / „ascunde Harta sălii”, care
+//        după R1 ar fi false. Mutația care pică: textul vechi „Mod … activ —
+//        nu ai nevoie de mese” pe feature=false.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
@@ -34,6 +53,7 @@ import {
   pickupFeatureFromToggle,
   pickupFeatureState,
   pickupOnlyEmptyStateText,
+  pickupOnlyToggleDescription,
   pickupPlanName,
   pickupToggleNotice,
 } from '../pickupCopy'
@@ -61,6 +81,7 @@ const features = (pickup: boolean | undefined): RestaurantFeatures => ({
 })
 
 const STATES: ReadonlyArray<boolean | null> = [true, false, null]
+const FLIPBOOK: ReadonlyArray<boolean> = [false, true]
 const TOGGLE_STATES: ReadonlyArray<PickupToggleState> = [
   'available',
   'locked',
@@ -106,21 +127,23 @@ describe('PK2: promisiunea de comenzi doar pe feature cunoscut activ', () => {
 
   it('fără feature sau pe plan necunoscut niciun text nu promite comenzi', () => {
     for (const f of [false, null] as const) {
-      const d = pickupCardDescription(f)
-      expect(`${d.lead} /m/x${d.tail}`).not.toMatch(PROMISE)
-      expect(generalMenuQrText(f)).not.toMatch(PROMISE)
-      expect(pickupOnlyEmptyStateText(true, f)).not.toMatch(PROMISE)
+      for (const fb of FLIPBOOK) {
+        const d = pickupCardDescription(f, fb)
+        expect(`${d.lead} /m/x${d.tail}`).not.toMatch(PROMISE)
+        expect(generalMenuQrText(f, fb)).not.toMatch(PROMISE)
+        expect(pickupOnlyEmptyStateText(f, fb)).not.toMatch(PROMISE)
+      }
     }
     for (const s of TOGGLE_STATES) {
       expect(pickupToggleNotice(s) ?? '', s).not.toMatch(PROMISE)
     }
   })
 
-  it('control pozitiv: cu feature-ul activ promisiunea există', () => {
-    const d = pickupCardDescription(true)
+  it('control pozitiv: cu feature-ul activ (și fără flipbook) promisiunea există', () => {
+    const d = pickupCardDescription(true, false)
     expect(`${d.lead} /m/x${d.tail}`).toMatch(PROMISE)
-    expect(generalMenuQrText(true)).toMatch(PROMISE)
-    expect(pickupOnlyEmptyStateText(true, true)).toMatch(PROMISE)
+    expect(generalMenuQrText(true, false)).toMatch(PROMISE)
+    expect(pickupOnlyEmptyStateText(true, false)).toMatch(PROMISE)
   })
 
   it('pe cardul din Setări promisiunea e CONDIȚIONATĂ de comutator, înaintea ei', () => {
@@ -130,7 +153,7 @@ describe('PK2: promisiunea de comenzi doar pe feature cunoscut activ', () => {
     // Mutația care pică: textul vechi „Activează pagina ta publică. Clienții pot
     // comanda …” (recenzie CodeRabbit pe #324).
     const text = (() => {
-      const d = pickupCardDescription(true)
+      const d = pickupCardDescription(true, false)
       return `${d.lead} /m/x${d.tail}`
     })()
     const promise = text.search(PROMISE)
@@ -182,20 +205,21 @@ describe('PK3: nota de sub comutatorul de ridicare', () => {
     for (const s of TOGGLE_STATES) {
       expect(pickupToggleNotice(s) ?? '', s).not.toMatch(ONLY_MENU)
     }
-    for (const enabled of [true, false]) {
+    for (const fb of FLIPBOOK) {
       for (const f of STATES) {
-        const d = pickupCardDescription(f)
+        const d = pickupCardDescription(f, fb)
         for (const t of [
-          pickupOnlyEmptyStateText(enabled, f),
-          generalMenuQrText(f),
+          pickupOnlyEmptyStateText(f, fb),
+          pickupOnlyToggleDescription(f),
+          generalMenuQrText(f, fb),
           `${d.lead} /m/x${d.tail}`,
         ]) {
-          expect(t, `enabled=${enabled} feature=${String(f)}`).not.toMatch(ONLY_MENU)
+          expect(t, `flipbook=${fb} feature=${String(f)}`).not.toMatch(ONLY_MENU)
         }
       }
     }
     // Empty state-ul fără feature spune ce lipsește, nu ce rămâne.
-    expect(pickupOnlyEmptyStateText(true, false)).toMatch(NO_PICKUP_ORDER)
+    expect(pickupOnlyEmptyStateText(false, false)).toMatch(NO_PICKUP_ORDER)
   })
 })
 
@@ -213,9 +237,17 @@ describe('PK4: pragul și numele planului, dintr-o sursă', () => {
     for (const s of TOGGLE_STATES) {
       expect(pickupToggleNotice(s) ?? '', s).not.toMatch(INTERNAL_PLAN)
     }
-    for (const enabled of [true, false]) {
+    for (const fb of FLIPBOOK) {
       for (const f of STATES) {
-        expect(pickupOnlyEmptyStateText(enabled, f)).not.toMatch(INTERNAL_PLAN)
+        const d = pickupCardDescription(f, fb)
+        for (const t of [
+          pickupOnlyEmptyStateText(f, fb),
+          pickupOnlyToggleDescription(f),
+          generalMenuQrText(f, fb),
+          `${d.lead} /m/x${d.tail}`,
+        ]) {
+          expect(t, `flipbook=${fb} feature=${String(f)}`).not.toMatch(INTERNAL_PLAN)
+        }
       }
     }
   })
@@ -232,6 +264,11 @@ describe('PK5: ecranele de staff trec prin pickupCopy', () => {
       expect(src, f).not.toMatch(PRE_309)
       expect(src, f).not.toContain('Disponibil de la planul')
       expect(src, f).not.toContain('Se verifică planul restaurantului')
+      // Descrierea modului „doar ridicare” stă în pickupCopy (PY3): scrisă de
+      // mână ar fi rămas „ascunde Harta sălii” și pe planul care o suspendă.
+      expect(src, f).not.toContain('ascunde Harta sălii')
+      // Motivul flipbook (PY1) are o singură formulare, în pickupCopy.
+      expect(src, f).not.toContain('alege alt stil')
     }
   })
 
@@ -240,6 +277,10 @@ describe('PK5: ecranele de staff trec prin pickupCopy', () => {
     // Starea #318, pe planul cunoscut primit de la DashboardPage.
     expect(src).toMatch(/pickupToggleState\( ?planKnown \? plan : null/)
     expect(src).toMatch(/pickupCardDescription\( ?pickupFeatureFromToggle\(pickupState\)/)
+    // Stilul vine din FORMULAR (nesalvat), pe regula EFECTIVĂ din lib/themes.
+    expect(src).toContain('resolveEffectiveMenuLayout(form.theme_settings)')
+    expect(src).toMatch(/pickupCardDescription\( ?pickupFeatureFromToggle\(pickupState\), menuFlipbook\)/)
+    expect(src).toContain('pickupOnlyToggleDescription(pickupFeatureFromToggle(pickupState))')
     // O SINGURĂ notă: nicio a doua sursă de avertisment pentru ridicare.
     expect(src.split('pickupToggleNotice(').length - 1).toBe(1)
     expect(src).not.toContain('pickupPlanWarning')
@@ -252,20 +293,24 @@ describe('PK5: ecranele de staff trec prin pickupCopy', () => {
   it('TablesManager: QR-ul general și empty state-ul „doar ridicare” prin helperi', () => {
     const src = read('src/components/TablesManager.tsx')
     expect(src).toContain('pickupFeatureState(restaurantFeatures.features)')
-    expect(src).toContain('generalMenuQrText(pickupFeature)')
-    expect(src).toContain('pickupOnlyEmptyStateText(')
+    // Stilul EFECTIV salvat intră în ambele texte (PY1).
+    expect(src).toContain('resolveEffectiveMenuLayout(restaurant.theme_settings)')
+    expect(src).toContain('generalMenuQrText(pickupFeature, menuFlipbook)')
+    expect(src).toContain('pickupOnlyEmptyStateText(pickupFeature, menuFlipbook)')
   })
 })
 
 describe('PK6: empty state-ul modului „doar ridicare”', () => {
-  it('„clienții comandă” DOAR cu ridicarea pornită ȘI feature-ul cunoscut activ', () => {
-    for (const enabled of [true, false]) {
+  it('„clienții comandă” DOAR cu feature-ul cunoscut activ și fără flipbook', () => {
+    for (const fb of FLIPBOOK) {
       for (const f of STATES) {
-        const t = pickupOnlyEmptyStateText(enabled, f)
-        expect(t).toMatch(/^Mod „doar ridicare" activ/)
-        expect(PROMISE.test(t), `enabled=${enabled} feature=${String(f)}`).toBe(enabled && f === true)
+        const t = pickupOnlyEmptyStateText(f, fb)
+        const ctx = `flipbook=${fb} feature=${String(f)}`
+        // Pe planul cunoscut fără ridicare modul e SUSPENDAT (PY3), nu activ.
+        expect(t, ctx).toMatch(f === false ? /^Mod „doar ridicare" suspendat/ : /^Mod „doar ridicare" activ/)
+        expect(PROMISE.test(t), ctx).toBe(f === true && !fb)
         // planul se numește DOAR când știm că lipsește
-        expect(t.includes(pickupPlanName()), `enabled=${enabled} feature=${String(f)}`).toBe(f === false)
+        expect(t.includes(pickupPlanName()), ctx).toBe(f === false)
       }
     }
   })
@@ -287,5 +332,102 @@ describe('PK7: Setări și Mese spun același lucru', () => {
     // Planul necunoscut: ambele intrări dau null.
     expect(pickupFeatureFromToggle(pickupToggleState(null, true))).toBeNull()
     expect(pickupFeatureState(null)).toBeNull()
+  })
+})
+
+// Motivul și ieșirea pe flipbook: stilul pe nume, lipsa coșului, alt stil din
+// „Meniu & aspect”.
+const FLIPBOOK_WHY = /stilul Flipbook/
+const FLIPBOOK_NO_CART = /fără coș/
+const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Meniu & aspect/
+
+describe('PY1: pe flipbook niciun text nu promite comenzi și spune de ce', () => {
+  it('feature activ + flipbook: fără promisiune, cu motivul și ieșirea, în toate cele trei texte', () => {
+    const d = pickupCardDescription(true, true)
+    const texts = {
+      card: `${d.lead} /m/x${d.tail}`,
+      qr: generalMenuQrText(true, true),
+      empty: pickupOnlyEmptyStateText(true, true),
+    }
+    for (const [where, t] of Object.entries(texts)) {
+      expect(t, where).not.toMatch(PROMISE)
+      expect(t, where).toMatch(NO_PICKUP_ORDER)
+      expect(t, where).toMatch(FLIPBOOK_WHY)
+      expect(t, where).toMatch(FLIPBOOK_NO_CART)
+      expect(t, where).toMatch(FLIPBOOK_WAY_OUT)
+    }
+  })
+
+  it('pe cardul din Setări motivul stă după linkul paginii, în aceeași descriere', () => {
+    const d = pickupCardDescription(true, true)
+    expect(d.lead).not.toMatch(FLIPBOOK_WHY)
+    expect(d.tail).toMatch(FLIPBOOK_WHY)
+  })
+})
+
+describe('PY2: control — fără flipbook promisiunea rămâne; pe „nu știm” flipbook-ul tace', () => {
+  it('feature activ fără flipbook: promisiunea există și nu pomenește stilul', () => {
+    const d = pickupCardDescription(true, false)
+    for (const t of [
+      `${d.lead} /m/x${d.tail}`,
+      generalMenuQrText(true, false),
+      pickupOnlyEmptyStateText(true, false),
+    ]) {
+      expect(t).toMatch(PROMISE)
+      expect(t).not.toMatch(FLIPBOOK_WHY)
+    }
+  })
+
+  it('plan fără ridicare sau necunoscut: flipbook-ul nu adaugă avertisment', () => {
+    for (const f of [false, null] as const) {
+      const on = pickupCardDescription(f, true)
+      const off = pickupCardDescription(f, false)
+      expect(on, String(f)).toEqual(off)
+      expect(generalMenuQrText(f, true), String(f)).toBe(generalMenuQrText(f, false))
+      expect(pickupOnlyEmptyStateText(f, true), String(f)).toBe(pickupOnlyEmptyStateText(f, false))
+      expect(generalMenuQrText(f, true), String(f)).not.toMatch(FLIPBOOK_WHY)
+    }
+  })
+})
+
+describe('PY3: „doar ridicare” suspendat pe planul fără ridicare', () => {
+  it('empty state: nu „activ — nu ai nevoie de mese”, ci ce face panoul și când revine', () => {
+    const t = pickupOnlyEmptyStateText(false, false)
+    expect(t).not.toMatch(/nu ai nevoie de mese/)
+    expect(t).not.toMatch(/\bactiv\b/)
+    expect(t).toMatch(/panoul îți arată mesele și rezervările/)
+    expect(t).toMatch(/Setarea rămâne salvată/)
+    expect(t).toContain(pickupPlanName())
+    // Control pozitiv: pe planul cu ridicare (sau necunoscut) modul e activ.
+    for (const f of [true, null] as const) {
+      expect(pickupOnlyEmptyStateText(f, false), String(f)).toMatch(/nu ai nevoie de mese/)
+    }
+  })
+
+  it('descrierea comutatorului din Setări: „nu se aplică” DOAR pe planul cunoscut fără ridicare', () => {
+    const off = pickupOnlyToggleDescription(false)
+    expect(off).toMatch(/modul nu se aplică/)
+    expect(off).toMatch(/panoul îți arată mesele și rezervările/)
+    expect(off).toContain(pickupPlanName())
+    expect(off).not.toMatch(/ascunde Harta sălii/)
+    for (const f of [true, null] as const) {
+      const t = pickupOnlyToggleDescription(f)
+      expect(t, String(f)).toMatch(/ascunde Harta sălii și Rezervările/)
+      expect(t, String(f)).not.toMatch(/nu se aplică/)
+      expect(t, String(f)).not.toContain(pickupPlanName())
+    }
+  })
+
+  it('aceeași stare din ambele intrări: Setări (comutator) și Mese (features)', () => {
+    for (const plan of DB_PLANS) {
+      const pickup = PLAN_FEATURE_MATRIX.pickup_orders[plan]
+      const fromToggle = pickupFeatureFromToggle(pickupToggleState(plan, true))
+      const fromFeatures = pickupFeatureState({
+        plan,
+        features: { pickup_orders: { enabled: pickup, limit: null } },
+      })
+      expect(pickupOnlyToggleDescription(fromToggle).includes('nu se aplică'), plan).toBe(!pickup)
+      expect(pickupOnlyEmptyStateText(fromFeatures, false).includes('suspendat'), plan).toBe(!pickup)
+    }
   })
 })
