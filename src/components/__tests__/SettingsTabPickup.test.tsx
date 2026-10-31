@@ -107,7 +107,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(sw).toBeDisabled()
     expect(sw).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByText(/Disponibil de la planul Meniu \+ Comenzi/)).toBeInTheDocument()
-    expect(screen.queryByText(/Clienții pot comanda/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'false')
@@ -119,7 +119,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeEnabled()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
-    expect(screen.getByText(/Clienții pot comanda/)).toBeInTheDocument()
+    expect(screen.getByText(/clienții pot comanda/i)).toBeInTheDocument()
 
     await user.click(sw)
     expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
@@ -136,7 +136,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(screen.getByText(/nu văd ridicarea pe pagina publică/)).toBeInTheDocument()
     expect(screen.getByText(/Setarea rămâne salvată/)).toBeInTheDocument()
     expect(screen.queryByText(/văd formularul|sunt respinse/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Clienții pot comanda/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
     await user.click(sw)
     const off = screen.getByRole('switch', { name: SWITCH })
@@ -154,7 +154,7 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(screen.queryByText(/Planul tău nu include/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
     // Nici promisiunea de comenzi: planul nu e cunoscut.
-    expect(screen.queryByText(/Clienții pot comanda/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
     // Textul nu pretinde un eșec: „unknown" e și starea de încărcare normală.
     expect(screen.getByText(/Se verifică planul restaurantului/)).toBeInTheDocument()
     expect(screen.queryByText(/Nu am putut/)).not.toBeInTheDocument()

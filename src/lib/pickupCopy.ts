@@ -67,14 +67,18 @@ export function pickupFeatureFromToggle(state: PickupToggleState): boolean | nul
 /**
  * Descrierea cardului „Comenzi pentru ridicare” din Setări, în jurul linkului
  * paginii publice (`lead` + link + `tail`). Promisiunea de comenzi DOAR pe
- * feature CUNOSCUT activ.
+ * feature CUNOSCUT activ — și chiar atunci CONDIȚIONATĂ de comutator, în text
+ * („Cu ridicarea pornită, …”): descrierea stă lângă comutator în AMBELE stări,
+ * iar cu el oprit pagina publică nu arată ridicarea (PublicMenuPage cade pe
+ * „Lista mea”). Varianta veche („Activează pagina ta publică. Clienții pot
+ * comanda …”) afirma la prezent un lucru fals cât timp comutatorul era oprit
+ * (recenzie CodeRabbit pe #324, PK2).
  */
 export function pickupCardDescription(feature: boolean | null): { lead: string; tail: string } {
   if (feature === true) {
     return {
-      lead: 'Activează pagina ta publică',
-      tail:
-        '. Clienții pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la ridicare.',
+      lead: 'Cu ridicarea pornită, clienții pot comanda de pe pagina ta publică',
+      tail: ' fără să scaneze QR și ridică direct de la restaurant. Plata cash la ridicare.',
     }
   }
   return {

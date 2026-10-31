@@ -122,6 +122,24 @@ describe('PK2: promisiunea de comenzi doar pe feature cunoscut activ', () => {
     expect(generalMenuQrText(true)).toMatch(PROMISE)
     expect(pickupOnlyEmptyStateText(true, true)).toMatch(PROMISE)
   })
+
+  it('pe cardul din Setări promisiunea e CONDIȚIONATĂ de comutator, înaintea ei', () => {
+    // Descrierea stă lângă comutator și când e OPRIT (atunci pagina publică nu
+    // arată ridicarea), deci nu are voie să afirme la prezent că oaspeții pot
+    // comanda. Condiția trebuie să preceadă promisiunea, în aceeași frază.
+    // Mutația care pică: textul vechi „Activează pagina ta publică. Clienții pot
+    // comanda …” (recenzie CodeRabbit pe #324).
+    const text = (() => {
+      const d = pickupCardDescription(true)
+      return `${d.lead} /m/x${d.tail}`
+    })()
+    const promise = text.search(PROMISE)
+    const condition = text.search(/\bcu ridicarea pornită,/i)
+    expect(promise).toBeGreaterThanOrEqual(0)
+    expect(condition, text).toBeGreaterThanOrEqual(0)
+    expect(condition).toBeLessThan(promise)
+    expect(text.slice(condition, promise)).not.toMatch(/[.!?]/)
+  })
 })
 
 describe('PK3: nota de sub comutatorul de ridicare', () => {
