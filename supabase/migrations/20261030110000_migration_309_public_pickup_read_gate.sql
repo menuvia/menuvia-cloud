@@ -74,10 +74,15 @@
 -- `pickup_settings` deloc (QR-ul n-are ridicare). Tabela `restaurants` NU e
 -- citibilă de anon (fără politică pentru anon; pe Postgres gol nici privilegiu),
 -- deci proiecția e singura ușă. Clichetul PU8 din suită îngheață setul pe DOUĂ
--- detectoare: literalul `pickup_settings` ȘI rândul ÎNTREG (`to_jsonb(r)`,
--- `r.*`, `select * from restaurants`, `returns setof restaurants`, variabilă
--- de tipul rândului) — forma cea mai probabilă a unei proiecții anon noi nu
--- pomenește numele coloanei, dar o scoate brut (azi: zero funcții anon).
+-- detectoare: literalul `pickup_settings` ȘI rândul ÎNTREG — pe scurt: retur
+-- sau parametru de tipul rândului, `select *` cu `restaurants` în FROM,
+-- variabilă de tipul rândului (`%rowtype` sau declarată direct),
+-- `restaurants.*`, `to_jsonb(restaurants)` și înruditele, iar prin alias `r.*`
+-- și `r` folosit ca valoare (`to_jsonb(r)`, `jsonb_agg(r …)`, `select r`);
+-- lista EXACTĂ, cu ce NU prinde, stă în suită, la `pu_whole_row_branches`
+-- (sursa de adevăr — acest antet doar o rezumă). Forma cea mai probabilă a
+-- unei proiecții anon noi nu pomenește numele coloanei, dar o scoate brut
+-- (azi: zero funcții anon).
 --
 -- ── Client ───────────────────────────────────────────────────────────────────
 -- OASPETE: nicio schimbare, forma răspunsului e neschimbată. PublicMenuPage
@@ -234,6 +239,11 @@ declare
   c_slug   constant text := 'public.get_restaurant_by_slug(text)';
   c_none   constant uuid := '00000000-0000-0000-0000-000000000000';
   -- comentariile (`/* … */`, apoi `-- …`) scoase înainte de orice potrivire.
+  -- Scoaterea în doi pași NU ține cont de literale (un `'--'` într-un șir ar
+  -- tăia restul rândului; un `/*` într-un comentariu de linie ar înghiți cod
+  -- până la următorul `*/`). Pe cele trei corpuri verificate aici dă EXACT
+  -- același cod ca trecerea unică din suită (`pu_code`, verificat pe replay),
+  -- deci asserțiile de mai jos nu sunt afectate; autoritatea permanentă e suita.
   c_block  constant text := '/\*.*?\*/';
   c_line   constant text := '--[^\n]*';
   v_src  text;
