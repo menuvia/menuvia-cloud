@@ -114,9 +114,9 @@ Lista completă e directorul `supabase/migrations/`; ordinea o dă prefixul de t
 | Privilegii + retenție | 279–281, 283–285, 287 + RP, GR, PB, RA, VP, FL | funcțiile de trigger fără EXECUTE pentru clienți; PII-ul oaspeților pseudonimizat la 12 luni; `hide_branding` gate-uit la CITIRE; arhiva bonurilor la ștergerea GDPR; preset-ul TVA = cotele implicite; jurnalul fiscal și secretul Oblio închise pentru rolurile client |
 | **Acces partener opt-in** | **286, 303** + PO | partenerul scos din funelul de autorizare; acces DOAR cu consimțământul owner-ului (cerere aprobată sau acordare proactivă), doar pe meniu + mese |
 | Bani pe Planul 3 + date de plan moarte | 290–292 + PD, MX, PI, PT | mesajele gate-urilor fără nume de plan; încasare exactă pe cenți; comanda `paid` imuabilă pentru rolurile client |
-| **Afiliere v2 + rețeaua de vânzări** | **293–295, 299–301, 304–305, 307–308** + AF, PF, AP | comision instantaneu pe atribuire; payout-uri cu RPC de fondator; programul public închis implicit; codul de agent la înscriere; rețeaua de vânzări pe invitații (șefi + agenți) cu contract acceptat și reacceptat; ștergerea GDPR nu mai e blocată de jurnalul de platformă |
+| **Afiliere v2 + rețeaua de vânzări** | **293–295, 299–301, 304–305, 307–308** + AF, PF, AP | comision instantaneu pe atribuire; payout-uri cu RPC de fondator; programul public închis implicit; codul de agent la înscriere; alerta „client în pericol” merge la agent, nu la patron; rețeaua de vânzări pe invitații (șefi + agenți) cu contract acceptat și reacceptat; ștergerea GDPR nu mai e blocată de jurnalul de platformă |
 | menuvia.com + țara | 296, 298 + CC | `restaurants.country` (regula de aur pe țară); rezervarea publică validată în fusul restaurantului; limba de bază a meniului |
-| Igienă advisor + grant-uri | 297, 300, 306 + AH | nicio funcție DEFINER nouă apelabilă de anon; politici cu `(select auth.uid())`; index pe orice FK; alerta „client în pericol” merge la agent, nu la patron; EXECUTE pentru `service_role` pe RPC-urile chemate de funcțiile Netlify |
+| Igienă advisor + grant-uri | 297, 306 + AH | nicio funcție DEFINER nouă apelabilă de anon; politici cu `(select auth.uid())`; index pe orice FK; EXECUTE pentru `service_role` pe RPC-urile chemate de funcțiile Netlify |
 
 ## Founder + acces partener + comisioane (186–190, 193, 286, 293, 303)
 
