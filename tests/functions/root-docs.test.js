@@ -27,9 +27,11 @@
 //         numește EXACT escape-urile din definiția VIE a lui is_admin/is_member
 //         (ultima migrație care le recreează). Mutația: `has_partner_access()`
 //         readus în rând (sau o migrație nouă care îl readuce în funel).
-//   DOC5  un document viu care pomenește „SQL Editor” trimite și la workflow-ul
-//         care aplică migrațiile pe producție. Mutația: README-ul vechi
-//         („Production: prin SQL Editor în Dashboard”).
+//   DOC5  un document viu (plus șablonul de PR, citit la fiecare PR) care
+//         pomenește „SQL Editor” trimite și la workflow-ul care aplică
+//         migrațiile pe producție. Mutația: README-ul vechi („Production: prin
+//         SQL Editor în Dashboard”) sau șablonul vechi („Aplicare manuală pe
+//         prod … SQL Editor”).
 //   DOC6  orice identificator snake_case dintr-un document viu (RPC, tabelă,
 //         trigger, coloană) apare în cod: migrații, src/, funcții, teste,
 //         workflow-uri. Mutația: fluxul vechi din ARCHITECTURE.md numea
@@ -294,7 +296,7 @@ describe('documentele din rădăcină', () => {
 
   it('DOC5: cine pomenește „SQL Editor” trimite și la aplicarea automată pe producție', () => {
     assert.ok(exists('.github/workflows/apply-prod-migrations.yml'))
-    const bad = LIVING_DOCS.filter((doc) => {
+    const bad = [...LIVING_DOCS, '.github/pull_request_template.md'].filter((doc) => {
       const text = read(doc)
       return /SQL Editor/i.test(text) && !text.includes('apply-prod-migrations')
     })
