@@ -232,6 +232,9 @@ export default function TeamManager({
       const d = await res.json()
       if (!res.ok) {
         setInvErr(d.error || 'Eroare la trimitere')
+        // Emailul poate să fi plecat (timeout după trimitere): invitația nouă
+        // există, deci lista trebuie să o arate, cum promite mesajul serverului.
+        if (d.code === 'email_send_uncertain') await load()
       } else {
         toast(`Invitație trimisă la ${email}`)
         setEmail('')

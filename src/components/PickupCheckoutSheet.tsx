@@ -1,6 +1,6 @@
 // PickupCheckoutSheet — extras din PublicMenuPage pentru code-splitting.
 // Lazy-loaded: apare doar când utilizatorul deschide checkout-ul de pickup.
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, useId } from 'react'
 import { FocusTrap } from './ui/FocusTrap'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { createOrder, getPickupIdempotencyKey, rotatePickupIdempotencyKey } from '../lib/orders'
@@ -10,10 +10,11 @@ import type { CartItem } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import type { Restaurant } from '../lib/qr'
 import type { MenuTheme } from '../lib/themes'
+import { legibleOn, readableTextOn } from '../lib/themes'
 import PhoneInput from './PhoneInput'
 import { DEFAULT_CALLING_CODE, toE164 } from '../lib/phone'
 import { T } from '../lib/publicMenuStrings'
-import { describeGuestError } from '../lib/guestErrors'
+import { guestErrorKey, isPickupRefusal, PICKUP_ERROR_OPTS } from '../lib/guestErrors'
 
 interface PUBColors {
   bg: string
@@ -61,6 +62,19 @@ export default function PickupCheckoutSheet({
   const [pickupTime, setPickupTime] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Refuz definitiv (ux-guest-10): localul nu primește comenzi cu ridicare —
+  // Planul 1 sau downgrade. Din mig 309 pagina publică nu mai arată ridicarea
+  // fără `pickup_orders`, deci refuzul ajunge aici doar când planul a coborât
+  // între încărcarea paginii și trimitere, sau pe o bază fără 309. Foaia nu mai
+  // oferă „Trimite", doar întoarcerea la meniu.
+  const [refused, setRefused] = useState(false)
+  // Etichetele vizibile numesc câmpurile (înainte erau doar text deasupra lor).
+  const nameId = useId()
+  const phoneId = useId()
+  const slotsLabelId = useId()
+  const onAccent = readableTextOn(accent, PUB.text)
+  // Roșul erorii, lizibil pe suprafața casetei în orice temă.
+  const errorInk = legibleOn(theme.colors.error, PUB.surface)
   // Cheie de idempotență PERSISTATĂ (sessionStorage per restaurant): retry-urile
   // după un răspuns pierdut refolosesc aceeași cheie chiar dacă sheet-ul a fost
   // închis/redeschis sau pagina reîncărcată → serverul dedup-uiește, fără comenzi
@@ -95,6 +109,8 @@ export default function PickupCheckoutSheet({
     () => buildPickupSlots(restaurant.pickup_settings, new Date(), tz),
     [restaurant.pickup_settings, tz],
   )
+
+  const submitBlocked = submitting || (slots.length > 0 && !pickupTime)
 
   async function submitOrder() {
     if (slots.length === 0) {
@@ -141,14 +157,12 @@ export default function PickupCheckoutSheet({
       onSuccess(result.short_id, pickupTime || null, result.total)
     } catch (err) {
       console.error('[PickupCheckout] error:', err)
-      // Hint-urile din create_order (mig 191) + mesajele brute → text în limba
-      // oaspetelui (lib/guestErrors); niciodată textul serverului.
-      setError(
-        describeGuestError(lang, err, {
-          fallback: 'err_order_not_sent',
-          network: 'err_order_not_sent_network',
-        }),
-      )
+      // Hint-urile din create_order (mig 191) + gate-ul de plan (mig 290) +
+      // mesajele brute → text în limba oaspetelui (lib/guestErrors); niciodată
+      // textul serverului.
+      const key = guestErrorKey(err, PICKUP_ERROR_OPTS)
+      setError(T(lang, key))
+      setRefused(isPickupRefusal(key))
       setSubmitting(false)
     }
   }
@@ -213,6 +227,7 @@ export default function PickupCheckoutSheet({
 
           <div style={{ marginBottom: 16 }}>
             <label
+              htmlFor={nameId}
               style={{
                 display: 'block',
                 fontSize: 12,
@@ -224,15 +239,18 @@ export default function PickupCheckoutSheet({
               {T(lang, 'pk_name')} *
             </label>
             <input
+              id={nameId}
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={T(lang, 'pk_name_ph')}
+              autoComplete="name"
               style={{
                 width: '100%',
                 padding: '12px 14px',
                 border: `1.5px solid ${PUB.border}`,
                 borderRadius: 10,
-                fontSize: 14,
+                // 16px: sub 16px Safari pe iOS mărește pagina la focus.
+                fontSize: 16,
                 fontFamily: theme.fonts.body,
                 background: PUB.surface,
                 color: PUB.text,
@@ -244,6 +262,7 @@ export default function PickupCheckoutSheet({
 
           <div style={{ marginBottom: 16 }}>
             <label
+              htmlFor={phoneId}
               style={{
                 display: 'block',
                 fontSize: 12,
@@ -255,6 +274,7 @@ export default function PickupCheckoutSheet({
               {T(lang, 'reserve_phone')}
             </label>
             <PhoneInput
+              inputId={phoneId}
               cc={phoneCc}
               national={phone}
               onCcChange={setPhoneCc}
@@ -265,7 +285,7 @@ export default function PickupCheckoutSheet({
                 padding: '12px 14px',
                 border: `1.5px solid ${PUB.border}`,
                 borderRadius: 10,
-                fontSize: 14,
+                fontSize: 16,
                 fontFamily: theme.fonts.body,
                 background: PUB.surface,
                 color: PUB.text,
@@ -281,7 +301,8 @@ export default function PickupCheckoutSheet({
 
           {slots.length > 0 ? (
             <div style={{ marginBottom: 16 }}>
-              <label
+              <div
+                id={slotsLabelId}
                 style={{
                   display: 'block',
                   fontSize: 12,
@@ -291,8 +312,10 @@ export default function PickupCheckoutSheet({
                 }}
               >
                 {T(lang, 'pk_come_at')} *
-              </label>
+              </div>
               <div
+                role="group"
+                aria-labelledby={slotsLabelId}
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))',
@@ -302,15 +325,20 @@ export default function PickupCheckoutSheet({
                 {slots.map((iso) => {
                   const label = formatTimeInZone(iso, tz)
                   const isSel = pickupTime === iso
+                  // Selecția nu doar prin culoare (WCAG 1.4.1): bifă + `aria-pressed`;
+                  // slotul ales e plin de accent cu text lizibil (accentul ca text
+                  // pe nuanța lui avea sub 3:1 pe auriu).
                   return (
                     <button
                       key={iso}
+                      type="button"
+                      aria-pressed={isSel}
                       onClick={() => setPickupTime(iso)}
                       style={{
                         padding: '10px 6px',
                         border: `1.5px solid ${isSel ? accent : PUB.border}`,
-                        background: isSel ? `${accent}14` : PUB.surface,
-                        color: isSel ? accent : PUB.text,
+                        background: isSel ? accent : PUB.surface,
+                        color: isSel ? onAccent : PUB.text,
                         borderRadius: 8,
                         fontSize: 13,
                         fontWeight: isSel ? 700 : 500,
@@ -318,6 +346,11 @@ export default function PickupCheckoutSheet({
                         fontFamily: theme.fonts.body,
                       }}
                     >
+                      {isSel && (
+                        <span aria-hidden="true" style={{ marginRight: 4 }}>
+                          ✓
+                        </span>
+                      )}
                       {label}
                     </button>
                   )
@@ -360,13 +393,15 @@ export default function PickupCheckoutSheet({
 
           {error && (
             <div
+              role="alert"
               style={{
                 padding: '10px 14px',
-                background: '#FBE5E5',
-                border: '1px solid #C0392B22',
+                background: PUB.surface,
+                border: `1.5px solid ${errorInk}`,
                 borderRadius: 8,
                 fontSize: 13,
-                color: '#C0392B',
+                fontWeight: 600,
+                color: errorInk,
                 marginBottom: 14,
               }}
             >
@@ -377,33 +412,56 @@ export default function PickupCheckoutSheet({
 
         <div
           style={{
-            padding: '14px 22px 22px',
+            // Deasupra barei de home a iPhone-ului (viewport-fit=cover în index.html).
+            padding: '14px 22px calc(22px + env(safe-area-inset-bottom, 0px))',
             borderTop: `1px solid ${PUB.border}`,
             background: PUB.bg,
           }}
         >
-          <button
-            disabled={submitting || (slots.length > 0 && !pickupTime)}
-            onClick={() => void submitOrder()}
-            style={{
-              width: '100%',
-              padding: '15px',
-              background:
-                submitting || (slots.length > 0 && !pickupTime) ? PUB.borderStrong : accent,
-              color: '#fff',
-              border: 'none',
-              borderRadius: 12,
-              fontFamily: theme.fonts.body,
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: submitting || (slots.length > 0 && !pickupTime) ? 'not-allowed' : 'pointer',
-              boxShadow: submitting ? 'none' : `0 4px 14px ${accent}55`,
-            }}
-          >
-            {submitting
-              ? T(lang, 'sending')
-              : `${T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
-          </button>
+          {refused ? (
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                width: '100%',
+                padding: '15px',
+                background: 'transparent',
+                color: PUB.text,
+                border: `1.5px solid ${PUB.borderStrong}`,
+                borderRadius: 12,
+                fontFamily: theme.fonts.body,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >
+              {T(lang, 'reserve_back_to_menu')}
+            </button>
+          ) : (
+            <button
+              disabled={submitBlocked}
+              onClick={() => void submitOrder()}
+              style={{
+                width: '100%',
+                padding: '15px',
+                // Blocat → suprafață + text secundar (alb pe borderStrong avea ~1,6:1);
+                // activ → textul lizibil peste accent, nu alb fix.
+                background: submitBlocked ? PUB.surface : accent,
+                color: submitBlocked ? PUB.text3 : onAccent,
+                border: submitBlocked ? `1.5px solid ${PUB.border}` : 'none',
+                borderRadius: 12,
+                fontFamily: theme.fonts.body,
+                fontSize: 15,
+                fontWeight: 700,
+                cursor: submitBlocked ? 'not-allowed' : 'pointer',
+                boxShadow: submitBlocked ? 'none' : `0 4px 14px ${accent}55`,
+              }}
+            >
+              {submitting
+                ? T(lang, 'sending')
+                : `${T(lang, 'qc_send_order')} · ${fmtPrice(cartTotal, currency)}`}
+            </button>
+          )}
         </div>
       </div>
     </div>

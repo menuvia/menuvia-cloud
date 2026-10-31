@@ -1,16 +1,26 @@
 import { useRef, useEffect, useState, lazy, Suspense } from 'react'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+import { D, PLAN_LABELS } from '../lib/constants'
 import { createRestaurant } from '../lib/restaurants'
 import { consumeOnboardingPreset } from '../lib/onboardingPreset'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
-import { fetchRestaurantFeatures, getLimit, hasFeature } from '../lib/features'
-import { applyBusinessTypePreset } from '../lib/quickSetup'
+import { fetchRestaurantFeatures, getLimit, getLimitDetailed, hasFeature } from '../lib/features'
 import { track } from '../lib/analytics'
 import { browserSite, defaultUiLang, publicBaseUrl, siteHost } from '../lib/domain'
 import { COUNTRIES, restaurantCountryPatch } from '../lib/countries'
 import { clearPendingCountry, storePendingCountry } from '../lib/pendingCountry'
+import { slugify } from '../lib/slug'
+import type { PlanIntentId } from '../lib/planIntent'
+import { useSuppressPwaPrompts } from '../lib/pwaGate'
+import {
+  onboardingSummary,
+  printableTables,
+  type MenuOutcome,
+  type SummaryItem,
+  type SummaryKey,
+  type TablesOutcome,
+} from '../lib/onboardingSummary'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -49,12 +59,14 @@ const S = {
       namePlaceholder: 'La Bella Trattoria',
       cityLabel: 'Oraș',
       cityPlaceholder: 'Focșani',
-      slugLabel: 'URL meniu public',
+      // Linkul NU mai e un câmp: se creează din nume (lib/slug.ts), iar
+      // coliziunile le rezolvă serverul cu sufix (mig 221). Omul îl vede doar.
+      linkPreviewLabel: 'Linkul meniului:',
       slugPrefix: `${siteHost()}/m/`,
-      slugPlaceholder: 'la-bella-trattoria',
+      linkPreviewHint: 'Se creează din nume. Îl poți schimba oricând din Setări.',
       nameRequiredError: 'Numele restaurantului este obligatoriu.',
       unknownError: 'Eroare necunoscută',
-      slugTakenError: 'Acest URL e deja folosit. Alege altul.',
+      slugAllocError: 'Nu am putut genera linkul meniului. Reîncearcă.',
       countryLabel: 'Țara *',
       countryPlaceholder: 'Alege țara',
       countryRequiredError: 'Alege țara restaurantului.',
@@ -91,11 +103,12 @@ const S = {
       skipBtn: 'Sari peste acest pas →',
       photoImportBtn: '📸 Ai meniul tipărit? Fotografiază-l și îl importăm noi',
       orManualDivider: 'sau adaugă manual primul produs',
-      presetLead: 'Nu ai meniul la tine? Pornește cu un meniu demo:',
-      presetPizzeriaBtn: '🍕 Meniu demo de pizzerie',
-      presetCafeBtn: '☕ Meniu demo de cafenea',
-      presetApplyingBtn: 'Se adaugă meniul demo...',
-      presetError: 'Nu am putut adăuga meniul demo. Reîncearcă sau sari peste pas.',
+      // Meniul demo e cel PUBLIC (/demo), nu produse inserate în restaurantul
+      // omului: presetul „Tip local” umplea plafonul gratuit (cafenea = 15/15)
+      // și publica pe QR produse și prețuri false.
+      demoLead: 'Nu ai meniul la tine? Vezi întâi cum arată un meniu Menuvia:',
+      demoLink: 'Deschide meniul demo ↗',
+      demoHint: 'Se deschide într-o filă nouă și nu adaugă nimic în restaurantul tău.',
     },
     step3: {
       title: 'Câte mese are restaurantul?',
@@ -114,8 +127,8 @@ const S = {
       createsTablesPrefix: 'Se creează ',
       createsTablesBold: (n: number) => `${n} mese`,
       createsTablesSuffix: ' cu QR-uri unice',
-      pdfPrefix: 'PDF gata de printat din tab-ul ',
-      pdfTabName: 'Mese & QR',
+      pdfPrefix: 'PDF gata de printat ',
+      pdfTabName: 'imediat, pe ecranul următor',
       renameAnytime: 'Le redenumești sau ștergi oricând',
       tableCountRangeError: (cap: number) => `Numărul de mese trebuie să fie între 1 și ${cap}.`,
       planLimitKnownError: (maxTables: number) =>
@@ -128,33 +141,59 @@ const S = {
       createTablesBtn: (count: number) => `Creează ${count} mese →`,
       skipBtn: 'Sari peste acest pas →',
       pickupOnlyBtn: 'Nu am mese — doar ridicare (food truck) →',
+      // Planul fără `pickup_orders`: ridicarea NU se pornește (serverul ar
+      // respinge toate comenzile oaspeților), rămâne QR-ul general al meniului.
+      generalQrBtn: 'Nu am mese — folosesc QR-ul general al meniului →',
       pickupHint:
         'Comenzile pentru ridicare necesită planul 🛎 Meniu + Comenzi — meniul QR general funcționează și pe planul curent.',
+      planUnknownError: 'Nu am putut verifica planul restaurantului. Reîncearcă.',
     },
     step4: {
       title: 'Ești gata!',
+      titlePending: 'Aproape gata!',
       subtitle: 'Restaurantul tău e configurat și live.',
-      achievements: [
-        { icon: 'home' as IconName, title: 'Restaurant creat' },
-        { icon: 'menu' as IconName, title: 'Meniu configurat' },
-        { icon: 'table' as IconName, title: 'Mese și QR-uri' },
-      ],
-      // A patra bifă depinde de PLAN (nu mai e hard-codată): comenzile prin QR
+      subtitlePending: 'Restaurantul tău e creat. Ce mai e de făcut e marcat mai jos.',
+      // Bifele se calculează din ce s-a întâmplat REAL (lib/onboardingSummary.ts),
+      // nu mai sunt hard-codate. A patra depinde și de PLAN: comenzile prin QR
       // există de la Meniu + Comenzi; pe Meniu Digital QR-ul deschide doar meniul.
-      ordersReady: { icon: 'qr' as IconName, title: 'Gata de comenzi' },
-      menuQrReady: { icon: 'qr' as IconName, title: 'Meniu public cu QR' },
+      summaryRestaurant: 'Restaurant creat',
+      summaryMenuProducts: (n: number) => (n === 1 ? 'Meniu: 1 produs' : `Meniu: ${n} produse`),
+      summaryMenuEmpty: 'Meniul e încă gol — adaugi produsele din dashboard',
+      summaryTablesQr: (n: number) => (n === 1 ? '1 masă cu QR' : `${n} mese cu QR-uri`),
+      summaryTablesNoQr: 'Mesele sunt create, dar QR-urile nu — le generezi din Mese & QR',
+      summaryPickup: 'Ridicare activată — QR-ul meniului e QR-ul principal',
+      summaryGeneralQr: 'Fără mese — folosești QR-ul general al meniului',
+      summaryTablesSkipped: 'Mesele nu sunt create încă — le adaugi din Mese & QR',
+      ordersReady: 'Gata de comenzi',
+      menuQrReady: 'Meniu public cu QR',
       achievementDoneLabel: 'finalizat',
+      achievementPendingLabel: 'de făcut',
+      // QR-ul se descarcă de AICI (înainte: încă patru apăsări până în Mese & QR).
+      qrTablesTitle: 'Tipărește QR-urile meselor',
+      qrTablesHint: (n: number) =>
+        `PDF A4 cu ${n === 1 ? 'un card' : `${n} carduri`}, câte 6 pe pagină — gata de lipit pe mese.`,
+      qrTablesBtn: 'Descarcă PDF-ul cu QR-urile',
+      qrMenuTitle: 'Tipărește QR-ul meniului',
+      qrMenuHint: 'Un poster A4 cu QR-ul meniului public — pentru vitrină, tejghea sau flyere.',
+      qrMenuBtn: 'Descarcă QR-ul meniului (PDF)',
+      qrMenuCardLabel: 'Meniu',
+      qrBusyBtn: 'Se generează PDF-ul...',
+      qrError: 'Nu am putut genera PDF-ul. Reîncearcă sau descarcă-l din tab-ul Mese & QR.',
+      qrOtherFormats: 'Cardurile pliabile și posterele A4 le găsești oricând în tab-ul Mese & QR.',
       menuLinkLabel: 'Link meniu public',
       copyBtnAriaLabel: 'Copiază link-ul meniului',
       copiedLabel: 'Copiat!',
       copyLabel: 'Copiază',
       nextStepsTitle: 'Următorii pași în dashboard:',
       nextStepAddProducts: 'Adaugă restul produselor din meniu',
-      nextStepPrintQr: 'Printează QR-urile din tab-ul Mese & QR',
+      nextStepAddFirstProducts: 'Adaugă produsele din meniu (tab-ul Produse)',
       nextStepInviteTeam: 'Invită echipa din Setări → Echipă (de la planul Meniu + Comenzi)',
       nextStepTrackOrders: 'Urmărește comenzile live din Bucătărie',
       finishingBtn: 'Se deschide...',
       doneBtn: 'Deschide dashboard-ul →',
+      // Planul ales pe landing/pricing înainte de cont: întâi restaurantul,
+      // apoi planul — CTA-ul final duce la activarea lui (/pricing).
+      continuePlanBtn: (plan: string) => `Continuă cu planul ${plan} →`,
     },
   },
   en: {
@@ -168,12 +207,12 @@ const S = {
       namePlaceholder: 'The Golden Fork',
       cityLabel: 'City',
       cityPlaceholder: 'Manchester',
-      slugLabel: 'Public menu URL',
+      linkPreviewLabel: 'Menu link:',
       slugPrefix: `${siteHost()}/m/`,
-      slugPlaceholder: 'the-golden-fork',
+      linkPreviewHint: 'Generated from the name. You can change it anytime in Settings.',
       nameRequiredError: 'Restaurant name is required.',
       unknownError: 'Unknown error',
-      slugTakenError: 'This URL is already taken. Choose another one.',
+      slugAllocError: "We couldn't create the menu link. Try again.",
       countryLabel: 'Country *',
       countryPlaceholder: 'Select a country',
       countryRequiredError: 'Select the country of your restaurant.',
@@ -210,11 +249,9 @@ const S = {
       skipBtn: 'Skip this step →',
       photoImportBtn: '📸 Have a printed menu? Snap a photo and we import it',
       orManualDivider: 'or add your first product manually',
-      presetLead: "Don't have the menu with you? Start with a demo menu:",
-      presetPizzeriaBtn: '🍕 Demo pizzeria menu',
-      presetCafeBtn: '☕ Demo café menu',
-      presetApplyingBtn: 'Adding the demo menu...',
-      presetError: "We couldn't add the demo menu. Try again or skip this step.",
+      demoLead: "Don't have the menu with you? See what a Menuvia menu looks like first:",
+      demoLink: 'Open the demo menu ↗',
+      demoHint: 'Opens in a new tab and adds nothing to your restaurant.',
     },
     step3: {
       title: 'How many tables does your restaurant have?',
@@ -231,8 +268,8 @@ const S = {
       createsTablesPrefix: 'This creates ',
       createsTablesBold: (n: number) => `${n} tables`,
       createsTablesSuffix: ' with unique QR codes',
-      pdfPrefix: 'PDF ready to print from the ',
-      pdfTabName: 'Tables & QR',
+      pdfPrefix: 'PDF ready to print ',
+      pdfTabName: 'right on the next screen',
       renameAnytime: 'Rename or delete them anytime',
       tableCountRangeError: (cap: number) => `The number of tables must be between 1 and ${cap}.`,
       planLimitKnownError: (maxTables: number) =>
@@ -245,31 +282,53 @@ const S = {
       createTablesBtn: (count: number) => `Create ${count} tables →`,
       skipBtn: 'Skip this step →',
       pickupOnlyBtn: 'No tables — pickup only (food truck) →',
+      generalQrBtn: 'No tables — I use the general menu QR →',
       pickupHint:
         'Pickup orders require the 🛎 Menu + Orders plan — the general QR menu still works on your current plan.',
+      planUnknownError: "We couldn't check your restaurant's plan. Try again.",
     },
     step4: {
       title: "You're all set!",
+      titlePending: 'Almost there!',
       subtitle: 'Your restaurant is set up and live.',
-      achievements: [
-        { icon: 'home' as IconName, title: 'Restaurant created' },
-        { icon: 'menu' as IconName, title: 'Menu set up' },
-        { icon: 'table' as IconName, title: 'Tables and QR codes' },
-      ],
-      ordersReady: { icon: 'qr' as IconName, title: 'Ready for orders' },
-      menuQrReady: { icon: 'qr' as IconName, title: 'Public menu with QR' },
+      subtitlePending: 'Your restaurant is created. What is left to do is marked below.',
+      summaryRestaurant: 'Restaurant created',
+      summaryMenuProducts: (n: number) => (n === 1 ? 'Menu: 1 item' : `Menu: ${n} items`),
+      summaryMenuEmpty: 'The menu is still empty — add your items from the dashboard',
+      summaryTablesQr: (n: number) =>
+        n === 1 ? '1 table with a QR code' : `${n} tables with QR codes`,
+      summaryTablesNoQr:
+        'Tables are created, but their QR codes are not — generate them in Tables & QR',
+      summaryPickup: 'Pickup enabled — the menu QR is your main QR',
+      summaryGeneralQr: 'No tables — you use the general menu QR',
+      summaryTablesSkipped: 'No tables yet — add them in Tables & QR',
+      ordersReady: 'Ready for orders',
+      menuQrReady: 'Public menu with QR',
       achievementDoneLabel: 'done',
+      achievementPendingLabel: 'to do',
+      qrTablesTitle: 'Print your table QR codes',
+      qrTablesHint: (n: number) =>
+        `A4 PDF with ${n === 1 ? 'one card' : `${n} cards`}, 6 per page — ready to stick on the tables.`,
+      qrTablesBtn: 'Download the QR codes (PDF)',
+      qrMenuTitle: 'Print your menu QR code',
+      qrMenuHint: 'An A4 poster with your public menu QR — for the window, the counter or flyers.',
+      qrMenuBtn: 'Download the menu QR (PDF)',
+      qrMenuCardLabel: 'Menu',
+      qrBusyBtn: 'Generating the PDF...',
+      qrError: "We couldn't generate the PDF. Try again or download it from the Tables & QR tab.",
+      qrOtherFormats: 'Folded table cards and posters are always in the Tables & QR tab.',
       menuLinkLabel: 'Public menu link',
       copyBtnAriaLabel: 'Copy the menu link',
       copiedLabel: 'Copied!',
       copyLabel: 'Copy',
       nextStepsTitle: 'Next steps in the dashboard:',
       nextStepAddProducts: 'Add the rest of your menu items',
-      nextStepPrintQr: 'Print the QR codes from the Tables & QR tab',
+      nextStepAddFirstProducts: 'Add your menu items (Products tab)',
       nextStepInviteTeam: 'Invite your team from Settings → Team (from the Menu + Orders plan)',
       nextStepTrackOrders: 'Track live orders from the Kitchen',
       finishingBtn: 'Opening...',
       doneBtn: 'Open the dashboard →',
+      continuePlanBtn: (plan: string) => `Continue with the ${plan} plan →`,
     },
   },
 } as const
@@ -319,10 +378,14 @@ const btnDisabled: React.CSSProperties = {
   color: D.t3,
   cursor: 'not-allowed',
 }
-// Butoanele de meniu demo (Skip-ul din Pasul 2): chip-uri late, discrete —
-// nu concurează vizual cu importul din poză și cu salvarea manuală.
-const btnPreset: React.CSSProperties = {
+// Linkul spre meniul demo (Skip-ul din Pasul 2): chip lat, discret — nu
+// concurează vizual cu importul din poză și cu salvarea manuală.
+const linkDemo: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   width: '100%',
+  boxSizing: 'border-box',
   background: D.s3,
   color: D.t2,
   border: `1px solid ${D.border}`,
@@ -331,7 +394,7 @@ const btnPreset: React.CSSProperties = {
   minHeight: 44,
   fontFamily: 'DM Sans,sans-serif',
   fontSize: '0.82rem',
-  cursor: 'pointer',
+  textDecoration: 'none',
 }
 const label: React.CSSProperties = {
   display: 'block',
@@ -340,14 +403,8 @@ const label: React.CSSProperties = {
   marginBottom: 6,
 }
 
-function slugify(s: string) {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'restaurant'
-  )
-}
+// Accentul cu care se creează restaurantul (Pasul 1) și se tipăresc QR-urile (Pasul 4).
+const ONBOARDING_ACCENT = '#C8963C'
 
 function markOnboarding(restaurantId: string, fields: Record<string, boolean | string | null>) {
   return supabase.from('onboarding_state').update(fields).eq('restaurant_id', restaurantId)
@@ -495,10 +552,13 @@ function Shell({ children }: { children: React.ReactNode }) {
 // ═══════════════════════════════════════════════════════════════
 // STEP 1 — Creează restaurantul
 // ═══════════════════════════════════════════════════════════════
-function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: string) => void }) {
+function Step1Restaurant({
+  onNext,
+}: {
+  onNext: (restaurantId: string, slug: string, name: string) => void
+}) {
   const [name, setName] = useState('')
   const [city, setCity] = useState('')
-  const [slug, setSlug] = useState('')
   const [country, setCountry] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -517,15 +577,14 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
     }
     setSaving(true)
     setError(null)
-    const finalSlug = slug || slugify(name)
     try {
       const created =
         createdRef.current ??
         (await createRestaurant({
           name: name.trim(),
           city: city.trim() || null,
-          slug: finalSlug,
-          primaryColor: '#C8963C',
+          slug: slugify(name),
+          primaryColor: ONBOARDING_ACCENT,
         }))
       createdRef.current = created
       // Țara (mig 296) + moneda/fusul propuse pentru ea. Pe 'RO' patch-ul e
@@ -573,10 +632,10 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           console.warn('[onboarding] preset rezervari eșuat (continuăm):', presetErr)
         }
       }
-      onNext(created.restaurant_id, created.restaurant_slug)
+      onNext(created.restaurant_id, created.restaurant_slug, name.trim())
     } catch (err) {
       const msg = err instanceof Error ? err.message : t.step1.unknownError
-      setError(msg.includes('slug') ? t.step1.slugTakenError : msg)
+      setError(msg.includes('slug') ? t.step1.slugAllocError : msg)
       setSaving(false)
     }
   }
@@ -606,10 +665,7 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
           <input
             id="ob-name"
             value={name}
-            onChange={(e) => {
-              setName(e.target.value)
-              setSlug(slugify(e.target.value))
-            }}
+            onChange={(e) => setName(e.target.value)}
             placeholder={t.step1.namePlaceholder}
             style={inp}
             onFocus={(e) => (e.target.style.borderColor = D.gold)}
@@ -631,44 +687,19 @@ function Step1Restaurant({ onNext }: { onNext: (restaurantId: string, slug: stri
             onBlur={(e) => (e.target.style.borderColor = D.border)}
           />
         </div>
-        <div>
-          <label htmlFor="ob-slug" style={label}>
-            {t.step1.slugLabel}
-          </label>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              background: D.s3,
-              border: `1px solid ${D.border}`,
-              borderRadius: 9,
-              overflow: 'hidden',
-            }}
-          >
-            <span
-              style={{
-                padding: '0 10px',
-                fontSize: '0.75rem',
-                color: D.t3,
-                borderRight: `1px solid ${D.border}`,
-                height: 46,
-                display: 'flex',
-                alignItems: 'center',
-                flexShrink: 0,
-                whiteSpace: 'nowrap',
-              }}
-            >
+        {/* Doar previzualizare: linkul se creează din nume, fără diacritice
+            rupte („Casa Țărănească” → casa-taraneasca). Cel REAL (eventual cu
+            sufix, dacă numele e luat) apare pe ecranul final. */}
+        {name.trim() && (
+          <div style={{ fontSize: '0.78rem', color: D.t3, lineHeight: 1.5 }}>
+            {t.step1.linkPreviewLabel}{' '}
+            <span data-testid="ob-link-preview" style={{ color: D.t2, wordBreak: 'break-all' }}>
               {t.step1.slugPrefix}
+              {slugify(name)}
             </span>
-            <input
-              id="ob-slug"
-              value={slug}
-              onChange={(e) => setSlug(slugify(e.target.value))}
-              placeholder={t.step1.slugPlaceholder}
-              style={{ ...inp, borderRadius: 0, border: 'none' }}
-            />
+            <div>{t.step1.linkPreviewHint}</div>
           </div>
-        </div>
+        )}
         {askCountry && (
           <div>
             <label htmlFor="ob-country" style={label}>
@@ -711,7 +742,7 @@ function Step2Menu({
   onSkip,
 }: {
   restaurantId: string
-  onNext: () => void
+  onNext: (outcome: MenuOutcome) => void
   onSkip: () => void
 }) {
   // <string> explicit: fără el, tipurile React inferează LITERALUL din
@@ -734,32 +765,33 @@ function Step2Menu({
   // Nr. produse importate — setat de AiMenuImport la succes; la închiderea
   // modalului decide dacă pasul e gata (avansăm) sau doar închidem.
   const importedCountRef = useRef(0)
-  const [presetBusy, setPresetBusy] = useState(false)
+  // Plafonul de produse al planului, ca importul AI să-l știe ÎNAINTE de salvare:
+  // fără el, pe planul gratuit (15) un meniu real de 25 de produse pica în bloc
+  // cu „Nimic nu a fost salvat” (inserarea e atomică). Restaurantul a fost creat
+  // la Pasul 1, iar pasul ăsta avansează la primul produs salvat, deci aici are 0
+  // produse: locurile rămase = plafonul. Necunoscut (RPC picat) sau nelimitat →
+  // undefined: decide serverul, ca înainte.
+  const [productSlots, setProductSlots] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    let cancelled = false
+    void fetchRestaurantFeatures(restaurantId)
+      .then((f) => {
+        if (cancelled || !f) return
+        const lim = getLimitDetailed(f, 'max_products')
+        if (lim.kind === 'limited') setProductSlots(Math.max(0, lim.n))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId])
 
   const handleImportClosed = async () => {
     setAiImportOpen(false)
     if (importedCountRef.current > 0) {
       track('product_imported_ai', { count: importedCountRef.current, source: 'onboarding' })
       await markOnboarding(restaurantId, { menu_created: true })
-      onNext()
-    }
-  }
-
-  // Preset „Tip local" pe ramura de Skip: meniul demo (RPC
-  // apply_business_type_preset, mig 034 — aplicat DOAR pe meniu gol) dă ceva
-  // de văzut pe QR din prima, în loc de restaurant gol.
-  const handlePreset = async (type: 'pizzerie' | 'cafenea') => {
-    if (presetBusy || saving) return
-    setPresetBusy(true)
-    setError(null)
-    try {
-      await applyBusinessTypePreset(restaurantId, type)
-      await markOnboarding(restaurantId, { menu_created: true })
-      onNext()
-    } catch (presetErr) {
-      console.error('[onboarding] preset meniu demo eșuat:', presetErr)
-      setError(t.step2.presetError)
-      setPresetBusy(false)
+      onNext({ kind: 'products', count: importedCountRef.current })
     }
   }
 
@@ -822,7 +854,7 @@ function Step2Menu({
 
     // Mark onboarding
     await markOnboarding(restaurantId, { menu_created: true })
-    onNext()
+    onNext({ kind: 'products', count: 1 })
   }
 
   return (
@@ -975,31 +1007,25 @@ function Step2Menu({
         <button onClick={onSkip} style={btnSecondary}>
           {t.step2.skipBtn}
         </button>
-        {/* Alternativa la Skip: meniu demo „Tip local" — mai bine un meniu
-            prefăcut de văzut pe QR decât un restaurant complet gol. */}
+        {/* Alternativa la Skip: meniul demo public, într-o filă nouă (nu
+            pierde pasul curent) — omul vede cum arată un meniu fără ca în
+            restaurantul lui să apară produse false. */}
         <div style={{ fontSize: '0.78rem', color: D.t3, textAlign: 'center', marginTop: 4 }}>
-          {t.step2.presetLead}
+          {t.step2.demoLead}
         </div>
-        <button
-          onClick={() => void handlePreset('pizzerie')}
-          disabled={presetBusy || saving}
-          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
-        >
-          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetPizzeriaBtn}
-        </button>
-        <button
-          onClick={() => void handlePreset('cafenea')}
-          disabled={presetBusy || saving}
-          style={presetBusy || saving ? { ...btnPreset, cursor: 'not-allowed', opacity: 0.6 } : btnPreset}
-        >
-          {presetBusy ? t.step2.presetApplyingBtn : t.step2.presetCafeBtn}
-        </button>
+        <a href="/demo" target="_blank" rel="noopener noreferrer" style={linkDemo}>
+          {t.step2.demoLink}
+        </a>
+        <div style={{ fontSize: '0.72rem', color: D.t3, textAlign: 'center' }}>
+          {t.step2.demoHint}
+        </div>
       </div>
 
       {aiImportOpen && (
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
+            remainingSlots={productSlots}
             onImported={(count) => {
               importedCountRef.current = count
             }}
@@ -1023,7 +1049,7 @@ function Step3Table({
   onSkip,
 }: {
   restaurantId: string
-  onNext: () => void
+  onNext: (outcome: TablesOutcome) => void
   onSkip: () => void
 }) {
   // Limita de mese a planului (free=3). Citim de la server ca să nu trimitem
@@ -1033,15 +1059,22 @@ function Step3Table({
   const [count, setCount] = useState(5)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Comenzile pentru ridicare sunt growth+ (Gate A) — pe tier 1 arătăm hintul
-  // de plan sub butonul „Nu am mese" (acțiunea rămâne permisă, flag-ul e inert).
-  const [hasPickup, setHasPickup] = useState(true)
+  // Comenzile pentru ridicare sunt growth+ (Gate A). TRISTATE: `null` = planul
+  // nu e (încă) cunoscut. Pe un plan fără `pickup_orders` flag-ul nu aduce
+  // nimic oaspeților (din mig 309 pagina publică nu arată ridicarea, iar
+  // `create_order` o refuză), dar ar rămâne „pornit” în Setări, cu avertisment
+  // (lib/pickupCopy.ts). Deci pe tier 1 nu se pornește nimic, iar pe necunoscut
+  // nu se pornește până nu e verificat.
+  const [hasPickup, setHasPickup] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void fetchRestaurantFeatures(restaurantId)
       .then((f) => {
-        if (cancelled) return
+        // `null` = RPC picat: NU e „plan fără mese și fără ridicare” — lăsăm
+        // plafonul necunoscut (UI pe 50, serverul e plasa) și ridicarea nedecisă.
+        // Înainte, getLimit(null) dădea 0 → „între 1 și 0 mese”, imposibil.
+        if (cancelled || !f) return
         const lim = getLimit(f, 'max_tables') // null = nelimitat
         setMaxTables(lim)
         setHasPickup(hasFeature(f, 'pickup_orders'))
@@ -1080,7 +1113,7 @@ function Step3Table({
     const { data: createdTables, error: tErr } = await supabase
       .from('tables')
       .insert(tables)
-      .select('id')
+      .select('id, name')
     if (tErr || !createdTables) {
       // Nu expunem textul brut Postgres; mapăm cazurile cunoscute.
       // Când limita planului nu e cunoscută (fetch features eșuat → maxTables null),
@@ -1099,19 +1132,58 @@ function Step3Table({
 
     // Create qr_tokens for each table. Verificăm eroarea: dacă eșuează, NU marcăm
     // qr_generated ca să nu raportăm o stare inconsistentă (mese fără QR).
-    const tokens = createdTables.map((tbl) => ({ restaurant_id: restaurantId, table_id: tbl.id }))
-    const { error: qrErr } = await supabase.from('qr_tokens').insert(tokens)
+    // Token-urile se întorc (select), ca ecranul final să dea PDF-ul de tipărit
+    // fără încă o citire; o masă fără token apare acolo „de făcut”.
+    const rows = createdTables as Array<{ id: string; name: string }>
+    const tokens = rows.map((tbl) => ({ restaurant_id: restaurantId, table_id: tbl.id }))
+    const { data: tokenRows, error: qrErr } = await supabase
+      .from('qr_tokens')
+      .insert(tokens)
+      .select('table_id, token')
+    const tokenByTable = new Map<string, string>()
+    for (const row of (tokenRows ?? []) as Array<{ table_id: string; token: string }>) {
+      tokenByTable.set(row.table_id, row.token)
+    }
 
     await markOnboarding(restaurantId, { table_created: true, qr_generated: !qrErr })
-    onNext()
+    onNext({
+      kind: 'tables',
+      qrOk: !qrErr,
+      tables: rows.map((tbl) => ({ name: tbl.name, token: tokenByTable.get(tbl.id) ?? null })),
+    })
   }
 
-  // Ramura „fără mese": activăm pickup + pickup_only (UPDATE direct e permis —
-  // pickup_settings are grant column-level 096B + e în RESTAURANT_UPDATE_FIELDS)
-  // și marcăm pașii de mese/QR ca rezolvați semantic (QR-ul general = slug-ul).
-  const handlePickupOnly = async () => {
+  // Ramura „fără mese". Cu `pickup_orders` (verificat, nu presupus): activăm
+  // pickup + pickup_only (UPDATE direct e permis — pickup_settings are grant
+  // column-level 096B + e în RESTAURANT_UPDATE_FIELDS) și marcăm pașii de
+  // mese/QR ca rezolvați semantic (QR-ul general = slug-ul). Fără el: doar
+  // QR-ul general, ridicarea rămâne oprită.
+  const handleNoTables = async () => {
     setSaving(true)
     setError(null)
+    let pickup = hasPickup
+    if (pickup === null) {
+      // Încă necunoscut (citire în curs sau picată): îl citim acum, o dată.
+      const f = await fetchRestaurantFeatures(restaurantId).catch(() => null)
+      pickup = f ? hasFeature(f, 'pickup_orders') : null
+      setHasPickup(pickup)
+      if (pickup === null) {
+        setError(t.step3.planUnknownError)
+        setSaving(false)
+        return
+      }
+      if (!pickup) {
+        // Butonul devine „QR-ul general”, cu explicația planului dedesubt:
+        // omul a cerut ridicare, deci nu-l ducem mai departe fără să vadă de ce.
+        setSaving(false)
+        return
+      }
+    }
+    if (!pickup) {
+      await markOnboarding(restaurantId, { qr_generated: true })
+      onNext({ kind: 'general-qr' })
+      return
+    }
     const { error: pErr } = await supabase
       .from('restaurants')
       .update({
@@ -1131,7 +1203,7 @@ function Step3Table({
       return
     }
     await markOnboarding(restaurantId, { table_created: true, qr_generated: true })
-    onNext()
+    onNext({ kind: 'pickup' })
   }
 
   return (
@@ -1309,10 +1381,10 @@ function Step3Table({
         </button>
         {/* Food truck / tejghea (E3): activează pickup + modul „doar ridicare"
             — fără mese; QR-ul general /m/:slug devine QR-ul principal. */}
-        <button onClick={handlePickupOnly} disabled={saving} style={btnSecondary}>
-          {t.step3.pickupOnlyBtn}
+        <button onClick={() => void handleNoTables()} disabled={saving} style={btnSecondary}>
+          {hasPickup === false ? t.step3.generalQrBtn : t.step3.pickupOnlyBtn}
         </button>
-        {!hasPickup && (
+        {hasPickup === false && (
           <div
             style={{
               fontSize: '0.74rem',
@@ -1332,18 +1404,72 @@ function Step3Table({
 // ═══════════════════════════════════════════════════════════════
 // STEP 4 — Gata!
 // ═══════════════════════════════════════════════════════════════
+// Iconița fiecărei bife de pe ecranul final.
+const SUMMARY_ICONS: Record<SummaryKey, IconName> = {
+  restaurant: 'home',
+  'menu-products': 'menu',
+  'menu-empty': 'menu',
+  'tables-qr': 'table',
+  'tables-no-qr': 'table',
+  pickup: 'table',
+  'general-qr': 'qr',
+  'tables-skipped': 'table',
+  'orders-ready': 'qr',
+  'menu-qr-ready': 'qr',
+}
+
+function summaryLabel(item: SummaryItem): string {
+  const n = item.count ?? 0
+  switch (item.key) {
+    case 'restaurant':
+      return t.step4.summaryRestaurant
+    case 'menu-products':
+      return t.step4.summaryMenuProducts(n)
+    case 'menu-empty':
+      return t.step4.summaryMenuEmpty
+    case 'tables-qr':
+      return t.step4.summaryTablesQr(n)
+    case 'tables-no-qr':
+      return t.step4.summaryTablesNoQr
+    case 'pickup':
+      return t.step4.summaryPickup
+    case 'general-qr':
+      return t.step4.summaryGeneralQr
+    case 'tables-skipped':
+      return t.step4.summaryTablesSkipped
+    case 'orders-ready':
+      return t.step4.ordersReady
+    case 'menu-qr-ready':
+      return t.step4.menuQrReady
+  }
+}
+
 function Step4Done({
   restaurantId,
   slug,
+  restaurantName,
+  menu,
+  tables,
+  pendingPlan,
   onComplete,
 }: {
   restaurantId: string
   slug: string
+  restaurantName: string
+  menu: MenuOutcome
+  tables: TablesOutcome
+  pendingPlan: PlanIntentId | null
   onComplete: () => void
 }) {
   // Linkul de distribuit urmează politica de domeniu (D3): pe un host .com NU
-  // trimitem spre un domeniu care nu ne aparține.
-  const menuUrl = `${publicBaseUrl(window.location.hostname, import.meta.env.VITE_APP_URL, window.location.origin)}/m/${slug}`
+  // trimitem spre un domeniu care nu ne aparține. Aceeași bază ca QR-urile
+  // meselor din Mese & QR (TablesManager).
+  const publicBase = publicBaseUrl(
+    window.location.hostname,
+    import.meta.env.VITE_APP_URL,
+    window.location.origin,
+  )
+  const menuUrl = `${publicBase}/m/${slug}`
   // Feedback la copiere — fără el, click-ul părea că nu face nimic (iar în
   // browsere fără clipboard API eșua complet tăcut).
   const [copied, setCopied] = useState(false)
@@ -1386,10 +1512,54 @@ function Step4Done({
     }
   }, [restaurantId])
 
-  const achievements: { icon: IconName; title: string; done: boolean }[] = [
-    ...t.step4.achievements,
-    canOrder ? t.step4.ordersReady : t.step4.menuQrReady,
-  ].map((a) => ({ ...a, done: true }))
+  // Bifele din ce s-a întâmplat REAL în pașii 2–3 (lib/onboardingSummary.ts).
+  const summary = onboardingSummary(menu, tables, canOrder)
+  const allDone = summary.every((item) => item.done)
+  const hasMenu = menu.kind === 'products' && menu.count > 0
+
+  // PDF-ul de tipărit, direct de aici: mesele create (grilă 6/A4) sau, fără
+  // mese cu QR, posterul cu QR-ul meniului general. lib/qrPdf (și jsPDF) se
+  // încarcă abia la apăsare.
+  const printable = printableTables(tables)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const [pdfError, setPdfError] = useState(false)
+  const downloadQr = async () => {
+    if (pdfBusy) return
+    setPdfBusy(true)
+    setPdfError(false)
+    try {
+      const { downloadQrPdf } = await import('../lib/qrPdf')
+      await downloadQrPdf(
+        printable.length > 0
+          ? {
+              restaurantName,
+              primaryColor: ONBOARDING_ACCENT,
+              cards: printable.map((tb) => ({
+                label: tb.name,
+                url: `${publicBase}/q/${tb.token}`,
+              })),
+              format: 'grid',
+              canOrder,
+              brandHost: siteHost(),
+            }
+          : {
+              restaurantName,
+              primaryColor: ONBOARDING_ACCENT,
+              cards: [{ label: t.step4.qrMenuCardLabel, url: menuUrl }],
+              format: 'poster',
+              // QR-ul general deschide meniul; comenzile de la masă cer QR-ul mesei.
+              canOrder: false,
+              brandHost: siteHost(),
+              filePrefix: 'QR-Meniu',
+            },
+      )
+    } catch (e) {
+      console.error('[onboarding] PDF-ul cu QR-uri a eșuat:', e)
+      setPdfError(true)
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
   return (
     <Shell>
@@ -1419,16 +1589,19 @@ function Step4Done({
             marginBottom: 8,
           }}
         >
-          {t.step4.title}
+          {allDone ? t.step4.title : t.step4.titlePending}
         </h1>
-        <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6 }}>{t.step4.subtitle}</p>
+        <p style={{ color: D.t2, fontSize: '0.85rem', lineHeight: 1.6 }}>
+          {allDone ? t.step4.subtitle : t.step4.subtitlePending}
+        </p>
       </div>
 
-      {/* Achievements */}
+      {/* Bifele: din ce s-a întâmplat real, nu hard-codate */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 22 }}>
-        {achievements.map((a) => (
+        {summary.map((item) => (
           <div
-            key={a.title}
+            key={item.key}
+            data-testid={`ob-summary-${item.key}`}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1436,14 +1609,86 @@ function Step4Done({
               background: D.s2,
               borderRadius: 10,
               padding: '10px 14px',
-              border: `1px solid ${D.border}`,
+              border: `1px solid ${item.done ? D.border : `${D.gold}55`}`,
             }}
           >
-            <Icon name={a.icon} size={18} color={D.gold} />
-            <span style={{ fontSize: '0.875rem', color: D.t1, flex: 1 }}>{a.title}</span>
-            <Icon name="check" size={16} color={D.green} label={t.step4.achievementDoneLabel} />
+            <Icon name={SUMMARY_ICONS[item.key]} size={18} color={item.done ? D.gold : D.t3} />
+            <span style={{ fontSize: '0.875rem', color: item.done ? D.t1 : D.t2, flex: 1 }}>
+              {summaryLabel(item)}
+            </span>
+            {item.done ? (
+              <Icon name="check" size={16} color={D.green} label={t.step4.achievementDoneLabel} />
+            ) : (
+              <span
+                style={{
+                  fontSize: '0.7rem',
+                  color: D.goldL,
+                  background: D.goldA,
+                  borderRadius: 6,
+                  padding: '3px 8px',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+              >
+                {t.step4.achievementPendingLabel}
+              </span>
+            )}
           </div>
         ))}
+      </div>
+
+      {/* QR-ul de tipărit, chiar de aici (înainte: încă 4 apăsări până în Mese & QR) */}
+      <div
+        style={{
+          background: D.s2,
+          borderRadius: 10,
+          padding: '14px 16px',
+          marginBottom: 22,
+          border: `1px solid ${D.gold}55`,
+        }}
+      >
+        <div style={{ fontSize: '0.9rem', color: D.t1, fontWeight: 600, marginBottom: 4 }}>
+          {printable.length > 0 ? t.step4.qrTablesTitle : t.step4.qrMenuTitle}
+        </div>
+        <div style={{ fontSize: '0.78rem', color: D.t2, lineHeight: 1.5, marginBottom: 12 }}>
+          {printable.length > 0 ? t.step4.qrTablesHint(printable.length) : t.step4.qrMenuHint}
+        </div>
+        <button
+          onClick={() => void downloadQr()}
+          disabled={pdfBusy}
+          style={{
+            width: '100%',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            minHeight: 44,
+            background: D.goldA,
+            color: D.goldL,
+            border: `1px solid ${D.gold}`,
+            borderRadius: 9,
+            fontFamily: 'DM Sans,sans-serif',
+            fontSize: '0.88rem',
+            fontWeight: 700,
+            cursor: pdfBusy ? 'not-allowed' : 'pointer',
+            opacity: pdfBusy ? 0.7 : 1,
+          }}
+        >
+          <Icon name="printer" size={16} />
+          {pdfBusy
+            ? t.step4.qrBusyBtn
+            : printable.length > 0
+              ? t.step4.qrTablesBtn
+              : t.step4.qrMenuBtn}
+        </button>
+        {pdfError && (
+          <div role="alert" style={{ marginTop: 10 }}>
+            <ErrorBox msg={t.step4.qrError} />
+          </div>
+        )}
+        <div style={{ fontSize: '0.72rem', color: D.t3, marginTop: 10, lineHeight: 1.5 }}>
+          {t.step4.qrOtherFormats}
+        </div>
       </div>
 
       {/* Menu URL */}
@@ -1524,11 +1769,9 @@ function Step4Done({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="orders" size={15} color={D.t3} />
-              <span>{t.step4.nextStepAddProducts}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Icon name="printer" size={15} color={D.t3} />
-              <span>{t.step4.nextStepPrintQr}</span>
+              <span>
+                {hasMenu ? t.step4.nextStepAddProducts : t.step4.nextStepAddFirstProducts}
+              </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="users" size={15} color={D.t3} />
@@ -1549,7 +1792,11 @@ function Step4Done({
         disabled={finishing}
         style={finishing ? btnDisabled : btnPrimary}
       >
-        {finishing ? t.step4.finishingBtn : t.step4.doneBtn}
+        {finishing
+          ? t.step4.finishingBtn
+          : pendingPlan
+            ? t.step4.continuePlanBtn(PLAN_LABELS[pendingPlan] ?? pendingPlan)
+            : t.step4.doneBtn}
       </button>
     </Shell>
   )
@@ -1562,16 +1809,32 @@ interface OnboardingState {
   step: 1 | 2 | 3 | 4
   restaurantId: string | null
   slug: string | null
+  name: string
+  // Rezultatele REALE ale pașilor 2 și 3 (ecranul final bifează după ele).
+  menu: MenuOutcome
+  tables: TablesOutcome
 }
 
-export default function OnboardingPage({ onComplete }: { onComplete: () => void }) {
+export default function OnboardingPage({
+  onComplete,
+  pendingPlan = null,
+}: {
+  onComplete: () => void
+  // Planul ales înainte de cont (lib/planIntent.ts): după onboarding, App duce
+  // omul la activarea lui. Aici doar numește pasul următor pe butonul final.
+  pendingPlan?: PlanIntentId | null
+}) {
+  // Fără carduri PWA peste butoanele pașilor (lib/pwaGate.ts): „Instalează
+  // Menuvia” apărea la 30 s exact în mijlocul onboarding-ului.
+  useSuppressPwaPrompts()
   const [state, setState] = useState<OnboardingState>({
     step: 1,
     restaurantId: null,
     slug: null,
+    name: '',
+    menu: { kind: 'skipped' },
+    tables: { kind: 'skipped' },
   })
-
-  const goTo = (step: 1 | 2 | 3 | 4) => setState((s) => ({ ...s, step }))
 
   // Telemetria funelului de activare (audit aug 2026): 4/4 utilizatori reali
   // au murit la „introdu meniul" și nu am aflat din date. track e no-op fără
@@ -1585,9 +1848,9 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
   if (state.step === 1) {
     return (
       <Step1Restaurant
-        onNext={(restaurantId, slug) => {
+        onNext={(restaurantId, slug, name) => {
           completeStep(1)
-          setState({ step: 2, restaurantId, slug })
+          setState((s) => ({ ...s, step: 2, restaurantId, slug, name }))
         }}
       />
     )
@@ -1597,13 +1860,13 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
     return (
       <Step2Menu
         restaurantId={state.restaurantId!}
-        onNext={() => {
+        onNext={(outcome) => {
           completeStep(2)
-          goTo(3)
+          setState((s) => ({ ...s, step: 3, menu: outcome }))
         }}
         onSkip={() => {
           completeStep(2, true)
-          goTo(3)
+          setState((s) => ({ ...s, step: 3, menu: { kind: 'skipped' } }))
         }}
       />
     )
@@ -1613,13 +1876,13 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
     return (
       <Step3Table
         restaurantId={state.restaurantId!}
-        onNext={() => {
+        onNext={(outcome) => {
           completeStep(3)
-          goTo(4)
+          setState((s) => ({ ...s, step: 4, tables: outcome }))
         }}
         onSkip={() => {
           completeStep(3, true)
-          goTo(4)
+          setState((s) => ({ ...s, step: 4, tables: { kind: 'skipped' } }))
         }}
       />
     )
@@ -1629,6 +1892,10 @@ export default function OnboardingPage({ onComplete }: { onComplete: () => void 
     <Step4Done
       restaurantId={state.restaurantId!}
       slug={state.slug!}
+      restaurantName={state.name}
+      menu={state.menu}
+      tables={state.tables}
+      pendingPlan={pendingPlan}
       onComplete={() => {
         track('onboarding_completed')
         onComplete()

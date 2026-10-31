@@ -18,6 +18,10 @@
 // Idempotent: re-running shouldn't cause duplicate emails (dedup_key on queue).
 
 const { createClient } = require('@supabase/supabase-js')
+// Alertele de BANI și GDPR merg pe email (`founder_alert`), nu doar pe Slack:
+// Slack e oprit (decizia D4), deci postCronAlert/postCronNotice sunt no-op în
+// producție. Vezi lib/founderAlert.js (dedup o dată pe zi per tip).
+const { enqueueFounderAlert } = require('./lib/founderAlert')
 
 // ── Lățimea tick-ului, în cod, nu în proză (OPS-14) ──────────────────────────
 // Gate-urile temporale de mai jos NU sunt ferestre de ceas arbitrare: sunt
@@ -287,6 +291,14 @@ exports.handler = async () => {
       // Eșec = conturi GDPR neșterse la termen → vizibil în logs (conformitate).
       console.error('[automation-cron] account deletions FAILED:', e.message)
       await postCronAlert('account-deletions', e.message)
+      await enqueueFounderAlert(supabase, {
+        kind: 'gdpr_deletions_failed',
+        title: 'Ștergerile de cont (GDPR) au eșuat',
+        details:
+          `process_account_deletions a eșuat: ${e.message}\n` +
+          'Conturile cu cerere de ștergere ajunse la termen NU au fost șterse. ' +
+          'Termenul legal (Art. 17) curge — verifică azi.',
+      })
       results.account_deletions_error = e.message
     }
   }
@@ -328,6 +340,14 @@ exports.handler = async () => {
             'affiliate-payout',
             `${batchErrors} afiliat(i) săriți de batch-ul ${period} — reia din FounderPage după remediere`,
           )
+          await enqueueFounderAlert(supabase, {
+            kind: 'payout_batch_partial',
+            title: `Batch-ul de comisioane ${period} a sărit ${batchErrors} afiliat(i)`,
+            details:
+              `${batchErrors} afiliat(i) nu au primit draft de plată pentru ${period}. ` +
+              'Batch-ul automat nu se mai reia pe perioada asta — reia-l din panoul ' +
+              'de fondator („Rulează batch-ul") după remediere.',
+          })
         }
         // Reminder founder: dacă batch-ul a creat draft-uri (data.created > 0),
         // ele stau în status 'draft' și necesită procesare manuală (factură + Wise).
@@ -338,12 +358,27 @@ exports.handler = async () => {
             'affiliate-payout',
             `${created} draft-uri de plată create, necesită procesare Wise`,
           )
+          await enqueueFounderAlert(supabase, {
+            kind: 'payout_drafts_ready',
+            title: `${created} plăți de comision așteaptă transferul`,
+            details:
+              `Batch-ul ${period} a creat ${created} draft-uri de plată. Fără procesarea ` +
+              'lor (factură + transfer), afiliații rămân neplătiți.',
+          })
         }
       }
     } catch (e) {
       // Batch ratat = afiliați neplătiți luna respectivă → vizibil în logs (OPS-1).
       console.error('[automation-cron] payout batch FAILED:', e.message)
       await postCronAlert('affiliate-payout', e.message)
+      await enqueueFounderAlert(supabase, {
+        kind: 'payout_batch_failed',
+        title: 'Batch-ul lunar de comisioane a eșuat',
+        details:
+          `run_affiliate_payout_batch a eșuat: ${e.message}\n` +
+          'Se reîncearcă la tick-urile următoare din primele 2 zile ale lunii; ' +
+          'altfel rulează-l din panoul de fondator.',
+      })
       results.affiliate_payout_error = e.message
     }
   }
@@ -442,12 +477,27 @@ exports.handler = async () => {
             `(retry-urile Stripe s-au epuizat sau se vor epuiza) — necesită investigare manuală. ` +
             `Tipuri: ${types}. Cele mai vechi: ${ids}`,
         )
+        await enqueueFounderAlert(supabase, {
+          kind: 'stripe_events_failed',
+          title: `${count} evenimente Stripe blocate pe „failed”`,
+          details:
+            `${count} evenimente Stripe au eșuat de peste o oră (abonamente, comisioane, ` +
+            `credite AI) — retry-urile Stripe se epuizează în ~3 zile.\n` +
+            `Tipuri: ${types}\nCele mai vechi: ${ids}`,
+        })
       }
     } catch (e) {
       // Eșecul scanului însuși nu trebuie să treacă neobservat — e exact
       // mecanismul care ne spune că banii/comisioanele au probleme.
       console.error('[automation-cron] stripe failed-events scan FAILED:', e.message)
       await postCronAlert('stripe-failed-events', e.message)
+      await enqueueFounderAlert(supabase, {
+        kind: 'stripe_events_scan_failed',
+        title: 'Verificarea evenimentelor Stripe eșuate nu a rulat',
+        details:
+          `Scanarea stripe_events a eșuat: ${e.message}\n` +
+          'Până se repară, un webhook Stripe picat (abonament, comision) nu mai e semnalat.',
+      })
       results.stripe_failed_scan_error = e.message
     }
     })())

@@ -23,6 +23,8 @@
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 const dns = require('dns').promises
+// Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
+const { aiError, isTimeoutError } = require('./lib/aiErrors')
 
 function jsonResponse(statusCode, body) {
   return {
@@ -315,50 +317,51 @@ async function callGemini({ apiKey, model, system, messages, maxTokens }) {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' }
+    return aiError(405, 'method_not_allowed')
   }
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, AI_CONFIG_SECRET } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
     console.error('[ai-proxy] Missing env vars')
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
   if (AI_CONFIG_SECRET.length < 32) {
     console.error('[ai-proxy] AI_CONFIG_SECRET prea scurt (<32)')
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
 
   // ── Auth ───────────────────────────────────────────────────
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
-  if (!token) return jsonResponse(401, { error: 'Missing Authorization header' })
+  if (!token) return aiError(401, 'auth_missing')
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   })
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) return jsonResponse(401, { error: 'Invalid or expired token' })
+  if (authError || !user) return aiError(401, 'auth_invalid')
 
   let body
   try {
     body = JSON.parse(event.body || '{}')
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return aiError(400, 'bad_json')
   }
 
   const { restaurant_id, feature, system, messages, max_tokens } = body
 
-  if (!restaurant_id) return jsonResponse(400, { error: 'Missing restaurant_id' })
+  if (!restaurant_id) return aiError(400, 'missing_restaurant')
   if (!['chat', 'menu_import', 'nutrition', 'translate'].includes(feature)) {
-    return jsonResponse(400, { error: 'Invalid feature' })
+    return aiError(400, 'invalid_feature')
   }
   if (!Array.isArray(messages) || messages.length === 0) {
-    return jsonResponse(400, { error: 'Missing messages' })
+    return aiError(400, 'missing_messages')
   }
-  // Plafon anti-abuz pe dimensiunea payload-ului.
+  // Plafon anti-abuz pe dimensiunea payload-ului (413 = „prea mare", nu 400:
+  // clientul îl recunoaște și fără cod, după status).
   if ((event.body || '').length > 8 * 1024 * 1024) {
-    return jsonResponse(400, { error: 'Payload too large (max 8MB)' })
+    return aiError(413, 'payload_too_large')
   }
   // Plafon 8192, nu 4096 (audit aug 2026): importul multi-poză (4 pagini de
   // meniu) are output JSON de ~6-8k tokens — clamp-ul vechi îl TRUNCA
@@ -379,10 +382,10 @@ exports.handler = async (event) => {
     // doar pentru funcțiile de meniu. Ordinea contează: feature-ul se verifică
     // ÎNAINTEA oricărui apel de rețea (un `chat` al unui agent nu costă nimic).
     if (!AGENT_FEATURES.includes(feature)) {
-      return jsonResponse(403, { error: 'Forbidden' })
+      return aiError(403, 'forbidden')
     }
     if (!(await userHasPartnerAccess(token, restaurant_id))) {
-      return jsonResponse(403, { error: 'Forbidden' })
+      return aiError(403, 'forbidden')
     }
   }
 
@@ -395,7 +398,7 @@ exports.handler = async (event) => {
 
   if (cfgErr) {
     console.error('[ai-proxy] config load error:', cfgErr.message)
-    return jsonResponse(500, { error: 'Could not load AI config' })
+    return aiError(500, 'config_load_failed')
   }
   // Fără rând salvat = starea IMPLICITĂ: asistentul e ACTIV pe cheia
   // platformei, furnizorul default — un cont nou are AI „din prima", fără
@@ -409,7 +412,7 @@ exports.handler = async (event) => {
     enabled: true,
   }
   if (!config.enabled) {
-    return jsonResponse(400, { error: 'AI este dezactivat pentru acest restaurant.' })
+    return aiError(400, 'ai_disabled')
   }
 
   const provider = config.provider
@@ -425,18 +428,18 @@ exports.handler = async (event) => {
       apiKey = decrypt(config.api_key_encrypted, AI_CONFIG_SECRET)
     } catch (e) {
       console.error('[ai-proxy] decrypt error:', e.message)
-      return jsonResponse(500, { error: 'Could not load API key' })
+      return aiError(500, 'key_load_failed')
     }
   } else {
     apiKey = process.env[`PLATFORM_${provider.toUpperCase()}_KEY`]
     if (!apiKey) {
-      return jsonResponse(400, { error: 'Asistentul AI nu e configurat pentru acest furnizor.' })
+      return aiError(400, 'provider_key_missing')
     }
   }
 
   const model = (config.model && config.model.trim()) || DEFAULT_MODEL[provider]
   if (!model) {
-    return jsonResponse(400, { error: 'Lipsește modelul în configurație.' })
+    return aiError(400, 'model_missing')
   }
 
   // Anti-SSRF: verificare TIMPURIE (fail-fast) a base_url-ului stocat (custom) —
@@ -449,7 +452,7 @@ exports.handler = async (event) => {
       safeBaseUrl = await assertSafeBaseUrl(config.base_url)
     } catch (e) {
       console.error('[ai-proxy] base_url respins la request:', e instanceof Error ? e.message : e)
-      return jsonResponse(400, { error: 'Endpoint-ul AI configurat nu este permis. Verifică setările.' })
+      return aiError(400, 'base_url_rejected')
     }
   }
 
@@ -462,13 +465,10 @@ exports.handler = async (event) => {
   })
   if (quotaErr) {
     console.error('[ai-proxy] ai_can_use error:', quotaErr.message)
-    return jsonResponse(500, { error: 'Could not verify AI quota' })
+    return aiError(500, 'quota_check_failed')
   }
   if (canUse === false) {
-    return jsonResponse(429, {
-      error: 'Ai atins limita de tokens AI inclusă. Cumpără credite suplimentare pentru a continua.',
-      code: 'quota_exceeded',
-    })
+    return aiError(429, 'quota_exceeded')
   }
 
   // ── Apel provider ──────────────────────────────────────────
@@ -503,7 +503,9 @@ exports.handler = async (event) => {
       p_success: false,
       p_error: String(e.message).slice(0, 500),
     })
-    return jsonResponse(502, { error: 'AI provider request failed' })
+    // Timeout-ul (AbortSignal.timeout, PROVIDER_TIMEOUT_MS) are mesaj propriu:
+    // la importul de meniu, remediul e concret (mai puține poze), nu „reîncearcă".
+    return isTimeoutError(e) ? aiError(504, 'provider_timeout') : aiError(502, 'provider_failed')
   }
 
   // ── Înregistrează consumul (scade cota la succes) ──────────

@@ -13,6 +13,14 @@
 // se auto-atașează prin closest(), fără ref-uri de cablat în fiecare dialog
 // (precedentul PairingPopupScrollLock din QrMenuPage: componentă-copil montată
 // doar cât timp dialogul există).
+//
+// `onEscape` (opțional): Escape închide DOAR dialogul din vârful stivei. Un
+// ascultător pe `window` per dialog închidea ambele straturi la o singură
+// apăsare (ex. confirmarea „Șterge produsul?" deschisă peste modalul de produs:
+// Escape anula confirmarea ȘI arunca formularul de dedesubt). Ascultătorul e în
+// faza de BUBBLE pe document, deci un control din dialog care își tratează
+// singur Escape-ul (un meniu, o listă de sugestii) și face preventDefault /
+// stopPropagation are prioritate.
 
 import { useEffect, useRef, useState } from 'react'
 
@@ -33,9 +41,15 @@ function focusables(container: HTMLElement): HTMLElement[] {
   return visible.length > 0 ? visible : all
 }
 
-export function FocusTrap() {
+export function FocusTrap({ onEscape }: { onEscape?: () => void }) {
   const markerRef = useRef<HTMLSpanElement>(null)
   const [container, setContainer] = useState<HTMLElement | null>(null)
+  // Ultima versiune a callback-ului, fără să re-armăm capcana la fiecare
+  // randare a părintelui (efectul de mai jos depinde doar de container).
+  const onEscapeRef = useRef(onEscape)
+  useEffect(() => {
+    onEscapeRef.current = onEscape
+  })
 
   // Pas 1: markerul (span invizibil) își găsește dialogul-gazdă în DOM.
   useEffect(() => {
@@ -78,11 +92,25 @@ export function FocusTrap() {
       }
     }
 
+    const onEscapeKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      const handler = onEscapeRef.current
+      if (!handler) return
+      // Doar vârful stivei: un dialog de dedesubt nu se închide odată cu cel
+      // de deasupra (stiva se actualizează abia la demontare, deci în aceeași
+      // apăsare dialogul de jos încă vede confirmarea deasupra lui).
+      if (trapStack[trapStack.length - 1] !== container) return
+      e.preventDefault()
+      handler()
+    }
+
     // Capture pe document: prinde Tab-ul chiar dacă focusul a scăpat deja
     // în afara dialogului (ex. click pe backdrop care nu închide).
     document.addEventListener('keydown', onKeyDown, true)
+    document.addEventListener('keydown', onEscapeKey)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('keydown', onEscapeKey)
       const idx = trapStack.lastIndexOf(container)
       if (idx >= 0) trapStack.splice(idx, 1)
       // Focusul se întoarce la deschizător (dacă mai există în DOM) — pentru

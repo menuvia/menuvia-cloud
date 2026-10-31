@@ -7,6 +7,9 @@ import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
+import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
+import { pickupCardDescription, pickupFeatureFromToggle, pickupToggleNotice } from '../lib/pickupCopy'
+import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
@@ -136,12 +139,17 @@ export default function SettingsTab({
   restaurant,
   onUpdate,
   plan,
+  planKnown,
   onSignOut,
   modulesState,
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
   plan: string
+  // `plan` cade pe 'free' cât timp features nu s-au încărcat (DashboardPage);
+  // `planKnown` spune dacă valoarea e reală. Obligatoriu: un apel care l-ar
+  // omite ar transforma „nu știu" în „planul tău nu include".
+  planKnown: boolean
   onSignOut: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
 }) {
@@ -200,14 +208,16 @@ export default function SettingsTab({
       canvas.height = Math.round(img.height * scale)
       ctx2d.drawImage(img, 0, 0, canvas.width, canvas.height)
       URL.revokeObjectURL(url)
-      const blob = await new Promise<Blob | null>((res) =>
-        canvas.toBlob((b) => res(b), 'image/webp', 0.85),
-      )
-      if (!blob) throw new Error('blob create failed')
-      const path = user.id + '/' + restaurant.id + '/' + kind + '/' + crypto.randomUUID() + '.webp'
+      // WebP unde se poate; pe Safari (iPhone) JPEG pentru cover/pagini și PNG
+      // pentru logo (păstrează transparența). Extensia + Content-Type vin din ce
+      // a codat EFECTIV browserul — înainte, Safari urca PNG sub nume `.webp`,
+      // iar cover-ul de 1600 px (LCP-ul meniului public) ajungea la câțiva MB.
+      const encoded = await encodeForUpload(canvas, { quality: 0.85, alpha: kind === 'logo' })
+      const path =
+        user.id + '/' + restaurant.id + '/' + kind + '/' + crypto.randomUUID() + '.' + encoded.ext
       const { error } = await supabase.storage
         .from('product-images')
-        .upload(path, blob, { contentType: 'image/webp' })
+        .upload(path, encoded.blob, { contentType: encoded.contentType })
       if (error) throw error
       const { data } = supabase.storage.from('product-images').getPublicUrl(path)
       return data.publicUrl
@@ -373,6 +383,18 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
+  // Ridicarea se pornește doar pe planurile cu `pickup_orders` (lib/pickupAvailability).
+  // Din aceeași stare se derivă și textele cardului (lib/pickupCopy.ts): pagina
+  // publică arată ridicarea doar cu `pickup_orders` (mig 309), deci descrierea
+  // promite comenzi DOAR pe `available`, iar nota de sub comutator e UNA. Fără
+  // `useFeatures` aici: `plan` vine deja din `useFeatures(restaurantId)` din
+  // DashboardPage (planul RESTAURANTULUI, regula 3).
+  const pickupState = pickupToggleState(
+    planKnown ? plan : null,
+    form.pickup_settings?.enabled ?? false,
+  )
+  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState))
+  const pickupNotice = pickupToggleNotice(pickupState)
 
   return (
     <div>
@@ -485,7 +507,12 @@ export default function SettingsTab({
                   >
                     {label}
                   </label>
-                  <Inp value={String(form[k] || '')} onChange={(v) => upd(k, v)} placeholder={ph} />
+                  <Inp
+                    label={label.replace(/\s*\*$/, '')}
+                    value={String(form[k] || '')}
+                    onChange={(v) => upd(k, v)}
+                    placeholder={ph}
+                  />
                 </div>
               ))}
             </SettingsCard>
@@ -861,6 +888,7 @@ export default function SettingsTab({
               desc="Afișată în meniu sub formă vizibilă. Lasă gol dacă nu vrei să publici."
             >
               <Inp
+                label="Parolă WiFi"
                 value={form.wifi_password ?? ''}
                 onChange={(v) => upd('wifi_password', v.trim() || null)}
                 placeholder="ex: tinctura2024"
@@ -886,6 +914,7 @@ export default function SettingsTab({
                       {label}
                     </label>
                     <Inp
+                      label={label}
                       value={socials[k] ?? ''}
                       onChange={(v) =>
                         upd('socials', {
@@ -910,6 +939,7 @@ export default function SettingsTab({
                 Google Place ID
               </label>
               <Inp
+                label="Google Place ID"
                 value={form.google_place_id ?? ''}
                 onChange={(v) => upd('google_place_id', v.trim() || null)}
                 placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
@@ -1016,6 +1046,7 @@ export default function SettingsTab({
                   {siteHost()}/m/
                 </span>
                 <Inp
+                  label="Adresa meniului (slug)"
                   value={form.slug || ''}
                   onChange={(v) => upd('slug', slugifyWhileTyping(v))}
                   placeholder="slug-url"
@@ -1402,8 +1433,13 @@ export default function SettingsTab({
                   </label>
 
                   {/* Comanda din meniu nu are carduri pe flipbook — spunem explicit
-                      localurilor care AU comenzi active (plan cu comenzi sau pickup). */}
-                  {(planTier(plan) >= 2 || (form.pickup_settings?.enabled ?? false)) && (
+                      localurilor care AU comenzi active, adică planului cu comenzi.
+                      Nota sugerează că pe celelalte stiluri se poate comanda, deci
+                      NU se aprinde pe ridicarea pornită a unui plan fără ea: din
+                      mig 309 pagina publică n-o arată, iar fără planul cu comenzi
+                      nu există nimic de comandat pe niciun stil (PS5). Pe planul
+                      necunoscut DashboardPage trimite 'free', deci nota tace. */}
+                  {planTier(plan) >= 2 && (
                     <div
                       style={{
                         fontSize: '0.7rem',
@@ -1480,6 +1516,7 @@ export default function SettingsTab({
                         <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>{el.desc}</div>
                       </div>
                       <Toggle
+                        label={el.name}
                         value={value}
                         onChange={(v) =>
                           // Păstrăm tema/accentul/layout-ul; schimbăm doar un element.
@@ -1520,6 +1557,7 @@ export default function SettingsTab({
                   </div>
                   {planTier(plan) >= 2 ? (
                     <Toggle
+                      label={'Afișează badge-ul „Creat cu Menuvia"'}
                       value={!(form.theme_settings?.hide_branding ?? false)}
                       onChange={(v) => updTheme({ hide_branding: !v })}
                     />
@@ -1656,6 +1694,7 @@ export default function SettingsTab({
                       </div>
                     </div>
                     <Toggle
+                      label="Rezervări"
                       value={modulesState.isEnabled('reservations')}
                       onChange={(v) => {
                         modulesState
@@ -1709,21 +1748,46 @@ export default function SettingsTab({
               title="Comenzi pentru ridicare (click-and-collect)"
               desc={
                 <>
-                  Activează pagina ta publică{' '}
+                  {pickupDesc.lead}{' '}
                   <span style={{ color: D.gold }}>
                     {siteHost()}/m/{form.slug || 'slug'}
-                  </span>. Clienții
-                  pot comanda fără să scaneze QR și ridică direct de la restaurant. Plata cash la
-                  ridicare.
+                  </span>
+                  {pickupDesc.tail}
                 </>
               }
               right={
                 <Toggle
+                  label="Comenzi pentru ridicare"
                   value={form.pickup_settings?.enabled ?? false}
-                  onChange={(v) => updPickup({ enabled: v })}
+                  disabled={pickupState === 'locked' || pickupState === 'unknown'}
+                  onChange={(v) => {
+                    if (canSetPickupEnabled(pickupState, v)) updPickup({ enabled: v })
+                  }}
                 />
               }
             >
+              {pickupNotice && (
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                    fontSize: '0.75rem',
+                    lineHeight: 1.5,
+                    color: pickupState === 'locked_on' ? D.amber : D.t2,
+                    background: D.s3,
+                    borderRadius: 8,
+                    padding: '9px 12px',
+                  }}
+                >
+                  <Icon
+                    name={pickupState === 'unknown' ? 'info' : 'lock'}
+                    size={13}
+                    color={pickupState === 'locked_on' ? D.amber : D.t2}
+                  />
+                  <span>{pickupNotice}</span>
+                </div>
+              )}
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
@@ -1747,6 +1811,7 @@ export default function SettingsTab({
                       </div>
                     </div>
                     <Toggle
+                      label={'Mod „doar ridicare" (fără mese)'}
                       value={form.pickup_settings?.pickup_only ?? false}
                       onChange={(v) => updPickup({ pickup_only: v })}
                     />
@@ -1764,6 +1829,7 @@ export default function SettingsTab({
                         Pregătire minim (min)
                       </label>
                       <Inp
+                        label="Pregătire minim (minute)"
                         value={String(form.pickup_settings?.min_lead_time_minutes ?? 20)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1784,6 +1850,7 @@ export default function SettingsTab({
                         Interval slot (min)
                       </label>
                       <Inp
+                        label="Interval slot (minute)"
                         value={String(form.pickup_settings?.slot_interval_minutes ?? 15)}
                         onChange={(v) => {
                           const n = parseInt(v)
@@ -1806,6 +1873,7 @@ export default function SettingsTab({
                         Deschidere
                       </label>
                       <Inp
+                        label="Deschidere ridicare"
                         value={form.pickup_settings?.open_hours?.start ?? '09:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1830,6 +1898,7 @@ export default function SettingsTab({
                         Închidere
                       </label>
                       <Inp
+                        label="Închidere ridicare"
                         value={form.pickup_settings?.open_hours?.end ?? '21:00'}
                         onChange={(v) =>
                           updPickup({
@@ -1850,6 +1919,7 @@ export default function SettingsTab({
                       Instrucțiuni client (opțional)
                     </label>
                     <Inp
+                      label="Instrucțiuni client (opțional)"
                       value={form.pickup_settings?.instructions ?? ''}
                       onChange={(v) =>
                         updPickup({ instructions: v.length > 0 ? v : null })
@@ -1883,6 +1953,7 @@ export default function SettingsTab({
               desc="Sugerează automat produse din categorii lipsă din coș (ex: client a luat fel principal dar n-a luat desert)."
               right={
                 <Toggle
+                  label="Sugestii la coș"
                   value={form.checkout_suggestion_settings?.enabled ?? false}
                   onChange={(v) =>
                     upd('checkout_suggestion_settings', {
@@ -1911,6 +1982,7 @@ export default function SettingsTab({
                     Mesaj afișat
                   </label>
                   <Inp
+                    label="Mesaj afișat la sugestii"
                     value={form.checkout_suggestion_settings?.message ?? ''}
                     onChange={(v) =>
                       upd('checkout_suggestion_settings', {

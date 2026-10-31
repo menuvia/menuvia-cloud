@@ -102,8 +102,8 @@ function readSchedules(tomlPath) {
 const scheduledOnly = new Set(readSchedules(NETLIFY_TOML).map((j) => j.name));
 log('INFO', `Funcții cron-only (blocate pe HTTP public): ${[...scheduledOnly].sort().join(', ') || '(niciuna)'}`);
 
-// Matcher minimal de cron pe câmpurile minute + oră (acoperă toate joburile
-// Menuvia: */2, */5, */10, */15, "5,20,35,50"). Câmp: "*" | "*/n" | "a,b,c" | "n".
+// Matcher minimal de cron pe câmpurile minute + oră (acoperă formele folosite
+// în netlify.toml: "*/n" și liste "a,b"). Câmp: "*" | "*/n" | "a,b,c" | "n".
 function fieldMatches(field, value) {
   if (field === '*') return true;
   if (field.startsWith('*/')) {

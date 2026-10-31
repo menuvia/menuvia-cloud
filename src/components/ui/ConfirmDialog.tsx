@@ -40,17 +40,14 @@ export function ConfirmRoot() {
     [state],
   )
 
-  // ESC anulează; Enter confirmă.
-  useEffect(() => {
-    if (!state.open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close(false)
-      else if (e.key === 'Enter') close(true)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [state.open, close])
-
+  // Tastatura (audit a11y oct 2026): Escape anulează, prin capcana de focus —
+  // doar când confirmarea e dialogul din vârf, deci nu închide și modalul de
+  // dedesubt. Enter NU mai are ascultător global: acela confirma acțiunea
+  // distructivă chiar cu focusul pe „Anulează" (keydown-ul ajungea la `window`
+  // înaintea click-ului nativ al butonului focusat). Enter activează acum
+  // butonul FOCUSAT, ca în orice dialog nativ — iar focusul pornește pe
+  // confirmare (autoFocus), deci „Enter = confirmă" rămâne valabil cât timp
+  // utilizatorul nu a mutat focusul.
   if (!state.open || typeof document === 'undefined') return null
 
   return createPortal(
@@ -63,7 +60,7 @@ export function ConfirmRoot() {
         aria-labelledby="confirm-title"
         aria-describedby={state.description ? 'confirm-desc' : undefined}
       >
-        <FocusTrap />
+        <FocusTrap onEscape={() => close(false)} />
         <h3 id="confirm-title" className="confirm-dialog__title">
           {state.title}
         </h3>

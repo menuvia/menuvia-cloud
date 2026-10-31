@@ -16,7 +16,9 @@ export interface MenuTheme {
     surface2: string // subtle differentiation
     text: string // primary text
     text2: string // body text
-    text3: string // muted text
+    // Text secundar (etichete, note, prețuri barate). AA ≥4.5:1 pe bg, surface ȘI
+    // surface2 în toate temele — clichet în __tests__/themes-contrast.test.ts.
+    text3: string
     border: string // subtle borders
     borderStrong: string // emphasis borders
     accent: string // primary CTA + price
@@ -49,7 +51,7 @@ const cafe: MenuTheme = {
     surface2: '#F5F1EA',
     text: '#2A1F18',
     text2: '#6B5C45',
-    text3: '#9A8C7A',
+    text3: '#776A5C',
     border: '#E8DCC9',
     borderStrong: '#D4C8B8',
     accent: '#C56B5A',
@@ -75,7 +77,7 @@ const pizzeria: MenuTheme = {
     surface2: '#FFF5EE',
     text: '#1F1410',
     text2: '#5A3D2E',
-    text3: '#A08070',
+    text3: '#866A5D',
     border: '#F0DCC8',
     borderStrong: '#D8B898',
     accent: '#C8412C', // tomato red
@@ -101,7 +103,7 @@ const fineDining: MenuTheme = {
     surface2: '#252319',
     text: '#F5F1E8',
     text2: '#C8BFA8',
-    text3: '#8A7F65',
+    text3: '#958A72',
     border: '#2E2A20',
     borderStrong: '#3D3828',
     accent: '#D4AF6F', // muted gold
@@ -127,7 +129,7 @@ const pub: MenuTheme = {
     surface2: '#EAE5DA',
     text: '#1A1F18',
     text2: '#3F4838',
-    text3: '#7A8270',
+    text3: '#616859',
     border: '#D8D2C2',
     borderStrong: '#B8B0A0',
     accent: '#7B5828', // amber/dark wood
@@ -153,7 +155,7 @@ const mexican: MenuTheme = {
     surface2: '#FFF0D0',
     text: '#2A1810',
     text2: '#5C3D28',
-    text3: '#A88870',
+    text3: '#826653',
     border: '#F5DDA8',
     borderStrong: '#E0BC78',
     accent: '#E84A28', // bright red-orange
@@ -179,7 +181,7 @@ const asian: MenuTheme = {
     surface2: '#F0F0EC',
     text: '#0F0F0D',
     text2: '#3F3F3D',
-    text3: '#8F8F8B',
+    text3: '#6C6C69',
     border: '#E5E5E0',
     borderStrong: '#C8C8C0',
     accent: '#BC2C2C', // Japan red
@@ -205,7 +207,7 @@ const healthy: MenuTheme = {
     surface2: '#EAF0E0',
     text: '#1A2418',
     text2: '#3D5238',
-    text3: '#7A8F70',
+    text3: '#5D6F56',
     border: '#D8E5C8',
     borderStrong: '#B8CCA0',
     accent: '#5A8A3C', // fresh green
@@ -231,7 +233,7 @@ const mediterranean: MenuTheme = {
     surface2: '#EDF3F8',
     text: '#0F1A24',
     text2: '#2E4258',
-    text3: '#7090A8',
+    text3: '#567084',
     border: '#D0E0EC',
     borderStrong: '#9CB8D0',
     accent: '#1E5C8A', // santorini blue
@@ -285,25 +287,20 @@ function parseHexColor(input: string): [number, number, number] | null {
   return null
 }
 
-// Calcul WCAG relative luminance. Întoarce true pentru teme cu background
-// "dark" (fineDining în prezent), unde overlay-urile glass trebuie să fie
-// inversate (negru semi-transparent pe text alb) ca să rămână lizibile.
+// Întoarce true pentru teme cu background "dark" (fineDining în prezent), unde
+// overlay-urile glass trebuie să fie inversate (negru semi-transparent pe text
+// alb) ca să rămână lizibile. Același calcul WCAG ca `readableTextOn`
+// (`relativeLuminance`, mai jos) — nu o a doua copie a formulei.
 export function isDarkTheme(theme: MenuTheme): boolean {
-  const parsed = parseHexColor(theme.colors.bg)
-  if (!parsed) return false
-  const [r255, g255, b255] = parsed
-  const r = r255 / 255
-  const g = g255 / 255
-  const b = b255 / 255
-  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4))
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-  return luminance < 0.4
+  const luminance = relativeLuminance(theme.colors.bg)
+  return luminance != null && luminance < 0.4
 }
 
 // Validare strictă pentru hex override din DB / Settings form. Acceptă doar
 // '#rrggbb' (6 hex digits) — short-hex respins ca să nu producem accentSoft
-// invalid când îl concatenăm cu '22'.
-export function isValidHexColor(s: string | null | undefined): s is string {
+// invalid când îl concatenăm cu '22'. Intern: singurul apelant e resolveTheme
+// (exportul nu avea niciun consumator).
+function isValidHexColor(s: string | null | undefined): s is string {
   return typeof s === 'string' && /^#[0-9a-fA-F]{6}$/.test(s)
 }
 
@@ -418,11 +415,14 @@ export function resolveTheme(settings: ThemeSettings | null | undefined): MenuTh
 }
 
 // Luminanța WCAG relativă a unui hex ('#rgb' sau '#rrggbb'); null pe input
-// neparsabil. Un singur calcul, refolosit de `isDarkTheme`/`readableTextOn`.
+// neparsabil. Un singur calcul, refolosit de `isDarkTheme`, `readableTextOn` și
+// `legibleOn`.
 function relativeLuminance(color: string): number | null {
   const parsed = parseHexColor(color)
-  if (!parsed) return null
-  const [r255, g255, b255] = parsed
+  return parsed ? rgbLuminance(parsed) : null
+}
+
+function rgbLuminance([r255, g255, b255]: readonly [number, number, number]): number {
   const lin = (c: number) => {
     const s = c / 255
     return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
@@ -430,25 +430,73 @@ function relativeLuminance(color: string): number | null {
   return 0.2126 * lin(r255) + 0.7152 * lin(g255) + 0.0722 * lin(b255)
 }
 
-// Alege culoarea textului (deschis vs. închis) care are contrast bun peste un
-// fundal dat — folosit pentru text/iconuri PESTE `accent`, fiindcă accentele
-// deschise (galben/lime/gold) pică AA cu albul. Acceptă '#rgb' și '#rrggbb'; pe
-// input neparsabil cade pe alb (comportament conservator). Helper partajat de
-// meniu (ProductCard, MenuStates, MenuHeader) — un singur calcul WCAG.
+// Raportul de contrast WCAG 2.x între două luminanțe (1:1 … 21:1).
+function contrastOfLuminances(a: number, b: number): number {
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+function toHexColor(rgb: readonly [number, number, number]): string {
+  return (
+    '#' +
+    rgb
+      .map((c) => Math.round(c).toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase()
+  )
+}
+
+// Pragul AA pentru text normal (WCAG 1.4.3). Butoanele și etichetele oaspetelui
+// au 11–16px, deci NU se pot baza pe pragul de 3:1 al textului mare.
+const AA_TEXT = 4.5
+const NEAR_BLACK = '#1A1A1A'
+
+// Alege culoarea textului (și a iconițelor) PESTE un fundal plin — de regulă
+// `accent`, care vine din Setări (`primary_color`, 7 culori) sau din temă.
+// Garanția: rezultatul are ÎNTOTDEAUNA ≥4.5:1 pe un fundal hex valid.
 //
-// IMPORTANT: `darkText` e pasat de obicei ca `PUB.text` (textul primar al temei).
-// Pe TEME DARK `PUB.text` e el însuși deschis (ex. fine-dining `#F5F1E8`), deci
-// pe un accent deschis (gold) ar produce alb-pe-galben (contrast ~1.8, sub AA).
-// De aceea, când fundalul e deschis dar `darkText` NU e suficient de întunecat,
-// cădem pe un near-black garantat lizibil în loc să respectăm orbește tokenul.
+// Vechiul prag fix (luminanță ≤ 0.45 → alb) dădea alb pe TOATE cele 7 culori din
+// Setări: alb pe auriul implicit #C8963C = 2.66:1, pe turcoaz 2.24:1 — punctul de
+// echilibru real dintre alb și negru e la luminanța ~0.18, nu 0.45. Acum se
+// compară contrastele efective:
+//   1. `darkText` (textul temei) dacă trece AA și bate albul — păstrăm tokenul;
+//   2. altfel alb, dacă trece AA;
+//   3. altfel near-black, dacă trece AA (ex. pe teme dark `darkText` e DESCHIS);
+//   4. altfel extrema mai bună dintre negru și alb — una dintre ele are mereu
+//      ≥4.58:1 (minimul se atinge exact la punctul de echilibru).
+// Input neparsabil → alb (comportamentul conservator de dinainte).
 export function readableTextOn(bg: string, darkText: string): string {
-  const luminance = relativeLuminance(bg)
-  if (luminance == null) return '#FFFFFF'
-  // Prag ~0.45: peste el fundalul e prea deschis pentru text alb (AA).
-  if (luminance <= 0.45) return '#FFFFFF'
-  // Fundal deschis → vrem text închis. Dacă `darkText` e chiar deschis (temă
-  // dark), fallback pe near-black ca să nu picăm AA cu un „dark text" fals.
+  const bgLum = relativeLuminance(bg)
+  if (bgLum == null) return '#FFFFFF'
+  const onWhite = contrastOfLuminances(1, bgLum)
   const darkLum = relativeLuminance(darkText)
-  if (darkLum == null || darkLum > 0.4) return '#1A1A1A'
-  return darkText
+  const onDark = darkLum == null ? 0 : contrastOfLuminances(darkLum, bgLum)
+  if (onDark >= AA_TEXT && onDark >= onWhite) return darkText
+  if (onWhite >= AA_TEXT) return '#FFFFFF'
+  const nearBlackLum = relativeLuminance(NEAR_BLACK) ?? 0
+  if (contrastOfLuminances(nearBlackLum, bgLum) >= AA_TEXT) return NEAR_BLACK
+  return contrastOfLuminances(0, bgLum) >= onWhite ? '#000000' : '#FFFFFF'
+}
+
+// O culoare folosită ca TEXT pe un fundal dat (accentul ca etichetă/preț/link,
+// roșul unei erori): o întoarce neschimbată dacă are deja ≥4.5:1, altfel o
+// amestecă treptat spre negru (fundal deschis) sau spre alb (fundal închis)
+// până trece pragul. Nuanța rămâne recognoscibilă — auriul devine bronz, nu gri.
+// Input neparsabil (ex. `rgba(...)`) → culoarea neschimbată.
+export function legibleOn(color: string, bg: string): string {
+  const fg = parseHexColor(color)
+  const bgLum = relativeLuminance(bg)
+  if (!fg || bgLum == null) return color
+  if (contrastOfLuminances(rgbLuminance(fg), bgLum) >= AA_TEXT) return color
+  const towardBlack = contrastOfLuminances(0, bgLum) >= contrastOfLuminances(1, bgLum)
+  const target = towardBlack ? 0 : 255
+  for (let step = 1; step <= 20; step++) {
+    const t = step / 20
+    const mixed: [number, number, number] = [
+      Math.round(fg[0] + (target - fg[0]) * t),
+      Math.round(fg[1] + (target - fg[1]) * t),
+      Math.round(fg[2] + (target - fg[2]) * t),
+    ]
+    if (contrastOfLuminances(rgbLuminance(mixed), bgLum) >= AA_TEXT) return toHexColor(mixed)
+  }
+  return towardBlack ? '#000000' : '#FFFFFF'
 }

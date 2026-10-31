@@ -67,4 +67,34 @@ describe('usePWAInstall — storage ostil (RESID-15)', () => {
     act(() => result.current.dismiss())
     expect(localStorage.getItem(INSTALL_DISMISSED_KEY)).toBe('1')
   })
+
+  // W5: promptul se prinde în lib/pwaGate.ts (entry), deci poate sosi ÎNAINTE ca
+  // hook-ul să existe (încărcare pe /auth, unde cardul nu are voie). La montare
+  // cardul trebuie să-l găsească, iar instalarea îl consumă. Mutația care pică:
+  // hook-ul citind o variabilă proprie, nealimentată (ascultătorul mutat în
+  // pwaGate fără să fie mutată și citirea).
+  it('W5 promptul prins înainte de montare aprinde cardul; instalarea îl consumă', async () => {
+    const prompt = vi.fn(() => Promise.resolve())
+    const ev = Object.assign(new Event('beforeinstallprompt', { cancelable: true }), {
+      prompt,
+      userChoice: Promise.resolve({ outcome: 'accepted' as const, platform: 'web' }),
+    })
+    window.dispatchEvent(ev)
+    const { result } = renderHook(() => usePWAInstall())
+    expect(result.current.canInstall).toBe(true)
+    let accepted = false
+    await act(async () => {
+      accepted = await result.current.install()
+    })
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(accepted).toBe(true)
+    expect(result.current.canInstall).toBe(false)
+    // `prompt()` merge o singură dată pe eveniment: a doua instalare nu mai are ce porni.
+    let again = true
+    await act(async () => {
+      again = await result.current.install()
+    })
+    expect(again).toBe(false)
+    expect(prompt).toHaveBeenCalledTimes(1)
+  })
 })

@@ -5,7 +5,10 @@
 //  - cu amânarea deja setată (cheia pe care o pre-setează și E2E-ul în
 //    prepPage) NU se randează nimic;
 //  - „Actualizează" cheamă applyUpdate;
-//  - cardul de INSTALARE apare abia după 30 s și „×" cheamă dismiss.
+//  - cardul de INSTALARE apare abia după 30 s și „×" cheamă dismiss;
+//  - PA5: pe meniul oaspetelui (/q, /m) și în înscriere (/auth) nu apare NICIUN
+//    card, nici cel de actualizare (lib/pwaGate.ts) — ruta citită la randare,
+//    nu la montare. Mutația care pică: scoaterea verificării din PWAPrompt.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -71,5 +74,20 @@ describe('PWAPrompt', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent(/instalează menuvia/i)
     fireEvent.click(screen.getByRole('button', { name: /închide/i }))
     expect(h.dismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it('PA5 pe rutele oaspetelui și în înscriere nu apare niciun card', () => {
+    h.updateAvailable = true
+    for (const path of ['/q/tok123', '/m/la-bella', '/auth']) {
+      window.history.replaceState({}, '', path)
+      const { unmount } = render(<PWAPrompt />)
+      expect(screen.queryByRole('dialog'), path).toBeNull()
+      unmount()
+    }
+    // Control pozitiv: pe dashboard, cardul de actualizare apare.
+    window.history.replaceState({}, '', '/dashboard')
+    render(<PWAPrompt />)
+    expect(screen.getByRole('dialog')).toHaveTextContent(/actualizare disponibilă/i)
+    window.history.replaceState({}, '', '/')
   })
 })

@@ -6,10 +6,10 @@
 // asta, un RPC nou chemat din funcții ar trece toate testele (jobul E2E acordă
 // implicit EXECUTE) și ar pica abia în producție cu 42501.
 //
-//   RG1  numele chemate în `.rpc(...)` din netlify/functions/*.js == lista SQL
+//   RG1  numele chemate în `.rpc(...)` din netlify/functions/*.js și lib/*.js == lista SQL
 //        (ambele sensuri: un apel nou fără rând, sau un rând care nu mai e chemat)
-//   RG2  extractorul vede și apelurile cu nume ales condiționat
-//        (control pozitiv: altfel RG1 ar putea trece pe o listă vidă)
+//   RG2  extractorul vede și apelurile cu nume ales condiționat, și helperii
+//        din lib/ (control pozitiv: altfel RG1 ar putea trece pe o listă vidă)
 //   RG3  un rând COMENTAT în lista SQL nu mai contează ca listat (SR1 nu-l verifică)
 'use strict'
 
@@ -26,11 +26,24 @@ const SQL = path.join(ROOT, 'tests', 'sql', 'auto', '306_service_role_rpc_grants
 // has_partner_access e revocată pentru service_role (ai-proxy, mig 303).
 const USER_JWT_RPCS = new Set(['has_partner_access'])
 
+// Fișierele scanate: funcțiile ȘI helperii din lib/ — un helper partajat
+// (ex. lib/founderAlert.js → enqueue_email) cheamă RPC-uri cu același client
+// service_role; dacă ar rămâne nescanat, apelul lui ar ieși din clichet în
+// ziua în care niciun fișier de top nu mai cheamă același RPC.
+function functionSources() {
+  const out = []
+  for (const dir of [FUNCTIONS, path.join(FUNCTIONS, 'lib')]) {
+    for (const f of fs.readdirSync(dir)) {
+      if (f.endsWith('.js')) out.push(path.join(dir, f))
+    }
+  }
+  return out
+}
+
 function rpcNamesInFunctions() {
   const names = new Set()
-  for (const f of fs.readdirSync(FUNCTIONS)) {
-    if (!f.endsWith('.js')) continue
-    const src = fs.readFileSync(path.join(FUNCTIONS, f), 'utf8')
+  for (const file of functionSources()) {
+    const src = fs.readFileSync(file, 'utf8')
     // Primul argument al lui .rpc( până la prima virgulă sau paranteză:
     // prinde atât `.rpc('x', …)` cât și `.rpc(cond ? 'a' : 'b', …)`.
     const re = /\.rpc\(\s*([^,)]+)[,)]/g
@@ -109,6 +122,12 @@ describe('rpc-grants-ratchet', () => {
     assert.ok(
       called.has('check_rate_limit'),
       'check_rate_limit (send-invite, stripe-checkout) nu e văzut',
+    )
+    // Helperii din lib/ sunt scanați (control pe sursă, nu pe nume).
+    const libFiles = functionSources().filter((f) => f.includes(`${path.sep}lib${path.sep}`))
+    assert.ok(
+      libFiles.some((f) => /\.rpc\(\s*'enqueue_email'/.test(fs.readFileSync(f, 'utf8'))),
+      'lib/ nu e scanat (lib/founderAlert.js cheamă enqueue_email)',
     )
   })
 })

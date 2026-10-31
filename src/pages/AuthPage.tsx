@@ -639,6 +639,7 @@ export default function AuthPage({
             <input
               id="reset-email"
               type="email"
+              autoComplete="email"
               value={resetEmail}
               onChange={(e) => setResetEmail(e.target.value)}
               placeholder={t.emailPlaceholder}
@@ -951,6 +952,7 @@ export default function AuthPage({
                 </label>
                 <input
                   id="auth-name"
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder={t.namePlaceholder}
@@ -968,6 +970,7 @@ export default function AuthPage({
               <input
                 id="auth-email"
                 type="email"
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={t.emailPlaceholder}
@@ -984,6 +987,9 @@ export default function AuthPage({
               <input
                 id="auth-password"
                 type="password"
+                // Managerul de parole: la înscriere propune o parolă NOUĂ, la
+                // autentificare o completează pe cea salvată.
+                autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={t.passwordPlaceholder}

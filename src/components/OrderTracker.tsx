@@ -12,6 +12,13 @@ import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import PaymentConfirmedScreen from './PaymentConfirmedScreen'
 import { T, type PublicMenuStringKey } from '../lib/publicMenuStrings'
 import OrderClosedScreen from './OrderClosedScreen'
+import { legibleOn, readableTextOn } from '../lib/themes'
+
+// Ritmul polling-ului (perf-guest-11): 5 s cât comanda se mișcă prin bucătărie
+// (new → ready), 20 s pe `served` — după servire mai urmează doar închiderea
+// (Plan 2) sau plata (Plan 3), care durează minute, nu secunde.
+const ACTIVE_POLL_MS = 5000
+const SERVED_POLL_MS = 20000
 
 const ORDER_STEPS: ReadonlyArray<{ status: string; labelKey: PublicMenuStringKey; n: string }> = [
   { status: 'new', labelKey: 'ot_step_new', n: '1' },
@@ -84,6 +91,9 @@ function OrderTracker({
       const payload = await getOrderPublicStatus(confirmation.id, sessionId)
       if (cancelled || !payload) return
       const p = payload as unknown as Record<string, unknown>
+      // Ref-ul se actualizează ACUM, nu la următoarea randare: programarea
+      // următorului tick (mai jos) citește starea imediat după răspuns.
+      statusRef.current = p.status as string
       setStatus(p.status as string)
       setLimitedTracking(!('total' in p))
       if (typeof p.tips_amount === 'number' || typeof p.tips_amount === 'string') {
@@ -105,28 +115,47 @@ function OrderTracker({
       }
     }
 
-    void poll()
-    const interval = setInterval(() => {
-      // Odată terminală, comanda nu mai are ce aduce: oprim intervalul, nu
-      // doar poll-ul (altfel tick-ul gol rulează la nesfârșit). Se face AICI,
-      // nu în poll(): poll() rulează prima dată înainte ca `interval` să existe.
-      if (TERMINAL.includes(statusRef.current)) {
-        clearInterval(interval)
-        return
+    // Un singur lanț de timeout-uri (nu setInterval), ca ritmul să se poată
+    // schimba după stare. Odată terminală, comanda nu mai are ce aduce: nu se mai
+    // programează nimic. Telefonul cu tab-ul în fundal (client care a comandat și
+    // și-a băgat telefonul în buzunar) nu trimite cereri — același guard ca în
+    // useOrders.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let inFlight = false
+    const run = async (): Promise<void> => {
+      if (cancelled || TERMINAL.includes(statusRef.current)) return
+      if (!document.hidden) {
+        inFlight = true
+        try {
+          await poll()
+        } catch {
+          // Tranzitoriu (rețea): lanțul continuă la următorul tick.
+        } finally {
+          inFlight = false
+        }
       }
-      // Telefonul cu tab-ul în fundal (client care a comandat și și-a băgat
-      // telefonul în buzunar) nu mai trimite cereri — același guard ca în
-      // useOrders; la revenirea în tab, primul tick reia polling-ul.
-      if (document.hidden) return
-      void poll()
-    }, 5000)
+      if (cancelled || TERMINAL.includes(statusRef.current)) return
+      const delay = statusRef.current === 'served' ? SERVED_POLL_MS : ACTIVE_POLL_MS
+      timer = setTimeout(() => void run(), delay)
+    }
+    // La revenirea în tab oaspetele vrea starea de ACUM, nu peste până la 20 s:
+    // poll imediat, apoi ritmul normal. Dacă o cerere e deja în zbor, ea
+    // programează singură următorul tick.
+    const onVisibility = (): void => {
+      if (document.hidden || inFlight || cancelled) return
+      if (timer !== undefined) clearTimeout(timer)
+      void run()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    void run()
 
     return () => {
       cancelled = true
-      clearInterval(interval)
+      if (timer !== undefined) clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
     // status exclus din deps intentionat — folosim ref pentru a evita
-    // restart-ul intervalului la fiecare update de status
+    // restart-ul polling-ului la fiecare update de status
   }, [confirmation.id, confirmation.short_id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRequestFiscalReceipt() {
@@ -150,6 +179,10 @@ function OrderTracker({
   const isClosed = status === 'closed'
   const isDone = status === 'served' || status === 'paid' || status === 'closed'
   const isCancelled = status === 'cancelled'
+  // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
+  // folosit ca TEXT trec AA prin calcul, nu prin alb fix (alb pe auriu = 2,66:1).
+  const onAccent = readableTextOn(accent, PUB.text)
+  const accentInk = legibleOn(accent, PUB.bg)
 
   // ── Plan 2 (`closed`): nota închisă de ospătar, plata e la casa localului —
   // NU „Plată confirmată" (Menuvia n-a încasat nimic). Randat și fără
@@ -229,7 +262,7 @@ function OrderTracker({
             padding: '10px 14px',
             marginBottom: 16,
             fontSize: 13,
-            color: '#8a6d1f',
+            color: '#80651D',
             textAlign: 'center',
             lineHeight: 1.5,
             maxWidth: 320,
@@ -245,7 +278,7 @@ function OrderTracker({
           fontFamily: 'Fraunces, Georgia, serif',
           fontSize: 20,
           fontWeight: 700,
-          color: accent,
+          color: accentInk,
           marginBottom: 32,
         }}
       >
@@ -297,7 +330,7 @@ function OrderTracker({
                     fontSize: 16,
                     border: isActive ? '3px solid ' + accent : 'none',
                     boxShadow: isActive ? '0 0 0 4px ' + accent + '33' : 'none',
-                    color: isPast || isActive ? '#fff' : PUB.text,
+                    color: isPast || isActive ? onAccent : PUB.text,
                     fontWeight: 700,
                   }}
                 >
@@ -308,7 +341,7 @@ function OrderTracker({
                     style={{
                       fontSize: 15,
                       fontWeight: isActive ? 700 : 500,
-                      color: isFuture ? '#B8AD9E' : PUB.text,
+                      color: isFuture ? PUB.muted : PUB.text,
                       fontFamily: 'DM Sans, sans-serif',
                     }}
                   >
@@ -340,7 +373,7 @@ function OrderTracker({
             onClick={() => onReset(true)}
             style={{
               background: accent,
-              color: '#fff',
+              color: onAccent,
               border: 'none',
               borderRadius: 12,
               padding: '14px 0',
@@ -387,22 +420,27 @@ function OrderTracker({
   )
 }
 
-const PUB = { bg: '#F8F3EB', text: '#1A1208' } as const
+// `muted` = text3 al temei implicite: ≥4.5:1 pe bg, pe cardul banner-ului și pe
+// rândurile lui (fostele #B8AD9E / #9A8C7A aveau 2,0 / 2,97:1).
+const PUB = { bg: '#F8F3EB', text: '#1A1208', muted: '#776A5C', card: '#FDF8F2' } as const
 
 // ── ActiveOrdersBanner ─────────────────────────────────────────
 // Shows live status of all orders placed in this QR session.
 // Collapses to a single line, expands to show each order's status.
 
+// Culoarea e și a TEXTULUI etichetei (0.72rem), deci trece AA (≥4.5:1) pe
+// rândurile banner-ului — variantele vii de dashboard (#E8A020, #7EB8F7…) aveau
+// 1,9–2,7:1 pe crem.
 const STATUS_LABEL: Record<string, { labelKey: PublicMenuStringKey; color: string }> = {
   new: { labelKey: 'st_new', color: '#5C4A2A' },
-  confirmed: { labelKey: 'st_confirmed', color: '#E8A020' },
-  preparing: { labelKey: 'st_preparing', color: '#C8963C' },
-  ready: { labelKey: 'ot_step_ready', color: '#4CAF6E' },
-  served: { labelKey: 'st_served', color: '#7EB8F7' },
-  paid: { labelKey: 'st_paid', color: '#9A9590' },
+  confirmed: { labelKey: 'st_confirmed', color: '#926514' },
+  preparing: { labelKey: 'st_preparing', color: '#8A6729' },
+  ready: { labelKey: 'ot_step_ready', color: '#357A4D' },
+  served: { labelKey: 'st_served', color: '#4D7097' },
+  paid: { labelKey: 'st_paid', color: '#706D69' },
   // Plan 2 (fără fiscalizare): comanda se termină în `closed`, nu în `paid`
   // (audit v3 FC-06 — înainte apărea „closed" brut și rămânea „activă" + poll-uită).
-  closed: { labelKey: 'st_closed', color: '#9A9590' },
+  closed: { labelKey: 'st_closed', color: '#706D69' },
   cancelled: { labelKey: 'st_cancelled', color: '#c0392b' },
 }
 
@@ -471,14 +509,21 @@ function ActiveOrdersBanner({
       if (document.hidden) return
       void pollAll()
     }, 6000)
+    // La revenirea în tab: starea de acum, nu peste până la 6 s.
+    const onVisibility = (): void => {
+      if (!document.hidden) void pollAll()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
 
     return () => {
       cancelled = true
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [orders, sessionId])
 
   const totalSpent = orders.reduce((s, o) => s + Number(o.total), 0)
+  const onAccent = readableTextOn(accent, PUB.text)
   const activeCount = orders.filter((o) => {
     const st = statuses[o.id] || o.status
     return !['served', 'paid', 'cancelled', 'closed'].includes(st)
@@ -487,7 +532,7 @@ function ActiveOrdersBanner({
   return (
     <div
       style={{
-        background: '#FDF8F2',
+        background: PUB.card,
         border: '1px solid #E8DFD0',
         borderRadius: 12,
         margin: '0 0 12px',
@@ -529,7 +574,8 @@ function ActiveOrdersBanner({
                   marginLeft: 8,
                   fontSize: '0.7rem',
                   background: accent + '22',
-                  color: accent,
+                  // Textul temei, nu accentul: pe nuanța de accent auriul ar avea ~2,4:1.
+                  color: PUB.text,
                   padding: '1px 7px',
                   borderRadius: 100,
                   fontWeight: 600,
@@ -543,7 +589,7 @@ function ActiveOrdersBanner({
         </div>
         <span
           style={{
-            color: '#9A8C7A',
+            color: PUB.muted,
             fontSize: 12,
             transition: 'transform .2s',
             transform: expanded ? 'rotate(180deg)' : 'none',
@@ -610,7 +656,7 @@ function ActiveOrdersBanner({
                   <span style={{ fontSize: '0.72rem', color: meta.color, fontWeight: 600 }}>
                     {meta.label}
                   </span>
-                  <span style={{ fontSize: '0.78rem', color: '#9A8C7A' }}>
+                  <span style={{ fontSize: '0.78rem', color: PUB.muted }}>
                     {fmtPrice(Number(order.total), currency)}
                   </span>
                 </div>
@@ -622,7 +668,7 @@ function ActiveOrdersBanner({
             style={{
               marginTop: 4,
               background: accent,
-              color: '#fff',
+              color: onAccent,
               border: 'none',
               borderRadius: 8,
               padding: '10px 0',

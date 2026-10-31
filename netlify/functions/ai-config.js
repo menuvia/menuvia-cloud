@@ -15,6 +15,8 @@
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 const dns = require('dns').promises
+// Contractul de eroare: orice non-200 = { error: <română>, code } (lib/aiErrors.js).
+const { aiError } = require('./lib/aiErrors')
 
 function jsonResponse(statusCode, body) {
   return {
@@ -110,25 +112,25 @@ function maskKey(plaintext) {
 
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method not allowed' }
+    return aiError(405, 'method_not_allowed')
   }
 
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, AI_CONFIG_SECRET } = process.env
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !AI_CONFIG_SECRET) {
     console.error('[ai-config] Missing env vars')
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
   // Secretul de criptare trebuie să aibă entropie suficientă (>=32 caractere).
   if (AI_CONFIG_SECRET.length < 32) {
     console.error('[ai-config] AI_CONFIG_SECRET prea scurt (<32)')
-    return jsonResponse(500, { error: 'Server config error' })
+    return aiError(500, 'server_config')
   }
 
   // ── Auth: verifică JWT-ul Supabase ─────────────────────────
   const authHeader = event.headers['authorization'] || event.headers['Authorization'] || ''
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null
   if (!token) {
-    return jsonResponse(401, { error: 'Missing Authorization header' })
+    return aiError(401, 'auth_missing')
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -137,20 +139,20 @@ exports.handler = async (event) => {
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
   if (authError || !user) {
-    return jsonResponse(401, { error: 'Invalid or expired token' })
+    return aiError(401, 'auth_invalid')
   }
 
   let body
   try {
     body = JSON.parse(event.body || '{}')
   } catch {
-    return jsonResponse(400, { error: 'Invalid JSON body' })
+    return aiError(400, 'bad_json')
   }
 
   const { restaurant_id, provider, model, base_url, api_key, enabled } = body
 
   if (!restaurant_id) {
-    return jsonResponse(400, { error: 'Missing restaurant_id' })
+    return aiError(400, 'missing_restaurant')
   }
 
   // ── Autorizare: caller = owner/manager al restaurantului ───
@@ -162,33 +164,34 @@ exports.handler = async (event) => {
     .single()
 
   if (!membership || !['owner', 'manager'].includes(membership.role)) {
-    return jsonResponse(403, { error: 'Forbidden' })
+    return aiError(403, 'forbidden')
   }
 
   // ── Validare input ─────────────────────────────────────────
   if (!PROVIDERS.includes(provider)) {
-    return jsonResponse(400, { error: `Invalid provider. Accepted: ${PROVIDERS.join(', ')}` })
+    return aiError(400, 'invalid_provider')
   }
   if (typeof model !== 'string' || model.trim().length === 0) {
-    return jsonResponse(400, { error: 'Missing model' })
+    return aiError(400, 'model_missing')
   }
   // base_url obligatoriu doar pentru 'custom' (OpenAI-compatible)
   let cleanBaseUrl = null
   if (provider === 'custom') {
     if (typeof base_url !== 'string' || base_url.trim().length === 0) {
-      return jsonResponse(400, { error: 'custom provider requires an https base_url' })
+      return aiError(400, 'base_url_required')
     }
     try {
       cleanBaseUrl = await assertSafeBaseUrl(base_url.trim())
     } catch (e) {
-      return jsonResponse(400, { error: `base_url respins: ${e instanceof Error ? e.message : 'invalid'}` })
+      // Motivul exact (ex. „host intern interzis") rămâne vizibil, în paranteză.
+      return aiError(400, 'base_url_rejected', e instanceof Error ? e.message : null)
     }
   }
   if (api_key != null && typeof api_key !== 'string') {
-    return jsonResponse(400, { error: 'api_key must be a string' })
+    return aiError(400, 'api_key_invalid')
   }
   if (api_key && api_key.length > 1000) {
-    return jsonResponse(400, { error: 'api_key too long' })
+    return aiError(400, 'api_key_too_long')
   }
 
   // ── Construiește payload-ul de upsert ──────────────────────
@@ -220,7 +223,7 @@ exports.handler = async (event) => {
       .eq('restaurant_id', restaurant_id)
       .single()
     if (payload.enabled && !existing?.api_key_encrypted) {
-      return jsonResponse(400, { error: 'Trebuie să adaugi o cheie API înainte de a activa.' })
+      return aiError(400, 'api_key_required')
     }
   } else {
     // Provider non-custom, fără cheie nouă: dacă restaurantul avea deja
@@ -243,7 +246,7 @@ exports.handler = async (event) => {
 
   if (upsertErr) {
     console.error('[ai-config] upsert error:', upsertErr.message)
-    return jsonResponse(500, { error: 'Could not save AI config' })
+    return aiError(500, 'config_save_failed')
   }
 
   return jsonResponse(200, {

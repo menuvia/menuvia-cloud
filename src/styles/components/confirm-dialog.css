@@ -1,5 +1,6 @@
 /* ConfirmDialog — backdrop centrat + card. Animație scale+fade la intrare.
-   Backdrop click închide cu „Anulează". ESC = anulează, Enter = confirmă. */
+   Backdrop click închide cu „Anulează". ESC = anulează; Enter activează
+   butonul focusat (focusul pornește pe confirmare), nu confirmă global. */
 .confirm-backdrop {
   position: fixed;
   inset: 0;

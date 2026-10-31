@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { usePWAInstall, useSWUpdate } from '../lib/pwa'
+import { pwaPromptAllowedNow } from '../lib/pwaGate'
 
 /** Cheia de amânare a cardului de actualizare — per sesiune de navigare (sessionStorage): supraviețuiește unui reload în același tab, dispare la închiderea tab-ului / a PWA-ului. */
 export const PWA_UPDATE_SNOOZE_KEY = 'pwa-update-snoozed'
@@ -52,6 +53,13 @@ export default function PWAPrompt() {
   // dacă alt tab ține SW-ul vechi în viață. Userul nu poate ocoli actualizarea
   // la nesfârșit, doar o mută în afara turei (recenzie adversarială #246: prima
   // formulare, „reapare la următoarea deschidere", descria un mecanism inexistent).
+  //
+  // Ruta se verifică și AICI, la fiecare randare (lib/pwaGate.ts): App montează
+  // cardul doar unde are voie, dar o rută schimbată prin replaceState fără anunț
+  // (ex. /dashboard → /auth) n-ar re-randa montarea — cardul care apare la 30 s
+  // citește ruta de ACUM, nu pe cea de la montare.
+  if (!pwaPromptAllowedNow()) return null
+
   if (updateAvailable && !updateSnoozed) {
     return (
       <PromptCard
