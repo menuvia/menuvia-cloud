@@ -152,9 +152,28 @@ export function useRestaurants() {
   // Last-wins și între refetch-uri suprapuse.
   const loadSeqRef = useRef(0)
 
+  // Schimbare DIRECTĂ de cont (A→B fără delogare între ele): lista lui A nu
+  // are voie să rămână în selector cât se încarcă B, iar B are propriul fetch
+  // inițial (cu spinner), nu un refetch tăcut peste datele lui A.
+  const loadedForUserRef = useRef<string | null>(null)
+  // Același proprietar, ca STATE: ref-ul de mai sus se schimbă abia când
+  // efectul cheamă `load`, deci la prima randare cu B lista lui A ar fi
+  // ajuns încă la AppRouter. Ieșirea hook-ului e mascată pe el (mai jos).
+  const [listOwner, setListOwner] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current
+    if (user && loadedForUserRef.current !== user.id) {
+      if (loadedForUserRef.current !== null) {
+        setRestaurants([])
+        initialFetchDoneRef.current = false
+      }
+      loadedForUserRef.current = user.id
+      setListOwner(user.id)
+    }
     if (!user) {
+      loadedForUserRef.current = null
+      setListOwner(null)
       setRestaurants([])
       setLoading(false)
       initialFetchDoneRef.current = false
@@ -210,7 +229,7 @@ export function useRestaurants() {
     // Mod fondator/partener: restaurantul vizitat nu e nici owned, nici prin
     // membership — îl încărcăm separat. RLS-ul (is_member extins, mig 186)
     // decide accesul: fără drepturi, SELECT-ul întoarce null și nu adăugăm nimic.
-    const fv = getFounderView()
+    const fv = getFounderView(user.id)
     if (fv && !seen.has(fv)) {
       const { data: fvRow, error: fvErr } = await supabase
         .from('restaurants')
@@ -278,8 +297,21 @@ export function useRestaurants() {
   // pentru anon/authenticated. Ștergerea restaurantelor nu există în UI;
   // ar fi un flow admin separat, sub RPC dedicat dacă va apărea cândva.
 
-  return { restaurants, loading, error, refetch: load, create, update }
+  // Până când `load` a preluat noul cont, nicio listă (nici a contului vechi)
+  // și stare de încărcare — nu o listă goală „încărcată”, care ar trimite
+  // fals la Onboarding.
+  const staleOwner = user != null && listOwner !== user.id
+  return {
+    restaurants: staleOwner ? EMPTY_RESTAURANTS : restaurants,
+    loading: staleOwner ? true : loading,
+    error: staleOwner ? null : error,
+    refetch: load,
+    create,
+    update,
+  }
 }
+
+const EMPTY_RESTAURANTS: Restaurant[] = []
 
 export function useCategories(restaurantId: string | null) {
   const [categories, setCategories] = useState<Category[]>([])

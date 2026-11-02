@@ -73,18 +73,25 @@ const CLIENT_STATUS: Record<string, string> = {
 // (până la ~2s) înainte să navigheze — fără busy, butonul părea mort.
 function PartnerEnterButton({ restaurantId, label }: { restaurantId: string; label: string }) {
   const [busy, setBusy] = useState<boolean>(false)
+  const [failed, setFailed] = useState<boolean>(false)
   return (
     <button
       type="button"
       aria-label={busy ? undefined : label}
       onClick={() => {
         setBusy(true)
-        void enterFounderView(restaurantId, 'afiliat')
+        setFailed(false)
+        void enterFounderView(restaurantId, 'afiliat').then((ok) => {
+          if (!ok) {
+            setBusy(false)
+            setFailed(true)
+          }
+        })
       }}
       disabled={busy}
       style={{ ...goldBtn, ...(busy ? disabledBtn : null) }}
     >
-      {busy ? 'Se deschide…' : 'Editează meniul'}
+      {busy ? 'Se deschide…' : failed ? 'Reîncearcă' : 'Editează meniul'}
     </button>
   )
 }

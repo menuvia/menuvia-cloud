@@ -308,6 +308,7 @@
     "migration_307_audit_actor_erasure",
     "migration_308_sales_contract_reacceptance",
     "migration_309_public_pickup_read_gate",
+    "migration_310_founder_admin_single",
     "migration_311_founder_support_rpcs"
   ]
 }
