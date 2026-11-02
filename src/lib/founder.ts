@@ -66,13 +66,10 @@ export async function enterFounderView(
   origin: FounderViewOrigin = 'founder',
 ): Promise<boolean> {
   // Proprietarul vizitei, din sesiunea locală (fără rețea).
-  let uid: string | null = null
-  try {
-    const { data } = await supabase.auth.getSession()
-    uid = data.session?.user.id ?? null
-  } catch {
-    uid = null
-  }
+  const uid = await supabase.auth
+    .getSession()
+    .then(({ data }) => data.session?.user.id ?? null)
+    .catch(() => null)
   if (!uid) return false
   try {
     localStorage.setItem(FOUNDER_VIEW_KEY, restaurantId)
