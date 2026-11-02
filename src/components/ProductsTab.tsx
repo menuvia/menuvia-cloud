@@ -26,6 +26,7 @@ import { Skeleton } from './ui/Skeleton'
 import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
+import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -41,6 +42,8 @@ function ProductModal({
   restaurantId,
   userId,
   menuLanguages,
+  canUseAi,
+  canManageRecipes,
 }: {
   product: Product | null
   categories: Category[]
@@ -54,6 +57,10 @@ function ProductModal({
   restaurantId: string
   userId: string
   menuLanguages: string[]
+  // Vezi ProductsTab: imaginea și nutriția AI doar cu `canUseAi` (agentul n-are
+  // aceste funcții în ai-proxy), rețetele doar cu `canManageRecipes`.
+  canUseAi: boolean
+  canManageRecipes: boolean
 }) {
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
@@ -149,10 +156,7 @@ function ProductModal({
       }))
     } catch (e) {
       console.error('Upload failed', e)
-      pmToast(
-        'Încărcarea imaginii a eșuat: ' + (e instanceof Error ? e.message : 'reîncearcă'),
-        'error',
-      )
+      pmToast(toUserMessage(e, 'Încărcarea imaginii a eșuat. Reîncearcă.'), 'error')
     }
     setUploading(false)
   }
@@ -240,7 +244,7 @@ function ProductModal({
       setAiAllergenSuggestions(n.allergens)
       pmToast('Valori generate de AI — verifică-le. Alergenii necesită confirmare manuală.', 'success')
     } catch (e) {
-      pmToast(e instanceof Error ? e.message : 'Eroare la generarea nutriției.', 'error')
+      pmToast(toUserMessage(e, 'Eroare la generarea nutriției.'), 'error')
     } finally {
       setAiNutriBusy(false)
     }
@@ -266,7 +270,7 @@ function ProductModal({
       markAiFields(['image_url'])
       pmToast('Imagine generată de AI — verifică-o.', 'success')
     } catch (e) {
-      pmToast(e instanceof Error ? e.message : 'Eroare la generarea imaginii.', 'error')
+      pmToast(toUserMessage(e, 'Eroare la generarea imaginii.'), 'error')
     } finally {
       setAiImgBusy(false)
     }
@@ -348,13 +352,16 @@ function ProductModal({
       .select()
       .single()
     if (!error && data) setExtras((prev) => [...prev, { ...data, price: Number(data.price) }])
-    else if (error) pmToast('Nu am putut adăuga extra-ul: ' + error.message, 'error')
+    else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga extra-ul.'), 'error')
   }
 
   async function removeExtra(id: string) {
-    const { error } = await supabase.from('product_extras').delete().eq('id', id)
+    // 0 rânduri șterse (refuz RLS, fără eroare) = refuz de drepturi, nu succes.
+    const error = zeroRowsAsDenied(
+      await supabase.from('product_extras').delete().eq('id', id).select('id'),
+    )
     if (!error) setExtras((prev) => prev.filter((e) => e.id !== id))
-    else pmToast('Nu am putut șterge extra-ul: ' + error.message, 'error')
+    else pmToast(toUserMessage(error, 'Nu am putut șterge extra-ul.'), 'error')
   }
 
   // ── Recipe state (gestiune ingredients) ─────────
@@ -396,10 +403,7 @@ function ProductModal({
       const refreshed = await fetchRecipesForProduct(product.id)
       setRecipeRows(refreshed)
     } catch (err) {
-      pmToast(
-        'Nu am putut salva rețeta: ' + (err instanceof Error ? err.message : 'eroare necunoscută'),
-        'error',
-      )
+      pmToast(toUserMessage(err, 'Nu am putut salva rețeta.'), 'error')
     }
   }
 
@@ -409,11 +413,7 @@ function ProductModal({
       await removeRecipeItem(product.id, ingredientId)
       setRecipeRows((prev) => prev.filter((r) => r.ingredient_id !== ingredientId))
     } catch (err) {
-      pmToast(
-        'Nu am putut șterge ingredientul: ' +
-          (err instanceof Error ? err.message : 'eroare necunoscută'),
-        'error',
-      )
+      pmToast(toUserMessage(err, 'Nu am putut șterge ingredientul.'), 'error')
     }
   }
 
@@ -421,9 +421,11 @@ function ProductModal({
     if (!product?.id) return
     const existing = pairings.find((p) => p.paired_product_id === pairedId)
     if (existing) {
-      const { error } = await supabase.from('product_pairings').delete().eq('id', existing.id)
+      const error = zeroRowsAsDenied(
+        await supabase.from('product_pairings').delete().eq('id', existing.id).select('id'),
+      )
       if (!error) setPairings((prev) => prev.filter((p) => p.id !== existing.id))
-      else pmToast('Nu am putut elimina perechea: ' + error.message, 'error')
+      else pmToast(toUserMessage(error, 'Nu am putut elimina perechea.'), 'error')
     } else {
       if (pairings.length >= 3) return // limit 3 pairings
       const newOrder =
@@ -434,7 +436,7 @@ function ProductModal({
         .select()
         .single()
       if (!error && data) setPairings((prev) => [...prev, data])
-      else if (error) pmToast('Nu am putut adăuga perechea: ' + error.message, 'error')
+      else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga perechea.'), 'error')
     }
   }
   const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
@@ -852,6 +854,7 @@ function ProductModal({
           )}
           {/* Generare imagine cu AI (doar OpenAI/Gemini; necesită produs salvat) */}
           <div style={{ marginTop: 8 }}>
+            {canUseAi && (
             <button
               type="button"
               onClick={() => void handleGenerateImage()}
@@ -869,6 +872,7 @@ function ProductModal({
             >
               {aiImgBusy ? 'Se generează…' : '✨ Generează imagine'}
             </button>
+            )}
             {isAiField('image_url') && (
               <span style={{ display: 'inline-block', marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>
                 ✨ generată de AI — verifică
@@ -1247,6 +1251,7 @@ function ProductModal({
                       <span style={{ marginLeft: 8, fontSize: '0.68rem', color: D.amber }}>✨ estimate de AI — verifică</span>
                     )}
                   </label>
+                  {canUseAi && (
                   <button
                     type="button"
                     onClick={() => void handleGenerateNutrition()}
@@ -1263,6 +1268,7 @@ function ProductModal({
                   >
                     {aiNutriBusy ? 'Se generează…' : '✨ Generează cu AI'}
                   </button>
+                  )}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4,1fr)', gap: 10 }}>
                   {([
@@ -1597,6 +1603,9 @@ function ProductModal({
         </div>
 
         {/* ── Rețetă (gestiune stocuri) ──────────────────────────────── */}
+        {/* Partenerul n-are acces la stocuri (mig 286): secțiunea i-ar arăta
+            o listă goală de ingrediente și i-ar refuza fiecare salvare. */}
+        {canManageRecipes && (
         <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
           <button
             type="button"
@@ -1806,6 +1815,7 @@ function ProductModal({
             </div>
           )}
         </div>
+        )}
 
         <div
           style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
@@ -2005,13 +2015,32 @@ export default function ProductsTab({
   onUpgrade,
   userId,
   menuLanguages = [],
+  canUseAi,
+  canUseAiMenu,
+  canManageRecipes,
 }: {
   restaurantId: string
   plan: string
   onUpgrade: () => void
   userId: string
   menuLanguages?: string[]
+  // Obligatorii (fără implicit): fiecare apelant decide, după ce PERMITE
+  // ai-proxy (netlify/functions/ai-proxy.js):
+  //   - `canUseAi` = TOATE funcțiile AI (nutriție, imagine, import, traducere)
+  //     — owner/manager; fondatorul în vizită NU (ai-proxy cere membership real
+  //     sau acces de agent, iar fondatorul nu le are pe niciunul);
+  //   - `canUseAiMenu` = doar munca de meniu: importul din poză și traducerea
+  //     (`AGENT_FEATURES`). Îl are și agentul cu acces acordat (has_partner_access,
+  //     PR #307); nutriția și imaginea îi dau 403, deci acelea rămân pe `canUseAi`.
+  // Rețetele țin de stocuri, pe care partenerul nu le vede (mig 286).
+  canUseAi: boolean
+  canUseAiMenu: boolean
+  canManageRecipes: boolean
 }) {
+  // Lotul AI are sens fără `canUseAi` doar pentru traduceri: fără limbi extra
+  // configurate, agentul n-ar avea nimic de generat acolo.
+  const hasExtraLangs = menuLanguages.some((c) => c !== 'ro')
+  const canBulkAi = canUseAi || (canUseAiMenu && hasExtraLangs)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
     void fetchVatRates(restaurantId)
@@ -2093,7 +2122,7 @@ export default function ProductsTab({
     if (modal === 'add') {
       const { error: e } = await create(form)
       if (e) {
-        toast(e.message, 'error')
+        toast(toUserMessage(e), 'error')
         return false
       }
       // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
@@ -2105,7 +2134,7 @@ export default function ProductsTab({
     } else if (modal) {
       const { error: e } = await update((modal as Product).id, form)
       if (e) {
-        toast(e.message, 'error')
+        toast(toUserMessage(e), 'error')
         return false
       }
       toast('Actualizat')
@@ -2119,7 +2148,7 @@ export default function ProductsTab({
   const handleCreateCategoryInline = async (name: string): Promise<string | null> => {
     const r = await createCategory({ name })
     if (r.error || !r.data) {
-      toast('Nu am putut crea categoria: ' + (r.error?.message ?? 'eroare necunoscută'), 'error')
+      toast(toUserMessage(r.error, 'Nu am putut crea categoria.'), 'error')
       return null
     }
     return (r.data as { id: string }).id
@@ -2127,7 +2156,7 @@ export default function ProductsTab({
   const handleDelete = async () => {
     if (!delId) return
     const { error: e } = await remove(delId)
-    if (e) toast(e.message, 'error')
+    if (e) toast(toUserMessage(e), 'error')
     else toast('Șters')
     setDelId(null)
   }
@@ -2136,7 +2165,7 @@ export default function ProductsTab({
     try {
       const { error } = await toggleActive(p.id, p.is_active)
       if (!error) toast(p.is_active ? 'Dezactivat' : 'Activat')
-      else toast(error.message, 'error')
+      else toast(toUserMessage(error), 'error')
     } finally {
       setTogglingId(null)
     }
@@ -2183,9 +2212,9 @@ export default function ProductsTab({
             canAdd={canAdd}
             onAdd={() => setModal('add')}
             onUpgrade={onUpgrade}
-            onImportPhoto={() => setAiImportOpen(true)}
+            onImportPhoto={canUseAiMenu ? () => setAiImportOpen(true) : undefined}
             onImportCsv={() => setCsvImportOpen(true)}
-            onBulkAi={() => setAiBulkOpen(true)}
+            onBulkAi={canBulkAi ? () => setAiBulkOpen(true) : undefined}
           />
         )}
       </div>
@@ -2311,16 +2340,19 @@ export default function ProductsTab({
                 // 2026): cine are meniul în mână îl fotografiază, nu tastează
                 // 30 de produse; adăugarea manuală rămâne alături, secundară.
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {canUseAiMenu && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<Icon name="camera" size={16} />}
+                      onClick={() => setAiImportOpen(true)}
+                    >
+                      Importă din poză
+                    </Button>
+                  )}
+                  {/* Fără AI, adăugarea manuală devine acțiunea principală. */}
                   <Button
-                    variant="primary"
-                    size="sm"
-                    icon={<Icon name="camera" size={16} />}
-                    onClick={() => setAiImportOpen(true)}
-                  >
-                    Importă din poză
-                  </Button>
-                  <Button
-                    variant="secondary"
+                    variant={canUseAiMenu ? 'secondary' : 'primary'}
                     size="sm"
                     icon={<Icon name="plus" size={16} />}
                     onClick={() => {
@@ -2630,7 +2662,7 @@ export default function ProductsTab({
                   <button
                     onClick={async () => {
                       const r = await toggleSoldOut(p.id, p.is_sold_out)
-                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      if (r.error) toast(toUserMessage(r.error, 'Nu s-a putut actualiza.'), 'error')
                       else toast(p.is_sold_out ? 'Disponibil' : 'Epuizat')
                     }}
                     aria-label={p.is_sold_out ? 'Marchează disponibil' : 'Marchează epuizat'}
@@ -2653,7 +2685,7 @@ export default function ProductsTab({
                   <button
                     onClick={async () => {
                       const r = await toggleDailySpecial(p.id, p.is_daily_special)
-                      if (r.error) toast('Nu s-a putut actualiza: ' + r.error.message, 'error')
+                      if (r.error) toast(toUserMessage(r.error, 'Nu s-a putut actualiza.'), 'error')
                       else toast(p.is_daily_special ? 'Normal' : 'Special!')
                     }}
                     aria-label={p.is_daily_special ? 'Scoate din specialități' : 'Marchează specialitate'}
@@ -2727,6 +2759,8 @@ export default function ProductsTab({
           restaurantId={restaurantId}
           userId={userId}
           menuLanguages={menuLanguages}
+          canUseAi={canUseAi}
+          canManageRecipes={canManageRecipes}
         />
       )}
       {csvImportOpen && (
@@ -2745,7 +2779,7 @@ export default function ProductsTab({
           />
         </Suspense>
       )}
-      {aiImportOpen && (
+      {aiImportOpen && canUseAiMenu && (
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
@@ -2775,7 +2809,7 @@ export default function ProductsTab({
           />
         </Suspense>
       )}
-      {aiBulkOpen && (
+      {aiBulkOpen && canBulkAi && (
         <Suspense fallback={null}>
           <AiBulkGenerate
             restaurantId={restaurantId}
@@ -2784,6 +2818,7 @@ export default function ProductsTab({
             menuLanguages={menuLanguages}
             onClose={() => setAiBulkOpen(false)}
             onDone={() => refetchProducts()}
+            translateOnly={!canUseAi}
           />
         </Suspense>
       )}

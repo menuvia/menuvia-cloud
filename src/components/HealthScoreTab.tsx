@@ -19,6 +19,7 @@ import {
   scoreLabel,
   getActionableSuggestions,
 } from '../lib/health'
+import { toUserMessage } from '../lib/userMessages'
 
 // Colors palette pentru lib helpers.
 // D_RAW (hex brut), nu D: aceste valori alimentează `stroke` pe inelul SVG
@@ -50,7 +51,7 @@ export default function HealthScoreTab() {
       // Eroare reală de fetch (rețea/permisiuni) — distinctă de „scor inexistent",
       // care e reprezentat de `score === null` fără excepție.
       setLoadError(true)
-      setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      setErr(toUserMessage(e, 'Eroare la încărcare'))
     } finally {
       setLoading(false)
     }
@@ -68,7 +69,7 @@ export default function HealthScoreTab() {
       const fresh = await recomputeHealthScore(activeId)
       setScore(fresh)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare recalculare')
+      setErr(toUserMessage(e, 'Eroare recalculare'))
     } finally {
       setRecomputing(false)
     }

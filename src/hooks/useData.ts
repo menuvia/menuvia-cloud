@@ -9,6 +9,7 @@ import {
 } from '../lib/sanitize'
 import { createRestaurant } from '../lib/restaurants'
 import { getFounderView } from '../lib/founder'
+import { zeroRowsAsDenied } from '../lib/userMessages'
 
 export interface Restaurant {
   id: string
@@ -374,10 +375,15 @@ export function useCategories(restaurantId: string | null) {
     }
     return r
   }
+  // `.select('id')` + numărarea rândurilor: un DELETE refuzat de RLS NU dă
+  // eroare (PostgREST: 200, zero rânduri), deci fără ea UI-ul arăta „Ștearsă"
+  // pe o categorie care rămânea în bază (lib/userMessages.ts).
   const remove = async (id: string) => {
-    const r = await supabase.from('categories').delete().eq('id', id)
-    if (!r.error) await load()
-    return r
+    const error = zeroRowsAsDenied(
+      await supabase.from('categories').delete().eq('id', id).select('id'),
+    )
+    if (!error) await load()
+    return { error }
   }
 
   const reorder = async (ordered: Category[]) => {
@@ -477,41 +483,36 @@ export function useProducts(restaurantId: string | null) {
     if (!r.error) await load()
     return r
   }
+  // Ca la categorii: 0 rânduri șterse = refuz de drepturi, nu „Șters".
   const remove = async (id: string) => {
-    const r = await supabase.from('products').delete().eq('id', id)
-    if (!r.error) await load()
-    return r
+    const error = zeroRowsAsDenied(
+      await supabase.from('products').delete().eq('id', id).select('id'),
+    )
+    if (!error) await load()
+    return { error }
   }
-  const toggleActive = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_active: !current })
-      .eq('id', id)
-      .select()
-      .single()
-    if (!r.error && r.data) mergeRow(r.data as Product)
-    return r
+  // FĂRĂ `.single()`: pe un UPDATE refuzat de RLS (0 rânduri) `.single()` dă
+  // PGRST116 în engleză („JSON object requested, multiple (or no) rows
+  // returned"), afișat ospătarului care marca „Epuizat". Numărăm rândurile și
+  // dăm refuzul de drepturi în română. `.select()` întreg (nu doar `id`):
+  // rândul actualizat alimentează merge-ul local.
+  const toggleProductFlag = async (
+    id: string,
+    patch: { is_active: boolean } | { is_sold_out: boolean } | { is_daily_special: boolean },
+  ) => {
+    const r = await supabase.from('products').update(patch).eq('id', id).select()
+    const error = zeroRowsAsDenied(r)
+    const row = !error && r.data ? (r.data[0] as Product) : null
+    if (row) mergeRow(row)
+    return { data: row, error }
   }
-  const toggleSoldOut = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_sold_out: !current })
-      .eq('id', id)
-      .select()
-      .single()
-    if (!r.error && r.data) mergeRow(r.data as Product)
-    return r
-  }
-  const toggleDailySpecial = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_daily_special: !current })
-      .eq('id', id)
-      .select()
-      .single()
-    if (!r.error && r.data) mergeRow(r.data as Product)
-    return r
-  }
+  // Activ/inactiv, epuizat și specialitatea zilei: aceeași regulă.
+  const toggleActive = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_active: !current })
+  const toggleSoldOut = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_sold_out: !current })
+  const toggleDailySpecial = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_daily_special: !current })
 
   return {
     products,

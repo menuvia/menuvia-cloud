@@ -105,8 +105,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // supabase-js NU aruncă: pe o cădere de rețea întoarce `{ error }` și NU
+  // șterge sesiunea locală. Înghițit, butonul trimitea omul la /auth deși
+  // rămânea logat pe tabletă — eroarea urcă la apelant (recenzie pe #333).
   const signOut = async () => {
-    await supabase.auth.signOut()
+    const { error } = await supabase.auth.signOut()
+    if (error) throw error
   }
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)

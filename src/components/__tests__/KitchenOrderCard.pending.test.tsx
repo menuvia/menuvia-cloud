@@ -5,7 +5,13 @@
 //   - „Gata" mută cardul în altă coloană, iar cardul de dedesubt urcă sub
 //     deget: un tap pe ALT card, venit în fereastra de dublu-tap, e ignorat;
 //   - refuzul serverului stă SUB butonul apăsat, în română (nu sus, în pagină);
-//   - sunetul blocat de browser e anunțat, cu un buton care îl pornește.
+//   - sunetul blocat de browser e anunțat, cu un buton care îl pornește;
+//   - KR1 bucătarul are „Ieși din cont" în antet (înainte NU avea nicio ieșire
+//     din cont: singura era în Setări → Cont, tab doar pentru owner/manager) și
+//     NU are „Înapoi la panou" (n-are panou). Mutația care pică: butonul scos
+//     din antet / randat doar pentru admini.
+//   - KR2 control: managerul are AMBELE („Înapoi la panou" lipsea complet de
+//     pe Bucătărie). Mutația care pică: butonul de întoarcere scos.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 
@@ -238,5 +244,41 @@ describe('KitchenPage — dublu-tap peste carduri vecine și sunetul', () => {
     useOrdersMock.mockReturnValue(ordersHook([], vi.fn()))
     render(<KitchenPage />)
     expect(screen.queryByText(/sunetul pentru comenzile noi e oprit/i)).toBeNull()
+  })
+})
+
+describe('KitchenPage — ieșirea din cont și drumul înapoi, pe rol', () => {
+  function setup(role: 'kitchen' | 'manager') {
+    useCtxMock.mockReturnValue({
+      activeId: 'r1',
+      activeName: 'Bistro',
+      activeRole: role,
+      memberships: [],
+      setActive: vi.fn(),
+      loading: false,
+    })
+    usePushMock.mockReturnValue({
+      supported: false,
+      permission: 'unsupported',
+      subscribed: false,
+      loading: false,
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+    })
+    useAudioMock.mockReturnValue({ locked: false, unlock: vi.fn() })
+    useOrdersMock.mockReturnValue(ordersHook([], vi.fn()))
+    render(<KitchenPage />)
+  }
+
+  it('KR1 bucătarul: „Ieși din cont" da, „Înapoi la panou" nu', () => {
+    setup('kitchen')
+    expect(screen.getByRole('button', { name: 'Ieși din cont' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Înapoi la panou/ })).not.toBeInTheDocument()
+  })
+
+  it('KR2 control: managerul are și „Înapoi la panou"', () => {
+    setup('manager')
+    expect(screen.getByRole('button', { name: 'Ieși din cont' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Înapoi la panou/ })).toBeInTheDocument()
   })
 })

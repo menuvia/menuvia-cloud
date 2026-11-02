@@ -26,6 +26,7 @@ import {
 } from '../lib/happyHour'
 import { supabase } from '../lib/supabase'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -122,7 +123,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
       setCategories((cats.data ?? []) as Category[])
       setProducts((prods.data ?? []) as Product[])
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     } finally {
       setLoading(false)
     }
@@ -162,7 +163,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
       setDelId(null)
       void load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     }
   }
 
@@ -171,7 +172,7 @@ export default function HappyHourTab({ restaurantId }: Props) {
       await updateHappyHourRule(rule.id, { is_active: !rule.is_active })
       void load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     }
   }
 
@@ -593,7 +594,7 @@ function RuleEditor({
       discount_value: dv,
       max_discount: maxDiscount.trim().length > 0 ? Number(maxDiscount.replace(',', '.')) : null,
     }).catch((e: unknown) => {
-      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
+      setErr(toUserMessage(e, 'Eroare la salvare'))
     })
   }
 

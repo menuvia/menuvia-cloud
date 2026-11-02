@@ -9,6 +9,11 @@
 //         care pică: vechiul `isQuota` singur (fără ramura isAiConfigError).
 //   ABG2  control: eșecul unui SINGUR produs (image_failed) nu oprește lotul.
 //   ABG3  imaginile oprite NU opresc nutriția: macronutrienții continuă.
+//   ABG4  `translateOnly` (agentul de vânzări — ai-proxy îi permite doar
+//         `menu_import` + `translate`): fără bifele de imagini/macronutrienți,
+//         butonul face doar traduceri. Mutația care pică: prop-ul ignorat
+//         (bifele randate, `doImages`/`doNutrition` pornite → 403 pe nutriție).
+//   ABG5  control: fără prop, bifele și „Generează pentru N produse" rămân.
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -124,5 +129,36 @@ describe('AiBulkGenerate — erori de configurare', () => {
     expect(
       screen.getByText(/2 seturi de valori nutriționale · 0 imagini generate/),
     ).toBeInTheDocument()
+  })
+})
+
+describe('AiBulkGenerate — doar traduceri pentru agent', () => {
+  function renderLangs(translateOnly: boolean) {
+    return render(
+      <AiBulkGenerate
+        restaurantId="r1"
+        products={[product('a', { calories: null })]}
+        categories={[]}
+        menuLanguages={['ro', 'en']}
+        translateOnly={translateOnly}
+        onClose={() => {}}
+        onDone={() => {}}
+      />,
+    )
+  }
+
+  it('ABG4: translateOnly → fără imagini/nutriție, doar „Generează traduceri"', () => {
+    renderLangs(true)
+    expect(screen.getByText(/Traduceri în 1 limbă/)).toBeInTheDocument()
+    expect(screen.queryByText(/Imagini \(/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Macronutrienți/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Generează traduceri' })).toBeInTheDocument()
+  })
+
+  it('ABG5: control — fără prop, bifele de imagini și nutriție rămân', () => {
+    renderLangs(false)
+    expect(screen.getByText(/Imagini \(/)).toBeInTheDocument()
+    expect(screen.getByText(/Macronutrienți/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Generează pentru 1 produs' })).toBeInTheDocument()
   })
 })

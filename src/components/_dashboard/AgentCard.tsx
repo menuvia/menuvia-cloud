@@ -20,6 +20,7 @@ import {
   telHref,
 } from '../../lib/agentContact'
 import { confirm as confirmDialog } from '../ui/confirm'
+import { toUserMessage } from '../../lib/userMessages'
 
 const btn = (e: React.CSSProperties = {}): React.CSSProperties => ({
   display: 'inline-flex',
@@ -69,7 +70,7 @@ export function AgentCard({
       setMsg({ text: okText, tone: 'ok' })
       reload()
     } catch (e) {
-      setMsg({ text: e instanceof Error ? e.message : 'Eroare', tone: 'error' })
+      setMsg({ text: toUserMessage(e), tone: 'error' })
     } finally {
       setBusy(false)
     }

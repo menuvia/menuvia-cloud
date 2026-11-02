@@ -56,6 +56,10 @@ interface Props {
   // fără pașii și cifrele de comenzi (perf-staff-3).
   tier: PlanTier | null
   isAdmin: boolean
+  // Abonamentul e pe contul PROPRIETARULUI: managerul n-are client Stripe și
+  // primea în card un refuz („gestionat de contul proprietarului"), adică o
+  // fundătură. Fail-closed: fără valoare, cardul nu apare.
+  isOwner?: boolean
   // `null` = necunoscut (citirea numărului de produse n-a reușit încă).
   productCount: number | null
   // Mod „doar ridicare" (food truck, E3): fără pași/metrici legate de mese.
@@ -255,6 +259,7 @@ export default function HomeTab({
   restaurantName,
   tier,
   isAdmin,
+  isOwner = false,
   productCount,
   pickupOnly,
   onNavigate,
@@ -765,9 +770,15 @@ export default function HomeTab({
             gap: 10,
           }}
         >
-          <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
-          <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
-          {qrStandsOpen === true && (
+          {/* Editarea meniului și a meselor = owner/manager; restul echipei ar
+              ajunge pe tab-uri care îi refuză fiecare salvare. */}
+          {isAdmin && (
+            <QuickAction icon="plus" label="Adaugă produs" onClick={() => onNavigate('products')} />
+          )}
+          {isAdmin && (
+            <QuickAction icon="qr" label="Generează QR-uri" onClick={() => onNavigate('mese')} />
+          )}
+          {isAdmin && qrStandsOpen === true && (
             <QuickAction icon="box" label="Suporturi QR fizice" onClick={onOrderQrStands} />
           )}
           <QuickAction icon="eye" label="Vezi meniul public" onClick={handleViewMenu} />
@@ -789,7 +800,7 @@ export default function HomeTab({
           Rămâne și cu planul NECUNOSCUT: un patron cu plata picată (adesea exact
           cel care ajunge aici din email) nu pierde calea spre card dintr-un
           blip de citire a planului. */}
-      {isAdmin && (
+      {isOwner && (
         <RevealItem delay={300}>
           {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
               scroll aici, vezi efectul din DashboardPage). */}
@@ -801,7 +812,7 @@ export default function HomeTab({
 
       {/* Upgrade — doar tier 1 CUNOSCUT, mereu ultimul. Cu planul necunoscut,
           un upsell către un plătitor ar fi exact minciuna din perf-staff-3. */}
-      {isAdmin && tier === 1 && (
+      {isOwner && tier === 1 && (
         <RevealItem delay={300}>
         <Card
           variant="raised"

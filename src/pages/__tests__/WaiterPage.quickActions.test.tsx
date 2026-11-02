@@ -4,6 +4,10 @@
 //     VECINĂ (ux-staff-double-tap-advance);
 //   - după „Trimite comanda" ospătarul AFLĂ unde a ajuns comanda, mai ales când
 //     a rămas doar pe telefon (ux-staff-order-sent-feedback).
+//   - WR1 ospătarul are „Ieși din cont" în antet (înainte nicio ieșire: singura
+//     era în Setări → Cont, tab doar pentru owner/manager) și NU are „Înapoi la
+//     panou". Mutația care pică: butonul scos / randat doar pentru admini.
+//   - WR2 control: managerul are ambele.
 // Hook-urile de date sunt mock-uite; testul privește doar pagina.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
@@ -193,5 +197,28 @@ describe('WaiterPage — ospătarul află unde a ajuns comanda', () => {
     fireEvent.click(await screen.findByRole('button', { name: /comandă nouă/i }))
     fireEvent.click(await screen.findByRole('button', { name: 'trimite-test' }))
     expect(h.toast.success).toHaveBeenCalledWith('Comanda #A1B2C3 a fost trimisă la bucătărie.')
+  })
+})
+
+describe('WaiterPage — ieșirea din cont și drumul înapoi, pe rol', () => {
+  it('WR1 ospătarul: „Ieși din cont" da, „Înapoi la panou" nu', async () => {
+    setOrders([])
+    render(<WaiterPage />)
+    expect(await screen.findByRole('button', { name: 'Ieși din cont' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Înapoi la panou/ })).not.toBeInTheDocument()
+  })
+
+  it('WR2 control: managerul are și „Înapoi la panou"', async () => {
+    h.useRestaurantCtx.mockReturnValue({
+      activeId: 'r1',
+      activeName: 'Bistro',
+      activeRole: 'manager',
+      memberships: [],
+      setActive: vi.fn(),
+    })
+    setOrders([])
+    render(<WaiterPage />)
+    expect(await screen.findByRole('button', { name: 'Ieși din cont' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Înapoi la panou/ })).toBeInTheDocument()
   })
 })

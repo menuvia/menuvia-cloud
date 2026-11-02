@@ -32,6 +32,7 @@ import { confirm } from './ui/confirm'
 import { browserSite, siteHost } from '../lib/domain'
 import { COUNTRIES, countrySettingVisible } from '../lib/countries'
 import { clearPendingCountry } from '../lib/pendingCountry'
+import { toUserMessage } from '../lib/userMessages'
 
 // ── Constants for hours_structured editor ──
 
@@ -147,6 +148,7 @@ export default function SettingsTab({
   planKnown,
   onSignOut,
   modulesState,
+  founderView = false,
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
@@ -157,6 +159,9 @@ export default function SettingsTab({
   planKnown: boolean
   onSignOut: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
+  // Fondatorul în vizită: acțiunile pe care serverul le leagă de membership-ul
+  // REAL (conectarea Stripe) nu i se arată.
+  founderView?: boolean
 }) {
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
@@ -357,7 +362,7 @@ export default function SettingsTab({
           return
         }
       } catch (e) {
-        toast('Eroare la schimbarea slug-ului: ' + (e as Error).message, 'error')
+        toast(toUserMessage(e, 'Eroare la schimbarea slug-ului.'), 'error')
         setSaving(false)
         return
       }
@@ -367,7 +372,7 @@ export default function SettingsTab({
     const { slug: _slug, ...rest } = form
     void _slug
     const { error } = await onUpdate(restaurant.id, rest)
-    if (error) toast('Eroare: ' + error.message, 'error')
+    if (error) toast(toUserMessage(error), 'error')
     else {
       // Țara aleasă explicit aici înlocuiește orice intenție rămasă de la
       // onboarding (lib/pendingCountry.ts) — altfel ar fi re-aplicată peste ea.
@@ -1715,7 +1720,7 @@ export default function SettingsTab({
                             toast(v ? 'Modulul Rezervări activat' : 'Modulul Rezervări dezactivat'),
                           )
                           .catch((err) =>
-                            toast(err instanceof Error ? err.message : 'Eroare la salvare'),
+                            toast(toUserMessage(err, 'Eroare la salvare')),
                           )
                       }}
                     />
@@ -1731,6 +1736,7 @@ export default function SettingsTab({
                 plan={plan}
                 modulesState={modulesState}
                 toast={toast}
+                founderView={founderView}
               />
             )}
 

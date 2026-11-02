@@ -22,6 +22,7 @@ import { useToast } from './ui/useToast'
 import { useFeatures } from '../hooks/useFeatures'
 import { confirm as confirmDialog } from './ui/confirm'
 import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '../lib/reservations'
+import { toUserMessage } from '../lib/userMessages'
 
 // Cheia de telefon pentru badge-ul de recidivist — ACEEAȘI normalizare ca
 // get_reservation_no_show_counts (mig 234) și rate-limit-ul din mig 115/129:
@@ -179,7 +180,7 @@ export default function ReservationsTab({ restaurantId }: Props) {
         await updateStatus(id, status)
         toast.success(label)
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : 'Eroare actualizare')
+        toast.error(toUserMessage(e, 'Rezervarea nu a putut fi actualizată.'))
       }
     },
     [updateStatus, toast],
@@ -878,7 +879,7 @@ function SettingsSection({ restaurantId }: { restaurantId: string }) {
       setDraft({})
       toast.success('Setări salvate')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Eroare salvare')
+      toast.error(toUserMessage(e, 'Rezervarea nu a putut fi salvată.'))
     } finally {
       setSaving(false)
     }

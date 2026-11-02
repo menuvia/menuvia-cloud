@@ -21,6 +21,7 @@ import { useState, useMemo, useRef } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -501,7 +502,7 @@ export default function ProductsCsvImport({
       // Brief delay before closing for user to see 100%
       setTimeout(() => onDone(totalAddedRef.current), 500)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Eroare necunoscută la import')
+      setError(toUserMessage(e, 'Eroare necunoscută la import'))
       setStep('preview')
     }
   }

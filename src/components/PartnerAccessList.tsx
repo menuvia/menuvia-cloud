@@ -24,6 +24,7 @@ import {
   type PartnerAttribution,
 } from '../lib/founder'
 import { describePartnerState } from '../lib/partnerAccess'
+import { toUserMessage } from '../lib/userMessages'
 
 export interface ClientSummary {
   attribution_id: string
@@ -151,7 +152,7 @@ export default function PartnerAccessList({
       if (!res.ok) throw new Error(res.error ?? 'Nu am putut trimite cererea')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nu am putut trimite cererea')
+      setError(toUserMessage(e, 'Nu am putut trimite cererea'))
     } finally {
       setBusyId(null)
     }

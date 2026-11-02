@@ -13,6 +13,7 @@ import {
   type AiProvider,
   type AiQuota,
 } from '../lib/ai'
+import { toUserMessage } from '../lib/userMessages'
 
 interface ProviderMeta {
   id: AiProvider
@@ -69,7 +70,16 @@ const CREDIT_PACKS: { id: 'small' | 'medium' | 'large'; tokens: string; price: s
   { id: 'large', tokens: '2.000.000 tokens', price: '249 lei' },
 ]
 
-export default function AiSettingsTab({ restaurantId }: { restaurantId: string }) {
+export default function AiSettingsTab({
+  restaurantId,
+  readOnly = false,
+}: {
+  restaurantId: string
+  // Fondatorul în vizită (founder view): ai-proxy și plata creditelor verifică
+  // membership-ul REAL al apelantului, deci „Salvează" și „Cumpără" i-ar da doar
+  // erori. Vede configurația, nu o schimbă.
+  readOnly?: boolean
+}) {
   const isMobile = useIsMobile()
   const [provider, setProvider] = useState<AiProvider>('openai')
   const [model, setModel] = useState('')
@@ -146,7 +156,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
           : 'Configurație salvată. Cheia este gestionată de Menuvia.',
       })
     } catch (e) {
-      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Eroare la salvare.' })
+      setMsg({ kind: 'err', text: toUserMessage(e, 'Eroare la salvare.') })
     } finally {
       setSaving(false)
     }
@@ -159,7 +169,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
       const { url } = await buyAiCredits({ restaurant_id: restaurantId, pack })
       window.location.href = url
     } catch (e) {
-      setMsg({ kind: 'err', text: e instanceof Error ? e.message : 'Nu am putut porni plata.' })
+      setMsg({ kind: 'err', text: toUserMessage(e, 'Nu am putut porni plata.') })
       setBuying(null)
     }
   }
@@ -358,6 +368,12 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
         </div>
       )}
 
+      {readOnly ? (
+        <p style={{ color: D.t2, fontSize: '0.82rem', lineHeight: 1.5 }}>
+          În modul fondator vezi configurația, dar o poate salva doar echipa restaurantului, din
+          contul ei.
+        </p>
+      ) : (
       <button
         onClick={handleSave}
         disabled={saving}
@@ -377,8 +393,10 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
       >
         {saving ? 'Se salvează...' : 'Salvează configurația'}
       </button>
+      )}
 
       {/* Top-up credite (Faza F) */}
+      {!readOnly && (
       <div style={{ marginTop: 32 }}>
         <h2 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.1rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
           Credite suplimentare
@@ -416,6 +434,7 @@ export default function AiSettingsTab({ restaurantId }: { restaurantId: string }
           ))}
         </div>
       </div>
+      )}
     </div>
   )
 }

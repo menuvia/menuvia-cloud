@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { toUserMessage } from '../lib/userMessages'
 
 // ─────────────────────────────────────────────────────────────
 // Paleta caldă-luminoasă (aliniată cu A din AuthPage.tsx — /reset-password
@@ -137,7 +138,9 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
     setLoading(true)
     const { error: updateErr } = await supabase.auth.updateUser({ password })
     if (updateErr) {
-      setError(updateErr.message)
+      setError(
+        toUserMessage(updateErr, 'Parola nu a putut fi schimbată. Dacă linkul a expirat, cere unul nou.'),
+      )
       setLoading(false)
       return
     }

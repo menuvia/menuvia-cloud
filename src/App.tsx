@@ -22,6 +22,7 @@ import {
 } from './lib/planIntent'
 import { authPathWithNext, nextFromSearch } from './lib/authRedirect'
 import { loadPlanIntentDestination, loadPostLoginDestination } from './lib/postLogin'
+import { noAccessDestination, staffHomeForRole } from './lib/roleRouting'
 import { leaveAuth } from './lib/postLoginRedirect'
 import { legacyPathRedirect } from './lib/routeAliases'
 import CheckoutReturnBanner from './components/CheckoutReturnBanner'
@@ -322,9 +323,13 @@ function ProtectedRoute({
             onRetry={() => window.location.reload()}
           />
         ) : (
+          // Ieșirea duce pe ecranul ROLULUI (bucătarul de pe /waiter → /kitchen),
+          // nu înapoi pe /dashboard, unde personalul n-are ce face
+          // (lib/roleRouting.ts).
           <QueryError
             message="Nu ai acces la această pagină. Contactează managerul restaurantului."
-            onRetry={() => navigate('/dashboard')}
+            retryLabel="Mergi la ecranul tău"
+            onRetry={() => navigate(noAccessDestination(activeRole))}
           />
         )}
       </div>
@@ -360,6 +365,8 @@ function PwaPromptMount() {
 function AppRouter() {
   const { user, loading, signOut } = useAuth()
   const { restaurants, loading: rLoading, refetch, update } = useRestaurants()
+  // Rolul restaurantului ACTIV — garda de rol pe /dashboard (mai jos).
+  const { activeRole, loading: ctxLoading } = useRestaurantCtx()
   const [state, setState] = useState<RouteState>(parsePath)
 
   // Ruta se anunță și DUPĂ fiecare commit al routerului, nu doar din
@@ -890,6 +897,18 @@ function AppRouter() {
         <FounderPage onBack={() => navigate('/dashboard')} />
       </Suspense>
     )
+
+  // ── Gardă de rol pe /dashboard (lib/roleRouting.ts) ────────
+  // Ospătarul și bucătarul NU au ce căuta în editorul de meniu/mese: fiecare
+  // salvare le-ar fi refuzată de server. Decide rolul restaurantului ACTIV
+  // (cu membership-uri mixte, cel ales); owner/manager/partner rămân aici.
+  // replace(), nu navigate(): Back nu are voie să reîntoarcă pe /dashboard.
+  if (ctxLoading) return <PageSpinner />
+  const staffHome = staffHomeForRole(activeRole)
+  if (staffHome) {
+    replace(staffHome)
+    return <PageSpinner />
+  }
 
   if (restaurants.length === 0 && !rLoading)
     return (

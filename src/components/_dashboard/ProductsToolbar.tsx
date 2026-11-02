@@ -27,9 +27,11 @@ export function ProductsToolbar({
   canAdd: boolean
   onAdd: () => void
   onUpgrade: () => void
-  onImportPhoto: () => void
+  // Fără handler = acțiunea nu e disponibilă rolului (partenerul, fondatorul în
+  // vizită: AI-ul cere membership real) → butonul nu se randează deloc.
+  onImportPhoto?: () => void
   onImportCsv: () => void
-  onBulkAi: () => void
+  onBulkAi?: () => void
 }) {
   const [importOpen, setImportOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -88,6 +90,7 @@ export function ProductsToolbar({
 
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {onBulkAi && (
       <button
         type="button"
         onClick={onBulkAi}
@@ -98,6 +101,7 @@ export function ProductsToolbar({
         <Icon name="sparkle" size={16} />
         {mobile ? 'AI' : 'Generează AI'}
       </button>
+      )}
 
       <div
         ref={wrapRef}
@@ -148,10 +152,12 @@ export function ProductsToolbar({
               padding: 6,
             }}
           >
-            <button type="button" style={menuItem} onClick={() => choose(onImportPhoto)}>
-              <Icon name="camera" size={16} color={D.t2} />
-              Din poză (AI)
-            </button>
+            {onImportPhoto && (
+              <button type="button" style={menuItem} onClick={() => choose(onImportPhoto)}>
+                <Icon name="camera" size={16} color={D.t2} />
+                Din poză (AI)
+              </button>
+            )}
             <button type="button" style={menuItem} onClick={() => choose(onImportCsv)}>
               <Icon name="download" size={16} color={D.t2} />
               Din fișier CSV

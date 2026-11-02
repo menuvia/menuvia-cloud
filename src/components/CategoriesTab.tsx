@@ -9,6 +9,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { MENU_LANGS, activeTranslationLangs, mergeTranslations } from '../lib/i18nMenu'
+import { toUserMessage } from '../lib/userMessages'
 
 function CategoryModal({
   category,
@@ -233,7 +234,7 @@ export default function CategoriesTab({
       .from('products')
       .select('id, category_id')
       .eq('restaurant_id', restaurantId)
-    if (pe) setProdError(pe.message)
+    if (pe) setProdError(toUserMessage(pe))
     else setProdCounts((data ?? []) as { id: string; category_id: string | null }[])
   }, [restaurantId])
   useEffect(() => {
@@ -261,10 +262,10 @@ export default function CategoriesTab({
     try {
       const { error: e } =
         modal === 'add' ? await create(form) : await update((modal as Category).id, form)
-      if (e) return e.message || 'Eroare necunoscută'
+      if (e) return toUserMessage(e, 'Categoria nu a putut fi salvată.')
     } catch (err) {
       // Respingere de transport (rețea căzută) — nu trebuie să rămână nevăzută.
-      return err instanceof Error ? err.message : 'Eroare de rețea'
+      return toUserMessage(err, 'Categoria nu a putut fi salvată.')
     }
     toast(modal === 'add' ? 'Categorie adăugată' : 'Actualizat')
     setModal(null)
@@ -275,7 +276,7 @@ export default function CategoriesTab({
     const { error: e } = await remove(delId)
     // Mesajul hardcodat afirma o cauză FALSĂ (FK-ul e ON DELETE SET NULL —
     // produsele nu blochează ștergerea); afișăm cauza reală.
-    if (e) toast('Nu s-a putut șterge categoria: ' + e.message, 'error')
+    if (e) toast(toUserMessage(e, 'Nu s-a putut șterge categoria.'), 'error')
     else toast('Ștearsă')
     setDelId(null)
   }

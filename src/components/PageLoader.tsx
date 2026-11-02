@@ -1,5 +1,6 @@
 import { Component, ReactNode, CSSProperties } from 'react'
 import { D } from '../lib/constants'
+import { toUserMessage } from '../lib/userMessages'
 
 const center: CSSProperties = {
   minHeight: '100vh',
@@ -61,7 +62,16 @@ export function InlineSpinner({ label }: { label?: string }) {
   )
 }
 
-export function QueryError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function QueryError({
+  message,
+  onRetry,
+  retryLabel = 'Reîncearcă',
+}: {
+  message: string
+  onRetry?: () => void
+  /** Eticheta butonului — implicit „Reîncearcă”; altă acțiune = alt text. */
+  retryLabel?: string
+}) {
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>&#x26a0;&#xfe0f;</div>
@@ -81,7 +91,7 @@ export function QueryError({ message, onRetry }: { message: string; onRetry?: ()
             fontFamily: 'inherit',
           }}
         >
-          Reîncearcă
+          {retryLabel}
         </button>
       )}
     </div>
@@ -173,7 +183,15 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
               Ceva nu a mers bine
             </div>
             <div style={{ color: D.t2, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
-              {this.state.error.message}
+              {/* Textul tehnic al excepției (în engleză) nu ajunge la om. Îl
+                  învelim într-un Error simplu ca `isNetworkError` să decidă
+                  DOAR pe text: un chunk lazy care n-a putut fi descărcat
+                  („Failed to fetch dynamically imported module") e rețea, dar
+                  un TypeError dintr-un bug nu e „fără conexiune". */}
+              {toUserMessage(
+                new Error(this.state.error.message),
+                'A apărut o eroare neașteptată. Reîncarcă pagina; dacă se repetă, scrie-ne.',
+              )}
             </div>
             <button
               onClick={() => window.location.reload()}

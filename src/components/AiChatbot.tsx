@@ -9,6 +9,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import { useProducts, useCategories, type Product } from '../hooks/useData'
 import { aiChat, type AiMessage } from '../lib/ai'
 import { Icon } from './ui/Icon'
+import { toUserMessage } from '../lib/userMessages'
 
 // ── Protocolul de acțiuni ────────────────────────────────────
 type AiAction =
@@ -217,7 +218,7 @@ function AiChatbotPanel({
       const { text: replyText, actions } = extractActions(res.text)
       setTurns((prev) => [...prev, { role: 'assistant', text: replyText || '(fără răspuns)', actions: actions.length ? actions : undefined }])
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Eroare la asistentul AI.')
+      setError(toUserMessage(e, 'Eroare la asistentul AI.'))
     } finally {
       setBusy(false)
     }
@@ -260,10 +261,10 @@ function AiChatbotPanel({
       } else if (edited.type === 'create_category') {
         res = await categories.create({ name: edited.name, emoji: edited.emoji ?? '🍽️' })
       }
-      if (res.error) setStatus('error', res.error.message)
+      if (res.error) setStatus('error', toUserMessage(res.error))
       else setStatus('applied')
     } catch (e) {
-      setStatus('error', e instanceof Error ? e.message : 'Eroare')
+      setStatus('error', toUserMessage(e))
     } finally {
       applyingRef.current.delete(lockKey)
     }

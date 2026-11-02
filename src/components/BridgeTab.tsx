@@ -19,6 +19,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { receiptStatsForRomaniaDay } from '../lib/receiptStats'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
+import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 
 // Coloanele EXPLICITE pe care ecranul le afișează (perf-staff-5). Înainte
 // `select('*')` aducea, la fiecare 15 s, `device_secret` (cheia cu care
@@ -267,7 +268,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         setTickets(tRes.error ? [] : ((tRes.data || []) as KitchenTicket[]))
       } catch (e) {
         if (seq === loadSeqRef.current)
-          setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+          setErr(toUserMessage(e, 'Eroare la încărcare'))
       } finally {
         if (seq === loadSeqRef.current) setLoading(false)
       }
@@ -310,7 +311,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       }
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la înregistrare')
+      setErr(toUserMessage(e, 'Eroare la înregistrare'))
     } finally {
       setRegBusy(false)
     }
@@ -325,11 +326,17 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
     })
     if (!ok) return
     try {
-      const { error } = await supabase.from('bridge_devices').delete().eq('id', id)
-      if (error) throw error
+      // 0 rânduri șterse = refuz RLS tăcut; îl spunem, nu reîncărcăm „ca șters".
+      const denied = zeroRowsAsDenied(
+        await supabase.from('bridge_devices').delete().eq('id', id).select('id'),
+      )
+      if (denied) {
+        setErr(toUserMessage(denied, 'Eroare la ștergere'))
+        return
+      }
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la ștergere')
+      setErr(toUserMessage(e, 'Eroare la ștergere'))
     }
   }
 
@@ -371,7 +378,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       }
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la retrimitere')
+      setErr(toUserMessage(e, 'Eroare la retrimitere'))
     }
   }
 
@@ -397,13 +404,13 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       })
       if (error) {
         // Refuzul serverului cu textul lui (already_resolved / not_resolvable / role_insufficient).
-        setPrintedErr(error.message || 'Eroare la înregistrarea bonului')
+        setPrintedErr(toUserMessage(error, 'Eroare la înregistrarea bonului'))
         return
       }
       setPrintedFor(null)
       await load()
     } catch (e) {
-      setPrintedErr(e instanceof Error ? e.message : 'Eroare la înregistrarea bonului')
+      setPrintedErr(toUserMessage(e, 'Eroare la înregistrarea bonului'))
     } finally {
       setPrintedBusy(false)
     }
@@ -422,7 +429,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       if (error) throw error
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la anulare')
+      setErr(toUserMessage(e, 'Eroare la anulare'))
     }
   }
 
@@ -436,7 +443,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       if (error) throw error
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la salvare')
+      setErr(toUserMessage(e, 'Eroare la salvare'))
     }
   }
 
@@ -446,7 +453,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       if (error) throw error
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la retrimitere tichet')
+      setErr(toUserMessage(e, 'Eroare la retrimitere tichet'))
     }
   }
 
@@ -463,7 +470,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       if (error) throw error
       await load()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la anulare tichet')
+      setErr(toUserMessage(e, 'Eroare la anulare tichet'))
     }
   }
 
@@ -490,7 +497,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       setShowVatMap(false)
       await load({ withConfig: true })
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la salvare mapare TVA')
+      setErr(toUserMessage(e, 'Eroare la salvare mapare TVA'))
     } finally {
       setVatBusy(false)
     }

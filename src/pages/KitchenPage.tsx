@@ -29,6 +29,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import PickupDetails from '../components/PickupDetails'
 import { ActionErrorNote } from '../components/ActionErrorNote'
+import { SignOutButton } from '../components/SignOutButton'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
 
 // D imported from constants
@@ -360,10 +361,14 @@ export default function KitchenPage() {
   const {
     activeId: restaurantId,
     activeName: restaurantName,
+    activeRole,
     memberships,
     setActive,
     loading: ctxLoading,
   } = useRestaurantCtx()
+  // Owner/manager ajung aici din panou și au nevoie de drumul înapoi;
+  // bucătarul nu are panou (lib/roleRouting.ts îl trimite oricum aici).
+  const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   const prevOrderIds = useRef(new Set<string>())
   // Primul snapshot hidratat NU e „comandă nouă" — altfel beep-ul suna la încărcarea
   // paginii sau după schimbarea restaurantului. Sunăm doar de la al doilea snapshot.
@@ -478,16 +483,51 @@ export default function KitchenPage() {
         style={{
           background: D.s1,
           borderBottom: `1px solid ${D.s3}`,
-          padding: '0 24px',
-          height: 56,
+          // minHeight + wrap (nu înălțime fixă): cu „Înapoi la panou" și
+          // „Ieși din cont", pe 375px grupul de butoane coboară pe rândul doi.
+          padding: '6px 16px',
+          minHeight: 56,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
           position: 'sticky',
           top: 0,
           zIndex: 100,
         }}
       >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 200px' }}>
+        {isAdminRole && (
+          <button
+            type="button"
+            onClick={() => {
+              window.history.pushState({}, '', '/dashboard')
+              window.dispatchEvent(new PopStateEvent('popstate'))
+            }}
+            title="Înapoi la panoul de administrare"
+            style={{
+              background: 'transparent',
+              color: D.t2,
+              border: `1px solid ${D.s3}`,
+              borderRadius: 7,
+              padding: '5px 10px',
+              fontFamily: 'DM Sans, sans-serif',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5,
+              flexShrink: 0,
+              minHeight: 44,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Icon name="arrowLeft" size={14} />
+            Înapoi la panou
+          </button>
+        )}
         <span
           style={{
             fontFamily: 'Fraunces, Georgia, serif',
@@ -504,7 +544,17 @@ export default function KitchenPage() {
         >
           Bucătărie{restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexShrink: 0,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+          }}
+        >
           {/* Restaurant selector — only visible for multi-restaurant users */}
           <RestaurantSelector
             memberships={memberships}
@@ -566,6 +616,8 @@ export default function KitchenPage() {
             />
             <span style={{ fontSize: 12, color: D.t2, whiteSpace: 'nowrap' }}>{connLabel}</span>
           </div>
+          {/* Ieșirea din cont, pentru ORICE rol — bucătarul nu avea niciuna. */}
+          <SignOutButton variant="header" />
         </div>
       </div>
 

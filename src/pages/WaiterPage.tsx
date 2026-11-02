@@ -6,6 +6,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useRestaurantCtx } from '../contexts/RestaurantContext'
+import { SignOutButton } from '../components/SignOutButton'
 import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
@@ -58,6 +59,7 @@ import { Icon } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
+import { toUserMessage } from '../lib/userMessages'
 
 // ── Helpers vizuale ───────────────────────────────────────────
 
@@ -395,7 +397,7 @@ export default function WaiterPage() {
       .then(({ data, error: e }) => {
         if (cancelled) return
         if (e) {
-          setTablesLoadError(e.message)
+          setTablesLoadError(toUserMessage(e, 'Nu am putut încărca mesele.'))
           setTables([])
         } else {
           setTables((data ?? []) as typeof tables)
@@ -605,7 +607,7 @@ export default function WaiterPage() {
                 }).`,
           )
         } catch (e: unknown) {
-          toast.error(e instanceof Error ? e.message : 'Masa nu a putut fi închisă. Reîncearcă.')
+          toast.error(toUserMessage(e, 'Masa nu a putut fi închisă. Reîncearcă.'))
         }
       })()
     },
@@ -719,7 +721,7 @@ export default function WaiterPage() {
                 window.history.pushState({}, '', '/dashboard')
                 window.dispatchEvent(new PopStateEvent('popstate'))
               }}
-              title="Înapoi la Dashboard"
+              title="Înapoi la panoul de administrare"
               style={{
                 background: 'transparent',
                 color: D.t2,
@@ -739,7 +741,7 @@ export default function WaiterPage() {
               }}
             >
               <Icon name="arrowLeft" size={14} />
-              Dashboard
+              Înapoi la panou
             </button>
           )}
           <div style={{ minWidth: 0, flex: '1 1 auto' }}>
@@ -910,6 +912,17 @@ export default function WaiterPage() {
             <Icon name="plus" size={16} />
             Comandă nouă
           </button>
+          {/* Ieșirea din cont, pentru ORICE rol — ospătarul nu avea niciuna. */}
+          <SignOutButton
+            variant="header"
+            warning={
+              offlineQueue.pendingCount > 0
+                ? `Ai ${offlineQueue.pendingCount} ${
+                    offlineQueue.pendingCount === 1 ? 'comandă salvată' : 'comenzi salvate'
+                  } doar pe acest telefon, încă netrimise.`
+                : undefined
+            }
+          />
         </div>
       </div>
 
@@ -1267,7 +1280,7 @@ export default function WaiterPage() {
                               onClick={() => {
                                 if (!canSeat) return
                                 void seatReservation(r.id, pick).catch((e) =>
-                                  toast.error(e instanceof Error ? e.message : 'Eroare'),
+                                  toast.error(toUserMessage(e)),
                                 )
                               }}
                               disabled={!canSeat}
@@ -1291,7 +1304,7 @@ export default function WaiterPage() {
                               onClick={() => {
                                 if (!confirm('Marchezi ca no-show?')) return
                                 void updateReservationStatus(r.id, 'no_show').catch((e) =>
-                                  toast.error(e instanceof Error ? e.message : 'Eroare'),
+                                  toast.error(toUserMessage(e)),
                                 )
                               }}
                               style={{
@@ -1984,7 +1997,7 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
         setResult({ ok: false, text: 'Nu am putut verifica codul. Încearcă din nou.' })
       }
     } catch (e) {
-      setResult({ ok: false, text: e instanceof Error ? e.message : 'Eroare' })
+      setResult({ ok: false, text: toUserMessage(e, 'Nu am putut verifica codul. Încearcă din nou.') })
     }
     setBusy(false)
   }

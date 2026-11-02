@@ -63,11 +63,18 @@ export async function login(page: Page, email = TEST_EMAIL, password = TEST_PASS
   await page.waitForURL(/\/(dashboard|kitchen|waiter)/, { timeout: 15_000 })
 }
 
-/** Sign out din interfața dashboard. */
+/**
+ * Sign out din interfața dashboard. „Ieși din cont" stă în bara laterală
+ * (SignOutButton, orice rol) și cere CONFIRMARE: fără al doilea click, pe
+ * dialog, helperul aștepta degeaba navigarea. Pe mobil bara laterală e în
+ * meniul hamburger, deci îl deschidem întâi dacă e vizibil.
+ */
 export async function logout(page: Page) {
   await page.goto('/dashboard')
-  await page.getByRole('button', { name: /set[ăa]ri/i }).first().click().catch(() => {})
-  await page.getByRole('button', { name: /(ieș|deconect|sign out)/i }).first().click()
+  const hamburger = page.getByRole('button', { name: 'Deschide meniul' })
+  if (await hamburger.isVisible().catch(() => false)) await hamburger.click()
+  await page.getByRole('button', { name: 'Ieși din cont' }).first().click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Ieși din cont' }).click()
   await page.waitForURL(/\/(auth|$)/, { timeout: 5_000 })
 }
 

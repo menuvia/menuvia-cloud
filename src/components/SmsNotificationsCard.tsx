@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -103,7 +104,7 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
                   .setModule('sms_notifications', v)
                   .then(() => toast(v ? 'SMS-urile au fost activate' : 'SMS-urile au fost dezactivate'))
                   .catch((err) =>
-                    toast(err instanceof Error ? err.message : 'Eroare la salvare', 'error'),
+                    toast(toUserMessage(err, 'Eroare la salvare'), 'error'),
                   )
               }}
             />

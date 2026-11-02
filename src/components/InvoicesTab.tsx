@@ -24,6 +24,7 @@ import {
 } from '../lib/invoices'
 import IssueInvoiceModal from './IssueInvoiceModal'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
+import { toUserMessage } from '../lib/userMessages'
 
 const PALETTE = { green: D.green, gold: D.gold, red: D.red, t3: D.t3 }
 
@@ -56,7 +57,7 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
       setConfig(cfg)
       setInvoices(inv)
     } catch (e) {
-      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare')
+      if (seq === loadSeqRef.current) setErr(toUserMessage(e))
     } finally {
       if (seq === loadSeqRef.current) setLoading(false)
     }
@@ -355,7 +356,7 @@ function InvoiceRow({ invoice, onAfterAction }: { invoice: Invoice; onAfterActio
       await cancelInvoice(invoice.id)
       onAfterAction()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Eroare')
+      toast.error(toUserMessage(e))
     } finally {
       setActing(false)
     }
@@ -572,7 +573,7 @@ function OblioConfigModal({
       )
       onSaved()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     } finally {
       setSaving(false)
     }
@@ -591,7 +592,7 @@ function OblioConfigModal({
       await deleteOblioConfig(restaurantId)
       onDeleted()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
       setSaving(false)
     }
   }

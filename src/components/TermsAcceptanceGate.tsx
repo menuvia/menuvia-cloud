@@ -267,7 +267,7 @@ export default function TermsAcceptanceGate() {
             accepte (sau la care consemnarea pică) rămâne blocat în propriul
             cont, fără nicio cale de ieșire. */}
         <button
-          onClick={() => void signOut()}
+          onClick={() => void signOut().catch(() => undefined) /* sesiunea rămâne; butonul se poate apăsa din nou */}
           disabled={busy}
           style={{
             width: '100%',

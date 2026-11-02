@@ -4,6 +4,7 @@ import { useAuth } from './AuthContext'
 import { getFounderView, clearFounderView } from '../lib/founder'
 import type { MemberRole } from '../lib/constants'
 import { resolveVisitRole, type UiRole } from '../lib/partnerAccess'
+import { defaultActiveRestaurantId } from '../lib/roleRouting'
 
 export interface RestaurantMembership {
   restaurant_id: string
@@ -189,7 +190,11 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         const isValid = saved != null && rows.some((m) => m.restaurant_id === saved)
         // Modul fondator are prioritate la selecție (userul tocmai a ales
         // „Intră pe cont" — îl ducem direct pe restaurantul țintă).
-        setActiveIdState(fvActive ?? (isValid ? saved : (rows[0]?.restaurant_id ?? null)))
+        // Fără restaurant salvat (dispozitiv nou), NU `rows[0]` (ordonat după
+        // restaurant_id, deci la întâmplare față de rol): un patron care e și
+        // bucătar în alt local ar fi pornit pe localul de bucătărie, iar garda
+        // de pe /dashboard (lib/roleRouting.ts) l-ar fi scos din propriul panou.
+        setActiveIdState(fvActive ?? (isValid ? saved : defaultActiveRestaurantId(rows)))
       } catch (err) {
         if (cancelled) return
         console.error('[RestaurantContext] Failed to load memberships:', err)
