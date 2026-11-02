@@ -49,7 +49,7 @@ Acestea sunt indispensabile funcționării serviciului cerut de tine (autentific
 | `menuvia.plan_intent` | sessionStorage | Reține planul de abonament ales pe pagina de prețuri, ca să fii dus direct la checkout după autentificare. | Până la închiderea tab-ului |
 | `menuvia.afiliat_intent` | sessionStorage | Reține intenția de înscriere în programul de afiliere pe durata fluxului de autentificare. | Până la închiderea tab-ului |
 | `menuvia_onboarding_preset` | localStorage | Reține tipul de local ales la configurarea inițială a contului (preset de onboarding). | Până la finalizarea onboarding-ului / ștergere |
-| `menuvia_founder_view`, `menuvia_founder_view_from` | localStorage | Chei interne de administrare a platformei (mod de vizualizare pentru echipa Menuvia și partenerii agenție). Nu se setează pentru clienți sau restaurante. | Până la ieșirea din modul respectiv |
+| `menuvia_founder_view`, `menuvia_founder_view_from`, `menuvia_founder_view_uid` | localStorage | Chei interne de administrare a platformei (mod de vizualizare pentru echipa Menuvia și partenerii agenție): restaurantul vizitat, originea vizitei și identificatorul contului care a cerut-o, ca vizita să nu fie reluată pe alt cont din același browser. Nu se setează pentru clienți sau restaurante. | Până la ieșirea din modul respectiv |
 
 ### 3.2. Performanță / măsurare (necesită consimțământ)
 

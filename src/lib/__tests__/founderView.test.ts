@@ -9,9 +9,14 @@
 //        (mutație: fără comparația cu proprietarul → B primește restaurantul)
 //   FV2  control: contul A își citește propria vizită
 //   FV3  cheie fără proprietar (versiune veche a clientului) → null + ștearsă
-//   FV4  fără sesiune, enterFounderView nu scrie nimic; cu sesiune scrie și
-//        proprietarul (mutație: fără cheia de proprietar → FV1 nu mai poate
-//        funcționa, FV4 pică)
+//   FV4  fără sesiune, enterFounderView nu scrie nimic și întoarce false (fără
+//        navigare); cu sesiune scrie și proprietarul și întoarce true
+//        (mutație: fără cheia de proprietar → FV4 pică)
+//   FV5  getSession respins → false, nimic scris; butonul apelantului se
+//        reactivează (mutație: fără try/catch → promisiunea respinge, pică)
+//   FV6  originea vizitei (eticheta bannerului + ținta „Ieși”) e a contului
+//        care a cerut-o; pe alt cont → null (mutație: origine citită fără
+//        proprietar → pică)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const m = vi.hoisted(() => ({
@@ -26,7 +31,12 @@ vi.mock('../supabase', () => ({
   },
 }))
 
-import { getFounderView, enterFounderView, clearFounderView } from '../founder'
+import {
+  getFounderView,
+  getFounderViewOrigin,
+  enterFounderView,
+  clearFounderView,
+} from '../founder'
 
 const KEYS = ['menuvia_founder_view', 'menuvia_founder_view_from', 'menuvia_founder_view_uid']
 
@@ -73,14 +83,40 @@ describe('getFounderView — vizita aparține contului care a cerut-o', () => {
 describe('enterFounderView — scrie și proprietarul', () => {
   it('FV4 fără sesiune nu scrie nimic; cu sesiune scrie restaurantul și proprietarul', async () => {
     m.getSession.mockResolvedValueOnce({ data: { session: null } })
-    await enterFounderView('r-1')
+    expect(await enterFounderView('r-1')).toBe(false)
     for (const k of KEYS) expect(localStorage.getItem(k), k).toBeNull()
 
     m.getSession.mockResolvedValueOnce({ data: { session: { user: { id: 'user-a' } } } })
-    await enterFounderView('r-2', 'afiliat')
+    expect(await enterFounderView('r-2', 'afiliat')).toBe(true)
     expect(localStorage.getItem('menuvia_founder_view')).toBe('r-2')
     expect(localStorage.getItem('menuvia_founder_view_uid')).toBe('user-a')
     expect(getFounderView('user-a')).toBe('r-2')
     expect(getFounderView('user-b')).toBeNull()
+  })
+
+  it('FV5 o sesiune care nu se poate citi nu blochează butonul', async () => {
+    m.getSession.mockRejectedValueOnce(new Error('storage indisponibil'))
+    await expect(enterFounderView('r-1')).resolves.toBe(false)
+    for (const k of KEYS) expect(localStorage.getItem(k), k).toBeNull()
+    expect(m.rpc).not.toHaveBeenCalled()
+  })
+})
+
+describe('getFounderViewOrigin — originea e a contului care a cerut vizita', () => {
+  it('FV6 eticheta vine din originea contului, nu se aplică pe alt cont', () => {
+    localStorage.setItem('menuvia_founder_view', 'r-1')
+    localStorage.setItem('menuvia_founder_view_from', 'founder')
+    localStorage.setItem('menuvia_founder_view_uid', 'user-a')
+    expect(getFounderViewOrigin('user-a')).toBe('founder')
+    expect(getFounderViewOrigin('user-b')).toBeNull()
+    // FV1: cheia străină s-a șters la citire
+    expect(localStorage.getItem('menuvia_founder_view_from')).toBeNull()
+  })
+
+  it('o valoare necunoscută nu e o origine', () => {
+    localStorage.setItem('menuvia_founder_view', 'r-1')
+    localStorage.setItem('menuvia_founder_view_from', 'altceva')
+    localStorage.setItem('menuvia_founder_view_uid', 'user-a')
+    expect(getFounderViewOrigin('user-a')).toBeNull()
   })
 })

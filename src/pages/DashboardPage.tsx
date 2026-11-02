@@ -51,7 +51,7 @@ const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
-import { exitFounderView, clearFounderView } from '../lib/founder'
+import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { pickupFeatureState } from '../lib/pickupCopy'
@@ -595,10 +595,15 @@ export default function DashboardPage({
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
   // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
-  // Eticheta bannerului de vizită și ținta „Ieși” vin tot din rol, sincron:
-  // rolul `partner` e decis de RestaurantContext (my_role null = partener),
-  // deci un partener nu mai vede „Mod fondator” când cheia de origine lipsește.
+  // Eticheta bannerului de vizită și ținta „Ieși” vin din ORIGINEA vizitei,
+  // legată de cont (lib/founder.ts), nu din rol: pe o eroare a lui my_role
+  // rolul cade fail-closed pe `partner`, iar fondatorul ar fi fost etichetat
+  // agent și trimis la /afiliat. Rolul rămâne doar fallback-ul pentru o
+  // cheie de origine lipsă.
   const isPartner = activeRole === 'partner'
+  const visitOrigin = inFounderView
+    ? (getFounderViewOrigin(user?.id) ?? (isPartner ? 'afiliat' : 'founder'))
+    : null
   const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
@@ -1144,11 +1149,11 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {isPartner ? 'Vizită de agent de vânzări' : 'Mod fondator'} —{' '}
+            {visitOrigin === 'afiliat' ? 'Vizită de agent de vânzări' : 'Mod fondator'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
-            onClick={() => exitFounderView(isPartner ? '/afiliat' : '/founder')}
+            onClick={() => exitFounderView(visitOrigin === 'afiliat' ? '/afiliat' : '/founder')}
             className="pressable"
             style={{
               display: 'inline-flex',

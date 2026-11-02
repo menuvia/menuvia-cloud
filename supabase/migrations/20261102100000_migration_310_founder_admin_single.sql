@@ -45,10 +45,14 @@ declare
   v_confirmed boolean := false;
 begin
   if lower(coalesce(new.email, '')) = 'georgeradu119@gmail.com' then
+    -- Emailul CONFIRMAT e cel din auth.users, nu cel din profiles: un viitor
+    -- scriitor al lui profiles.email (sync, service_role) n-are voie să
+    -- transforme în fondator un cont confirmat cu alt email.
     select (to_jsonb(u) ->> 'email_confirmed_at') is not null
       into v_confirmed
       from auth.users u
-     where u.id = new.id;
+     where u.id = new.id
+       and lower(u.email) = 'georgeradu119@gmail.com';
     if coalesce(v_confirmed, false) then
       new.is_platform_admin := true;
     end if;
@@ -90,25 +94,43 @@ revoke all on function public.fn_seed_platform_admin_on_confirm() from public, a
 
 -- Coloana lipsește din schema mock a auth.users din CI (sql-verify); pe
 -- Supabase există. Trigger-ul se creează doar unde poate funcționa.
+-- Coloana se caută în pg_attribute, nu în information_schema (acolo apar
+-- doar coloanele pe care rolul curent are privilegii). Fără DROP: pe
+-- Supabase găzduit postgres nu e proprietarul lui auth.users, deci un
+-- `drop trigger` pe un trigger EXISTENT ar pica la o re-aplicare; crearea
+-- e condiționată de absența lui.
 do $$
 begin
   if exists (
-    select 1 from information_schema.columns
-     where table_schema = 'auth' and table_name = 'users'
-       and column_name = 'email_confirmed_at'
+    select 1 from pg_attribute
+     where attrelid = 'auth.users'::regclass
+       and attname = 'email_confirmed_at' and not attisdropped
+  ) and not exists (
+    select 1 from pg_trigger
+     where tgrelid = 'auth.users'::regclass
+       and tgname = 'trg_seed_platform_admin_on_confirm'
   ) then
-    execute 'drop trigger if exists trg_seed_platform_admin_on_confirm on auth.users';
     execute 'create trigger trg_seed_platform_admin_on_confirm
                after update of email_confirmed_at on auth.users
                for each row execute function public.fn_seed_platform_admin_on_confirm()';
   end if;
 end $$;
 
--- ── 2. Contul 004 nu mai e administrator de platformă ───────────────
-update public.profiles
-   set is_platform_admin = false
- where lower(email) = 'georgeradu004@gmail.com'
-   and is_platform_admin;
+-- ── 2. Un singur administrator de platformă: 119 ───────────────────
+-- Trigger-ul din 195 doar RIDICĂ flag-ul, deci coborârea e explicită. Pe
+-- producție, la 02.11.2026, singurele conturi cu flag sunt 119 și 004; orice
+-- alt flag pus de mână ar supraviețui tăcut, deci se coboară toate celelalte.
+do $$
+declare
+  v_n int;
+begin
+  update public.profiles
+     set is_platform_admin = false
+   where is_platform_admin
+     and lower(coalesce(email, '')) <> 'georgeradu119@gmail.com';
+  get diagnostics v_n = row_count;
+  raise notice 'mig 310: % cont(uri) coborâte din administrator de platformă', v_n;
+end $$;
 
 -- ── Asserții fail-closed ────────────────────────────────────────────
 do $$
@@ -124,6 +146,9 @@ begin
   end if;
   if v_def ~ 'georgeradu004' then
     raise exception 'mig 310: fn_seed_platform_admin încă promovează 004';
+  end if;
+  if v_def !~ 'u\.email\)' then
+    raise exception 'mig 310: fn_seed_platform_admin nu verifică emailul din auth.users';
   end if;
   if v_def !~ 'email_confirmed_at' then
     raise exception 'mig 310: fn_seed_platform_admin nu cere emailul confirmat';
@@ -144,12 +169,27 @@ begin
 
   if exists (
     select 1 from public.profiles
-     where lower(email) = 'georgeradu004@gmail.com' and is_platform_admin
+     where is_platform_admin
+       and lower(coalesce(email, '')) <> 'georgeradu119@gmail.com'
   ) then
-    raise exception 'mig 310: 004 încă are is_platform_admin';
+    raise exception 'mig 310: există administratori de platformă în afară de 119';
   end if;
 
-  raise notice 'mig 310: un singur fondator (119, confirmat); 004 coborât';
+  -- Trigger-ul de confirmare există EXACT unde există coloana: fără el, un
+  -- cont de fondator recreat n-ar mai fi promovat niciodată, tăcut.
+  if exists (
+    select 1 from pg_attribute
+     where attrelid = 'auth.users'::regclass
+       and attname = 'email_confirmed_at' and not attisdropped
+  ) is distinct from exists (
+    select 1 from pg_trigger
+     where tgrelid = 'auth.users'::regclass
+       and tgname = 'trg_seed_platform_admin_on_confirm' and not tgisinternal
+  ) then
+    raise exception 'mig 310: trigger-ul de confirmare nu corespunde coloanei email_confirmed_at';
+  end if;
+
+  raise notice 'mig 310: un singur fondator (119, confirmat); ceilalți coborâți';
 end $$;
 
 commit;
