@@ -51,7 +51,7 @@ const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
 const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
-import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
+import { exitFounderView, clearFounderView } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { pickupFeatureState } from '../lib/pickupCopy'
@@ -594,11 +594,10 @@ export default function DashboardPage({
   const update = updateRestaurant
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
-  // Originea vizitei e persistată la enterFounderView — sincronă, spre
-  // deosebire de isPlatAdmin (RPC async care pornește false): eticheta
-  // bannerului și ținta „Ieși din cont" nu depind de o cursă de rețea.
-  const founderViewOrigin = getFounderViewOrigin()
   // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
+  // Eticheta bannerului de vizită și ținta „Ieși” vin tot din rol, sincron:
+  // rolul `partner` e decis de RestaurantContext (my_role null = partener),
+  // deci un partener nu mai vede „Mod fondator” când cheia de origine lipsește.
   const isPartner = activeRole === 'partner'
   const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
 
@@ -636,9 +635,15 @@ export default function DashboardPage({
     return () => clearInterval(timer)
   }, [])
 
-  // Platform admin (fondatorul) — deblochează tab-ul de consum AI global.
+  // Platform admin (fondatorul) — deblochează tab-ul de consum AI global și
+  // butonul „Panou fondator”. Re-verificat la FIECARE schimbare de cont și
+  // resetat întâi la false: cu deps `[]`, după o schimbare directă de cont
+  // butonul fondatorului rămânea pe ecranul contului nou.
+  const userId = user?.id ?? null
   useEffect(() => {
     let cancelled = false
+    setIsPlatAdmin(false)
+    if (!userId) return
     void isPlatformAdmin().then((v) => {
       // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde tab-ul
       // AI global, fără consecințe de acces (spre deosebire de FounderPage).
@@ -647,7 +652,7 @@ export default function DashboardPage({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [userId])
 
   // Sursă unică de adevăr pentru restaurantul selectat = `activeId` din
   // RestaurantContext (persistat în localStorage, sincron cu `activeRole`).
@@ -1139,11 +1144,11 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Vizită de agent de vânzări'} —{' '}
+            {isPartner ? 'Vizită de agent de vânzări' : 'Mod fondator'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
-            onClick={() => exitFounderView(founderViewOrigin === 'founder' ? '/founder' : '/afiliat')}
+            onClick={() => exitFounderView(isPartner ? '/afiliat' : '/founder')}
             className="pressable"
             style={{
               display: 'inline-flex',

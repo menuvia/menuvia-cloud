@@ -10,26 +10,36 @@ import { supabase } from './supabase'
 
 // ── Mod fondator (localStorage) ──────────────────────────────
 const FOUNDER_VIEW_KEY = 'menuvia_founder_view'
-// Originea vizitei ('founder' | 'afiliat') — bannerul și „Ieși din cont" din
-// DashboardPage o folosesc direct, fără să aștepte RPC-ul async is_platform_admin
-// (care pornește false și ar trimite un fondator grăbit pe /afiliat).
+// Originea vizitei ('founder' | 'afiliat'), consemnată la intrare. Bannerul și
+// ținta „Ieși” din DashboardPage NU o mai citesc: se decid din rolul activ
+// (`partner` = vizită de agent), care nu depinde de o cheie lipsă sau veche.
 const FOUNDER_VIEW_FROM_KEY = 'menuvia_founder_view_from'
+// Contul care a cerut vizita. Cheile sunt în localStorage, deci supraviețuiesc
+// unei delogări într-un tab și unei sesiuni noi deschise dintr-un link (magic
+// link, confirmare de email) — cazuri în care RestaurantContext nu vede o
+// schimbare de identitate. Fără proprietar, vizita unui cont putea fi reluată
+// pe ALT cont din același browser (raportul fondatorului, 02.11.2026).
+const FOUNDER_VIEW_UID_KEY = 'menuvia_founder_view_uid'
 
 export type FounderViewOrigin = 'founder' | 'afiliat'
 
-export function getFounderView(): string | null {
+/**
+ * Restaurantul vizitat de `userId`, sau null. O cheie scrisă de alt cont (sau
+ * fără proprietar, de o versiune veche a clientului) se ȘTERGE și nu se
+ * folosește — fail-closed: fondatorul reintră din /founder.
+ */
+export function getFounderView(userId: string | null | undefined): string | null {
   try {
-    return localStorage.getItem(FOUNDER_VIEW_KEY)
+    const restaurantId = localStorage.getItem(FOUNDER_VIEW_KEY)
+    if (restaurantId == null) return null
+    const owner = localStorage.getItem(FOUNDER_VIEW_UID_KEY)
+    if (!userId || owner !== userId) {
+      clearFounderView()
+      return null
+    }
+    return restaurantId
   } catch {
     return null
-  }
-}
-
-export function getFounderViewOrigin(): FounderViewOrigin {
-  try {
-    return localStorage.getItem(FOUNDER_VIEW_FROM_KEY) === 'afiliat' ? 'afiliat' : 'founder'
-  } catch {
-    return 'founder'
   }
 }
 
@@ -37,9 +47,16 @@ export async function enterFounderView(
   restaurantId: string,
   origin: FounderViewOrigin = 'founder',
 ): Promise<void> {
+  // Proprietarul vizitei, din sesiunea locală (fără rețea). Fără sesiune nu
+  // scriem nimic: o cheie fără proprietar n-ar fi folosită oricum.
+  const { data } = await supabase.auth.getSession()
+  const uid = data.session?.user.id ?? null
   try {
-    localStorage.setItem(FOUNDER_VIEW_KEY, restaurantId)
-    localStorage.setItem(FOUNDER_VIEW_FROM_KEY, origin)
+    if (uid) {
+      localStorage.setItem(FOUNDER_VIEW_KEY, restaurantId)
+      localStorage.setItem(FOUNDER_VIEW_FROM_KEY, origin)
+      localStorage.setItem(FOUNDER_VIEW_UID_KEY, uid)
+    }
   } catch {
     /* private mode — modul fondator nu poate persista */
   }
@@ -67,6 +84,7 @@ export function clearFounderView(): void {
   try {
     localStorage.removeItem(FOUNDER_VIEW_KEY)
     localStorage.removeItem(FOUNDER_VIEW_FROM_KEY)
+    localStorage.removeItem(FOUNDER_VIEW_UID_KEY)
   } catch {
     /* ignore */
   }

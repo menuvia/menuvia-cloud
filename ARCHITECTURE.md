@@ -78,7 +78,7 @@ Lista completă e directorul `supabase/migrations/`; ordinea o dă prefixul de t
 | **Founder + partener + comisioane** | **186–190, 193** | vezi secțiunea de mai jos |
 | Min/max opțiuni per grup | 191–192 + `tests/sql/order_group_min_assertions.sql` | minimul per grup impus server-side în create_order/update_order_items (hint `missing_required_group`) |
 | Igienă advisors | 194 | search_path pe 14 funcții vechi + fără listarea publică a bucket-ului product-images |
-| Founder self-heal + feedback | 195–196 | trigger `trg_seed_platform_admin` (platform admins auto pe emailuri fondatoare) + `submit_order_feedback` |
+| Founder self-heal + feedback | 195–196 | trigger `trg_seed_platform_admin` (platform admin auto pe emailul fondatorului; din 310 un singur email, doar confirmat) + `submit_order_feedback` |
 | **Meniu multilingv** | **197** | `products/categories.translations` (jsonb) + `restaurants.menu_languages`; grant column-level pe coloana nouă (restaurants e column-gated); traducerile manuale + fallback la original |
 | Perf meniu public | 198 | index compozit `categories(restaurant_id, display_order)` — cea mai fierbinte cale QR/public |
 | **Plata online la masă** | **202–204** + `tests/sql/table_payment_assertions.sql` | enum `card_online` (→ cod FiscalNet 7), `table_payments`, RPC-uri service_role-only (begin/attach/settle — suma DOAR server-side, settle idempotent), `set_restaurant_stripe_account`; design în `docs/ONLINE_PAYMENT.md` |

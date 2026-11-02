@@ -151,9 +151,22 @@ export function useRestaurants() {
   // Last-wins și între refetch-uri suprapuse.
   const loadSeqRef = useRef(0)
 
+  // Schimbare DIRECTĂ de cont (A→B fără delogare între ele): lista lui A nu
+  // are voie să rămână în selector cât se încarcă B, iar B are propriul fetch
+  // inițial (cu spinner), nu un refetch tăcut peste datele lui A.
+  const loadedForUserRef = useRef<string | null>(null)
+
   const load = useCallback(async () => {
     const seq = ++loadSeqRef.current
+    if (user && loadedForUserRef.current !== user.id) {
+      if (loadedForUserRef.current !== null) {
+        setRestaurants([])
+        initialFetchDoneRef.current = false
+      }
+      loadedForUserRef.current = user.id
+    }
     if (!user) {
+      loadedForUserRef.current = null
       setRestaurants([])
       setLoading(false)
       initialFetchDoneRef.current = false
@@ -209,7 +222,7 @@ export function useRestaurants() {
     // Mod fondator/partener: restaurantul vizitat nu e nici owned, nici prin
     // membership — îl încărcăm separat. RLS-ul (is_member extins, mig 186)
     // decide accesul: fără drepturi, SELECT-ul întoarce null și nu adăugăm nimic.
-    const fv = getFounderView()
+    const fv = getFounderView(user.id)
     if (fv && !seen.has(fv)) {
       const { data: fvRow, error: fvErr } = await supabase
         .from('restaurants')
