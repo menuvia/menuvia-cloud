@@ -53,6 +53,8 @@ const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
+import { pickupOnlyMode } from '../lib/pickupAvailability'
+import { pickupFeatureState } from '../lib/pickupCopy'
 import { HelpButton } from '../components/HelpButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -702,10 +704,16 @@ export default function DashboardPage({
   const { general: tier, money } = surfaceTiers(features.features)
 
   // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
-  // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert.
+  // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert —
+  // ȘI planul nu are voie să fie CUNOSCUT fără `pickup_orders`: după un
+  // downgrade setarea rămâne stocată, dar din mig 309 pagina publică nu arată
+  // ridicarea și `create_order` o refuză, deci localul are nevoie exact de
+  // mese/rezervări ('suspended' → nav complet). Pe planul necunoscut
+  // (features în încărcare / RPC picat) rămâne comportamentul stocat, fără
+  // pâlpâirea nav-ului la fiecare încărcare. Sursa unică: `pickupOnlyMode`,
+  // citit și de Mese (TablesManager) pentru empty state.
   const pickupOnly =
-    (restaurant?.pickup_settings?.enabled ?? false) &&
-    (restaurant?.pickup_settings?.pickup_only ?? false)
+    pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'
 
   // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
   // sub-tab vizibil dispare complet din sidebar.

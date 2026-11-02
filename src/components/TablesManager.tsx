@@ -19,6 +19,8 @@ import { publicBaseUrl, siteHost } from '../lib/domain'
 import { downloadQrPdf, type QrPdfFormat } from '../lib/qrPdf'
 import { tablesMissingActiveToken } from '../lib/qrTokens'
 import { generalMenuQrText, pickupFeatureState, pickupOnlyEmptyStateText } from '../lib/pickupCopy'
+import { pickupOnlyMode } from '../lib/pickupAvailability'
+import { resolveEffectiveMenuLayout } from '../lib/themes'
 
 interface QrTokenRow {
   id: string
@@ -438,6 +440,7 @@ function GeneralMenuQrCard({
   restaurant,
   toast,
   pickupFeature,
+  menuFlipbook,
 }: {
   restaurant: Restaurant
   toast: (msg: string, type?: string) => void
@@ -445,6 +448,9 @@ function GeneralMenuQrCard({
   // de comenzi DOAR pe feature cunoscut activ — din mig 309 pagina publică nu
   // arată ridicarea fără el, oricât ar fi setarea pornită.
   pickupFeature: boolean | null
+  // Stilul EFECTIV salvat e flipbook: pagina publică n-are coș, deci nici
+  // comenzi pentru ridicare, pe niciun plan (lib/themes).
+  menuFlipbook: boolean
 }) {
   const [qr, setQr] = useState<string | null>(null)
   const menuUrl = `${appPublicBase()}/m/${restaurant.slug}`
@@ -494,7 +500,7 @@ function GeneralMenuQrCard({
         <div style={{ color: D.t1, fontWeight: 600, fontSize: '0.9rem' }}>QR meniu general</div>
         <div style={{ color: D.t2, fontSize: '0.74rem', marginTop: 2, lineHeight: 1.5 }}>
           Duce la <span style={{ color: D.gold }}>/m/{restaurant.slug}</span> —{' '}
-          {generalMenuQrText(pickupFeature)}
+          {generalMenuQrText(pickupFeature, menuFlipbook)}
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -566,6 +572,14 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
     : getPlanByInternalId('free').limits.maxTables
   // Ridicarea vizibilă oaspetelui (mig 309) — tristate, null = plan necunoscut.
   const pickupFeature = pickupFeatureState(restaurantFeatures.features)
+  // Modul „doar ridicare” din ACELAȘI helper ca nav-ul din DashboardPage: pe
+  // planul cunoscut fără ridicare e 'suspended' — empty state-ul spune că
+  // panoul arată mesele, nu „nu ai nevoie de mese”; cu ridicarea oprită în
+  // setare modul e inert ('off'), ca în nav.
+  const pickupOnly = pickupOnlyMode(restaurant.pickup_settings, pickupFeature)
+  // Stilul EFECTIV salvat (flipbook fără pagini = listă) — pe flipbook pagina
+  // publică n-are coș, deci textele nu promit comenzi (lib/pickupCopy.ts).
+  const menuFlipbook = resolveEffectiveMenuLayout(restaurant.theme_settings) === 'flipbook'
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1018,10 +1032,16 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
 
       {/* QR-ul meniului GENERAL (/m/:slug) — util oricui (vitrină, flyere),
           iar în modul „doar ridicare" (food truck) devine QR-ul principal. */}
-      <GeneralMenuQrCard restaurant={restaurant} toast={toast} pickupFeature={pickupFeature} />
+      <GeneralMenuQrCard
+        restaurant={restaurant}
+        toast={toast}
+        pickupFeature={pickupFeature}
+        menuFlipbook={menuFlipbook}
+      />
 
-      {/* Empty state dedicat modului „doar ridicare": fără prompt de mese. */}
-      {tables.length === 0 && (restaurant.pickup_settings?.pickup_only ?? false) && (
+      {/* Empty state dedicat modului „doar ridicare" (pornit sau suspendat pe
+          plan — pickupOnlyMode, sursa nav-ului din DashboardPage). */}
+      {tables.length === 0 && pickupOnly !== 'off' && (
         <div
           style={{
             background: D.s2,
@@ -1034,7 +1054,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
             lineHeight: 1.55,
           }}
         >
-          {pickupOnlyEmptyStateText(restaurant.pickup_settings?.enabled ?? false, pickupFeature)}
+          {pickupOnlyEmptyStateText(pickupFeature, menuFlipbook)}
         </div>
       )}
 

@@ -3,12 +3,17 @@ import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
 import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
-import { THEMES, FLIPBOOK_MAX_PAGES } from '../lib/themes'
+import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import { planTier } from '../lib/features'
 import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
-import { pickupCardDescription, pickupFeatureFromToggle, pickupToggleNotice } from '../lib/pickupCopy'
+import {
+  pickupCardDescription,
+  pickupFeatureFromToggle,
+  pickupOnlyToggleDescription,
+  pickupToggleNotice,
+} from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -393,7 +398,14 @@ export default function SettingsTab({
     planKnown ? plan : null,
     form.pickup_settings?.enabled ?? false,
   )
-  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState))
+  // Stilul EFECTIV al meniului (flipbook fără pagini = listă, regula unică din
+  // lib/themes), citit din FORMULAR, nu din rândul salvat — ca restul filei:
+  // comutatorul de ridicare e și el pe starea nesalvată, iar „Meniu & aspect”
+  // arată stilul ales înainte de salvare. Owner-ul care alege Flipbook și trece
+  // la „Comenzi & plăți” vede consecința ÎNAINTE să salveze; altfel aceeași
+  // pagină ar spune „Flipbook” într-o filă și ar promite comenzi în cealaltă.
+  const menuFlipbook = resolveEffectiveMenuLayout(form.theme_settings) === 'flipbook'
+  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState), menuFlipbook)
   const pickupNotice = pickupToggleNotice(pickupState)
 
   return (
@@ -1792,7 +1804,9 @@ export default function SettingsTab({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
                       ascunde Hartă sală/Rezervări din nav; QR-ul general /m/:slug
-                      devine QR-ul principal (card în Mese & QR-uri). */}
+                      devine QR-ul principal (card în Mese & QR-uri). Pe planul
+                      fără ridicare (`locked_on`) modul e suspendat
+                      (pickupOnlyMode) și descrierea o spune. */}
                   <div
                     style={{
                       display: 'flex',
@@ -1806,8 +1820,7 @@ export default function SettingsTab({
                         Mod „doar ridicare" (fără mese)
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din
-                        dashboard. QR-ul general din tab-ul Mese devine QR-ul tău principal.
+                        {pickupOnlyToggleDescription(pickupFeatureFromToggle(pickupState))}
                       </div>
                     </div>
                     <Toggle

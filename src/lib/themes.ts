@@ -379,6 +379,19 @@ export function resolveFlipbookPages(settings: ThemeSettings | null | undefined)
     .slice(0, FLIPBOOK_MAX_PAGES)
 }
 
+// Layout-ul EFECTIV al meniului public: 'flipbook' FĂRĂ pagini valide cade pe
+// 'list' (fallback VIZIBIL, nu ecran gol). Sursa UNICĂ a regulii, citită de
+// paginile oaspetelui (PublicMenuPage, QrMenuPage) ȘI de textele de staff
+// despre comenzi (SettingsTab, TablesManager → lib/pickupCopy.ts): pe flipbook
+// nu există carduri, coș sau ridicare, deci panoul nu are voie să promită
+// comenzi exact acolo. O copie a regulii în altă parte ar diverge tăcut — un
+// staff care ar citi doar `menu_layout` ar spune „fără comenzi” pentru un
+// flipbook fără pagini, pe care oaspetele îl vede ca listă, cu coș (EL2).
+export function resolveEffectiveMenuLayout(settings: ThemeSettings | null | undefined): MenuLayout {
+  const layout = resolveMenuLayout(settings)
+  return layout === 'flipbook' && resolveFlipbookPages(settings).length === 0 ? 'list' : layout
+}
+
 // Badge-ul de branding e vizibil implicit; doar `true` explicit îl ascunde.
 export function resolveHideBranding(settings: ThemeSettings | null | undefined): boolean {
   return settings?.hide_branding === true

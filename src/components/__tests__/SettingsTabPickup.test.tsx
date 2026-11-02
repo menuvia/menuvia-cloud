@@ -25,6 +25,27 @@
 //        planul necunoscut. Mutația care pică: condiția veche
 //        `planTier(plan) >= 2 || pickup_settings.enabled`. Control pozitiv pe
 //        Meniu + Comenzi.
+//
+// Reziduurile lui #324 (R1, R2):
+//   PZ1  Meniu + Comenzi, ridicarea pornită, stilul EFECTIV Flipbook (cu
+//        pagini): descrierea cardului de ridicare NU promite comenzi și spune
+//        de ce + ce face owner-ul. Mutația care pică: descrierea fără stil
+//        (`pickupCardDescription(feature)` — promitea și pe flipbook).
+//   PZ2  control pozitiv + sursa UNICĂ a layout-ului efectiv: Flipbook FĂRĂ
+//        pagini e listă pentru oaspete (are coș), deci promisiunea rămâne.
+//        Mutația care pică: un SettingsTab care citește doar `menu_layout`.
+//   PZ3  starea NESALVATĂ: owner-ul alege Flipbook în „Meniu & aspect” și
+//        trece la „Comenzi & plăți” fără să salveze — descrierea se schimbă
+//        deja. Mutația care pică: stilul citit din `restaurant.theme_settings`.
+//   PZ4  „Doar ridicare” pe un plan CUNOSCUT fără ridicare (downgrade): modul
+//        e suspendat pe panou (DashboardPage, `pickupOnlyMode`), deci descrierea
+//        comutatorului NU mai spune „ascunde Harta sălii și Rezervările”, ci
+//        că nu se aplică. Control pozitiv pe Meniu + Comenzi și pe planul
+//        NECUNOSCUT (comportamentul stocat — fără verdict de plan).
+//        Descrierea NU repetă „Setarea rămâne salvată” din nota `locked_on`
+//        de deasupra: UN singur loc spune asta, cu modul pornit (PZ4a) ȘI
+//        oprit (PS3, unde blocul modului e ancorat ca randat — altfel
+//        `getByText` unic ar fi trecut și cu blocul ascuns).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -162,6 +183,10 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
     expect(screen.getByText(/nu văd ridicarea pe pagina publică/)).toBeInTheDocument()
     expect(screen.getByText(/Setarea rămâne salvată/)).toBeInTheDocument()
+    // Ancora: blocul „doar ridicare” e randat și el (ridicarea e pornită în
+    // formular), deci unicitatea de mai sus nu vine dintr-un bloc ascuns.
+    expect(screen.getByText(/Pe planul tău modul nu se aplică/)).toBeInTheDocument()
+    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
     expect(screen.queryByText(/văd formularul|sunt respinse/)).not.toBeInTheDocument()
     expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
 
@@ -212,5 +237,93 @@ describe('SettingsTab — nota flipbook despre comanda din meniu', () => {
   it('PS5c: control pozitiv — pe Meniu + Comenzi nota apare', async () => {
     await openMenuAspect('growth', makeRestaurant({ theme_settings: FLIPBOOK }))
     expect(screen.getByText(FLIPBOOK_NOTE)).toBeInTheDocument()
+  })
+})
+
+const PAGE = 'https://cdn.example.com/meniu-1.webp'
+const PROMISE = /clienții pot comanda/i
+const FLIPBOOK_WHY = /stilul Flipbook pagina publică arată meniul ca pe o carte, fără coș/
+const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Meniu & aspect/
+
+describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
+  it('PZ1: plan cu ridicare + Flipbook cu pagini — fără promisiune, cu motivul', async () => {
+    await openOrders(
+      'growth',
+      makeRestaurant({
+        pickup_settings: PICKUP_ON,
+        theme_settings: { preset_id: 'cafe', menu_layout: 'flipbook', flipbook_pages: [PAGE] },
+      }),
+    )
+    // Ancora: cardul de ridicare e randat, pornit, pe planul care îl include.
+    expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.queryByText(PROMISE)).not.toBeInTheDocument()
+    expect(screen.getByText(FLIPBOOK_WHY)).toBeInTheDocument()
+    expect(screen.getByText(FLIPBOOK_WAY_OUT)).toBeInTheDocument()
+    // Nu e o notă de plan: planul include ridicarea.
+    expect(screen.queryByText(/Disponibil de la planul|Planul tău nu include/)).not.toBeInTheDocument()
+  })
+
+  it('PZ2: control — Flipbook FĂRĂ pagini e listă pentru oaspete, promisiunea rămâne', async () => {
+    await openOrders('growth', makeRestaurant({ pickup_settings: PICKUP_ON, theme_settings: FLIPBOOK }))
+    expect(screen.getByText(PROMISE)).toBeInTheDocument()
+    expect(screen.queryByText(FLIPBOOK_WHY)).not.toBeInTheDocument()
+  })
+
+  it('PZ3: stilul ales și NESALVAT schimbă deja descrierea', async () => {
+    const user = await openOrders(
+      'growth',
+      makeRestaurant({
+        pickup_settings: PICKUP_ON,
+        theme_settings: { preset_id: 'cafe', menu_layout: 'list', flipbook_pages: [PAGE] },
+      }),
+    )
+    expect(screen.getByText(PROMISE)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
+    const flipbook = screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })
+    await user.click(flipbook)
+    expect(screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.click(screen.getByRole('tab', { name: /Comenzi & plăți/ }))
+    expect(screen.queryByText(PROMISE)).not.toBeInTheDocument()
+    expect(screen.getByText(FLIPBOOK_WHY)).toBeInTheDocument()
+  })
+})
+
+const PICKUP_ONLY_ON: NonNullable<Restaurant['pickup_settings']> = { ...PICKUP_ON, pickup_only: true }
+const PICKUP_ONLY_SWITCH = /doar ridicare/
+const SUSPENDED = /Pe planul tău modul nu se aplică/
+const NORMAL_DESC = /ascunde Harta sălii și Rezervările din dashboard/
+
+describe('SettingsTab — modul „doar ridicare” pe planul restaurantului', () => {
+  it('PZ4a: plan fără ridicare (downgrade) — descrierea spune că modul nu se aplică', async () => {
+    await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ONLY_ON }))
+    // Ancora: comutatorul de mod e randat și rămâne pornit (rândul nu se rescrie).
+    expect(screen.getByRole('switch', { name: PICKUP_ONLY_SWITCH })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    expect(screen.getByText(SUSPENDED)).toBeInTheDocument()
+    expect(screen.getByText(/panoul îți arată mesele și rezervările/)).toBeInTheDocument()
+    expect(screen.queryByText(NORMAL_DESC)).not.toBeInTheDocument()
+    // UN singur loc spune că setarea rămâne și revine: nota `locked_on`.
+    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
+    expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
+  })
+
+  it('PZ4b: control — pe Meniu + Comenzi descrierea obișnuită', async () => {
+    await openOrders('growth', makeRestaurant({ pickup_settings: PICKUP_ONLY_ON }))
+    expect(screen.getByRole('switch', { name: PICKUP_ONLY_SWITCH })).toBeInTheDocument()
+    expect(screen.getByText(NORMAL_DESC)).toBeInTheDocument()
+    expect(screen.queryByText(SUSPENDED)).not.toBeInTheDocument()
+  })
+
+  it('PZ4c: plan necunoscut — comportamentul stocat, fără verdict de plan', async () => {
+    await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ONLY_ON }), false)
+    expect(screen.getByText(NORMAL_DESC)).toBeInTheDocument()
+    expect(screen.queryByText(SUSPENDED)).not.toBeInTheDocument()
   })
 })
