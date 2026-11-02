@@ -258,6 +258,38 @@ describe('createOrder() — network-error fallback (waiter)', () => {
     expect(result.short_id).toBe('LOCAL-9999')
   })
 
+  it('iPhone: supabase-js întoarce „TypeError: Load failed" → comanda ospătarului intră în coada offline', async () => {
+    // Safari NU scrie „fetch" în mesaj; vechea verificare (`includes('fetch')`)
+    // trata căderea ca refuz de business: ospătarul vedea textul brut în
+    // engleză și comanda nu pleca nicăieri. Mutație: revino la
+    // `error.message?.includes('fetch')` → savePendingOrder nu e apelat.
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'TypeError: Load failed', details: '', hint: '', code: '' },
+    })
+    savePendingOrderMock.mockResolvedValueOnce({
+      id: 'local-uuid-4',
+      short_id: 'LOCAL-4242',
+      status: 'new',
+      total: 15,
+      created_at: '2026-06-14T10:00:00Z',
+    })
+
+    const result = await createOrder(makeArgs({ source: 'waiter' }))
+
+    expect(savePendingOrderMock).toHaveBeenCalledTimes(1)
+    expect(result.short_id).toBe('LOCAL-4242')
+  })
+
+  it('iPhone + QR: „Load failed" ajunge la apelant ca TypeError (bucla de retry a meniului QR o recunoaște)', async () => {
+    rpcMock.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'TypeError: Load failed', details: '', hint: '', code: '' },
+    })
+    await expect(createOrder(makeArgs({ source: 'qr' }))).rejects.toThrow(TypeError)
+    expect(savePendingOrderMock).not.toHaveBeenCalled()
+  })
+
   it('când rpc aruncă TypeError dar source=qr, propagă eroarea (clientul nu are queue)', async () => {
     rpcMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 

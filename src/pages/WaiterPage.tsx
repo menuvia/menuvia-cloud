@@ -13,8 +13,11 @@ import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
 import { moneyTier } from '../lib/features'
 import { useReservations } from '../hooks/useReservations'
-import type { Order, PaymentMethod } from '../lib/orders'
-import { D, STATUS_META } from '../lib/constants'
+import { useOfflineOrderQueue } from '../hooks/useOfflineOrderQueue'
+import { useAudioUnlock } from '../hooks/useAudioUnlock'
+import { createTapGuard } from '../lib/tapGuard'
+import type { Order, PaymentMethod, OrderConfirmationPayload } from '../lib/orders'
+import { D } from '../lib/constants'
 import { playSound } from '../lib/utils'
 import { useInView, revealStyle } from '../lib/motion'
 import type { ReactNode } from 'react'
@@ -38,6 +41,7 @@ import {
   voidPaymentsAndCancel,
   describePayRejection,
   closeSessionOrders,
+  describeWaiterOrderSent,
   STAFF_ORDERS_FETCH_LIMIT,
 } from '../lib/orders'
 import type { OrderPaymentRow } from '../lib/orders'
@@ -45,11 +49,11 @@ import type { WaiterCall } from '../lib/orders'
 import { redeemLoyaltyReward } from '../lib/loyalty'
 import WaiterEntry from '../components/WaiterEntry'
 import { PayModal, OrderCard, type PayResult } from '../components/WaiterOrderCard'
+import { ReadyOrderCard } from '../components/ReadyOrderCard'
 const DiscountModal = lazy(() => import('../components/DiscountModal'))
 const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
-import { syncPendingOrders, getPendingOrders } from '../lib/offlineSync'
 import { Icon } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
@@ -129,9 +133,9 @@ export default function WaiterPage() {
 
   // Regula de aur: bani + bon = Plan 3, fără excepții. Planul vine de la
   // RESTAURANT (get_restaurant_features), nu de la profilul ospătarului.
-  // Cât timp features se încarcă, default-ul SIGUR e fără plăți (tier < 3) —
-  // mai bine un ospătar vede „Închide comanda" o secundă decât să înregistreze
-  // o plată pe un plan care nu o permite. Gating-ul real e oricum server-side.
+  // Cât timp features se încarcă, planul e NECUNOSCUT (`null`, mai jos): nici
+  // „Plată", nici „Închide comanda" — nu „fără plăți" (comentariul vechi de
+  // aici descria comportamentul DINAINTE de DS-1). Gating-ul real e server-side.
   const restaurantFeatures = useFeatures(restaurantId)
   // ★ audit v3 (DS-1): TRISTATE. `null` = planul NU e cunoscut (primul load
   // sau RPC picat fără cache) — nu înseamnă „fără plăți". Înainte necunoscutul
@@ -219,65 +223,13 @@ export default function WaiterPage() {
     }
   }, [cancelOrder])
 
-  // ── Offline sync state ────────────────────────────────────────
-  const [isOffline, setIsOffline] = useState(!navigator.onLine)
-  const [pendingSyncCount, setPendingSyncCount] = useState(0)
-  // O comandă offline respinsă definitiv de server (produs șters / grup obligatoriu
-  // schimbat) e ștearsă din coadă — ospătarul TREBUIE anunțat ca s-o reintroducă.
-  const [droppedOrderReason, setDroppedOrderReason] = useState<string | null>(null)
-
-  useEffect(() => {
-    function handleOnline() {
-      setIsOffline(false)
-      syncPendingOrders().catch(console.error)
-    }
-    function handleOffline() {
-      setIsOffline(true)
-    }
-    function handleQueueUpdate(e: Event) {
-      const customE = e as CustomEvent<number>
-      setPendingSyncCount(customE.detail)
-    }
-
-    // Initial load check
-    getPendingOrders()
-      .then((q) => setPendingSyncCount(q.length))
-      .catch(() => {})
-
-    function handleAuthRequired() {
-      // Sesiunea expirată — comenzile offline sunt blocate
-      // Reîncărcarea paginii va redirecta la login
-      console.warn('[WaiterPage] Sesiune expirată, sync offline blocat')
-    }
-
-    function handleDropped(e: Event) {
-      const detail = (e as CustomEvent).detail as { reason?: string } | undefined
-      setDroppedOrderReason(detail?.reason ?? 'eroare necunoscută')
-    }
-
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    window.addEventListener('offline-queue-updated', handleQueueUpdate)
-    window.addEventListener('offline-sync-auth-required', handleAuthRequired)
-    window.addEventListener('offline-order-dropped', handleDropped)
-
-    // Also listen for sw messages (Background sync triggers)
-    const swListener = (e: MessageEvent) => {
-      if (e.data && e.data.type === 'SYNC_NOW') {
-        syncPendingOrders().catch(console.error)
-      }
-    }
-    navigator.serviceWorker?.addEventListener('message', swListener)
-
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-      window.removeEventListener('offline-queue-updated', handleQueueUpdate)
-      window.removeEventListener('offline-sync-auth-required', handleAuthRequired)
-      window.removeEventListener('offline-order-dropped', handleDropped)
-      navigator.serviceWorker?.removeEventListener('message', swListener)
-    }
-  }, [])
+  // ── Coada comenzilor salvate pe telefon (offline) ─────────────
+  // Se golește SINGURĂ: la montare, la revenirea în prim-plan, la `online` și
+  // periodic cât nu e goală (useOfflineOrderQueue).
+  const offlineQueue = useOfflineOrderQueue()
+  // Sunetul (apeluri / comenzi gata) se deblochează la prima atingere — pe
+  // iPhone altfel rămânea mut (lib/staffAudio.ts).
+  useAudioUnlock()
 
   const prevReadyIds = useRef(new Set<string>())
   // Primul snapshot hidratat NU e „comandă nouă" — altfel sunetul suna la
@@ -395,7 +347,13 @@ export default function WaiterPage() {
     truncated: ordersTruncated,
     advance,
     connectionStatus,
+    pendingIds,
+    actionErrors,
+    dismissActionError,
   } = useOrders(restaurantId, 'waiter')
+  // Anti dublu-tap între carduri: „Servit" / „Închide comanda" scot cardul din
+  // listă pe loc, iar cardul de dedesubt urcă sub deget (lib/tapGuard.ts).
+  const tapGuard = useMemo(() => createTapGuard(), [])
 
   // Rezervări azi — ziua ROMÂNEASCĂ, recalculată la trecerea miezului nopții
   // (tableta lăsată deschisă peste noapte rămânea pe ziua de ieri).
@@ -568,10 +526,10 @@ export default function WaiterPage() {
 
   const handleServit = useCallback(
     (order: Order): void => {
-      if (user == null) return
+      if (user == null || !tapGuard()) return
       void advance(order.id, 'ready', { status: 'served', served_by: user.id })
     },
-    [user, advance],
+    [user, advance, tapGuard],
   )
 
   /** Încasează comanda din PayModal; la refuz întoarce mesajul serverului (modalul rămâne deschis). */
@@ -605,13 +563,25 @@ export default function WaiterPage() {
   // de plată — clientul plătește la casa de marcat existentă a localului.
   const handleCloseOrder = useCallback(
     (order: Order): void => {
-      if (user == null) return
+      if (user == null || !tapGuard()) return
       // Statusul REAL al comenzii (nu `served` hardcodat): închiderea e acum
       // posibilă din orice stare deschisă, iar serverul alege acțiunea
       // `close_order` din status-țintă.
       void advance(order.id, order.status, { status: 'closed' })
     },
-    [user, advance],
+    [user, advance, tapGuard],
+  )
+
+  // După „Trimite comanda" ospătarul AFLĂ unde a ajuns comanda — mai ales când
+  // a rămas DOAR pe telefon (coada offline, `LOCAL-…`). Înainte foaia se
+  // închidea fără niciun semn (ux-staff-order-sent-feedback).
+  const handleOrderSent = useCallback(
+    (confirmation: OrderConfirmationPayload): void => {
+      const msg = describeWaiterOrderSent(confirmation)
+      if (msg.kind === 'warning') toast.warning(msg.text, 10_000)
+      else toast.success(msg.text)
+    },
+    [toast],
   )
 
   // „Închide masa": toate comenzile deschise ale sesiunii + sesiunea (QR).
@@ -944,10 +914,11 @@ export default function WaiterPage() {
       </div>
 
       {/* Offline Sync Banner */}
-      {(isOffline || pendingSyncCount > 0) && (
+      {(offlineQueue.isOffline || offlineQueue.pendingCount > 0) && (
         <div
+          role="status"
           style={{
-            background: isOffline ? '#854d0e' : '#166534',
+            background: offlineQueue.isOffline || offlineQueue.authRequired ? '#854d0e' : '#166534',
             color: '#fff',
             padding: '6px 24px',
             fontSize: 12,
@@ -959,22 +930,24 @@ export default function WaiterPage() {
           }}
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Icon name={isOffline ? 'wifi' : 'refresh'} size={14} />
-            {isOffline
-              ? 'Mod Offline — Comenzile se salvează local (se vor trimite când revine conexiunea).'
-              : 'Conexiune restabilită — Se sincronizează comenzile...'}
+            <Icon name={offlineQueue.isOffline ? 'wifi' : 'refresh'} size={14} />
+            {offlineQueue.isOffline
+              ? 'Mod Offline — Comenzile se salvează pe telefon și pleacă singure când revine conexiunea.'
+              : offlineQueue.authRequired
+                ? 'Sesiunea a expirat — comenzile salvate pe telefon NU pleacă până te reconectezi.'
+                : 'Se trimit comenzile salvate pe telefon (reîncercare automată).'}
           </span>
-          {pendingSyncCount > 0 && (
+          {offlineQueue.pendingCount > 0 && (
             <span style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: 12 }}>
-              {pendingSyncCount}{' '}
-              {pendingSyncCount === 1 ? 'comandă în așteptare' : 'comenzi în așteptare'}
+              {offlineQueue.pendingCount}{' '}
+              {offlineQueue.pendingCount === 1 ? 'comandă în așteptare' : 'comenzi în așteptare'}
             </span>
           )}
         </div>
       )}
 
       {/* Comandă offline pierdută (respinsă definitiv de server) — trebuie reintrodusă */}
-      {droppedOrderReason != null && (
+      {offlineQueue.droppedReason != null && (
         <div
           style={{
             background: D.red,
@@ -991,10 +964,10 @@ export default function WaiterPage() {
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <Icon name="alert" size={14} />O comandă offline nu a putut fi trimisă și a fost
-            anulată ({droppedOrderReason}). Reintrodu-o manual.
+            anulată ({offlineQueue.droppedReason}). Reintrodu-o manual.
           </span>
           <button
-            onClick={() => setDroppedOrderReason(null)}
+            onClick={offlineQueue.dismissDropped}
             aria-label="Închide avertismentul"
             style={{
               background: 'rgba(0,0,0,0.2)',
@@ -1022,9 +995,15 @@ export default function WaiterPage() {
         </div>
       )}
 
+      {/* Doar erorile de ÎNCĂRCARE a listei (refuzul unei acțiuni stă pe card).
+          Dispare singur la următorul fetch reușit (useOrders). */}
       {error != null && (
-        <div style={{ background: `${D.red}22`, color: D.red, padding: '8px 24px', fontSize: 13 }}>
-          {error}
+        <div
+          role="alert"
+          style={{ background: `${D.red}22`, color: D.red, padding: '8px 24px', fontSize: 13 }}
+        >
+          Nu am putut încărca comenzile. Verifică conexiunea — lista se reîmprospătează
+          automat. <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
         </div>
       )}
 
@@ -1363,73 +1342,13 @@ export default function WaiterPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {readyOrders.map((order, i) => (
                 <RevealItem key={order.id} delay={Math.min(i, 5) * 40}>
-                  <div
-                    className="hover-lift"
-                    style={{
-                      background: STATUS_META.ready.bg,
-                      border: `1px solid ${D.green}55`,
-                      borderRadius: 12,
-                      padding: 16,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 16,
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div
-                        style={{
-                          fontFamily: 'Fraunces, Georgia, serif',
-                          fontSize: 18,
-                          fontWeight: 700,
-                          color: D.t1,
-                        }}
-                      >
-                        {order.table?.name ?? 'Fără masă'}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: 13,
-                          color: D.t2,
-                          marginTop: 2,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {order.order_items.map((it) => it.product_name_snapshot).join(', ')}
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: 'Fraunces, Georgia, serif',
-                          fontSize: 17,
-                          fontWeight: 700,
-                          color: D.t1,
-                          marginTop: 6,
-                        }}
-                      >
-                        {order.total.toFixed(2)} lei
-                      </div>
-                    </div>
-                    <button
-                      className="pressable"
-                      onClick={() => handleServit(order)}
-                      style={{
-                        background: D.green,
-                        color: '#fff',
-                        border: 'none',
-                        borderRadius: 10,
-                        padding: '12px 22px',
-                        fontFamily: 'DM Sans, sans-serif',
-                        fontSize: 14,
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        minHeight: 46,
-                      }}
-                    >
-                      Servit
-                    </button>
-                  </div>
+                  <ReadyOrderCard
+                    order={order}
+                    onServe={handleServit}
+                    pending={pendingIds.has(order.id)}
+                    actionError={actionErrors[order.id] ?? null}
+                    onDismissError={dismissActionError}
+                  />
                 </RevealItem>
               ))}
             </div>
@@ -1599,6 +1518,9 @@ export default function WaiterPage() {
                       onCloseOrder={handleCloseOrder}
                       onCloseTable={handleCloseTable}
                       sessionUnservedCount={sessionUnservedCount(order)}
+                      pending={pendingIds.has(order.id)}
+                      actionError={actionErrors[order.id] ?? null}
+                      onDismissError={dismissActionError}
                     />
                   ))}
                 </div>
@@ -1630,6 +1552,9 @@ export default function WaiterPage() {
                 onCloseOrder={handleCloseOrder}
                 onCloseTable={handleCloseTable}
                 sessionUnservedCount={sessionUnservedCount(order)}
+                pending={pendingIds.has(order.id)}
+                actionError={actionErrors[order.id] ?? null}
+                onDismissError={dismissActionError}
               />
             )}
           />
@@ -2013,9 +1938,10 @@ export default function WaiterPage() {
             setShowEntry(false)
             setEntryTableId(null)
           }}
-          onOrderCreated={() => {
+          onOrderCreated={(confirmation) => {
             setShowEntry(false)
             setEntryTableId(null)
+            handleOrderSent(confirmation)
           }}
         />
       )}
