@@ -9,6 +9,7 @@ import { elapsed } from '../lib/utils'
 import { Icon } from './ui/Icon'
 import PickupDetails from './PickupDetails'
 import { confirm as confirmDialog } from './ui/confirm'
+import { ActionErrorNote } from './ActionErrorNote'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -603,6 +604,12 @@ interface OrderCardProps {
   // „Închide masa" serverul le ANULEAZĂ (mig 288), nu le închide. null /
   // omis = necunoscut → dialogul folosește textul generic.
   sessionUnservedCount?: number | null
+  // O acțiune pe comandă e în curs (useOrders.pendingIds): „Închide comanda"
+  // stă dezactivat — anti dublu-tap.
+  pending?: boolean
+  // Refuzul ultimei acțiuni rapide, în română, afișat PE CARD.
+  actionError?: string | null
+  onDismissError?: (id: string) => void
 }
 
 function OrderCardInner({
@@ -616,6 +623,9 @@ function OrderCardInner({
   onCloseOrder,
   onCloseTable,
   sessionUnservedCount = null,
+  pending = false,
+  actionError = null,
+  onDismissError,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]
   const elapsedStr = useElapsed(order.created_at)
@@ -627,7 +637,7 @@ function OrderCardInner({
   const isServed = order.status === 'served'
 
   async function handleCloseClick(): Promise<void> {
-    if (!onCloseOrder) return
+    if (!onCloseOrder || pending) return
     // Din `served` comanda e livrată — închiderea e pasul normal, fără întrebare.
     // Din celelalte stări comanda NU a fost servită, iar `closed` acordă puncte
     // de loialitate și scade stocul: cerem confirmare și arătăm ieșirea corectă
@@ -828,7 +838,9 @@ function OrderCardInner({
         </div>
       )}
 
-      {/* History button — admin-only (RLS gate on audit_log restricts waiter) */}
+      {/* „Vezi istoric" — doar owner/manager: WaiterPage nu trimite onAudit altor
+          roluri, iar get_order_audit_history (mig 080) refuză oricum alt rol.
+          Nu e un gate RLS pe audit_log (cum spunea comentariul vechi). */}
       {onAudit && (
         <button
           onClick={() => onAudit(order)}
@@ -908,6 +920,8 @@ function OrderCardInner({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <button
             onClick={() => void handleCloseClick()}
+            disabled={pending}
+            aria-busy={pending}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -924,12 +938,13 @@ function OrderCardInner({
               fontFamily: 'DM Sans, sans-serif',
               fontSize: 14,
               fontWeight: isServed ? 700 : 600,
-              cursor: 'pointer',
+              cursor: pending ? 'wait' : 'pointer',
+              opacity: pending ? 0.6 : 1,
               width: '100%',
             }}
           >
             <Icon name="check" size={15} color={isServed ? '#fff' : D.t2} />
-            Închide comanda
+            {pending ? 'Se salvează…' : 'Închide comanda'}
           </button>
           {onCloseTable && order.session_id != null && (
             <button
@@ -974,6 +989,12 @@ function OrderCardInner({
         >
           Se verifică planul restaurantului — finalizarea comenzii revine imediat.
         </div>
+      )}
+      {actionError != null && (
+        <ActionErrorNote
+          message={actionError}
+          onDismiss={onDismissError ? () => onDismissError(order.id) : undefined}
+        />
       )}
     </div>
   )

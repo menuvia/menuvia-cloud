@@ -2,6 +2,7 @@
 // Shared utilities — used across KitchenPage, WaiterPage, etc.
 // ─────────────────────────────────────────────────────────────
 import { D } from './constants'
+import { staffAudio } from './staffAudio'
 
 /** Human-readable elapsed time since `createdAt` ISO string */
 export function elapsed(createdAt: string): string {
@@ -20,29 +21,11 @@ export function urgencyColor(createdAt: string): string {
   return D.t3
 }
 
-// OPT-R2: AudioContext partajat — înainte se crea unul NOU la fiecare beep și
-// nu se închidea niciodată. Chrome plafonează ~6 contexte live/pagină, deci
-// după ~6 comenzi sunetul de notificare MUREA tăcut pe un tab de dashboard.
-let audioCtx: AudioContext | null = null
-
-/** Play a short notification beep via Web Audio API */
+/**
+ * Beep scurt de notificare (comandă nouă / gata / apel). Contextul audio e
+ * UNIC pe pagină și se deblochează la primul gest — vezi lib/staffAudio.ts
+ * (sunetul era mut pe KDS până la o atingere, iar pe iPhone/iPad pentru totdeauna).
+ */
 export function playSound(hz: number, ms: number): void {
-  try {
-    if (!audioCtx) audioCtx = new AudioContext()
-    const ctx = audioCtx
-    // Autoplay policy: un context creat înainte de gestul userului pornește
-    // 'suspended' — îl reluăm la primul beep declanșat de un eveniment real.
-    if (ctx.state === 'suspended') void ctx.resume()
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.frequency.value = hz
-    gain.gain.setValueAtTime(0.3, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + ms / 1000)
-    osc.start()
-    osc.stop(ctx.currentTime + ms / 1000)
-  } catch {
-    /* AudioContext unavailable */
-  }
+  staffAudio.beep(hz, ms)
 }

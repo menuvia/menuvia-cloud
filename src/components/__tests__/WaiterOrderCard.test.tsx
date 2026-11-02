@@ -4,7 +4,7 @@
 // NECUNOSCUT (null) nu arată NICIUN buton de finalizare — o închidere nefiscală
 // pe Plan 3 ar însemna bani fără bon. Default-ul prop-ului e null (fail-closed).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderCard } from '../WaiterOrderCard'
 import { makeOrder } from './fixtures'
@@ -258,5 +258,53 @@ describe('OrderCard — „Închide masa" (închide sesiunea)', () => {
       expect(screen.queryByRole('button', { name: /^închide masa$/i })).toBeNull()
       unmount()
     }
+  })
+})
+
+describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-advance / action-errors)', () => {
+  it('T15 pending → „Închide comanda" dezactivat („Se salvează…"), fără al doilea apel', async () => {
+    // Mutație: scoate `disabled={pending}` / garda din handleCloseClick → al
+    // doilea tap închide din nou (sau, după re-așezare, comanda vecină).
+    const onCloseOrder = vi.fn()
+    render(
+      <OrderCard
+        order={makeOrder({ status: 'served' })}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={onCloseOrder}
+        paymentsEnabled={false}
+        pending
+      />,
+    )
+    expect(screen.queryByRole('button', { name: /^închide comanda$/i })).toBeNull()
+    const btn = screen.getByRole('button', { name: /se salvează/i })
+    expect(btn).toBeDisabled()
+    await userEvent.click(btn)
+    expect(onCloseOrder).not.toHaveBeenCalled()
+  })
+
+  it('T16 refuzul serverului apare PE CARD, în română, cu buton de închidere', async () => {
+    const onDismissError = vi.fn()
+    const order = makeOrder({ id: 'o-err', status: 'served' })
+    render(
+      <OrderCard
+        order={order}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+        onCloseOrder={vi.fn()}
+        paymentsEnabled={false}
+        actionError="Fără conexiune — acțiunea nu a fost salvată. Reîncearcă."
+        onDismissError={onDismissError}
+      />,
+    )
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent(/fără conexiune/i)
+    await userEvent.click(within(alert).getByRole('button', { name: 'Închide mesajul' }))
+    expect(onDismissError).toHaveBeenCalledWith('o-err')
+  })
+
+  it('T17 control: fără eroare → niciun alert pe card', () => {
+    renderCard(makeOrder({ status: 'served' }), false)
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })
