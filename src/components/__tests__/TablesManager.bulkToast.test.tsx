@@ -96,7 +96,7 @@ beforeEach(() => {
 })
 
 async function generate(n: string): Promise<void> {
-  render(<TablesManager restaurant={restaurant} />)
+  render(<TablesManager restaurant={restaurant} canRotateQr />)
   const input = await screen.findByLabelText('Numărul de mese')
   fireEvent.change(input, { target: { value: n } })
   fireEvent.click(screen.getByRole('button', { name: 'Generează mese și QR-uri' }))

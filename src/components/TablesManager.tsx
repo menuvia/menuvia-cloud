@@ -539,12 +539,14 @@ function GeneralMenuQrCard({
 // ── TablesManager ─────────────────────────────────────────────
 export default function TablesManager({
   restaurant,
-  canRotateQr = true,
+  canRotateQr,
 }: {
   restaurant: Restaurant
-  // Partenerul (mig 286): `rotate_qr_token` verifică membership-ul real, fără
-  // escape de partener — butonul „Regenerează QR" i-ar da doar un refuz.
-  canRotateQr?: boolean
+  // Obligatoriu (fără implicit permisiv). Partenerul (mig 286): `rotate_qr_token`
+  // verifică membership-ul real, fără escape de partener — „Regenerează QR" i-ar
+  // da doar un refuz. CREAREA unui token pe o masă FĂRĂ QR îi rămâne: politica
+  // de partener pe `qr_tokens` permite INSERT-ul din `ensureTokens`.
+  canRotateQr: boolean
 }) {
   const { toasts, toast } = useToast()
   const [tables, setTables] = useState<TableRow[]>([])
@@ -734,6 +736,14 @@ export default function TablesManager({
       toast('Eroare la generarea QR-ului', 'error')
     }
     await load()
+    setRotating(null)
+  }
+
+  // Masa fără QR, pentru cine nu poate roti (partenerul): doar mesele DOVEDIT
+  // fără token activ primesc unul (ensureTokens), deci QR-urile tipărite rămân.
+  const generateMissingQr = async (t: TableRow) => {
+    setRotating(t.id)
+    if (await ensureTokens()) toast('QR nou generat')
     setRotating(null)
   }
 
@@ -1444,11 +1454,13 @@ export default function TablesManager({
                     <Icon name="link" size={16} />
                   </button>
                 )}
-                {canRotateQr && (
+                {(canRotateQr || !t.active_token) && (
                 <button
                   onClick={() => {
                     // Fără QR existent nu e nimic de invalidat — generăm direct.
-                    if (!t.active_token) void rotateToken(t)
+                    // Partenerul nu poate roti, deci primește token-ul prin
+                    // INSERT (ensureTokens), care nu atinge nicio masă cu QR.
+                    if (!t.active_token) void (canRotateQr ? rotateToken(t) : generateMissingQr(t))
                     else setRotateTarget(t)
                   }}
                   disabled={rotating === t.id}

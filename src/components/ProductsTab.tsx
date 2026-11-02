@@ -57,7 +57,8 @@ function ProductModal({
   restaurantId: string
   userId: string
   menuLanguages: string[]
-  // Vezi ProductsTab: AI-ul și rețetele doar pentru cine le poate folosi.
+  // Vezi ProductsTab: imaginea și nutriția AI doar cu `canUseAi` (agentul n-are
+  // aceste funcții în ai-proxy), rețetele doar cu `canManageRecipes`.
   canUseAi: boolean
   canManageRecipes: boolean
 }) {
@@ -2015,6 +2016,7 @@ export default function ProductsTab({
   userId,
   menuLanguages = [],
   canUseAi,
+  canUseAiMenu,
   canManageRecipes,
 }: {
   restaurantId: string
@@ -2022,13 +2024,23 @@ export default function ProductsTab({
   onUpgrade: () => void
   userId: string
   menuLanguages?: string[]
-  // Obligatorii (fără implicit): fiecare apelant decide. AI-ul verifică pe
-  // server membership-ul REAL — partenerul și fondatorul în vizită nu-l au,
-  // deci butoanele lor ar duce doar la erori. Rețetele țin de stocuri, pe care
-  // partenerul nu le vede (mig 286).
+  // Obligatorii (fără implicit): fiecare apelant decide, după ce PERMITE
+  // ai-proxy (netlify/functions/ai-proxy.js):
+  //   - `canUseAi` = TOATE funcțiile AI (nutriție, imagine, import, traducere)
+  //     — owner/manager; fondatorul în vizită NU (ai-proxy cere membership real
+  //     sau acces de agent, iar fondatorul nu le are pe niciunul);
+  //   - `canUseAiMenu` = doar munca de meniu: importul din poză și traducerea
+  //     (`AGENT_FEATURES`). Îl are și agentul cu acces acordat (has_partner_access,
+  //     PR #307); nutriția și imaginea îi dau 403, deci acelea rămân pe `canUseAi`.
+  // Rețetele țin de stocuri, pe care partenerul nu le vede (mig 286).
   canUseAi: boolean
+  canUseAiMenu: boolean
   canManageRecipes: boolean
 }) {
+  // Lotul AI are sens fără `canUseAi` doar pentru traduceri: fără limbi extra
+  // configurate, agentul n-ar avea nimic de generat acolo.
+  const hasExtraLangs = menuLanguages.some((c) => c !== 'ro')
+  const canBulkAi = canUseAi || (canUseAiMenu && hasExtraLangs)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
     void fetchVatRates(restaurantId)
@@ -2200,9 +2212,9 @@ export default function ProductsTab({
             canAdd={canAdd}
             onAdd={() => setModal('add')}
             onUpgrade={onUpgrade}
-            onImportPhoto={canUseAi ? () => setAiImportOpen(true) : undefined}
+            onImportPhoto={canUseAiMenu ? () => setAiImportOpen(true) : undefined}
             onImportCsv={() => setCsvImportOpen(true)}
-            onBulkAi={canUseAi ? () => setAiBulkOpen(true) : undefined}
+            onBulkAi={canBulkAi ? () => setAiBulkOpen(true) : undefined}
           />
         )}
       </div>
@@ -2328,7 +2340,7 @@ export default function ProductsTab({
                 // 2026): cine are meniul în mână îl fotografiază, nu tastează
                 // 30 de produse; adăugarea manuală rămâne alături, secundară.
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-                  {canUseAi && (
+                  {canUseAiMenu && (
                     <Button
                       variant="primary"
                       size="sm"
@@ -2340,7 +2352,7 @@ export default function ProductsTab({
                   )}
                   {/* Fără AI, adăugarea manuală devine acțiunea principală. */}
                   <Button
-                    variant={canUseAi ? 'secondary' : 'primary'}
+                    variant={canUseAiMenu ? 'secondary' : 'primary'}
                     size="sm"
                     icon={<Icon name="plus" size={16} />}
                     onClick={() => {
@@ -2767,7 +2779,7 @@ export default function ProductsTab({
           />
         </Suspense>
       )}
-      {aiImportOpen && canUseAi && (
+      {aiImportOpen && canUseAiMenu && (
         <Suspense fallback={null}>
           <AiMenuImport
             restaurantId={restaurantId}
@@ -2797,7 +2809,7 @@ export default function ProductsTab({
           />
         </Suspense>
       )}
-      {aiBulkOpen && canUseAi && (
+      {aiBulkOpen && canBulkAi && (
         <Suspense fallback={null}>
           <AiBulkGenerate
             restaurantId={restaurantId}
@@ -2806,6 +2818,7 @@ export default function ProductsTab({
             menuLanguages={menuLanguages}
             onClose={() => setAiBulkOpen(false)}
             onDone={() => refetchProducts()}
+            translateOnly={!canUseAi}
           />
         </Suspense>
       )}

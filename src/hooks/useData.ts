@@ -491,42 +491,28 @@ export function useProducts(restaurantId: string | null) {
     if (!error) await load()
     return { error }
   }
-  const toggleActive = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_active: !current })
-      .eq('id', id)
-      .select()
-      .single()
-    if (!r.error && r.data) mergeRow(r.data as Product)
-    return r
-  }
   // FĂRĂ `.single()`: pe un UPDATE refuzat de RLS (0 rânduri) `.single()` dă
   // PGRST116 în engleză („JSON object requested, multiple (or no) rows
   // returned"), afișat ospătarului care marca „Epuizat". Numărăm rândurile și
   // dăm refuzul de drepturi în română. `.select()` întreg (nu doar `id`):
   // rândul actualizat alimentează merge-ul local.
-  const toggleSoldOut = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_sold_out: !current })
-      .eq('id', id)
-      .select()
+  const toggleProductFlag = async (
+    id: string,
+    patch: { is_active: boolean } | { is_sold_out: boolean } | { is_daily_special: boolean },
+  ) => {
+    const r = await supabase.from('products').update(patch).eq('id', id).select()
     const error = zeroRowsAsDenied(r)
     const row = !error && r.data ? (r.data[0] as Product) : null
     if (row) mergeRow(row)
     return { data: row, error }
   }
-  const toggleDailySpecial = async (id: string, current: boolean) => {
-    const r = await supabase
-      .from('products')
-      .update({ is_daily_special: !current })
-      .eq('id', id)
-      .select()
-      .single()
-    if (!r.error && r.data) mergeRow(r.data as Product)
-    return r
-  }
+  // Activ/inactiv, epuizat și specialitatea zilei: aceeași regulă.
+  const toggleActive = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_active: !current })
+  const toggleSoldOut = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_sold_out: !current })
+  const toggleDailySpecial = async (id: string, current: boolean) =>
+    toggleProductFlag(id, { is_daily_special: !current })
 
   return {
     products,

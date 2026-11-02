@@ -1,5 +1,6 @@
 import { Component, ReactNode, CSSProperties } from 'react'
 import { D } from '../lib/constants'
+import { toUserMessage } from '../lib/userMessages'
 
 const center: CSSProperties = {
   minHeight: '100vh',
@@ -182,7 +183,15 @@ export class ErrorBoundary extends Component<EBProps, EBState> {
               Ceva nu a mers bine
             </div>
             <div style={{ color: D.t2, fontSize: 14, lineHeight: 1.6, marginBottom: 20 }}>
-              {this.state.error.message}
+              {/* Textul tehnic al excepției (în engleză) nu ajunge la om. Îl
+                  învelim într-un Error simplu ca `isNetworkError` să decidă
+                  DOAR pe text: un chunk lazy care n-a putut fi descărcat
+                  („Failed to fetch dynamically imported module") e rețea, dar
+                  un TypeError dintr-un bug nu e „fără conexiune". */}
+              {toUserMessage(
+                new Error(this.state.error.message),
+                'A apărut o eroare neașteptată. Reîncarcă pagina; dacă se repetă, scrie-ne.',
+              )}
             </div>
             <button
               onClick={() => window.location.reload()}

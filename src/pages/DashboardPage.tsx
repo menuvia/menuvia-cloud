@@ -614,12 +614,17 @@ export default function DashboardPage({
   // Fiecare rol vede EXACT ce poate face (serverul refuză oricum restul):
   //   - abonamentul îl gestionează doar PROPRIETARUL (managerul n-are client
   //     Stripe; fondatorul în vizită e „manager" virtual, nu proprietar);
-  //   - AI-ul (ai-proxy, import din poză, chat, setări) verifică membership-ul
-  //     REAL: partenerul nu-l are, fondatorul în vizită nici el;
+  //   - AI-ul (ai-proxy): TOATE funcțiile doar cu membership real owner/manager;
+  //     agentul cu acces acordat are DOAR importul din poză și traducerea
+  //     (`AGENT_FEATURES`); fondatorul în vizită nu are nici membership, nici
+  //     acces de agent, deci niciun AI;
   //   - partenerul (mig 286) nu are rețete (stocuri) și nu rotește QR-uri
   //     (`rotate_qr_token` verifică membership-ul, fără escape de partener).
   const isOwnerRole = activeRole === 'owner' && !inFounderView
   const canUseAi = isAdminRole && !inFounderView
+  // Munca de MENIU cu AI (import din poză, traducere) — `AGENT_FEATURES` din
+  // ai-proxy: o are și agentul cu acces acordat (has_partner_access, PR #307).
+  const canUseAiMenu = canUseAi || isPartner
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState<UpgradeReason | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
@@ -1008,9 +1013,9 @@ export default function DashboardPage({
           )
         })}
       </nav>
-      {/* Upsell-ul planului doar pentru cine administrează localul — nu și
-          pentru partener, care n-are ce cumpăra aici. */}
-      {planKnown && plan === 'free' && isAdminRole && (
+      {/* Upsell-ul planului doar pentru PROPRIETAR (ca pe Acasă): abonamentul e
+          pe contul lui — managerul și partenerul n-au ce cumpăra aici. */}
+      {planKnown && plan === 'free' && isOwnerRole && (
         <FreePlanBanner
           productCount={productCount}
           maxProducts={planLimits.max_products}
@@ -1501,6 +1506,7 @@ export default function DashboardPage({
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
                     canUseAi={canUseAi}
+                    canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}
                   />
                 </Suspense>

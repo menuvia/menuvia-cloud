@@ -397,7 +397,7 @@ export default function WaiterPage() {
       .then(({ data, error: e }) => {
         if (cancelled) return
         if (e) {
-          setTablesLoadError(e.message)
+          setTablesLoadError(toUserMessage(e, 'Nu am putut încărca mesele.'))
           setTables([])
         } else {
           setTables((data ?? []) as typeof tables)
@@ -1997,7 +1997,7 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
         setResult({ ok: false, text: 'Nu am putut verifica codul. Încearcă din nou.' })
       }
     } catch (e) {
-      setResult({ ok: false, text: e instanceof Error ? e.message : 'Eroare' })
+      setResult({ ok: false, text: toUserMessage(e, 'Nu am putut verifica codul. Încearcă din nou.') })
     }
     setBusy(false)
   }

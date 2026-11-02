@@ -118,13 +118,14 @@ interface Invite {
 export default function TeamManager({
   restaurant,
   currentUserId,
-  canInvite = true,
+  canInvite,
 }: {
   restaurant: Restaurant
   currentUserId: string
-  // Fondatorul în vizită: send-invite verifică membership-ul REAL al celui care
-  // invită, deci formularul i-ar da doar un refuz. Echipa rămâne vizibilă.
-  canInvite?: boolean
+  // Obligatoriu (fără implicit permisiv). Fondatorul în vizită: send-invite
+  // verifică membership-ul REAL al celui care invită, deci formularul i-ar da
+  // doar un refuz. Echipa rămâne vizibilă.
+  canInvite: boolean
 }) {
   const isMobile = useIsMobile()
   const { toasts, toast } = useToast()

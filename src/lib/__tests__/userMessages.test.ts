@@ -13,6 +13,17 @@
 //   UM4  drepturile bat textul românesc: un 42501 cu mesaj românesc tot „Nu ai
 //        drepturi…" (ordinea ramurilor). Mutația care pică: testul de română
 //        mutat înaintea celui de drepturi.
+//   UM5  pe 403 un mesaj ROMÂNESC rămâne (AiError: „Nu ai drepturi să folosești
+//        asistentul AI…" e mai precis decât generalul); 403 fără text sau cu
+//        text englezesc → MSG_FORBIDDEN. Mutația care pică: testul pe 403 pus
+//        înaintea celui de limbă (varianta dinainte a recenziei pe #333).
+//   UM6  euristica de limbă pe mesajele REALE ale serverului: românești FĂRĂ
+//        diacritice („Tip feedback invalid", „Restaurant inexistent.", „Layout
+//        prea mare (max 1 MB)"…) se păstrează; englezești cu un nume de produs
+//        cu diacritice între ghilimele (`invalid options for product "Ciorbă"`)
+//        sau cu „invalid" (`Invalid device secret`) cad pe rezervă. Mutațiile
+//        care pică: diacriticele căutate și în ghilimele; „invalid" scos din
+//        lista românească; comparația „ro > en" înlocuită cu „ro > 0".
 //   ZR1  zeroRowsAsDenied: 0 rânduri FĂRĂ eroare (refuz RLS tăcut) → eroare de
 //        drepturi; un rând → null (control); eroarea originală trece mai departe.
 //        Mutația care pică: `data.length === 0` scos (codul vechi „Șters").
@@ -69,6 +80,39 @@ describe('toUserMessage', () => {
     expect(toUserMessage({ message: 'Acces interzis la produse', code: '42501' })).toBe(
       MSG_NO_PERMISSION,
     )
+  })
+})
+
+describe('toUserMessage — 403 și limba mesajului', () => {
+  it('UM5 pe 403 mesajul românesc rămâne; altfel MSG_FORBIDDEN', () => {
+    const ai = 'Nu ai drepturi să folosești asistentul AI pentru acest restaurant.'
+    expect(toUserMessage(Object.assign(new Error(ai), { code: 'forbidden', status: 403 }))).toBe(ai)
+    expect(toUserMessage({ message: '', status: 403 })).toBe(MSG_FORBIDDEN)
+    expect(toUserMessage({ message: 'Request failed', status: 403 })).toBe(MSG_FORBIDDEN)
+  })
+
+  it('UM6 mesajele românești fără diacritice rămân, cele englezești nu', () => {
+    for (const ro of [
+      'Tip feedback invalid',
+      'Rating invalid (1-5)',
+      'Tip de apel invalid.',
+      'Parametru invalid',
+      'Restaurant inexistent.',
+      'Modul necunoscut: sms',
+      'Layout prea mare (max 1 MB)',
+    ]) {
+      expect(toUserMessage({ message: ro, code: 'P0001' }, 'REZERVĂ'), ro).toBe(ro)
+    }
+    for (const en of [
+      'create_order: invalid options for product "Ciorbă"',
+      'Invalid device secret',
+      'Invalid source: qr',
+      'update_order_items: invalid quantity (1-99)',
+      'Order must have at least one item',
+      'Cannot close order in status: paid',
+    ]) {
+      expect(toUserMessage({ message: en, code: 'P0001' }, 'REZERVĂ'), en).toBe('REZERVĂ')
+    }
   })
 })
 

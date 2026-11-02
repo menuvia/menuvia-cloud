@@ -89,7 +89,7 @@ const FLIPBOOK_WHY = /stilul Flipbook/
 // Ancora: lista s-a încărcat (gol), deci absența empty state-ului nu vine
 // dintr-un ecran de încărcare sau de eroare.
 async function renderLoaded(restaurant: Restaurant) {
-  render(<TablesManager restaurant={restaurant} />)
+  render(<TablesManager restaurant={restaurant} canRotateQr />)
   expect(await screen.findByText('Nu ai mese configurate încă')).toBeInTheDocument()
 }
 

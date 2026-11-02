@@ -20,8 +20,10 @@ import {
   isAiQuotaError,
 } from '../lib/ai'
 import type { Translations } from '../lib/i18nMenu'
+import { toUserMessage } from '../lib/userMessages'
 
-const errText = (e: unknown): string => (e instanceof Error ? e.message : 'eroare')
+// Erorile AI vin deja în română (lib/ai.ts); restul trec prin toUserMessage.
+const errText = (e: unknown): string => toUserMessage(e, 'eroare la generare')
 
 // Împarte un array în grupuri de câte `n` (pentru apeluri AI de traducere în lot).
 function chunk<T>(arr: T[], n: number): T[][] {
@@ -50,6 +52,7 @@ export default function AiBulkGenerate({
   menuLanguages = [],
   onClose,
   onDone,
+  translateOnly = false,
 }: {
   restaurantId: string
   products: Product[]
@@ -58,13 +61,19 @@ export default function AiBulkGenerate({
   menuLanguages?: string[]
   onClose: () => void
   onDone: () => void
+  /**
+   * Agentul de vânzări (partener cu acces acordat, mig 286): ai-proxy îi permite
+   * DOAR `menu_import` și `translate` (AGENT_FEATURES) — nutriția îi dă 403, iar
+   * imaginile n-au cale de agent. Fără bifele lor, lotul face doar traduceri.
+   */
+  translateOnly?: boolean
 }) {
   useBodyScrollLock(true)
   const isMobile = useIsMobile()
   const langs = menuLanguages.filter((c) => c !== 'ro')
   const hasLangs = langs.length > 0
-  const [doImages, setDoImages] = useState(true)
-  const [doNutrition, setDoNutrition] = useState(true)
+  const [doImages, setDoImages] = useState(!translateOnly)
+  const [doNutrition, setDoNutrition] = useState(!translateOnly)
   const [doTranslate, setDoTranslate] = useState(hasLangs)
   const [running, setRunning] = useState(false)
   const [done, setDone] = useState(false)
@@ -168,7 +177,7 @@ export default function AiBulkGenerate({
             if (error) throw new Error(error.message)
             setOkTrCat((x) => x + 1)
           } catch (e) {
-            setErrors((prev) => [...prev, `${c.name} (categorie): ${e instanceof Error ? e.message : 'eroare'}`])
+            setErrors((prev) => [...prev, `${c.name} (categorie): ${errText(e)}`])
           }
         }
       }
@@ -206,7 +215,7 @@ export default function AiBulkGenerate({
             if (error) throw new Error(error.message)
             setOkTr((x) => x + 1)
           } catch (e) {
-            setErrors((prev) => [...prev, `${p.name} (traducere): ${e instanceof Error ? e.message : 'eroare'}`])
+            setErrors((prev) => [...prev, `${p.name} (traducere): ${errText(e)}`])
           }
         }
       }
@@ -306,6 +315,8 @@ export default function AiBulkGenerate({
               <p style={{ color: D.t2, fontSize: '0.88rem', lineHeight: 1.5, marginBottom: 16 }}>
                 Completez automat ce lipsește din meniu. Tot ce generez e marcat „✨ generat de AI — verifică", ca să corectezi ușor.
               </p>
+              {!translateOnly && (
+              <>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0', cursor: 'pointer' }}>
                 <input type="checkbox" checked={doImages} disabled={running} onChange={(e) => setDoImages(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
                 <span style={{ color: D.t1, fontSize: '0.9rem' }}>Imagini ({missingImg.length} fără imagine)</span>
@@ -317,6 +328,8 @@ export default function AiBulkGenerate({
                 <input type="checkbox" checked={doNutrition} disabled={running} onChange={(e) => setDoNutrition(e.target.checked)} style={{ width: 18, height: 18, accentColor: D.gold }} />
                 <span style={{ color: D.t1, fontSize: '0.9rem' }}>Macronutrienți ({missingNutri.length} fără valori)</span>
               </label>
+              </>
+              )}
 
               {hasLangs && (
                 <>

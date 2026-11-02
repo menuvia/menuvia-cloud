@@ -81,7 +81,7 @@ beforeEach(() => {
 describe('TablesManager — token-uri QR necunoscute', () => {
   it('TK1 citirea token-urilor pică → eroare cu Reîncearcă, fără „Generează QR”', async () => {
     h.tokensResult = { data: null, error: { message: 'boom' } }
-    render(<TablesManager restaurant={restaurant} />)
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
     expect((await screen.findAllByText('Nu s-au putut încărca mesele')).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /reîncearcă/i })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Generează QR' })).not.toBeInTheDocument()
@@ -90,7 +90,7 @@ describe('TablesManager — token-uri QR necunoscute', () => {
   })
 
   it('TK1b control: citire reușită, masă fără token → „Generează QR”', async () => {
-    render(<TablesManager restaurant={restaurant} />)
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
     expect(await screen.findByRole('button', { name: 'Generează QR' })).toBeInTheDocument()
     expect(screen.queryByText('Nu s-au putut încărca mesele')).not.toBeInTheDocument()
     // Planul e necunoscut aici (`useFeatures` cu `features: null`): QR-ul general

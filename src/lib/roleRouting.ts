@@ -30,3 +30,19 @@ export function staffHomeForRole(role: UiRole | null): StaffHomePath | null {
 export function noAccessDestination(role: UiRole | null): StaffHomePath | '/dashboard' {
   return staffHomeForRole(role) ?? '/dashboard'
 }
+
+/**
+ * Restaurantul implicit când nu există unul salvat (dispozitiv nou, cheie
+ * ștearsă): întâi unul unde omul e OWNER, apoi MANAGER, abia apoi primul din
+ * listă. Cu `rows[0]` (ordonat după restaurant_id) un patron care e și bucătar
+ * în alt local putea porni pe localul de bucătărie — și garda de pe /dashboard
+ * îl trimitea pe /kitchen din propriul cont. Ordinea din listă se păstrează în
+ * interiorul fiecărui rol (stabilă de la o încărcare la alta).
+ */
+export function defaultActiveRestaurantId(
+  rows: ReadonlyArray<{ restaurant_id: string; role: UiRole }>,
+): string | null {
+  const pick =
+    rows.find((r) => r.role === 'owner') ?? rows.find((r) => r.role === 'manager') ?? rows[0]
+  return pick?.restaurant_id ?? null
+}

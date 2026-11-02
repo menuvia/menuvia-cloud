@@ -4,7 +4,13 @@
 //   RQ1  partenerul (`canRotateQr={false}`, mig 286): fără „Regenerează QR"
 //        (`rotate_qr_token` verifică membership-ul real, fără escape de partener).
 //        Mutația care pică: butonul randat necondiționat (codul vechi).
-//   RQ2  control pozitiv: owner/manager (implicit) văd „Regenerează QR".
+//   RQ2  control pozitiv: owner/manager (`canRotateQr`) văd „Regenerează QR".
+//   RQ3  partenerul pe o masă FĂRĂ QR: „Generează QR" rămâne (textul de status îl
+//        trimite acolo) și creează token-ul prin INSERT (ensureTokens, permis de
+//        politica de partener pe qr_tokens), NU prin `rotate_qr_token`.
+//        Mutația care pică: butonul ascuns și pe masa fără QR (varianta de
+//        dinainte a recenziei pe #333 — textul „apasă Generează QR" mințea) sau
+//        apelul `rotateToken` și pentru partener (refuzat de server).
 //   RD1  ștergerea refuzată de RLS — PostgREST răspunde 200 cu ZERO rânduri și
 //        FĂRĂ eroare → mesajul de drepturi, NU „Masă ștearsă".
 //        Mutația care pică: `.delete().eq(...)` fără `.select('id')` și fără
@@ -18,6 +24,9 @@ import type { Restaurant } from '../../hooks/useData'
 const h = vi.hoisted(() => ({
   deleteResult: { data: [] as unknown[] | null, error: null as { message: string } | null },
   deletes: 0,
+  withToken: true,
+  inserts: 0,
+  rpc: vi.fn(() => Promise.resolve({ data: null, error: null })),
 }))
 
 vi.mock('../../hooks/useFeatures', () => ({
@@ -51,8 +60,17 @@ vi.mock('../../lib/supabase', () => {
       from: (table: string) => {
         if (table === 'tables')
           return {
+            // `.eq()` e și thenable (ensureTokens: select('id').eq(...)) și are
+            // `.order()` (load: select('*').eq(...).order('name')).
             select: () => ({
-              eq: () => ({ order: () => Promise.resolve({ data: [tableRow], error: null }) }),
+              eq: () => {
+                const res = { data: [tableRow], error: null }
+                return {
+                  order: () => Promise.resolve(res),
+                  then: (ok: (v: unknown) => unknown, ko?: (e: unknown) => unknown) =>
+                    Promise.resolve(res).then(ok, ko),
+                }
+              },
             }),
             delete: () => ({
               eq: () => ({
@@ -66,12 +84,19 @@ vi.mock('../../lib/supabase', () => {
         if (table === 'qr_tokens')
           return {
             select: () => ({
-              in: () => ({ eq: () => Promise.resolve({ data: [tokenRow], error: null }) }),
+              in: () => ({
+                eq: () => Promise.resolve({ data: h.withToken ? [tokenRow] : [], error: null }),
+              }),
             }),
+            insert: () => {
+              h.inserts += 1
+              h.withToken = true
+              return Promise.resolve({ error: null })
+            },
           }
         throw new Error('tabelă neașteptată: ' + table)
       },
-      rpc: () => Promise.resolve({ data: null, error: null }),
+      rpc: h.rpc,
     },
   }
 })
@@ -89,6 +114,9 @@ const restaurant = {
 beforeEach(() => {
   h.deletes = 0
   h.deleteResult = { data: [], error: null }
+  h.withToken = true
+  h.inserts = 0
+  h.rpc.mockClear()
 })
 
 describe('TablesManager — QR-ul pe rol', () => {
@@ -101,15 +129,26 @@ describe('TablesManager — QR-ul pe rol', () => {
   })
 
   it('RQ2 control: owner/manager văd „Regenerează QR"', async () => {
-    render(<TablesManager restaurant={restaurant} />)
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
     expect(await screen.findByRole('button', { name: 'Regenerează QR' })).toBeInTheDocument()
+  })
+
+  it('RQ3 partenerul pe masa fără QR: „Generează QR" prin INSERT, nu prin rotire', async () => {
+    h.withToken = false
+    const user = userEvent.setup()
+    render(<TablesManager restaurant={restaurant} canRotateQr={false} />)
+    expect(await screen.findByText(/Fără QR — apasă/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Generează QR' }))
+    expect(await screen.findByText('QR nou generat')).toBeInTheDocument()
+    expect(h.inserts).toBe(1)
+    expect(h.rpc).not.toHaveBeenCalled()
   })
 })
 
 describe('TablesManager — ștergerea refuzată nu e „ștearsă"', () => {
   async function deleteTable() {
     const user = userEvent.setup()
-    render(<TablesManager restaurant={restaurant} />)
+    render(<TablesManager restaurant={restaurant} canRotateQr />)
     await user.click(await screen.findByRole('button', { name: 'Șterge masă' }))
     await user.click(screen.getByRole('button', { name: 'Șterge' }))
   }

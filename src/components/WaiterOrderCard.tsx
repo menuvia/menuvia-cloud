@@ -10,6 +10,7 @@ import { Icon } from './ui/Icon'
 import PickupDetails from './PickupDetails'
 import { confirm as confirmDialog } from './ui/confirm'
 import { ActionErrorNote } from './ActionErrorNote'
+import { toUserMessage } from '../lib/userMessages'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
@@ -538,7 +539,7 @@ function PayModal({
                 }
               })
               .catch((e: unknown) => {
-                setErrorMsg(e instanceof Error && e.message ? e.message : 'Plata nu a fost înregistrată.')
+                setErrorMsg(toUserMessage(e, 'Plata nu a fost înregistrată.'))
               })
               .finally(() => setSubmitting(false))
           }}

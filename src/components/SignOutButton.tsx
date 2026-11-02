@@ -10,6 +10,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { D } from '../lib/constants'
 import { Icon } from './ui/Icon'
 import { confirm as confirmDialog } from './ui/confirm'
+import { toUserMessage } from '../lib/userMessages'
 
 export function SignOutButton({
   variant,
@@ -24,6 +25,7 @@ export function SignOutButton({
 }) {
   const { signOut } = useAuth()
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
   async function handleClick(): Promise<void> {
     const ok = await confirmDialog({
@@ -35,6 +37,7 @@ export function SignOutButton({
     })
     if (!ok) return
     setBusy(true)
+    setErr(null)
     try {
       if (onSignOut) {
         await onSignOut()
@@ -42,6 +45,10 @@ export function SignOutButton({
         await signOut()
         window.location.replace('/auth')
       }
+    } catch (e) {
+      // O ieșire eșuată NU are voie să pară reușită (sau să tacă): omul crede
+      // că a lăsat tableta liberă, iar sesiunea lui e încă deschisă.
+      setErr(toUserMessage(e, 'Nu am putut ieși din cont. Reîncearcă.'))
     } finally {
       setBusy(false)
     }
@@ -49,6 +56,16 @@ export function SignOutButton({
 
   const sidebar = variant === 'sidebar'
   return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: sidebar ? 'stretch' : 'flex-end',
+        gap: 4,
+        width: sidebar ? '100%' : undefined,
+        flexShrink: 0,
+      }}
+    >
     <button
       type="button"
       onClick={() => void handleClick()}
@@ -78,6 +95,12 @@ export function SignOutButton({
       <Icon name="logout" size={sidebar ? 16 : 14} />
       {busy ? 'Se iese…' : 'Ieși din cont'}
     </button>
+    {err && (
+      <span role="alert" style={{ color: D.red, fontSize: '0.72rem', lineHeight: 1.4 }}>
+        {err}
+      </span>
+    )}
+    </div>
   )
 }
 

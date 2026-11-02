@@ -12,16 +12,26 @@
 //        are cele trei acțiuni o singură dată (pică pe codul vechi: „+ Adaugă
 //        produs", „Import din poză", „Import CSV" erau și în antet).
 //   PB6  ProductsTab cu produse: antetul cu „Importă" apare, starea goală nu.
-//   PR1  fără handler AI (partener / fondator în vizită — AI-ul cere membership
-//        REAL): fără „Generează AI", iar „Importă" are DOAR CSV-ul.
+//   PR1  fără handlere AI (fondatorul în vizită: ai-proxy nu-i dă nicio funcție
+//        AI — n-are nici membership, nici acces de agent): fără „Generează AI",
+//        iar „Importă" are DOAR CSV-ul.
 //        Mutația care pică: butoanele randate necondiționat (codul vechi).
-//   PR2  ProductsTab cu `canUseAi={false}`, catalog gol: fără „Importă din poză";
+//   PR2  ProductsTab fără niciun AI (`canUseAi` și `canUseAiMenu` false — fondatorul
+//        în vizită), catalog gol: fără „Importă din poză";
 //        „Adaugă manual" și CSV rămân (control).
 //   PR3  ProductsTab cu `canUseAi={false}` și `canManageRecipes={false}`:
 //        antetul fără „Generează AI"; în fișa produsului fără „Generează imagine"
 //        și fără secțiunea „Rețetă". Mutația care pică: prop-urile ignorate în
 //        ProductModal (secțiunile randate necondiționat).
 //   PR4  control pozitiv pentru PR3: owner/manager (`true`) văd ambele.
+//   PR5  AGENTUL de vânzări (`canUseAi={false}`, `canUseAiMenu`): ai-proxy îi
+//        permite `menu_import` + `translate` (AGENT_FEATURES, PR #307) — deci
+//        importul din poză RĂMÂNE (starea goală + „Importă"), iar lotul AI se
+//        deschide DOAR cu traduceri (fără bifele de imagini/macronutrienți);
+//        în fișa produsului fără „Generează imagine" și fără rețetă.
+//        Mutația care pică: un singur flag (`canUseAi`) pentru tot AI-ul —
+//        varianta dinainte a acestui PR, care îi lua agentului importul.
+//   PR6  agentul FĂRĂ limbi extra: lotul AI n-ar avea ce face → fără „Generează AI".
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -144,7 +154,14 @@ vi.mock('../../../hooks/usePlanLimits', () => ({
 }))
 vi.mock('../../../lib/vat', () => ({ fetchVatRates: async () => [] }))
 vi.mock('../../../lib/supabase', () => ({ supabase: {} }))
-vi.mock('../../../lib/ai', () => ({ generateNutrition: vi.fn(), generateProductImage: vi.fn() }))
+vi.mock('../../../lib/ai', () => ({
+  generateNutrition: vi.fn(),
+  generateProductImage: vi.fn(),
+  // Lotul AI (AiBulkGenerate, PR5b) le importă; nu se cheamă în teste.
+  aiTranslateBatch: vi.fn(),
+  isAiConfigError: () => false,
+  isAiQuotaError: () => false,
+}))
 vi.mock('../../../lib/analytics', () => ({ track: vi.fn() }))
 vi.mock('../../../lib/stocks', () => ({
   fetchIngredients: vi.fn(),
@@ -184,7 +201,12 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function renderTab(canUseAi = true, canManageRecipes = true) {
+function renderTab(
+  canUseAi = true,
+  canManageRecipes = true,
+  canUseAiMenu = canUseAi,
+  menuLanguages: string[] = [],
+) {
   render(
     <ProductsTab
       restaurantId="rest-1"
@@ -192,7 +214,9 @@ function renderTab(canUseAi = true, canManageRecipes = true) {
       onUpgrade={() => {}}
       userId="u1"
       canUseAi={canUseAi}
+      canUseAiMenu={canUseAiMenu}
       canManageRecipes={canManageRecipes}
+      menuLanguages={menuLanguages}
     />,
   )
 }
@@ -242,7 +266,7 @@ describe('ProductsTab — antet și stare goală', () => {
   })
 })
 
-describe('ProductsTab — partenerul nu vede AI și rețete', () => {
+describe('ProductsTab — fără niciun AI (fondatorul în vizită) și fără rețete', () => {
   beforeEach(() => {
     data.products = []
   })
@@ -274,5 +298,46 @@ describe('ProductsTab — partenerul nu vede AI și rețete', () => {
     await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
     expect(await screen.findByRole('button', { name: /Generează imagine/ })).toBeInTheDocument()
     expect(screen.getByText('Rețetă (ingrediente consumate)')).toBeInTheDocument()
+  })
+})
+
+describe('ProductsTab — agentul păstrează importul și traducerea AI', () => {
+  beforeEach(() => {
+    data.products = []
+  })
+
+  it('PR5: import din poză + lot doar cu traduceri; fără imagine/nutriție/rețetă', () => {
+    renderTab(false, false, true, ['ro', 'en'])
+    // Catalog gol: importul din poză rămâne acțiunea principală.
+    expect(screen.getByRole('button', { name: 'Importă din poză' })).toBeInTheDocument()
+  })
+
+  it('PR5b: cu produse — „Din poză (AI)" și lotul doar de traduceri', async () => {
+    const user = userEvent.setup()
+    data.products = [product()]
+    renderTab(false, false, true, ['ro', 'en'])
+    await user.click(screen.getByRole('button', { name: /^Importă/ }))
+    expect(screen.getByRole('button', { name: 'Din poză (AI)' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('button', { name: /Generează AI/ }))
+    expect(await screen.findByText(/Traduceri în 1 limbă/)).toBeInTheDocument()
+    expect(screen.queryByText(/Imagini \(/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Macronutrienți/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Închide' }))
+
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    expect(await screen.findByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Generează imagine/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Rețetă (ingrediente consumate)')).not.toBeInTheDocument()
+  })
+
+  it('PR6: agentul fără limbi extra — fără lotul AI, importul rămâne', async () => {
+    const user = userEvent.setup()
+    data.products = [product()]
+    renderTab(false, false, true, ['ro'])
+    expect(screen.queryByRole('button', { name: /Generează AI/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Importă/ }))
+    expect(screen.getByRole('button', { name: 'Din poză (AI)' })).toBeInTheDocument()
   })
 })

@@ -10,6 +10,7 @@ import { createOrder } from '../lib/orders'
 import type { CartItem } from '../lib/orders'
 import { modifierGroupMin, modifierGroupHint } from '../lib/qr'
 import { D } from '../lib/constants'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Table {
   id: string
@@ -321,7 +322,7 @@ export default function ManualOrderSheet({ restaurantId, onClose, onOrderPlaced 
       idempotencyKeyRef.current = crypto.randomUUID()
       onOrderPlaced(result.id, result.short_id)
     } catch (e: unknown) {
-      setSubmitError(e instanceof Error ? e.message : 'Eroare la trimiterea comenzii')
+      setSubmitError(toUserMessage(e, 'Eroare la trimiterea comenzii'))
       setSubmitting(false)
     }
   }

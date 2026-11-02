@@ -39,11 +39,16 @@ const ROOT = path.join(__dirname, '..', '..')
 const DIRS = ['src/components', 'src/pages']
 
 // Un setter/toast care ajunge pe ecran.
-const SINK =
-  /\b(?:toast(?:\.(?:error|warning|info|success))?|pmToast|setError|setErr|setMsg|setLoadError|setProdError|setPrintedErr|setInvErr)\(/
+// ORICE setter de stare (`setX(`), nu o listă fixă: lista veche scăpa
+// `setTablesLoadError`, `setResult`, `setSubmitError` (recenzia pe #333).
+const SINK = /\b(?:toast(?:\.(?:error|warning|info|success))?|pmToast|set[A-Z]\w*)\(/
 const RULES = [
   { name: 'setter/toast cu .message', test: (l) => SINK.test(l) && /\.message\b/.test(l) },
   { name: "'Eroare: ' + ….message", test: (l) => /'Eroare: '\s*\+\s*[^;]*\.message\b/.test(l) },
+  // Randarea DIRECTĂ în JSX: `{error.message}`, `{e?.message}`, `{r.error.message}`.
+  // Fără `${…}`: interpolarea într-un șir (`new Error(\`…: ${e.message}\`)`) nu e
+  // randare — mesajul aruncat trece mai departe prin toUserMessage.
+  { name: 'JSX {….message}', test: (l) => /(?<!\$)\{\s*[\w.?]+\.message\s*\}/.test(l) },
 ]
 
 function violations(line) {
@@ -76,9 +81,39 @@ const ALLOWED = [
     reason: '`res` vine din describeCancelRejection — mesaj românesc construit de noi',
   },
   {
-    file: 'src/components/founder/SalesNetworkPanel.tsx',
-    contains: "setMsg({ kind: 'err', text: check.message })",
-    reason: '`check` e rezultatul validării locale a formularului, deja în română',
+    file: 'src/components/WaiterOrderCard.tsx',
+    contains: "setErrorMsg(res.message || 'Plata nu a fost înregistrată.",
+    reason: '`res` e refuzul tradus de describePayRejection (sume, metodă, rol) — românesc',
+  },
+  {
+    file: 'src/components/PayTableSheet.tsx',
+    contains: "setErrorMsg(result.error.message || T(lang, 'pt_declined'))",
+    reason: 'mesajul Stripe Elements, localizat în limba oaspetelui prin `locale: lang`',
+  },
+  {
+    file: 'src/components/ui/Toast.tsx',
+    contains: '{t.message}',
+    reason: 'câmpul `message` al toast-ului însuși (text deja ales de apelant)',
+  },
+  {
+    file: 'src/pages/PricingPage.tsx',
+    contains: 'setCheckoutError({ message: err.message, action: err.action })',
+    reason: 'CheckoutError poartă textul românesc din describeCheckoutFailure (CH1–CH8)',
+  },
+  {
+    file: 'src/pages/PricingPage.tsx',
+    contains: '{checkoutError.message}',
+    reason: 'același CheckoutError, randat',
+  },
+  {
+    file: 'src/components/afiliat/ContractReacceptSection.tsx',
+    contains: '{gate.message}',
+    reason: '`gate` = contractGate (lib/salesContract.ts), mesaj românesc construit de noi',
+  },
+  {
+    file: 'src/pages/SalesInviteRedeemPage.tsx',
+    contains: '{gate.message}',
+    reason: '`gate` = contractGate (lib/salesContract.ts), mesaj românesc construit de noi',
   },
 ]
 
@@ -89,6 +124,7 @@ const ALLOWED_FILES = {
   'src/components/FounderAiPanel.tsx': 'raport AI al platformei, doar fondatorul',
   'src/components/FounderPayoutRow.tsx': 'plăți de afiliere, doar fondatorul',
   'src/components/FounderActivationCard.tsx': 'activare de cont, doar fondatorul',
+  'src/components/founder/SalesNetworkPanel.tsx': 'rețeaua de vânzări, doar fondatorul',
 }
 
 function sourceFiles(dir) {
@@ -132,6 +168,13 @@ describe('clichet: fără mesaje de eroare brute pe ecran', () => {
       'toast.error(e instanceof Error ? e.message : "x")',
       "setMsg({ kind: 'err', text: e.message })",
       "const m = 'Eroare: ' + res.error.message",
+      // setter-e ÎN AFARA listei vechi (recenzia pe #333)
+      'setTablesLoadError(e.message)',
+      "setResult({ ok: false, text: e instanceof Error ? e.message : 'Eroare' })",
+      "setSubmitError(e instanceof Error ? e.message : 'x')",
+      // randarea directă în JSX
+      '<div>{error.message}</div>',
+      '{r.error?.message}',
     ]
     for (const l of caught) assert.ok(violations(l).length > 0, `ar trebui prinsă: ${l}`)
     const fine = [
@@ -141,6 +184,9 @@ describe('clichet: fără mesaje de eroare brute pe ecran', () => {
       "// toast(e.message) era vechiul cod",
       'const text = form.checkout_suggestion_settings?.message ?? ""',
       "setError('Parolele nu coincid.')",
+      // interpolare într-un Error aruncat (nu randare)
+      'throw new Error(`Eroare la batch ${i}: ${insErr.message}`)',
+      '{toUserMessage(new Error(this.state.error.message), FALLBACK)}',
     ]
     for (const l of fine) assert.deepEqual(violations(l), [], `nu trebuie prinsă: ${l}`)
   })

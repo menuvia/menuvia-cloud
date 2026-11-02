@@ -57,21 +57,60 @@ const FORBIDDEN_TEXT = /^\s*forbidden\s*$/i
 
 const DUPLICATE_TEXT = /duplicate key value|violates unique constraint/i
 
-// Diacriticele românești (inclusiv formele cu sedilă) sau cuvinte care nu există
-// în engleză. Un mesaj care le are e scris pentru om — îl păstrăm.
-const ROMANIAN_TEXT =
-  /[ăâîșțşţĂÂÎȘȚŞŢ]|\b(nu|eroare|este|sunt|pentru|trebuie|poate|deja|doar|interzis|acest|aceasta|comanda|masa|produsul|planul|contul|sau|reincearca|incearca)\b/i
+// ── E deja românesc? ────────────────────────────────────────────────────────
+// Diacriticele contează DOAR în afara ghilimelelor: `create_order: invalid
+// options for product "Ciorbă"` e englezesc, diacriticul e din numele
+// produsului. Fără diacritice se compară cuvinte: unele există doar în română,
+// altele doar în engleză, iar mesajul e românesc numai cu mai multe dintâi
+// decât dintr-ale doilea. „invalid" stă în lista românească (serverul scrie
+// „Tip feedback invalid", „Parametru invalid"), iar engleza are destule cuvinte
+// în jur („Invalid device secret", „invalid options for product") ca să câștige.
+const DIACRITICS = /[ăâîșțşţĂÂÎȘȚŞŢ]/
+const QUOTED = /"[^"]*"|„[^”"]*[”"]|«[^»]*»|'[^']*'/g
+const RO_WORDS = new Set([
+  'nu', 'e', 'este', 'sunt', 'de', 'la', 'pe', 'din', 'cu', 'si', 'sau', 'pentru',
+  'trebuie', 'poate', 'deja', 'doar', 'prea', 'mare', 'mic', 'eroare', 'acces',
+  'interzis', 'invalid', 'invalida', 'inexistent', 'inexistenta', 'necunoscut',
+  'necunoscuta', 'obligatoriu', 'obligatorie', 'acest', 'aceasta', 'comanda',
+  'masa', 'produsul', 'planul', 'contul', 'modul', 'parametru', 'apel',
+  'reincearca', 'incearca', 'pot', 'ai', 'are',
+])
+const EN_WORDS = new Set([
+  'the', 'a', 'an', 'for', 'not', 'must', 'cannot', 'can', 'found', 'only', 'of',
+  'to', 'is', 'are', 'has', 'have', 'be', 'with', 'this', 'that', 'at', 'least',
+  'one', 'does', 'did', 'no', 'or', 'and', 'in', 'on', 'product', 'products',
+  'order', 'orders', 'role', 'options', 'quantity', 'device', 'secret', 'source',
+  'item', 'items', 'required', 'authentication', 'belong', 'state', 'status',
+  'current', 'request', 'failed', 'error', 'unknown', 'missing', 'already',
+  'exists', 'too', 'large', 'value', 'table', 'user',
+])
+
+function isRomanianText(text: string): boolean {
+  const unquoted = text.replace(QUOTED, ' ')
+  if (DIACRITICS.test(unquoted)) return true
+  let ro = 0
+  let en = 0
+  for (const w of unquoted.toLowerCase().split(/[^a-z]+/)) {
+    if (!w) continue
+    if (RO_WORDS.has(w)) ro++
+    if (EN_WORDS.has(w)) en++
+  }
+  return ro > en
+}
 
 /** Mesajul în română, pentru om, al unei erori de orice formă. */
 export function toUserMessage(err: unknown, fallback: string = MSG_GENERIC): string {
   const { message, code, status } = factsOf(err)
   if (code === '42501' || PERMISSION_TEXT.test(message)) return MSG_NO_PERMISSION
   if (code === 'PGRST116') return MSG_NOT_FOUND
-  if (status === 403 || FORBIDDEN_TEXT.test(message)) return MSG_FORBIDDEN
   if (code === '23505' || DUPLICATE_TEXT.test(message)) return MSG_DUPLICATE
   if (isNetworkError(err)) return MSG_NETWORK
   const trimmed = message.trim()
-  if (trimmed && ROMANIAN_TEXT.test(trimmed)) return trimmed
+  // Un mesaj românesc câștigă și pe 403: AiError vine cu status 403 și un text
+  // precis („Nu ai drepturi să folosești asistentul AI…"), mai util decât cel
+  // generic. MSG_FORBIDDEN doar pentru 403 fără text sau cu text englezesc.
+  if (trimmed && isRomanianText(trimmed)) return trimmed
+  if (status === 403 || FORBIDDEN_TEXT.test(message)) return MSG_FORBIDDEN
   return fallback
 }
 
