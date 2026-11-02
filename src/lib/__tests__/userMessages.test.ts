@@ -24,6 +24,10 @@
 //        sau cu „invalid" (`Invalid device secret`) cad pe rezervă. Mutațiile
 //        care pică: diacriticele căutate și în ghilimele; „invalid" scos din
 //        lista românească; comparația „ro > en" înlocuită cu „ro > 0".
+//   UM7  „invalid” ca PRIM cuvânt nu face un text românesc („Invalid JWT”), iar
+//        un TypeError care NU e o cădere de fetch nu devine „fără conexiune”
+//        (recenzie CodeRabbit pe #333). Mutațiile care pică: fără regula de
+//        poziție; `isNetworkError(err)` în loc de text.
 //   ZR1  zeroRowsAsDenied: 0 rânduri FĂRĂ eroare (refuz RLS tăcut) → eroare de
 //        drepturi; un rând → null (control); eroarea originală trece mai departe.
 //        Mutația care pică: `data.length === 0` scos (codul vechi „Șters").
@@ -113,6 +117,18 @@ describe('toUserMessage — 403 și limba mesajului', () => {
     ]) {
       expect(toUserMessage({ message: en, code: 'P0001' }, 'REZERVĂ'), en).toBe('REZERVĂ')
     }
+  })
+
+  it('UM7 „Invalid JWT” nu e românesc; un TypeError de cod nu e rețea', () => {
+    expect(toUserMessage({ message: 'Invalid JWT', code: '' }, 'REZERVĂ')).toBe('REZERVĂ')
+    expect(toUserMessage({ message: 'invalid token', code: '' }, 'REZERVĂ')).toBe('REZERVĂ')
+    expect(toUserMessage({ message: 'Rating invalid (1-5)', code: 'P0001' }, 'REZERVĂ')).toBe(
+      'Rating invalid (1-5)',
+    )
+    expect(
+      toUserMessage(new TypeError("Cannot read properties of undefined (reading 'id')"), 'REZERVĂ'),
+    ).toBe('REZERVĂ')
+    expect(toUserMessage(new TypeError('Failed to fetch'), 'REZERVĂ')).toBe(MSG_NETWORK)
   })
 })
 

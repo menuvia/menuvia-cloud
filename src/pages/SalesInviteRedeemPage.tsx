@@ -581,7 +581,7 @@ export default function SalesInviteRedeemPage({
           <button
             type="button"
             style={{ ...primaryButton(false), marginBottom: 12 }}
-            onClick={() => void signOut()}
+            onClick={() => void signOut().catch(() => undefined) /* sesiunea rămâne; butonul se poate apăsa din nou */}
           >
             {switchAccount === 'email'
               ? 'Deconectează-te și intră cu emailul tău'

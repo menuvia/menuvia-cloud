@@ -85,16 +85,22 @@ const EN_WORDS = new Set([
   'exists', 'too', 'large', 'value', 'table', 'user',
 ])
 
+// „invalid” e scris la fel în ambele limbi; îl deosebește POZIȚIA: în română
+// adjectivul stă după substantiv („Rating invalid”, „Parametru invalid”), în
+// engleză înaintea lui („Invalid JWT”, „Invalid device secret”). Ca prim cuvânt
+// nu numără ca românesc (recenzie CodeRabbit pe #333: „Invalid JWT” trecea).
+const POSTPOSITIVE_ONLY = new Set(['invalid'])
+
 function isRomanianText(text: string): boolean {
   const unquoted = text.replace(QUOTED, ' ')
   if (DIACRITICS.test(unquoted)) return true
   let ro = 0
   let en = 0
-  for (const w of unquoted.toLowerCase().split(/[^a-z]+/)) {
-    if (!w) continue
-    if (RO_WORDS.has(w)) ro++
+  const words = unquoted.toLowerCase().split(/[^a-z]+/).filter(Boolean)
+  words.forEach((w, i) => {
+    if (RO_WORDS.has(w) && !(i === 0 && POSTPOSITIVE_ONLY.has(w))) ro++
     if (EN_WORDS.has(w)) en++
-  }
+  })
   return ro > en
 }
 
@@ -104,7 +110,12 @@ export function toUserMessage(err: unknown, fallback: string = MSG_GENERIC): str
   if (code === '42501' || PERMISSION_TEXT.test(message)) return MSG_NO_PERMISSION
   if (code === 'PGRST116') return MSG_NOT_FOUND
   if (code === '23505' || DUPLICATE_TEXT.test(message)) return MSG_DUPLICATE
-  if (isNetworkError(err)) return MSG_NETWORK
+  // Pe TEXT, nu pe tipul erorii: `isNetworkError` ia orice TypeError drept
+  // rețea (corect pentru coada offline, unde un fetch picat e mereu TypeError),
+  // dar aici un bug de cod (`TypeError: Cannot read properties of undefined`)
+  // i-ar spune omului că n-are conexiune. Textele fetch-ului picat sunt toate
+  // în detectorul unic (recenzie CodeRabbit pe #333).
+  if (isNetworkError(message)) return MSG_NETWORK
   const trimmed = message.trim()
   // Un mesaj românesc câștigă și pe 403: AiError vine cu status 403 și un text
   // precis („Nu ai drepturi să folosești asistentul AI…"), mai util decât cel
