@@ -387,8 +387,9 @@ const cardStyle: CSSProperties = {
 
 // „Intră pe cont" cu feedback: enterFounderView așteaptă audit-ul vizitei
 // (până la ~2s, mig 187) înainte să navigheze — fără stare de busy, butonul
-// părea mort și invita la click-uri repetate. Starea nu se resetează:
-// pagina se descarcă la navigare.
+// părea mort și invita la click-uri repetate. Pe succes starea nu se
+// resetează (pagina se descarcă la navigare); fără sesiune butonul revine
+// activ, cu „Reîncearcă”.
 function EnterAccountButton({
   restaurantId,
   style,
@@ -401,18 +402,25 @@ function EnterAccountButton({
   label?: string
 }) {
   const [busy, setBusy] = useState(false)
+  const [failed, setFailed] = useState(false)
   return (
     <button
       onClick={() => {
         setBusy(true)
-        void enterFounderView(restaurantId)
+        setFailed(false)
+        void enterFounderView(restaurantId).then((ok) => {
+          if (!ok) {
+            setBusy(false)
+            setFailed(true)
+          }
+        })
       }}
       disabled={busy}
       className="pressable"
       style={{ ...style, opacity: busy ? 0.6 : 1 }}
       title={title}
     >
-      {busy ? 'Se deschide…' : label}
+      {busy ? 'Se deschide…' : failed ? 'Reîncearcă' : label}
     </button>
   )
 }

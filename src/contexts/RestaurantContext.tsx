@@ -145,7 +145,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         // (is_member, extins în mig 186) decide accesul: dacă SELECT-ul pe
         // restaurants întoarce rândul, injectăm un membership sintetic (manager
         // pentru fondator, „partner" pentru afiliat); dacă nu (user fără drepturi / cheie stale), curățăm cheia.
-        const fv = getFounderView()
+        const fv = getFounderView(user!.id)
         let fvActive: string | null = null
         if (fv && !rows.some((m) => m.restaurant_id === fv)) {
           const { data: fvRest, error: fvErr } = await supabase

@@ -594,12 +594,16 @@ export default function DashboardPage({
   const update = updateRestaurant
   // Mod fondator/partener: restaurantul activ e vizitat, nu al userului.
   const inFounderView = founderViewId != null && founderViewId === activeId
-  // Originea vizitei e persistată la enterFounderView — sincronă, spre
-  // deosebire de isPlatAdmin (RPC async care pornește false): eticheta
-  // bannerului și ținta „Ieși din cont" nu depind de o cursă de rețea.
-  const founderViewOrigin = getFounderViewOrigin()
   // Partenerul (afiliat, mig 286) intră pe Produse: Acasă citește comenzi/rapoarte.
+  // Eticheta bannerului de vizită și ținta „Ieși” vin din ORIGINEA vizitei,
+  // legată de cont (lib/founder.ts), nu din rol: pe o eroare a lui my_role
+  // rolul cade fail-closed pe `partner`, iar fondatorul ar fi fost etichetat
+  // agent și trimis la /afiliat. Rolul rămâne doar fallback-ul pentru o
+  // cheie de origine lipsă.
   const isPartner = activeRole === 'partner'
+  const visitOrigin = inFounderView
+    ? (getFounderViewOrigin(user?.id) ?? (isPartner ? 'afiliat' : 'founder'))
+    : null
   const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
 
   // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
@@ -636,9 +640,15 @@ export default function DashboardPage({
     return () => clearInterval(timer)
   }, [])
 
-  // Platform admin (fondatorul) — deblochează tab-ul de consum AI global.
+  // Platform admin (fondatorul) — deblochează tab-ul de consum AI global și
+  // butonul „Panou fondator”. Re-verificat la FIECARE schimbare de cont și
+  // resetat întâi la false: cu deps `[]`, după o schimbare directă de cont
+  // butonul fondatorului rămânea pe ecranul contului nou.
+  const userId = user?.id ?? null
   useEffect(() => {
     let cancelled = false
+    setIsPlatAdmin(false)
+    if (!userId) return
     void isPlatformAdmin().then((v) => {
       // null (eroare de verificare) → tratăm ca non-admin AICI: doar ascunde tab-ul
       // AI global, fără consecințe de acces (spre deosebire de FounderPage).
@@ -647,7 +657,7 @@ export default function DashboardPage({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [userId])
 
   // Sursă unică de adevăr pentru restaurantul selectat = `activeId` din
   // RestaurantContext (persistat în localStorage, sincron cu `activeRole`).
@@ -1139,11 +1149,11 @@ export default function DashboardPage({
           }}
         >
           <span style={{ overflowWrap: 'anywhere' }}>
-            {founderViewOrigin === 'founder' ? '⚡ Mod fondator' : '🤝 Vizită de agent de vânzări'} —{' '}
+            {visitOrigin === 'afiliat' ? 'Vizită de agent de vânzări' : 'Mod fondator'} —{' '}
             {restaurants.find((r) => r.id === activeId)?.name ?? 'restaurant'}
           </span>
           <button
-            onClick={() => exitFounderView(founderViewOrigin === 'founder' ? '/founder' : '/afiliat')}
+            onClick={() => exitFounderView(visitOrigin === 'afiliat' ? '/afiliat' : '/founder')}
             className="pressable"
             style={{
               display: 'inline-flex',

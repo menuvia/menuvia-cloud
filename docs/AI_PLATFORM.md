@@ -60,7 +60,7 @@ Fiecare restaurant își alege furnizorul și cheia în **Setări → Asistent A
 
 ## Admin fondator
 
-- `profiles.is_platform_admin` (seed pe georgeradu119@gmail.com + georgeradu004@gmail.com;
+- `profiles.is_platform_admin` (seed DOAR pe georgeradu119@gmail.com, cu email confirmat — mig 310;
   mig 195 adaugă un trigger self-healing care ridică flag-ul și pentru conturi
   create DUPĂ aplicarea migrației).
 - `admin_ai_overview()` + `admin_set_ai_limit()` gate-uite strict pe
