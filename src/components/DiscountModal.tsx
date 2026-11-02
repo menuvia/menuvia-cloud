@@ -17,6 +17,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import type { Order } from '../lib/orders'
 import { applyOrderDiscount, removeOrderDiscount, orderSubtotal } from '../lib/orders'
 import { D } from '../lib/constants'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   order: Order
@@ -57,7 +58,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
       onApplied()
       onClose()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la aplicare')
+      setErr(toUserMessage(e, 'Eroare la aplicare'))
     } finally {
       setBusy(false)
     }
@@ -71,7 +72,7 @@ export default function DiscountModal({ order, onClose, onApplied }: Props) {
       onApplied()
       onClose()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la ștergere')
+      setErr(toUserMessage(e, 'Eroare la ștergere'))
     } finally {
       setBusy(false)
     }

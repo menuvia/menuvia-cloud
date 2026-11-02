@@ -18,6 +18,7 @@ import { getPlan } from '../lib/plans'
 import { PILOT_DAYS, TRIAL_DAYS } from '../lib/pricingCopy'
 import Icon, { type IconName } from '../components/ui/Icon'
 import MarketingFooter from '../components/marketing/MarketingFooter'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   navigate: (path: string) => void
@@ -797,7 +798,7 @@ function ContactForm() {
       }
       setDone(true)
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la trimitere')
+      setErr(toUserMessage(e, 'Eroare la trimitere'))
     } finally {
       setBusy(false)
     }

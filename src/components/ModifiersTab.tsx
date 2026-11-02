@@ -6,6 +6,7 @@ import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm as confirmDialog } from './ui/confirm'
 import { Modal } from './_dashboard/sharedUI'
+import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 
 interface ModifierOption {
   id: string
@@ -170,7 +171,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       })
       // La eroare păstrăm modalul deschis (input-ul userului rămâne pentru corectare).
       if (e) {
-        setError(e.message)
+        setError(toUserMessage(e))
         setSaving(false)
         return
       }
@@ -186,7 +187,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
         })
         .eq('id', editGroup.id)
       if (e) {
-        setError(e.message)
+        setError(toUserMessage(e))
         setSaving(false)
         return
       }
@@ -212,11 +213,14 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
     })
     if (!ok) return
     setError(null)
-    const { error: e } = await supabase.from('modifier_groups').delete().eq('id', id)
+    // `.select('id')`: un DELETE refuzat de RLS dă 0 rânduri FĂRĂ eroare.
+    const e = zeroRowsAsDenied(
+      await supabase.from('modifier_groups').delete().eq('id', id).select('id'),
+    )
     // Nu mai înghițim tăcut un refuz RLS / eroare de rețea: dacă pică, anunțăm
     // și NU re-încărcăm cu impresia că s-a șters (UI rămânea desincronizat).
     if (e) {
-      setError(e.message)
+      setError(toUserMessage(e))
       return
     }
     await load()
@@ -234,7 +238,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       display_order: maxOrder,
     })
     if (e) {
-      setError(e.message)
+      setError(toUserMessage(e))
       return
     }
     setOptDraft((d) => ({ ...d, [groupId]: { name: '', price: '0' } }))
@@ -248,7 +252,7 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
       .update({ is_available: !current })
       .eq('id', id)
     if (e) {
-      setError(e.message)
+      setError(toUserMessage(e))
       return
     }
     await load()
@@ -256,9 +260,11 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
 
   async function deleteOption(id: string) {
     setError(null)
-    const { error: e } = await supabase.from('modifier_options').delete().eq('id', id)
+    const e = zeroRowsAsDenied(
+      await supabase.from('modifier_options').delete().eq('id', id).select('id'),
+    )
     if (e) {
-      setError(e.message)
+      setError(toUserMessage(e))
       return
     }
     await load()

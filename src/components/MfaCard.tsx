@@ -8,6 +8,7 @@ import type { CSSProperties } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { useToast } from './ui/useToast'
+import { toUserMessage } from '../lib/userMessages'
 
 interface EnrollState {
   factorId: string
@@ -94,7 +95,7 @@ export default function MfaCard() {
         if (!pErr && prof) setEnforced(Boolean((prof as { mfa_enforced?: boolean }).mfa_enforced))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nu am putut încărca starea MFA')
+      setError(toUserMessage(e, 'Nu am putut încărca starea MFA'))
     } finally {
       setLoading(false)
     }
@@ -125,7 +126,7 @@ export default function MfaCard() {
       setEnroll({ factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret })
       setCode('')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nu am putut porni activarea MFA')
+      setError(toUserMessage(e, 'Nu am putut porni activarea MFA'))
     } finally {
       setBusy(false)
     }
@@ -160,7 +161,7 @@ export default function MfaCard() {
       setCode('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Verificarea nu a reușit')
+      setError(toUserMessage(e, 'Verificarea nu a reușit'))
     } finally {
       setBusy(false)
     }
@@ -184,7 +185,7 @@ export default function MfaCard() {
       setCode('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Dezactivarea nu a reușit')
+      setError(toUserMessage(e, 'Dezactivarea nu a reușit'))
     } finally {
       setBusy(false)
     }
@@ -204,7 +205,7 @@ export default function MfaCard() {
       setCode('')
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Reactivarea nu a reușit')
+      setError(toUserMessage(e, 'Reactivarea nu a reușit'))
     } finally {
       setBusy(false)
     }

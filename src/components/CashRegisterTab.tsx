@@ -33,6 +33,7 @@ import { InlineSpinner } from './PageLoader'
 import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { usePollWhileVisible } from '../hooks/usePollWhileVisible'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -137,7 +138,7 @@ export default function CashRegisterTab({ restaurantId }: Props) {
       setRecent(hist)
       setSettleNotes(notes)
     } catch (e) {
-      if (seq === loadSeqRef.current) setErr(e instanceof Error ? e.message : 'Eroare la încărcare')
+      if (seq === loadSeqRef.current) setErr(toUserMessage(e, 'Eroare la încărcare'))
     } finally {
       if (seq === loadSeqRef.current) setLoading(false)
     }
@@ -684,7 +685,7 @@ function OpenShiftModal({
       await openShift(restaurantId, n, notes.trim() || null)
       onDone()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare la deschidere')
+      setErr(toUserMessage(e, 'Eroare la deschidere'))
     } finally {
       setBusy(false)
     }
@@ -792,7 +793,7 @@ function MovementModal({
       await addCashMovement(restaurantId, finalAmount, type, reason.trim(), sendFiscal)
       onDone()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     } finally {
       setBusy(false)
     }
@@ -988,7 +989,7 @@ function CloseShiftModal({
         z_sent: result.z_sent,
       })
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     } finally {
       setBusy(false)
     }
@@ -1183,7 +1184,7 @@ function SummaryDetailModal({ shiftId, onClose }: { shiftId: string; onClose: ()
         const s = await getShiftSummary(shiftId)
         if (alive) setData(s)
       } catch (e) {
-        if (alive) setErr(e instanceof Error ? e.message : 'Eroare')
+        if (alive) setErr(toUserMessage(e))
       }
     })()
     return () => {

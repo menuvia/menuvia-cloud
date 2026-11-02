@@ -39,6 +39,7 @@ import type {
   ProductProfitability,
 } from '../lib/stocks'
 import Autocomplete from './Autocomplete'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -722,7 +723,7 @@ function IngredientModal({
       }
       onSave()
     } catch (err) {
-      setError((err as Error).message)
+      setError(toUserMessage(err))
       setSaving(false)
     }
   }
@@ -973,7 +974,7 @@ function AdjustStockModal({
       await adjustStockManual(ingredient.id, n, notes || 'Ajustare manuală')
       onSave()
     } catch (err) {
-      setError((err as Error).message)
+      setError(toUserMessage(err))
       setSaving(false)
     }
   }
@@ -1634,7 +1635,7 @@ function NirCreateModal({
 
       onSave()
     } catch (err) {
-      setError((err as Error).message)
+      setError(toUserMessage(err))
       setSaving(false)
     }
   }

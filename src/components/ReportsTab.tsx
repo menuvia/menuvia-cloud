@@ -33,6 +33,7 @@ import {
   type HourlySalesRow,
   type CategorySalesRow,
 } from '../lib/reports'
+import { toUserMessage } from '../lib/userMessages'
 
 // OPT-R2: formatter de zi (RO, Europe/Bucharest) — constant, o singură construcție (nu per comandă în buclă).
 const DAY_FMT = new Intl.DateTimeFormat('ro-RO', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' })
@@ -539,7 +540,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
       }
     } catch (e: unknown) {
       if (seq !== loadSeqRef.current) return
-      setError(e instanceof Error ? e.message : 'Eroare la încărcarea raportului')
+      setError(toUserMessage(e, 'Eroare la încărcarea raportului'))
     }
     setLoading(false)
   }, [restaurantId, period, custom.from, custom.to, fiscalReports]) // eslint-disable-line react-hooks/exhaustive-deps

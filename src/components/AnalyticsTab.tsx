@@ -21,6 +21,7 @@ import {
   Pie,
   Cell,
 } from 'recharts'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -310,7 +311,7 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null,
         },
       })
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Eroare la încărcarea statisticilor')
+      setError(toUserMessage(e, 'Eroare la încărcarea statisticilor'))
     }
     setLoading(false)
   }, [restaurantId, days, hasAccess])

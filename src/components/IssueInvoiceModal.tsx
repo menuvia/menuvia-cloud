@@ -8,6 +8,7 @@ import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import { enqueueInvoice } from '../lib/invoices'
+import { toUserMessage } from '../lib/userMessages'
 
 interface PaidOrder {
   id: string
@@ -142,7 +143,7 @@ export default function IssueInvoiceModal({ restaurantId, onClose, onIssued }: P
       })
       onIssued()
     } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Eroare')
+      setErr(toUserMessage(e))
     } finally {
       setIssuing(false)
     }

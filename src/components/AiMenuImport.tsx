@@ -49,6 +49,7 @@ import {
   type ImportDraftProduct as DraftProduct,
   type StoredImportDraft,
 } from '../lib/aiImportDraft'
+import { toUserMessage } from '../lib/userMessages'
 
 interface RestaurantMeta {
   currency: string | null
@@ -260,7 +261,7 @@ export default function AiMenuImport({
       setStored(null) // salvarea o face efectul de pe ecranul de revizuire
       setStep('review')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Eroare la procesarea pozelor.')
+      setError(toUserMessage(e, 'Eroare la procesarea pozelor.'))
     } finally {
       setBusy(false)
     }

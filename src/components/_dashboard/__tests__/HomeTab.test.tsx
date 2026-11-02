@@ -22,6 +22,14 @@
 //        acțiunea „Suporturi QR fizice" (ux-owner-codvia-quick-action, D4)
 //        Mutația care pică: acțiunea randată necondiționat (codul vechi).
 //   HC2  control pozitiv: `true` → acțiunea apare și deschide magazinul
+//   HR1  MANAGERUL (admin, nu proprietar): fără cardul „Abonament & facturare"
+//        și fără upsell — abonamentul e pe contul proprietarului, deci cardul îi
+//        dădea doar „gestionat de contul proprietarului" (fundătură).
+//        Mutația care pică: `{isAdmin && (` înapoi pe card / pe upsell.
+//   HR2  control pozitiv: PROPRIETARUL vede cardul și upsell-ul (tier 1).
+//   HR3  personalul NE-admin: fără acțiunile de editare („Adaugă produs",
+//        „Generează QR-uri", „Suporturi QR fizice"); „Vezi meniul public"
+//        rămâne (control). Mutația care pică: acțiunile randate necondiționat.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -67,7 +75,10 @@ vi.mock('../../../hooks/useBridgeConnected', () => ({
   useBridgeConnected: () => ({ status: null, loading: false, reload: vi.fn() }),
 }))
 vi.mock('../AgentCard', () => ({ AgentCard: () => null }))
-vi.mock('../SubscriptionCard', () => ({ SubscriptionCard: () => null }))
+vi.mock('../SubscriptionCard', async () => {
+  const { createElement } = await import('react')
+  return { SubscriptionCard: () => createElement('div', null, 'card-abonament') }
+})
 vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
   useCodviaOrdersOpen: () => codvia.open,
 }))
@@ -82,6 +93,7 @@ function renderHome(over: Partial<Props> = {}) {
     restaurantName: 'Bistro Test',
     tier: 1,
     isAdmin: true,
+    isOwner: true,
     productCount: 12,
     pickupOnly: false,
     onNavigate: vi.fn(),
@@ -202,5 +214,33 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
       .setup()
       .click(await screen.findByRole('button', { name: 'Suporturi QR fizice' }))
     expect(onOrderQrStands).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('HomeTab — fiecare rol vede doar ce poate face', () => {
+  it('HR1: managerul nu vede abonamentul și nici upsell-ul', async () => {
+    renderHome({ tier: 1, isOwner: false })
+    expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+    expect(screen.queryByText('card-abonament')).toBeNull()
+    expect(screen.queryByText(UPSELL)).toBeNull()
+    // Editarea rămâne a lui (control): e admin.
+    expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
+  })
+
+  it('HR2: control pozitiv — proprietarul vede cardul și upsell-ul', async () => {
+    renderHome({ tier: 1, isOwner: true })
+    expect(await screen.findByText('card-abonament')).toBeInTheDocument()
+    expect(screen.getByText(UPSELL)).toBeInTheDocument()
+  })
+
+  it('HR3: personalul ne-admin nu primește acțiuni de editare', async () => {
+    codvia.open = true
+    renderHome({ tier: 2, isAdmin: false, isOwner: false })
+    expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Vezi meniul public' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Adaugă produs' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Generează QR-uri' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Suporturi QR fizice' })).toBeNull()
+    expect(screen.queryByText('card-abonament')).toBeNull()
   })
 })

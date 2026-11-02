@@ -138,7 +138,7 @@ describe('PX3: modul „doar ridicare” se citește doar prin pickupOnlyMode', 
       "pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'",
     )
     // Valoarea efectivă ajunge în nav ȘI pe Acasă.
-    expect(dash).toContain('isSubTabVisible(st, isAdminRole, tier, money, isPlatAdmin, pickupOnly)')
+    expect(dash).toContain('isSubTabVisible(st, isAdminRole, tier, money, pickupOnly)')
     expect(dash).toContain('pickupOnly={pickupOnly}')
     const tables = norm('src/components/TablesManager.tsx')
     expect(tables).toContain('pickupOnlyMode(restaurant.pickup_settings, pickupFeature)')

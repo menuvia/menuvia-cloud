@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { useToast } from './ui/useToast'
 import { confirm } from './ui/confirm'
+import { toUserMessage } from '../lib/userMessages'
 
 const btnStyle = (variant: 'neutral' | 'danger' | 'safe'): React.CSSProperties => ({
   background: variant === 'danger' ? D.redA : D.s3,
@@ -72,7 +73,7 @@ export default function GdprCard() {
       URL.revokeObjectURL(url)
       toast.success('Exportul a fost descărcat.')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Exportul a eșuat. Reîncearcă.')
+      toast.error(toUserMessage(e, 'Exportul a eșuat. Reîncearcă.'))
     } finally {
       setExporting(false)
     }
@@ -102,7 +103,7 @@ export default function GdprCard() {
       )
     } catch (e) {
       // Mesajul RPC-ului e deja prietenos (ex. „Aveți un abonament activ...").
-      toast.error(e instanceof Error ? e.message : 'Cererea de ștergere a eșuat.')
+      toast.error(toUserMessage(e, 'Cererea de ștergere a eșuat.'))
     } finally {
       setDeleting(false)
     }
@@ -117,7 +118,7 @@ export default function GdprCard() {
       setDeletionRequestedAt(null)
       toast.success('Cererea de ștergere a fost anulată. Contul rămâne activ.')
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Anularea a eșuat. Reîncearcă.')
+      toast.error(toUserMessage(e, 'Anularea a eșuat. Reîncearcă.'))
     } finally {
       setDeleting(false)
     }

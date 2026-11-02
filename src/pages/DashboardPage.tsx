@@ -48,7 +48,6 @@ const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 import type { FloorLayout } from '../components/FloorPlanEditor'
 const WaiterAssignments = lazy(() => import('../components/WaiterAssignments'))
 const AiSettingsTab = lazy(() => import('../components/AiSettingsTab'))
-const FounderAiPanel = lazy(() => import('../components/FounderAiPanel'))
 const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
@@ -56,6 +55,7 @@ import { isPartnerTab } from '../lib/partnerAccess'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { pickupFeatureState } from '../lib/pickupCopy'
 import { HelpButton } from '../components/HelpButton'
+import { SignOutButton } from '../components/SignOutButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { FreePlanBanner, PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
@@ -347,7 +347,6 @@ export type Tab =
   | 'reservations'
   | 'settings'
   | 'ai'
-  | 'ai-founder'
 
 // Navigație pe GRUPURI (max 6 în sidebar) cu sub-tab-uri interne.
 // Filozofia: „Adaugi meniul. Generezi QR. Primești comenzi. Vezi rapoarte simple."
@@ -364,7 +363,6 @@ interface SubTab {
   // Suprafață de BANI/BON: minTier se compară cu tier-ul `money` (moneyTier —
   // coborât sub 3 în afara RO, mig 296), nu cu planul. Pe RO identic.
   money?: true
-  platformAdminOnly?: boolean
   // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
   hiddenPickupOnly?: boolean
 }
@@ -440,8 +438,9 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'ai', label: 'Asistent AI', minTier: 2 },
       { id: 'echipa', label: 'Echipă', minTier: 2 },
       { id: 'ture', label: 'Program echipă', minTier: 3 },
-      // Vizibil DOAR pentru platform admin (fondatorul) — vezi is_platform_admin.
-      { id: 'ai-founder', label: 'Consum AI (fondator)', platformAdminOnly: true },
+      // „Consum AI (fondator)" a ieșit de aici: e un raport al PLATFORMEI, nu al
+      // restaurantului, și trăiește în /founder (FounderPage). În panoul unui
+      // client apărea ca sub-tab printre setările lui.
     ],
   },
 ]
@@ -451,10 +450,8 @@ function isSubTabVisible(
   isAdmin: boolean,
   tier: PlanTier,
   moneyTierValue: PlanTier,
-  isPlatAdmin: boolean,
   pickupOnly: boolean,
 ): boolean {
-  if (st.platformAdminOnly && !isPlatAdmin) return false
   if (st.adminOnly && !isAdmin) return false
   if (st.minTier && (st.money ? moneyTierValue : tier) < st.minTier) return false
   // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
@@ -610,6 +607,15 @@ export default function DashboardPage({
   }, [tab])
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
+  // Fiecare rol vede EXACT ce poate face (serverul refuză oricum restul):
+  //   - abonamentul îl gestionează doar PROPRIETARUL (managerul n-are client
+  //     Stripe; fondatorul în vizită e „manager" virtual, nu proprietar);
+  //   - AI-ul (ai-proxy, import din poză, chat, setări) verifică membership-ul
+  //     REAL: partenerul nu-l are, fondatorul în vizită nici el;
+  //   - partenerul (mig 286) nu are rețete (stocuri) și nu rotește QR-uri
+  //     (`rotate_qr_token` verifică membership-ul, fără escape de partener).
+  const isOwnerRole = activeRole === 'owner' && !inFounderView
+  const canUseAi = isAdminRole && !inFounderView
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState<UpgradeReason | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
@@ -721,7 +727,7 @@ export default function DashboardPage({
     ...g,
     subTabs: g.subTabs.filter(
       (st) =>
-        isSubTabVisible(st, isAdminRole, tier, money, isPlatAdmin, pickupOnly) &&
+        isSubTabVisible(st, isAdminRole, tier, money, pickupOnly) &&
         (!isPartner || isPartnerTab(st.id)),
     ),
   })).filter(
@@ -991,7 +997,9 @@ export default function DashboardPage({
           )
         })}
       </nav>
-      {planKnown && plan === 'free' && (
+      {/* Upsell-ul planului doar pentru cine administrează localul — nu și
+          pentru partener, care n-are ce cumpăra aici. */}
+      {planKnown && plan === 'free' && isAdminRole && (
         <FreePlanBanner
           productCount={productCount}
           maxProducts={planLimits.max_products}
@@ -1105,6 +1113,9 @@ export default function DashboardPage({
         )}
         {/* „Ajutor” (mig 303): agentul (cu consimțământ) sau adresa de suport. */}
         <HelpButton restaurantId={restaurant?.id ?? null} enabled={isAdminRole} />
+        {/* Ieșirea din cont, pentru ORICE rol (înainte doar în Setări → Cont,
+            tab ascuns partenerului). */}
+        <SignOutButton variant="sidebar" onSignOut={onSignOut} />
       </div>
     </>
   )
@@ -1430,6 +1441,7 @@ export default function DashboardPage({
                     // cunoscut: fără upsell și fără „totul e gata" (perf-staff-3).
                     tier={planKnown ? money : null}
                     isAdmin={isAdminRole}
+                    isOwner={isOwnerRole}
                     productCount={productCount}
                     pickupOnly={pickupOnly}
                     onNavigate={setTab}
@@ -1477,6 +1489,8 @@ export default function DashboardPage({
                     }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
+                    canUseAi={canUseAi}
+                    canManageRecipes={!isPartner}
                   />
                 </Suspense>
               )}
@@ -1495,7 +1509,7 @@ export default function DashboardPage({
               )}
               {tab === 'mese' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă mesele…" />}>
-                  <TablesManager restaurant={restaurant} />
+                  <TablesManager restaurant={restaurant} canRotateQr={!isPartner} />
                 </Suspense>
               )}
               {tab === 'analytics' && (
@@ -1526,7 +1540,11 @@ export default function DashboardPage({
               )}
               {tab === 'echipa' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă echipa…" />}>
-                  <TeamManager restaurant={restaurant} currentUserId={user?.id || ''} />
+                  <TeamManager
+                    restaurant={restaurant}
+                    currentUserId={user?.id || ''}
+                    canInvite={!inFounderView}
+                  />
                 </Suspense>
               )}
               {tab === 'ture' && (
@@ -1657,13 +1675,14 @@ export default function DashboardPage({
                     planKnown={features.features != null}
                     onSignOut={onSignOut}
                     modulesState={modulesState}
+                    founderView={inFounderView}
                   />
                 </Suspense>
               )}
               {tab === 'ai' &&
                 (tier >= 2 ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
-                    <AiSettingsTab restaurantId={restaurant.id} />
+                    <AiSettingsTab restaurantId={restaurant.id} readOnly={inFounderView} />
                   </Suspense>
                 ) : (
                   <UpgradePrompt
@@ -1675,11 +1694,6 @@ export default function DashboardPage({
                     onUpgrade={onPricing}
                   />
                 ))}
-              {tab === 'ai-founder' && isPlatAdmin && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă consumul AI..." />}>
-                  <FounderAiPanel />
-                </Suspense>
-              )}
               </TabFade>
               )}
             </>
@@ -1700,7 +1714,7 @@ export default function DashboardPage({
         {/* Asistent AI flotant — doar pentru admini, cu restaurant selectat.
             Lazy + fără fallback vizual (nu blochează dashboardul dacă AI nu
             e configurat — componenta gestionează singură erorile/cota). */}
-        {restaurant && isAdminRole && (
+        {restaurant && canUseAi && (
           <Suspense fallback={null}>
             <AiChatbot restaurantId={restaurant.id} restaurantName={restaurant.name} />
           </Suspense>

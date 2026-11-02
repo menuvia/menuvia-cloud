@@ -12,6 +12,16 @@
 //        are cele trei acțiuni o singură dată (pică pe codul vechi: „+ Adaugă
 //        produs", „Import din poză", „Import CSV" erau și în antet).
 //   PB6  ProductsTab cu produse: antetul cu „Importă" apare, starea goală nu.
+//   PR1  fără handler AI (partener / fondator în vizită — AI-ul cere membership
+//        REAL): fără „Generează AI", iar „Importă" are DOAR CSV-ul.
+//        Mutația care pică: butoanele randate necondiționat (codul vechi).
+//   PR2  ProductsTab cu `canUseAi={false}`, catalog gol: fără „Importă din poză";
+//        „Adaugă manual" și CSV rămân (control).
+//   PR3  ProductsTab cu `canUseAi={false}` și `canManageRecipes={false}`:
+//        antetul fără „Generează AI"; în fișa produsului fără „Generează imagine"
+//        și fără secțiunea „Rețetă". Mutația care pică: prop-urile ignorate în
+//        ProductModal (secțiunile randate necondiționat).
+//   PR4  control pozitiv pentru PR3: owner/manager (`true`) văd ambele.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -174,9 +184,38 @@ function product(over: Partial<Product> = {}): Product {
   }
 }
 
-function renderTab() {
-  render(<ProductsTab restaurantId="rest-1" plan="free" onUpgrade={() => {}} userId="u1" />)
+function renderTab(canUseAi = true, canManageRecipes = true) {
+  render(
+    <ProductsTab
+      restaurantId="rest-1"
+      plan="free"
+      onUpgrade={() => {}}
+      userId="u1"
+      canUseAi={canUseAi}
+      canManageRecipes={canManageRecipes}
+    />,
+  )
 }
+
+describe('ProductsToolbar — fără AI', () => {
+  it('PR1: fără handlere AI, doar „Importă" (CSV) și „+ Adaugă produs"', async () => {
+    const user = userEvent.setup()
+    render(
+      <ProductsToolbar
+        mobile={false}
+        canAdd
+        onAdd={vi.fn()}
+        onUpgrade={vi.fn()}
+        onImportCsv={vi.fn()}
+      />,
+    )
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /Generează AI/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Importă/ }))
+    expect(screen.getByRole('button', { name: 'Din fișier CSV' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Din poză (AI)' })).not.toBeInTheDocument()
+  })
+})
 
 describe('ProductsTab — antet și stare goală', () => {
   beforeEach(() => {
@@ -200,5 +239,40 @@ describe('ProductsTab — antet și stare goală', () => {
     expect(screen.getByRole('button', { name: /^Importă/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Adaugă manual' })).not.toBeInTheDocument()
     expect(screen.queryByText('Niciun produs încă')).not.toBeInTheDocument()
+  })
+})
+
+describe('ProductsTab — partenerul nu vede AI și rețete', () => {
+  beforeEach(() => {
+    data.products = []
+  })
+
+  it('PR2: catalog gol fără AI — fără „Importă din poză", restul rămâne', () => {
+    renderTab(false, false)
+    expect(screen.queryByRole('button', { name: 'Importă din poză' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Adaugă manual' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Importă din CSV' })).toBeInTheDocument()
+  })
+
+  it('PR3: fără AI și fără rețete — antetul și fișa produsului', async () => {
+    const user = userEvent.setup()
+    data.products = [product()]
+    renderTab(false, false)
+    expect(screen.queryByRole('button', { name: /Generează AI/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    // Fișa e deschisă (control) — dar fără generare AI și fără rețetă.
+    expect(await screen.findByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Generează imagine/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Rețetă (ingrediente consumate)')).not.toBeInTheDocument()
+  })
+
+  it('PR4: control pozitiv — owner/manager văd generarea AI și rețeta', async () => {
+    const user = userEvent.setup()
+    data.products = [product()]
+    renderTab(true, true)
+    expect(screen.getByRole('button', { name: /Generează AI/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    expect(await screen.findByRole('button', { name: /Generează imagine/ })).toBeInTheDocument()
+    expect(screen.getByText('Rețetă (ingrediente consumate)')).toBeInTheDocument()
   })
 })

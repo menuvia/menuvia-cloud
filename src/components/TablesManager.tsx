@@ -21,6 +21,7 @@ import { tablesMissingActiveToken } from '../lib/qrTokens'
 import { generalMenuQrText, pickupFeatureState, pickupOnlyEmptyStateText } from '../lib/pickupCopy'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { resolveEffectiveMenuLayout } from '../lib/themes'
+import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
 
 interface QrTokenRow {
   id: string
@@ -536,7 +537,15 @@ function GeneralMenuQrCard({
 }
 
 // ── TablesManager ─────────────────────────────────────────────
-export default function TablesManager({ restaurant }: { restaurant: Restaurant }) {
+export default function TablesManager({
+  restaurant,
+  canRotateQr = true,
+}: {
+  restaurant: Restaurant
+  // Partenerul (mig 286): `rotate_qr_token` verifică membership-ul real, fără
+  // escape de partener — butonul „Regenerează QR" i-ar da doar un refuz.
+  canRotateQr?: boolean
+}) {
   const { toasts, toast } = useToast()
   const [tables, setTables] = useState<TableRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -612,7 +621,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
         })),
       )
     } catch (e: unknown) {
-      setLoadError(e instanceof Error ? e.message : 'Nu s-au putut încărca mesele')
+      setLoadError(toUserMessage(e, 'Nu s-au putut încărca mesele'))
     }
     setLoading(false)
   }, [restaurant.id])
@@ -682,12 +691,19 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
   const handleDelete = async () => {
     if (!delId) return
     try {
-      const { error } = await supabase.from('tables').delete().eq('id', delId)
-      if (error) throw error
-      toast('Masă ștearsă')
-      await load()
-    } catch {
-      toast('Eroare la ștergere', 'error')
+      // `.select('id')`: un DELETE refuzat de RLS întoarce 0 rânduri FĂRĂ
+      // eroare — fără numărare, „Masă ștearsă" apărea pe o masă care rămânea.
+      const denied = zeroRowsAsDenied(
+        await supabase.from('tables').delete().eq('id', delId).select('id'),
+      )
+      if (denied) {
+        toast(toUserMessage(denied, 'Eroare la ștergere'), 'error')
+      } else {
+        toast('Masă ștearsă')
+        await load()
+      }
+    } catch (e) {
+      toast(toUserMessage(e, 'Eroare la ștergere'), 'error')
     }
     setDelId(null)
   }
@@ -831,7 +847,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
       })
       toast('PDF descărcat')
     } catch (e) {
-      toast('Eroare PDF: ' + (e instanceof Error ? e.message : 'unknown'), 'error')
+      toast(toUserMessage(e, 'PDF-ul nu a putut fi generat. Reîncearcă.'), 'error')
     }
     setDownloading(null)
   }
@@ -1428,6 +1444,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                     <Icon name="link" size={16} />
                   </button>
                 )}
+                {canRotateQr && (
                 <button
                   onClick={() => {
                     // Fără QR existent nu e nimic de invalidat — generăm direct.
@@ -1463,6 +1480,7 @@ export default function TablesManager({ restaurant }: { restaurant: Restaurant }
                   <Icon name="refresh" size={16} />
                   {!t.active_token && 'Generează QR'}
                 </button>
+                )}
                 <button
                   onClick={() => toggleActive(t)}
                   title={t.is_active ? 'Dezactivează' : 'Activează'}

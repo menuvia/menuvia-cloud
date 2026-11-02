@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { fetchOrderAuditHistory, describeAuditEntry, type AuditEntry } from '../lib/orders'
 import { D } from '../lib/constants'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   orderId: string
@@ -39,7 +40,7 @@ export default function OrderAuditSheet({ orderId, orderShortId, onClose }: Prop
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : 'Eroare la încărcare')
+        setError(toUserMessage(e, 'Eroare la încărcare'))
         setLoading(false)
       })
     return () => {

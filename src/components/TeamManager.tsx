@@ -11,6 +11,7 @@ import { useIsMobile } from '../hooks/useIsMobile'
 import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
+import { toUserMessage } from '../lib/userMessages'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Owner',
@@ -117,9 +118,13 @@ interface Invite {
 export default function TeamManager({
   restaurant,
   currentUserId,
+  canInvite = true,
 }: {
   restaurant: Restaurant
   currentUserId: string
+  // Fondatorul în vizită: send-invite verifică membership-ul REAL al celui care
+  // invită, deci formularul i-ar da doar un refuz. Echipa rămâne vizibilă.
+  canInvite?: boolean
 }) {
   const isMobile = useIsMobile()
   const { toasts, toast } = useToast()
@@ -195,7 +200,7 @@ export default function TeamManager({
       setInvites((ir.data || []) as unknown as Invite[])
     } catch (err) {
       console.error('[TeamManager] load error:', err)
-      setError(err instanceof Error ? err.message : 'Nu s-a putut încărca echipa')
+      setError(toUserMessage(err, 'Nu s-a putut încărca echipa'))
     }
     setLoading(false)
   }, [restaurant.id])
@@ -311,6 +316,12 @@ export default function TeamManager({
       </div>
 
       {/* Invite form */}
+      {!canInvite ? (
+        <p style={{ color: D.t2, fontSize: '0.82rem', lineHeight: 1.5, marginBottom: 24 }}>
+          În modul fondator vezi echipa, dar invitațiile le trimite doar proprietarul sau managerul
+          restaurantului, din contul lui.
+        </p>
+      ) : (
       <div
         style={{
           background: D.s2,
@@ -398,6 +409,7 @@ export default function TeamManager({
           </div>
         )}
       </div>
+      )}
 
       {/* Pending invites */}
       {invites.length > 0 && (

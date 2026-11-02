@@ -21,6 +21,7 @@ import {
   type SummaryKey,
   type TablesOutcome,
 } from '../lib/onboardingSummary'
+import { toUserMessage } from '../lib/userMessages'
 
 // Lazy ca în ProductsTab: modalul de import AI nu intră în chunk-ul de
 // onboarding decât dacă userul chiar apasă butonul de import din poză.
@@ -827,7 +828,7 @@ function Step2Menu({
         .select('id')
         .single()
       if (catErr) {
-        setError(catErr.message)
+        setError(toUserMessage(catErr))
         setSaving(false)
         return
       }
@@ -845,7 +846,7 @@ function Step2Menu({
       display_order: 0,
     })
     if (prodErr) {
-      setError(prodErr.message)
+      setError(toUserMessage(prodErr))
       setSaving(false)
       return
     }

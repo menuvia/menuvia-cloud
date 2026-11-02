@@ -12,6 +12,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { toRomaniaYMD } from '../lib/dates'
 import { aggregateVatReport } from '../lib/vat'
+import { toUserMessage } from '../lib/userMessages'
 
 interface VatRow {
   restaurant_id: string
@@ -65,7 +66,7 @@ export default function VatReportTab({ restaurantId }: Props) {
       if (e) throw e
       setRows((data ?? []) as VatRow[])
     } catch (err) {
-      if (seq === loadSeqRef.current) setError((err as Error).message)
+      if (seq === loadSeqRef.current) setError(toUserMessage(err))
     }
     if (seq === loadSeqRef.current) setLoading(false)
   }

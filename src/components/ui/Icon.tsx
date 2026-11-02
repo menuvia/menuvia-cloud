@@ -59,6 +59,7 @@ export type IconName =
   | 'filter'
   | 'chevronRight'
   | 'chevronDown'
+  | 'logout'
 
 // Path-uri (d / elemente) per icon. Toate pe grid 24, fără fill.
 const PATHS: Record<IconName, JSX.Element> = {
@@ -194,6 +195,7 @@ const PATHS: Record<IconName, JSX.Element> = {
     </>
   ),
   arrowLeft: <path d="M19 12H5M11 6l-6 6 6 6" />,
+  logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
   minus: <path d="M5 12h14" />,
   lock: (
     <>

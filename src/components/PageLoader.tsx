@@ -61,7 +61,16 @@ export function InlineSpinner({ label }: { label?: string }) {
   )
 }
 
-export function QueryError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+export function QueryError({
+  message,
+  onRetry,
+  retryLabel = 'Reîncearcă',
+}: {
+  message: string
+  onRetry?: () => void
+  /** Eticheta butonului — implicit „Reîncearcă”; altă acțiune = alt text. */
+  retryLabel?: string
+}) {
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>&#x26a0;&#xfe0f;</div>
@@ -81,7 +90,7 @@ export function QueryError({ message, onRetry }: { message: string; onRetry?: ()
             fontFamily: 'inherit',
           }}
         >
-          Reîncearcă
+          {retryLabel}
         </button>
       )}
     </div>

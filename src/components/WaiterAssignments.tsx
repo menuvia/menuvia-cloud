@@ -12,6 +12,7 @@ import { Icon } from './ui/Icon'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import { confirm } from './ui/confirm'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -140,7 +141,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       }
       setAssignments(map)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Eroare la încărcare')
+      setError(toUserMessage(e, 'Eroare la încărcare'))
     }
     setLoading(false)
   }, [restaurantId])
@@ -192,7 +193,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       const rollback = new Map(assignments)
       rollback.set(waiterUserId, current)
       setAssignments(rollback)
-      setError(e instanceof Error ? e.message : 'Eroare')
+      setError(toUserMessage(e))
     }
     setSaving(null)
   }
@@ -224,7 +225,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       showToast('Alocări eliminate — ospătarul vede toate mesele')
     } catch (e: unknown) {
       setAssignments(prev)
-      setError(e instanceof Error ? e.message : 'Eroare')
+      setError(toUserMessage(e))
     }
     setSaving(null)
   }
@@ -250,7 +251,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
       showToast('Toate mesele alocate')
     } catch (e: unknown) {
       setAssignments(prev)
-      setError(e instanceof Error ? e.message : 'Eroare')
+      setError(toUserMessage(e))
     }
     setSaving(null)
   }

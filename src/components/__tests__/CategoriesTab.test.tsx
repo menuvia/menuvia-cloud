@@ -105,8 +105,11 @@ describe('CategoriesTab — traduceri manuale', () => {
     await userEvent.type(screen.getByLabelText(/Nume \(English\)/), '!')
     await userEvent.click(screen.getByRole('button', { name: 'Salvează' }))
 
+    // Refuzul de drepturi ajunge la om în română (lib/userMessages.ts), nu ca
+    // textul tehnic al Postgres-ului.
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent('permission denied for table categories')
+    expect(alert).toHaveTextContent('Nu ai drepturi pentru această acțiune.')
+    expect(alert).not.toHaveTextContent('permission denied')
     expect(screen.queryByText('Actualizat')).not.toBeInTheDocument()
     // Modalul rămâne deschis, cu textul tastat intact.
     expect(screen.getByLabelText(/Nume \(English\)/)).toHaveValue('Mains!')

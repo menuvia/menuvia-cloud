@@ -18,6 +18,7 @@ import { fnUrl } from '../lib/fn'
 import { PILOT_EMAIL, SITE_HOSTS } from '../lib/domain'
 import { Icon } from '../components/ui/Icon'
 import type { IconName } from '../components/ui/Icon'
+import { toUserMessage } from '../lib/userMessages'
 
 interface ProductDef {
   key: string
@@ -181,7 +182,7 @@ export default function CodviaPage({ navigate }: { navigate: (p: string) => void
       }
       setDone(true)
     } catch (e2) {
-      setErr(e2 instanceof Error ? e2.message : 'Eroare la trimitere')
+      setErr(toUserMessage(e2, 'Eroare la trimitere'))
     } finally {
       setBusy(false)
     }

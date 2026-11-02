@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
+import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
@@ -114,7 +115,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
     })
     setSaving(false)
     if (error) {
-      toast(error.message, 'error')
+      toast(toUserMessage(error), 'error')
       return
     }
     toast('Programul de fidelizare a fost salvat')
@@ -181,7 +182,7 @@ export default function LoyaltySettingsCard({ restaurantId, plan, modulesState, 
                   .setModule('loyalty', v)
                   .then(() => toast(v ? 'Fidelizarea activată' : 'Fidelizarea dezactivată'))
                   .catch((err) =>
-                    toast(err instanceof Error ? err.message : 'Eroare la salvare', 'error'),
+                    toast(toUserMessage(err, 'Eroare la salvare'), 'error'),
                   )
               }}
             />

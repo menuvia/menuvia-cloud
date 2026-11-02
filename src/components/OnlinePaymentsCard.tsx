@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
+import { toUserMessage } from '../lib/userMessages'
 
 interface ConnectStatus {
   connected: boolean
@@ -24,6 +25,9 @@ interface Props {
   plan: string
   modulesState: ReturnType<typeof useRestaurantModules>
   toast: (msg: string, type?: string) => void
+  // Fondatorul în vizită: stripe-connect verifică membership-ul REAL, deci
+  // „Conectează contul" (și chiar citirea stării) i-ar întoarce un refuz.
+  founderView?: boolean
 }
 
 async function callConnect(
@@ -45,7 +49,13 @@ async function callConnect(
   return body
 }
 
-export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, toast }: Props) {
+export default function OnlinePaymentsCard({
+  restaurantId,
+  plan,
+  modulesState,
+  toast,
+  founderView = false,
+}: Props) {
   // Pe țară, nu doar pe plan (review #288): un restaurant din afara RO pe pro
   // NU primește „Conectează contul" — Stripe Connect e RON-only și feature-urile
   // de bani sunt false în DB (mig 296). useFeatures e cache-uit (fără RTT nou).
@@ -76,8 +86,8 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
   }, [restaurantId])
 
   useEffect(() => {
-    if (eligible) void refreshStatus()
-  }, [eligible, refreshStatus])
+    if (eligible && !founderView) void refreshStatus()
+  }, [eligible, founderView, refreshStatus])
 
   async function handleConnect(): Promise<void> {
     setBusy(true)
@@ -89,7 +99,7 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
       }
       throw new Error('Stripe nu a întors link-ul de onboarding.')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Conectarea a eșuat.', 'error')
+      toast(toUserMessage(e, 'Conectarea a eșuat.'), 'error')
       setBusy(false)
     }
   }
@@ -157,7 +167,9 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
                 1. Contul de încasare (Stripe)
               </div>
               <div style={{ fontSize: '0.72rem', color: statusError ? D.red : D.t2, marginTop: 2 }}>
-                {statusError
+                {founderView
+                  ? 'În modul fondator contul de încasare îl conectează doar proprietarul, din contul lui.'
+                  : statusError
                   ? 'Nu am putut verifica starea contului — reîncearcă. (Dacă ai deja un cont conectat, e în siguranță.)'
                   : connected
                     ? chargesReady
@@ -166,7 +178,7 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
                     : 'Creezi contul și completezi datele firmei la Stripe (~5 min).'}
               </div>
             </div>
-            {statusError ? (
+            {founderView ? null : statusError ? (
               <button
                 onClick={() => void refreshStatus()}
                 style={{
@@ -238,7 +250,7 @@ export default function OnlinePaymentsCard({ restaurantId, plan, modulesState, t
                   .setModule('online_payments', v)
                   .then(() => toast(v ? 'Plata online activată' : 'Plata online dezactivată'))
                   .catch((err) =>
-                    toast(err instanceof Error ? err.message : 'Eroare la salvare', 'error'),
+                    toast(toUserMessage(err, 'Eroare la salvare'), 'error'),
                   )
               }}
             />

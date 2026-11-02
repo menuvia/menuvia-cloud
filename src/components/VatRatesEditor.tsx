@@ -8,6 +8,7 @@ import { fetchVatRates, updateVatRate } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
 import { confirm as confirmDialog } from './ui/confirm'
 import { VAT_PRESETS, applyVatPreset, describeVatPresetError } from '../lib/quickSetup'
+import { toUserMessage } from '../lib/userMessages'
 
 // Presetul legal (L.141/2025) — aceeași sursă ca serverul (`vat_rate_defaults_ro`,
 // mig 285; QS3 leagă preview-ul de SQL). A stat în „asistentul detaliat" de pe
@@ -102,7 +103,7 @@ export default function VatRatesEditor({ restaurantId }: Props) {
       })
       await load()
     } catch (err) {
-      toast.error('Eroare la salvare: ' + (err as Error).message)
+      toast.error(toUserMessage(err, 'Eroare la salvare.'))
     }
     setSavingGroup(null)
   }

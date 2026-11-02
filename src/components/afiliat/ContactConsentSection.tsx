@@ -15,6 +15,7 @@ import { useState } from 'react'
 import { D } from '../../lib/constants'
 import { contactAudience } from '../../lib/salesPanel'
 import type { SalesNetworkError, SalesRole } from '../../lib/salesNetwork'
+import { toUserMessage } from '../../lib/userMessages'
 
 export default function ContactConsentSection({
   role,
@@ -34,7 +35,7 @@ export default function ContactConsentSection({
     setError(null)
     const err = await onChange(!shared)
     setBusy(false)
-    if (err !== null) setError(err.message)
+    if (err !== null) setError(toUserMessage(err))
   }
 
   return (
