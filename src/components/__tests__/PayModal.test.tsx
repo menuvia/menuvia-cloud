@@ -37,7 +37,11 @@ describe('PayModal — hint-urile serverului și pre-flight-ul de sumă', () => 
     const onConfirm = vi.fn().mockRejectedValue(new Error('Role waiter cannot mark orders paid'))
     renderModal(onConfirm)
     await userEvent.click(screen.getByRole('button', { name: /confirmă plata/i }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/waiter/)
+    // Refuzul de rol al RPC-ului vechi (în engleză) ajunge în modal tradus de
+    // toUserMessage — nu ca text tehnic englezesc (#333).
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/Nu ai drepturi pentru această acțiune/)
+    expect(alert).not.toHaveTextContent(/waiter cannot/)
   })
 
   it('pre-flight: sumă SUB rest → avertisment informativ, butonul rămâne activ', async () => {
