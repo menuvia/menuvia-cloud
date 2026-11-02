@@ -79,9 +79,15 @@ jobs:
           cache: 'npm'
       - run: npm ci --no-audit --no-fund
 
+      # Versiune FIXĂ, nu `latest`: la 02.11.2026 `latest` a sărit pe CLI 3.0.0,
+      # care respinge `[inbucket]` din supabase/config.toml („no longer
+      # supported. Use [local_smtp]”) — `supabase start` murea și E2E-ul pica
+      # pe ORICE PR, fără legătură cu codul lui. 2.122.1 = tag-ul npm
+      # `v2.stable`. Trecerea pe 3.x e un PR separat: config.toml migrat și
+      # jobul E2E verificat cap-coadă.
       - uses: supabase/setup-cli@v3
         with:
-          version: latest
+          version: 2.122.1
 
       # Pornim stack-ul FĂRĂ auto-migrații: pe local, default privileges acordă
       # ALL lui service_role pe tabele noi (ca pe cloud), iar asserția fail-closed
