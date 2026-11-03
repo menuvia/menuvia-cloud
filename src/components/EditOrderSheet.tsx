@@ -14,6 +14,7 @@ import {
   type CartItem,
 } from '../lib/orders'
 import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
+import { createLatestGate } from '../lib/menuRefresh'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
 
@@ -64,6 +65,10 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   const [showPicker, setShowPicker] = useState(false)
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
+  // Cât selectorul reîncarcă catalogul, produsele nu se pot alege: altfel
+  // ospătarul putea deschide un produs pe care răspunsul tocmai îl marca
+  // epuizat, iar serverul respingea apoi TOATĂ salvarea (product_sold_out).
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -79,14 +84,55 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   // timp → RPC respinge cu mesaj de redeschidere.
   const [baselineTotal, setBaselineTotal] = useState<number>(order.total)
 
+  // Doar cel mai nou fetch al meniului scrie starea (încărcarea inițială și
+  // reîmprospătarea de la deschiderea selectorului pot fi suprapuse).
+  const menuGateRef = useRef(createLatestGate())
+
   useEffect(() => {
+    const isLatest = menuGateRef.current.begin()
     fetchMenuForRestaurant(order.restaurant_id)
       .then((cats) => {
+        if (!isLatest()) return
         setCategories(cats)
         setActiveCatId(cats[0]?.id ?? null)
       })
-      .catch(() => setLoadError('Nu s-a putut încărca meniul'))
+      .catch(() => {
+        if (isLatest()) setLoadError('Nu s-a putut încărca meniul')
+      })
   }, [order.restaurant_id])
+
+  // mig 313: disponibilitatea se schimbă cât editorul stă deschis (un produs
+  // epuizat e deblocat de personal, sau invers). La FIECARE deschidere a
+  // selectorului meniul se reface — doar catalogul: coșul și editările
+  // nesalvate stau în `cart`, neatinse; categoria aleasă rămâne dacă există
+  // încă. Un eșec lasă catalogul de dinainte (serverul respinge oricum un
+  // produs epuizat cu product_sold_out).
+  function openPicker(): void {
+    setShowPicker(true)
+    setCatalogRefreshing(true)
+    const isLatest = menuGateRef.current.begin()
+    fetchMenuForRestaurant(order.restaurant_id)
+      .then((cats) => {
+        if (!isLatest()) return
+        setCategories(cats)
+        setLoadError(null)
+        setActiveCatId((prev) =>
+          prev != null && cats.some((c) => c.id === prev) ? prev : (cats[0]?.id ?? null),
+        )
+        // Un produs deja deschis pe care catalogul nou îl dă epuizat (sau
+        // scos din meniu) își închide foaia: nu mai poate fi adăugat.
+        setActiveProduct((prev) => {
+          if (!prev) return prev
+          const fresh = cats.flatMap((c) => c.products).find((p) => p.id === prev.id)
+          return fresh && !fresh.is_sold_out ? prev : null
+        })
+        setCatalogRefreshing(false)
+      })
+      .catch(() => {
+        /* catalogul de dinainte rămâne */
+        if (isLatest()) setCatalogRefreshing(false)
+      })
+  }
 
   // Refetch starea curentă a comenzii la deschidere — reduce fereastra de
   // lost-update (alt ospătar a adăugat ceva între render și deschidere).
@@ -371,7 +417,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           )}
 
           <button
-            onClick={() => setShowPicker(true)}
+            onClick={openPicker}
             disabled={categories.length === 0}
             style={{
               marginTop: 16,
@@ -558,15 +604,24 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
               }}
             >
               {activeProducts.map((p) => (
+                // mig 313: un produs epuizat nu poate fi ADĂUGAT (serverul
+                // respinge cu product_sold_out); cantitatea deja comandată
+                // din el rămâne editabilă în coș.
                 <button
                   key={p.id}
-                  onClick={() => setActiveProduct(p)}
+                  disabled={p.is_sold_out || catalogRefreshing}
+                  aria-disabled={p.is_sold_out || catalogRefreshing}
+                  aria-busy={catalogRefreshing || undefined}
+                  onClick={() => {
+                    if (!p.is_sold_out && !catalogRefreshing) setActiveProduct(p)
+                  }}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.s3}`,
                     borderRadius: 10,
                     padding: 10,
-                    cursor: 'pointer',
+                    cursor: p.is_sold_out || catalogRefreshing ? 'not-allowed' : 'pointer',
+                    opacity: p.is_sold_out ? 0.5 : catalogRefreshing ? 0.7 : 1,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 4,
@@ -574,7 +629,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                   }}
                 >
                   <span style={{ color: D.t1, fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-                  <span style={{ color: D.gold, fontSize: 13 }}>{p.price.toFixed(2)} lei</span>
+                  <span style={{ color: p.is_sold_out ? D.red : D.gold, fontSize: 13 }}>
+                    {p.is_sold_out ? 'Epuizat' : `${p.price.toFixed(2)} lei`}
+                  </span>
                 </button>
               ))}
               {activeProducts.length === 0 && (

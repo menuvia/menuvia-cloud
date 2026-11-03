@@ -113,7 +113,10 @@ function ProductSheet({
   // min_select/max_select respectate real (paritate cu serverul, mig 191):
   // fiecare grup cere cel puțin minimul lui efectiv — is_required SAU
   // min_select > 0 (vezi modifierGroupMin din lib/qr.ts).
-  const canAdd = groups.every((g) => selectedCount(g) >= modifierGroupMin(g))
+  // mig 313: un produs epuizat (din stoc sau de personal) nu se adaugă, chiar
+  // dacă foaia era deja deschisă când meniul s-a reîmprospătat.
+  const soldOut = product.is_sold_out === true
+  const canAdd = !soldOut && groups.every((g) => selectedCount(g) >= modifierGroupMin(g))
 
   function modDelta(): number {
     return groups.reduce((sum, g) => {
@@ -1236,9 +1239,11 @@ function ProductSheet({
               }}
             >
               <span>
-                {canAdd
-                  ? T(lang, mode === 'list' ? 'add_to_list' : 'add_to_cart')
-                  : T(lang, 'select_required')}
+                {soldOut
+                  ? T(lang, 'sold_out')
+                  : canAdd
+                    ? T(lang, mode === 'list' ? 'add_to_list' : 'add_to_cart')
+                    : T(lang, 'select_required')}
               </span>
               {canAdd && <span style={{ fontFamily: 'Fraunces, Georgia, serif' }}>·</span>}
               {canAdd && (

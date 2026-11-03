@@ -51,6 +51,13 @@ export const CATEGORY_UPDATE_FIELDS = [
   'translations',
 ] as const satisfies readonly (keyof Category)[]
 
+// `is_sold_out` NU e aici (mig 313): starea „Epuizat” se schimbă DOAR prin
+// comutator / RPC-ul `set_product_sold_out`, niciodată prin PATCH-ul
+// formularului de produs. Formularul pornește de la lista încărcată la
+// deschidere; dacă stocul a epuizat produsul între timp, o simplă editare de
+// descriere trimitea `is_sold_out:false`, iar baza îl consemna ca deblocare
+// MANUALĂ — produs deblocat tăcut, sub porție. La CREARE câmpul e permis
+// (PRODUCT_INSERT_FIELDS): un produs nou n-are stare veche de suprascris.
 export const PRODUCT_UPDATE_FIELDS = [
   'category_id',
   'name',
@@ -60,7 +67,6 @@ export const PRODUCT_UPDATE_FIELDS = [
   'image_url',
   'is_active',
   'is_daily_special',
-  'is_sold_out',
   'is_draft',
   'display_order',
   'allergens',
@@ -74,6 +80,13 @@ export const PRODUCT_UPDATE_FIELDS = [
   'fat_g',
   'ai_generated_fields',
   'translations',
+] as const satisfies readonly (keyof Product)[]
+
+/** Câmpurile permise la INSERT-ul unui produs nou: cele de UPDATE + starea
+ *  inițială „Epuizat” aleasă în formular. */
+export const PRODUCT_INSERT_FIELDS = [
+  ...PRODUCT_UPDATE_FIELDS,
+  'is_sold_out',
 ] as const satisfies readonly (keyof Product)[]
 
 export function pickAllowed<T extends object, K extends keyof T>(

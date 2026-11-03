@@ -5,6 +5,7 @@
 // =============================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, lazy, Suspense } from 'react'
+import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
 import {
   resolveQrMenu,
   fetchMenuForRestaurant,
@@ -25,8 +26,9 @@ import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError, isNetworkGuestError } from '../lib/guestErrors'
-import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
+import { describeGuestError, isNetworkGuestError, isSoldOutGuestError } from '../lib/guestErrors'
+import { createLatestGate, freshActiveProduct, localizeProduct } from '../lib/menuRefresh'
+import { trName, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
 import {
@@ -116,6 +118,13 @@ export default function QrMenuPage({ token }: Props) {
   const [categories, setCategories] = useState<Category[]>([])
   // Limba activă a meniului ('ro' = originalul din name/description).
   const [lang, setLang] = useState('ro')
+  // Limba curentă pentru callback-urile asincrone (refetch-ul meniului).
+  const langRef = useRef(lang)
+  useEffect(() => {
+    langRef.current = lang
+  }, [lang])
+  // Doar cel mai nou refetch al meniului scrie starea (mig 313, lib/menuRefresh).
+  const menuGateRef = useRef(createLatestGate())
   const [happyHour, setHappyHour] = useState<HappyHourRule[]>([])
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
   const [resolving, setResolving] = useState(true)
@@ -233,6 +242,9 @@ export default function QrMenuPage({ token }: Props) {
   const scanReportedRef = useRef<Set<string>>(new Set())
 
   function loadQr() {
+    // Alt token = alt meniu: un refetch al meniului vechi, încă în zbor, nu mai
+    // are voie să scrie peste cel nou.
+    menuGateRef.current.invalidate()
     setResolving(true)
     setInvalid(false)
     setNetworkError(false)
@@ -316,6 +328,35 @@ export default function QrMenuPage({ token }: Props) {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => loadQr(), [token])
+
+  // mig 313: la revenirea în tab meniul se reface DOAR dacă versiunea lui s-a
+  // schimbat (un produs epuizat cât telefonul stătea în buzunar apare
+  // „Epuizat”, coșul îl semnalează). O foaie de produs deschisă primește
+  // rândul proaspăt, ca butonul „Adaugă” să știe de epuizare.
+  const menuRestaurantId = ctx?.restaurant.id ?? null
+  //
+  // Întoarce SUCCESUL (useMenuVersionRefetch mută versiunea de bază doar pe
+  // `true` — un refetch picat se reîncearcă la următoarea revenire). Cererile
+  // suprapuse (revenire în tab + `product_sold_out`) trec prin `menuGateRef`:
+  // doar cea mai nouă scrie starea. Foaia deschisă primește rândul LOCALIZAT
+  // în limba curentă (`langRef` — limba se poate schimba cât e cererea în zbor).
+  const refreshMenu = useCallback(async (): Promise<boolean> => {
+    if (!menuRestaurantId) return false
+    const isLatest = menuGateRef.current.begin()
+    try {
+      const cats = await fetchMenuForRestaurant(menuRestaurantId)
+      // Depășită de o cerere mai nouă: nu scrie, nu raportează succes — baza
+      // rămâne pe loc, iar cea nouă decide.
+      if (!isLatest()) return false
+      setCategories(cats)
+      setActiveProduct((prev) => freshActiveProduct(prev, cats, langRef.current))
+      return true
+    } catch {
+      /* meniul vechi rămâne; serverul respinge oricum produsele epuizate */
+      return false
+    }
+  }, [menuRestaurantId])
+  useMenuVersionRefetch(menuRestaurantId, refreshMenu)
 
   // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
   // ea, adăugarea în coș nu era confirmată deloc pentru cititorul de ecran.
@@ -416,6 +457,10 @@ export default function QrMenuPage({ token }: Props) {
       }
     }
 
+    // Un produs din coș s-a epuizat între timp (mig 313): meniul se reface, ca
+    // linia lui din coș să primească badge-ul „Epuizat” — mesajul singur nu
+    // spune CARE produs.
+    if (isSoldOutGuestError(lastError)) void refreshMenu()
     // Hint-ul/mesajul serverului → text în limba oaspetelui; niciodată brut
     // (mesajele create_order sunt amestecate RO/EN — mig 191).
     setSubmitError(describeGuestError(lang, lastError, { fallback: 'err_order_not_sent' }))
@@ -557,11 +602,7 @@ export default function QrMenuPage({ token }: Props) {
     return categories.map((c) => ({
       ...c,
       name: trName(c, lang),
-      products: c.products.map((p) => ({
-        ...p,
-        name: trName(p, lang),
-        description: trDesc(p, lang),
-      })),
+      products: c.products.map((p) => localizeProduct(p, lang)),
     }))
   }, [categories, lang])
   // Limbile extra oferite = cele în care meniul chiar e tradus (derivate din

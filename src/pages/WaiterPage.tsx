@@ -31,6 +31,8 @@ const ManualOrderSheet = lazy(() => import('../components/ManualOrderSheet'))
 const EditOrderSheet = lazy(() => import('../components/EditOrderSheet'))
 const CancelOrderDialog = lazy(() => import('../components/CancelOrderDialog'))
 const OrderAuditSheet = lazy(() => import('../components/OrderAuditSheet'))
+// Panoul „Epuizate” (mig 313): ospătarul marchează ce s-a terminat.
+const StaffSoldOutSheet = lazy(() => import('../components/StaffSoldOutSheet'))
 import {
   fetchWaiterCalls,
   resolveWaiterCall,
@@ -172,6 +174,7 @@ export default function WaiterPage() {
   const [discountOrderId, setDiscountOrderId] = useState<string | null>(null)
   const [happyHourSugg, setHappyHourSugg] = useState<HappyHourSuggestion | null>(null)
   const [showEntry, setShowEntry] = useState(false)
+  const [showSoldOut, setShowSoldOut] = useState(false)
   // Masă pre-selectată când deschid „Comandă nouă" din panoul Stadiu mese
   // (null = flux normal, alegi masa în WaiterEntry).
   const [entryTableId, setEntryTableId] = useState<string | null>(null)
@@ -844,6 +847,15 @@ export default function WaiterPage() {
             style={{ flexShrink: 0 }}
           >
             Manual
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setShowSoldOut(true)}
+            icon={<Icon name="alert" size={15} />}
+            aria-label="Produse epuizate — marchează ce s-a terminat"
+            style={{ flexShrink: 0 }}
+          >
+            Epuizate
           </Button>
           <Button
             variant="primary"
@@ -1832,6 +1844,12 @@ export default function WaiterPage() {
             Click pentru a închide
           </div>
         </div>
+      )}
+
+      {showSoldOut && restaurantId != null && (
+        <Suspense fallback={null}>
+          <StaffSoldOutSheet restaurantId={restaurantId} onClose={() => setShowSoldOut(false)} />
+        </Suspense>
       )}
 
       {showEntry && restaurantId != null && user != null && (

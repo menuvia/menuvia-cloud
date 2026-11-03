@@ -118,6 +118,35 @@ describe('describeEditOrderError', () => {
     expect(text).toBe('grupul "Pâine" pentru produsul "Ciorbă" cere cel puțin 1 opțiune selectată')
   })
 
+  it('SM3b produsul epuizat între timp (mig 313): numele + cantitatea păstrabilă, fără textul tehnic', () => {
+    // Mutația care pică: ramura product_sold_out scoasă → „Modificarea nu a
+    // fost salvată” generic, fără să spună CE produs și cât se poate păstra.
+    const surplus = describeEditOrderError({
+      message:
+        'update_order_items: produsul "Supă" este epuizat — poți păstra cel mult cantitatea deja comandată (2)',
+      hint: 'product_sold_out',
+      code: 'P0001',
+    })
+    expect(surplus).toMatch(/„Supă”/)
+    expect(surplus).toMatch(/epuizat/i)
+    expect(surplus).toMatch(/cel mult cantitatea deja comandată \(2\)/)
+    expect(surplus).not.toMatch(/update_order_items/)
+    expect(surplus).not.toMatch(RAW_ENGLISH)
+
+    const added = describeEditOrderError({
+      message:
+        'update_order_items: produsul "Clătită" este epuizat — poți păstra cel mult cantitatea deja comandată (0)',
+      hint: 'product_sold_out',
+    })
+    expect(added).toMatch(/„Clătită” e epuizat și nu mai poate fi adăugat/)
+    expect(added).not.toMatch(RAW_ENGLISH)
+
+    // Mesajul trigger-ului 130 (fără cantitate, fără hint pe o cale veche).
+    const raw = describeEditOrderError({ message: 'Produsul "Apă" este epuizat' })
+    expect(raw).toMatch(/„Apă” s-a epuizat între timp/)
+    expect(raw).not.toMatch(/nu a fost salvată/i)
+  })
+
   it('SM4 rețeaua (iPhone) → mesaj de conexiune', () => {
     expect(describeEditOrderError(new Error('TypeError: Load failed'))).toMatch(/fără conexiune/i)
   })

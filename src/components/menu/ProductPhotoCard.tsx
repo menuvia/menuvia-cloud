@@ -76,7 +76,8 @@ function ProductPhotoCard({
   lang = 'ro',
 }: ProductPhotoCardProps) {
   // Fără imagine → rând compact tip listă (nu card gol). Aceeași interfață,
-  // aceleași callback-uri — nimic de tradus.
+  // aceleași callback-uri — și ACEEAȘI limbă (mig 313: fără `lang`, rândul
+  // cădea pe română, deci „Epuizat” apărea în RO pe un meniu în engleză).
   if (!product.image_url) {
     return (
       <ProductMinimalRow
@@ -89,6 +90,7 @@ function ProductPhotoCard({
         PUB={PUB}
         theme={theme}
         currency={currency}
+        lang={lang}
       />
     )
   }

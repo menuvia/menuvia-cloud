@@ -197,3 +197,36 @@ describe('QrCartSheet — nota pentru bucătărie', () => {
     expect(parseFloat(note.style.fontSize)).toBeGreaterThanOrEqual(16)
   })
 })
+
+// mig 313 / recenzie CodeRabbit pe #338: „Reîncearcă” din eroarea de trimitere
+// trece prin ACEEAȘI gardă ca CTA-ul. Mutația care pică: `onClick={() =>
+// onSubmit(localNotes)}` fără `disabled={!canSubmit}` pe reîncercare.
+describe('QrCartSheet — reîncercarea respectă garda de trimitere', () => {
+  it('RT1 cu produs epuizat în coș, „Reîncearcă” e dezactivat și nu trimite', async () => {
+    const user = userEvent.setup()
+    const soldOut = makeProduct({ id: 'p-so', name: 'Fresh', is_sold_out: true, category_id: 'c1' })
+    const props = renderSheet({
+      cart: [makeCartItem({ product_id: 'p-so', product_name_snapshot: 'Fresh' })],
+      categories: [makeCategory({ id: 'c1', products: [soldOut] })],
+      submitError: 'Un produs s-a epuizat.',
+    })
+    const retry = screen.getByRole('button', { name: 'Reîncearcă' })
+    expect(retry).toBeDisabled()
+    await user.click(retry)
+    expect(props.onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('RT2 control pozitiv: coș valid → „Reîncearcă” trimite', async () => {
+    const user = userEvent.setup()
+    const props = renderSheet({ submitError: 'Eroare de rețea.' })
+    const retry = screen.getByRole('button', { name: 'Reîncearcă' })
+    expect(retry).toBeEnabled()
+    await user.click(retry)
+    expect(props.onSubmit).toHaveBeenCalledTimes(1)
+  })
+
+  it('RT3 în timpul trimiterii „Reîncearcă” e dezactivat', () => {
+    renderSheet({ submitError: 'Eroare de rețea.', submitting: true })
+    expect(screen.getByRole('button', { name: 'Reîncearcă' })).toBeDisabled()
+  })
+})

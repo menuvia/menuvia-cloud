@@ -28,6 +28,7 @@ import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { soldOutSourceLabel, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
@@ -2275,10 +2276,21 @@ export default function ProductsTab({
       if (!opts?.keepOpen) setModal(null)
       return true
     } else if (modal) {
-      const { error: e } = await update((modal as Product).id, form)
+      const opened = modal as Product
+      const { error: e } = await update(opened.id, form)
       if (e) {
         fail(toUserMessage(e))
         return false
+      }
+      // „Epuizat” NU pleacă în PATCH-ul formularului (mig 313): doar dacă omul
+      // a mutat comutatorul în formular, starea aleasă trece prin RPC.
+      const soldOutTarget = soldOutFormTarget(opened, form)
+      if (soldOutTarget !== null) {
+        const r = await toggleSoldOut(opened.id, !soldOutTarget)
+        if (r.error) {
+          fail(toUserMessage(r.error))
+          return false
+        }
       }
       toast('Actualizat')
       setModal(null)
@@ -2626,6 +2638,11 @@ export default function ProductsTab({
                       )}
                       {p.is_sold_out && (
                         <span
+                          title={
+                            p.sold_out_source === 'stock'
+                              ? 'Un ingredient din rețetă e sub o porție. Revine singur când stocul crește.'
+                              : 'Marcat epuizat de personal.'
+                          }
                           style={{
                             fontSize: '0.6rem',
                             background: D.redA,
@@ -2635,7 +2652,22 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          EPUIZAT
+                          EPUIZAT · {(soldOutSourceLabel(true, p.sold_out_source) ?? '').toUpperCase()}
+                        </span>
+                      )}
+                      {!p.is_sold_out && p.sold_out_source === 'manual' && (
+                        <span
+                          title="Deblocat de personal deși stocul e sub o porție. Regula de stoc se reia după ce stocul crește."
+                          style={{
+                            fontSize: '0.6rem',
+                            background: D.amberA,
+                            color: D.amber,
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            fontWeight: 600,
+                          }}
+                        >
+                          DEBLOCAT MANUAL
                         </span>
                       )}
                     </div>
@@ -2789,6 +2821,11 @@ export default function ProductsTab({
                       )}
                       {p.is_sold_out && (
                         <span
+                          title={
+                            p.sold_out_source === 'stock'
+                              ? 'Un ingredient din rețetă e sub o porție. Revine singur când stocul crește.'
+                              : 'Marcat epuizat de personal.'
+                          }
                           style={{
                             fontSize: '0.6rem',
                             background: D.redA,
@@ -2798,7 +2835,22 @@ export default function ProductsTab({
                             fontWeight: 600,
                           }}
                         >
-                          EPUIZAT
+                          EPUIZAT · {(soldOutSourceLabel(true, p.sold_out_source) ?? '').toUpperCase()}
+                        </span>
+                      )}
+                      {!p.is_sold_out && p.sold_out_source === 'manual' && (
+                        <span
+                          title="Deblocat de personal deși stocul e sub o porție. Regula de stoc se reia după ce stocul crește."
+                          style={{
+                            fontSize: '0.6rem',
+                            background: D.amberA,
+                            color: D.amber,
+                            padding: '1px 6px',
+                            borderRadius: 4,
+                            fontWeight: 600,
+                          }}
+                        >
+                          DEBLOCAT MANUAL
                         </span>
                       )}
                     </div>

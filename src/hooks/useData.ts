@@ -5,11 +5,13 @@ import {
   pickAllowed,
   RESTAURANT_UPDATE_FIELDS,
   CATEGORY_UPDATE_FIELDS,
+  PRODUCT_INSERT_FIELDS,
   PRODUCT_UPDATE_FIELDS,
 } from '../lib/sanitize'
 import { createRestaurant } from '../lib/restaurants'
 import { getFounderView } from '../lib/founder'
 import { zeroRowsAsDenied } from '../lib/userMessages'
+import { setProductSoldOut, isMissingSoldOutRpc, type SoldOutSource } from '../lib/soldOut'
 
 export interface Restaurant {
   id: string
@@ -118,6 +120,9 @@ export interface Product {
   is_active: boolean
   is_daily_special: boolean
   is_sold_out: boolean
+  // De ce e (sau nu e) epuizat (mig 313): 'stock' = automat din rețetă,
+  // 'manual' = de om. Opțional: lipsește pe o bază fără migrația 313.
+  sold_out_source?: SoldOutSource
   is_draft: boolean
   display_order: number
   allergens: string[]
@@ -442,7 +447,7 @@ export function useProducts(restaurantId: string | null) {
 
   const create = async (form: Partial<Product>) => {
     const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
-    const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
+    const safe = pickAllowed(form, PRODUCT_INSERT_FIELDS)
     const r = await supabase
       .from('products')
       .insert({ ...safe, restaurant_id: restaurantId, display_order: maxOrder + 1 })
@@ -463,6 +468,9 @@ export function useProducts(restaurantId: string | null) {
         .sort((a, b) => a.display_order - b.display_order),
     )
   }
+  // Fără `is_sold_out` (PRODUCT_UPDATE_FIELDS, mig 313): „Epuizat” trece doar
+  // prin toggleSoldOut, ca un formular cu date vechi să nu deblocheze tăcut un
+  // produs epuizat din stoc între timp.
   const update = async (id: string, form: Partial<Product>) => {
     const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
     const r = await supabase.from('products').update(safe).eq('id', id).select().single()
@@ -475,7 +483,7 @@ export function useProducts(restaurantId: string | null) {
   const createMany = async (forms: Partial<Product>[]) => {
     const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
     const rows = forms.map((form, i) => ({
-      ...pickAllowed(form, PRODUCT_UPDATE_FIELDS),
+      ...pickAllowed(form, PRODUCT_INSERT_FIELDS),
       restaurant_id: restaurantId,
       display_order: maxOrder + 1 + i,
     }))
@@ -509,8 +517,34 @@ export function useProducts(restaurantId: string | null) {
   // Activ/inactiv, epuizat și specialitatea zilei: aceeași regulă.
   const toggleActive = async (id: string, current: boolean) =>
     toggleProductFlag(id, { is_active: !current })
-  const toggleSoldOut = async (id: string, current: boolean) =>
-    toggleProductFlag(id, { is_sold_out: !current })
+  // „Epuizat” trece prin RPC-ul personalului (mig 313), ca sursa (manual vs.
+  // din stoc) să fie scrisă la fel din ProductsTab și din panoul ospătarului.
+  // Pe o bază fără 313 (PGRST202) cade pe UPDATE-ul direct de dinainte.
+  const toggleSoldOut = async (
+    id: string,
+    current: boolean,
+  ): Promise<{ data: Product | null; error: { message: string; code: string } | null }> => {
+    try {
+      const state = await setProductSoldOut(id, !current)
+      const prev = products.find((p) => p.id === id)
+      const row = prev ? { ...prev, ...state } : null
+      // Contopire FUNCȚIONALĂ, doar pe cele două câmpuri: după un update() din
+      // formular, `products` din closure e încă rândul VECHI, iar `mergeRow(row)`
+      // ar fi readus descrierea de dinainte de salvare în listă.
+      setProducts((list) => list.map((p) => (p.id === id ? { ...p, ...state } : p)))
+      return { data: row, error: null }
+    } catch (e) {
+      if (isMissingSoldOutRpc(e)) return toggleProductFlag(id, { is_sold_out: !current })
+      const err = e as { message?: unknown; code?: unknown }
+      return {
+        data: null,
+        error: {
+          message: typeof err.message === 'string' ? err.message : '',
+          code: typeof err.code === 'string' ? err.code : '',
+        },
+      }
+    }
+  }
   const toggleDailySpecial = async (id: string, current: boolean) =>
     toggleProductFlag(id, { is_daily_special: !current })
 
