@@ -129,6 +129,15 @@ describe('alergenii pe cardurile oaspetelui', () => {
     expect(cardImg?.getAttribute('height')).toBe('88')
   })
 
+  // Recenzie CodeRabbit pe #340: AL5 verifica doar `src`-ul inițial. Mutația
+  // care pică: `fallbackSrc` scos de pe GridThumbnail (imaginile fără `_t` ar
+  // ajunge direct pe monogramă în loc de original).
+  it('AL5b grilă: la eroarea thumb-ului, imaginea cade pe original', () => {
+    const grid = renderCard(ProductGridCard, makeProduct({ image_url: IMG }))
+    fireEvent.error(grid.container.querySelector('img') as HTMLImageElement)
+    expect(grid.container.querySelector('img')?.getAttribute('src')).toBe(IMG)
+  })
+
   it.each(CARDS)('AL6 %s: butonul-card își anunță alergenii cititorului de ecran', (_n, Card) => {
     renderCard(Card, makeProduct({ name: 'Plăcintă', image_url: IMG, allergens: ['lapte', 'gluten'] }))
     expect(screen.getByRole('button', { name: /Allergens: Gluten, Milk/ })).toBeInTheDocument()
