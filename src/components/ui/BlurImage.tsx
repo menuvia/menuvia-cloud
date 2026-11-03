@@ -50,7 +50,12 @@ export function BlurImage({
   const [failed, setFailed] = useState(false)
   const [useFallback, setUseFallback] = useState(false)
 
-  const effectiveSrc = useFallback && fallbackSrc ? fallbackSrc : src
+  // Un fallback identic cu sursa nu e un fallback: eroarea n-ar mai schimba
+  // URL-ul, deci imaginea ar rămâne pe skeleton în loc să cadă pe monogramă
+  // (recenzie CodeRabbit pe #340 — `thumbUrlFor` întoarce null pentru imaginile
+  // fără thumb, iar apelanții trimit atunci originalul în ambele câmpuri).
+  const distinctFallback = fallbackSrc && fallbackSrc !== src ? fallbackSrc : undefined
+  const effectiveSrc = useFallback && distinctFallback ? distinctFallback : src
 
   // Fallback pe imagine eșuată: fundal neutru + inițiala din alt (monogramă).
   // Nu avem tema aici (componenta e generică), deci folosim un gri translucid
@@ -105,7 +110,7 @@ export function BlurImage({
       // (altfel ar rămâne vizibilă iconița „broken image" a browserului).
       onError={() => {
         // Întâi fallback-ul (o singură dată), abia apoi monograma de eșec.
-        if (fallbackSrc && !useFallback) {
+        if (distinctFallback && !useFallback) {
           setUseFallback(true)
           return
         }
