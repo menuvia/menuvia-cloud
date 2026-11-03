@@ -9,6 +9,8 @@
 import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { D } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
+import { OPEN_ORDER_STATUSES, countOccupiedTables, sumAmounts } from '../../lib/homeMetrics'
+import { fmtPrice } from '../../lib/currency'
 import type { PlanSurface, PlanUpsellTarget } from '../../lib/planSurface'
 import {
   fetchHealthScore,
@@ -19,6 +21,7 @@ import {
   type HealthScore,
 } from '../../lib/health'
 import { Card } from '../ui/Card'
+import { Button } from '../ui/Button'
 import { PageHeader } from '../ui/PageHeader'
 import { Icon, type IconName } from '../ui/Icon'
 import { PlanUpsellCard } from './PlanUpsellCard'
@@ -56,6 +59,14 @@ function tint(color: string, percent: number): string {
 }
 
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
+
+// Lotul D: plafonul de rânduri pentru cifrele de azi (se cere +1 ca depășirea
+// să fie DETECTATĂ, nu tăiată tăcut) și cadența reîmprospătării. N+1 trebuie
+// să rămână SUB `max_rows` al API-ului (1000, supabase/config.toml), altfel
+// cererea de 1001 întoarce 1000 și depășirea nu se vede — aceeași regulă ca
+// STAFF_ORDERS_FETCH_LIMIT = 500 (recenzie CodeRabbit pe #342).
+const METRICS_ROW_CAP = 500
+const METRICS_REFRESH_MS = 120_000
 
 interface Props {
   restaurantId: string
@@ -289,12 +300,27 @@ export default function HomeTab({
   const [everOrdered, setEverOrdered] = useState<boolean | null>(null)
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
+  // Lotul D: cifrele de acum/azi. `null` = încă nu știm; o citire EȘUATĂ intră
+  // în `failed`, iar cifra arată „—" cu „Reîncearcă" (nu „…" la nesfârșit și
+  // nu „0", care ar fi o afirmație falsă).
+  const [occupiedTables, setOccupiedTables] = useState<number | null>(null)
+  // Numitorul vine din ACEEAȘI citire ca numărătorul (mesele ACTIVE): o comandă
+  // rămasă pe o masă dezactivată nu are voie să dea „5/4" (recenzie #342).
+  const [activeTables, setActiveTables] = useState<number | null>(null)
+  const [revenueToday, setRevenueToday] = useState<number | null>(null)
+  const [tipsToday, setTipsToday] = useState<number | null>(null)
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Ce are planul, ca booleeni: pe un plan NECUNOSCUT (surface null) toate
   // sunt false — nu se cer și nu se afișează cifre/pași de comenzi.
   const planKnown = surface != null
   const hasOrdering = surface?.ordering === true
   const isFiscal = surface?.fiscal === true
+  const showOccupancy = hasOrdering && !pickupOnly
+  // Banii zilei: doar Planul 3 și doar adminii (personalul n-are Acasă, iar
+  // managerul vede oricum Rapoartele).
+  const showMoney = isFiscal && isAdmin
 
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
@@ -390,6 +416,122 @@ export default function HomeTab({
     }
   }, [restaurantId, hasOrdering, isAdmin])
 
+  // Lotul D: mese ocupate (Plan 2+), încasări și bacșiș azi (Plan 3).
+  // Resetarea la „…" doar la schimbarea restaurantului/planului; o reîmprospătare
+  // (revenire în pagină, interval, schimbarea zilei) păstrează cifrele vechi
+  // până sosesc cele noi, ca să nu clipească.
+  useEffect(() => {
+    setOccupiedTables(null)
+    setActiveTables(null)
+    setRevenueToday(null)
+    setTipsToday(null)
+    setFailed(new Set())
+  }, [restaurantId, showOccupancy, showMoney])
+
+  // Reîmprospătare: la revenirea în pagină și la 2 minute cât pagina e vizibilă.
+  // Ziua se recalculează la fiecare citire, deci după miezul nopții „azi" trece
+  // singur pe ziua nouă la următoarea reîmprospătare.
+  useEffect(() => {
+    if (!showOccupancy && !showMoney) return
+    const bump = (): void => {
+      if (document.visibilityState === 'visible') setReloadKey((k) => k + 1)
+    }
+    document.addEventListener('visibilitychange', bump)
+    const id = window.setInterval(bump, METRICS_REFRESH_MS)
+    return () => {
+      document.removeEventListener('visibilitychange', bump)
+      window.clearInterval(id)
+    }
+  }, [showOccupancy, showMoney])
+
+  useEffect(() => {
+    if (!showOccupancy && !showMoney) return
+    let alive = true
+    const fail = (k: string): void => {
+      if (alive) setFailed((prev) => new Set(prev).add(k))
+    }
+    const ok = (k: string): void => {
+      if (alive)
+        setFailed((prev) => {
+          if (!prev.has(k)) return prev
+          const next = new Set(prev)
+          next.delete(k)
+          return next
+        })
+    }
+    const todayYmd = toRomaniaYMD(new Date())
+    const todayStart = romaniaDayBoundaryISO(todayYmd, false)
+    const jobs: PromiseLike<void>[] = []
+    if (showOccupancy) {
+      // Numărătorul și numitorul împreună: mesele active + comenzile deschise;
+      // o comandă pe o masă dezactivată nu se numără. Oricare eșuează (sau
+      // depășește plafonul de rânduri) → „—" + „Reîncearcă", nu o cifră parțială.
+      jobs.push(
+        Promise.all([
+          supabase
+            .from('tables')
+            .select('id')
+            .eq('restaurant_id', restaurantId)
+            .eq('is_active', true)
+            .limit(METRICS_ROW_CAP + 1),
+          supabase
+            .from('orders')
+            .select('table_id')
+            .eq('restaurant_id', restaurantId)
+            .in('status', [...OPEN_ORDER_STATUSES])
+            .not('table_id', 'is', null)
+            .limit(METRICS_ROW_CAP + 1),
+        ]).then(([t, o]) => {
+          if (t.error || !t.data || o.error || !o.data) return fail('occupied')
+          if (t.data.length > METRICS_ROW_CAP || o.data.length > METRICS_ROW_CAP) return fail('occupied')
+          const active = new Set((t.data as { id: string }[]).map((r) => r.id))
+          const open = (o.data as { table_id: string | null }[]).filter(
+            (r) => r.table_id != null && active.has(r.table_id),
+          )
+          if (!alive) return
+          setActiveTables(active.size)
+          setOccupiedTables(countOccupiedTables(open))
+          ok('occupied')
+        }),
+      )
+    }
+    if (showMoney) {
+      jobs.push(
+        supabase
+          .rpc('get_daily_payments_by_method', {
+            p_restaurant_id: restaurantId,
+            p_from: todayYmd,
+            p_to: todayYmd,
+          })
+          .then(({ data, error }) => {
+            if (error || !Array.isArray(data)) return fail('revenue')
+            if (!alive) return
+            setRevenueToday(sumAmounts(data as { total_revenue?: unknown }[], 'total_revenue'))
+            ok('revenue')
+          }),
+        supabase
+          .from('orders')
+          .select('tips_amount')
+          .eq('restaurant_id', restaurantId)
+          .eq('status', 'paid')
+          .gte('paid_at', todayStart)
+          .gt('tips_amount', 0)
+          .limit(METRICS_ROW_CAP + 1)
+          .then(({ data, error }) => {
+            // Peste plafon suma ar fi parțială — o arătăm ca necunoscută.
+            if (error || !data || data.length > METRICS_ROW_CAP) return fail('tips')
+            if (!alive) return
+            setTipsToday(sumAmounts(data as { tips_amount?: unknown }[], 'tips_amount'))
+            ok('tips')
+          }),
+      )
+    }
+    void Promise.all(jobs)
+    return () => {
+      alive = false
+    }
+  }, [restaurantId, showOccupancy, showMoney, reloadKey])
+
   // Scorul — separat (RPC), doar pentru admini pe planurile cu comenzi.
   useEffect(() => {
     if (!isAdmin || !hasOrdering) return
@@ -480,6 +622,33 @@ export default function HomeTab({
           value: tablesCount == null ? '…' : String(tablesCount),
           hint: 'mese scanabile',
         },
+    ...(showOccupancy
+      ? [
+          {
+            label: 'Mese ocupate acum',
+            value: failed.has('occupied')
+              ? '—'
+              : occupiedTables == null || activeTables == null
+                ? '…'
+                : `${occupiedTables}/${activeTables}`,
+            hint: failed.has('occupied') ? 'nu s-a putut încărca' : 'cu comenzi deschise',
+          },
+        ]
+      : []),
+    ...(showMoney
+      ? [
+          {
+            label: 'Încasări azi',
+            value: failed.has('revenue') ? '—' : revenueToday == null ? '…' : fmtPrice(revenueToday),
+            hint: failed.has('revenue') ? 'nu s-a putut încărca' : 'plăți înregistrate azi',
+          },
+          {
+            label: 'Bacșiș azi',
+            value: failed.has('tips') ? '—' : tipsToday == null ? '…' : fmtPrice(tipsToday),
+            hint: failed.has('tips') ? 'nu s-a putut încărca' : 'informativ, nu intră în încasări',
+          },
+        ]
+      : []),
     // Metrica „Configurare" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
     // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
     ...(isAdmin
@@ -557,6 +726,17 @@ export default function HomeTab({
             {secondaryMetrics.map((m) => (
               <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
             ))}
+          </div>
+        )}
+        {failed.size > 0 && (
+          <div
+            role="status"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, color: D.t3, fontSize: 13 }}
+          >
+            <span>Unele cifre nu s-au putut încărca.</span>
+            <Button variant="ghost" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+              Reîncearcă
+            </Button>
           </div>
         )}
       </RevealItem>
