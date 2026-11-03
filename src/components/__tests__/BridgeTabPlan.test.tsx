@@ -15,6 +15,13 @@
 //   BP2  control pozitiv pe Planul 3: „Casă de marcat & tichete", „Brand
 //        nedefinit" pe device-ul fără marcă, secțiunea „Bonuri fiscale" și
 //        citirea bonurilor + cotelor.
+//
+// Lotul R2: titlul paginii vine acum din panou (eticheta sub-tab-ului din
+// NAV_GROUPS — „Imprimantă bucătărie" / „Casă & tichete", ținută de
+// DashboardSidebar DS2/DS3), deci BridgeTab nu mai are h1 propriu. Ancora
+// „pagina s-a încărcat" e acum introducerea antetului, care se schimbă și ea pe
+// plan (imprimanta din bucătărie vs integrarea FiscalNet) — aceeași distincție
+// pe care o verifica titlul.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 
@@ -68,15 +75,17 @@ beforeEach(() => {
   tables.vat_rates = []
 })
 
+const INTRO_KITCHEN = /^Comenzile noi se tipăresc automat în bucătărie, pe o imprimantă termică/
+const INTRO_FISCAL = /^Integrare FiscalNet/
+
 describe('BridgeTab — Planul 2 e doar imprimanta din bucătărie', () => {
   it('BP1: „Imprimantă bucătărie", fără „Brand nedefinit" și fără nimic fiscal', async () => {
     const { container } = render(<BridgeTab restaurantId="r1" fiscalEnabled={false} />)
     // Prima randare = spinner-ul de încărcare (încă niciun device).
     expect(screen.getByText('Se încarcă imprimanta...')).toBeInTheDocument()
     expect(container.textContent ?? '').not.toMatch(FISCAL)
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Imprimantă bucătărie' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(INTRO_KITCHEN)).toBeInTheDocument()
+    expect(screen.queryByText(INTRO_FISCAL)).toBeNull()
     // Ancora: device-ul e listat (deci absența mărcii e reală).
     expect(await screen.findByText('PC bucătărie')).toBeInTheDocument()
     expect(screen.queryByText(/Brand nedefinit/)).toBeNull()
@@ -89,9 +98,8 @@ describe('BridgeTab — Planul 2 e doar imprimanta din bucătărie', () => {
   it('BP2: control pozitiv — pe Planul 3 casa, marca, bonurile și cotele', async () => {
     render(<BridgeTab restaurantId="r1" fiscalEnabled />)
     expect(screen.getByText('Se încarcă casa de marcat...')).toBeInTheDocument()
-    expect(
-      await screen.findByRole('heading', { level: 1, name: 'Casă de marcat & tichete' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(INTRO_FISCAL)).toBeInTheDocument()
+    expect(screen.queryByText(INTRO_KITCHEN)).toBeNull()
     expect(await screen.findByText(/Brand nedefinit/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Bonuri fiscale' })).toBeInTheDocument()
     expect(reads).toContain('pending_receipts')

@@ -163,21 +163,6 @@ export default function CashRegisterTab({ restaurantId }: Props) {
     <div style={{ maxWidth: 1100 }}>
       {/* Header */}
       <div style={{ marginBottom: 18 }}>
-        <h1
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: '1.4rem',
-            fontWeight: 600,
-            color: D.t1,
-            margin: 0,
-            fontFamily: 'Fraunces,serif',
-          }}
-        >
-          <Icon name="receipt" size={24} color={D.gold} />
-          Încasări
-        </h1>
         <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
           Gestiune fond casă, depuneri/retrageri și închidere zi cu Raport Z automat.
         </div>
@@ -1041,7 +1026,7 @@ function CloseShiftModal({
                 <Icon name="check" size={15} />
               </span>
               <span>
-                Raport Z trimis la casa de marcat. Verifică tab-ul "Fiscalizare" pentru confirmare.
+                Raport Z trimis la casa de marcat. Verifică în Setări → Casă & tichete pentru confirmare.
               </span>
             </div>
           )}

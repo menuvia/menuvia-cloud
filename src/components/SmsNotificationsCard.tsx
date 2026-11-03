@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
 import { supabase } from '../lib/supabase'
-import { Toggle } from './_dashboard/sharedUI'
+import { Toggle, AutoSaveHint } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
 import { toUserMessage } from '../lib/userMessages'
@@ -62,6 +62,8 @@ export default function SmsNotificationsCard({ restaurantId, plan, modulesState,
         <span style={{ fontSize: '0.875rem', fontWeight: 500, color: D.t1 }}>
           Notificări SMS către clienți
         </span>
+        {/* Comutatorul scrie imediat (setModule) — fără „Salvează" (lotul R2). */}
+        {eligible && <AutoSaveHint />}
       </div>
       <div style={{ fontSize: '0.75rem', color: D.t2, lineHeight: 1.6, marginBottom: 14 }}>
         Clientul primește SMS la confirmarea rezervării și când comanda de ridicare e gata.

@@ -1,11 +1,7 @@
-import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { useState, useEffect, useRef, useCallback, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { useFeatures } from '../hooks/useFeatures'
-import {
-  productLimitReason,
-  surfaceTiers,
-  type PlanTier,
-} from '../lib/features'
+import { productLimitReason, surfaceTiers } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
 import { retryPendingCountry } from '../lib/pendingCountry'
@@ -58,6 +54,14 @@ import { SignOutButton } from '../components/SignOutButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
+import { confirm as confirmDialog } from '../components/ui/confirm'
+import {
+  dashboardPathFor,
+  settingsSectionOf,
+  tabFromSearch,
+  visibleNavGroups,
+  type Tab,
+} from '../lib/dashboardNav'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -326,146 +330,8 @@ function UpgradeModal({
 // components/_dashboard/PlanBanners.tsx (testate separat, FB1–FB4).
 
 // ── Main Dashboard ────────────────────────────────────────────
-export type Tab =
-  | 'home'
-  | 'products'
-  | 'categories'
-  | 'modificatori'
-  | 'mese'
-  | 'comenzi'
-  | 'analytics'
-  | 'echipa'
-  | 'raport'
-  | 'arhitectura'
-  | 'ture'
-  | 'gestiune'
-  | 'tva'
-  | 'casa-tura'
-  | 'casa-marcat'
-  | 'happy-hour'
-  | 'invoices'
-  | 'reservations'
-  | 'settings'
-  | 'ai'
-
-// Navigație pe GRUPURI (max 6 în sidebar) cu sub-tab-uri interne.
-// Filozofia: „Adaugi meniul. Generezi QR. Primești comenzi. Vezi rapoarte simple."
-//   tier 1 — Meniu Digital:    Acasă, Meniu, Mese & QR, Setări
-//   tier 2 — Meniu + Comenzi:  + Comenzi, Rapoarte
-//   tier 3 — Fiscalizare:      aceleași 6 grupuri; fiscalul = sub-tab-uri, nu sidebar
-// Funcțiile avansate NU se șterg — se regrupează sau se ascund pe plan.
-// Gating-ul REAL e server-side (RPC/RLS, Porțile A-D); aici doar simplificăm UI-ul.
-interface SubTab {
-  id: Tab
-  label: string
-  adminOnly?: boolean
-  minTier?: PlanTier
-  // Suprafață de BANI/BON: minTier se compară cu tier-ul `money` (moneyTier —
-  // coborât sub 3 în afara RO, mig 296), nu cu planul. Pe RO identic.
-  money?: true
-  // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
-  hiddenPickupOnly?: boolean
-  // Eticheta pe un plan FĂRĂ bon (planSurface.fiscal false): pe Planul 2 fila
-  // casei de marcat e doar imprimanta din bucătărie (lotul P).
-  labelWithoutFiscal?: string
-}
-interface NavGroup {
-  id: string
-  label: string
-  icon: IconName
-  adminOnly?: boolean
-  minTier?: PlanTier
-  subTabs: SubTab[]
-}
-
-const NAV_GROUPS: NavGroup[] = [
-  { id: 'acasa', label: 'Acasă', icon: 'home', subTabs: [{ id: 'home', label: 'Acasă' }] },
-  {
-    id: 'meniu',
-    label: 'Meniu',
-    icon: 'menu',
-    subTabs: [
-      { id: 'products', label: 'Produse' },
-      { id: 'categories', label: 'Categorii' },
-      { id: 'modificatori', label: 'Opțiuni produse', minTier: 2 },
-      { id: 'happy-hour', label: 'Promoții', adminOnly: true, minTier: 2 },
-    ],
-  },
-  {
-    id: 'comenzi',
-    label: 'Comenzi',
-    icon: 'orders',
-    minTier: 2,
-    subTabs: [{ id: 'comenzi', label: 'Comenzi' }],
-  },
-  {
-    id: 'mese-qr',
-    label: 'Mese & QR',
-    icon: 'table',
-    subTabs: [
-      { id: 'mese', label: 'Mese & QR-uri' },
-      // Rezervările stau aici (nu sub „Comenzi"): modulul e permis pe TOATE
-      // planurile (mig 086), iar grupul „Comenzi" are minTier 2 — l-ar ascunde
-      // greșit pe Plan 1. adminOnly: ospătarii au deja rezervările în WaiterPage.
-      { id: 'reservations', label: 'Rezervări', adminOnly: true, hiddenPickupOnly: true },
-      // Harta sălii (FloorPlanEditor) = feature `floor_plan` (pro/enterprise) — gate server mig 154.
-      // Aliniem tab-ul la Plan 3 ca să nu apară editabil pe Plan 2 (mismatch de etichetă).
-      { id: 'arhitectura', label: 'Hartă sală', minTier: 3, hiddenPickupOnly: true },
-    ],
-  },
-  {
-    id: 'rapoarte',
-    label: 'Rapoarte',
-    icon: 'chart',
-    adminOnly: true,
-    minTier: 2,
-    subTabs: [
-      { id: 'raport', label: 'Rapoarte' },
-      { id: 'analytics', label: 'Statistici', minTier: 3 },
-      { id: 'tva', label: 'TVA', minTier: 3, money: true },
-      { id: 'casa-tura', label: 'Încasări', minTier: 3, money: true },
-      // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
-      {
-        id: 'casa-marcat',
-        label: 'Casă & tichete',
-        labelWithoutFiscal: 'Imprimantă bucătărie',
-        minTier: 2,
-      },
-      { id: 'invoices', label: 'Facturi', minTier: 3, money: true },
-      // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
-      { id: 'gestiune', label: 'Stocuri', minTier: 2 },
-    ],
-  },
-  {
-    id: 'setari',
-    label: 'Setări',
-    icon: 'settings',
-    adminOnly: true,
-    subTabs: [
-      { id: 'settings', label: 'General' },
-      { id: 'ai', label: 'Asistent AI', minTier: 2 },
-      { id: 'echipa', label: 'Echipă', minTier: 2 },
-      { id: 'ture', label: 'Program echipă', minTier: 3 },
-      // „Consum AI (fondator)" a ieșit de aici: e un raport al PLATFORMEI, nu al
-      // restaurantului, și trăiește în /founder (FounderPage). În panoul unui
-      // client apărea ca sub-tab printre setările lui.
-    ],
-  },
-]
-
-function isSubTabVisible(
-  st: SubTab,
-  isAdmin: boolean,
-  tier: PlanTier,
-  moneyTierValue: PlanTier,
-  pickupOnly: boolean,
-): boolean {
-  if (st.adminOnly && !isAdmin) return false
-  if (st.minTier && (st.money ? moneyTierValue : tier) < st.minTier) return false
-  // Mod „doar ridicare" (food truck): mesele/rezervările nu au sens.
-  if (st.hiddenPickupOnly && pickupOnly) return false
-  return true
-}
+// Structura navigării (NAV_GROUPS, sub-tab-uri, `?tab=`) e în
+// lib/dashboardNav.ts — lotul R2: aceleași ecrane, fiecare într-un singur loc.
 
 // Fade subtil la schimbarea tab-ului. Keyed pe `tab` (remount) → useInView
 // pornește de la „ascuns" și revine instant când e în viewport. Safe pe
@@ -479,52 +345,33 @@ function TabFade({ children }: { children: React.ReactNode }) {
   )
 }
 
-// Hub-ul „Comenzi": carduri către fluxurile live — fără embed/refactor al
+// Comenzi → Live: intrările către ecranele live — fără embed/refactor al
 // paginilor /waiter și /kitchen (deliberat low-risk; embed real = etapă viitoare).
+// Lotul R2: „Comenzi live" și „Ospătar" deschideau ACELAȘI ecran (/waiter) —
+// acum e o singură intrare; „Rapoarte vânzări" dubla Rapoarte → Vânzări și a ieșit.
 function OrdersHub({
   onViewWaiter,
   onViewKitchen,
-  onHistory,
-  isAdmin,
   fiscal,
 }: {
   onViewWaiter: () => void
   onViewKitchen: () => void
-  onHistory: () => void
-  isAdmin: boolean
   // planSurface.fiscal: „plăți la masă" doar pe planul cu bon.
   fiscal: boolean
 }) {
-  const cards: { icon: IconName; title: string; desc: string; fn: () => void; external?: boolean }[] = [
-    { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter, external: true },
-    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen, external: true },
+  const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
     {
-      icon: 'users',
-      title: 'Ospătar',
-      desc: fiscal ? 'Preluare manuală + plăți la masă' : 'Preluare manuală a comenzilor',
+      icon: 'orders',
+      title: 'Ecranul ospătarului',
+      desc: fiscal
+        ? 'Comenzile deschise acum, pe mese — preluare manuală și plăți la masă'
+        : 'Comenzile deschise acum, pe mese — și preluare manuală',
       fn: onViewWaiter,
-      external: true,
     },
-    // Vizibil doar pentru admin (owner/manager): tab-ul „Rapoarte" e adminOnly,
-    // altfel cardul ar arunca staff-ul (ospătar/bucătărie) tăcut înapoi pe Acasă.
-    ...(isAdmin
-      ? [{ icon: 'history' as IconName, title: 'Rapoarte vânzări', desc: 'Ce s-a vândut, pe zile', fn: onHistory }]
-      : []),
+    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
-      <h1
-        style={{
-          fontFamily: 'Fraunces,serif',
-          fontSize: '1.5rem',
-          fontWeight: 600,
-          color: D.t1,
-          letterSpacing: '-0.02em',
-          marginBottom: 18,
-        }}
-      >
-        Comenzi
-      </h1>
       <div
         style={{
           display: 'grid',
@@ -548,21 +395,17 @@ function OrdersHub({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            {c.external && (
-              <div style={{ position: 'absolute', top: 18, right: 16, color: D.t3 }}>
-                <Icon name="chevronRight" size={16} />
-              </div>
-            )}
+            <div style={{ position: 'absolute', top: 18, right: 16, color: D.t3 }}>
+              <Icon name="chevronRight" size={16} />
+            </div>
             <div style={{ marginBottom: 10, color: D.gold }}><Icon name={c.icon} size={26} /></div>
             <div style={{ color: D.t1, fontSize: '0.95rem', fontWeight: 600, marginBottom: 4 }}>
               {c.title}
             </div>
             <div style={{ color: D.t2, fontSize: '0.78rem', lineHeight: 1.4 }}>{c.desc}</div>
-            {c.external && (
-              <div style={{ color: D.t3, fontSize: '0.68rem', lineHeight: 1.4, marginTop: 6 }}>
-                Se deschide un ecran nou
-              </div>
-            )}
+            <div style={{ color: D.t3, fontSize: '0.68rem', lineHeight: 1.4, marginTop: 6 }}>
+              Se deschide un ecran nou
+            </div>
           </button>
         ))}
       </div>
@@ -579,6 +422,8 @@ export default function DashboardPage({
   restaurants,
   restaurantsLoading,
   updateRestaurant,
+  navigate,
+  replaceUrl,
 }: {
   onViewMenu: (slug: string) => void
   onViewWaiter: () => void
@@ -588,6 +433,11 @@ export default function DashboardPage({
   restaurants: ReturnType<typeof useRestaurants>['restaurants']
   restaurantsLoading: ReturnType<typeof useRestaurants>['loading']
   updateRestaurant: ReturnType<typeof useRestaurants>['update']
+  // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
+  // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
+  navigate: (path: string) => void
+  // Corecția URL-ului fără intrare nouă în istoric (`?tab=` nepermis → Acasă).
+  replaceUrl: (path: string) => void
 }) {
   const { user } = useAuth()
   const { activeId, activeRole, setActive, founderViewId } = useRestaurantCtx()
@@ -610,14 +460,97 @@ export default function DashboardPage({
   const visitOrigin = inFounderView
     ? (getFounderViewOrigin(user?.id) ?? (isPartner ? 'afiliat' : 'founder'))
     : null
-  const [tab, setTab] = useState<Tab>(isPartner ? 'products' : 'home')
+  // Ecranul de pornire: partenerul intră pe Produse (Acasă citește comenzi și
+  // rapoarte, pe care politicile lui nu le acoperă).
+  const defaultTab: Tab = isPartner ? 'products' : 'home'
+  // Tab-ul stă în URL (`?tab=…`, lotul R2): restaurat la montare, actualizat la
+  // fiecare schimbare (push → Back revine la tab-ul precedent) și recitit pe
+  // `popstate`. `requestedTab` = ce a cerut omul (URL / click); tab-ul AFIȘAT
+  // (`tab`, mai jos) poate fi Acasă cât timp cel cerut nu e permis. Un `?tab=`
+  // necunoscut cade pe Acasă; unul nepermis se CORECTEAZĂ în URL doar pe un
+  // plan CUNOSCUT (efectul de mai jos) — cât planul se încarcă sau citirea lui
+  // a eșuat, doar se afișează Acasă, iar un „Reîncearcă" reușit readuce tab-ul.
+  const [requestedTab, setTabState] = useState<Tab>(
+    () => tabFromSearch(window.location.search) ?? defaultTab,
+  )
+  // Ultimele valori, pentru ascultătorul de `popstate` (montat o singură dată).
+  const shownTabRef = useRef<Tab>(requestedTab)
+  const navigateRef = useRef(navigate)
 
-  // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
-  // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
-  const contentScrollRef = useRef<HTMLDivElement>(null)
+  // Setările sunt UN formular împărțit pe sub-tab-uri: între ele formularul
+  // rămâne montat, dar ieșirea din Setări îl demontează — cu modificări
+  // nesalvate întrebăm întâi, la click ȘI la Back/Forward (recenzia #335).
+  const settingsDirtyRef = useRef(false)
+  // O singură confirmare deschisă: clicurile repetate cât e deschisă nu
+  // stivuiesc dialoguri (recenzia #335).
+  const confirmPendingRef = useRef(false)
+  // Stabil (useCallback): e dependența efectului din SettingsTab.
+  const setSettingsDirty = useCallback((dirty: boolean) => {
+    settingsDirtyRef.current = dirty
+  }, [])
+  const commitTab = (next: Tab) => {
+    setTabState(next)
+    const path = dashboardPathFor(next)
+    if (window.location.pathname + window.location.search !== path) navigateRef.current(path)
+  }
+  const leavesDirtySettings = (next: Tab) =>
+    settingsDirtyRef.current &&
+    settingsSectionOf(shownTabRef.current) != null &&
+    settingsSectionOf(next) == null
+  // Cere confirmarea ieșirii din Setări; `onLeave` rulează doar pe „Pleacă".
+  const confirmLeaveSettings = (onLeave: () => void) => {
+    if (confirmPendingRef.current) return
+    confirmPendingRef.current = true
+    void confirmDialog({
+      title: 'Ai modificări nesalvate în Setări',
+      description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
+      confirmLabel: 'Pleacă fără să salvezi',
+      cancelLabel: 'Rămân în Setări',
+      destructive: true,
+    })
+      .then((ok) => {
+        if (!ok) return
+        settingsDirtyRef.current = false
+        onLeave()
+      })
+      .finally(() => {
+        confirmPendingRef.current = false
+      })
+  }
+  const setTab = (next: Tab) => {
+    if (next === requestedTab && next === shownTabRef.current) return
+    if (leavesDirtySettings(next)) {
+      confirmLeaveSettings(() => commitTab(next))
+      return
+    }
+    commitTab(next)
+  }
+  // Ascultătorul de `popstate` citește ultima variantă a funcțiilor de mai sus.
+  const popHandlerRef = useRef<(next: Tab) => void>(() => {})
   useEffect(() => {
-    contentScrollRef.current?.scrollTo(0, 0)
-  }, [tab])
+    navigateRef.current = navigate
+    popHandlerRef.current = (next: Tab) => {
+      if (leavesDirtySettings(next)) {
+        // Browserul a mutat deja URL-ul: îl refacem pe tab-ul curent (Setările
+        // rămân montate), apoi întrebăm — la „Pleacă" mergem unde a cerut Back-ul.
+        navigateRef.current(dashboardPathFor(shownTabRef.current))
+        confirmLeaveSettings(() => commitTab(next))
+        return
+      }
+      setTabState(next)
+    }
+  })
+
+  // Back/Forward: tab-ul urmează URL-ul. Doar cât suntem pe /dashboard — la
+  // ieșirea din panou App demontează pagina oricum.
+  useEffect(() => {
+    const onPop = () => {
+      if (window.location.pathname !== '/dashboard') return
+      popHandlerRef.current(tabFromSearch(window.location.search) ?? defaultTab)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [defaultTab])
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   // Fiecare rol vede EXACT ce poate face (serverul refuză oricum restul):
@@ -642,8 +575,9 @@ export default function DashboardPage({
   // CTA-urile din emailurile de facturare (payment_failed/recovered, trial,
   // factură) trimit la /dashboard?tab=billing — fără efectul ăsta parametrul
   // era IGNORAT, iar userul (adesea unul cu plata picată) ateriza pe Acasă fără
-  // nicio direcție. Scroll + centrare pe cardul „Abonament & facturare"
-  // (HomeTab e lazy → poll scurt până apare elementul).
+  // nicio direcție. `billing` e un alias al sub-tab-ului Setări → Abonament &
+  // cont (lib/dashboardNav.ts, lotul R2); aici doar scroll + centrare pe cardul
+  // „Abonament & facturare" (SettingsTab e lazy → poll scurt până apare).
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('tab') !== 'billing') return
     let tries = 0
@@ -735,8 +669,8 @@ export default function DashboardPage({
   const { general: tier, money } = surfaceTiers(features.features)
   // CE VEDE planul în tab-uri (lib/planSurface.ts, lotul P): planurile
   // inferioare nu văd nimic din cele superioare. `tier`/`money` de mai sus
-  // rămân DOAR pentru filtrul NAV_GROUPS (minTier) — reorganizarea navigării
-  // e lotul R2. `null` = planul nu e cunoscut: nici funcția, nici upsell-ul.
+  // rămân DOAR pentru filtrul NAV_GROUPS (minTier, lib/dashboardNav.ts).
+  // `null` = planul nu e cunoscut: nici funcția, nici upsell-ul.
   const surface = planSurface(features.features)
   const fiscalSurface = surface?.fiscal === true
   // Upsell-ul unic de pe Acasă. Plata la masă și bonul există doar pentru un
@@ -757,32 +691,55 @@ export default function DashboardPage({
   const pickupOnly =
     pickupOnlyMode(restaurant?.pickup_settings, pickupFeatureState(features.features)) === 'on'
 
-  // Grupurile vizibile pe rol + tier + module (Gate D). Un grup fără niciun
-  // sub-tab vizibil dispare complet din sidebar.
-  const visibleGroups = NAV_GROUPS.map((g) => ({
-    ...g,
-    subTabs: g.subTabs
-      .filter(
-        (st) =>
-          isSubTabVisible(st, isAdminRole, tier, money, pickupOnly) &&
-          (!isPartner || isPartnerTab(st.id)),
-      )
-      .map((st) =>
-        st.labelWithoutFiscal && !fiscalSurface ? { ...st, label: st.labelWithoutFiscal } : st,
-      ),
-  })).filter(
-    (g) =>
-      (!g.adminOnly || isAdminRole) &&
-      (!g.minTier || tier >= g.minTier) &&
-      g.subTabs.length > 0,
-  )
-  const activeGroup = visibleGroups.find((g) => g.subTabs.some((st) => st.id === tab)) ?? null
-
-  // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) →
-  // înapoi Acasă.
+  // Grupurile vizibile pe rol + tier + module (Gate D), cu etichetele planului
+  // (lib/dashboardNav.ts). Un grup fără niciun sub-tab vizibil dispare complet.
+  const visibleGroups = visibleNavGroups({
+    isAdmin: isAdminRole,
+    tier,
+    money,
+    pickupOnly,
+    surface,
+    isPartnerTab: isPartner ? isPartnerTab : null,
+  })
+  const groupOf = (t: Tab) => visibleGroups.find((g) => g.subTabs.some((st) => st.id === t)) ?? null
+  const requestedGroup = groupOf(requestedTab)
+  // Tab-ul AFIȘAT: cel cerut, sau Acasă când cel cerut nu e permis și planul nu
+  // poate fi cunoscut (citirea a eșuat) — fără să rescriem URL-ul.
+  const tab: Tab =
+    requestedGroup == null && !planKnown && features.loadError ? defaultTab : requestedTab
+  const activeGroup = groupOf(tab)
+  // Titlul paginii = eticheta sub-tab-ului din NAV_GROUPS (lotul R2): o singură
+  // sursă, deci bara laterală, chip-ul și titlul nu mai pot spune nume diferite.
+  const activeSubTab = activeGroup?.subTabs.find((st) => st.id === tab) ?? null
+  // Sub-tab-ul curent e o secțiune a formularului de Setări?
+  const settingsSection = settingsSectionOf(tab)
+  // Grupul care găzduiește Rezervările (punctul de atenție din nav).
+  const reservationsGroupId =
+    visibleGroups.find((g) => g.subTabs.some((st) => st.id === 'reservations'))?.id ?? null
   useEffect(() => {
-    if (activeGroup == null) setTab(isPartner ? 'products' : 'home')
-  }, [activeGroup, isPartner])
+    shownTabRef.current = tab
+  }, [tab])
+
+  // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
+  // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo(0, 0)
+  }, [tab])
+
+  // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) sau
+  // cerut din URL dar nepermis → înapoi Acasă, cu URL-ul corectat (replace —
+  // Back nu are voie să reîntoarcă pe tab-ul refuzat). DOAR pe un plan
+  // CUNOSCUT: cu planul în încărcare filtrul e pe varianta restrictivă (un
+  // refresh pe „TVA" ar fi pierdut locul), iar pe o citire eșuată un URL rescris
+  // definitiv ar fi împiedicat „Reîncearcă" să readucă tab-ul (recenzia #335).
+  useEffect(() => {
+    if (requestedGroup != null || !planKnown) return
+    setTabState(defaultTab)
+    replaceUrl(dashboardPathFor(defaultTab))
+  }, [requestedGroup, planKnown, defaultTab, replaceUrl])
+  // Spinner doar cât planul se ÎNCARCĂ (nici cunoscut, nici eșuat).
+  const navReady = planKnown || features.loadError
 
   const { limits: planLimits } = usePlanLimits(plan)
   // Numărul de produse, TRISTATE: `null` = necunoscut (încă se citește sau
@@ -966,8 +923,28 @@ export default function DashboardPage({
           )}
           <div style={{ fontSize: '0.72rem', color: D.t3 }}>{restaurant.city}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 8 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: D.green }} />
-            <span style={{ fontSize: '0.68rem', color: D.green }}>Activ</span>
+            {/* Punctul spune doar ce ȘTIM: starea abonamentului nu ajunge în
+                client (nicio coloană citibilă), deci punctul urmează
+                `restaurants.is_active` — meniul public e pornit sau nu. Înainte
+                era „Activ" verde fix, pe orice stare (lotul R2). */}
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: restaurant.is_active ? D.green : D.t3,
+              }}
+            />
+            <span
+              style={{ fontSize: '0.68rem', color: restaurant.is_active ? D.green : D.t3 }}
+              title={
+                restaurant.is_active
+                  ? 'Meniul public e activ'
+                  : 'Meniul public e oprit — clienții nu îl pot deschide'
+              }
+            >
+              {restaurant.is_active ? 'Activ' : 'Inactiv'}
+            </span>
             {/* Numele planului doar când îl ȘTIM — nu „Demo gratuit" din fallback. */}
             {planKnown && (
               <span style={{ fontSize: '0.68rem', color: D.t3, marginLeft: 4 }}>
@@ -1013,10 +990,10 @@ export default function DashboardPage({
             >
               <Icon name={g.icon} size={18} />
               {g.label}
-              {/* Punct de atenție: rezervări pending nevăzute (grupul Mese & QR).
+              {/* Punct de atenție: rezervări pending nevăzute (grupul cu Rezervările).
                   Punctul e decorativ; textul ascuns vizual intră în numele
                   accesibil al butonului pentru screen-readers. */}
-              {g.id === 'mese-qr' && pendingReservations > 0 && (
+              {g.id === reservationsGroupId && pendingReservations > 0 && (
                 <>
                   <span
                     aria-hidden="true"
@@ -1360,8 +1337,26 @@ export default function DashboardPage({
                 height: '100%',
               }}
             >
-              <div style={{ textAlign: 'center', color: D.t2 }}>
-                Eroare la încărcarea restaurantului.
+              <div role="alert" style={{ textAlign: 'center', color: D.t2 }}>
+                <div style={{ marginBottom: 12 }}>Eroare la încărcarea restaurantului.</div>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="pressable"
+                  style={{
+                    background: D.gold,
+                    color: '#000',
+                    border: 'none',
+                    borderRadius: 9,
+                    padding: '9px 16px',
+                    minHeight: 40,
+                    fontFamily: 'DM Sans,sans-serif',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reîncearcă
+                </button>
               </div>
             </div>
           ) : (
@@ -1369,25 +1364,31 @@ export default function DashboardPage({
               {features.loadError && !planKnown && (
                 <PlanUnknownBanner onRetry={() => void features.reload()} />
               )}
-              {/* Sub-navigație internă a grupului activ (chips).
-                  Tab-ul activ e clar evidențiat (fundal gold + bordură).
-                  Numele grupului peste chips dă context ierarhic. */}
-              {activeGroup != null && activeGroup.subTabs.length > 1 && (
+              {/* Titlul paginii = eticheta sub-tab-ului din NAV_GROUPS (lotul R2):
+                  tab-urile nu-și mai scriu propriul titlu, iar rândul cu numele
+                  grupului de deasupra chip-urilor a ieșit (grupul e deja marcat
+                  în bara laterală). Sub titlu, sub-navigația grupului (chips). */}
+              {activeGroup != null && activeSubTab != null && (
                 <div style={{ marginBottom: 20 }}>
-                  <div
+                  <h1
                     style={{
                       fontFamily: 'Fraunces,serif',
-                      fontSize: '1.05rem',
+                      fontSize: '1.5rem',
+                      fontWeight: 600,
                       color: D.t1,
-                      letterSpacing: '-0.01em',
-                      marginBottom: 10,
+                      letterSpacing: '-0.02em',
+                      margin: 0,
+                      marginBottom: activeGroup.subTabs.length > 1 ? 12 : 0,
                     }}
                   >
-                    {activeGroup.label}
-                  </div>
-                  {/* Wrapper relativ pentru fade-ul de scroll orizontal */}
+                    {activeSubTab.label}
+                  </h1>
+                  {activeGroup.subTabs.length > 1 && (
+                  /* Wrapper relativ pentru fade-ul de scroll orizontal */
                   <div style={{ position: 'relative' }}>
                   <div
+                    role="group"
+                    aria-label={`Secțiuni ${activeGroup.label}`}
                     style={{
                       display: 'flex',
                       gap: 6,
@@ -1401,6 +1402,7 @@ export default function DashboardPage({
                         <button
                           key={st.id}
                           onClick={() => setTab(st.id)}
+                          aria-current={active ? 'page' : undefined}
                           className="pressable"
                           style={{
                             flexShrink: 0,
@@ -1459,15 +1461,21 @@ export default function DashboardPage({
                     }}
                   />
                   </div>
+                  )}
                 </div>
               )}
+              {/* Tab cerut din URL, încă nepermis cât planul se încarcă: așteptăm
+                  planul în loc să aruncăm omul pe Acasă (efectul `navReady`). */}
+              {activeGroup == null && !navReady && <InlineSpinner label="Se încarcă..." />}
               {/* Guard: dacă tab-ul curent nu mai aparține niciunui grup vizibil
                   (rol/tier scăzute în aceeași randare — reset-ul de mai sus
                   rulează abia după commit), NU montăm tab-ul vechi. Altfel un
                   tab admin-only apuca să se monteze o dată și să declanșeze
                   fetch-uri înainte de reset-ul spre 'home'. */}
               {activeGroup != null && (
-              <TabFade key={tab}>
+              // Sub-tab-urile formularului de Setări au aceeași cheie: formularul
+              // rămâne montat între ele, deci modificările nesalvate nu se pierd.
+              <TabFade key={settingsSection != null ? 'settings-form' : tab}>
               {tab === 'home' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
                   <HomeTab
@@ -1499,11 +1507,6 @@ export default function DashboardPage({
                 <OrdersHub
                   onViewWaiter={onViewWaiter}
                   onViewKitchen={onViewKitchen}
-                  // TODO: înlocuiește shortcut-ul către raportul agregat cu o
-                  // listă reală de istoric (ID, masă, oră, produse, status,
-                  // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
-                  onHistory={() => setTab('raport')}
-                  isAdmin={isAdminRole}
                   // „plăți la masă" = suprafață de bani (planSurface.fiscal).
                   fiscal={fiscalSurface}
                 />
@@ -1528,9 +1531,9 @@ export default function DashboardPage({
                     canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}
                     surface={surface}
-                    // Cotele TVA stau în Setări (secțiunea cu plăți); partenerul
+                    // Cotele TVA stau în Setări → Comenzi & plăți; partenerul
                     // n-are fila Setări.
-                    onOpenVatRates={isPartner ? undefined : () => setTab('settings')}
+                    onOpenVatRates={isPartner ? undefined : () => setTab('settings-orders')}
                   />
                 </Suspense>
               )}
@@ -1632,7 +1635,7 @@ export default function DashboardPage({
                     description="Clienții tăi vor putea rezerva o masă direct din meniul public, iar tu le confirmi și le gestionezi de aici. Activezi modulul dintr-un singur click, din Setări."
                     action={
                       <button
-                        onClick={() => setTab('settings')}
+                        onClick={() => setTab('settings-orders')}
                         className="pressable"
                         style={{
                           padding: '10px 20px',
@@ -1659,9 +1662,14 @@ export default function DashboardPage({
                   <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
                 </Suspense>
               )}
-              {tab === 'settings' && (
+              {settingsSection != null && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă setările..." />}>
                   <SettingsTab
+                    section={settingsSection}
+                    isOwner={isOwnerRole}
+                    onDirtyChange={setSettingsDirty}
+                    planLoadError={features.loadError && !planKnown}
+                    onRetryPlan={() => void features.reload()}
                     restaurant={restaurant}
                     onUpdate={update}
                     plan={plan}
@@ -1762,7 +1770,7 @@ export default function DashboardPage({
               <span style={{ position: 'relative', display: 'inline-flex' }}>
                 <Icon name={g.icon} size={20} />
                 {/* Punct de atenție pe mobil: rezervări pending nevăzute. */}
-                {g.id === 'mese-qr' && pendingReservations > 0 && (
+                {g.id === reservationsGroupId && pendingReservations > 0 && (
                   <>
                     <span
                       aria-hidden="true"

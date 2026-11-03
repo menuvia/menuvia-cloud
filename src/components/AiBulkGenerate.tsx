@@ -57,7 +57,7 @@ export default function AiBulkGenerate({
   restaurantId: string
   products: Product[]
   categories: Category[]
-  /** Limbile extra alese de restaurant (Setări → Limbi meniu). [] = fără traduceri. */
+  /** Limbile extra alese de restaurant (Setări → Aspect meniu → Limbi meniu). [] = fără traduceri. */
   menuLanguages?: string[]
   onClose: () => void
   onDone: () => void
@@ -338,7 +338,7 @@ export default function AiBulkGenerate({
                     <span style={{ color: D.t1, fontSize: '0.9rem' }}>Traduceri în {langs.length} {langs.length === 1 ? 'limbă' : 'limbi'} ({missingTr.length + missingTrCat.length} de tradus)</span>
                   </label>
                   <div style={{ fontSize: '0.72rem', color: D.t3, marginLeft: 28, marginTop: -6, marginBottom: 4 }}>
-                    Traduce numele + descrierea în limbile alese din Setări → Limbi meniu. Nu suprascrie traducerile editate manual.
+                    Traduce numele + descrierea în limbile alese din Setări → Aspect meniu → Limbi meniu. Nu suprascrie traducerile editate manual.
                   </div>
                 </>
               )}

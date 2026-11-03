@@ -28,6 +28,7 @@ import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { confirm as confirmDialog } from './ui/confirm'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -47,6 +48,7 @@ function ProductModal({
   canManageRecipes,
   showVat,
   showExtras,
+  onOpenVatRates,
 }: {
   product: Product | null
   categories: Category[]
@@ -69,6 +71,9 @@ function ProductModal({
   // și datele lor nici nu se cer.
   showVat: boolean
   showExtras: boolean
+  // Deschide Setări → Comenzi & plăți (cotele TVA) când cotele lipsesc sau
+  // n-au putut fi citite; partenerul n-are Setările, deci n-o primește.
+  onOpenVatRates?: () => void
 }) {
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
@@ -200,6 +205,25 @@ function ProductModal({
       ai_generated_fields: [],
     },
   )
+  // Instantaneul fișei la deschidere: ieșirea spre cotele TVA închide fișa, deci
+  // cu modificări cere confirmare (recenzia #335).
+  // Se reface după „Salvează și adaugă următorul”: fișa nouă pornește curată
+  // (recenzie CodeRabbit pe #335).
+  const [initialFormJson, setInitialFormJson] = useState(() => JSON.stringify(form))
+  async function openVatRatesFromForm() {
+    if (!onOpenVatRates) return
+    if (JSON.stringify(form) !== initialFormJson) {
+      const ok = await confirmDialog({
+        title: 'Închizi fișa produsului?',
+        description: 'Modificările din fișă nu sunt salvate și se pierd.',
+        confirmLabel: 'Închide fișa',
+        cancelLabel: 'Rămân în fișă',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    onOpenVatRates()
+  }
 
   // ── AI: generare imagine + nutriție ──────────────────────────
   // Câmpurile generate de AI sunt marcate în form.ai_generated_fields și
@@ -285,12 +309,28 @@ function ProductModal({
   }
   const [showOptional, setShowOptional] = useState(false)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
+  // Starea citirii cotelor (lotul R2): înainte o eroare sau o listă GOALĂ lăsau
+  // „Se încarcă cotele TVA..." pe ecran la nesfârșit, fără nicio ieșire.
+  const [vatLoad, setVatLoad] = useState<'loading' | 'error' | 'ready'>('loading')
+  const [vatReload, setVatReload] = useState(0)
   useEffect(() => {
     if (!showVat) return
+    let cancelled = false
+    setVatLoad('loading')
     void fetchVatRates(restaurantId)
-      .then(setVatRates)
-      .catch((err) => console.error('VAT rates load:', err))
-  }, [restaurantId, showVat])
+      .then((rates) => {
+        if (cancelled) return
+        setVatRates(rates)
+        setVatLoad('ready')
+      })
+      .catch((err) => {
+        console.error('VAT rates load:', err)
+        if (!cancelled) setVatLoad('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [restaurantId, showVat, vatReload])
   const [showUpsell, setShowUpsell] = useState(false)
   const [extras, setExtras] = useState<
     Array<{
@@ -490,7 +530,7 @@ function ProductModal({
         // TVA alese — produsul „următor" e aproape mereu din aceeași secțiune.
         // Obiect nou complet (nu merge peste prev): description/translations
         // dispar odată cu cheile lor.
-        setForm((prev) => ({
+        const next: typeof form = {
           name: '',
           price: 0,
           emoji: '🍽️',
@@ -502,14 +542,16 @@ function ProductModal({
           dietary_tags: [],
           prep_time_minutes: null,
           portion_size: null,
-          vat_group: prev.vat_group ?? 1,
-          category_id: prev.category_id,
+          vat_group: form.vat_group ?? 1,
+          category_id: form.category_id,
           calories: null,
           protein_g: null,
           carbs_g: null,
           fat_g: null,
           ai_generated_fields: [],
-        }))
+        }
+        setForm(next)
+        setInitialFormJson(JSON.stringify(next))
         setImgPreview(null)
         setAiAllergenSuggestions([])
         nameWrapRef.current?.querySelector('input')?.focus()
@@ -661,17 +703,60 @@ function ProductModal({
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
             Cotă TVA
           </label>
-          {vatRates.length === 0 ? (
+          {vatLoad !== 'ready' || vatRates.length === 0 ? (
             <div
+              role={vatLoad === 'loading' ? undefined : 'alert'}
               style={{
                 fontSize: '0.74rem',
                 color: D.t3,
                 padding: '10px 12px',
                 background: D.s3,
                 borderRadius: 7,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
               }}
             >
-              Se încarcă cotele TVA...
+              <span style={{ flex: '1 1 200px' }}>
+                {vatLoad === 'loading'
+                  ? 'Se încarcă cotele TVA...'
+                  : vatLoad === 'error'
+                    ? 'Nu am putut încărca cotele TVA.'
+                    : 'Nu există cote TVA configurate. Le setezi din Setări → Comenzi & plăți → Cote TVA.'}
+              </span>
+              {vatLoad === 'error' && (
+                <button
+                  type="button"
+                  onClick={() => setVatReload((n) => n + 1)}
+                  style={btn({
+                    height: 32,
+                    padding: '0 10px',
+                    fontSize: '0.74rem',
+                    background: 'transparent',
+                    color: D.gold,
+                    border: `1px solid ${D.gold}44`,
+                  })}
+                >
+                  Reîncearcă
+                </button>
+              )}
+              {vatLoad !== 'loading' && onOpenVatRates && (
+                <button
+                  type="button"
+                  onClick={() => void openVatRatesFromForm()}
+                  style={btn({
+                    height: 32,
+                    padding: '0 10px',
+                    fontSize: '0.74rem',
+                    background: 'transparent',
+                    color: D.gold,
+                    border: `1px solid ${D.gold}44`,
+                  })}
+                >
+                  Deschide cotele TVA
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -724,7 +809,7 @@ function ProductModal({
               <div style={{ fontSize: '0.7rem', color: D.t3, marginTop: 5, lineHeight: 1.5 }}>
                 {(() => {
                   const r = vatRates.find((r) => r.vat_group === (form.vat_group ?? 1))
-                  return r?.description ?? 'Configurabil în Setări → Cote TVA'
+                  return r?.description ?? 'Configurabil în Setări → Comenzi & plăți → Cote TVA'
                 })()}
               </div>
             </>
@@ -1694,7 +1779,7 @@ function ProductModal({
                     border: `1px dashed ${D.border}`,
                   }}
                 >
-                  ℹ️ <strong>Nu ai ingrediente în stoc încă.</strong> Mergi la tab-ul Stocuri →
+                  ℹ️ <strong>Nu ai ingrediente în stoc încă.</strong> Mergi la Meniu → Stocuri →
                   Ingrediente și adaugă-le pe cele folosite în acest produs.
                 </div>
               ) : (
@@ -2236,16 +2321,6 @@ export default function ProductsTab({
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: mob ? '1.25rem' : '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Produse
-          </h2>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
             {products.length} total · {products.filter((p) => p.is_active).length} active
           </p>
@@ -2855,6 +2930,15 @@ export default function ProductsTab({
           canManageRecipes={showRecipes}
           showVat={showVat}
           showExtras={showExtras}
+          // Ieșirea spre cote: închide fișa (nesalvată) și deschide Setările.
+          onOpenVatRates={
+            onOpenVatRates
+              ? () => {
+                  setModal(null)
+                  onOpenVatRates()
+                }
+              : undefined
+          }
         />
       )}
       {csvImportOpen && (

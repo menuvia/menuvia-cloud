@@ -61,7 +61,7 @@ export function pickupPlanName(): string {
 // Setări și în Mese (PY1), ca motivul să nu fie formulat în două feluri.
 const FLIPBOOK_NO_ORDERS =
   'pe stilul Flipbook pagina publică arată meniul ca pe o carte, fără coș, deci clienții ' +
-  'nu pot comanda pentru ridicare. Pentru comenzi, alege alt stil din Setări → Meniu & aspect.'
+  'nu pot comanda pentru ridicare. Pentru comenzi, alege alt stil din Setări → Aspect meniu.'
 
 /**
  * `pickup_orders` al restaurantului, tristate: `true`/`false` = CUNOSCUT,
@@ -204,6 +204,6 @@ export function pickupOnlyToggleDescription(feature: boolean | null): string {
   }
   return (
     'Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din dashboard. ' +
-    'QR-ul general din tab-ul Mese devine QR-ul tău principal.'
+    'QR-ul general din Mese & QR devine QR-ul tău principal.'
   )
 }

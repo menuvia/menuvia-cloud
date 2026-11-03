@@ -14,14 +14,15 @@ import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MfaCard from './MfaCard'
 import GdprCard from './GdprCard'
-import { AgentCard } from './_dashboard/AgentCard'
+import { SubscriptionCard } from './_dashboard/SubscriptionCard'
 import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
-import { btn, useToast, Toast, Inp, Toggle } from './_dashboard/sharedUI'
+import { btn, useToast, Toast, Inp, Toggle, AutoSaveHint } from './_dashboard/sharedUI'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon, type IconName } from './ui/Icon'
+import type { SettingsSection } from '../lib/dashboardNav'
 import { confirm } from './ui/confirm'
 import { browserSite, siteHost } from '../lib/domain'
 import { COUNTRIES, countrySettingVisible } from '../lib/countries'
@@ -61,43 +62,32 @@ const PICKUP_DEFAULTS: NonNullable<Restaurant['pickup_settings']> = {
   pickup_only: false,
 }
 
-// ── Secțiuni de setări — navigabile (ca la FounderPage), nu un scroll unic.
-// Fiecare secțiune grupează cardurile înrudite; randăm doar secțiunea activă
-// (mai puțin DOM montat = pagina se simte mai rapidă și mai clară). ──
-
-type SettingsSectionId = 'restaurant' | 'menu' | 'orders' | 'account'
-
-const SETTINGS_SECTIONS: { id: SettingsSectionId; label: string; icon: IconName }[] = [
-  { id: 'restaurant', label: 'Restaurant', icon: 'utensils' },
-  { id: 'menu', label: 'Meniu & aspect', icon: 'menu' },
-  { id: 'orders', label: 'Comenzi & plăți', icon: 'orders' },
-  { id: 'account', label: 'Cont', icon: 'settings' },
-]
-
-// Numele secțiunii „orders" pe ce ARE planul (lotul P): pe Planul 1 nu există
-// nici comenzi, nici plăți — secțiunea ține modulele meniului QR (rezervările);
-// pe Planul 2 există comenzi, dar plata rămâne pe casa existentă. Planul
-// necunoscut ia varianta cea mai restrictivă.
-function sectionLabel(id: SettingsSectionId, label: string, surface: PlanSurface | null): string {
-  if (id !== 'orders') return label
-  if (surface?.payments === true) return label
-  return surface?.ordering === true ? 'Comenzi' : 'Meniu QR'
-}
+// ── Secțiunile de setări sunt sub-tab-uri REALE ale panoului (lotul R2):
+// Restaurant / Aspect meniu / Comenzi & plăți / Abonament & cont stau în
+// NAV_GROUPS (lib/dashboardNav.ts), lângă Echipă, Casă și Asistent AI. Fostele
+// pastile interne au ieșit; numele secțiunii după plan („Meniu QR" / „Comenzi" /
+// „Comenzi & plăți", fost `sectionLabel`) e acum eticheta sub-tab-ului
+// (`subTabLabel`). Formularul rămâne UNUL: DashboardPage îl ține montat între
+// cele patru secțiuni, deci modificările nesalvate nu se pierd la trecere.
 
 // Card cu chrome consistent (surface + border + header cu icon/titlu/descriere).
 // Înlocuiește cele ~18 div-uri hand-rolled identice — un singur stil premium,
 // ușor de întreținut. `right` ține un buton sau un Toggle în antet.
+// `autoSave`: cardul se salvează la fiecare comutare (nu prin „Salvează") —
+// marcat discret, DOAR unde e adevărat (lotul R2).
 function SettingsCard({
   icon,
   title,
   desc,
   right,
+  autoSave = false,
   children,
 }: {
   icon?: IconName
   title: string
   desc?: ReactNode
   right?: ReactNode
+  autoSave?: boolean
   children?: ReactNode
 }) {
   return (
@@ -130,6 +120,7 @@ function SettingsCard({
         >
           {icon && <Icon name={icon} size={16} color={D.t2} />}
           {title}
+          {autoSave && <AutoSaveHint />}
         </div>
         {right}
       </div>
@@ -146,6 +137,11 @@ function SettingsCard({
 // ── SettingsTab — lifted from DashboardPage.tsx (identical behavior) ──
 
 export default function SettingsTab({
+  section,
+  isOwner = false,
+  onDirtyChange,
+  planLoadError = false,
+  onRetryPlan,
   restaurant,
   onUpdate,
   plan,
@@ -154,6 +150,18 @@ export default function SettingsTab({
   founderView = false,
   surface,
 }: {
+  // Secțiunea formularului = sub-tab-ul panoului (lib/dashboardNav.ts).
+  section: SettingsSection
+  // Abonamentul e pe contul PROPRIETARULUI (managerul n-are client Stripe, iar
+  // fondatorul în vizită nu e proprietar). Fail-closed: fără valoare, cardul nu apare.
+  isOwner?: boolean
+  // Formularul are modificări nesalvate — DashboardPage întreabă înainte să
+  // părăsească Setările (ieșirea demontează formularul).
+  onDirtyChange?: (dirty: boolean) => void
+  // Citirea planului a EȘUAT (nu doar „se încarcă"): „Plan curent" spune asta,
+  // cu „Reîncearcă", în loc de un „Se verifică…" fără sfârșit (recenzia #335).
+  planLoadError?: boolean
+  onRetryPlan?: () => void
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
   // Doar pentru eticheta „Plan curent" (Cont). Ce vede planul vine din
@@ -174,7 +182,6 @@ export default function SettingsTab({
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
   const isMobile = useIsMobile()
-  const [section, setSection] = useState<SettingsSectionId>('restaurant')
   const [form, setForm] = useState({ ...restaurant })
   const [saving, setSaving] = useState(false)
   const [uploadingCover, setUploadingCover] = useState(false)
@@ -401,6 +408,23 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
+  // Starea „nesalvat" urcă spre panou; la demontare formularul nu mai are
+  // nimic de pierdut.
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+    return () => onDirtyChange?.(false)
+  }, [dirty, onDirtyChange])
+  // Reîncărcarea / închiderea paginii cu formularul modificat cere confirmarea
+  // browserului (recenzia #335) — singura ieșire pe care panoul n-o vede.
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
   // Cardul de ridicare se montează DOAR pe `planSurface.pickup` (= `pickup_orders`
   // activ, lotul P), deci aici feature-ul e mereu CUNOSCUT și activ: comutatorul
   // e liber, iar textele (lib/pickupCopy.ts) primesc `true`. Stările vechi ale
@@ -420,97 +444,34 @@ export default function SettingsTab({
   return (
     <div>
       <Toast toasts={toasts} />
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 18,
-          flexWrap: 'wrap',
-          gap: 12,
-        }}
-      >
-        <div>
-          {/* h1 ca la celelalte taburi din dashboard (fiecare tab = o pagină cu un h1). */}
-          <h1
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              fontWeight: 600,
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Setări
-          </h1>
-          <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
-            Configurează restaurantul, meniul și comenzile — organizat pe secțiuni.
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
+      {/* Titlul paginii vine din panou (eticheta sub-tab-ului, lotul R2); aici
+          rămâne doar „Salvează" — pe secțiunile care au ce salva. Abonament &
+          cont are doar acțiuni cu salvare proprie (MFA, GDPR, portalul). */}
+      {section !== 'account' && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            marginBottom: 18,
+          }}
         >
-          {saving ? 'Se salvează...' : 'Salvează'}
-        </button>
-      </div>
-
-      {/* Navigare pe secțiuni — pastile scrollabile orizontal (pattern FounderPage).
-          Un click schimbă doar ce e vizibil; formularul rămâne același state, deci
-          nu pierzi modificări nesalvate când treci dintr-o secțiune în alta. */}
-      <div
-        role="tablist"
-        aria-label="Secțiuni setări"
-        style={{
-          display: 'flex',
-          gap: 8,
-          overflowX: 'auto',
-          paddingBottom: 4,
-          marginBottom: 20,
-        }}
-      >
-        {SETTINGS_SECTIONS.map((s) => {
-          const active = section === s.id
-          return (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setSection(s.id)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                padding: '9px 16px',
-                minHeight: 44,
-                borderRadius: 100,
-                border: `1px solid ${active ? D.gold + '55' : D.border}`,
-                background: active ? D.goldA : D.s2,
-                color: active ? D.goldL : D.t2,
-                fontSize: '0.82rem',
-                fontWeight: active ? 600 : 500,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                flexShrink: 0,
-              }}
-            >
-              <Icon name={s.icon} size={16} color={active ? D.goldL : D.t2} />
-              {sectionLabel(s.id, s.label, surface)}
-            </button>
-          )
-        })}
-      </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
+          >
+            {saving ? 'Se salvează...' : 'Salvează'}
+          </button>
+        </div>
+      )}
 
       {/* Conținutul secțiunii active — o singură coloană lizibilă (pattern premium
           de setări: mai ușor de scanat decât 2 coloane pe lat). */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14, maxWidth: 860 }}>
         {section === 'restaurant' && (
           <>
-            {/* Agentul tău Menuvia (mig 303) — doar când există un agent atribuit. */}
-            <AgentCard restaurantId={restaurant.id} />
-
+            {/* „Agentul tău Menuvia" (mig 303) stă pe Acasă — acolo trimite și
+                emailul cererii de acces; aici era a doua copie (lotul R2). */}
             <SettingsCard icon="info" title="Informații principale">
               {(
                 [
@@ -1677,6 +1638,8 @@ export default function SettingsTab({
               <SettingsCard
                 icon="sparkle"
                 title="Module opționale"
+                // Comutatorul scrie imediat (setModule), fără „Salvează".
+                autoSave
                 desc="Activează doar ce ai nevoie. Modulele dezactivate sunt blocate server-side — nici clienții, nici angajații nu pot crea date pe ele."
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -1703,8 +1666,8 @@ export default function SettingsTab({
                         Rezervări
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        Permite clienților să rezerve mese din meniul public. Vei avea tabul Rezervări
-                        în dashboard pentru gestionare.
+                        Permite clienților să rezerve mese din meniul public. Le confirmi și le
+                        gestionezi din panou, la Rezervări.
                       </div>
                     </div>
                     <Toggle
@@ -2024,13 +1987,38 @@ export default function SettingsTab({
 
         {section === 'account' && (
           <>
+            {/* Abonament & facturare (mutat de pe Acasă, lotul R2) — ORICE plan:
+                deschide Portalul Stripe, destinația CTA-urilor din emailurile de
+                facturare (`/dashboard?tab=billing` → aici, cu scroll pe id). Doar
+                PROPRIETARUL: managerul primea „gestionat de contul
+                proprietarului", adică o fundătură. */}
+            {isOwner && (
+              <div id="billing-card">
+                <SubscriptionCard />
+              </div>
+            )}
+
             <MfaCard />
 
             {/* Drepturile GDPR (Art. 15/17/20) — RPC-urile există din mig 042,
                 dar până la auditul din aug 2026 nu erau apelate de NICĂIERI. */}
             <GdprCard />
 
-            <SettingsCard icon="star" title="Plan curent">
+            <SettingsCard
+              icon="star"
+              title="Plan curent"
+              right={
+                surface == null && planLoadError && onRetryPlan ? (
+                  <button
+                    type="button"
+                    onClick={onRetryPlan}
+                    style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+                  >
+                    Reîncearcă
+                  </button>
+                ) : undefined
+              }
+            >
               <span
                 style={{
                   padding: '4px 10px',
@@ -2042,7 +2030,12 @@ export default function SettingsTab({
                   fontWeight: 600,
                 }}
               >
-                {PLAN_LABELS[plan] || plan}
+                {/* Planul necunoscut (`surface` null) nu se afișează ca „gratuit". */}
+                {surface != null
+                  ? PLAN_LABELS[plan] || plan
+                  : planLoadError
+                    ? 'Nu am putut verifica planul'
+                    : 'Se verifică…'}
               </span>
             </SettingsCard>
 

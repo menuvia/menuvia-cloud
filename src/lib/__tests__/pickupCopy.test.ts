@@ -349,7 +349,9 @@ describe('PK7: Setări și Mese spun același lucru', () => {
 // „Meniu & aspect”.
 const FLIPBOOK_WHY = /stilul Flipbook/
 const FLIPBOOK_NO_CART = /fără coș/
-const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Meniu & aspect/
+// Lotul R2: secțiunea „Meniu & aspect" a devenit sub-tab-ul Setări → Aspect meniu,
+// deci textul trimite acolo (o trimitere la un nume care nu mai există minte).
+const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Aspect meniu/
 
 describe('PY1: pe flipbook niciun text nu promite comenzi și spune de ce', () => {
   it('feature activ + flipbook: fără promisiune, cu motivul și ieșirea, în toate cele trei texte', () => {

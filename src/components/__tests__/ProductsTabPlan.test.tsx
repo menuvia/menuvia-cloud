@@ -18,14 +18,38 @@
 //   PT6  grupe mixte → fără notă. Mutația care pică: `every` înlocuit cu `some`.
 //   PT7  Planul 2, toate pe aceeași grupă → fără notă (nimic despre TVA sub
 //        Planul 3). Mutația care pică: nota fără garda `showVat`.
+//   PT8  lotul R2: citirea cotelor din fișa produsului EȘUEAZĂ → nu mai rămâne
+//        „Se încarcă cotele TVA..." la nesfârșit, ci „Nu am putut încărca
+//        cotele TVA." cu „Reîncearcă" (care chiar recitește și arată cotele) și
+//        ieșirea „Deschide cotele TVA" spre Setări → Comenzi & plăți (închide
+//        fișa). Mutația care pică: starea de eroare scoasă (spinnerul vechi
+//        `vatRates.length === 0`), sau „Reîncearcă" fără recitire.
+//   PT9  lista de cote e GOALĂ → mesajul „Nu există cote TVA configurate" cu
+//        trimiterea la Setări → Comenzi & plăți → Cote TVA, nu spinner.
+//        Control: cu cote, grila apare (PT3 + finalul lui PT8).
+//   PT8c recenzia #335: fișa MODIFICATĂ + „Deschide cotele TVA" → confirmare;
+//        la refuz fișa rămâne deschisă și Setările NU se deschid, la accept da.
+//        Control: PT8b (fișa neatinsă) iese direct, fără dialog. Mutația care
+//        pică: butonul legat direct la `onOpenVatRates`.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product } from '../../hooks/useData'
 
+const { dialog } = vi.hoisted(() => ({
+  dialog: { calls: 0, answer: false },
+}))
+vi.mock('../ui/confirm', () => ({
+  confirm: async () => {
+    dialog.calls += 1
+    return dialog.answer
+  },
+}))
+
 const { data, vat } = vi.hoisted(() => ({
   data: { products: [] as Product[] },
-  vat: { calls: 0 },
+  // `fail`: câte citiri următoare eșuează; `empty`: restaurant fără cote.
+  vat: { calls: 0, fail: 0, empty: false },
 }))
 
 vi.mock('../../hooks/useData', () => ({
@@ -53,6 +77,11 @@ vi.mock('../../hooks/usePlanLimits', () => ({
 vi.mock('../../lib/vat', () => ({
   fetchVatRates: async () => {
     vat.calls += 1
+    if (vat.fail > 0) {
+      vat.fail -= 1
+      throw new Error('boom')
+    }
+    if (vat.empty) return []
     return [
       {
         restaurant_id: 'rest-1',
@@ -136,7 +165,7 @@ function renderList(surface: PlanSurface | null, onOpenVatRates = vi.fn()) {
 const three = (groups: [number, number, number]) =>
   groups.map((g, i) => product({ id: `p${i}`, name: `Produs ${i}`, vat_group: g }))
 
-async function openNewProduct(surface: PlanSurface | null) {
+async function openNewProduct(surface: PlanSurface | null, onOpenVatRates?: () => void) {
   const user = userEvent.setup()
   render(
     <ProductsTab
@@ -149,6 +178,7 @@ async function openNewProduct(surface: PlanSurface | null) {
       canManageRecipes
       menuLanguages={[]}
       surface={surface}
+      onOpenVatRates={onOpenVatRates}
     />,
   )
   // Ancora: produsul e în listă (rândul există, deci absența badge-ului e reală).
@@ -165,6 +195,10 @@ async function openNewProduct(surface: PlanSurface | null) {
 beforeEach(() => {
   data.products = [product()]
   vat.calls = 0
+  vat.fail = 0
+  vat.empty = false
+  dialog.calls = 0
+  dialog.answer = false
 })
 
 describe('ProductsTab — fiecare plan vede doar ce are', () => {
@@ -238,5 +272,63 @@ describe('ProductsTab — nota „toate pe aceeași grupă TVA" (recenzia #334)'
     expect(screen.getByText('Produs 0')).toBeInTheDocument()
     expect(screen.queryByRole('note')).toBeNull()
     expect(document.body.textContent ?? '').not.toMatch(/\bTVA\b/)
+  })
+})
+
+describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nesfârșit (lotul R2)', () => {
+  it('PT8: citirea eșuează → eroare cu „Reîncearcă" și ieșire spre Setări', async () => {
+    // Prima citire = lista (badge-ul), a doua = fișa: ambele eșuează.
+    vat.fail = 2
+    const onOpen = vi.fn()
+    await openNewProduct(surfaceFor('pro'), onOpen)
+    expect(await screen.findByText('Nu am putut încărca cotele TVA.')).toBeInTheDocument()
+    expect(screen.queryByText('Se încarcă cotele TVA...')).toBeNull()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Reîncearcă' }))
+    // „Reîncearcă" chiar recitește: grila cotelor apare (control pozitiv).
+    expect(await screen.findByText('Mâncare')).toBeInTheDocument()
+    expect(screen.queryByText('Nu am putut încărca cotele TVA.')).toBeNull()
+    expect(vat.calls).toBeGreaterThanOrEqual(3)
+  })
+
+  it('PT8b: ieșirea „Deschide cotele TVA" închide fișa și deschide Setările', async () => {
+    vat.fail = 2
+    const onOpen = vi.fn()
+    await openNewProduct(surfaceFor('pro'), onOpen)
+    await screen.findByText('Nu am putut încărca cotele TVA.')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Salvează' })).toBeNull()
+    // Fișa neatinsă: fără dialog.
+    expect(dialog.calls).toBe(0)
+  })
+
+  it('PT8c: fișa modificată → confirmare înainte de a o închide', async () => {
+    vat.fail = 2
+    const onOpen = vi.fn()
+    await openNewProduct(surfaceFor('pro'), onOpen)
+    await screen.findByText('Nu am putut încărca cotele TVA.')
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
+    dialog.answer = false
+    await user.click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
+    expect(dialog.calls).toBe(1)
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+    dialog.answer = true
+    await user.click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
+    expect(dialog.calls).toBe(2)
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('PT9: fără cote configurate → mesaj cu trimiterea la Setări, nu spinner', async () => {
+    vat.empty = true
+    await openNewProduct(surfaceFor('pro'))
+    expect(
+      await screen.findByText(/Nu există cote TVA configurate\. Le setezi din Setări → Comenzi & plăți → Cote TVA\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Se încarcă cotele TVA...')).toBeNull()
+    // Fără `onOpenVatRates` (partenerul) nu există butonul de ieșire.
+    expect(screen.queryByRole('button', { name: 'Deschide cotele TVA' })).toBeNull()
   })
 })

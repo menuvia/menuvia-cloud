@@ -2,8 +2,8 @@
 // HomeTab — „Acasă": mission control-ul dashboard-ului (Val 2, DESIGN_SPEC).
 // Ierarhie: salut → cifrele zilei (Comenzi azi MARE) → setup ca progres
 // „X/Y pași" cu bară → scor meniu ca badge + sugestii → acțiuni rapide →
-// upsell-ul UNIC al planului (PlanUpsellCard, lângă abonament, doar pentru
-// proprietar). Ce vede fiecare plan vine din `planSurface` (lib/planSurface.ts);
+// upsell-ul UNIC al planului (PlanUpsellCard, doar pentru proprietar; cardul
+// de abonament e în Setări → Abonament & cont din lotul R2). Ce vede fiecare plan vine din `planSurface` (lib/planSurface.ts);
 // gating-ul real e server-side.
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
@@ -20,7 +20,6 @@ import {
 } from '../../lib/health'
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
-import { SubscriptionCard } from './SubscriptionCard'
 import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
 import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
@@ -62,9 +61,8 @@ interface Props {
   // necunoscut, Planul 2 în afara pieței fiscale). Se arată doar proprietarului.
   upsell: PlanUpsellTarget | null
   isAdmin: boolean
-  // Abonamentul e pe contul PROPRIETARULUI: managerul n-are client Stripe și
-  // primea în card un refuz („gestionat de contul proprietarului"), adică o
-  // fundătură. Fail-closed: fără valoare, cardul nu apare.
+  // Doar PROPRIETARUL vede upsell-ul: managerul n-are ce cumpăra (abonamentul
+  // e pe contul proprietarului). Fail-closed: fără valoare, oferta nu apare.
   isOwner?: boolean
   // `null` = necunoscut (citirea numărului de produse n-a reușit încă).
   productCount: number | null
@@ -488,20 +486,21 @@ export default function HomeTab({
 
   return (
     <div style={{ maxWidth: 1000, display: 'flex', flexDirection: 'column', gap: 18 }}>
-      {/* Header */}
+      {/* Salutul — sub titlul paginii („Acasă", din NAV_GROUPS, lotul R2), deci
+          un h2, nu al doilea h1. */}
       <RevealItem>
         <div>
-          <h1
+          <h2
             style={{
               fontFamily: displayFont,
-              fontSize: '1.7rem',
+              fontSize: '1.3rem',
               fontWeight: 600,
               color: D.t1,
               letterSpacing: '-0.02em',
             }}
           >
             Bun venit, {restaurantName}
-          </h1>
+          </h2>
           <p style={{ color: D.t2, fontSize: '0.82rem', marginTop: 5 }}>
             Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi.
           </p>
@@ -570,7 +569,7 @@ export default function HomeTab({
           ocolea: invitații de echipă pe Planul 1 (fila Echipă e Plan 2+, iar
           serverul refuză apoi acceptarea), mese în bulk peste plafon, produse
           demo publicate pe meniul real (ux-owner-quicksetup-duplicate). Presetul
-          de cote TVA — singura lui parte fără pas aici — e în Setări → Cote TVA. */}
+          de cote TVA — singura lui parte fără pas aici — e în Setări → Comenzi & plăți → Cote TVA. */}
       {isAdmin && planKnown && !setupComplete && (
         <RevealItem delay={120}>
         <div style={card}>
@@ -804,25 +803,14 @@ export default function HomeTab({
       </div>
       </RevealItem>
 
-      {/* Abonament & facturare — ORICE plan (tier ≥ 1 = toate). Deschide
-          Portalul Stripe: destinația reală a CTA-urilor din emailurile de
-          facturare/dunning. Starter e plan plătit (99 lei/lună) — gate-ul pe
-          tier ≥ 2 îl lăsa fără nicio cale în app de a-și schimba cardul, deci
-          CTA-ul „Actualizează metoda de plată" era dead-end (audit săpt. 10).
-          Rămâne și cu planul NECUNOSCUT: un patron cu plata picată (adesea exact
-          cel care ajunge aici din email) nu pierde calea spre card dintr-un
-          blip de citire a planului. */}
-      {isOwner && (
+      {/* Upsell-ul UNIC al panoului (lotul P), doar pentru PROPRIETAR (managerul
+          n-are ce cumpăra) și doar pe un plan CUNOSCUT cu o țintă — cu planul
+          necunoscut, un upsell către un plătitor ar fi minciuna din perf-staff-3.
+          Cardul „Abonament & facturare" de lângă el s-a mutat în Setări →
+          Abonament & cont (lotul R2); `/dashboard?tab=billing` duce acolo. */}
+      {isOwner && upsell != null && (
         <RevealItem delay={300}>
-          {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
-              scroll aici, vezi efectul din DashboardPage). */}
-          <div id="billing-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <SubscriptionCard />
-            {/* Upsell-ul UNIC al panoului, în zona de abonament (lotul P): doar
-                pe un plan CUNOSCUT cu o țintă — cu planul necunoscut, un upsell
-                către un plătitor ar fi exact minciuna din perf-staff-3. */}
-            {upsell != null && <PlanUpsellCard target={upsell} onSeePlan={onPricing} />}
-          </div>
+          <PlanUpsellCard target={upsell} onSeePlan={onPricing} />
         </RevealItem>
       )}
     </div>

@@ -761,16 +761,6 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   if (error)
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Rapoarte
-        </h2>
         <QueryError message={error} onRetry={load} />
       </div>
     )
@@ -789,16 +779,6 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Rapoarte
-          </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             {periodLabel(period, range.from, range.to)}
           </p>

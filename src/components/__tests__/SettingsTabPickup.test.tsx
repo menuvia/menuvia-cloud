@@ -10,7 +10,7 @@
 // de plan). Textele stărilor `locked`/`locked_on`/`unknown` rămân acoperite în
 // lib/pickupCopy (pickupCopy.test.ts), unde trăiesc. Secțiunea se numește
 // acum după plan (`sectionLabel`): „Meniu QR" fără comenzi, „Comenzi" pe
-// Planul 2, „Comenzi & plăți" pe Planul 3 — de aici `ORDERS_TAB`. Pe Planul 1 (fără `pickup_orders`) comutatorul pornea
+// Planul 2, „Comenzi & plăți" pe Planul 3 (din lotul R2 e eticheta sub-tab-ului, vezi mai jos). Pe Planul 1 (fără `pickup_orders`) comutatorul pornea
 // ridicarea pentru oaspeți, iar serverul (`enforce_ordering_enabled`, mig 083)
 // le respingea apoi FIECARE comandă. Din mig 309 pagina publică nici nu mai
 // arată ridicarea fără `pickup_orders`, deci textele cardului (lib/pickupCopy)
@@ -57,8 +57,18 @@
 //        de deasupra: UN singur loc spune asta, cu modul pornit (PZ4a) ȘI
 //        oprit (PS3, unde blocul modului e ancorat ca randat — altfel
 //        `getByText` unic ar fi trecut și cu blocul ascuns).
+//
+// Lotul R2 (nov 2026): secțiunile Setărilor sunt sub-tab-uri ale panoului
+// (NAV_GROUPS), nu pastile interne — SettingsTab primește `section` ca prop.
+// Testele deschid secțiunea direct; PZ3 trece de la „Aspect meniu" (fost
+// „Meniu & aspect") la „Comenzi & plăți" cu `rerender` pe ACEEAȘI instanță,
+// exact ca panoul, care ține formularul montat între secțiuni. Numele secțiunii
+// după plan („Meniu QR" / „Comenzi") nu mai e al lui SettingsTab, ci al
+// sub-tab-ului (`subTabLabel`, dashboardNav.test NV4) — aserțiunile pe numele
+// pastilei din PS1/PS2 s-au mutat acolo.
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { SettingsSection } from '../../lib/dashboardNav'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
 
@@ -73,7 +83,7 @@ vi.mock('../SmsNotificationsCard', () => ({ default: () => null }))
 vi.mock('../MfaCard', () => ({ default: () => null }))
 vi.mock('../GdprCard', () => ({ default: () => null }))
 vi.mock('../menu/MenuPreview', () => ({ default: () => null }))
-vi.mock('../_dashboard/AgentCard', () => ({ AgentCard: () => null }))
+vi.mock('../_dashboard/SubscriptionCard', () => ({ SubscriptionCard: () => null }))
 
 import SettingsTab from '../SettingsTab'
 import { surfaceFor } from '../../lib/__tests__/planSurfaceFixtures'
@@ -125,43 +135,40 @@ function makeRestaurant(over: Partial<Restaurant> = {}): Restaurant {
 }
 
 const SWITCH = 'Comenzi pentru ridicare'
-// Secțiunea „orders", pe orice nume îi dă planul (Meniu QR / Comenzi / Comenzi & plăți).
-const ORDERS_TAB = /Comenzi|Meniu QR/
 
-async function openOrders(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
-  const user = userEvent.setup()
-  render(
+function ui(section: SettingsSection, plan: DbPlan, restaurant: Restaurant, planKnown: boolean) {
+  return (
     <SettingsTab
+      section={section}
       restaurant={restaurant}
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
       onSignOut={() => {}}
       surface={planKnown ? surfaceFor(plan) : null}
-    />,
+    />
   )
-  await user.click(screen.getByRole('tab', { name: ORDERS_TAB }))
-  // Ancora: secțiunea e deschisă, deci absența cardului nu vine dintr-un tab greșit.
-  expect(screen.getByRole('tab', { name: ORDERS_TAB })).toHaveAttribute('aria-selected', 'true')
-  return user
+}
+
+async function openOrders(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
+  const user = userEvent.setup()
+  const { rerender } = render(ui('orders', plan, restaurant, planKnown))
+  // Ancora: e randată secțiunea „Comenzi & plăți" (formular, cu „Salvează"),
+  // nu alta — absența cardului nu vine dintr-o secțiune greșită.
+  expect(screen.getByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+  expect(screen.queryByText('Informații principale')).toBeNull()
+  expect(screen.queryByText('Previzualizare')).toBeNull()
+  // Trecerea între secțiuni pe ACEEAȘI instanță (ca în panou).
+  const show = (section: SettingsSection) => rerender(ui(section, plan, restaurant, planKnown))
+  return { user, show }
 }
 
 const FLIPBOOK: Restaurant['theme_settings'] = { preset_id: 'cafe', menu_layout: 'flipbook' }
 const FLIPBOOK_NOTE = /comanda din meniu nu e disponibilă pe acest stil/
 
 async function openMenuAspect(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
-  const user = userEvent.setup()
-  render(
-    <SettingsTab
-      restaurant={restaurant}
-      onUpdate={vi.fn(async () => ({ error: null }))}
-      plan={plan}
-      onSignOut={() => {}}
-      surface={planKnown ? surfaceFor(plan) : null}
-    />,
-  )
-  await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
-  // Ancora: secțiunea flipbook e randată, deci absența notei nu vine dintr-un
-  // tab greșit sau dintr-un stil nerecunoscut.
+  render(ui('menu', plan, restaurant, planKnown))
+  // Ancora: secțiunea flipbook e randată, deci absența notei nu vine dintr-o
+  // secțiune greșită sau dintr-un stil nerecunoscut.
   expect(screen.getByText(/Paginile meniului \(\d+\/\d+\)/)).toBeInTheDocument()
 }
 
@@ -171,15 +178,13 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
   // `surface?.pickup === true` scos de pe card în SettingsTab.
   it('PS1: pe un plan fără ridicare cardul nu apare deloc', async () => {
     await openOrders('starter', makeRestaurant())
-    expect(screen.getByRole('tab', { name: 'Meniu QR' })).toBeInTheDocument()
     expect(screen.queryByRole('switch', { name: SWITCH })).not.toBeInTheDocument()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
     expect(screen.queryByText(/ridicare/i)).not.toBeInTheDocument()
   })
 
   it('PS2: pe Meniu + Comenzi ridicarea pornește și arată opțiunile', async () => {
-    const user = await openOrders('growth', makeRestaurant())
-    expect(screen.getByRole('tab', { name: 'Comenzi' })).toBeInTheDocument()
+    const { user } = await openOrders('growth', makeRestaurant())
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeEnabled()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
@@ -238,7 +243,7 @@ describe('SettingsTab — nota flipbook despre comanda din meniu', () => {
 const PAGE = 'https://cdn.example.com/meniu-1.webp'
 const PROMISE = /clienții pot comanda/i
 const FLIPBOOK_WHY = /stilul Flipbook pagina publică arată meniul ca pe o carte, fără coș/
-const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Meniu & aspect/
+const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Aspect meniu/
 
 describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
   it('PZ1: plan cu ridicare + Flipbook cu pagini — fără promisiune, cu motivul', async () => {
@@ -265,7 +270,7 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
   })
 
   it('PZ3: stilul ales și NESALVAT schimbă deja descrierea', async () => {
-    const user = await openOrders(
+    const { user, show } = await openOrders(
       'growth',
       makeRestaurant({
         pickup_settings: PICKUP_ON,
@@ -274,7 +279,7 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
     )
     expect(screen.getByText(PROMISE)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
+    show('menu')
     const flipbook = screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })
     await user.click(flipbook)
     expect(screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })).toHaveAttribute(
@@ -282,7 +287,7 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
       'true',
     )
 
-    await user.click(screen.getByRole('tab', { name: ORDERS_TAB }))
+    show('orders')
     expect(screen.queryByText(PROMISE)).not.toBeInTheDocument()
     expect(screen.getByText(FLIPBOOK_WHY)).toBeInTheDocument()
   })

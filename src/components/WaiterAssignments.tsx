@@ -259,16 +259,6 @@ export default function WaiterAssignments({ restaurantId }: Props) {
   if (loading)
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Ture & Alocări
-        </h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Skeleton variant="card" count={2} />
         </div>
@@ -278,16 +268,6 @@ export default function WaiterAssignments({ restaurantId }: Props) {
   if (error)
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Ture & Alocări
-        </h2>
         <QueryError message={error} onRetry={load} />
       </div>
     )
@@ -296,16 +276,6 @@ export default function WaiterAssignments({ restaurantId }: Props) {
     <div>
       {/* Header */}
       <div style={{ marginBottom: 20 }}>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Ture & Alocări
-        </h2>
         <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
           Alocă mesele pe ospătari — fiecare ospătar vede pe telefon doar comenzile lui
         </p>
@@ -342,7 +312,7 @@ export default function WaiterAssignments({ restaurantId }: Props) {
           title="Niciun ospătar adăugat."
           description={
             <>
-              Adaugă membri din tab-ul <strong style={{ color: D.t1 }}>Echipă</strong>.
+              Adaugă membri din <strong style={{ color: D.t1 }}>Setări → Echipă</strong>.
             </>
           }
         />

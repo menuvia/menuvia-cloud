@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// AgentCard — „Agentul tău Menuvia" (mig 303). Pe Acasă și în Setări.
+// AgentCard — „Agentul tău Menuvia" (mig 303). Pe Acasă (din lotul R2 doar acolo).
 // ─────────────────────────────────────────────────────────────
 // Patronul își vede agentul atribuit și îi poate da acces la meniu dintr-un
 // singur loc, pe ORICE plan (înainte, aprobarea trăia în fila Echipă, care cere

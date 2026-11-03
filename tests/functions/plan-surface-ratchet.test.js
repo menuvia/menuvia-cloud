@@ -71,7 +71,7 @@ const ALLOWED = [
     file: 'src/pages/DashboardPage.tsx',
     contains: 'const { general: tier, money } = surfaceTiers(features.features)',
     reason:
-      'filtrul NAV_GROUPS (minTier/money pe sub-tab-uri) — reorganizarea navigării e lotul R2; tab-urile citesc planSurface',
+      'tier-urile filtrului NAV_GROUPS (minTier/money pe sub-tab-uri, lib/dashboardNav.ts — lotul R2); tab-urile citesc planSurface',
   },
   {
     file: 'src/components/LoyaltySettingsCard.tsx',

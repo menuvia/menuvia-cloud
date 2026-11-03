@@ -164,19 +164,6 @@ export default function VatReportTab({ restaurantId }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Header */}
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.6rem',
-            color: D.t1,
-            letterSpacing: '-0.02em',
-            margin: 0,
-            marginBottom: 4,
-            fontWeight: 600,
-          }}
-        >
-          Raport TVA
-        </h2>
         <div style={{ fontSize: '0.85rem', color: D.t2, lineHeight: 1.5 }}>
           Vânzări grupate pe cota TVA și zi. Export CSV pentru contabil.
         </div>

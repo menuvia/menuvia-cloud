@@ -148,19 +148,6 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
       {/* Header */}
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.6rem',
-            color: D.t1,
-            letterSpacing: '-0.02em',
-            margin: 0,
-            marginBottom: 4,
-            fontWeight: 600,
-          }}
-        >
-          Stocuri
-        </h2>
         <div style={{ fontSize: '0.85rem', color: D.t3, lineHeight: 1.5 }}>
           Stocuri, rețete, furnizori, profitabilitate.
         </div>

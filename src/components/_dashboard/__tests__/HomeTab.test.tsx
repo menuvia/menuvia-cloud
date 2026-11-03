@@ -22,11 +22,13 @@
 //        acțiunea „Suporturi QR fizice" (ux-owner-codvia-quick-action, D4)
 //        Mutația care pică: acțiunea randată necondiționat (codul vechi).
 //   HC2  control pozitiv: `true` → acțiunea apare și deschide magazinul
-//   HR1  MANAGERUL (admin, nu proprietar): fără cardul „Abonament & facturare"
-//        și fără upsell — abonamentul e pe contul proprietarului, deci cardul îi
-//        dădea doar „gestionat de contul proprietarului" (fundătură).
-//        Mutația care pică: `{isAdmin && (` înapoi pe card / pe upsell.
-//   HR2  control pozitiv: PROPRIETARUL vede cardul și upsell-ul (tier 1).
+//   HR1  MANAGERUL (admin, nu proprietar): fără upsell — n-are ce cumpăra.
+//        Mutația care pică: `{isAdmin && (` înapoi pe upsell.
+//   HR2  control pozitiv: PROPRIETARUL vede upsell-ul (tier 1). Lotul R2: cardul
+//        „Abonament & facturare" s-a MUTAT în Setări → Abonament & cont (ținut
+//        acolo de SettingsTabPlan SA1/SA2), deci pe Acasă nu mai apare pentru
+//        nimeni — HR2 cere acum ABSENȚA lui (o a doua copie ar fi exact
+//        dublura pe care lotul o scoate). Mutația care pică: cardul readus pe Acasă.
 //   HR3  personalul NE-admin: fără acțiunile de editare („Adaugă produs",
 //        „Generează QR-uri", „Suporturi QR fizice"); „Vezi meniul public"
 //        rămâne (control). Mutația care pică: acțiunile randate necondiționat.
@@ -270,7 +272,7 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
 })
 
 describe('HomeTab — fiecare rol vede doar ce poate face', () => {
-  it('HR1: managerul nu vede abonamentul și nici upsell-ul', async () => {
+  it('HR1: managerul nu vede upsell-ul', async () => {
     renderHome({ ...plan('starter'), isOwner: false })
     expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
     expect(screen.queryByText('card-abonament')).toBeNull()
@@ -279,10 +281,12 @@ describe('HomeTab — fiecare rol vede doar ce poate face', () => {
     expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
   })
 
-  it('HR2: control pozitiv — proprietarul vede cardul și upsell-ul', async () => {
+  it('HR2: control pozitiv — proprietarul vede upsell-ul; abonamentul e în Setări', async () => {
     renderHome({ ...plan('starter'), isOwner: true })
-    expect(await screen.findByText('card-abonament')).toBeInTheDocument()
+    expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
     expect(upsellRegion()).toBeInTheDocument()
+    expect(screen.queryByText('card-abonament')).toBeNull()
+    expect(document.getElementById('billing-card')).toBeNull()
   })
 
   it('HR3: personalul ne-admin nu primește acțiuni de editare', async () => {
@@ -327,8 +331,9 @@ describe('HomeTab — upsell-ul unic (lotul P)', () => {
     for (const p of ['pro', null] as const) {
       const { unmount } = renderHome(plan(p))
       expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
-      // Control: zona de abonament e acolo (proprietar), doar oferta lipsește.
-      expect(screen.getByText('card-abonament')).toBeInTheDocument()
+      // Cardul de abonament s-a mutat în Setări → Abonament & cont (lotul R2,
+      // #335); controlul pozitiv al ofertei pe același drum de randare e HU1.
+      expect(screen.queryByText('card-abonament')).toBeNull()
       expect(upsellRegion()).toBeNull()
       unmount()
     }
