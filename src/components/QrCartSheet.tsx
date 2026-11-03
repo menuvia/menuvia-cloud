@@ -232,6 +232,12 @@ export default function QrCartSheet({
   // oricum (product_sold_out), dar oaspetele trebuie să vadă CARE linie.
   const soldOutInCart = cart.filter((c) => productById.get(c.product_id)?.is_sold_out === true).length
   const canSubmit = cart.length > 0 && !submitting && soldOutInCart === 0
+  // O SINGURĂ cale de trimitere, cu aceeași gardă pentru CTA și pentru
+  // „Reîncearcă” din eroare: altfel reîncercarea trimitea un coș cu produs
+  // epuizat (sau a doua oară, în timpul trimiterii).
+  const submitIfAllowed = (): void => {
+    if (canSubmit) onSubmit(localNotes)
+  }
   // Accentul vine din Setări (7 culori) sau din temă: textul PESTE el și accentul
   // folosit ca TEXT trec AA prin calcul (alb fix pe auriu = 2,66:1).
   const onAccent = readableTextOn(accent, PUB.text)
@@ -852,8 +858,9 @@ export default function QrCartSheet({
             </div>
             <button
               type="button"
-              onClick={() => onSubmit(localNotes)}
-              className="pressable"
+              disabled={!canSubmit}
+              onClick={submitIfAllowed}
+              className={canSubmit ? 'pressable' : ''}
               style={{
                 background: 'transparent',
                 border: `1px solid ${errorInk}`,
@@ -862,7 +869,8 @@ export default function QrCartSheet({
                 padding: '6px 16px',
                 fontSize: 13,
                 fontWeight: 600,
-                cursor: 'pointer',
+                cursor: canSubmit ? 'pointer' : 'not-allowed',
+                opacity: canSubmit ? 1 : 0.5,
                 fontFamily: 'inherit',
               }}
             >
@@ -875,7 +883,7 @@ export default function QrCartSheet({
         <button
           type="button"
           disabled={!canSubmit}
-          onClick={() => onSubmit(localNotes)}
+          onClick={submitIfAllowed}
           className={canSubmit ? 'pressable' : ''}
           style={{
             // Coș gol / trimitere în curs → stare dezactivată clară (surface +

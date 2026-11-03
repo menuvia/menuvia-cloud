@@ -14,6 +14,7 @@ import {
   type CartItem,
 } from '../lib/orders'
 import { fetchMenuForRestaurant, type Category, type Product } from '../lib/qr'
+import { createLatestGate } from '../lib/menuRefresh'
 import { D } from '../lib/constants'
 import ModifierSheet from './ModifierSheet'
 
@@ -79,14 +80,45 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   // timp → RPC respinge cu mesaj de redeschidere.
   const [baselineTotal, setBaselineTotal] = useState<number>(order.total)
 
+  // Doar cel mai nou fetch al meniului scrie starea (încărcarea inițială și
+  // reîmprospătarea de la deschiderea selectorului pot fi suprapuse).
+  const menuGateRef = useRef(createLatestGate())
+
   useEffect(() => {
+    const isLatest = menuGateRef.current.begin()
     fetchMenuForRestaurant(order.restaurant_id)
       .then((cats) => {
+        if (!isLatest()) return
         setCategories(cats)
         setActiveCatId(cats[0]?.id ?? null)
       })
-      .catch(() => setLoadError('Nu s-a putut încărca meniul'))
+      .catch(() => {
+        if (isLatest()) setLoadError('Nu s-a putut încărca meniul')
+      })
   }, [order.restaurant_id])
+
+  // mig 313: disponibilitatea se schimbă cât editorul stă deschis (un produs
+  // epuizat e deblocat de personal, sau invers). La FIECARE deschidere a
+  // selectorului meniul se reface — doar catalogul: coșul și editările
+  // nesalvate stau în `cart`, neatinse; categoria aleasă rămâne dacă există
+  // încă. Un eșec lasă catalogul de dinainte (serverul respinge oricum un
+  // produs epuizat cu product_sold_out).
+  function openPicker(): void {
+    setShowPicker(true)
+    const isLatest = menuGateRef.current.begin()
+    fetchMenuForRestaurant(order.restaurant_id)
+      .then((cats) => {
+        if (!isLatest()) return
+        setCategories(cats)
+        setLoadError(null)
+        setActiveCatId((prev) =>
+          prev != null && cats.some((c) => c.id === prev) ? prev : (cats[0]?.id ?? null),
+        )
+      })
+      .catch(() => {
+        /* catalogul de dinainte rămâne */
+      })
+  }
 
   // Refetch starea curentă a comenzii la deschidere — reduce fereastra de
   // lost-update (alt ospătar a adăugat ceva între render și deschidere).
@@ -371,7 +403,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           )}
 
           <button
-            onClick={() => setShowPicker(true)}
+            onClick={openPicker}
             disabled={categories.length === 0}
             style={{
               marginTop: 16,

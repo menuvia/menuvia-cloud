@@ -11,6 +11,12 @@
 //        Mutația care pică: `null` tratat ca schimbare, sau filtrul
 //        `visibilityState === 'visible'` scos.
 //   MV3  la demontare ascultătorul e scos (nicio sondă după unmount).
+//   MV4  refetch PICAT (`onChanged` → false) lasă baza veche: aceeași versiune
+//        nouă, la următoarea revenire, reface din nou meniul; după un refetch
+//        reușit, nu mai. Mutația care pică: baza mutată necondiționat
+//        (`baseline = next` înainte/independent de rezultatul refetch-ului).
+//   MV5  un `onChanged` care ARUNCĂ e tratat ca eșec (baza rămâne), fără
+//        respingere netratată.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 
@@ -47,7 +53,7 @@ beforeEach(() => {
 
 describe('useMenuVersionRefetch', () => {
   it('MV1 aceeași versiune → nimic; versiune nouă → un singur refetch', async () => {
-    const onChanged = vi.fn()
+    const onChanged = vi.fn().mockResolvedValue(true)
     m.fetchVersion.mockResolvedValue('v1')
     renderHook(() => useMenuVersionRefetch('r1', onChanged))
     await act(async () => {
@@ -68,7 +74,7 @@ describe('useMenuVersionRefetch', () => {
   })
 
   it('MV2 sonda picată nu reface; tab ascuns nu întreabă', async () => {
-    const onChanged = vi.fn()
+    const onChanged = vi.fn().mockResolvedValue(true)
     m.fetchVersion.mockResolvedValue('v1')
     renderHook(() => useMenuVersionRefetch('r1', onChanged))
     await act(async () => {
@@ -94,5 +100,43 @@ describe('useMenuVersionRefetch', () => {
     const calls = m.fetchVersion.mock.calls.length
     await returnToTab()
     expect(m.fetchVersion).toHaveBeenCalledTimes(calls)
+  })
+})
+
+describe('useMenuVersionRefetch — baza se mută doar pe refetch reușit', () => {
+  it('MV4 refetch picat → aceeași versiune reface din nou; după succes, nu', async () => {
+    const onChanged = vi.fn().mockResolvedValue(false)
+    m.fetchVersion.mockResolvedValue('v1')
+    renderHook(() => useMenuVersionRefetch('r1', onChanged))
+    await act(async () => {
+      await flush()
+    })
+
+    m.fetchVersion.mockResolvedValue('v2')
+    await returnToTab()
+    expect(onChanged).toHaveBeenCalledTimes(1)
+
+    // Același v2: refetch-ul anterior a picat, deci se reîncearcă.
+    onChanged.mockResolvedValue(true)
+    await returnToTab()
+    expect(onChanged).toHaveBeenCalledTimes(2)
+
+    // Acum baza e v2 → nicio reîncercare.
+    await returnToTab()
+    expect(onChanged).toHaveBeenCalledTimes(2)
+  })
+
+  it('MV5 onChanged care aruncă = eșec: baza rămâne', async () => {
+    const onChanged = vi.fn().mockRejectedValue(new Error('rețea'))
+    m.fetchVersion.mockResolvedValue('v1')
+    renderHook(() => useMenuVersionRefetch('r1', onChanged))
+    await act(async () => {
+      await flush()
+    })
+
+    m.fetchVersion.mockResolvedValue('v2')
+    await returnToTab()
+    await returnToTab()
+    expect(onChanged).toHaveBeenCalledTimes(2)
   })
 })

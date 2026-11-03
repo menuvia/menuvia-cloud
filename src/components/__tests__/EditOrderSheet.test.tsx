@@ -3,6 +3,7 @@
 //   - refetch-ul la deschidere actualizează baseline-ul, dar NU suprascrie
 //     un coș deja editat (dirtyRef)
 //   - guard-uri: coș gol / produs orfan → save blocat, RPC neapelat
+//   - EO1/EO2: deschiderea selectorului reface disponibilitatea (mig 313)
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -185,6 +186,51 @@ describe('EditOrderSheet — editarea comenzii (bani + optimistic lock)', () => 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/fără conexiune/i)
     expect(alert).not.toHaveTextContent(/load failed/i)
+  })
+
+  // mig 313 / recenzie CodeRabbit pe #338: deschiderea selectorului reface
+  // disponibilitatea, fără să atingă coșul editat. Mutația care pică (EO1):
+  // `onClick={() => setShowPicker(true)}` fără refetch → produsul deblocat
+  // rămâne dezactivat; EO2 pică dacă refetch-ul resetează coșul.
+  it('EO1 produs deblocat după deschiderea editorului devine selectabil; coșul editat rămâne', async () => {
+    const user = userEvent.setup()
+    const soldOut = makeProduct({ id: 'p2', name: 'Plăcintă', price: 8, is_sold_out: true })
+    const unlocked = makeProduct({ id: 'p2', name: 'Plăcintă', price: 8, is_sold_out: false })
+    const ciorba = makeProduct({ id: 'p1', name: 'Ciorbă' })
+    fetchMenuMock
+      .mockResolvedValueOnce([makeCategory({ id: 'c1', name: 'Supe', products: [ciorba, soldOut] })])
+      .mockResolvedValue([makeCategory({ id: 'c1', name: 'Supe', products: [ciorba, unlocked] })])
+
+    render(<EditOrderSheet order={baseOrder()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    // Așteaptă refetch-ul comenzii ÎNAINTE de editare (altfel dirty guard-ul
+    // e cel care ar păstra coșul, nu selectorul).
+    await waitFor(() => expect(fetchOrderByIdMock).toHaveBeenCalled())
+    const addBtn = await screen.findByRole('button', { name: /adaugă produs/i })
+    await waitFor(() => expect(addBtn).toBeEnabled())
+
+    // Editare nesalvată: qty 2 → 3.
+    await user.click(screen.getByRole('button', { name: '+' }))
+    expect(screen.getByText('3')).toBeInTheDocument()
+
+    await user.click(addBtn)
+    const placinta = await screen.findByRole('button', { name: /plăcintă/i })
+    await waitFor(() => expect(placinta).toBeEnabled())
+    expect(fetchMenuMock).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('3')).toBeInTheDocument()
+  })
+
+  it('EO2 refetch-ul picat la deschiderea selectorului lasă catalogul vechi', async () => {
+    const user = userEvent.setup()
+    fetchMenuMock.mockResolvedValueOnce(MENU).mockRejectedValue(new Error('Load failed'))
+
+    render(<EditOrderSheet order={baseOrder()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    const addBtn = await screen.findByRole('button', { name: /adaugă produs/i })
+    await waitFor(() => expect(addBtn).toBeEnabled())
+    await user.click(addBtn)
+
+    await waitFor(() => expect(fetchMenuMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('button', { name: /ciorbă/i })).toBeEnabled()
+    expect(screen.queryByText(/nu s-a putut încărca meniul/i)).not.toBeInTheDocument()
   })
 
   it('coșul golit complet blochează salvarea (anularea are alt buton)', async () => {
