@@ -24,6 +24,8 @@ export function BlurImage({
   aspectRatio,
   skeleton = false,
   loading = 'lazy',
+  width,
+  height,
 }: {
   src: string
   /** URL de rezervă încercat O dată la eroarea lui `src` (ex. originalul
@@ -37,12 +39,23 @@ export function BlurImage({
   /** afișează un fundal skeleton cât timp imaginea se încarcă */
   skeleton?: boolean
   loading?: 'lazy' | 'eager'
+  /** Dimensiunile INTRINSECI (atributele HTML `width`/`height`): browserul
+   *  rezervă locul înainte să sosească imaginea, chiar și unde `aspect-ratio`
+   *  din CSS nu e suportat. Stilul (`width: 100%`) rămâne cel care decide
+   *  mărimea afișată. */
+  width?: number
+  height?: number
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
   const [useFallback, setUseFallback] = useState(false)
 
-  const effectiveSrc = useFallback && fallbackSrc ? fallbackSrc : src
+  // Un fallback identic cu sursa nu e un fallback: eroarea n-ar mai schimba
+  // URL-ul, deci imaginea ar rămâne pe skeleton în loc să cadă pe monogramă
+  // (recenzie CodeRabbit pe #340 — `thumbUrlFor` întoarce null pentru imaginile
+  // fără thumb, iar apelanții trimit atunci originalul în ambele câmpuri).
+  const distinctFallback = fallbackSrc && fallbackSrc !== src ? fallbackSrc : undefined
+  const effectiveSrc = useFallback && distinctFallback ? distinctFallback : src
 
   // Fallback pe imagine eșuată: fundal neutru + inițiala din alt (monogramă).
   // Nu avem tema aici (componenta e generică), deci folosim un gri translucid
@@ -76,6 +89,8 @@ export function BlurImage({
       alt={alt}
       loading={loading}
       decoding="async"
+      width={width}
+      height={height}
       className={className ? `blur-up ${className}` : 'blur-up'}
       // Imaginile din cache pot fi deja `complete` la montare (fără event
       // `load`) — ref callback-ul le marchează imediat ca încărcate. `complete`
@@ -95,7 +110,7 @@ export function BlurImage({
       // (altfel ar rămâne vizibilă iconița „broken image" a browserului).
       onError={() => {
         // Întâi fallback-ul (o singură dată), abia apoi monograma de eșec.
-        if (fallbackSrc && !useFallback) {
+        if (distinctFallback && !useFallback) {
           setUseFallback(true)
           return
         }

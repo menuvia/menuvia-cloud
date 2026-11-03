@@ -1499,6 +1499,17 @@ export const GUEST_STRINGS = {
     hu: 'Allergének',
     es: 'Alérgenos',
   },
+  // Lista de alergeni de pe card (pictograme): numele întreg pentru cititorul
+  // de ecran și pentru tooltip.
+  allergens_list_aria: {
+    ro: 'Alergeni: {list}',
+    en: 'Allergens: {list}',
+    de: 'Allergene: {list}',
+    fr: 'Allergènes : {list}',
+    it: 'Allergeni: {list}',
+    hu: 'Allergének: {list}',
+    es: 'Alérgenos: {list}',
+  },
   illustrative_image: {
     ro: 'Imagine ilustrativă',
     en: 'Illustrative image',
