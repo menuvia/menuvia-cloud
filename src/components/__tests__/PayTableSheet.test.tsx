@@ -19,24 +19,38 @@
 //       polling-ul și ajunge la „Plătit” când serverul confirmă
 //       Mutația care pică: termenul scos (polling la nesfârșit) sau
 //       `timeout` tratat ca plătit.
-//   T4  `failed` persistent în DB → mesaj de eroare (după grația pentru un
-//       retry de card pe același intent), fără „Plătit”; în grație nu se
-//       declară eșecul
+//   T4  `failed` persistent în DB FĂRĂ succes raportat de browser (reluare
+//       fără `redirect_status` reușit) → mesaj de eroare după grație, fără
+//       „Plătit”; în grație nu se declară eșecul
 //       Mutația care pică: `failed` tratat ca ne-terminal (ajunge la
 //       pending_confirmation) sau terminal imediat (grația scoasă).
+//   T6  primul card refuzat (`failed` în DB), al doilea reușește în browser,
+//       webhook-ul de succes întârzie PESTE grație → tot „Plătit”, niciodată
+//       „Plata a eșuat”; cu `failed` până la termen → „în curs de confirmare”
+//       Mutația care pică: `startServerConfirmation` fără statusul browserului.
+//   T7  sessionStorage care ARUNCĂ (Safari cu cookie-urile blocate) → „Plătit”
+//       apare și `onPaid` e chemat
+//       Mutația care pică: `sessionStorage.removeItem` direct (fără safeRemove).
+//   T8  o cerere de status care nu se întoarce niciodată → la termen
+//       „în curs de confirmare”, iar sheet-ul se poate închide
+//       Mutația care pică: paznicul pe ceas real scos din polling.
 //   T5  unmount-ul oprește polling-ul: nicio interogare după demontare
 //       Mutația care pică: efectul de cleanup cu `stopPollRef` scos.
 //   W2  reluarea din return_url (`resume`): nu se creează nicio plată nouă,
 //       se interoghează serverul pe sesiunea/referința din URL → „Plătit”;
 //       cu `redirectFailed` → eroare imediată, fără interogări
 //       Mutația care pică: ramura `resume` scoasă din efectul de init.
+//   W5  reluare split cu redirect eșuat: felul îl spune serverul, iar
+//       închiderea eliberează claims-urile (cancel pe plata din URL)
+//       Mutația care pică: condiția de eliberare pe `claims.length`.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
 import { T } from '../../lib/publicMenuStrings'
-import type { TablePaymentPublicStatus } from '../../lib/payments'
+import type { TablePaymentPublicKind, TablePaymentPublicStatus } from '../../lib/payments'
 
 const mocks = vi.hoisted(() => ({
   status: [] as TablePaymentPublicStatus[],
+  kind: 'table' as TablePaymentPublicKind,
   fetchStatus: vi.fn(),
   createTablePayment: vi.fn(),
   cancelTablePayment: vi.fn(),
@@ -71,13 +85,21 @@ const PAYMENT = '22222222-2222-4222-8222-222222222222'
 
 const PAID = T('ro', 'pt_done')
 
-/** Statusurile serverului, în ordine; ultimul se repetă. */
+/** Statusurile serverului, în ordine; ultimul se repetă. Felul: `mocks.kind`. */
 function serverSays(...seq: TablePaymentPublicStatus[]): void {
   mocks.status = seq
   mocks.fetchStatus.mockImplementation(() => {
     const s = mocks.status.length > 1 ? mocks.status.shift() : mocks.status[0]
-    return Promise.resolve(s ?? 'unknown')
+    return Promise.resolve(s == null ? { status: 'unknown', kind: 'unknown' } : { status: s, kind: mocks.kind })
   })
+}
+
+/** Serverul spune `failed` până la `untilMs` (ceas fals), apoi `succeeded`. */
+function serverFailedUntil(untilMs: number): void {
+  const start = Date.now()
+  mocks.fetchStatus.mockImplementation(() =>
+    Promise.resolve({ status: Date.now() - start < untilMs ? 'failed' : 'succeeded', kind: mocks.kind }),
+  )
 }
 
 async function flush(ms = 0): Promise<void> {
@@ -117,6 +139,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   sessionStorage.clear()
   mocks.fetchStatus.mockReset()
+  mocks.kind = 'table'
   mocks.createTablePayment.mockReset().mockResolvedValue({
     payment_id: PAYMENT,
     client_secret: 'pi_x_secret_y',
@@ -131,6 +154,7 @@ beforeEach(() => {
   })
 })
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.useRealTimers()
 })
 
@@ -151,11 +175,13 @@ describe('PayTableSheet — „Plătit” doar după server', () => {
     await flush(10_000)
     expect(screen.getByText(PAID)).toBeInTheDocument()
     expect(onPaid).toHaveBeenCalledTimes(1)
+    // Felul plății vine de la SERVER, nu din URL.
+    expect(onPaid).toHaveBeenCalledWith('table')
     expect(mocks.fetchStatus).toHaveBeenCalledWith(TOKEN, SESSION, PAYMENT)
     const returnUrl = new URL(mocks.confirmPayment.mock.calls[0][0].confirmParams.return_url)
     expect(returnUrl.searchParams.get('tp')).toBe(PAYMENT)
     expect(returnUrl.searchParams.get('tps')).toBe(SESSION)
-    expect(returnUrl.searchParams.get('tpk')).toBe('table')
+    expect(returnUrl.searchParams.has('tpk')).toBe(false)
     // Oprit după rezultat: nicio interogare în plus.
     const n = mocks.fetchStatus.mock.calls.length
     await flush(30_000)
@@ -178,9 +204,11 @@ describe('PayTableSheet — „Plătit” doar după server', () => {
     expect(onPaid).toHaveBeenCalledTimes(1)
   })
 
-  it('T4 failed persistent → eroare, fără „Plătit”; în grație nu se declară eșecul', async () => {
+  it('T4 failed persistent fără succes în browser → eroare după grație, fără „Plătit”', async () => {
     serverSays('failed')
-    const { onPaid } = await payWithStripeSucceeded()
+    const { onPaid } = renderSheet({
+      resume: { paymentRef: PAYMENT, redirectFailed: false, browserStatus: null },
+    })
     await flush(3_000)
     expect(screen.queryByText(T('ro', 'pt_server_failed'))).toBeNull()
     expect(screen.getByText(T('ro', 'pt_confirming_server'))).toBeInTheDocument()
@@ -188,6 +216,68 @@ describe('PayTableSheet — „Plătit” doar după server', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(T('ro', 'pt_server_failed'))
     expect(screen.queryByText(PAID)).toBeNull()
     expect(onPaid).not.toHaveBeenCalled()
+  })
+
+  it('T6 al doilea card reușește, webhook-ul întârzie peste grație → „Plătit”, nu eșec', async () => {
+    serverFailedUntil(15_000) // primul card refuzat; succesul ajunge abia la 15 s
+    const { onPaid } = await payWithStripeSucceeded()
+    await flush(12_000)
+    expect(screen.queryByText(T('ro', 'pt_server_failed'))).toBeNull()
+    expect(screen.getByText(T('ro', 'pt_confirming_server'))).toBeInTheDocument()
+    await flush(10_000)
+    expect(screen.getByText(PAID)).toBeInTheDocument()
+    expect(onPaid).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(T('ro', 'pt_server_failed'))).toBeNull()
+  })
+
+  it('T6 succes în browser + `failed` până la termen → „în curs de confirmare”, nu eșec', async () => {
+    serverSays('failed')
+    const { onPaid } = await payWithStripeSucceeded()
+    await flush(45_000)
+    expect(screen.getByText(T('ro', 'pt_pending_title'))).toBeInTheDocument()
+    expect(screen.queryByText(T('ro', 'pt_server_failed'))).toBeNull()
+    expect(onPaid).not.toHaveBeenCalled()
+  })
+
+  it('T7 sessionStorage care aruncă → „Plătit” apare și onPaid e chemat', async () => {
+    serverSays('processing', 'succeeded')
+    const { onPaid } = await payWithStripeSucceeded()
+    const boom = (): never => {
+      throw new DOMException('blocked', 'SecurityError')
+    }
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom)
+    await flush(5_000)
+    expect(screen.getByText(PAID)).toBeInTheDocument()
+    expect(onPaid).toHaveBeenCalledTimes(1)
+  })
+
+  it('T7 sessionStorage care aruncă la deschidere (split) → formularul apare, nu o eroare', async () => {
+    const boom = (): never => {
+      throw new DOMException('blocked', 'SecurityError')
+    }
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(boom)
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(boom)
+    renderSheet({ claims: [{ order_item_id: 'oi1', quantity: 1 }] })
+    await flush()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: new RegExp('^' + T('ro', 'pt_pay')) })).toBeEnabled()
+  })
+
+  it('T8 cerere de status agățată → la termen „în curs de confirmare”, sheet-ul se închide', async () => {
+    mocks.fetchStatus.mockImplementation(() => new Promise(() => {}))
+    const onClose = vi.fn()
+    const { onPaid } = renderSheet({
+      onClose,
+      resume: { paymentRef: PAYMENT, redirectFailed: false, browserStatus: 'succeeded' },
+    })
+    await flush(41_000)
+    expect(screen.getByText(T('ro', 'pt_pending_title'))).toBeInTheDocument()
+    expect(onPaid).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: T('ro', 'close') }))
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('T5 unmount oprește polling-ul', async () => {
@@ -207,7 +297,7 @@ describe('PayTableSheet — reluarea după return_url', () => {
   it('W2 resume: fără plată nouă, serverul e întrebat pe referința din URL → „Plătit”', async () => {
     serverSays('processing', 'succeeded')
     const { onPaid } = renderSheet({
-      resume: { paymentRef: PAYMENT, redirectFailed: false, split: false },
+      resume: { paymentRef: PAYMENT, redirectFailed: false, browserStatus: 'succeeded' },
     })
     await flush()
     expect(screen.getByText(T('ro', 'pt_confirming_server'))).toBeInTheDocument()
@@ -218,15 +308,41 @@ describe('PayTableSheet — reluarea după return_url', () => {
     expect(mocks.fetchStatus).toHaveBeenCalledWith(TOKEN, SESSION, PAYMENT)
   })
 
-  it('W2 resume cu redirect eșuat: eroare imediată, fără interogări, fără „Plătit”', async () => {
+  it('W2 resume cu redirect eșuat: eroare imediată, fără polling, fără „Plătit”', async () => {
     serverSays('succeeded')
     const { onPaid } = renderSheet({
-      resume: { paymentRef: PAYMENT, redirectFailed: true, split: false },
+      resume: { paymentRef: PAYMENT, redirectFailed: true, browserStatus: null },
     })
     await flush(5_000)
     expect(screen.getByRole('alert')).toHaveTextContent(T('ro', 'pt_declined'))
-    expect(mocks.fetchStatus).not.toHaveBeenCalled()
+    // O singură interogare — doar felul plății (pentru eliberarea claims-urilor).
+    expect(mocks.fetchStatus).toHaveBeenCalledTimes(1)
     expect(mocks.createTablePayment).not.toHaveBeenCalled()
     expect(onPaid).not.toHaveBeenCalled()
+    expect(screen.queryByText(PAID)).toBeNull()
+  })
+
+  it('W5 reluare split cu redirect eșuat: închiderea eliberează claims-urile', async () => {
+    mocks.kind = 'split'
+    serverSays('failed')
+    const onClose = vi.fn()
+    renderSheet({
+      onClose,
+      resume: { paymentRef: PAYMENT, redirectFailed: true, browserStatus: null },
+    })
+    await flush()
+    // Titlul urmează felul spus de server.
+    expect(screen.getByText(T('ro', 'pay_your_share'))).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: T('ro', 'close') }))
+    expect(mocks.cancelTablePayment).toHaveBeenCalledWith(PAYMENT, TOKEN, SESSION)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('W5 reluare table cu redirect eșuat: închiderea NU anulează plata', async () => {
+    serverSays('failed')
+    renderSheet({ resume: { paymentRef: PAYMENT, redirectFailed: true, browserStatus: null } })
+    await flush()
+    fireEvent.click(screen.getByRole('button', { name: T('ro', 'close') }))
+    expect(mocks.cancelTablePayment).not.toHaveBeenCalled()
   })
 })

@@ -17,8 +17,13 @@
 --
 -- ── Fix ──────────────────────────────────────────────────────────────────────
 -- `get_table_payment_public_status(p_token, p_session_id, p_payment_ref)` →
--- `{status}`, cu `status ∈ pending|processing|succeeded|failed|canceled|unknown`.
+-- `{status, kind}`, cu `status ∈ pending|processing|succeeded|failed|canceled|unknown`
+-- și `kind ∈ table|split|unknown` (din `table_payments.kind`, mig 229).
 -- NIMIC altceva în răspuns: nici sumă, nici id Stripe, nici comenzi.
+--   • `kind` decide pe client dacă masa devine „plătită” (`table` = toată nota)
+--     sau nu (`split` = doar partea oaspetelui). Înainte felul venea dintr-un
+--     parametru al `return_url` (`tpk`), adică din URL — controlabil de oricine
+--     îl editează; acum îl spune serverul, din rândul plății.
 --   • `p_payment_ref` = id-ul plății (uuid, întors de `begin`) SAU id-ul
 --     PaymentIntent-ului (`pi_…`, singurul identificator pe care Stripe îl pune
 --     în `return_url` dacă parametrii noștri lipsesc). Clientul le are pe
@@ -35,8 +40,9 @@
 --     deci „succeeded” înseamnă „decontat”, nu „Stripe a zis da”.
 --   • ANTI-ORACLE: token inexistent/inactiv, sesiune străină, plată a altei
 --     sesiuni, referință inexistentă, argumente NULL/prea lungi → ACELAȘI
---     `{status:'unknown'}`. Nicio ramură nu aruncă (o eroare diferită ar fi
---     oracolul, tiparul `receipt_tenant_mismatch` din 278).
+--     `{status:'unknown', kind:'unknown'}` (felul nu scapă nici el). Nicio
+--     ramură nu aruncă (o eroare diferită ar fi oracolul, tiparul
+--     `receipt_tenant_mismatch` din 278).
 --   • RATE-LIMIT `check_rate_limit('table_payment_public_status', <qr_tokens.id>,
 --     120, 5)` — cheia e TABELA (token-ul rezolvat), ca `get_loyalty_state`
 --     (258): mai multe telefoane la aceeași masă împart bugetul, iar un client
@@ -56,7 +62,7 @@
 -- plan; gate-urile din `begin_table_payment`/`begin_split_payment` rămân
 -- singura intrare în fluxul de bani.
 --
--- Teste permanente: tests/sql/auto/312_table_payment_public_status.sql (TS1–TS5).
+-- Teste permanente: tests/sql/auto/312_table_payment_public_status.sql (TS1–TS6).
 -- =============================================================================
 
 begin;
@@ -78,10 +84,12 @@ declare
   v_tok    record;
   v_pid    uuid;
   v_status text;
+  v_kind   text;
+  v_unknown constant jsonb := jsonb_build_object('status', 'unknown', 'kind', 'unknown');
 begin
   if p_token is null or p_session_id is null or p_payment_ref is null
      or length(p_token) > 128 or length(p_payment_ref) > 255 then
-    return jsonb_build_object('status', 'unknown');
+    return v_unknown;
   end if;
 
   select id, table_id, restaurant_id
@@ -90,12 +98,12 @@ begin
    where token = p_token
      and is_active;
   if not found then
-    return jsonb_build_object('status', 'unknown');
+    return v_unknown;
   end if;
 
   -- Peste plafon: `unknown`, nu o eroare (oaspetele nu declară „Plătit”).
   if not public.check_rate_limit('table_payment_public_status', v_tok.id::text, 120, 5) then
-    return jsonb_build_object('status', 'unknown');
+    return v_unknown;
   end if;
 
   -- Referința: uuid-ul plății sau id-ul PaymentIntent-ului. Cast-ul se face
@@ -105,8 +113,8 @@ begin
     v_pid := p_payment_ref::uuid;
   end if;
 
-  select tp.status
-    into v_status
+  select tp.status, tp.kind
+    into v_status, v_kind
     from public.table_payments tp
     join public.table_sessions s on s.id = tp.session_id
    where tp.session_id = p_session_id
@@ -116,17 +124,23 @@ begin
      and ((v_pid is not null and tp.id = v_pid)
           or (v_pid is null and tp.stripe_payment_intent_id = p_payment_ref));
   if not found then
-    return jsonb_build_object('status', 'unknown');
+    return v_unknown;
   end if;
 
-  return jsonb_build_object('status', case v_status
-    when 'created'    then 'pending'
-    when 'processing' then 'processing'
-    when 'succeeded'  then 'succeeded'
-    when 'failed'     then 'failed'
-    when 'canceled'   then 'canceled'
-    else 'unknown'
-  end);
+  return jsonb_build_object(
+    'status', case v_status
+      when 'created'    then 'pending'
+      when 'processing' then 'processing'
+      when 'succeeded'  then 'succeeded'
+      when 'failed'     then 'failed'
+      when 'canceled'   then 'canceled'
+      else 'unknown'
+    end,
+    'kind', case v_kind
+      when 'table' then 'table'
+      when 'split' then 'split'
+      else 'unknown'
+    end);
 end;
 $$;
 
@@ -137,7 +151,8 @@ grant execute on function public.get_table_payment_public_status(text, uuid, tex
 
 comment on function public.get_table_payment_public_status(text, uuid, text) is
   $$Lotul E (mig 312): statusul PUBLIC al unei plăți online la masă, pentru
-oaspete — DOAR {status} (pending|processing|succeeded|failed|canceled|unknown).
+oaspete — DOAR {status, kind}: status pending|processing|succeeded|failed|canceled|unknown,
+kind table|split|unknown (felul plății, din table_payments.kind — nu din URL).
 Dovada: token QR activ + sesiunea plății pe aceeași masă (paritate cu 208).
 succeeded = decontat de settle_table_payment, nu rezultatul din browser.
 Anti-oracle (orice pereche invalidă → unknown), rate-limit 120/5 min per masă.$$;
@@ -163,6 +178,9 @@ begin
   end if;
   if position('check_rate_limit' in pg_get_functiondef(v_fn)) = 0 then
     raise exception 'mig 312: rate-limit-ul lipsește';
+  end if;
+  if position('tp.kind' in pg_get_functiondef(v_fn)) = 0 then
+    raise exception 'mig 312: felul plății trebuie citit din table_payments.kind';
   end if;
 end $$;
 

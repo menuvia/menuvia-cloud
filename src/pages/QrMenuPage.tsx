@@ -37,8 +37,9 @@ import {
   snapshotTablePaid,
 } from '../lib/qrSession'
 import {
+  makeServerPaidHandler,
   parseTablePaymentReturn,
-  stripTablePaymentReturn,
+  tablePaymentReturnCleanUrl,
   type TablePaymentReturn,
 } from '../lib/tablePaymentConfirm'
 import { callWaiter } from '../lib/orders'
@@ -172,7 +173,7 @@ export default function QrMenuPage({ token }: Props) {
   // Revenirea din redirect-ul Stripe (3DS & co., `return_url`): citită O
   // SINGURĂ dată la montare; sheet-ul reia confirmarea de la server, iar URL-ul
   // se curăță imediat (un refresh nu re-pornește reluarea, un link copiat nu
-  // poartă plata).
+  // poartă plata) — curățarea NU depinde de reușita citirii (vezi efectul).
   const [resumePayment, setResumePayment] = useState<TablePaymentReturn | null>(() =>
     typeof window === 'undefined' ? null : parseTablePaymentReturn(window.location.href),
   )
@@ -195,18 +196,19 @@ export default function QrMenuPage({ token }: Props) {
     })
   }, [token, previousOrders, confirmation, sessionId, paidOrderIds])
 
+  // Curățăm parametrii revenirii ORI DE CÂTE ORI există vreunul, chiar dacă
+  // revenirea nu s-a putut citi (sesiune lipsă, referință stricată): altfel
+  // `payment_intent_client_secret` ar rămâne în bara de adrese, în istoric și
+  // în orice link copiat. O singură dată, la montare (ca citirea).
   useEffect(() => {
-    if (!resumePayment) return
+    const clean = tablePaymentReturnCleanUrl(window.location.href)
+    if (clean == null) return
     try {
-      window.history.replaceState(
-        window.history.state,
-        '',
-        stripTablePaymentReturn(window.location.href),
-      )
+      window.history.replaceState(window.history.state, '', clean)
     } catch {
       /* history indisponibil — reluarea merge oricum, URL-ul rămâne */
     }
-  }, [resumePayment])
+  }, [])
 
   // Serverul a confirmat plata TOATEI note: marcăm comenzile cunoscute local
   // ca totalul butonului să nu le renumere la runda următoare.
@@ -218,6 +220,10 @@ export default function QrMenuPage({ token }: Props) {
       return next
     })
   }
+  // `onPaid` al AMBELOR PayTableSheet: masa devine „plătită” DOAR dacă serverul
+  // spune că plata confirmată e `table` (toată nota) — un `split` e parțial,
+  // iar felul vine din `table_payments.kind`, nu din URL (mig 312).
+  const onServerPaid = makeServerPaidHandler(markTablePaidLocally)
 
   // RESID-14: o scanare = un rând. `loadQr` se re-execută la schimbarea
   // token-ului, iar sub StrictMode efectul rulează de DOUĂ ori la montare —
@@ -1849,10 +1855,11 @@ export default function QrMenuPage({ token }: Props) {
             accent={accent}
             lang={lang}
             onClose={() => setShowPaySheet(false)}
-            // Chemat DOAR după `succeeded` de la server: serverul a plătit
-            // TOATE comenzile neplătite ale sesiunii. (`confirmation` e mereu
-            // null aici — early-return-ul de mai sus randează OrderTracker.)
-            onPaid={markTablePaidLocally}
+            // Chemat DOAR după `succeeded` de la server, cu felul plății; pe
+            // `table` serverul a plătit TOATE comenzile neplătite ale sesiunii.
+            // (`confirmation` e mereu null aici — early-return-ul de mai sus
+            // randează OrderTracker.)
+            onPaid={onServerPaid}
             onPayOtherwise={() => {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
@@ -1876,11 +1883,11 @@ export default function QrMenuPage({ token }: Props) {
             resume={{
               paymentRef: resumePayment.paymentRef,
               redirectFailed: resumePayment.redirectFailed,
-              split: resumePayment.kind === 'split',
+              browserStatus: resumePayment.browserStatus,
             }}
             onClose={() => setResumePayment(null)}
-            // Split = plată PARȚIALĂ: masa NU devine „plătită”.
-            onPaid={resumePayment.kind === 'table' ? markTablePaidLocally : () => {}}
+            // Felul (masă / split) îl spune SERVERUL: un split NU face masa „plătită”.
+            onPaid={onServerPaid}
             onPayOtherwise={() => {
               setResumePayment(null)
               void handleRequestBill()

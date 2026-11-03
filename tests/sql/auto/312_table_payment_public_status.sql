@@ -1,6 +1,6 @@
 -- tests/sql/auto/312_table_payment_public_status.sql
 -- =============================================================================
--- TS1–TS5 — clichetul PERMANENT al mig 312: statusul PUBLIC al plății online
+-- TS1–TS6 — clichetul PERMANENT al mig 312: statusul PUBLIC al plății online
 -- la masă (`get_table_payment_public_status`), sursa unică pe care clientul
 -- QR o folosește ca să declare „Plătit”. Rulează din tests/sql/auto/ pe AMBELE
 -- medii (Postgres gol din sql-verify + stack-ul Supabase din E2E). Autonom,
@@ -22,15 +22,15 @@
 --         `unknown`); maparea `succeeded` → altceva]
 --   TS2  ÎNAINTE de settle nu există „succeeded”: rând fără intent → `pending`,
 --        intent atașat (= browserul poate avea deja „succeeded” de la Stripe)
---        → `processing`; răspunsul are EXACT cheia `status` (nicio sumă, niciun
---        id Stripe).
+--        → `processing`; răspunsul are EXACT cheile `status` și `kind` (nicio
+--        sumă, niciun id Stripe).
 --        [PICĂ: statusul derivat din intent (`stripe_payment_intent_id is not
 --         null` → `succeeded`, adică „Stripe a zis da”); o cheie în plus în
---         răspuns (ex. `amount`)]
+--         răspuns (ex. `amount`); `kind` scos din răspuns]
 --   TS3  ANTI-ORACLE: token al ALTEI mese din același restaurant, token al
 --        altui restaurant, sesiune străină cu token corect, token inexistent,
 --        token inactiv, referință inexistentă / gunoi / prea lungă, argumente
---        NULL → TOATE dau exact `{"status":"unknown"}`, fără excepție.
+--        NULL → TOATE dau exact `{"status":"unknown","kind":"unknown"}`, fără excepție.
 --        Control POZITIV în același bloc: perechea corectă NU dă `unknown`
 --        (altfel totul ar trece pe o funcție care întoarce mereu `unknown`).
 --        [PICĂ: fără `s.table_id = v_tok.table_id` (masa vecină vede plata);
@@ -43,6 +43,11 @@
 --        [PICĂ: `grant execute … to service_role` / `to public`; `security
 --         invoker` (sub anon RLS-ul pe table_payments dă mereu `unknown` —
 --         controlul pozitiv din TS2 pică); revoke-ul pe anon]
+--   TS6  FELUL plății vine din `table_payments.kind`: o plată `table` dă
+--        `kind:"table"` (TS1/TS2), una `split` dă `kind:"split"` — pe ea
+--        clientul NU marchează masa plătită. Felul nu mai vine din URL (`tpk`).
+--        [PICĂ: `kind` constant `table` (split-ul ar marca masa plătită); `kind`
+--         lipsă; `kind` citit din altă sursă decât rândul plății]
 --   TS5  RATE-LIMIT per masă: 120 de interogări în aceeași fereastră trec, a
 --        121-a dă `unknown` deși perechea e validă; o altă masă are bugetul ei
 --        (cheia e token-ul rezolvat, nu global); token-urile INVALIDE nu scriu
@@ -175,7 +180,7 @@ do $$
 declare v_p1 text := (select id::text from ts_pay where k = 'p1'); v jsonb;
 begin
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', v_p1);
-  if v is distinct from '{"status":"pending"}'::jsonb then
+  if v is distinct from '{"status":"pending","kind":"table"}'::jsonb then
     raise exception 'TS2 FAIL: plata fără intent trebuia `pending`, a dat %', v;
   end if;
 
@@ -183,20 +188,20 @@ begin
   -- Din acest moment browserul poate primi „succeeded” de la Stripe — DB-ul
   -- n-a decontat nimic, deci oaspetele NU are voie să vadă „succeeded”.
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', v_p1);
-  if v is distinct from '{"status":"processing"}'::jsonb then
+  if v is distinct from '{"status":"processing","kind":"table"}'::jsonb then
     raise exception 'TS2 FAIL: intent atașat, nedecontat — trebuia `processing`, a dat %', v;
   end if;
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', 'pi_ts312_p1');
-  if v is distinct from '{"status":"processing"}'::jsonb then
+  if v is distinct from '{"status":"processing","kind":"table"}'::jsonb then
     raise exception 'TS2 FAIL: referința `pi_…` trebuia `processing`, a dat %', v;
   end if;
-  if (select array_agg(k order by k collate "C") from jsonb_object_keys(v) k) is distinct from array['status'] then
-    raise exception 'TS2 FAIL: răspunsul are alte chei decât `status`: %', v;
+  if (select array_agg(k order by k collate "C") from jsonb_object_keys(v) k) is distinct from array['kind', 'status'] then
+    raise exception 'TS2 FAIL: răspunsul trebuie să aibă EXACT cheile `kind` și `status`: %', v;
   end if;
   if (select status from public.orders where id = '312a0000-0000-4000-8000-000000000001') = 'paid' then
     raise exception 'FIXTURA TS2: comanda e deja paid înainte de settle';
   end if;
-  raise notice 'TS2 OK: pending → processing înainte de settle; răspunsul are doar `status`';
+  raise notice 'TS2 OK: pending → processing înainte de settle; răspunsul are exact `status` + `kind`';
 end $$;
 
 -- ── TS1: succeeded DOAR după settle (+ celelalte stări terminale) ────────────
@@ -216,11 +221,11 @@ begin
     raise exception 'FIXTURA TS1: sesiunea a rămas deschisă — ramura „sesiune închisă” n-ar fi exersată';
   end if;
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', v_p1);
-  if v is distinct from '{"status":"succeeded"}'::jsonb then
+  if v is distinct from '{"status":"succeeded","kind":"table"}'::jsonb then
     raise exception 'TS1 FAIL: după settle (sesiune închisă) trebuia `succeeded`, a dat %', v;
   end if;
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', 'pi_ts312_p1');
-  if v is distinct from '{"status":"succeeded"}'::jsonb then
+  if v is distinct from '{"status":"succeeded","kind":"table"}'::jsonb then
     raise exception 'TS1 FAIL: referința `pi_…` după settle trebuia `succeeded`, a dat %', v;
   end if;
 
@@ -228,7 +233,7 @@ begin
   perform public.attach_payment_intent(v_p2::uuid, 'pi_ts312_p2');
   perform public.settle_table_payment('pi_ts312_p2', 'failed', 'card refuzat');
   v := pg_temp.ts_anon('tok_ts312_m2', '312f0000-0000-4000-8000-000000000002', v_p2);
-  if v is distinct from '{"status":"failed"}'::jsonb then
+  if v is distinct from '{"status":"failed","kind":"table"}'::jsonb then
     raise exception 'TS1 FAIL: settle failed trebuia `failed`, a dat %', v;
   end if;
 
@@ -239,17 +244,41 @@ begin
     '312f0000-0000-4000-8000-000000000002', 'tok_ts312_m2');
   v := pg_temp.ts_anon('tok_ts312_m2', '312f0000-0000-4000-8000-000000000002',
     (select id::text from ts_pay where k = 'p2c'));
-  if v is distinct from '{"status":"canceled"}'::jsonb then
+  if v is distinct from '{"status":"canceled","kind":"table"}'::jsonb then
     raise exception 'TS1 FAIL: plata anulată trebuia `canceled`, a dat %', v;
   end if;
   raise notice 'TS1 OK: succeeded doar după settle (și cu sesiunea închisă); failed/canceled mapate';
 end $$;
 
--- ── TS3: anti-oracle — orice pereche invalidă dă exact {"status":"unknown"} ─
+-- ── TS6: felul plății (`kind`) din rândul plății ─────────────────────────────
+-- Rând `split` inserat direct (fluxul de claims din 229 nu e obiectul testului):
+-- aceeași sesiune/masă ca p2, deci dovada „ești la masă” trece.
+do $$
+declare v jsonb; v_id uuid;
+begin
+  insert into public.table_payments (restaurant_id, session_id, order_ids, amount, kind)
+  values ('312b0000-0000-4000-8000-000000000001', '312f0000-0000-4000-8000-000000000002',
+          array['312a0000-0000-4000-8000-000000000002'::uuid], 5, 'split')
+  returning id into v_id;
+  insert into ts_pay values ('p2s', v_id);
+  v := pg_temp.ts_anon('tok_ts312_m2', '312f0000-0000-4000-8000-000000000002', v_id::text);
+  if v is distinct from '{"status":"pending","kind":"split"}'::jsonb then
+    raise exception 'TS6 FAIL: plata split trebuia {"status":"pending","kind":"split"}, a dat %', v;
+  end if;
+  -- Control: plata `table` din aceeași sesiune rămâne `table`.
+  v := pg_temp.ts_anon('tok_ts312_m2', '312f0000-0000-4000-8000-000000000002',
+    (select id::text from ts_pay where k = 'p2'));
+  if v->>'kind' is distinct from 'table' then
+    raise exception 'TS6 FAIL: plata table din aceeași sesiune trebuia kind=table, a dat %', v;
+  end if;
+  raise notice 'TS6 OK: kind = table|split din table_payments.kind';
+end $$;
+
+-- ── TS3: anti-oracle — orice pereche invalidă dă exact {"status":"unknown","kind":"unknown"} ─
 do $$
 declare
   v_p1 text := (select id::text from ts_pay where k = 'p1');
-  v_unknown constant jsonb := '{"status":"unknown"}'::jsonb;
+  v_unknown constant jsonb := '{"status":"unknown","kind":"unknown"}'::jsonb;
   r record;
   v jsonb;
 begin
@@ -278,7 +307,7 @@ begin
   loop
     v := pg_temp.ts_anon(r.tok, r.sess, r.ref);
     if v is distinct from v_unknown then
-      raise exception 'TS3 FAIL (%): trebuia exact {"status":"unknown"}, a dat %', r.label, v;
+      raise exception 'TS3 FAIL (%): trebuia exact {"status":"unknown","kind":"unknown"}, a dat %', r.label, v;
     end if;
   end loop;
   raise notice 'TS3 OK: 14 perechi invalide → același `unknown`, fără excepții; perechea corectă nu';
@@ -322,7 +351,7 @@ begin
 
   -- Apel REAL: authenticated (oaspete logat) primește același răspuns ca anon.
   v := pg_temp.ts_as('authenticated', 'tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', v_p1);
-  if v is distinct from '{"status":"succeeded"}'::jsonb then
+  if v is distinct from '{"status":"succeeded","kind":"table"}'::jsonb then
     raise exception 'TS4 FAIL: apelul ca authenticated a dat %', v;
   end if;
   -- Apel REAL: service_role e refuzat pe ACL-ul FUNCȚIEI.
@@ -357,17 +386,17 @@ begin
   -- 120 de interogări valide trec (`now()` e înghețat în tranzacție → aceeași fereastră).
   for i in 1..120 loop
     v := pg_temp.ts_anon('tok_ts312_m4', '312f0000-0000-4000-8000-000000000004', v_p4);
-    if v is distinct from '{"status":"pending"}'::jsonb then
+    if v is distinct from '{"status":"pending","kind":"table"}'::jsonb then
       raise exception 'TS5 FAIL: interogarea % (sub plafon) a dat %', i, v;
     end if;
   end loop;
   v := pg_temp.ts_anon('tok_ts312_m4', '312f0000-0000-4000-8000-000000000004', v_p4);
-  if v is distinct from '{"status":"unknown"}'::jsonb then
+  if v is distinct from '{"status":"unknown","kind":"unknown"}'::jsonb then
     raise exception 'TS5 FAIL: a 121-a interogare în fereastră trebuia `unknown` (plafon), a dat %', v;
   end if;
   -- Altă masă: bugetul ei (cheia e masa, nu globală).
   v := pg_temp.ts_anon('tok_ts312_m1', '312f0000-0000-4000-8000-000000000001', v_p1);
-  if v is distinct from '{"status":"succeeded"}'::jsonb then
+  if v is distinct from '{"status":"succeeded","kind":"table"}'::jsonb then
     raise exception 'TS5 FAIL: plafonul mesei M4 a blocat masa M1: %', v;
   end if;
   raise notice 'TS5 OK: 120/5 min per masă, a 121-a → unknown; token-urile invalide nu scriu rânduri';

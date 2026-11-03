@@ -18,6 +18,7 @@ import {
   loadStripeJs,
   type SplitClaimInput,
   type StripeClient,
+  type TablePaymentPublicKind,
   type StripeElements,
   type StripePaymentElement,
 } from '../lib/payments'
@@ -27,9 +28,11 @@ import { Tf } from '../lib/guestI18n'
 import { describeGuestError, PAY_TABLE_ERROR_OPTS } from '../lib/guestErrors'
 import { legibleOn, readableTextOn } from '../lib/themes'
 import {
+  browserStatusFrom,
   buildTablePaymentReturnUrl,
   pollTablePaymentStatus,
   type ServerConfirmOutcome,
+  type TablePaymentBrowserStatus,
 } from '../lib/tablePaymentConfirm'
 
 interface PUBColors {
@@ -48,8 +51,11 @@ interface Props {
   PUB: PUBColors
   accent: string
   onClose: () => void
-  /** Chemat DOAR după ce SERVERUL confirmă plata (`succeeded` în DB, mig 312). */
-  onPaid: () => void
+  /**
+   * Chemat DOAR după ce SERVERUL confirmă plata (`succeeded` în DB, mig 312),
+   * cu felul plății spus tot de server (`table` = toată nota, `split` = parte).
+   */
+  onPaid: (kind: TablePaymentPublicKind) => void
   /** Clientul renunță la plata online — părintele cheamă nota la ospătar. */
   onPayOtherwise: () => void
   /** Split pe itemi (mig 229): plătește DOAR produsele selectate. */
@@ -60,7 +66,12 @@ interface Props {
    * Revenirea din redirect-ul Stripe (`return_url`): nu se creează nicio plată
    * nouă, se reia doar confirmarea de la server pentru plata existentă.
    */
-  resume?: { paymentRef: string; redirectFailed: boolean; split: boolean }
+  resume?: {
+    paymentRef: string
+    redirectFailed: boolean
+    /** `redirect_status` = succeeded/processing (succes raportat de browser). */
+    browserStatus: TablePaymentBrowserStatus | null
+  }
 }
 
 // confirming_server = așteptăm DB-ul (webhook → settle); pending_confirmation =
@@ -80,6 +91,33 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // sheet-ul a murit mid-flow (refresh/crash), claims-urile lui ar rămâne
 // blocate — la redeschidere anulăm best-effort plata veche înainte de una nouă.
 const splitPidKey = (sessionId: string): string => `menuvia_split_pid_${sessionId}`
+
+// Accesul la sessionStorage ARUNCĂ în Safari cu cookie-urile blocate (și în
+// unele webview-uri) — RESID-15. Aici un throw ar lăsa sheet-ul blocat în
+// „confirmăm plata…” sau ar raporta eroare pe o plată deja creată, deci
+// fiecare acces e fail-open: checkpoint-ul pid-ului e best-effort (TTL-ul de
+// 15 min al claims-urilor preia).
+function safeGet(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function safeSet(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value)
+  } catch {
+    /* storage indisponibil — best-effort */
+  }
+}
+function safeRemove(key: string): void {
+  try {
+    sessionStorage.removeItem(key)
+  } catch {
+    /* storage indisponibil — best-effort */
+  }
+}
 
 export default function PayTableSheet({
   token,
@@ -105,9 +143,14 @@ export default function PayTableSheet({
   const paymentElRef = useRef<StripePaymentElement | null>(null)
   // Polling-ul confirmării de la server: oprit la unmount și la o repornire.
   const stopPollRef = useRef<(() => void) | null>(null)
-  // Referința plății confirmate acum (pentru „Verifică din nou”).
+  // Referința plății confirmate acum + succesul raportat de browser (pentru
+  // „Verifică din nou”: reverificarea păstrează aceeași semantică a lui `failed`).
   const confirmRefRef = useRef<string | null>(null)
-  const isSplit = (claims != null && claims.length > 0) || resume?.split === true
+  const confirmBrowserRef = useRef<TablePaymentBrowserStatus | null>(null)
+  // Felul plății spus de SERVER (mig 312): la reluarea din redirect nu-l știm
+  // până răspunde serverul — URL-ul nu-l mai poartă.
+  const [serverKind, setServerKind] = useState<TablePaymentPublicKind>('unknown')
+  const isSplit = (claims != null && claims.length > 0) || serverKind === 'split'
   // Rezultatul serverului sosește la secunde după randarea care a pornit
   // polling-ul: părintele trebuie chemat cu callback-ul CURENT, nu cu unul
   // închis peste comenzile de atunci.
@@ -126,19 +169,29 @@ export default function PayTableSheet({
     [],
   )
 
-  function startServerConfirmation(ref: string): void {
+  // `browserStatus` = ce a raportat browserul (succeeded/processing): cu el, un
+  // `failed` din DB e o încercare ANTERIOARĂ pe același intent (primul card
+  // refuzat), nu rezultatul acesteia — polling-ul așteaptă `succeeded` sau
+  // termenul, nu declară eșecul.
+  function startServerConfirmation(
+    ref: string,
+    browserStatus: TablePaymentBrowserStatus | null,
+  ): void {
     stopPollRef.current?.()
     confirmRefRef.current = ref
+    confirmBrowserRef.current = browserStatus
     setErrorMsg(null)
     setPhase('confirming_server')
     stopPollRef.current = pollTablePaymentStatus(
       () => fetchTablePaymentStatus(token, sessionId, ref),
-      (outcome: ServerConfirmOutcome) => {
+      (outcome: ServerConfirmOutcome, kind: TablePaymentPublicKind) => {
         stopPollRef.current = null
+        if (kind !== 'unknown') setServerKind(kind)
         if (outcome === 'succeeded') {
-          sessionStorage.removeItem(splitPidKey(sessionId))
+          // Starea întâi: nimic după (storage, părinte) nu poate bloca „Plătit”.
           setPhase('paid')
-          onPaidRef.current()
+          safeRemove(splitPidKey(sessionId))
+          onPaidRef.current(kind)
         } else if (outcome === 'timeout') {
           setPhase('pending_confirmation')
         } else {
@@ -146,6 +199,7 @@ export default function PayTableSheet({
           setPhase('error')
         }
       },
+      { browserStatus },
     )
   }
 
@@ -156,9 +210,23 @@ export default function PayTableSheet({
       if (resume.redirectFailed) {
         setErrorMsg(T(lang, 'pt_declined'))
         setPhase('error')
-      } else {
-        startServerConfirmation(resume.paymentRef)
+        // O singură interogare, DOAR pentru felul plății: la închidere un
+        // split își eliberează claims-urile (handleClose), iar felul nu mai
+        // vine din URL. Fără polling, fără „Plătit”.
+        let gone = false
+        void fetchTablePaymentStatus(token, sessionId, resume.paymentRef).then(
+          (r) => {
+            if (!gone && r.kind !== 'unknown') setServerKind(r.kind)
+          },
+          () => {
+            /* best-effort: fără fel, claims-urile le eliberează TTL-ul de 15 min */
+          },
+        )
+        return () => {
+          gone = true
+        }
       }
+      startServerConfirmation(resume.paymentRef, resume.browserStatus)
       return undefined
     }
     let cancelled = false
@@ -175,14 +243,14 @@ export default function PayTableSheet({
           // Eliberăm claims-urile unei încercări anterioare crăpate mid-flow
           // (best-effort — dacă plata veche chiar a reușit, cancel-ul e refuzat
           // și webhook-ul ei își vede de drum).
-          const stalePid = sessionStorage.getItem(splitPidKey(sessionId))
+          const stalePid = safeGet(splitPidKey(sessionId))
           if (stalePid) {
             try {
               await cancelTablePayment(stalePid, token, sessionId)
             } catch {
               /* best-effort */
             }
-            sessionStorage.removeItem(splitPidKey(sessionId))
+            safeRemove(splitPidKey(sessionId))
           }
         }
         const intent = await createTablePayment(token, sessionId, claims)
@@ -191,14 +259,14 @@ export default function PayTableSheet({
         // serverul TOT a creat plata (cu claims) — fără pid, nimic n-ar mai
         // elibera claims-urile de pe acest telefon.
         if (claims && claims.length > 0) {
-          sessionStorage.setItem(splitPidKey(sessionId), intent.payment_id)
+          safeSet(splitPidKey(sessionId), intent.payment_id)
         }
         if (cancelled) {
           // Sheet închis mid-request: anulăm best-effort plata abia creată
           // (eliberează claims-urile imediat, nu la TTL/redeschidere).
           if (claims && claims.length > 0) {
             void cancelTablePayment(intent.payment_id, token, sessionId)
-              .then(() => sessionStorage.removeItem(splitPidKey(sessionId)))
+              .then(() => safeRemove(splitPidKey(sessionId)))
               .catch(() => {
                 /* best-effort: pid-ul din sessionStorage preia la redeschidere */
               })
@@ -261,7 +329,6 @@ export default function PayTableSheet({
             ? buildTablePaymentReturnUrl(window.location.href, {
                 paymentId,
                 sessionId,
-                kind: isSplit ? 'split' : 'table',
               })
             : window.location.href,
         },
@@ -283,7 +350,7 @@ export default function PayTableSheet({
       // Orice altceva (`succeeded`, `processing`, …) e doar rezultatul din
       // BROWSER: „Plătit” îl spune serverul, după decontare (mig 312).
       if (paymentId) {
-        startServerConfirmation(paymentId)
+        startServerConfirmation(paymentId, browserStatusFrom(piStatus))
       } else {
         setErrorMsg(T(lang, 'pt_processing'))
         setPhase('ready')
@@ -302,10 +369,10 @@ export default function PayTableSheet({
     if (paymentId) {
       try {
         const result = await cancelTablePayment(paymentId, token, sessionId)
-        sessionStorage.removeItem(splitPidKey(sessionId))
+        safeRemove(splitPidKey(sessionId))
         if (result === 'succeeded') {
           // Stripe zice că a trecut — „Plătit” tot serverul îl confirmă.
-          startServerConfirmation(paymentId)
+          startServerConfirmation(paymentId, 'succeeded')
           return
         }
       } catch {
@@ -321,16 +388,20 @@ export default function PayTableSheet({
   const awaitingServer = phase === 'confirming_server' || phase === 'pending_confirmation'
 
   function handleRecheck(): void {
-    if (confirmRefRef.current) startServerConfirmation(confirmRefRef.current)
+    if (confirmRefRef.current) {
+      startServerConfirmation(confirmRefRef.current, confirmBrowserRef.current)
+    }
   }
 
   function handleClose(): void {
     // În modul split, închiderea fără plată eliberează claims-urile
     // (best-effort) — altfel colegii de masă văd produsele „revendicate".
-    // NU și cât așteptăm serverul: plata poate fi deja încasată.
-    if (claims && claims.length > 0 && paymentId && phase !== 'paid' && !awaitingServer) {
+    // NU și cât așteptăm serverul: plata poate fi deja încasată. `isSplit`, nu
+    // `claims`: la reluarea din redirect (ex. 3DS eșuat) claims-urile nu mai
+    // sunt în props, iar felul îl spune serverul.
+    if (isSplit && paymentId && phase !== 'paid' && !awaitingServer) {
       void cancelTablePayment(paymentId, token, sessionId)
-        .then(() => sessionStorage.removeItem(splitPidKey(sessionId)))
+        .then(() => safeRemove(splitPidKey(sessionId)))
         .catch(() => {
           /* best-effort: TTL-ul de 15 min + pid-ul din sessionStorage preiau */
         })
