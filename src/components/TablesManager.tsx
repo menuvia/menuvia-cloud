@@ -934,16 +934,6 @@ export default function TablesManager({
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Mese & QR
-          </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             {tables.filter((t) => t.is_active).length} active · {tables.length} total
           </p>

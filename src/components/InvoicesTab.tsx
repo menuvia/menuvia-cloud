@@ -185,18 +185,6 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
           >
             Facturare Oblio
           </div>
-          <h1
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: 28,
-              fontWeight: 600,
-              color: D.t1,
-              margin: 0,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Facturi emise
-          </h1>
           {config && (
             <div style={{ fontSize: 13, color: D.t3, marginTop: 6 }}>
               Conectat ca {config.company_name} ({config.company_cif})

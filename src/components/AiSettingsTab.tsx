@@ -191,9 +191,6 @@ export default function AiSettingsTab({
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <h1 style={{ fontFamily: 'Fraunces,serif', fontSize: '1.5rem', fontWeight: 600, color: D.t1, marginBottom: 6 }}>
-        Asistent AI
-      </h1>
       <p style={{ color: D.t2, fontSize: '0.9rem', lineHeight: 1.5, marginBottom: 24 }}>
         Activează asistentul AI ca să folosești chatbot-ul din dashboard și importul de meniu din poze.
         Nu ai nevoie de nicio configurare tehnică — cheia e gestionată de Menuvia.

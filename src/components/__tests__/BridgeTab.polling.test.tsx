@@ -91,14 +91,14 @@ async function flush(): Promise<void> {
   })
 }
 
+// Ancora „ecranul s-a încărcat": introducerea din antet, pe plan. Lotul R2:
+// titlul (h1) e acum al panoului (eticheta din NAV_GROUPS), nu al lui BridgeTab.
+const INTRO_FISCAL = /^Integrare FiscalNet/
+const INTRO_KITCHEN = /^Comenzile noi se tipăresc automat în bucătărie, pe o imprimantă termică/
+
 async function mounted(fiscal: boolean): Promise<void> {
   render(<BridgeTab restaurantId="r1" fiscalEnabled={fiscal} />)
-  await screen.findByRole('heading', {
-    level: 1,
-    // Lotul P: pe planul fără bon fila e „Imprimantă bucătărie" (fost
-    // „Tichete bucătărie"), ca în bara de navigare.
-    name: fiscal ? 'Casă de marcat & tichete' : 'Imprimantă bucătărie',
-  })
+  await screen.findByText(fiscal ? INTRO_FISCAL : INTRO_KITCHEN)
 }
 
 const VAT_ROWS = [
@@ -218,11 +218,11 @@ describe('BridgeTab — citiri explicite și doar cu fila vizibilă', () => {
     await flush()
     // Anti-vacuitate: ambele încărcări (4 + 4 cereri) erau încă în zbor.
     expect(held).toHaveLength(8)
-    expect(screen.queryByRole('heading', { level: 1 })).toBeNull()
+    expect(screen.queryByText(INTRO_FISCAL)).toBeNull()
     await act(async () => {
       for (const release of held) release()
     })
-    await screen.findByRole('heading', { level: 1, name: 'Casă de marcat & tichete' })
+    await screen.findByText(INTRO_FISCAL)
     expectVatMapShowsGroups()
   })
 

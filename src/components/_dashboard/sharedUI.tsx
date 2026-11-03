@@ -349,3 +349,22 @@ export function Toggle({
     </button>
   )
 }
+
+// Marcajul discret „se salvează automat" (lotul R2): pe cardurile ale căror
+// comutatoare scriu imediat, fără „Salvează". Doar unde e ADEVĂRAT — un card
+// cu buton propriu de salvare nu îl primește.
+export function AutoSaveHint() {
+  return (
+    <span
+      style={{
+        fontSize: '0.66rem',
+        fontWeight: 400,
+        color: D.t3,
+        marginLeft: 4,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      · se salvează automat
+    </span>
+  )
+}

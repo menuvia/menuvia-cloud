@@ -207,17 +207,6 @@ export default function ReservationsTab({ restaurantId }: Props) {
           gap: 8,
         }}
       >
-        <h2
-          style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 28,
-            fontWeight: 600,
-            margin: 0,
-            letterSpacing: '-0.01em',
-          }}
-        >
-          Rezervări
-        </h2>
         <div style={{ fontSize: 13, color: D.t2 }}>
           {plural(filtered.length, 'rezervare', 'rezervări')} în interval
         </div>

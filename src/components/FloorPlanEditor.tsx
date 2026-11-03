@@ -616,20 +616,6 @@ export default function FloorPlanEditor({ restaurantId, initialLayout }: FloorPl
       >
         {/* minWidth:0 lasă titlul să se trunchieze în loc să împingă butoanele. */}
         <div style={{ minWidth: 0, flex: '1 1 auto' }}>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.1rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-              margin: 0,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Harta sălii
-          </h2>
           <p style={{ color: D.t3, fontSize: '0.72rem', marginTop: 2 }}>
             {totalTables} mese · {totalSeats} locuri
           </p>

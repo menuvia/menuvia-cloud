@@ -295,16 +295,6 @@ export default function CategoriesTab({
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Categorii
-          </h2>
           <p style={{ color: D.t3, fontSize: '0.78rem', marginTop: 3 }}>
             {categories.length} categorii
           </p>

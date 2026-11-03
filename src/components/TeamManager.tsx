@@ -301,16 +301,6 @@ export default function TeamManager({
     <div>
       <Toast toasts={toasts} />
       <div style={{ marginBottom: 24 }}>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            letterSpacing: '-0.02em',
-          }}
-        >
-          Echipă
-        </h2>
         <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
           {members.length} membr{members.length === 1 ? 'u' : 'i'} · Invitații expiră în 7 zile
         </p>

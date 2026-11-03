@@ -545,21 +545,6 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         }}
       >
         <div>
-          <h1
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 10,
-              fontSize: '1.4rem',
-              fontWeight: 600,
-              color: D.t1,
-              margin: 0,
-              fontFamily: 'Fraunces,serif',
-            }}
-          >
-            <Icon name="receipt" size={24} color={D.gold} />
-            {fiscalEnabled ? 'Casă de marcat & tichete' : 'Imprimantă bucătărie'}
-          </h1>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
             {fiscalEnabled
               ? 'Integrare FiscalNet (Datecs / Activa / Tremol). Bonurile fiscale se tipăresc automat la plată.'

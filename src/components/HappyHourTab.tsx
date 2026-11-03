@@ -198,21 +198,6 @@ export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
         }}
       >
         <div>
-          <h2
-            style={{
-              fontSize: '1.5rem',
-              fontWeight: 600,
-              color: D.t1,
-              margin: 0,
-              fontFamily: 'Fraunces,serif',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 10,
-            }}
-          >
-            <Icon name="percent" size={22} />
-            Promoții
-          </h2>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
             {payAtTable
               ? 'Reguli automate de reducere pe interval orar și zilele săptămânii. Ospătarul va vedea un buton „Aplică Happy Hour” la plată dacă există regulă activă.'

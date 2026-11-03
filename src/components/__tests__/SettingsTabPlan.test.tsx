@@ -22,9 +22,25 @@
 //        online și textele cu plată/fiscalizare apar — nimic nu se ascunde.
 //   ST4  plan NECUNOSCUT (`surface` null): nimic dependent de plan (nici
 //        ridicare, nici cote, nici cardurile de module cu plan).
+//
+// Lotul R2 (nov 2026): secțiunile NU mai sunt pastile interne, ci sub-tab-uri
+// ale panoului (NAV_GROUPS, lib/dashboardNav.ts) — SettingsTab primește
+// secțiunea ca prop. De aceea `renderAll` trece prin secțiuni cu `rerender`
+// (aceeași instanță, ca în panou, unde formularul rămâne montat între ele), iar
+// numele secțiunii după plan („Meniu QR" / „Comenzi" / „Comenzi & plăți") se
+// verifică pe eticheta sub-tab-ului (`subTabLabel`) — e aceeași regulă, mutată.
+//   SA1  Abonament & cont, PROPRIETARUL: cardul „Abonament & facturare" (mutat
+//        de pe Acasă) cu ancora `#billing-card` (ținta `?tab=billing`), planul,
+//        „Deconectare"; fără butonul „Salvează" (nimic de salvat acolo).
+//        Mutația care pică: cardul scos din secțiune / id-ul pierdut.
+//   SA2  managerul (nu proprietar): fără cardul de abonament — control pentru
+//        SA1. Mutația care pică: cardul randat fără `isOwner`.
+//   SA3  „se salvează automat" DOAR pe cardul care chiar o face (Module
+//        opționale, comutator → setModule), nu pe formularul cu „Salvează".
+//        Mutația care pică: marcajul pe un card de formular (Informații
+//        principale) sau scos de pe Module opționale.
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { render, screen, within } from '@testing-library/react'
 import type { Restaurant } from '../../hooks/useData'
 import type { useRestaurantModules } from '../../hooks/useRestaurantModules'
 
@@ -52,11 +68,15 @@ vi.mock('../SmsNotificationsCard', async () => {
 vi.mock('../MfaCard', () => ({ default: () => null }))
 vi.mock('../GdprCard', () => ({ default: () => null }))
 vi.mock('../menu/MenuPreview', () => ({ default: () => null }))
-vi.mock('../_dashboard/AgentCard', () => ({ AgentCard: () => null }))
+vi.mock('../_dashboard/SubscriptionCard', async () => {
+  const { createElement } = await import('react')
+  return { SubscriptionCard: () => createElement('div', null, 'stub-abonament') }
+})
 
 import SettingsTab from '../SettingsTab'
 import { surfaceFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { PlanSurface } from '../../lib/planSurface'
+import { NAV_GROUPS, subTabLabel, type SettingsSection } from '../../lib/dashboardNav'
 
 function makeRestaurant(): Restaurant {
   return {
@@ -103,32 +123,46 @@ const modulesState = {
 } as unknown as ReturnType<typeof useRestaurantModules>
 
 const FISCAL = /\bTVA\b|bon(ul|uri)? fiscal|cas[aă] de marcat|Bridge fiscal|fiscaliz/i
-const SECTIONS = [/Restaurant/, /Meniu & aspect/, /Comenzi|Meniu QR/, /Cont/]
+const SECTIONS: SettingsSection[] = ['restaurant', 'menu', 'orders', 'account']
 
-/** Randează Setările, trece prin toate secțiunile și întoarce textul fiecăreia. */
-async function renderAll(plan: string, surface: PlanSurface | null): Promise<string[]> {
-  const user = userEvent.setup()
-  const { container } = render(
+/** Eticheta sub-tab-ului „Comenzi & plăți" pe plan (fost `sectionLabel`). */
+function ordersLabel(surface: PlanSurface | null): string {
+  const st = NAV_GROUPS.flatMap((g) => g.subTabs).find((t) => t.id === 'settings-orders')
+  if (!st) throw new Error('sub-tab-ul settings-orders lipsește')
+  return subTabLabel(st, surface)
+}
+
+function settings(section: SettingsSection, plan: string, surface: PlanSurface | null, isOwner = true) {
+  return (
     <SettingsTab
+      section={section}
+      isOwner={isOwner}
       restaurant={makeRestaurant()}
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
       onSignOut={() => {}}
       modulesState={modulesState}
       surface={surface}
-    />,
+    />
   )
+}
+
+/** Randează Setările, trece prin toate secțiunile și întoarce textul fiecăreia. */
+async function renderAll(plan: string, surface: PlanSurface | null): Promise<string[]> {
+  const { container, rerender } = render(settings('restaurant', plan, surface))
   const texts: string[] = []
-  for (const name of SECTIONS) {
-    await user.click(screen.getByRole('tab', { name }))
-    expect(screen.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true')
+  for (const section of SECTIONS) {
+    rerender(settings(section, plan, surface))
     texts.push(container.textContent ?? '')
   }
+  // Rămâne pe ultima secțiune; testele care inspectează comenzile o redeschid.
+  rerender(settings('orders', plan, surface))
   return texts
 }
 
 async function openOrders(): Promise<void> {
-  await userEvent.setup().click(screen.getByRole('tab', { name: /Comenzi|Meniu QR/ }))
+  // Secțiunea e deja `orders` după renderAll (rerender-ul final).
+  expect(await screen.findByText('Module opționale')).toBeInTheDocument()
 }
 
 describe('SettingsTab — fiecare plan vede doar ce are', () => {
@@ -136,7 +170,7 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
     const texts = await renderAll('starter', surfaceFor('starter'))
     for (const t of texts) expect(t).not.toMatch(FISCAL)
     const all = texts.join('\n')
-    expect(screen.getByRole('tab', { name: 'Meniu QR' })).toBeInTheDocument()
+    expect(ordersLabel(surfaceFor('starter'))).toBe('Meniu QR')
     expect(all).not.toMatch(/Creat cu Menuvia/)
     expect(all).not.toMatch(/Plan Meniu \+ Comenzi/)
     expect(all).not.toMatch(/stub-plati-online|stub-fidelizare|stub-editor-cote/)
@@ -148,16 +182,7 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
   })
 
   it('ST1b: SMS pe Planul 1 urmează feature-ul — starter da, free nu', async () => {
-    const { unmount } = render(
-      <SettingsTab
-        restaurant={makeRestaurant()}
-        onUpdate={vi.fn(async () => ({ error: null }))}
-        plan="starter"
-        onSignOut={() => {}}
-        modulesState={modulesState}
-        surface={surfaceFor('starter')}
-      />,
-    )
+    const { unmount } = render(settings('orders', 'starter', surfaceFor('starter')))
     await openOrders()
     expect(screen.getByText('stub-sms')).toBeInTheDocument()
     unmount()
@@ -169,7 +194,7 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
   it('ST2: Planul 2 — „Comenzi" cu ridicare, sugestii și module; fără TVA și plăți', async () => {
     const texts = await renderAll('growth', surfaceFor('growth'))
     for (const t of texts) expect(t).not.toMatch(FISCAL)
-    expect(screen.getByRole('tab', { name: 'Comenzi' })).toBeInTheDocument()
+    expect(ordersLabel(surfaceFor('growth'))).toBe('Comenzi')
     const all = texts.join('\n')
     expect(all).toMatch(/Creat cu Menuvia/)
     expect(all).not.toMatch(/stub-plati-online|stub-editor-cote/)
@@ -182,7 +207,7 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
 
   it('ST3: control pozitiv — pe Planul 3 totul rămâne, inclusiv cotele TVA și plățile', async () => {
     const texts = await renderAll('pro', surfaceFor('pro'))
-    expect(screen.getByRole('tab', { name: 'Comenzi & plăți' })).toBeInTheDocument()
+    expect(ordersLabel(surfaceFor('pro'))).toBe('Comenzi & plăți')
     expect(texts.join('\n')).toMatch(FISCAL)
     await openOrders()
     expect(screen.getByText('Cote TVA')).toBeInTheDocument()
@@ -199,5 +224,38 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
     expect(all).not.toMatch(/Creat cu Menuvia/)
     await openOrders()
     expect(screen.queryByRole('switch', { name: 'Comenzi pentru ridicare' })).toBeNull()
+    // Planul necunoscut ia numele cel mai restrictiv, nu „Comenzi & plăți".
+    expect(ordersLabel(null)).toBe('Meniu QR')
+  })
+})
+
+describe('SettingsTab — Abonament & cont (lotul R2)', () => {
+  it('SA1: proprietarul vede abonamentul (#billing-card), planul și ieșirea; fără „Salvează"', () => {
+    const { container } = render(settings('account', 'growth', surfaceFor('growth'), true))
+    expect(screen.getByText('stub-abonament')).toBeInTheDocument()
+    expect(container.querySelector('#billing-card')).not.toBeNull()
+    expect(screen.getByText('Plan curent')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Deconectare' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Salvează' })).toBeNull()
+  })
+
+  it('SA2: managerul nu vede abonamentul (control: secțiunea e randată)', () => {
+    const { container } = render(settings('account', 'growth', surfaceFor('growth'), false))
+    expect(screen.getByText('Plan curent')).toBeInTheDocument()
+    expect(screen.queryByText('stub-abonament')).toBeNull()
+    expect(container.querySelector('#billing-card')).toBeNull()
+    // Control pentru „fără Salvează": pe o secțiune de formular butonul există.
+    render(settings('restaurant', 'growth', surfaceFor('growth'), false))
+    expect(screen.getByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+  })
+
+  it('SA3: „se salvează automat" doar pe cardul care se salvează singur', () => {
+    render(settings('orders', 'growth', surfaceFor('growth')))
+    const modules = screen.getByText('Module opționale')
+    expect(modules).toHaveTextContent('se salvează automat')
+    // Control: cardurile de formular (salvate cu „Salvează") nu sunt marcate.
+    const { container } = render(settings('restaurant', 'growth', surfaceFor('growth')))
+    const info = within(container).getByText('Informații principale')
+    expect(info).not.toHaveTextContent('se salvează automat')
   })
 })

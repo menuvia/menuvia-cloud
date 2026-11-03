@@ -23,9 +23,34 @@
 //        (bonul și plata la masă există doar în RO, iar .com vinde doar
 //        Planurile 1–2); Planul 1 primește tot „Meniu + Comenzi". Mutația care
 //        pică: `fiscalMarket: true` fix în DashboardPage.
+//
+// Lotul R2 (nov 2026, reorganizarea panoului — structura în lib/dashboardNav.ts):
+// fila casei a trecut din Rapoarte în Setări (eticheta pe plan rămâne), iar
+// „Încasări" a devenit Comenzi → „Ture de casă". DS2/DS3 au fost rescrise ONEST
+// pe noile locuri (aceleași aserțiuni de plan, alt grup). Pe Planul 1 grupul
+// Comenzi are doar Rezervările și poartă numele lor (DS1).
+//   DS7  `?tab=` se restaurează la montare: `/dashboard?tab=tva` pe Planul 3
+//        deschide TVA, cu titlul „TVA". Mutația care pică: tab-ul inițial
+//        fix pe Acasă (URL-ul ignorat).
+//   DS8  `?tab=` NECUNOSCUT (inclusiv `constructor`, cheie de pe prototip) →
+//        Acasă. Mutația care pică: validarea id-ului scoasă din tabFromSearch.
+//   DS9  `?tab=` NEPERMIS pe plan (TVA pe Planul 1) → Acasă, cu URL-ul corectat
+//        prin replace. Control pozitiv: DS7 (același parametru pe Planul 3).
+//        DS9b: cât planul NU e cunoscut, tab-ul cerut NU e aruncat pe Acasă (nici
+//        URL-ul atins) — un refresh pe „TVA" nu pierde locul. Mutația care pică:
+//        poarta `navReady` scoasă din efectul de corecție.
+//   DS10 click pe grup / chip → `navigate('/dashboard?tab=…')` + titlul nou;
+//        Back (`popstate`) readuce tab-ul din URL. Mutația care pică: tab-ul ținut
+//        doar în state (fără push) sau fără ascultătorul de popstate.
+//   DS11 titlul paginii = eticheta sub-tab-ului din NAV, pe fiecare chip din
+//        Setări (Planul 3). Mutația care pică: titlul randat din numele
+//        grupului (rândul vechi de deasupra chip-urilor).
+//   DS12 `?tab=billing` (CTA-urile emailurilor de facturare) → Setări → Abonament
+//        & cont, cu scroll pe `#billing-card`. Mutația care pică: aliasul scos
+//        (billing ar cădea pe Acasă, unde cardul nu mai e).
 import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
 import type { RestaurantFeatures } from '../../lib/features'
@@ -106,7 +131,44 @@ vi.mock('../../lib/pendingCountry', () => ({ retryPendingCountry: async () => 'n
 vi.mock('../../components/HelpButton', () => ({ HelpButton: () => null }))
 vi.mock('../../components/SignOutButton', () => ({ SignOutButton: () => null }))
 vi.mock('../../components/AiChatbot', () => ({ default: () => null }))
-vi.mock('../../components/ReportsTab', () => ({ default: () => null }))
+// Ecranele lazy: stub-uri cu un text recognoscibil (fără rețea).
+vi.mock('../../components/ReportsTab', async () => {
+  const { createElement } = await import('react')
+  return { default: () => createElement('div', null, 'stub-vanzari') }
+})
+vi.mock('../../components/VatReportTab', async () => {
+  const { createElement } = await import('react')
+  return { default: () => createElement('div', null, 'stub-tva') }
+})
+vi.mock('../../components/SettingsTab', async () => {
+  const { createElement } = await import('react')
+  return {
+    default: (p: { section: string; isOwner?: boolean }) =>
+      createElement(
+        'div',
+        null,
+        `stub-setari-${p.section}`,
+        p.section === 'account' && p.isOwner === true
+          ? createElement('div', { id: 'billing-card' }, 'stub-abonament')
+          : null,
+      ),
+  }
+})
+vi.mock('../../components/TeamManager', () => ({ default: () => null }))
+vi.mock('../../components/WaiterAssignments', () => ({ default: () => null }))
+vi.mock('../../components/BridgeTab', () => ({ default: () => null }))
+vi.mock('../../components/AiSettingsTab', () => ({ default: () => null }))
+vi.mock('../../components/AnalyticsTab', () => ({ default: () => null }))
+vi.mock('../../components/InvoicesTab', () => ({ default: () => null }))
+vi.mock('../../components/CashRegisterTab', () => ({ default: () => null }))
+vi.mock('../../components/ReservationsTab', () => ({ default: () => null }))
+vi.mock('../../components/ProductsTab', () => ({ default: () => null }))
+vi.mock('../../components/CategoriesTab', () => ({ default: () => null }))
+vi.mock('../../components/ModifiersTab', () => ({ default: () => null }))
+vi.mock('../../components/HappyHourTab', () => ({ default: () => null }))
+vi.mock('../../components/StocksTab', () => ({ default: () => null }))
+vi.mock('../../components/TablesManager', () => ({ default: () => null }))
+vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
 vi.mock('../../components/_dashboard/HomeTab', async () => {
   const { createElement } = await import('react')
   return {
@@ -158,8 +220,18 @@ function makeRestaurant(): Restaurant {
 
 const FISCAL = /\bTVA\b|bon(ul|uri)? fiscal|cas[aă] de marcat|Bridge fiscal|Încasări|Facturi/i
 
-async function renderDashboard(plan: DbPlan | null) {
+// Navigarea din App, emulată: push/replace pe istoricul jsdom.
+const urls = {
+  navigate: vi.fn((path: string) => window.history.pushState({}, '', path)),
+  replaceUrl: vi.fn((path: string) => window.history.replaceState({}, '', path)),
+}
+
+async function renderDashboard(
+  plan: DbPlan | null,
+  opts: { url?: string; anchor?: boolean } = {},
+) {
   state.features = plan == null ? null : featuresFor(plan)
+  window.history.replaceState({}, '', opts.url ?? '/dashboard')
   const view = render(
     <DashboardPage
       onViewMenu={vi.fn()}
@@ -174,22 +246,31 @@ async function renderDashboard(plan: DbPlan | null) {
           typeof DashboardPage
         >['updateRestaurant']
       }
+      navigate={urls.navigate}
+      replaceUrl={urls.replaceUrl}
     />,
   )
   // Ancora: Acasă s-a montat (lazy), deci bara laterală e cea finală.
-  expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
+  if (opts.anchor !== false) expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
   return view
 }
 
 const nav = () => screen.getByRole('navigation')
+const title = () => screen.getByRole('heading', { level: 1 })
+const openGroup = async (name: RegExp) =>
+  userEvent.setup().click(within(nav()).getByRole('button', { name }))
 
 beforeEach(() => {
   homeProps.upsell = undefined
   state.country = 'RO'
   state.site = 'ro'
-  // jsdom nu implementează Element.scrollTo; DashboardPage readuce conținutul
-  // sus la fiecare schimbare de tab.
+  urls.navigate.mockClear()
+  urls.replaceUrl.mockClear()
+  // jsdom nu implementează Element.scrollTo / scrollIntoView; DashboardPage
+  // readuce conținutul sus la fiecare schimbare de tab și centrează cardul de
+  // facturare pe `?tab=billing`.
   Element.prototype.scrollTo = vi.fn() as unknown as Element['scrollTo']
+  Element.prototype.scrollIntoView = vi.fn() as unknown as Element['scrollIntoView']
 })
 
 describe('DashboardPage — bara laterală pe planul restaurantului', () => {
@@ -201,30 +282,40 @@ describe('DashboardPage — bara laterală pe planul restaurantului', () => {
     expect(within(nav()).queryByRole('button', { name: /Comenzi/ })).toBeNull()
     expect(within(nav()).queryByRole('button', { name: /Rapoarte/ })).toBeNull()
     expect(nav().textContent ?? '').not.toMatch(FISCAL)
-    // Control: grupurile planului sunt acolo.
+    // Control: grupurile planului sunt acolo — inclusiv Rezervările (pe orice
+    // plan, mig 086), sub numele lor: grupul Comenzi are doar acest sub-tab.
     expect(within(nav()).getByRole('button', { name: /Meniu/ })).toBeInTheDocument()
+    expect(within(nav()).getByRole('button', { name: /Rezervări/ })).toBeInTheDocument()
   })
 
-  it('DS2: Planul 2 — ospătar da; fila casei e „Imprimantă bucătărie", fără TVA/Încasări/Facturi', async () => {
+  it('DS2: Planul 2 — ospătar da; fila casei (Setări) e „Imprimantă bucătărie", fără TVA/Ture/Facturi', async () => {
     await renderDashboard('growth')
     expect(screen.getByRole('button', { name: /Vezi ca ospătar/ })).toBeInTheDocument()
-    await userEvent.setup().click(within(nav()).getByRole('button', { name: /Rapoarte/ }))
+    await openGroup(/Setări/)
     expect(await screen.findByRole('button', { name: 'Imprimantă bucătărie' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Casă & tichete' })).toBeNull()
-    for (const name of ['TVA', 'Încasări', 'Facturi']) {
+    await openGroup(/Rapoarte/)
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+    for (const name of ['TVA', 'Facturi', 'Statistici']) {
       expect(screen.queryByRole('button', { name })).toBeNull()
     }
+    await openGroup(/Comenzi/)
+    expect(await screen.findByRole('button', { name: 'Rezervări' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ture de casă' })).toBeNull()
   })
 
-  it('DS3: control pozitiv — pe Planul 3 casa, TVA, Încasări și Facturi apar', async () => {
+  it('DS3: control pozitiv — pe Planul 3 casa, TVA, Ture de casă și Facturi apar', async () => {
     await renderDashboard('pro')
     expect(screen.getByRole('button', { name: /Vezi ca ospătar/ })).toBeInTheDocument()
-    await userEvent.setup().click(within(nav()).getByRole('button', { name: /Rapoarte/ }))
+    await openGroup(/Setări/)
     expect(await screen.findByRole('button', { name: 'Casă & tichete' })).toBeInTheDocument()
-    for (const name of ['TVA', 'Încasări', 'Facturi']) {
-      expect(screen.getByRole('button', { name })).toBeInTheDocument()
-    }
     expect(screen.queryByRole('button', { name: 'Imprimantă bucătărie' })).toBeNull()
+    await openGroup(/Rapoarte/)
+    for (const name of ['Vânzări', 'Statistici', 'TVA', 'Facturi']) {
+      expect(await screen.findByRole('button', { name })).toBeInTheDocument()
+    }
+    await openGroup(/Comenzi/)
+    expect(await screen.findByRole('button', { name: 'Ture de casă' })).toBeInTheDocument()
   })
 
   it('DS4: plan necunoscut — fără „Vezi ca ospătar"', async () => {
@@ -267,5 +358,91 @@ describe('DashboardPage — bara laterală pe planul restaurantului', () => {
       expect(homeProps.upsell).toBe('ordering')
       starter.unmount()
     }
+  })
+})
+
+describe('DashboardPage — tab-ul în URL și titlul paginii (lotul R2)', () => {
+  it('DS7: `?tab=tva` pe Planul 3 se restaurează la montare', async () => {
+    await renderDashboard('pro', { url: '/dashboard?tab=tva', anchor: false })
+    expect(await screen.findByText('stub-tva')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('TVA')
+    expect(urls.replaceUrl).not.toHaveBeenCalled()
+  })
+
+  it('DS8: `?tab=` necunoscut → Acasă', async () => {
+    for (const url of ['/dashboard?tab=nu-exista', '/dashboard?tab=constructor']) {
+      const { unmount } = await renderDashboard('pro', { url })
+      expect(title()).toHaveTextContent('Acasă')
+      unmount()
+    }
+  })
+
+  it('DS9: `?tab=` nepermis pe plan → Acasă, cu URL-ul corectat', async () => {
+    await renderDashboard('starter', { url: '/dashboard?tab=tva' })
+    expect(title()).toHaveTextContent('Acasă')
+    expect(screen.queryByText('stub-tva')).toBeNull()
+    await waitFor(() => expect(urls.replaceUrl).toHaveBeenCalledWith('/dashboard'))
+    expect(window.location.search).toBe('')
+  })
+
+  it('DS9b: cât planul nu e cunoscut, tab-ul cerut nu e aruncat pe Acasă', async () => {
+    await renderDashboard(null, { url: '/dashboard?tab=tva', anchor: false })
+    expect(await screen.findByText('Se încarcă...')).toBeInTheDocument()
+    expect(screen.queryByText('stub-acasa')).toBeNull()
+    expect(urls.replaceUrl).not.toHaveBeenCalled()
+    expect(window.location.search).toBe('?tab=tva')
+  })
+
+  it('DS10: click → URL nou + titlul nou; Back (popstate) readuce tab-ul din URL', async () => {
+    await renderDashboard('pro')
+    await openGroup(/Rapoarte/)
+    expect(urls.navigate).toHaveBeenLastCalledWith('/dashboard?tab=raport')
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Vânzări')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'TVA' }))
+    expect(urls.navigate).toHaveBeenLastCalledWith('/dashboard?tab=tva')
+    expect(await screen.findByText('stub-tva')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('TVA')
+    // Back: browserul schimbă URL-ul și emite popstate.
+    act(() => {
+      window.history.replaceState({}, '', '/dashboard?tab=raport')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Vânzări')
+  })
+
+  it('DS11: titlul paginii = eticheta chip-ului, pe fiecare sub-tab din Setări', async () => {
+    await renderDashboard('pro')
+    await openGroup(/Setări/)
+    const chips = within(await screen.findByLabelText('Secțiuni Setări')).getAllByRole('button')
+    const labels = chips.map((c) => c.textContent ?? '')
+    // Control: Setările au toate cele opt secțiuni pe Planul 3.
+    expect(labels).toEqual([
+      'Restaurant',
+      'Aspect meniu',
+      'Comenzi & plăți',
+      'Echipă',
+      'Program echipă',
+      'Casă & tichete',
+      'Asistent AI',
+      'Abonament & cont',
+    ])
+    const user = userEvent.setup()
+    for (const label of labels) {
+      await user.click(within(screen.getByLabelText('Secțiuni Setări')).getByRole('button', { name: label }))
+      await waitFor(() => expect(title()).toHaveTextContent(label))
+      // Numele GRUPULUI nu mai e un rând separat deasupra chip-urilor.
+      expect(screen.queryAllByRole('heading', { level: 1 })).toHaveLength(1)
+    }
+  })
+
+  it('DS12: `?tab=billing` → Setări → Abonament & cont, cu scroll pe cardul de facturare', async () => {
+    await renderDashboard('growth', { url: '/dashboard?tab=billing', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Abonament & cont')
+    await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled(), {
+      timeout: 2000,
+    })
   })
 })

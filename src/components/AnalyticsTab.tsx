@@ -322,16 +322,6 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   if (access === 'country_unavailable')
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Statistici
-        </h2>
         <div
           style={{
             background: D.s2,
@@ -394,16 +384,6 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   if (loading)
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Statistici
-        </h2>
         <div
           style={{
             display: 'grid',
@@ -420,16 +400,6 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
   if (error)
     return (
       <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Statistici
-        </h2>
         <QueryError message={error} onRetry={loadData} />
       </div>
     )
@@ -447,16 +417,6 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null 
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Statistici
-          </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>Ultimele {days} zile</p>
         </div>
         <div style={{ display: 'flex', gap: 5 }}>

@@ -1,5 +1,5 @@
 // src/lib/quickSetup.ts — presetul TVA legal (mig 034 → 285), aplicat din
-// Setări → Cote TVA (VatRatesEditor). Presetul de meniu demo
+// Setări → Comenzi & plăți → Cote TVA (VatRatesEditor). Presetul de meniu demo
 // (apply_business_type_preset, mig 034) nu mai are client: „asistentul
 // detaliat” de pe Acasă a fost scos (dubla checklist-ul), iar onboarding-ul nu
 // mai pune produse demo pe meniul real (#319). RPC-ul rămâne în bază.

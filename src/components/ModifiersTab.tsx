@@ -301,16 +301,6 @@ export default function ModifiersTab({ restaurantId }: { restaurantId: string })
         }}
       >
         <div>
-          <h2
-            style={{
-              fontFamily: 'Fraunces,serif',
-              fontSize: '1.5rem',
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Opțiuni produse
-          </h2>
           <p style={{ color: D.t2, fontSize: '0.78rem', marginTop: 3 }}>
             Grupuri de opțiuni (ex: Extra sos, Mărime)
           </p>

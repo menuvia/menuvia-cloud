@@ -233,7 +233,7 @@ export function getActionableSuggestions(
       max: SCORE_MAX.tickets,
       suggestion:
         alerts > 0
-          ? `${alerts} bonuri în eroare în ultimele 7 zile. Verifică tab-ul Bridge — casa de marcat, hârtie, conexiune.`
+          ? `${alerts} bonuri în eroare în ultimele 7 zile. Verifică Setări → Casă & tichete — casa de marcat, hârtie, conexiune.`
           : 'Sistem fiscal stabil. Continuă.',
     })
   }
