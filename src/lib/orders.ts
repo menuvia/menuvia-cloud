@@ -671,6 +671,21 @@ export function describeEditOrderError(err: unknown): string {
   ) {
     return plain
   }
+  // mig 313: produsul s-a epuizat între timp. Cantitatea DEJA comandată se
+  // poate păstra; doar surplusul (sau un produs epuizat nou) e respins.
+  if (hint === 'product_sold_out' || /este epuizat/i.test(plain)) {
+    const name = /"([^"]+)"/.exec(plain)?.[1]
+    const kept = /\((\d+)\)\s*$/.exec(plain)?.[1]
+    const who = name ? `Produsul „${name}”` : 'Un produs din comandă'
+    if (kept === '0') {
+      return `${who} e epuizat și nu mai poate fi adăugat. Scoate-l din comandă și salvează din nou.`
+    }
+    const keep =
+      kept != null
+        ? `Poți păstra cel mult cantitatea deja comandată (${kept}).`
+        : 'Poți păstra doar cantitatea deja comandată.'
+    return `${who} s-a epuizat între timp. ${keep} Scade cantitatea sau scoate-l și salvează din nou.`
+  }
   if (/partial payments/i.test(plain)) {
     return 'Comanda are plăți înregistrate și nu mai poate fi editată.'
   }

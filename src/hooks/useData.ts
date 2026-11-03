@@ -5,6 +5,7 @@ import {
   pickAllowed,
   RESTAURANT_UPDATE_FIELDS,
   CATEGORY_UPDATE_FIELDS,
+  PRODUCT_INSERT_FIELDS,
   PRODUCT_UPDATE_FIELDS,
 } from '../lib/sanitize'
 import { createRestaurant } from '../lib/restaurants'
@@ -446,7 +447,7 @@ export function useProducts(restaurantId: string | null) {
 
   const create = async (form: Partial<Product>) => {
     const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
-    const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
+    const safe = pickAllowed(form, PRODUCT_INSERT_FIELDS)
     const r = await supabase
       .from('products')
       .insert({ ...safe, restaurant_id: restaurantId, display_order: maxOrder + 1 })
@@ -467,6 +468,9 @@ export function useProducts(restaurantId: string | null) {
         .sort((a, b) => a.display_order - b.display_order),
     )
   }
+  // Fără `is_sold_out` (PRODUCT_UPDATE_FIELDS, mig 313): „Epuizat” trece doar
+  // prin toggleSoldOut, ca un formular cu date vechi să nu deblocheze tăcut un
+  // produs epuizat din stoc între timp.
   const update = async (id: string, form: Partial<Product>) => {
     const safe = pickAllowed(form, PRODUCT_UPDATE_FIELDS)
     const r = await supabase.from('products').update(safe).eq('id', id).select().single()
@@ -479,7 +483,7 @@ export function useProducts(restaurantId: string | null) {
   const createMany = async (forms: Partial<Product>[]) => {
     const maxOrder = products.reduce((m, p) => Math.max(m, p.display_order), -1)
     const rows = forms.map((form, i) => ({
-      ...pickAllowed(form, PRODUCT_UPDATE_FIELDS),
+      ...pickAllowed(form, PRODUCT_INSERT_FIELDS),
       restaurant_id: restaurantId,
       display_order: maxOrder + 1 + i,
     }))
@@ -524,7 +528,10 @@ export function useProducts(restaurantId: string | null) {
       const state = await setProductSoldOut(id, !current)
       const prev = products.find((p) => p.id === id)
       const row = prev ? { ...prev, ...state } : null
-      if (row) mergeRow(row)
+      // Contopire FUNCȚIONALĂ, doar pe cele două câmpuri: după un update() din
+      // formular, `products` din closure e încă rândul VECHI, iar `mergeRow(row)`
+      // ar fi readus descrierea de dinainte de salvare în listă.
+      setProducts((list) => list.map((p) => (p.id === id ? { ...p, ...state } : p)))
       return { data: row, error: null }
     } catch (e) {
       if (isMissingSoldOutRpc(e)) return toggleProductFlag(id, { is_sold_out: !current })

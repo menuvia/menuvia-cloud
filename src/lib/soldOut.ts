@@ -68,6 +68,22 @@ export function soldOutSourceLabel(
   return null
 }
 
+/**
+ * Starea „Epuizat” pe care omul a ALES-o în formularul de produs, sau `null`
+ * dacă n-a mutat comutatorul față de cum s-a deschis formularul. Formularul nu
+ * trimite `is_sold_out` în PATCH (PRODUCT_UPDATE_FIELDS, mig 313): o listă
+ * încărcată înainte ca stocul să epuizeze produsul ar fi trimis `false` și l-ar
+ * fi deblocat tăcut. Doar o schimbare FĂCUTĂ în formular pleacă, prin RPC.
+ */
+export function soldOutFormTarget(
+  opened: { is_sold_out?: boolean | null } | null | undefined,
+  form: { is_sold_out?: boolean | null },
+): boolean | null {
+  if (typeof form.is_sold_out !== 'boolean') return null
+  const before = opened?.is_sold_out === true
+  return form.is_sold_out === before ? null : form.is_sold_out
+}
+
 /** Rândul unui produs în panoul „Epuizate” al personalului. */
 export interface StaffSoldOutProduct {
   id: string

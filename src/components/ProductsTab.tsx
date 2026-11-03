@@ -28,7 +28,7 @@ import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
-import { soldOutSourceLabel } from '../lib/soldOut'
+import { soldOutSourceLabel, soldOutFormTarget } from '../lib/soldOut'
 import { confirm as confirmDialog } from './ui/confirm'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
@@ -2276,10 +2276,21 @@ export default function ProductsTab({
       if (!opts?.keepOpen) setModal(null)
       return true
     } else if (modal) {
-      const { error: e } = await update((modal as Product).id, form)
+      const opened = modal as Product
+      const { error: e } = await update(opened.id, form)
       if (e) {
         fail(toUserMessage(e))
         return false
+      }
+      // „Epuizat” NU pleacă în PATCH-ul formularului (mig 313): doar dacă omul
+      // a mutat comutatorul în formular, starea aleasă trece prin RPC.
+      const soldOutTarget = soldOutFormTarget(opened, form)
+      if (soldOutTarget !== null) {
+        const r = await toggleSoldOut(opened.id, !soldOutTarget)
+        if (r.error) {
+          fail(toUserMessage(r.error))
+          return false
+        }
       }
       toast('Actualizat')
       setModal(null)

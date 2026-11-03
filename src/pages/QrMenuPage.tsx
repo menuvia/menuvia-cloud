@@ -26,7 +26,7 @@ import { fetchOnlinePaymentEnabled } from '../lib/payments'
 import { fmtPrice, resolveMenuCurrency } from '../lib/currency'
 import { T } from '../lib/publicMenuStrings'
 import { Tf } from '../lib/guestI18n'
-import { describeGuestError, isNetworkGuestError } from '../lib/guestErrors'
+import { describeGuestError, isNetworkGuestError, isSoldOutGuestError } from '../lib/guestErrors'
 import { trName, trDesc, availableMenuLangs, detectBrowserLang, normalizeMenuSearch } from '../lib/i18nMenu'
 import type { ResolvedQrToken, Category, Product } from '../lib/qr'
 import type { CartItem, OrderConfirmationPayload } from '../lib/orders'
@@ -442,6 +442,10 @@ export default function QrMenuPage({ token }: Props) {
       }
     }
 
+    // Un produs din coș s-a epuizat între timp (mig 313): meniul se reface, ca
+    // linia lui din coș să primească badge-ul „Epuizat” — mesajul singur nu
+    // spune CARE produs.
+    if (isSoldOutGuestError(lastError)) refreshMenu()
     // Hint-ul/mesajul serverului → text în limba oaspetelui; niciodată brut
     // (mesajele create_order sunt amestecate RO/EN — mig 191).
     setSubmitError(describeGuestError(lang, lastError, { fallback: 'err_order_not_sent' }))

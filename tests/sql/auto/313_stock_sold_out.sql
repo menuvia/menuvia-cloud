@@ -10,12 +10,13 @@
 --        vânzări (comandă →closed, deducerea 250/252 NEATINSĂ) și pe o ajustare
 --        directă. Pragul e STRICT: stoc == porție rămâne disponibil. Un local
 --        fără featurea `stocks` nu e atins (stocul nu e ținut acolo).
---        [PICĂ: trg_ingredients_sold_out_upd șters; `<` → `<=`; gate-ul
---         `restaurant_has_feature(…,'stocks')` scos din product_stock_short]
+--        [PICĂ: trg_ingredients_sold_out_upd șters; gate-ul
+--         `restaurant_has_feature(…,'stocks')` scos din recalc_products_sold_out]
 --   SO2  Stoc refăcut → revine SINGUR, doar când sursa e stocul; ștergerea
 --        rețetei (recipes DELETE) îl eliberează la fel.
 --        [PICĂ: a doua actualizare din recalc_products_sold_out scoasă;
---         triggerul de DELETE pe recipes șters]
+--         triggerul de DELETE pe recipes șters; `<` → `<=` în predicatul pe
+--         mulțime din recalc_products_sold_out (stoc == porție rămâne epuizat)]
 --   SO3  Epuizarea MANUALĂ (RPC și PATCH direct al adminului, normalizat de
 --        trg_products_sold_out_normalize) nu e ștearsă de stoc, nici la
 --        refacere, nici la lipsă. Deblocarea manuală a unui produs epuizat din
@@ -44,16 +45,51 @@
 --         nefixat (editarea pică pe trigger-ul 130); GUC-ul nepus înapoi pe ''
 --         după ultimul INSERT — de aceea ultima linie a editării valide e supa]
 --   SO7  Catalog: cele 4 triggere de stoc sunt FOR EACH STATEMENT (tgtype & 1 =
---        0) cu transition tables; funcțiile noi DEFINER cu `public, pg_temp`;
+--        0) cu transition tables și NU recalculează (doar pun în coadă);
+--        golirea e un constraint trigger DEFERRABLE INITIALLY DEFERRED pe
+--        coadă (tgtype 5); recalcularea lock-uiește ordonat cu `skip locked`;
+--        coada e deny-all; funcțiile noi DEFINER cu `public, pg_temp`;
 --        funcțiile de trigger și helperii interni NU sunt executabili de
 --        anon/authenticated (RP13); O SINGURĂ semnătură pe fiecare RPC.
 --        [PICĂ: un trigger recreat `for each row`; `grant execute … to
---         authenticated` pe o funcție de trigger; `security invoker`]
+--         authenticated` pe o funcție de trigger; `security invoker`;
+--         `initially immediate` pe golire; `skip locked` scos]
 --   SO8  get_menu_version: se schimbă la epuizare/deblocare și la o editare de
 --        produs, rămâne IDENTICĂ fără schimbări (control: două citiri la rând),
 --        NULL pe restaurant inactiv; anon o poate apela (apel REAL).
 --        [PICĂ: is_sold_out scos din hash; filtrul is_restaurant_active scos;
 --         revoke pe anon]
+--   SO9  Recalcularea e AMÂNATĂ la commit, iar semnalul e doar pe pragul
+--        TRAVERSAT: cu constraint trigger-ul în modul implicit (deferred), o
+--        scădere care NU traversează pragul nu pune nimic în coadă; o vânzare
+--        REALĂ care îl traversează pune produsul în coadă, dar produsul rămâne
+--        disponibil până la „commit” (`set constraints … immediate`, exact ce
+--        face COMMIT-ul cu evenimentele amânate) — abia atunci devine
+--        true/stock, iar coada se golește.
+--        [PICĂ: filtrul de traversare înlocuit cu `current_stock is distinct
+--         from` (coadă ne-goală fără traversare); recalcularea chemată direct
+--         din triggerul de statement (produsul epuizat înainte de commit);
+--         constraint trigger-ul făcut NOT DEFERRABLE (SET CONSTRAINTS pică)]
+--   SO10 O recalculare care ARUNCĂ la commit (trigger temporar pe products,
+--        creat în test) NU oprește încasarea: comanda se închide, „commit-ul”
+--        (`set constraints … immediate`) trece, produsul rămâne neatins, iar
+--        coada e golită (fără rânduri orfane). Testat în modul AMÂNAT: în modul
+--        imediat eroarea ar fi absorbită și de sub-blocul semnalului, care ar
+--        masca pierderea sub-blocului din golire.
+--        [PICĂ: sub-blocul `exception when others` scos din
+--         flush_products_sold_out_queue; golirea mutată ÎN sub-blocul
+--         recalculării (rândul rămâne în coadă)]
+--   SO11 Partenerul cu acces ACORDAT (mig 286) poate marca epuizat/disponibil
+--        (sub rolul REAL `authenticated`); după revocare primește EXACT
+--        eroarea străinului (anti-oracol).
+--        [PICĂ: ramura `has_partner_access` scoasă din set_product_sold_out;
+--         o eroare distinctă pentru partenerul revocat]
+--
+-- Modul constraint trigger-ului: SO1–SO8 rulează cu
+-- `trg_products_sold_out_queue_flush` IMEDIAT (recalcularea la sfârșitul
+-- statement-ului care a pus în coadă), fiindcă tot fișierul e o singură
+-- tranzacție derulată la final — COMMIT-ul nu vine niciodată. SO9/SO10
+-- exersează modul REAL (amânat) și „commit-ul” explicit.
 -- =============================================================================
 
 \set ON_ERROR_STOP on
@@ -68,7 +104,8 @@ insert into auth.users (id, email) values
   ('31300000-0000-4000-8000-000000000002', 'so-owner-b@pg313.test'),
   ('31300000-0000-4000-8000-000000000003', 'so-waiter@pg313.test'),
   ('31300000-0000-4000-8000-000000000004', 'so-kitchen@pg313.test'),
-  ('31300000-0000-4000-8000-000000000005', 'so-owner-f@pg313.test')
+  ('31300000-0000-4000-8000-000000000005', 'so-owner-f@pg313.test'),
+  ('31300000-0000-4000-8000-000000000006', 'so-partner@pg313.test')
   on conflict (id) do nothing;
 insert into public.profiles (id, email)
   select id, email from auth.users where email like 'so-%@pg313.test'
@@ -96,23 +133,37 @@ insert into public.products (id, restaurant_id, name, price, is_active) values
   ('313d0000-0000-4000-8000-000000000002', '313b0000-0000-4000-8000-000000000001', 'SO Clătită', 12, true),
   ('313d0000-0000-4000-8000-000000000003', '313b0000-0000-4000-8000-000000000001', 'SO Apă', 5, true),
   ('313d0000-0000-4000-8000-000000000004', '313b0000-0000-4000-8000-000000000003', 'SO Free Pâine', 10, true),
-  ('313d0000-0000-4000-8000-000000000005', '313b0000-0000-4000-8000-000000000001', 'SO Supă', 15, true);
+  ('313d0000-0000-4000-8000-000000000005', '313b0000-0000-4000-8000-000000000001', 'SO Supă', 15, true),
+  ('313d0000-0000-4000-8000-000000000006', '313b0000-0000-4000-8000-000000000001', 'SO Ciorbă', 18, true);
 
 insert into public.ingredients (id, restaurant_id, name, unit, current_stock) values
   ('313e0000-0000-4000-8000-000000000001', '313b0000-0000-4000-8000-000000000001', 'SO Făină', 'kg', 10),
   ('313e0000-0000-4000-8000-000000000002', '313b0000-0000-4000-8000-000000000001', 'SO Ou', 'buc', 10),
   ('313e0000-0000-4000-8000-000000000003', '313b0000-0000-4000-8000-000000000003', 'SO Free Făină', 'kg', 10),
-  ('313e0000-0000-4000-8000-000000000005', '313b0000-0000-4000-8000-000000000001', 'SO Legume', 'kg', 10);
+  ('313e0000-0000-4000-8000-000000000005', '313b0000-0000-4000-8000-000000000001', 'SO Legume', 'kg', 10),
+  ('313e0000-0000-4000-8000-000000000006', '313b0000-0000-4000-8000-000000000001', 'SO Carne', 'kg', 10);
 
 insert into public.recipes (product_id, ingredient_id, quantity) values
   ('313d0000-0000-4000-8000-000000000001', '313e0000-0000-4000-8000-000000000001', 2),
   ('313d0000-0000-4000-8000-000000000002', '313e0000-0000-4000-8000-000000000001', 1),
   ('313d0000-0000-4000-8000-000000000002', '313e0000-0000-4000-8000-000000000002', 1),
   ('313d0000-0000-4000-8000-000000000004', '313e0000-0000-4000-8000-000000000003', 2),
-  ('313d0000-0000-4000-8000-000000000005', '313e0000-0000-4000-8000-000000000005', 1);
+  ('313d0000-0000-4000-8000-000000000005', '313e0000-0000-4000-8000-000000000005', 1),
+  ('313d0000-0000-4000-8000-000000000006', '313e0000-0000-4000-8000-000000000006', 1);
 
 -- R3 coboară pe free DUPĂ seed (ingredientele cer `stocks` la INSERT, mig 142).
 update public.profiles set plan = 'free' where id = '31300000-0000-4000-8000-000000000005';
+
+-- Partenerul (SO11): afiliat activ care l-a adus pe owner-ul A, cu acces
+-- ACORDAT de owner (mig 286: owner_consented_at; revocarea vine în SO11).
+insert into public.affiliates (id, profile_id, referral_code) values
+  ('313a0000-0000-4000-8000-000000000001', '31300000-0000-4000-8000-000000000006', 'sopartner313');
+insert into public.affiliate_attributions (id, affiliate_id, referred_profile_id, status, source, owner_consented_at) values
+  ('313a0000-0000-4000-8000-0000000000a1', '313a0000-0000-4000-8000-000000000001',
+   '31300000-0000-4000-8000-000000000001', 'active', 'link', now());
+
+-- SO1–SO8: golirea cozii IMEDIAT (vezi antetul); SO9/SO10 trec pe modul real.
+set constraints public.trg_products_sold_out_queue_flush immediate;
 
 -- Starea unui produs ca text compact: 'true/stock', 'false/-', …
 create function pg_temp.so_state(p uuid) returns text
@@ -524,7 +575,37 @@ begin
      or not has_function_privilege('authenticated', 'public.set_product_sold_out(uuid,boolean)', 'execute') then
     raise exception 'SO7 FAIL: set_product_sold_out trebuie să fie DOAR pentru authenticated';
   end if;
-  raise notice 'SO7 OK: triggere statement-level, DEFINER + pg_temp, fără EXECUTE pentru clienți';
+
+  -- Amânarea: golirea e constraint trigger DEFERRABLE INITIALLY DEFERRED,
+  -- AFTER INSERT ROW (1 + 4 = 5) pe coadă; semnalul NU recalculează.
+  if not exists (select 1 from pg_trigger
+                  where tgrelid = 'public.products_sold_out_queue'::regclass
+                    and tgname = 'trg_products_sold_out_queue_flush'
+                    and tgconstraint <> 0 and tgdeferrable and tginitdeferred and tgtype = 5) then
+    raise exception 'SO7 FAIL: trg_products_sold_out_queue_flush nu e constraint trigger DEFERRABLE INITIALLY DEFERRED (AFTER INSERT ROW)';
+  end if;
+  foreach v_fn in array array['public.ingredients_sold_out_stmt()', 'public.recipes_sold_out_stmt()'] loop
+    if position('recalc_products_sold_out' in (select prosrc from pg_proc where oid = v_fn::regprocedure)) > 0 then
+      raise exception 'SO7 FAIL: % recalculează în statement (trebuie doar să pună în coadă)', v_fn;
+    end if;
+  end loop;
+  if position('skip locked' in (select prosrc from pg_proc where oid = 'public.recalc_products_sold_out(uuid[])'::regprocedure)) = 0
+     or position('order by p.id' in (select prosrc from pg_proc where oid = 'public.recalc_products_sold_out(uuid[])'::regprocedure)) = 0 then
+    raise exception 'SO7 FAIL: recalc_products_sold_out fără lock ordonat `order by p.id … skip locked`';
+  end if;
+  if not exists (select 1 from pg_proc where oid = 'public.flush_products_sold_out_queue()'::regprocedure and prosecdef
+                   and array_to_string(proconfig, ',') like '%search_path=public, pg_temp%')
+     or has_function_privilege('anon', 'public.flush_products_sold_out_queue()', 'execute')
+     or has_function_privilege('authenticated', 'public.flush_products_sold_out_queue()', 'execute') then
+    raise exception 'SO7 FAIL: flush_products_sold_out_queue trebuie DEFINER + pg_temp, fără EXECUTE pentru clienți';
+  end if;
+  if not (select relrowsecurity from pg_class where oid = 'public.products_sold_out_queue'::regclass)
+     or has_table_privilege('authenticated', 'public.products_sold_out_queue', 'select,insert,update,delete,truncate')
+     or has_table_privilege('anon', 'public.products_sold_out_queue', 'select,insert,update,delete,truncate')
+     or exists (select 1 from pg_policy where polrelid = 'public.products_sold_out_queue'::regclass) then
+    raise exception 'SO7 FAIL: products_sold_out_queue trebuie deny-all (RLS fără politici, fără privilegii client)';
+  end if;
+  raise notice 'SO7 OK: semnal statement-level, golire amânată la commit, lock ordonat, DEFINER + pg_temp, fără acces client';
 end $$;
 
 -- ── SO8: sonda de versiune ───────────────────────────────────────────────────
@@ -572,6 +653,155 @@ begin
     $q$select public.get_menu_version('313b0000-0000-4000-8000-000000000001')$q$);
   if v_err is not null then raise exception 'SO8 FAIL: anon nu poate apela sonda: %', v_err; end if;
   raise notice 'SO8 OK: versiunea se schimbă la epuizare / editare, e stabilă altfel, NULL pe inactiv';
+end $$;
+
+-- ── SO9: recalcularea e AMÂNATĂ la commit; semnalul doar pe traversare ──────
+-- Modul REAL: constraint trigger-ul de golire amânat (ca pe producție).
+set constraints public.trg_products_sold_out_queue_flush deferred;
+
+do $$
+declare v_res jsonb; v_q int;
+begin
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000006') <> 'false/-' then
+    raise exception 'SO9 FAIL (fixtură): ciorba trebuia disponibilă, e %', pg_temp.so_state('313d0000-0000-4000-8000-000000000006');
+  end if;
+
+  -- (a) Scădere FĂRĂ traversare (10 → 8 kg, porția 1 kg): nimic în coadă.
+  update public.ingredients set current_stock = 8 where id = '313e0000-0000-4000-8000-000000000006';
+  select count(*) into v_q from public.products_sold_out_queue where tx_id = txid_current();
+  if v_q <> 0 then
+    raise exception 'SO9 FAIL: o scădere care NU traversează pragul a pus % produse în coadă', v_q;
+  end if;
+
+  -- (b) Vânzare REALĂ care traversează pragul: 8 ciorbe → 0 kg.
+  perform set_config('request.jwt.claim.sub', '31300000-0000-4000-8000-000000000001', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  v_res := public.create_order(
+    '313b0000-0000-4000-8000-000000000001', 'waiter', '313c0000-0000-4000-8000-000000000001', null, null,
+    '[{"product_id":"313d0000-0000-4000-8000-000000000006","quantity":8}]'::jsonb,
+    null, null, null, null, null);
+  update public.orders set status = 'closed' where id = (v_res->>'id')::uuid;
+  if (select current_stock from public.ingredients where id = '313e0000-0000-4000-8000-000000000006') <> 0 then
+    raise exception 'SO9 FAIL (fixtură): deducerea trebuia să lase 0 kg de carne';
+  end if;
+  if not exists (select 1 from public.products_sold_out_queue
+                  where tx_id = txid_current() and product_id = '313d0000-0000-4000-8000-000000000006') then
+    raise exception 'SO9 FAIL: traversarea pragului nu a pus ciorba în coadă';
+  end if;
+  -- Înainte de commit produsul e NEATINS: nimic nu s-a recalculat (deci niciun
+  -- lock pe products) în mijlocul buclei de deducere.
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000006') <> 'false/-' then
+    raise exception 'SO9 FAIL: ciorba a fost recalculată ÎN statement (înainte de commit): %',
+      pg_temp.so_state('313d0000-0000-4000-8000-000000000006');
+  end if;
+end $$;
+
+-- „Commit-ul”: evenimentele amânate se declanșează acum.
+set constraints public.trg_products_sold_out_queue_flush immediate;
+
+do $$
+begin
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000006') <> 'true/stock' then
+    raise exception 'SO9 FAIL: la commit ciorba trebuia true/stock, e %', pg_temp.so_state('313d0000-0000-4000-8000-000000000006');
+  end if;
+  if exists (select 1 from public.products_sold_out_queue where tx_id = txid_current()) then
+    raise exception 'SO9 FAIL: coada nu s-a golit la commit';
+  end if;
+  -- Refacere (mod imediat) pentru SO10: 0 → 10 kg, ciorba revine.
+  update public.ingredients set current_stock = 10 where id = '313e0000-0000-4000-8000-000000000006';
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000006') <> 'false/-' then
+    raise exception 'SO9 FAIL (fixtură SO10): ciorba trebuia să revină la 10 kg, e %', pg_temp.so_state('313d0000-0000-4000-8000-000000000006');
+  end if;
+  raise notice 'SO9 OK: fără traversare nimic în coadă; traversarea așteaptă commit-ul; la commit true/stock, coada goală';
+end $$;
+
+-- ── SO10: o recalculare care aruncă nu oprește commit-ul încasării ──────────
+create function public.so313_boom() returns trigger
+language plpgsql as $f$
+begin
+  raise exception 'SO10: recalculare sabotată';
+end $f$;
+create trigger so313_boom
+  before update on public.products
+  for each row when (new.id = '313d0000-0000-4000-8000-000000000006'::uuid)
+  execute function public.so313_boom();
+
+set constraints public.trg_products_sold_out_queue_flush deferred;
+
+do $$
+declare v_res jsonb; v_oid uuid;
+begin
+  -- Control: sabotajul chiar aruncă pe ciorbă.
+  begin
+    update public.products set name = name where id = '313d0000-0000-4000-8000-000000000006';
+    raise exception 'SO10 FAIL (control): triggerul de sabotaj nu a aruncat';
+  exception when raise_exception then
+    if sqlerrm not like 'SO10: recalculare sabotată%' then raise; end if;
+  end;
+
+  perform set_config('request.jwt.claim.sub', '31300000-0000-4000-8000-000000000001', true);
+  perform set_config('request.jwt.claim.role', 'authenticated', true);
+  v_res := public.create_order(
+    '313b0000-0000-4000-8000-000000000001', 'waiter', '313c0000-0000-4000-8000-000000000001', null, null,
+    '[{"product_id":"313d0000-0000-4000-8000-000000000006","quantity":10}]'::jsonb,
+    null, null, null, null, null);
+  v_oid := (v_res->>'id')::uuid;
+  update public.orders set status = 'closed' where id = v_oid;
+
+  -- „Commit-ul”: golirea + recalcularea (care aruncă) rulează acum.
+  begin
+    set constraints public.trg_products_sold_out_queue_flush immediate;
+  exception when others then
+    raise exception 'SO10 FAIL: o recalculare eșuată a oprit commit-ul încasării: %', sqlerrm;
+  end;
+
+  if (select status from public.orders where id = v_oid) <> 'closed' then
+    raise exception 'SO10 FAIL: comanda nu s-a închis';
+  end if;
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000006') <> 'false/-' then
+    raise exception 'SO10 FAIL: recalcularea sabotată trebuia derulată (ciorba neatinsă), e %',
+      pg_temp.so_state('313d0000-0000-4000-8000-000000000006');
+  end if;
+  if exists (select 1 from public.products_sold_out_queue where tx_id = txid_current()) then
+    raise exception 'SO10 FAIL: eșecul recalculării a lăsat rânduri orfane în coadă';
+  end if;
+  raise notice 'SO10 OK: recalcularea care aruncă la commit e absorbită; comanda închisă, coada goală';
+end $$;
+
+drop trigger so313_boom on public.products;
+drop function public.so313_boom();
+
+-- ── SO11: partenerul cu acces acordat DA, după revocare NU (aceeași eroare) ──
+do $$
+declare v_err text; v_strange text;
+begin
+  v_err := pg_temp.so_call('authenticated', '31300000-0000-4000-8000-000000000006',
+    $q$select public.set_product_sold_out('313d0000-0000-4000-8000-000000000003', true)$q$);
+  if v_err is not null or pg_temp.so_state('313d0000-0000-4000-8000-000000000003') <> 'true/manual' then
+    raise exception 'SO11 FAIL: partenerul cu acces acordat trebuia să poată bloca produsul (%, %)',
+      coalesce(v_err, 'trecut'), pg_temp.so_state('313d0000-0000-4000-8000-000000000003');
+  end if;
+  v_err := pg_temp.so_call('authenticated', '31300000-0000-4000-8000-000000000006',
+    $q$select public.set_product_sold_out('313d0000-0000-4000-8000-000000000003', false)$q$);
+  if v_err is not null or pg_temp.so_state('313d0000-0000-4000-8000-000000000003') <> 'false/-' then
+    raise exception 'SO11 FAIL: partenerul cu acces acordat trebuia să poată debloca produsul (%)', coalesce(v_err, 'trecut');
+  end if;
+
+  -- Owner-ul revocă accesul: partenerul devine un străin oarecare.
+  update public.affiliate_attributions set partner_access_revoked_at = now()
+   where id = '313a0000-0000-4000-8000-0000000000a1';
+  v_err := pg_temp.so_call('authenticated', '31300000-0000-4000-8000-000000000006',
+    $q$select public.set_product_sold_out('313d0000-0000-4000-8000-000000000003', true)$q$);
+  v_strange := pg_temp.so_call('authenticated', '31300000-0000-4000-8000-000000000002',
+    $q$select public.set_product_sold_out('313d0000-0000-4000-8000-000000000003', true)$q$);
+  if v_err is null or split_part(v_err, '|', 2) <> 'not_member' or v_err is distinct from v_strange then
+    raise exception 'SO11 FAIL: partenerul revocat trebuia respins EXACT ca străinul (% vs %)',
+      coalesce(v_err, 'TRECUT'), coalesce(v_strange, 'TRECUT');
+  end if;
+  if pg_temp.so_state('313d0000-0000-4000-8000-000000000003') <> 'false/-' then
+    raise exception 'SO11 FAIL: refuzul partenerului revocat a lăsat urme: %', pg_temp.so_state('313d0000-0000-4000-8000-000000000003');
+  end if;
+  raise notice 'SO11 OK: partenerul cu acces acordat DA; revocat → aceeași eroare ca străinul';
 end $$;
 
 rollback;

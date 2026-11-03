@@ -666,16 +666,20 @@ begin
     raise exception 'PO9 FAIL: tabele cu politică de partener = %', v_tables; end if;
 
   -- Nicio funcție din public în afara listei nu pomenește has_partner_access
-  -- (un RPC nou care „dă și partenerului" iese în evidență).
+  -- (un RPC nou care „dă și partenerului" iese în evidență). Lista permisă:
+  --   log_partner_visit     — urma vizitei partenerului (286);
+  --   set_product_sold_out  — comutatorul „Epuizat” (mig 313): ACEEAȘI suprafață
+  --                           ca politica „products: admin write” (tab-ul
+  --                           Produse e în PARTNER_TAB_IDS); nu lărgește nimic.
   if exists (
     select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
      where n.nspname = 'public' and p.prosrc ilike '%has_partner_access%'
-       and p.proname not in ('has_partner_access', 'log_partner_visit')
+       and p.proname not in ('has_partner_access', 'log_partner_visit', 'set_product_sold_out')
   ) then
     raise exception 'PO9 FAIL: o funcție din public folosește has_partner_access în afara listei permise: %',
       (select string_agg(p.proname, ', ') from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.prosrc ilike '%has_partner_access%'
-          and p.proname not in ('has_partner_access', 'log_partner_visit'));
+          and p.proname not in ('has_partner_access', 'log_partner_visit', 'set_product_sold_out'));
   end if;
 
   -- Privilegii RPC (fail-closed: o semnătură nouă face testul să ARUNCE).

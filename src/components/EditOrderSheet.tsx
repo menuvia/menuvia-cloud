@@ -558,15 +558,23 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
               }}
             >
               {activeProducts.map((p) => (
+                // mig 313: un produs epuizat nu poate fi ADĂUGAT (serverul
+                // respinge cu product_sold_out); cantitatea deja comandată
+                // din el rămâne editabilă în coș.
                 <button
                   key={p.id}
-                  onClick={() => setActiveProduct(p)}
+                  disabled={p.is_sold_out}
+                  aria-disabled={p.is_sold_out}
+                  onClick={() => {
+                    if (!p.is_sold_out) setActiveProduct(p)
+                  }}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.s3}`,
                     borderRadius: 10,
                     padding: 10,
-                    cursor: 'pointer',
+                    cursor: p.is_sold_out ? 'not-allowed' : 'pointer',
+                    opacity: p.is_sold_out ? 0.5 : 1,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 4,
@@ -574,7 +582,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                   }}
                 >
                   <span style={{ color: D.t1, fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-                  <span style={{ color: D.gold, fontSize: 13 }}>{p.price.toFixed(2)} lei</span>
+                  <span style={{ color: p.is_sold_out ? D.red : D.gold, fontSize: 13 }}>
+                    {p.is_sold_out ? 'Epuizat' : `${p.price.toFixed(2)} lei`}
+                  </span>
                 </button>
               ))}
               {activeProducts.length === 0 && (

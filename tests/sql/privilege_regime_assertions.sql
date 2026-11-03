@@ -145,7 +145,9 @@ reset role;
 -- Setul „RLS pornit + ZERO politici" e negare prin ABSENȚĂ. Verificat identic pe
 -- replay ȘI pe producție: exact aceste tabele (`pg_cron_janitor_manifest` vine din
 -- mig 274; `affiliate_invitations` + `affiliate_contract_acceptances` din mig 304 —
--- acces doar prin RPC-urile DEFINER, deny-all-by-absence ca `retained_receipts`). Un tabel care INTRĂ în set
+-- acces doar prin RPC-urile DEFINER, deny-all-by-absence ca `retained_receipts`;
+-- `products_sold_out_queue` din mig 313 — coada per tranzacție a recalculării
+-- „epuizat din stoc”, scrisă și golită doar de triggerele DEFINER). Un tabel care INTRĂ în set
 -- nedeclarat = politici PIERDUTE (restore parțial, replay oprit la mijloc). Un
 -- tabel care IESE = a primit o politică ce nu a fost revizuită.
 do $$
@@ -154,7 +156,7 @@ declare
   v_denyall text[] := array[
     'affiliate_contract_acceptances','affiliate_invitations',
     'affiliate_touches','function_rate_limits','gdpr_deletion_config','leads',
-    'order_stock_deductions','pg_cron_janitor_manifest','recrutare_leads',
+    'order_stock_deductions','pg_cron_janitor_manifest','products_sold_out_queue','recrutare_leads',
     'retained_invoices','retained_receipts','security_ownership_remediations','stripe_events'];
   v_core text[] := array['restaurants','restaurant_memberships','orders','order_items',
                          'order_payments','profiles','invite_tokens','products'];

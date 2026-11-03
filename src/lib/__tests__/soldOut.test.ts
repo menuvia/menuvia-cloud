@@ -18,7 +18,17 @@
 //        hint) → `err_product_sold_out` în TOATE cele 7 limbi, nu textul
 //        serverului. Mutația care pică: hint-ul scos din HINT_KEYS (ar cădea pe
 //        fallback-ul „comanda nu s-a trimis”).
+//   SL6  soldOutFormTarget: doar o schimbare FĂCUTĂ în formular pleacă (prin
+//        RPC); un formular neatins nu trimite nimic, oricât de vechi ar fi.
+//        Mutația care pică: comparația scoasă (orice `is_sold_out` din formular
+//        pleacă — exact deblocarea tăcută din recenzie).
+//   SL7  isSoldOutGuestError: refuzul `product_sold_out` (hint SAU mesajul brut)
+//        cere reîncărcarea meniului în QrMenuPage, ca linia din coș să arate
+//        CARE produs s-a epuizat; alte refuzuri și rețeaua NU. Mutația care
+//        pică: predicatul întors mereu false (meniul nu se mai reface).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 const m = vi.hoisted(() => ({
   rpc: vi.fn(),
@@ -48,10 +58,11 @@ import {
   fetchStaffSoldOutProducts,
   isMissingSoldOutRpc,
   setProductSoldOut,
+  soldOutFormTarget,
   soldOutSourceLabel,
 } from '../soldOut'
 import { fetchMenuVersion, menuVersionChanged } from '../menuVersion'
-import { describeGuestError, guestErrorKey } from '../guestErrors'
+import { describeGuestError, guestErrorKey, isSoldOutGuestError } from '../guestErrors'
 import { T } from '../publicMenuStrings'
 import { toUserMessage, MSG_NO_PERMISSION } from '../userMessages'
 
@@ -159,5 +170,39 @@ describe('guestErrors — produsul epuizat', () => {
       expect(out.length, l).toBeGreaterThan(10)
       expect(T(l, 'cart_sold_out_notice').length, l).toBeGreaterThan(10)
     }
+  })
+})
+
+describe('soldOutFormTarget — formularul de produs', () => {
+  it('SL6 doar comutatorul mutat în formular pleacă; formularul neatins nu trimite nimic', () => {
+    // Lista a fost încărcată cu produsul disponibil; între timp stocul l-a
+    // epuizat. Formularul neatins (false, ca la deschidere) → nimic de trimis.
+    expect(soldOutFormTarget({ is_sold_out: false }, { is_sold_out: false })).toBeNull()
+    expect(soldOutFormTarget({ is_sold_out: true }, { is_sold_out: true })).toBeNull()
+    expect(soldOutFormTarget({ is_sold_out: false }, {})).toBeNull()
+    // Omul a mutat comutatorul → starea ALEASĂ pleacă.
+    expect(soldOutFormTarget({ is_sold_out: false }, { is_sold_out: true })).toBe(true)
+    expect(soldOutFormTarget({ is_sold_out: true }, { is_sold_out: false })).toBe(false)
+    // Fără rând deschis, „neatins” înseamnă disponibil.
+    expect(soldOutFormTarget(null, { is_sold_out: false })).toBeNull()
+    expect(soldOutFormTarget(undefined, { is_sold_out: true })).toBe(true)
+  })
+})
+
+describe('isSoldOutGuestError — reîncărcarea meniului în QrMenuPage', () => {
+  it('SL7 product_sold_out (hint sau mesaj) → da; alte refuzuri și rețeaua → nu', () => {
+    expect(isSoldOutGuestError(Object.assign(new Error('P0001'), { hint: 'product_sold_out' }))).toBe(true)
+    expect(isSoldOutGuestError({ message: 'Produsul "Supă" este epuizat', code: 'P0001' })).toBe(true)
+    expect(isSoldOutGuestError(Object.assign(new Error('x'), { hint: 'product_inactive' }))).toBe(false)
+    expect(isSoldOutGuestError(Object.assign(new Error('x'), { hint: 'missing_required_group' }))).toBe(false)
+    expect(isSoldOutGuestError(new Error('TypeError: Load failed'))).toBe(false)
+    expect(isSoldOutGuestError(null)).toBe(false)
+  })
+
+  it('SL7b QrMenuPage reface meniul pe refuzul de epuizare (cablajul, nu doar predicatul)', () => {
+    // Mutația care pică: apelul scos din handleSubmit — predicatul ar rămâne
+    // corect, dar coșul n-ar mai arăta CARE linie s-a epuizat.
+    const src = readFileSync(resolve(process.cwd(), 'src/pages/QrMenuPage.tsx'), 'utf8')
+    expect(src).toMatch(/if \(isSoldOutGuestError\(lastError\)\) refreshMenu\(\)/)
   })
 })

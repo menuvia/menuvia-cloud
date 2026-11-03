@@ -27,7 +27,9 @@
 -- ── REGULA AUTOMATĂ (recalc_products_sold_out) ──────────────────────────────
 -- `product_stock_short(produs)` = restaurantul are featurea `stocks` (Gestiune,
 -- growth+; fără ea stocul nu e ținut și regula ar ascunde meniul degeaba) ȘI
--- există o linie de rețetă cu ingredient ACTIV și `current_stock < quantity`.
+-- există o linie de rețetă cu ingredient ACTIV și `current_stock < quantity`
+-- (recalc_products_sold_out aplică ACELAȘI predicat pe mulțime, cu featurea
+-- calculată o dată per restaurant; helperul rămâne pentru RPC și normalizare).
 -- Pentru produsele atinse:
 --   • lipsă + regula armată (false/null)   → true/'stock'
 --   • stoc refăcut + sursa e stocul        → false/null   (revine SINGUR)
@@ -41,31 +43,118 @@
 -- obligat ospătarul să deblocheze după FIECARE vânzare, iar deblocarea ar fi
 -- fost practic inutilă.
 --
--- ── TRIGGERE (FOR EACH STATEMENT, transition tables — tiparul mig 248) ─────
---   ingredients: AFTER UPDATE (fără listă de coloane: Postgres refuză
---     transition tables pe `UPDATE OF col`, „transition tables cannot be
---     specified for triggers with column lists”); corpul filtrează rândurile
---     cu `current_stock` SAU `is_active` schimbat. O vânzare (deducerea 250/252,
---     NEATINSĂ), un NIR (251) sau o ajustare (165) ajung aici.
---   recipes: AFTER INSERT / UPDATE / DELETE (trei triggere, ca 248).
--- Recalcularea e într-un sub-bloc `exception when others → raise warning`:
--- deducerea de stoc rulează în tranzacția ÎNCASĂRII (advance_order → trigger
--- pe orders), iar un „epuizat” ratat nu are voie să oprească niciodată o plată
--- (inclusiv un deadlock pe rândul produsului: sub-tranzacția îl absoarbe).
+-- ── TRIGGERE: semnal imediat, recalculare AMÂNATĂ la COMMIT ─────────────────
+-- Două straturi, deliberat separate:
+--   (1) SEMNALUL, imediat, FOR EACH STATEMENT cu transition tables (tiparul
+--       mig 248): ingredients AFTER UPDATE (fără listă de coloane — Postgres
+--       refuză transition tables pe `UPDATE OF col`) și recipes AFTER INSERT /
+--       UPDATE / DELETE. Triggerul NU recalculează și NU ia niciun lock pe
+--       products: doar pune în coada `products_sold_out_queue` produsele al
+--       căror prag a fost TRAVERSAT de statement — `(old.current_stock <
+--       r.quantity) is distinct from (new.current_stock < r.quantity)` sau
+--       `is_active` schimbat (rețetele: toate produsele atinse). O vânzare
+--       obișnuită, cu stoc departe de prag, nu pune nimic în coadă.
+--   (2) RECALCULAREA, la COMMIT: coada are un CONSTRAINT TRIGGER `DEFERRABLE
+--       INITIALLY DEFERRED` (AFTER INSERT ROW, `trg_products_sold_out_queue_
+--       flush`). Prima lui declanșare din tranzacție golește coada pentru
+--       `txid_current()` și recalculează PE MULȚIME: produsele se lock-uiesc
+--       ORDONAT (`order by id`) cu `for update skip locked` — nu se AȘTEAPTĂ
+--       niciodată pe un rând de produs —, iar featurea `stocks` se calculează
+--       O DATĂ per restaurant. Celelalte declanșări găsesc coada goală.
+--   Cheia cozii e `(tx_id, product_id)` cu `on conflict do nothing`: o
+--   singură intrare (și un singur eveniment amânat) per produs per tranzacție,
+--   iar două tranzacții nu se ating niciodată pe același rând (fără `tx_id`,
+--   unicitatea pe `product_id` ar fi pus a doua tranzacție să AȘTEPTE commit-ul
+--   primeia — un lock nou exact pe calea încasării). Rândurile sunt tranzacțio-
+--   nale: un rollback (sau un savepoint derulat) le ia cu el, împreună cu
+--   evenimentul amânat. Coada e goală după orice commit.
+--
+-- ── DE CE LA COMMIT (deadlock-ul găsit de recenzia adversarială) ──────────
+-- Prima variantă recalcula ÎN statement, deci lua lock pe rândul produsului în
+-- MIJLOCUL buclei de deducere din `deduct_stock_on_order_paid` (250/252), care
+-- face câte un UPDATE pe fiecare ingredient. Ciclu ingredient ↔ produs: P are
+-- i1, i2, i3; A scade i1, P se epuizează (A ține P), apoi scade i2; B scăzuse
+-- deja i2, scade i3 și vrea P (așteaptă A); A așteaptă i2 (B) → deadlock, iar
+-- detectorul îl dă LUI A, în `UPDATE ingredients` — în AFARA sub-blocului de
+-- recalculare, deci închiderea/încasarea pică. Comentariul vechi („inclusiv un
+-- deadlock pe rândul produsului: sub-tranzacția îl absoarbe”) era FALS: cel
+-- care moare e celălalt statement. Acum, în timpul statement-ului nu se ia
+-- niciun lock pe products, iar la commit lock-ul e ordonat și fără așteptare,
+-- deci ciclul nu se mai poate închide.
+-- Dovada, cu două sesiuni psql pe replay (precedentul mig 273/282), aceleași
+-- instrucțiuni pe ambele variante (P = 1 kg din fiecare ingredient, stoc 10):
+--   B: begin; i2 -= 1;                       A: begin; i1 := 0 (P sub porție);
+--   A: i2 -= 1 (așteaptă B);                 B: i3 := 0; … commit;
+--   • varianta în statement: A → „ERROR: deadlock detected … while locking
+--     tuple in relation "ingredients"” (tranzacția lui A, adică încasarea,
+--     derulată); B → COMMIT, P true/stock.
+--   • varianta amânată: B → COMMIT (P true/stock); A se deblochează după
+--     commit-ul lui B → COMMIT; P true/stock, i1 = 0, i2 = 8, i3 = 0.
+--
+-- ── REZIDUU: produsul SĂRIT de `skip locked` ────────────────────────────────
+-- Dacă la commit rândul produsului e ținut de altă tranzacție, recalcularea îl
+-- SARE (nu așteaptă — orice așteptare la commit e o încasare care stă).
+-- Deținătorul e, în practică, cealaltă tranzacție care recalculează ACELAȘI
+-- produs la commit (două vânzări simultane care traversează pragul) — ea scrie
+-- starea din propria vedere, deci cazul obișnuit iese corect. Cazul rău e cel
+-- în care vederea ei e veche (de ex. un NIR pe i1 și o vânzare pe i3 comise în
+-- același moment): produsul poate rămâne în starea veche până la URMĂTOAREA
+-- traversare de prag pe un ingredient al lui, o editare de rețetă sau un gest
+-- manual (ProductsTab / panoul „Epuizate”). Nu se mai recalculează la orice
+-- mișcare de stoc — tocmai filtrul de traversare face încasarea ieftină. Un
+-- produs rămas „disponibil” deși e sub porție e comportamentul de dinainte de
+-- 313 (se vinde pe stoc negativ), nu un bon greșit.
+--
+-- ── PERFORMANȚA pe încasare (măsurat pe replay) ─────────────────────────────
+-- Scenariu: un local cu 300 de produse, 20 de ingrediente, 3 ingrediente per
+-- rețetă (~45 de produse per ingredient); comandă de 20 de linii închisă →
+-- 60 de UPDATE-uri pe ingredients în bucla de deducere. Timpul instrucțiunii
+-- `update orders set status = 'closed'` (+ COMMIT), Postgres 16 local, 3–6
+-- rulări:
+--   fără niciun trigger 313 (referința)         14–20 ms           + commit ~2 ms
+--   prima variantă, stoc departe de prag        168–207 ms         + commit ~2 ms
+--   varianta amânată, stoc departe de prag      17–23 ms           + commit ~2 ms
+--   prima variantă, TOATE pragurile traversate  1136–1393 ms       + commit ~2 ms
+--   varianta amânată, TOATE traversate          21–37 ms           + commit 82–98 ms
+-- (ultimul rând = cazul-limită: toate cele 300 de produse devin „Epuizat” în
+-- aceeași încasare; costul de la commit e cel al celor 300 de UPDATE-uri pe
+-- products, cu auditul lor, făcute O DATĂ în loc de la fiecare din cele 60 de
+-- statement-uri). Panta contează mai mult decât factorul: prima variantă
+-- creștea cu (statement-uri × produse per ingredient × restaurant_has_feature
+-- per produs); acum o vânzare obișnuită costă cât o deducere fără 313.
+--
+-- Recalcularea e izolată pe TOATE straturile: semnalul (inserarea în coadă),
+-- golirea cozii și recalcularea propriu-zisă sunt fiecare într-un sub-bloc
+-- `exception when others → raise warning`. Recalcularea rulează la commit-ul
+-- tranzacției ÎNCASĂRII (advance_order → trigger pe orders), iar un „epuizat”
+-- ratat nu are voie să oprească niciodată un commit de plată. Golirea cozii e
+-- ÎNAINTEA sub-blocului de recalculare: un eșec al recalculării nu lasă rânduri
+-- orfane în coadă.
 --
 -- ── PERSONALUL: set_product_sold_out(uuid, boolean) → jsonb ─────────────────
 -- DEFINER `public, pg_temp`; ospătarul și bucătarul NU au UPDATE pe products
 -- (politica „products: admin write”), deci singura lor cale e acest RPC. Gate
 -- `is_member` (proprietar/manager/ospătar/bucătărie + escape-ul fondatorului
--- 186; partenerul NU — 286). Produs inexistent și produs străin dau ACEEAȘI
--- eroare (42501, hint `not_member`) — fără oracol de existență. Blocarea pune
+-- 186) SAU `has_partner_access` (286): partenerul cu acces ACORDAT are deja
+-- scriere pe products prin politica „products: admin write” și tab-ul Produse
+-- e în PARTNER_TAB_IDS — fără ramura lui, comutatorul „Epuizat” din ProductsTab
+-- i-ar fi întors „Nu ai acces” pe un produs pe care îl poate edita. Funelul
+-- is_member rămâne NEATINS (286: partenerul nu intră în funel); ramura e
+-- scrisă explicit aici, iar PO9 are funcția în lista permisă. Produs
+-- inexistent, produs străin și partener FĂRĂ consimțământ dau ACEEAȘI eroare
+-- (42501, hint `not_member`) — fără oracol de existență. Blocarea pune
 -- 'manual'; deblocarea pune 'manual' dacă stocul e încă sub porție, altfel
 -- null. Auditul e cel existent: `audit_products` (mig 044, FOR EACH ROW pe
 -- products) consemnează rândul cu actorul din JWT.
--- PATCH-ul direct al adminului (ProductsTab, formularul de produs) trece prin
--- normalizarea BEFORE ROW `trg_products_sold_out_normalize`: o scriere care
--- schimbă `is_sold_out` fără să spună sursa e un act MANUAL (aceeași regulă ca
--- RPC-ul), deci clientul vechi rămâne coerent.
+-- `is_sold_out` se schimbă DOAR prin comutator / acest RPC: formularul de
+-- produs din ProductsTab NU mai trimite câmpul în PATCH (PRODUCT_UPDATE_FIELDS,
+-- sanitize.ts). Altfel o listă încărcată ÎNAINTE ca stocul să epuizeze produsul
+-- trimitea `is_sold_out:false` la o simplă editare de descriere, iar
+-- normalizarea de mai jos îl transforma în `false/manual` — produs DEBLOCAT
+-- tăcut. Un PATCH direct care tot schimbă `is_sold_out` (clientul vechi,
+-- fallback-ul pe PGRST202 al comutatorului) trece prin normalizarea BEFORE ROW
+-- `trg_products_sold_out_normalize`: o scriere care schimbă starea fără să
+-- spună sursa e un act MANUAL (aceeași regulă ca RPC-ul).
 --
 -- ── COMENZI ──────────────────────────────────────────────────────────────────
 -- create_order (191) NU se recreează, deliberat: trigger-ul 130
@@ -147,7 +236,7 @@ $$;
 
 revoke all on function public.product_stock_short(uuid) from public, anon, authenticated, service_role;
 
--- ── 3. Recalcularea pe un set de produse ─────────────────────────────────────
+-- ── 3. Recalcularea pe un set de produse (rulează la COMMIT, prin coadă) ────
 create or replace function public.recalc_products_sold_out(p_product_ids uuid[])
 returns integer
 language plpgsql
@@ -155,21 +244,60 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  v_short uuid[];
-  v_ok    uuid[];
-  v_n     integer := 0;
-  v_c     integer;
+  v_locked uuid[];
+  v_rids   uuid[];
+  v_feat   uuid[] := '{}';
+  v_rid    uuid;
+  v_short  uuid[];
+  v_ok     uuid[];
+  v_n      integer := 0;
+  v_c      integer;
 begin
   if p_product_ids is null or cardinality(p_product_ids) = 0 then
     return 0;
   end if;
 
-  select coalesce(array_agg(s.id) filter (where s.short), '{}'),
-         coalesce(array_agg(s.id) filter (where not s.short), '{}')
-    into v_short, v_ok
-    from (select p.id, public.product_stock_short(p.id) as short
+  -- Lock ORDONAT, FĂRĂ așteptare: un produs ținut de altă tranzacție e sărit
+  -- (reziduul din antet). Lock-urile proprii nu sunt sărite.
+  select coalesce(array_agg(s.id order by s.id), '{}')
+    into v_locked
+    from (select p.id
             from public.products p
-           where p.id = any(p_product_ids)) s;
+           where p.id = any(p_product_ids)
+           order by p.id
+             for update skip locked) s;
+  if cardinality(v_locked) = 0 then
+    return 0;
+  end if;
+
+  -- Featurea `stocks` O DATĂ per restaurant (o buclă, nu un predicat: un
+  -- filtru peste un subquery DISTINCT poate fi împins sub DISTINCT și evaluat
+  -- iar per produs).
+  select coalesce(array_agg(distinct p.restaurant_id), '{}')
+    into v_rids
+    from public.products p
+   where p.id = any(v_locked);
+  foreach v_rid in array v_rids loop
+    if public.restaurant_has_feature(v_rid, 'stocks') then
+      v_feat := v_feat || v_rid;
+    end if;
+  end loop;
+
+  -- Aceeași regulă ca product_stock_short, pe mulțime.
+  select coalesce(array_agg(p.id) filter (where s.short), '{}'),
+         coalesce(array_agg(p.id) filter (where not s.short), '{}')
+    into v_short, v_ok
+    from public.products p
+    cross join lateral (
+      select p.restaurant_id = any(v_feat)
+             and exists (select 1
+                           from public.recipes r
+                           join public.ingredients i on i.id = r.ingredient_id
+                          where r.product_id = p.id
+                            and i.is_active
+                            and i.current_stock < r.quantity) as short
+    ) s
+   where p.id = any(v_locked);
 
   -- Lipsă + regula armată → epuizat din stoc. Manualul (epuizat SAU deblocat)
   -- are sold_out_source = 'manual' și nu e atins.
@@ -244,8 +372,26 @@ create trigger trg_products_sold_out_normalize
   before insert or update of is_sold_out, sold_out_source on public.products
   for each row execute function public.normalize_product_sold_out();
 
--- ── 5. Triggerele de stoc (FOR EACH STATEMENT) ───────────────────────────────
-create or replace function public.ingredients_sold_out_stmt()
+-- ── 5. Coada + recalcularea la COMMIT ────────────────────────────────────────
+-- Coada per tranzacție. Fără FK pe products, deliberat: un produs șters în
+-- aceeași tranzacție e doar ignorat la golire, iar un FK ar cere index propriu
+-- (AH5) și un KEY SHARE pe products la fiecare semnal. RLS pornit fără politici
+-- + revoke explicit pe toate rolurile client (default privileges din 047 dau
+-- authenticated CRUD pe orice tabelă nouă): scriitorii sunt DOAR funcțiile
+-- DEFINER de mai jos.
+create table if not exists public.products_sold_out_queue (
+  tx_id      bigint not null default txid_current(),
+  product_id uuid   not null,
+  primary key (tx_id, product_id)
+);
+
+alter table public.products_sold_out_queue enable row level security;
+revoke all on table public.products_sold_out_queue from public, anon, authenticated, service_role;
+
+comment on table public.products_sold_out_queue is
+  $$Coada recalculării „epuizat din stoc” (mig 313): produsele al căror prag a fost traversat în tranzacția tx_id. Golită la COMMIT de trg_products_sold_out_queue_flush (DEFERRABLE INITIALLY DEFERRED); goală după orice commit.$$;
+
+create or replace function public.flush_products_sold_out_queue()
 returns trigger
 language plpgsql
 security definer
@@ -254,13 +400,17 @@ as $$
 declare
   v_ids uuid[];
 begin
-  select array_agg(distinct r.product_id)
-    into v_ids
-    from sold_out_new_rows n
-    join sold_out_old_rows o on o.id = n.id
-    join public.recipes r on r.ingredient_id = n.id
-   where n.current_stock is distinct from o.current_stock
-      or n.is_active is distinct from o.is_active;
+  -- Prima declanșare din tranzacție ia TOT; celelalte găsesc coada goală.
+  begin
+    with d as (
+      delete from public.products_sold_out_queue
+       where tx_id = txid_current()
+      returning product_id)
+    select array_agg(distinct d.product_id) into v_ids from d;
+  exception when others then
+    raise warning 'mig 313: golirea cozii „epuizat din stoc” a eșuat (%): %', sqlstate, sqlerrm;
+    return null;
+  end;
 
   if v_ids is null then
     return null;
@@ -269,8 +419,41 @@ begin
   begin
     perform public.recalc_products_sold_out(v_ids);
   exception when others then
-    -- Un „epuizat” ratat NU oprește niciodată încasarea care a scăzut stocul.
+    -- Un „epuizat” ratat NU oprește niciodată commit-ul încasării.
     raise warning 'mig 313: recalcularea „epuizat din stoc” a eșuat (%): %', sqlstate, sqlerrm;
+  end;
+  return null;
+end;
+$$;
+
+revoke all on function public.flush_products_sold_out_queue() from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_products_sold_out_queue_flush on public.products_sold_out_queue;
+create constraint trigger trg_products_sold_out_queue_flush
+  after insert on public.products_sold_out_queue
+  deferrable initially deferred
+  for each row execute function public.flush_products_sold_out_queue();
+
+-- ── 6. Semnalul (FOR EACH STATEMENT): doar pragurile TRAVERSATE ──────────────
+create or replace function public.ingredients_sold_out_stmt()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  begin
+    insert into public.products_sold_out_queue (product_id)
+    select distinct r.product_id
+      from sold_out_new_rows n
+      join sold_out_old_rows o on o.id = n.id
+      join public.recipes r on r.ingredient_id = n.id
+     where n.is_active is distinct from o.is_active
+        or (o.current_stock < r.quantity) is distinct from (n.current_stock < r.quantity)
+    on conflict (tx_id, product_id) do nothing;
+  exception when others then
+    -- Un semnal pierdut NU oprește niciodată încasarea care a scăzut stocul.
+    raise warning 'mig 313: semnalul „epuizat din stoc” a eșuat (%): %', sqlstate, sqlerrm;
   end;
   return null;
 end;
@@ -290,28 +473,25 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  v_ids uuid[];
 begin
-  if tg_op = 'INSERT' then
-    select array_agg(distinct product_id) into v_ids from sold_out_new_rows;
-  elsif tg_op = 'DELETE' then
-    select array_agg(distinct product_id) into v_ids from sold_out_old_rows;
-  else
-    select array_agg(distinct x.product_id) into v_ids
-      from (select product_id from sold_out_new_rows
-            union
-            select product_id from sold_out_old_rows) x;
-  end if;
-
-  if v_ids is null then
-    return null;
-  end if;
-
   begin
-    perform public.recalc_products_sold_out(v_ids);
+    if tg_op = 'INSERT' then
+      insert into public.products_sold_out_queue (product_id)
+      select distinct product_id from sold_out_new_rows
+      on conflict (tx_id, product_id) do nothing;
+    elsif tg_op = 'DELETE' then
+      insert into public.products_sold_out_queue (product_id)
+      select distinct product_id from sold_out_old_rows
+      on conflict (tx_id, product_id) do nothing;
+    else
+      insert into public.products_sold_out_queue (product_id)
+      select product_id from sold_out_new_rows
+      union
+      select product_id from sold_out_old_rows
+      on conflict (tx_id, product_id) do nothing;
+    end if;
   exception when others then
-    raise warning 'mig 313: recalcularea „epuizat din stoc” a eșuat (%): %', sqlstate, sqlerrm;
+    raise warning 'mig 313: semnalul „epuizat din stoc” a eșuat (%): %', sqlstate, sqlerrm;
   end;
   return null;
 end;
@@ -337,7 +517,7 @@ create trigger trg_recipes_sold_out_del
   referencing old table as sold_out_old_rows
   for each statement execute function public.recipes_sold_out_stmt();
 
--- ── 6. RPC-ul personalului ───────────────────────────────────────────────────
+-- ── 7. RPC-ul personalului ───────────────────────────────────────────────────
 create or replace function public.set_product_sold_out(p_product_id uuid, p_sold_out boolean)
 returns jsonb
 language plpgsql
@@ -360,10 +540,14 @@ begin
       using errcode = '22023', hint = 'invalid_input';
   end if;
 
-  -- Membership ÎNAINTE de lock (un străin nu blochează rândul altuia); produs
-  -- inexistent și produs străin → aceeași eroare (fără oracol de existență).
+  -- Acces ÎNAINTE de lock (un străin nu blochează rândul altuia): membru
+  -- (funelul, cu escape-ul fondatorului) SAU partener cu acces ACORDAT (mig
+  -- 286 — aceeași suprafață ca politica „products: admin write”). Produs
+  -- inexistent, produs străin și partener fără consimțământ → ACEEAȘI eroare
+  -- (fără oracol de existență).
   select restaurant_id into v_rid from public.products where id = p_product_id;
-  if v_rid is null or not public.is_member(v_rid) then
+  if v_rid is null
+     or not (public.is_member(v_rid) or public.has_partner_access(v_rid)) then
     raise exception 'Nu ai acces la acest produs.'
       using errcode = '42501', hint = 'not_member';
   end if;
@@ -399,9 +583,9 @@ revoke all on function public.set_product_sold_out(uuid, boolean) from public, a
 grant execute on function public.set_product_sold_out(uuid, boolean) to authenticated;
 
 comment on function public.set_product_sold_out(uuid, boolean) is
-  'Personalul (orice membru) marchează un produs epuizat/disponibil (mig 313). Hint not_member = produs străin sau inexistent.';
+  'Personalul (orice membru) sau partenerul cu acces acordat marchează un produs epuizat/disponibil (mig 313). Hint not_member = produs străin, inexistent sau partener fără consimțământ.';
 
--- ── 7. Sonda de versiune a meniului ──────────────────────────────────────────
+-- ── 8. Sonda de versiune a meniului ──────────────────────────────────────────
 create or replace function public.get_menu_version(p_restaurant_id uuid)
 returns text
 language sql
@@ -440,7 +624,7 @@ grant execute on function public.get_menu_version(uuid) to anon, authenticated;
 comment on function public.get_menu_version(uuid) is
   'Versiunea meniului public (mig 313): hash care se schimbă la orice epuizare/deblocare și la orice editare de produse/categorii. NULL = restaurant inactiv/inexistent.';
 
--- ── 8. Trigger-ul 130: linia PĂSTRATĂ de update_order_items trece ───────────
+-- ── 9. Trigger-ul 130: linia PĂSTRATĂ de update_order_items trece ───────────
 -- Copie a lui 130 + o singură excepție pe ramura sold_out: GUC-ul
 -- `menuvia.sold_out_keep_order` egal cu comanda liniei (pus doar de
 -- update_order_items, după ce a verificat că nu crește cantitatea).
@@ -486,7 +670,7 @@ $$;
 
 revoke all on function public.reject_unavailable_order_item() from public, anon, authenticated, service_role;
 
--- ── 9. update_order_items: păstrează cantitatea deja comandată ──────────────
+-- ── 10. update_order_items: păstrează cantitatea deja comandată ──────────────
 create or replace function public.update_order_items(
   p_order_id       uuid,
   p_items          jsonb,
@@ -949,9 +1133,10 @@ $$;
 revoke all on function public.update_order_items(uuid, jsonb, numeric) from public, anon;
 grant execute on function public.update_order_items(uuid, jsonb, numeric) to authenticated;
 
--- ── 10. Starea inițială: produsele cu rețetă se evaluează O DATĂ acum ───────
+-- ── 11. Starea inițială: produsele cu rețetă se evaluează O DATĂ acum ───────
 -- Altfel un produs deja sub porție ar rămâne „disponibil” până la prima
--- mișcare de stoc. Doar restaurantele cu featurea `stocks` pot fi atinse.
+-- traversare de prag. Doar restaurantele cu featurea `stocks` pot fi atinse.
+-- Apel DIRECT (nu prin coadă): suntem în tranzacția migrației.
 do $$
 declare v_n integer;
 begin
@@ -973,6 +1158,7 @@ begin
     'public.normalize_product_sold_out()',
     'public.ingredients_sold_out_stmt()',
     'public.recipes_sold_out_stmt()',
+    'public.flush_products_sold_out_queue()',
     'public.set_product_sold_out(uuid,boolean)',
     'public.get_menu_version(uuid)',
     'public.reject_unavailable_order_item()',
@@ -991,6 +1177,7 @@ begin
     'public.normalize_product_sold_out()',
     'public.ingredients_sold_out_stmt()',
     'public.recipes_sold_out_stmt()',
+    'public.flush_products_sold_out_queue()',
     'public.reject_unavailable_order_item()'
   ] loop
     if has_function_privilege('anon', v_fn::regprocedure, 'execute')
@@ -1018,6 +1205,34 @@ begin
      and (tgtype & 1) = 0;
   if v_n <> 4 then
     raise exception 'mig 313: aștept 4 triggere de stoc FOR EACH STATEMENT, găsit %', v_n;
+  end if;
+
+  -- Recalcularea e AMÂNATĂ la commit: constraint trigger DEFERRABLE INITIALLY
+  -- DEFERRED pe coadă (AFTER INSERT ROW = tgtype 5); triggerele de semnal NU
+  -- recalculează în statement, iar recalcularea lock-uiește ordonat, fără
+  -- așteptare.
+  if not exists (select 1 from pg_trigger
+                  where tgrelid = 'public.products_sold_out_queue'::regclass
+                    and tgname = 'trg_products_sold_out_queue_flush'
+                    and tgconstraint <> 0 and tgdeferrable and tginitdeferred
+                    and tgtype = 5) then
+    raise exception 'mig 313: trg_products_sold_out_queue_flush nu e constraint trigger DEFERRABLE INITIALLY DEFERRED';
+  end if;
+  foreach v_fn in array array['public.ingredients_sold_out_stmt()', 'public.recipes_sold_out_stmt()'] loop
+    v_src := (select prosrc from pg_proc where oid = v_fn::regprocedure);
+    if position('recalc_products_sold_out' in v_src) > 0
+       or position('products_sold_out_queue' in v_src) = 0 then
+      raise exception 'mig 313: % trebuie doar să pună în coadă, nu să recalculeze în statement', v_fn;
+    end if;
+  end loop;
+  v_src := (select prosrc from pg_proc where oid = 'public.recalc_products_sold_out(uuid[])'::regprocedure);
+  if position('skip locked' in v_src) = 0 or position('order by p.id' in v_src) = 0 then
+    raise exception 'mig 313: recalc_products_sold_out trebuie să lock-uiască ordonat cu skip locked';
+  end if;
+  if has_table_privilege('authenticated', 'public.products_sold_out_queue', 'select,insert,update,delete')
+     or has_table_privilege('anon', 'public.products_sold_out_queue', 'select,insert,update,delete')
+     or not (select relrowsecurity from pg_class where oid = 'public.products_sold_out_queue'::regclass) then
+    raise exception 'mig 313: products_sold_out_queue trebuie să fie deny-all (RLS + fără privilegii client)';
   end if;
 
   -- update_order_items: o singură semnătură, invariantele 146/184/192 + 313.

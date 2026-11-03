@@ -164,6 +164,17 @@ export function guestErrorKey(err: unknown, opts: GuestErrorOptions = {}): Publi
   return opts.overrides?.[k] ?? k
 }
 
+/**
+ * Comanda oaspetelui a fost respinsă fiindcă un produs din coș s-a epuizat
+ * între timp (hint `product_sold_out` — trigger-ul 130 / mig 313 — sau
+ * mesajul brut „este epuizat”). Apelantul (QrMenuPage) reîncarcă atunci
+ * meniul, ca linia din coș să primească badge-ul „Epuizat”: altfel oaspetele
+ * vede „un produs s-a epuizat” fără să afle CARE. Pur, fără React.
+ */
+export function isSoldOutGuestError(err: unknown): boolean {
+  return rawKey(err) === 'err_product_sold_out'
+}
+
 /** Textul erorii în limba oaspetelui — NICIODATĂ mesajul brut al serverului. */
 export function describeGuestError(
   lang: string | null | undefined,

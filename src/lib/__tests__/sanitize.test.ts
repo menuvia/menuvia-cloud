@@ -6,8 +6,13 @@
 // pică imediat și prinde regresia înainte ca PostgREST să returneze 42501.
 
 import { describe, it, expect } from 'vitest'
-import type { Restaurant } from '../../hooks/useData'
-import { RESTAURANT_UPDATE_FIELDS, pickAllowed } from '../sanitize'
+import type { Product, Restaurant } from '../../hooks/useData'
+import {
+  PRODUCT_INSERT_FIELDS,
+  PRODUCT_UPDATE_FIELDS,
+  RESTAURANT_UPDATE_FIELDS,
+  pickAllowed,
+} from '../sanitize'
 
 describe('RESTAURANT_UPDATE_FIELDS', () => {
   it('does NOT contain slug (handled by change_restaurant_slug RPC after PR 1B)', () => {
@@ -105,5 +110,33 @@ describe('pickAllowed', () => {
     const dirty: Partial<Restaurant> = { name: 'X', tagline: null }
     const safe = pickAllowed(dirty, RESTAURANT_UPDATE_FIELDS)
     expect(safe).toEqual({ name: 'X', tagline: null })
+  })
+})
+
+// mig 313: „Epuizat” se schimbă DOAR prin comutator / RPC. Formularul de produs
+// pornește din lista încărcată la deschidere; dacă stocul a epuizat produsul
+// între timp, PATCH-ul unei simple editări de descriere trimitea
+// `is_sold_out:false`, iar baza îl consemna ca deblocare MANUALĂ.
+//   PU1  editarea altui câmp nu trimite is_sold_out (mutația care pică:
+//        'is_sold_out' readus în PRODUCT_UPDATE_FIELDS).
+//   PU2  la CREARE starea inițială aleasă în formular e permisă.
+describe('PRODUCT_UPDATE_FIELDS — „Epuizat” nu pleacă în PATCH-ul formularului', () => {
+  it('PU1 editarea descrierii nu trimite is_sold_out (date vechi din listă)', () => {
+    const staleForm: Partial<Product> = {
+      name: 'Supă',
+      description: 'Descriere nouă',
+      price: 15,
+      is_sold_out: false,
+    }
+    const payload = pickAllowed(staleForm, PRODUCT_UPDATE_FIELDS)
+    expect(Object.prototype.hasOwnProperty.call(payload, 'is_sold_out')).toBe(false)
+    expect(payload).toEqual({ name: 'Supă', description: 'Descriere nouă', price: 15 })
+    expect((PRODUCT_UPDATE_FIELDS as readonly string[]).includes('is_sold_out')).toBe(false)
+  })
+
+  it('PU2 la creare starea inițială „Epuizat” trece; restul câmpurilor sunt aceleași', () => {
+    const payload = pickAllowed({ name: 'Nou', is_sold_out: true } as Partial<Product>, PRODUCT_INSERT_FIELDS)
+    expect(payload).toEqual({ name: 'Nou', is_sold_out: true })
+    expect([...PRODUCT_INSERT_FIELDS].sort()).toEqual([...PRODUCT_UPDATE_FIELDS, 'is_sold_out'].sort())
   })
 })
