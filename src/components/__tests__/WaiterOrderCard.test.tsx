@@ -3,7 +3,7 @@
 // integrală/parțială; Plan 1/2 (false) arată „Închide comanda" (nefiscal);
 // NECUNOSCUT (null) nu arată NICIUN buton de finalizare — o închidere nefiscală
 // pe Plan 3 ar însemna bani fără bon. Default-ul prop-ului e null (fail-closed).
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderCard } from '../WaiterOrderCard'
@@ -306,5 +306,81 @@ describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-a
   it('T17 control: fără eroare → niciun alert pe card', () => {
     renderCard(makeOrder({ status: 'served' }), false)
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+// Lotul G: vârsta comenzii e colorată și la ospătar, cu pragurile Bucătăriei.
+//   WA1  25 de minute, încă în preparare → „întârziată", în roșu (data-age
+//        late); 12 minute → atenție (warn); 3 minute → calm. Mutația care pică:
+//        vârsta randată fără nivel (codul vechi).
+//   WA2  după „Servit" culoarea dispare: comanda nu mai așteaptă bucătăria.
+//   WA3  pickup programat, plasat acum 3 ore, ora promisă trecută de 25 de
+//        minute: cifra afișată e „25m", nu „3h …" — aceeași ancoră ca culoarea.
+//        Înainte de ora promisă cifra rămâne vârsta de la plasare. Mutația care
+//        pică: `useElapsed(order.created_at)` (cifra veche, „3h 0m · întârziată").
+describe('OrderCard — vârsta colorată (lotul G)', () => {
+  // Ceas înghețat: cifrele afișate („25m", „30m") nu au voie să depindă de
+  // milisecundele dintre construcția fixturii și randare.
+  const NOW = new Date('2026-07-20T12:00:00Z').getTime()
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const ago = (m: number) => new Date(NOW - m * 60_000).toISOString()
+
+  it('WA1 pragurile 10 / 20 de minute', () => {
+    const { container, unmount } = render(
+      <OrderCard order={makeOrder({ status: 'preparing', created_at: ago(25) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('late')
+    expect(screen.getByText(/întârziată/)).toBeInTheDocument()
+    unmount()
+    const warn = render(
+      <OrderCard order={makeOrder({ status: 'confirmed', created_at: ago(12) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(warn.container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('warn')
+    expect(screen.queryByText(/întârziată/)).toBeNull()
+    warn.unmount()
+    const calm = render(
+      <OrderCard order={makeOrder({ status: 'new', created_at: ago(3) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(calm.container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('calm')
+  })
+
+  it('WA3 pickup programat: vârsta afișată e față de ora promisă', () => {
+    const late = render(
+      <OrderCard
+        order={makeOrder({ status: 'preparing', source: 'pickup', created_at: ago(180), pickup_time: ago(25) })}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+      />,
+    )
+    const span = late.container.querySelector('[data-age]')
+    expect(span?.getAttribute('data-age')).toBe('late')
+    expect(span?.textContent).toBe('25m · întârziată')
+    late.unmount()
+    const ahead = render(
+      <OrderCard
+        order={makeOrder({ status: 'preparing', source: 'pickup', created_at: ago(30), pickup_time: ago(-40) })}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+      />,
+    )
+    const calm = ahead.container.querySelector('[data-age]')
+    expect(calm?.getAttribute('data-age')).toBe('calm')
+    expect(calm?.textContent).toBe('30m')
+  })
+
+  it('WA2 servită → fără culoare de întârziere', () => {
+    const { container } = render(
+      <OrderCard order={makeOrder({ status: 'served', created_at: ago(45) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('calm')
+    expect(screen.queryByText(/întârziată/)).toBeNull()
   })
 })

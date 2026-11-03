@@ -22,6 +22,7 @@ import type { Order, OrderStatus } from '../lib/orders'
 import { STAFF_ORDERS_FETCH_LIMIT } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed, urgencyColor, playSound } from '../lib/utils'
+import { takeNewlyLate } from '../lib/orderAge'
 import { usePushNotifications } from '../hooks/usePushNotifications'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
@@ -380,6 +381,7 @@ export default function KitchenPage() {
     loading,
     error,
     truncated,
+    snapshotFor,
     advance,
     byStatus,
     connectionStatus,
@@ -415,13 +417,48 @@ export default function KitchenPage() {
   } = usePushNotifications(restaurantId)
 
 
+  // Lotul G: o comandă încă nepregătită care trece de 20 de minute sună O dată
+  // (ton mai jos și mai lung decât „comandă nouă", ca bucătarul să le
+  // deosebească). Comenzile deja întârziate la deschiderea ecranului NU sună:
+  // cardul lor e deja roșu, iar un reload nu are voie să facă zgomot.
+  const lateAlerted = useRef<Set<string>>(new Set())
+  const lateBaselineDone = useRef(false)
+
   // Reset la schimbarea restaurantului — noul prim snapshot nu trebuie să sune,
   // iar o eroare închisă pe vechiul restaurant nu ascunde una de pe cel nou.
   useEffect(() => {
     prevOrderIds.current = new Set<string>()
     hasSeenInitialSnapshot.current = false
+    lateAlerted.current = new Set<string>()
+    lateBaselineDone.current = false
     setDismissedError(null)
   }, [restaurantId])
+
+  // Verificarea rulează la fiecare schimbare a comenzilor ȘI la 10 s (o comandă
+  // devine întârziată odată cu trecerea timpului, fără niciun eveniment); efectul
+  // se reface la fiecare listă nouă, deci intervalul citește mereu lista curentă.
+  //
+  // Baseline-ul se pune DOAR pe un snapshot reușit al restaurantului ACTIV
+  // (`snapshotFor`, din useOrders): nu pe lista goală a unui prim fetch eșuat
+  // (altfel, la primul poll reușit, comenzile deja întârziate ar suna toate) și
+  // nu pe lista vechiului restaurant, pe care useOrders o mai ține o randare
+  // după comutare — goală sau nu, deci nu se poate deduce din comenzi.
+  useEffect(() => {
+    if (loading) return
+    const check = (): void => {
+      if (!lateBaselineDone.current && snapshotFor !== restaurantId) return
+      const { alerted, fresh } = takeNewlyLate(orders, lateAlerted.current)
+      lateAlerted.current = alerted
+      if (!lateBaselineDone.current) {
+        lateBaselineDone.current = true
+        return
+      }
+      if (fresh.length > 0) playSound(440, 450)
+    }
+    check()
+    const id = setInterval(check, 10_000)
+    return () => clearInterval(id)
+  }, [orders, loading, snapshotFor, restaurantId])
 
   useEffect(() => {
     // NU arma baseline-ul pe render-ul GOL dinainte de primul fetch: altfel
