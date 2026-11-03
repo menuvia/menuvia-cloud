@@ -130,6 +130,11 @@ interface UseOrdersResult {
   error: string | null
   // Lista e plafonată (cele mai noi STAFF_ORDERS_FETCH_LIMIT comenzi deschise).
   truncated: boolean
+  // Restaurantul căruia îi aparține ultima listă adusă CU SUCCES de la server
+  // (null până la primul fetch reușit și imediat după o comutare). La comutare
+  // `orders` mai ține o randare lista vechiului restaurant — goală sau nu —,
+  // deci cine vrea „primul snapshot al restaurantului X" compară cu acesta.
+  snapshotFor: string | null
   connectionStatus: RealtimeConnectionStatus
   // Întoarce true dacă update-ul a reușit, false dacă a fost respins (rol/gate/rețea)
   // sau dacă o acțiune pe ACEEAȘI comandă e deja în curs (dublu-tap).
@@ -175,6 +180,7 @@ export function useOrders(
   // Lista a fost plafonată la STAFF_ORDERS_FETCH_LIMIT (cele mai NOI comenzi
   // deschise) — paginile afișează un avertisment, nu tac (audit v3 RES-36).
   const [truncated, setTruncated] = useState(false)
+  const [snapshotFor, setSnapshotFor] = useState<string | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting')
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set<string>())
   const [actionErrors, setActionErrors] = useState<Readonly<Record<string, string>>>({})
@@ -219,6 +225,7 @@ export function useOrders(
     }
     setLoading(true)
     setError(null)
+    setSnapshotFor(null)
     genRef.current += 1
     pendingSetRef.current = new Set()
     setPendingIds(new Set<string>())
@@ -233,6 +240,7 @@ export function useOrders(
         if (cancelled) return
         setOrders(page.orders)
         setTruncated(page.truncated)
+        setSnapshotFor(restaurantId)
         setLoading(false)
       })
       .catch((e: unknown) => {
@@ -332,6 +340,7 @@ export function useOrders(
           }
           setOrders((prev) => reconcileOrders(prev, page.orders))
           setTruncated(page.truncated)
+          setSnapshotFor(restaurantId)
           // Un fetch reușit închide bannerul de sincronizare (era lipicios).
           setError(null)
         })
@@ -492,6 +501,7 @@ export function useOrders(
           // re-randând tot arborele și invalidând orice memo pe carduri.
           setOrders((prev) => reconcileOrders(prev, page.orders))
           setTruncated(page.truncated)
+          setSnapshotFor(restaurantId)
           setError(null)
         })
         .catch(() => {
@@ -629,6 +639,7 @@ export function useOrders(
     loading,
     error,
     truncated,
+    snapshotFor,
     connectionStatus,
     advance,
     byStatus,

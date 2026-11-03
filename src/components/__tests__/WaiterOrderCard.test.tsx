@@ -3,7 +3,7 @@
 // integrală/parțială; Plan 1/2 (false) arată „Închide comanda" (nefiscal);
 // NECUNOSCUT (null) nu arată NICIUN buton de finalizare — o închidere nefiscală
 // pe Plan 3 ar însemna bani fără bon. Default-ul prop-ului e null (fail-closed).
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderCard } from '../WaiterOrderCard'
@@ -319,7 +319,17 @@ describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-a
 //        Înainte de ora promisă cifra rămâne vârsta de la plasare. Mutația care
 //        pică: `useElapsed(order.created_at)` (cifra veche, „3h 0m · întârziată").
 describe('OrderCard — vârsta colorată (lotul G)', () => {
-  const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+  // Ceas înghețat: cifrele afișate („25m", „30m") nu au voie să depindă de
+  // milisecundele dintre construcția fixturii și randare.
+  const NOW = new Date('2026-07-20T12:00:00Z').getTime()
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+  const ago = (m: number) => new Date(NOW - m * 60_000).toISOString()
 
   it('WA1 pragurile 10 / 20 de minute', () => {
     const { container, unmount } = render(

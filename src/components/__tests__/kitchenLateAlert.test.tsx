@@ -8,11 +8,13 @@
 //   KA2  o comandă „Gata de servit", oricât de veche, nu sună.
 //   KA3  primul fetch eșuează (listă goală + eroare), apoi un poll reușit aduce
 //        comenzi DEJA întârziate → tăcere (ele sunt baseline-ul); una care trece
-//        pragul după aceea sună. Mutația care pică: baseline pus și pe eroare.
-//   KA4  comutare de restaurant: useOrders mai ține comenzile vechiului
-//        restaurant, iar un tick de 10 s cade în fereastra asta; comenzile
-//        noului restaurant, deja întârziate, NU sună. Mutația care pică:
-//        baseline fără verificarea `restaurant_id`.
+//        pragul după aceea sună. Mutația care pică: baseline fără `snapshotFor`.
+//   KA4  comutare de restaurant: useOrders mai ține lista vechiului
+//        restaurant (`snapshotFor` = vechiul id), iar un tick de 10 s cade în
+//        fereastra asta; comenzile noului restaurant, deja întârziate, NU sună.
+//        KA5: același lucru când lista veche e GOALĂ — o verificare pe
+//        `restaurant_id`-ul comenzilor nu o prinde (recenzia CodeRabbit).
+//        Mutația care pică: baseline fără `snapshotFor === restaurantId`.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, act } from '@testing-library/react'
 
@@ -38,11 +40,15 @@ import { makeOrder } from './fixtures'
 
 const NOW = new Date('2026-07-20T09:20:00Z')
 
-function ordersHook(orders: Order[], error: string | null = null) {
+function ordersHook(
+  orders: Order[],
+  { error = null, snapshotFor = 'r1' }: { error?: string | null; snapshotFor?: string | null } = {},
+) {
   return {
     orders,
     loading: false,
     error,
+    snapshotFor,
     truncated: false,
     connectionStatus: 'connected',
     advance: vi.fn(),
@@ -112,7 +118,7 @@ describe('KitchenPage — alerta de întârziere', () => {
   })
 
   it('KA3 primul fetch eșuat nu devine baseline', () => {
-    useOrdersMock.mockReturnValue(ordersHook([], 'Failed to fetch'))
+    useOrdersMock.mockReturnValue(ordersHook([], { error: 'Failed to fetch', snapshotFor: null }))
     const view = render(<KitchenPage />)
     act(() => {
       vi.advanceTimersByTime(10_000)
@@ -150,9 +156,38 @@ describe('KitchenPage — alerta de întârziere', () => {
       vi.advanceTimersByTime(10_000)
     })
     useOrdersMock.mockReturnValue(
-      ordersHook([
-        makeOrder({ id: 'B', restaurant_id: 'r2', status: 'preparing', created_at: '2026-07-20T08:40:00Z' }),
-      ]),
+      ordersHook(
+        [makeOrder({ id: 'B', restaurant_id: 'r2', status: 'preparing', created_at: '2026-07-20T08:40:00Z' })],
+        { snapshotFor: 'r2' },
+      ),
+    )
+    view.rerender(<KitchenPage />)
+    act(() => {
+      vi.advanceTimersByTime(30_000)
+    })
+    expect(lateCalls()).toHaveLength(0)
+  })
+
+  it('KA5 comutarea de la un restaurant FĂRĂ comenzi nu sună pe cele deja întârziate', () => {
+    useOrdersMock.mockReturnValue(ordersHook([]))
+    const view = render(<KitchenPage />)
+    useCtxMock.mockReturnValue({
+      activeId: 'r2',
+      activeName: 'Terasa',
+      activeRole: 'kitchen',
+      memberships: [],
+      setActive: vi.fn(),
+      loading: false,
+    })
+    view.rerender(<KitchenPage />)
+    act(() => {
+      vi.advanceTimersByTime(10_000)
+    })
+    useOrdersMock.mockReturnValue(
+      ordersHook(
+        [makeOrder({ id: 'B', restaurant_id: 'r2', status: 'preparing', created_at: '2026-07-20T08:40:00Z' })],
+        { snapshotFor: 'r2' },
+      ),
     )
     view.rerender(<KitchenPage />)
     act(() => {

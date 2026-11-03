@@ -132,6 +132,37 @@ describe('useOrders — resincronizare', () => {
     expect(result.current.error).toBeNull()
   })
 
+  // RS5b `snapshotFor` = restaurantul ultimei liste aduse CU SUCCES: null după
+  // un prim fetch eșuat, setat de resync-ul reușit, null din nou imediat după
+  // comutarea restaurantului (lista veche încă e în state), apoi noul id.
+  // Bucătăria își pune baseline-ul alertei de întârziere doar pe el (lotul G).
+  // Mutații care pică: fără setSnapshotFor pe resync; fără reset la comutare.
+  it('RS5b snapshotFor urmează doar fetch-urile reușite ale restaurantului activ', async () => {
+    m.fetchKitchenOrders.mockRejectedValueOnce(new Error('TypeError: Failed to fetch'))
+    const { result, rerender } = renderHook(({ rid }) => useOrders(rid, 'kitchen'), {
+      initialProps: { rid: 'r1' },
+    })
+    await tick(0)
+    expect(result.current.snapshotFor).toBeNull()
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+    await tick(0)
+    expect(result.current.snapshotFor).toBe('r1')
+    let release: (p: StaffOrdersPage) => void = () => {}
+    m.fetchKitchenOrders.mockReturnValueOnce(
+      new Promise<StaffOrdersPage>((res) => {
+        release = res
+      }),
+    )
+    rerender({ rid: 'r2' })
+    expect(result.current.snapshotFor).toBeNull()
+    await act(async () => {
+      release({ orders: [], truncated: false })
+    })
+    expect(result.current.snapshotFor).toBe('r2')
+  })
+
   it('RS6 resync-ul cerut cât o acțiune e în curs NU suprascrie starea optimistă; rulează după', async () => {
     const { result } = renderHook(() => useOrders('r1', 'kitchen'))
     await tick(0)

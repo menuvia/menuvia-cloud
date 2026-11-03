@@ -381,6 +381,7 @@ export default function KitchenPage() {
     loading,
     error,
     truncated,
+    snapshotFor,
     advance,
     byStatus,
     connectionStatus,
@@ -437,17 +438,15 @@ export default function KitchenPage() {
   // devine întârziată odată cu trecerea timpului, fără niciun eveniment); efectul
   // se reface la fiecare listă nouă, deci intervalul citește mereu lista curentă.
   //
-  // Baseline-ul se pune DOAR pe un snapshot reușit al restaurantului ACTIV: nu pe
-  // o listă goală rămasă după un prim fetch eșuat (altfel, la primul poll reușit,
-  // comenzile deja întârziate ar suna toate) și nu pe comenzile restaurantului
-  // anterior, pe care useOrders le mai ține o randare după comutare.
+  // Baseline-ul se pune DOAR pe un snapshot reușit al restaurantului ACTIV
+  // (`snapshotFor`, din useOrders): nu pe lista goală a unui prim fetch eșuat
+  // (altfel, la primul poll reușit, comenzile deja întârziate ar suna toate) și
+  // nu pe lista vechiului restaurant, pe care useOrders o mai ține o randare
+  // după comutare — goală sau nu, deci nu se poate deduce din comenzi.
   useEffect(() => {
     if (loading) return
     const check = (): void => {
-      if (!lateBaselineDone.current) {
-        if (error != null) return
-        if (orders.some((o) => o.restaurant_id !== restaurantId)) return
-      }
+      if (!lateBaselineDone.current && snapshotFor !== restaurantId) return
       const { alerted, fresh } = takeNewlyLate(orders, lateAlerted.current)
       lateAlerted.current = alerted
       if (!lateBaselineDone.current) {
@@ -459,7 +458,7 @@ export default function KitchenPage() {
     check()
     const id = setInterval(check, 10_000)
     return () => clearInterval(id)
-  }, [orders, loading, error, restaurantId])
+  }, [orders, loading, snapshotFor, restaurantId])
 
   useEffect(() => {
     // NU arma baseline-ul pe render-ul GOL dinainte de primul fetch: altfel
