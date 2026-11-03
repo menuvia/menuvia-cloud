@@ -174,19 +174,11 @@ export default function InvoicesTab({ restaurantId, restaurantName }: Props) {
         }}
       >
         <div>
-          <div
-            style={{
-              fontSize: 12,
-              color: D.t3,
-              letterSpacing: '0.1em',
-              textTransform: 'uppercase',
-              marginBottom: 4,
-            }}
-          >
-            Facturare Oblio
-          </div>
+          {/* Titlul paginii („Facturi") e al panoului (lotul R2); fostul
+              supratitlu rămâne ca subtitlu. */}
+          <div style={{ fontSize: 13, color: D.t2 }}>Facturile emise prin Oblio</div>
           {config && (
-            <div style={{ fontSize: 13, color: D.t3, marginTop: 6 }}>
+            <div style={{ fontSize: 13, color: D.t3, marginTop: 4 }}>
               Conectat ca {config.company_name} ({config.company_cif})
               {config.test_mode && (
                 <span style={{ color: D.amber, marginLeft: 8 }}>· MOD TEST</span>

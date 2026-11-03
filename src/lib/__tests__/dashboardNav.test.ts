@@ -15,7 +15,15 @@
 //        grupului vechi + a sub-tab-ului vechi) e egală cu cea nouă. Un sub-tab
 //        mutat dintr-un grup `adminOnly` trebuie să-și ducă poarta cu el.
 //        Mutația care pică: `adminOnly` scos de pe Stocuri / Ture de casă, sau
-//        `minTier` schimbat pe orice sub-tab.
+//        `minTier` schimbat pe orice sub-tab. Recenzia #335: pragul pe PLAN
+//        (`minTierGeneral`) și cel pe BANI (`minTierMoney`, sub-tab cu `money`)
+//        se țin SEPARAT și se compară pe COMPORTAMENT: vizibilitatea veche vs
+//        nouă pe fiecare pereche (general, money) realizabilă — (1,1), (2,2),
+//        (3,3) și (3,2), Planul 3 din afara RO (moneyTier coboară doar de la 3
+//        la 2) — × admin × „doar ridicare". Un singur `minTier` contopit nu
+//        spunea pe ce tier se compară pragul. Mutații care pică: `money` scos de
+//        pe TVA / Facturi / Ture de casă (pe (3,2) ecranul de bani devine
+//        vizibil), sau `money` pus pe Statistici (dispare pe (3,2)).
 //   NV4  etichetele pe plan: „Comenzi & plăți" / „Comenzi" / „Meniu QR" (fost
 //        `sectionLabel` din SettingsTab), „Casă & tichete" / „Imprimantă
 //        bucătărie", iar grupul Comenzi pe Planul 1 poartă numele Rezervărilor.
@@ -69,8 +77,10 @@ const visibleIds = (ctx: NavContext): Tab[] =>
 // grupului și ale sub-tab-ului. Înghețată: e „vechiul" din harta vechi → nou.
 interface OldGate {
   adminOnly?: boolean
-  minTier?: PlanTier
-  money?: true
+  // Prag pe planul general (`tier`).
+  minTierGeneral?: PlanTier
+  // Prag pe tier-ul de BANI (`money`, mig 296) — doar pe sub-tab-uri.
+  minTierMoney?: PlanTier
   hiddenPickupOnly?: boolean
 }
 const OLD: { group: string; gate: OldGate; subTabs: [string, OldGate][] }[] = [
@@ -81,31 +91,31 @@ const OLD: { group: string; gate: OldGate; subTabs: [string, OldGate][] }[] = [
     subTabs: [
       ['products', {}],
       ['categories', {}],
-      ['modificatori', { minTier: 2 }],
-      ['happy-hour', { adminOnly: true, minTier: 2 }],
+      ['modificatori', { minTierGeneral: 2 }],
+      ['happy-hour', { adminOnly: true, minTierGeneral: 2 }],
     ],
   },
-  { group: 'comenzi', gate: { minTier: 2 }, subTabs: [['comenzi', {}]] },
+  { group: 'comenzi', gate: { minTierGeneral: 2 }, subTabs: [['comenzi', {}]] },
   {
     group: 'mese-qr',
     gate: {},
     subTabs: [
       ['mese', {}],
       ['reservations', { adminOnly: true, hiddenPickupOnly: true }],
-      ['arhitectura', { minTier: 3, hiddenPickupOnly: true }],
+      ['arhitectura', { minTierGeneral: 3, hiddenPickupOnly: true }],
     ],
   },
   {
     group: 'rapoarte',
-    gate: { adminOnly: true, minTier: 2 },
+    gate: { adminOnly: true, minTierGeneral: 2 },
     subTabs: [
       ['raport', {}],
-      ['analytics', { minTier: 3 }],
-      ['tva', { minTier: 3, money: true }],
-      ['casa-tura', { minTier: 3, money: true }],
-      ['casa-marcat', { minTier: 2 }],
-      ['invoices', { minTier: 3, money: true }],
-      ['gestiune', { minTier: 2 }],
+      ['analytics', { minTierGeneral: 3 }],
+      ['tva', { minTierMoney: 3 }],
+      ['casa-tura', { minTierMoney: 3 }],
+      ['casa-marcat', { minTierGeneral: 2 }],
+      ['invoices', { minTierMoney: 3 }],
+      ['gestiune', { minTierGeneral: 2 }],
     ],
   },
   {
@@ -113,9 +123,9 @@ const OLD: { group: string; gate: OldGate; subTabs: [string, OldGate][] }[] = [
     gate: { adminOnly: true },
     subTabs: [
       ['settings', {}],
-      ['ai', { minTier: 2 }],
-      ['echipa', { minTier: 2 }],
-      ['ture', { minTier: 3 }],
+      ['ai', { minTierGeneral: 2 }],
+      ['echipa', { minTierGeneral: 2 }],
+      ['ture', { minTierGeneral: 3 }],
     ],
   },
 ]
@@ -144,14 +154,41 @@ const OLD_TO_NEW: Record<string, string> = {
   'casa-marcat': 'setari',
 }
 
-/** Poarta efectivă: a grupului + a sub-tab-ului (minTier = maximul). */
-function effective(group: OldGate, sub: OldGate): Required<Pick<OldGate, 'adminOnly'>> & OldGate {
-  const minTier = Math.max(group.minTier ?? 0, sub.minTier ?? 0)
+/** Vizibilitatea unei porți (grup + sub-tab), cu cele două praguri SEPARATE. */
+function visibleAt(
+  group: OldGate,
+  sub: OldGate,
+  at: { general: PlanTier; money: PlanTier; admin: boolean; pickupOnly: boolean },
+): boolean {
+  if ((group.adminOnly === true || sub.adminOnly === true) && !at.admin) return false
+  if (Math.max(group.minTierGeneral ?? 0, sub.minTierGeneral ?? 0) > at.general) return false
+  if (Math.max(group.minTierMoney ?? 0, sub.minTierMoney ?? 0) > at.money) return false
+  if (sub.hiddenPickupOnly === true && at.pickupOnly) return false
+  return true
+}
+
+// Perechile (general, money) care pot exista: money = general, sau 2 pe Planul 3
+// din afara RO (moneyTier, lib/features.ts).
+const REALIZABLE: [PlanTier, PlanTier][] = [
+  [1, 1],
+  [2, 2],
+  [3, 3],
+  [3, 2],
+]
+const SITUATIONS = REALIZABLE.flatMap(([general, money]) =>
+  [true, false].flatMap((admin) =>
+    [true, false].map((pickupOnly) => ({ general, money, admin, pickupOnly })),
+  ),
+)
+const behaviour = (group: OldGate, sub: OldGate) =>
+  SITUATIONS.map((at) => visibleAt(group, sub, at))
+
+/** Porțile din NAV_GROUPS, în aceeași formă (`money` mută pragul pe tier-ul de bani). */
+function gateOf(g: { adminOnly?: boolean; minTier?: PlanTier; money?: true; hiddenPickupOnly?: boolean }): OldGate {
   return {
-    adminOnly: group.adminOnly === true || sub.adminOnly === true,
-    ...(minTier > 0 ? { minTier: minTier as PlanTier } : {}),
-    ...(sub.money ? { money: true as const } : {}),
-    ...(sub.hiddenPickupOnly ? { hiddenPickupOnly: true } : {}),
+    adminOnly: g.adminOnly,
+    ...(g.money ? { minTierMoney: g.minTier } : { minTierGeneral: g.minTier }),
+    hiddenPickupOnly: g.hiddenPickupOnly,
   }
 }
 
@@ -218,17 +255,7 @@ describe('dashboardNav — structura (lotul R2)', () => {
         const ng = newGroupOf(id)
         const nst = ng?.subTabs.find((st) => st.id === id)
         if (!ng || !nst) throw new Error(`${id} lipsește din NAV_GROUPS`)
-        const before = effective(g.gate, sub)
-        const after = effective(
-          { adminOnly: ng.adminOnly, minTier: ng.minTier },
-          {
-            adminOnly: nst.adminOnly,
-            minTier: nst.minTier,
-            money: nst.money,
-            hiddenPickupOnly: nst.hiddenPickupOnly,
-          },
-        )
-        expect(after, id).toEqual(before)
+        expect(behaviour(gateOf(ng), gateOf(nst)), id).toEqual(behaviour(g.gate, sub))
       }
     }
     // Secțiunile noi ale Setărilor moștenesc poarta fostei „General" (`settings`).
@@ -236,8 +263,20 @@ describe('dashboardNav — structura (lotul R2)', () => {
     for (const id of ['settings-menu', 'settings-orders', 'settings-account']) {
       const st = setari?.subTabs.find((t) => t.id === id)
       if (!setari || !st) throw new Error(`${id} lipsește`)
-      expect(effective({ adminOnly: setari.adminOnly }, st), id).toEqual({ adminOnly: true })
+      expect(behaviour(gateOf(setari), gateOf(st)), id).toEqual(behaviour({ adminOnly: true }, {}))
     }
+    // Control: pragurile chiar sunt separate — TVA cere tier-ul de BANI, nu planul.
+    const tva = newGroupOf('tva')?.subTabs.find((st) => st.id === 'tva')
+    if (!tva) throw new Error('tva lipsește')
+    expect(gateOf(tva)).toMatchObject({ minTierMoney: 3 })
+    expect(gateOf(tva).minTierGeneral).toBeUndefined()
+    const at32 = { general: 3 as PlanTier, money: 2 as PlanTier, admin: true, pickupOnly: false }
+    expect(visibleAt({}, gateOf(tva), at32)).toBe(false)
+    expect(isSubTabVisible(tva, true, 3, 2, false)).toBe(false)
+    // …iar Statisticile (prag pe plan) rămân pe Planul 3 din afara RO.
+    const analytics = newGroupOf('analytics')?.subTabs.find((st) => st.id === 'analytics')
+    if (!analytics) throw new Error('analytics lipsește')
+    expect(isSubTabVisible(analytics, true, 3, 2, false)).toBe(true)
     // Control: poarta e citită de filtru (managerul vede Stocurile, partenerul nu).
     const gestiune = newGroupOf('gestiune')?.subTabs.find((st) => st.id === 'gestiune')
     if (!gestiune) throw new Error('gestiune lipsește')

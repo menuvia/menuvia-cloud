@@ -27,10 +27,24 @@
 //   PT9  lista de cote e GOALĂ → mesajul „Nu există cote TVA configurate" cu
 //        trimiterea la Setări → Comenzi & plăți → Cote TVA, nu spinner.
 //        Control: cu cote, grila apare (PT3 + finalul lui PT8).
+//   PT8c recenzia #335: fișa MODIFICATĂ + „Deschide cotele TVA" → confirmare;
+//        la refuz fișa rămâne deschisă și Setările NU se deschid, la accept da.
+//        Control: PT8b (fișa neatinsă) iese direct, fără dialog. Mutația care
+//        pică: butonul legat direct la `onOpenVatRates`.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product } from '../../hooks/useData'
+
+const { dialog } = vi.hoisted(() => ({
+  dialog: { calls: 0, answer: false },
+}))
+vi.mock('../ui/confirm', () => ({
+  confirm: async () => {
+    dialog.calls += 1
+    return dialog.answer
+  },
+}))
 
 const { data, vat } = vi.hoisted(() => ({
   data: { products: [] as Product[] },
@@ -183,6 +197,8 @@ beforeEach(() => {
   vat.calls = 0
   vat.fail = 0
   vat.empty = false
+  dialog.calls = 0
+  dialog.answer = false
 })
 
 describe('ProductsTab — fiecare plan vede doar ce are', () => {
@@ -283,6 +299,26 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     await userEvent.setup().click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
     expect(onOpen).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: 'Salvează' })).toBeNull()
+    // Fișa neatinsă: fără dialog.
+    expect(dialog.calls).toBe(0)
+  })
+
+  it('PT8c: fișa modificată → confirmare înainte de a o închide', async () => {
+    vat.fail = 2
+    const onOpen = vi.fn()
+    await openNewProduct(surfaceFor('pro'), onOpen)
+    await screen.findByText('Nu am putut încărca cotele TVA.')
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
+    dialog.answer = false
+    await user.click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
+    expect(dialog.calls).toBe(1)
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Salvează' })).toBeInTheDocument()
+    dialog.answer = true
+    await user.click(screen.getByRole('button', { name: 'Deschide cotele TVA' }))
+    expect(dialog.calls).toBe(2)
+    expect(onOpen).toHaveBeenCalledTimes(1)
   })
 
   it('PT9: fără cote configurate → mesaj cu trimiterea la Setări, nu spinner', async () => {

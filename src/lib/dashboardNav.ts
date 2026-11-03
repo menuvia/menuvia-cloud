@@ -5,7 +5,7 @@
 // Decizia fondatorului: aceleași ecrane, fiecare într-un SINGUR loc. Harta
 // vechi → nou (testele `dashboardNav.test.ts` o țin):
 //   Acasă      ← home
-//   Comenzi    ← comenzi (Live: un singur card spre /waiter + Bucătărie),
+//   Comenzi    ← comenzi („Comenzi live”: un card spre /waiter + Bucătărie),
 //                reservations (din Mese & QR), casa-tura (din Rapoarte)
 //   Meniu      ← products, categories, modificatori, happy-hour,
 //                gestiune (din Rapoarte)
@@ -46,7 +46,8 @@ export type Tab =
   | 'invoices'
   | 'reservations'
   // Setări: 'settings' rămâne id-ul secțiunii Restaurant, ca linkurile vechi
-  // (`/dashboard?tab=settings`, emailul de cerere de acces) să meargă în continuare.
+  // (`/dashboard?tab=settings` din emailuri deja trimise) să meargă în continuare.
+  // Cererea de acces a agentului (AgentCard) NU e aici, ci pe Acasă.
   | 'settings'
   | 'settings-menu'
   | 'settings-orders'
@@ -97,7 +98,7 @@ export const NAV_GROUPS: NavGroup[] = [
     // Fluxul live și casa au porțile lor pe sub-tab.
     soloSubTab: { id: 'reservations', icon: 'calendar' },
     subTabs: [
-      { id: 'comenzi', label: 'Live', minTier: 2 },
+      { id: 'comenzi', label: 'Comenzi live', minTier: 2 },
       // adminOnly: ospătarii au deja rezervările în WaiterPage.
       { id: 'reservations', label: 'Rezervări', adminOnly: true, hiddenPickupOnly: true },
       // Mutat din Rapoarte (grup adminOnly) — poarta de rol rămâne pe sub-tab.

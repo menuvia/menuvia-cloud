@@ -362,7 +362,7 @@ function OrdersHub({
   const cards: { icon: IconName; title: string; desc: string; fn: () => void }[] = [
     {
       icon: 'orders',
-      title: 'Comenzi live',
+      title: 'Ecranul ospătarului',
       desc: fiscal
         ? 'Comenzile deschise acum, pe mese — preluare manuală și plăți la masă'
         : 'Comenzile deschise acum, pe mese — și preluare manuală',
@@ -465,33 +465,25 @@ export default function DashboardPage({
   const defaultTab: Tab = isPartner ? 'products' : 'home'
   // Tab-ul stă în URL (`?tab=…`, lotul R2): restaurat la montare, actualizat la
   // fiecare schimbare (push → Back revine la tab-ul precedent) și recitit pe
-  // `popstate`. Un `?tab=` necunoscut cade pe Acasă; unul nepermis pe plan/rol
-  // cade pe Acasă abia după ce planul e cunoscut (efectul de mai jos) — altfel
-  // un refresh pe „TVA" ar fi aruncat un plătitor pe Acasă cât se încarcă planul.
-  const [tab, setTabState] = useState<Tab>(() => tabFromSearch(window.location.search) ?? defaultTab)
-
-  // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
-  // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
-  const contentScrollRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    contentScrollRef.current?.scrollTo(0, 0)
-  }, [tab])
-
-  // Back/Forward: tab-ul urmează URL-ul. Doar cât suntem pe /dashboard — la
-  // ieșirea din panou App demontează pagina oricum.
-  useEffect(() => {
-    const onPop = () => {
-      if (window.location.pathname !== '/dashboard') return
-      setTabState(tabFromSearch(window.location.search) ?? defaultTab)
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [defaultTab])
+  // `popstate`. `requestedTab` = ce a cerut omul (URL / click); tab-ul AFIȘAT
+  // (`tab`, mai jos) poate fi Acasă cât timp cel cerut nu e permis. Un `?tab=`
+  // necunoscut cade pe Acasă; unul nepermis se CORECTEAZĂ în URL doar pe un
+  // plan CUNOSCUT (efectul de mai jos) — cât planul se încarcă sau citirea lui
+  // a eșuat, doar se afișează Acasă, iar un „Reîncearcă" reușit readuce tab-ul.
+  const [requestedTab, setTabState] = useState<Tab>(
+    () => tabFromSearch(window.location.search) ?? defaultTab,
+  )
+  // Ultimele valori, pentru ascultătorul de `popstate` (montat o singură dată).
+  const shownTabRef = useRef<Tab>(requestedTab)
+  const navigateRef = useRef(navigate)
 
   // Setările sunt UN formular împărțit pe sub-tab-uri: între ele formularul
   // rămâne montat, dar ieșirea din Setări îl demontează — cu modificări
-  // nesalvate întrebăm întâi (înainte, aceeași ieșire le pierdea fără întrebare).
+  // nesalvate întrebăm întâi, la click ȘI la Back/Forward (recenzia #335).
   const settingsDirtyRef = useRef(false)
+  // O singură confirmare deschisă: clicurile repetate cât e deschisă nu
+  // stivuiesc dialoguri (recenzia #335).
+  const confirmPendingRef = useRef(false)
   // Stabil (useCallback): e dependența efectului din SettingsTab.
   const setSettingsDirty = useCallback((dirty: boolean) => {
     settingsDirtyRef.current = dirty
@@ -499,27 +491,66 @@ export default function DashboardPage({
   const commitTab = (next: Tab) => {
     setTabState(next)
     const path = dashboardPathFor(next)
-    if (window.location.pathname + window.location.search !== path) navigate(path)
+    if (window.location.pathname + window.location.search !== path) navigateRef.current(path)
   }
-  const setTab = (next: Tab) => {
-    if (next === tab) return
-    const leavingForm = settingsSectionOf(tab) != null && settingsSectionOf(next) == null
-    if (leavingForm && settingsDirtyRef.current) {
-      void confirmDialog({
-        title: 'Ai modificări nesalvate în Setări',
-        description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
-        confirmLabel: 'Pleacă fără să salvezi',
-        cancelLabel: 'Rămân în Setări',
-        destructive: true,
-      }).then((ok) => {
+  const leavesDirtySettings = (next: Tab) =>
+    settingsDirtyRef.current &&
+    settingsSectionOf(shownTabRef.current) != null &&
+    settingsSectionOf(next) == null
+  // Cere confirmarea ieșirii din Setări; `onLeave` rulează doar pe „Pleacă".
+  const confirmLeaveSettings = (onLeave: () => void) => {
+    if (confirmPendingRef.current) return
+    confirmPendingRef.current = true
+    void confirmDialog({
+      title: 'Ai modificări nesalvate în Setări',
+      description: 'Dacă pleci acum, modificările se pierd. Salvează-le întâi din Setări.',
+      confirmLabel: 'Pleacă fără să salvezi',
+      cancelLabel: 'Rămân în Setări',
+      destructive: true,
+    })
+      .then((ok) => {
         if (!ok) return
         settingsDirtyRef.current = false
-        commitTab(next)
+        onLeave()
       })
+      .finally(() => {
+        confirmPendingRef.current = false
+      })
+  }
+  const setTab = (next: Tab) => {
+    if (next === requestedTab && next === shownTabRef.current) return
+    if (leavesDirtySettings(next)) {
+      confirmLeaveSettings(() => commitTab(next))
       return
     }
     commitTab(next)
   }
+  // Ascultătorul de `popstate` citește ultima variantă a funcțiilor de mai sus.
+  const popHandlerRef = useRef<(next: Tab) => void>(() => {})
+  useEffect(() => {
+    navigateRef.current = navigate
+    popHandlerRef.current = (next: Tab) => {
+      if (leavesDirtySettings(next)) {
+        // Browserul a mutat deja URL-ul: îl refacem pe tab-ul curent (Setările
+        // rămân montate), apoi întrebăm — la „Pleacă" mergem unde a cerut Back-ul.
+        navigateRef.current(dashboardPathFor(shownTabRef.current))
+        confirmLeaveSettings(() => commitTab(next))
+        return
+      }
+      setTabState(next)
+    }
+  })
+
+  // Back/Forward: tab-ul urmează URL-ul. Doar cât suntem pe /dashboard — la
+  // ieșirea din panou App demontează pagina oricum.
+  useEffect(() => {
+    const onPop = () => {
+      if (window.location.pathname !== '/dashboard') return
+      popHandlerRef.current(tabFromSearch(window.location.search) ?? defaultTab)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [defaultTab])
 
   const isAdminRole = activeRole === 'owner' || activeRole === 'manager'
   // Fiecare rol vede EXACT ce poate face (serverul refuză oricum restul):
@@ -670,7 +701,13 @@ export default function DashboardPage({
     surface,
     isPartnerTab: isPartner ? isPartnerTab : null,
   })
-  const activeGroup = visibleGroups.find((g) => g.subTabs.some((st) => st.id === tab)) ?? null
+  const groupOf = (t: Tab) => visibleGroups.find((g) => g.subTabs.some((st) => st.id === t)) ?? null
+  const requestedGroup = groupOf(requestedTab)
+  // Tab-ul AFIȘAT: cel cerut, sau Acasă când cel cerut nu e permis și planul nu
+  // poate fi cunoscut (citirea a eșuat) — fără să rescriem URL-ul.
+  const tab: Tab =
+    requestedGroup == null && !planKnown && features.loadError ? defaultTab : requestedTab
+  const activeGroup = groupOf(tab)
   // Titlul paginii = eticheta sub-tab-ului din NAV_GROUPS (lotul R2): o singură
   // sursă, deci bara laterală, chip-ul și titlul nu mai pot spune nume diferite.
   const activeSubTab = activeGroup?.subTabs.find((st) => st.id === tab) ?? null
@@ -679,18 +716,30 @@ export default function DashboardPage({
   // Grupul care găzduiește Rezervările (punctul de atenție din nav).
   const reservationsGroupId =
     visibleGroups.find((g) => g.subTabs.some((st) => st.id === 'reservations'))?.id ?? null
+  useEffect(() => {
+    shownTabRef.current = tab
+  }, [tab])
+
+  // La schimbarea tab-ului, readucem conținutul în partea de sus — altfel
+  // tab-ul nou moștenea poziția de scroll a celui precedent și „începea de jos".
+  const contentScrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo(0, 0)
+  }, [tab])
 
   // Tab devenit inaccesibil (demovare rol, downgrade plan, modul oprit) sau
   // cerut din URL dar nepermis → înapoi Acasă, cu URL-ul corectat (replace —
-  // Back nu are voie să reîntoarcă pe tab-ul refuzat). Abia după ce planul e
-  // CUNOSCUT (sau citirea lui a eșuat): cu planul în încărcare filtrul e pe
-  // varianta restrictivă, iar un refresh pe „TVA" ar fi pierdut locul.
-  const navReady = planKnown || features.loadError
+  // Back nu are voie să reîntoarcă pe tab-ul refuzat). DOAR pe un plan
+  // CUNOSCUT: cu planul în încărcare filtrul e pe varianta restrictivă (un
+  // refresh pe „TVA" ar fi pierdut locul), iar pe o citire eșuată un URL rescris
+  // definitiv ar fi împiedicat „Reîncearcă" să readucă tab-ul (recenzia #335).
   useEffect(() => {
-    if (activeGroup != null || !navReady) return
+    if (requestedGroup != null || !planKnown) return
     setTabState(defaultTab)
     replaceUrl(dashboardPathFor(defaultTab))
-  }, [activeGroup, navReady, defaultTab, replaceUrl])
+  }, [requestedGroup, planKnown, defaultTab, replaceUrl])
+  // Spinner doar cât planul se ÎNCARCĂ (nici cunoscut, nici eșuat).
+  const navReady = planKnown || features.loadError
 
   const { limits: planLimits } = usePlanLimits(plan)
   // Numărul de produse, TRISTATE: `null` = necunoscut (încă se citește sau
@@ -1338,6 +1387,7 @@ export default function DashboardPage({
                   /* Wrapper relativ pentru fade-ul de scroll orizontal */
                   <div style={{ position: 'relative' }}>
                   <div
+                    role="group"
                     aria-label={`Secțiuni ${activeGroup.label}`}
                     style={{
                       display: 'flex',
@@ -1618,6 +1668,8 @@ export default function DashboardPage({
                     section={settingsSection}
                     isOwner={isOwnerRole}
                     onDirtyChange={setSettingsDirty}
+                    planLoadError={features.loadError && !planKnown}
+                    onRetryPlan={() => void features.reload()}
                     restaurant={restaurant}
                     onUpdate={update}
                     plan={plan}

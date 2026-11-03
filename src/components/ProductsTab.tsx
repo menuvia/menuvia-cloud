@@ -28,6 +28,7 @@ import { Button } from './ui/Button'
 import { Icon } from './ui/Icon'
 import { Spinner } from './ui/Spinner'
 import { toUserMessage, zeroRowsAsDenied } from '../lib/userMessages'
+import { confirm as confirmDialog } from './ui/confirm'
 
 const ProductsCsvImport = lazy(() => import('./ProductsCsvImport'))
 const AiMenuImport = lazy(() => import('./AiMenuImport'))
@@ -204,6 +205,23 @@ function ProductModal({
       ai_generated_fields: [],
     },
   )
+  // Instantaneul fișei la deschidere: ieșirea spre cotele TVA închide fișa, deci
+  // cu modificări cere confirmare (recenzia #335).
+  const [initialFormJson] = useState(() => JSON.stringify(form))
+  async function openVatRatesFromForm() {
+    if (!onOpenVatRates) return
+    if (JSON.stringify(form) !== initialFormJson) {
+      const ok = await confirmDialog({
+        title: 'Închizi fișa produsului?',
+        description: 'Modificările din fișă nu sunt salvate și se pierd.',
+        confirmLabel: 'Închide fișa',
+        cancelLabel: 'Rămân în fișă',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    onOpenVatRates()
+  }
 
   // ── AI: generare imagine + nutriție ──────────────────────────
   // Câmpurile generate de AI sunt marcate în form.ai_generated_fields și
@@ -722,7 +740,7 @@ function ProductModal({
               {vatLoad !== 'loading' && onOpenVatRates && (
                 <button
                   type="button"
-                  onClick={onOpenVatRates}
+                  onClick={() => void openVatRatesFromForm()}
                   style={btn({
                     height: 32,
                     padding: '0 10px',

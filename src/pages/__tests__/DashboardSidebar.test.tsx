@@ -48,6 +48,19 @@
 //   DS12 `?tab=billing` (CTA-urile emailurilor de facturare) → Setări → Abonament
 //        & cont, cu scroll pe `#billing-card`. Mutația care pică: aliasul scos
 //        (billing ar cădea pe Acasă, unde cardul nu mai e).
+//
+// Recenzia adversarială pe #335:
+//   DS13 Back (`popstate`) cu formularul Setărilor MODIFICAT cere confirmare;
+//        la refuz rămâi pe Setări, iar URL-ul e refăcut pe secțiunea curentă;
+//        la „Pleacă" ajungi unde a cerut Back-ul. Control: fără modificări,
+//        Back-ul navighează direct, fără dialog. Mutația care pică: `onPop`
+//        care montează direct tab-ul nou (prima variantă a lotului).
+//   DS14 clicuri repetate cât confirmarea e deschisă → UN singur dialog.
+//        Mutația care pică: `confirmPendingRef` scos.
+//   DS9c citirea planului EȘUEAZĂ, `?tab=tva`: se afișează Acasă, dar URL-ul
+//        NU se rescrie; după un „Reîncearcă" reușit (plan cunoscut) TVA revine.
+//        Mutația care pică: corecția URL-ului pe `loadError` (fosta poartă
+//        `navReady = planKnown || loadError` în efect).
 import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
@@ -60,8 +73,24 @@ const { state, homeProps } = vi.hoisted(() => ({
     features: null as RestaurantFeatures | null,
     country: 'RO' as string | null,
     site: 'ro' as 'ro' | 'com',
+    loadError: false,
   },
   homeProps: { upsell: undefined as unknown },
+}))
+// Confirmarea ieșirii din Setări: răspunsul îl decide testul (`dialog.resolve`).
+const { dialog } = vi.hoisted(() => ({
+  dialog: {
+    calls: 0,
+    resolve: null as ((ok: boolean) => void) | null,
+  },
+}))
+vi.mock('../../components/ui/confirm', () => ({
+  confirm: () => {
+    dialog.calls += 1
+    return new Promise<boolean>((resolve) => {
+      dialog.resolve = resolve
+    })
+  },
 }))
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'owner-1' } }) }))
@@ -77,7 +106,7 @@ vi.mock('../../hooks/useFeatures', () => ({
   useFeatures: () => ({
     features: state.features,
     loading: false,
-    loadError: false,
+    loadError: state.loadError,
     has: (n: string) => state.features?.features[n]?.enabled ?? false,
     limit: () => null,
     within: () => true,
@@ -143,11 +172,13 @@ vi.mock('../../components/VatReportTab', async () => {
 vi.mock('../../components/SettingsTab', async () => {
   const { createElement } = await import('react')
   return {
-    default: (p: { section: string; isOwner?: boolean }) =>
+    default: (p: { section: string; isOwner?: boolean; onDirtyChange?: (d: boolean) => void }) =>
       createElement(
         'div',
         null,
         `stub-setari-${p.section}`,
+        // Simulează o modificare nesalvată în formular.
+        createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
         p.section === 'account' && p.isOwner === true
           ? createElement('div', { id: 'billing-card' }, 'stub-abonament')
           : null,
@@ -232,7 +263,7 @@ async function renderDashboard(
 ) {
   state.features = plan == null ? null : featuresFor(plan)
   window.history.replaceState({}, '', opts.url ?? '/dashboard')
-  const view = render(
+  const ui = (
     <DashboardPage
       onViewMenu={vi.fn()}
       onViewWaiter={vi.fn()}
@@ -248,11 +279,13 @@ async function renderDashboard(
       }
       navigate={urls.navigate}
       replaceUrl={urls.replaceUrl}
-    />,
+    />
   )
+  const view = render(ui)
   // Ancora: Acasă s-a montat (lazy), deci bara laterală e cea finală.
   if (opts.anchor !== false) expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
-  return view
+  // `ui` = același element, pentru `rerender` după o schimbare a stării mock-urilor.
+  return { ...view, ui }
 }
 
 const nav = () => screen.getByRole('navigation')
@@ -262,6 +295,9 @@ const openGroup = async (name: RegExp) =>
 
 beforeEach(() => {
   homeProps.upsell = undefined
+  state.loadError = false
+  dialog.calls = 0
+  dialog.resolve = null
   state.country = 'RO'
   state.site = 'ro'
   urls.navigate.mockClear()
@@ -444,5 +480,72 @@ describe('DashboardPage — tab-ul în URL și titlul paginii (lotul R2)', () =>
     await waitFor(() => expect(Element.prototype.scrollIntoView).toHaveBeenCalled(), {
       timeout: 2000,
     })
+  })
+})
+
+describe('DashboardPage — recenzia #335', () => {
+  const back = (url: string) =>
+    act(() => {
+      window.history.replaceState({}, '', url)
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+  it('DS13: Back cu formularul modificat cere confirmare; la refuz rămâi pe Setări', async () => {
+    await renderDashboard('pro')
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-modifica' }))
+    back('/dashboard')
+    expect(dialog.calls).toBe(1)
+    // Setările rămân montate, iar URL-ul e refăcut pe secțiunea curentă.
+    expect(screen.getByText('stub-setari-restaurant')).toBeInTheDocument()
+    expect(window.location.search).toBe('?tab=settings')
+    await act(async () => dialog.resolve?.(false))
+    expect(screen.getByText('stub-setari-restaurant')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Restaurant')
+    // Al doilea Back, de data asta cu „Pleacă" → ajungi unde a cerut Back-ul.
+    back('/dashboard?tab=raport')
+    expect(dialog.calls).toBe(2)
+    await act(async () => dialog.resolve?.(true))
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+    expect(window.location.search).toBe('?tab=raport')
+  })
+
+  it('DS13b: control — fără modificări, Back-ul navighează direct', async () => {
+    await renderDashboard('pro')
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    back('/dashboard?tab=raport')
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+    expect(dialog.calls).toBe(0)
+  })
+
+  it('DS14: clicuri repetate cât confirmarea e deschisă → un singur dialog', async () => {
+    await renderDashboard('pro')
+    const user = userEvent.setup()
+    await openGroup(/Setări/)
+    expect(await screen.findByText('stub-setari-restaurant')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'stub-modifica' }))
+    await user.click(within(nav()).getByRole('button', { name: /Rapoarte/ }))
+    await user.click(within(nav()).getByRole('button', { name: /Rapoarte/ }))
+    await user.click(within(nav()).getByRole('button', { name: /Meniu/ }))
+    expect(dialog.calls).toBe(1)
+    await act(async () => dialog.resolve?.(true))
+    expect(await screen.findByText('stub-vanzari')).toBeInTheDocument()
+  })
+
+  it('DS9c: plan necitit + `?tab=tva` → Acasă fără rescrierea URL-ului; „Reîncearcă" readuce TVA', async () => {
+    state.loadError = true
+    const view = await renderDashboard(null, { url: '/dashboard?tab=tva' })
+    expect(title()).toHaveTextContent('Acasă')
+    expect(urls.replaceUrl).not.toHaveBeenCalled()
+    expect(window.location.search).toBe('?tab=tva')
+    // „Reîncearcă" reușit: planul devine cunoscut.
+    state.loadError = false
+    state.features = featuresFor('pro')
+    view.rerender(view.ui)
+    expect(await screen.findByText('stub-tva')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('TVA')
+    expect(urls.replaceUrl).not.toHaveBeenCalled()
   })
 })

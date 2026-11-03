@@ -370,7 +370,8 @@ describe('EK4: linkurile pleacă DOAR pe APP_URL', () => {
   const LINKS = [
     ['agent_client_at_risk', 'panel_url', '/afiliat'],
     ['affiliate_new_client', 'panel_url', '/afiliat'],
-    ['partner_access_requested', 'approve_url', '/dashboard?tab=settings'],
+    // Lotul R2: cererea de acces (AgentCard) stă doar pe Acasă, deci implicitul e /dashboard.
+    ['partner_access_requested', 'approve_url', '/dashboard'],
     ['affiliate_payout_statement', 'upload_url', '/afiliat', { invoice_required: true }],
     ['affiliate_payout_statement', 'panel_url', '/afiliat', { invoice_required: false }],
     ['founder_alert', 'action_url', '/founder'],

@@ -471,7 +471,8 @@ const TEMPLATES = {
    *   agent_display_name  string          opțional (rezervă: „Agentul tău Menuvia")
    *   restaurant_name     string          opțional
    *   owner_name          string          opțional — numele PATRONULUI, pentru salut
-   *   approve_url         cale relativă   opțional, implicit /dashboard?tab=settings
+   *   approve_url         cale relativă   opțional, implicit /dashboard (Acasă — acolo e
+   *                                       cardul „Agentul tău Menuvia" cu cererea, din lotul R2)
    * Suprafața accesului e cea din mig 286: meniul + mesele/QR, nimic altceva.
    */
   partner_access_requested: (d) => {
@@ -484,7 +485,7 @@ const TEMPLATES = {
         <p style="${P}">${greeting(d.owner_name)}</p>
         <p style="${P}">${agent ? `<b>${esc(agent)}</b>, agentul tău Menuvia,` : 'Agentul tău Menuvia'} cere acces la meniul și mesele ${rest ? `restaurantului <b>${esc(rest)}</b>` : 'restaurantului tău'}, ca să te ajute cu configurarea.</p>
         <p style="${P}">Accesul acoperă DOAR meniul și mesele cu codurile QR — nu comenzile, încasările, rezervările sau datele fiscale. Îl poți revoca oricând. Fără aprobarea ta, agentul nu primește niciun acces; dacă nu-l cunoști, ignoră acest email.</p>
-        ${ctaButton(appLink(d.approve_url, '/dashboard?tab=settings'), 'Vezi cererea →')}
+        ${ctaButton(appLink(d.approve_url, '/dashboard'), 'Vezi cererea →')}
       `),
     }
   },

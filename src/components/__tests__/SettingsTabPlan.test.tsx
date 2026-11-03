@@ -39,8 +39,16 @@
 //        opționale, comutator → setModule), nu pe formularul cu „Salvează".
 //        Mutația care pică: marcajul pe un card de formular (Informații
 //        principale) sau scos de pe Module opționale.
+//   SA4  recenzia #335: citirea planului a EȘUAT → „Plan curent" spune „Nu am
+//        putut verifica planul" cu „Reîncearcă" (care cheamă reîncărcarea), nu
+//        „Se verifică…" la nesfârșit. Control: planul doar în încărcare rămâne
+//        „Se verifică…", fără buton. Mutația care pică: `planLoadError` ignorat.
+//   SA5  recenzia #335: cu formularul modificat, `beforeunload` e anulat (browserul
+//        cere confirmare la reîncărcare / închidere); neatins, nu. Mutația care
+//        pică: ascultătorul `beforeunload` scos.
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
 import type { useRestaurantModules } from '../../hooks/useRestaurantModules'
 
@@ -257,5 +265,52 @@ describe('SettingsTab — Abonament & cont (lotul R2)', () => {
     const { container } = render(settings('restaurant', 'growth', surfaceFor('growth')))
     const info = within(container).getByText('Informații principale')
     expect(info).not.toHaveTextContent('se salvează automat')
+  })
+})
+
+describe('SettingsTab — planul care n-a putut fi citit (recenzia #335)', () => {
+  it('SA4: eroare de citire → mesaj + „Reîncearcă"; în încărcare → „Se verifică…"', async () => {
+    const onRetryPlan = vi.fn()
+    const { unmount } = render(
+      <SettingsTab
+        section="account"
+        isOwner
+        planLoadError
+        onRetryPlan={onRetryPlan}
+        restaurant={makeRestaurant()}
+        onUpdate={vi.fn(async () => ({ error: null }))}
+        plan="free"
+        onSignOut={() => {}}
+        modulesState={modulesState}
+        surface={null}
+      />,
+    )
+    expect(screen.getByText('Nu am putut verifica planul')).toBeInTheDocument()
+    expect(screen.queryByText('Se verifică…')).toBeNull()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Reîncearcă' }))
+    expect(onRetryPlan).toHaveBeenCalledTimes(1)
+    unmount()
+    // Control: doar în încărcare (fără eroare) — fără verdict și fără buton.
+    render(settings('account', 'free', null))
+    expect(screen.getByText('Se verifică…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reîncearcă' })).toBeNull()
+  })
+})
+
+describe('SettingsTab — reîncărcarea cu modificări nesalvate (recenzia #335)', () => {
+  const unload = () => {
+    const e = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(e)
+    return e.defaultPrevented
+  }
+
+  it('SA5: formularul modificat anulează `beforeunload`; neatins, nu', async () => {
+    render(settings('restaurant', 'growth', surfaceFor('growth')))
+    // Control: formularul neatins nu oprește plecarea.
+    expect(unload()).toBe(false)
+    const first = screen.getAllByRole('textbox')[0]
+    if (!first) throw new Error('niciun câmp în secțiunea Restaurant')
+    await userEvent.setup().type(first, 'x')
+    expect(unload()).toBe(true)
   })
 })

@@ -140,6 +140,8 @@ export default function SettingsTab({
   section,
   isOwner = false,
   onDirtyChange,
+  planLoadError = false,
+  onRetryPlan,
   restaurant,
   onUpdate,
   plan,
@@ -156,6 +158,10 @@ export default function SettingsTab({
   // Formularul are modificări nesalvate — DashboardPage întreabă înainte să
   // părăsească Setările (ieșirea demontează formularul).
   onDirtyChange?: (dirty: boolean) => void
+  // Citirea planului a EȘUAT (nu doar „se încarcă"): „Plan curent" spune asta,
+  // cu „Reîncearcă", în loc de un „Se verifică…" fără sfârșit (recenzia #335).
+  planLoadError?: boolean
+  onRetryPlan?: () => void
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
   // Doar pentru eticheta „Plan curent" (Cont). Ce vede planul vine din
@@ -408,6 +414,17 @@ export default function SettingsTab({
     onDirtyChange?.(dirty)
     return () => onDirtyChange?.(false)
   }, [dirty, onDirtyChange])
+  // Reîncărcarea / închiderea paginii cu formularul modificat cere confirmarea
+  // browserului (recenzia #335) — singura ieșire pe care panoul n-o vede.
+  useEffect(() => {
+    if (!dirty) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
   // Cardul de ridicare se montează DOAR pe `planSurface.pickup` (= `pickup_orders`
   // activ, lotul P), deci aici feature-ul e mereu CUNOSCUT și activ: comutatorul
   // e liber, iar textele (lib/pickupCopy.ts) primesc `true`. Stările vechi ale
@@ -1987,7 +2004,21 @@ export default function SettingsTab({
                 dar până la auditul din aug 2026 nu erau apelate de NICĂIERI. */}
             <GdprCard />
 
-            <SettingsCard icon="star" title="Plan curent">
+            <SettingsCard
+              icon="star"
+              title="Plan curent"
+              right={
+                surface == null && planLoadError && onRetryPlan ? (
+                  <button
+                    type="button"
+                    onClick={onRetryPlan}
+                    style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+                  >
+                    Reîncearcă
+                  </button>
+                ) : undefined
+              }
+            >
               <span
                 style={{
                   padding: '4px 10px',
@@ -2000,7 +2031,11 @@ export default function SettingsTab({
                 }}
               >
                 {/* Planul necunoscut (`surface` null) nu se afișează ca „gratuit". */}
-                {surface == null ? 'Se verifică…' : PLAN_LABELS[plan] || plan}
+                {surface != null
+                  ? PLAN_LABELS[plan] || plan
+                  : planLoadError
+                    ? 'Nu am putut verifica planul'
+                    : 'Se verifică…'}
               </span>
             </SettingsCard>
 
