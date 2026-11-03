@@ -2035,6 +2035,7 @@ export default function ProductsTab({
   canUseAiMenu,
   canManageRecipes,
   surface,
+  onOpenVatRates,
 }: {
   restaurantId: string
   plan: string
@@ -2057,6 +2058,8 @@ export default function ProductsTab({
   // doar pe planul cu bon, Extras & Pereche doar cu comenzi, Rețeta doar cu
   // stocuri. `null` = planul necunoscut → niciuna.
   surface: PlanSurface | null
+  // Deschide Setările (unde stau cotele TVA) din nota „toate pe aceeași grupă".
+  onOpenVatRates?: () => void
 }) {
   const showVat = surface?.vat === true
   const showExtras = surface?.extras === true
@@ -2199,6 +2202,26 @@ export default function ProductsTab({
   // ── Mobile: card layout. Desktop: table grid ──────────────
   const gridCols = mob ? '1fr auto' : '2fr 1fr 80px 80px 150px'
 
+  // Recenzia pe #334: sub Planul 3 cota TVA nu se clasifică nicăieri (produsele
+  // noi primesc grupa 1, CSV-ul ignoră coloana), deci la trecerea pe Fiscalizare
+  // tot meniul ar fi pe grupa 1 — bonuri pe grupă greșită, TVA subdeclarat la
+  // alcool, fără niciun semnal. Pe planul cu bon, ≥ 3 produse active TOATE pe
+  // aceeași grupă = o notă de o linie deasupra listei. Mixt → tăcere.
+  const activeProducts = products.filter((p) => p.is_active)
+  const firstGroup = activeProducts.length > 0 ? (activeProducts[0].vat_group ?? 1) : null
+  const singleVatGroup =
+    showVat &&
+    firstGroup != null &&
+    activeProducts.length >= 3 &&
+    activeProducts.every((p) => (p.vat_group ?? 1) === firstGroup)
+      ? firstGroup
+      : null
+  const singleVatRate =
+    singleVatGroup != null ? vatRates.find((r) => r.vat_group === singleVatGroup) : undefined
+  const singleVatLabel = singleVatRate
+    ? `${singleVatRate.label} ${singleVatRate.rate_percent}%`
+    : `grupa ${singleVatGroup ?? 1}`
+
   return (
     <div>
       <Toast toasts={toasts} />
@@ -2309,6 +2332,46 @@ export default function ProductsTab({
           ))}
         </div>
       </div>
+      {singleVatGroup != null && (
+        <div
+          role="note"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
+            fontSize: '0.78rem',
+            color: D.t2,
+            background: D.s2,
+            border: `1px solid ${D.amber}55`,
+            borderRadius: 10,
+            padding: '8px 12px',
+            marginBottom: 12,
+          }}
+        >
+          <Icon name="info" size={14} color={D.amber} />
+          <span style={{ flex: '1 1 240px' }}>
+            Toate produsele sunt pe aceeași grupă TVA ({singleVatLabel}). Verifică băuturile și
+            alcoolul înainte de primul bon — grupa se schimbă din fișa produsului.
+          </span>
+          {onOpenVatRates && (
+            <button
+              type="button"
+              onClick={onOpenVatRates}
+              style={btn({
+                height: 32,
+                padding: '0 10px',
+                fontSize: '0.74rem',
+                background: 'transparent',
+                color: D.gold,
+                border: `1px solid ${D.gold}44`,
+              })}
+            >
+              Vezi cotele TVA
+            </button>
+          )}
+        </div>
+      )}
       <div
         style={{
           background: D.s2,

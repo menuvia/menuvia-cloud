@@ -227,8 +227,3 @@ export function productLimitReason(plan: string, maxProducts: number): string {
   return `Ai atins limita de produse pe planul ${name} (${maxProducts.toLocaleString('ro-RO')} produse).`
 }
 
-/** Motivul afișat în modalul de upgrade; `atLimit` decide tonul (alarmă vs. informativ). */
-export interface UpgradeReason {
-  text: string
-  atLimit: boolean
-}

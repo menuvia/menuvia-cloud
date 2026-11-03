@@ -18,6 +18,11 @@
 //   DS5  ținta upsell-ului dată Acasei: Planul 1 → 'ordering', Planul 2 →
 //        'payments', Planul 3 → null, planul necunoscut → null.
 //        Mutația care pică: `upsell` calculat fără `planUpsellTarget`.
+//   DS6  recenzia #334, `fiscalMarket` prin PAGINĂ: Planul 2 pe un restaurant din
+//        afara RO, sau pe site-ul .com → Acasa NU primește oferta „Plata la masă"
+//        (bonul și plata la masă există doar în RO, iar .com vinde doar
+//        Planurile 1–2); Planul 1 primește tot „Meniu + Comenzi". Mutația care
+//        pică: `fiscalMarket: true` fix în DashboardPage.
 import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
@@ -26,7 +31,11 @@ import type { Restaurant } from '../../hooks/useData'
 import type { RestaurantFeatures } from '../../lib/features'
 
 const { state, homeProps } = vi.hoisted(() => ({
-  state: { features: null as RestaurantFeatures | null },
+  state: {
+    features: null as RestaurantFeatures | null,
+    country: 'RO' as string | null,
+    site: 'ro' as 'ro' | 'com',
+  },
   homeProps: { upsell: undefined as unknown },
 }))
 
@@ -83,6 +92,11 @@ vi.mock('../../lib/supabase', () => {
   return { supabase: { from: vi.fn(() => chain()), rpc: vi.fn() } }
 })
 vi.mock('../../lib/ai', () => ({ isPlatformAdmin: async () => false }))
+// Site-ul (.ro / .com) — restul modulului rămâne real.
+vi.mock('../../lib/domain', async (importOriginal) => ({
+  ...((await importOriginal()) as typeof import('../../lib/domain')),
+  browserSite: () => state.site,
+}))
 vi.mock('../../lib/founder', () => ({
   exitFounderView: vi.fn(),
   clearFounderView: vi.fn(),
@@ -136,7 +150,7 @@ function makeRestaurant(): Restaurant {
     google_review_url: null,
     menu_languages: [],
     currency: 'RON',
-    country: 'RO',
+    country: state.country,
     created_at: '2026-10-01T10:00:00Z',
     updated_at: '2026-10-01T10:00:00Z',
   }
@@ -171,6 +185,8 @@ const nav = () => screen.getByRole('navigation')
 
 beforeEach(() => {
   homeProps.upsell = undefined
+  state.country = 'RO'
+  state.site = 'ro'
   // jsdom nu implementează Element.scrollTo; DashboardPage readuce conținutul
   // sus la fiecare schimbare de tab.
   Element.prototype.scrollTo = vi.fn() as unknown as Element['scrollTo']
@@ -228,6 +244,28 @@ describe('DashboardPage — bara laterală pe planul restaurantului', () => {
       const { unmount } = await renderDashboard(plan)
       expect(homeProps.upsell, String(plan)).toBe(want)
       unmount()
+    }
+  })
+
+  it('DS6: în afara pieței fiscale (non-RO sau .com) Planul 2 nu primește „Plata la masă"', async () => {
+    for (const setup of [
+      () => {
+        state.country = 'DE'
+      },
+      () => {
+        state.site = 'com'
+      },
+    ]) {
+      state.country = 'RO'
+      state.site = 'ro'
+      setup()
+      const growth = await renderDashboard('growth')
+      expect(homeProps.upsell).toBeNull()
+      growth.unmount()
+      // Planul 1 primește tot „Meniu + Comenzi" (se vinde și pe .com).
+      const starter = await renderDashboard('starter')
+      expect(homeProps.upsell).toBe('ordering')
+      starter.unmount()
     }
   })
 })

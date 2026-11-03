@@ -9,6 +9,9 @@
 //        Bridge fiscal), iar `pending_receipts` și `vat_rates` NU se citesc.
 //        Mutația care pică: „Brand nedefinit" randat necondiționat, upsell-ul
 //        compact readus, sau propoziția „Tichetele NU sunt bonuri fiscale".
+//        Inclusiv starea de ÎNCĂRCARE (recenzia #334): spinner-ul spune „Se
+//        încarcă imprimanta...", nu „casa de marcat". Mutația care pică:
+//        eticheta fixă „Se încarcă casa de marcat...".
 //   BP2  control pozitiv pe Planul 3: „Casă de marcat & tichete", „Brand
 //        nedefinit" pe device-ul fără marcă, secțiunea „Bonuri fiscale" și
 //        citirea bonurilor + cotelor.
@@ -68,6 +71,9 @@ beforeEach(() => {
 describe('BridgeTab — Planul 2 e doar imprimanta din bucătărie', () => {
   it('BP1: „Imprimantă bucătărie", fără „Brand nedefinit" și fără nimic fiscal', async () => {
     const { container } = render(<BridgeTab restaurantId="r1" fiscalEnabled={false} />)
+    // Prima randare = spinner-ul de încărcare (încă niciun device).
+    expect(screen.getByText('Se încarcă imprimanta...')).toBeInTheDocument()
+    expect(container.textContent ?? '').not.toMatch(FISCAL)
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Imprimantă bucătărie' }),
     ).toBeInTheDocument()
@@ -82,6 +88,7 @@ describe('BridgeTab — Planul 2 e doar imprimanta din bucătărie', () => {
 
   it('BP2: control pozitiv — pe Planul 3 casa, marca, bonurile și cotele', async () => {
     render(<BridgeTab restaurantId="r1" fiscalEnabled />)
+    expect(screen.getByText('Se încarcă casa de marcat...')).toBeInTheDocument()
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Casă de marcat & tichete' }),
     ).toBeInTheDocument()

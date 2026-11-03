@@ -524,7 +524,11 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   const stats = receiptStatsForRomaniaDay(receipts, new Date())
 
   if (loading && devices.length === 0) {
-    return <InlineSpinner label="Se încarcă casa de marcat..." />
+    return (
+      <InlineSpinner
+        label={fiscalEnabled ? 'Se încarcă casa de marcat...' : 'Se încarcă imprimanta...'}
+      />
+    )
   }
 
   return (

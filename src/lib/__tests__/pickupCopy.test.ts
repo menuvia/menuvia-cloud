@@ -20,8 +20,9 @@
 //        minim care chiar are `pickup_orders` în matricea DB; numele e cel
 //        comercial din `PLAN_LABELS`, fără nume interne.
 //   PK5  Clichet pe SURSĂ: SettingsTab și TablesManager n-au texte de ridicare
-//        scrise de mână; SettingsTab derivă textele din starea comutatorului și
-//        NU cheamă `useFeatures` (pică pe codul vechi al ambelor PR-uri).
+//        scrise de mână; SettingsTab montează cardul pe `planSurface.pickup` și
+//        dă textelor feature-ul activ (din recenzia #334 — stările comutatorului
+//        au ieșit din componentă), fără `useFeatures`.
 //   PK6  Empty state-ul „doar ridicare”: „clienții comandă” doar cu feature-ul
 //        cunoscut activ și fără flipbook; pe planul fără ridicare modul e
 //        SUSPENDAT (nu „activ”).
@@ -275,17 +276,23 @@ describe('PK5: ecranele de staff trec prin pickupCopy', () => {
     }
   })
 
-  it('SettingsTab: textele derivă din starea comutatorului, fără al doilea useFeatures', () => {
+  // Recenzia #334 (lotul P): cardul de ridicare se montează doar pe
+  // `planSurface.pickup`, deci în SettingsTab feature-ul e mereu cunoscut și
+  // activ — stările `locked`/`locked_on`/`unknown` ale comutatorului au ieșit
+  // din componentă (erau inaccesibile; derivate din NUMELE planului, ar fi
+  // putut chiar bloca un comutator pe un feature activ). Textele primesc `true`.
+  // Mutația care pică: gate-ul `surface?.pickup === true` scos de pe card (o
+  // stare de comutator readusă ar reintroduce `pickupToggleState(`).
+  it('SettingsTab: cardul e pe planSurface.pickup, textele pe feature activ, fără al doilea useFeatures', () => {
     const src = read('src/components/SettingsTab.tsx').replace(/\s+/g, ' ')
-    // Starea #318, pe planul cunoscut primit de la DashboardPage.
-    expect(src).toMatch(/pickupToggleState\( ?planKnown \? plan : null/)
-    expect(src).toMatch(/pickupCardDescription\( ?pickupFeatureFromToggle\(pickupState\)/)
+    expect(src).toContain('{surface?.pickup === true && (')
     // Stilul vine din FORMULAR (nesalvat), pe regula EFECTIVĂ din lib/themes.
     expect(src).toContain('resolveEffectiveMenuLayout(form.theme_settings)')
-    expect(src).toMatch(/pickupCardDescription\( ?pickupFeatureFromToggle\(pickupState\), menuFlipbook\)/)
-    expect(src).toContain('pickupOnlyToggleDescription(pickupFeatureFromToggle(pickupState))')
-    // O SINGURĂ notă: nicio a doua sursă de avertisment pentru ridicare.
-    expect(src.split('pickupToggleNotice(').length - 1).toBe(1)
+    expect(src).toContain('pickupCardDescription(true, menuFlipbook)')
+    expect(src).toContain('pickupOnlyToggleDescription(true)')
+    // Nicio stare de comutator și nicio notă de plan sub el.
+    expect(src).not.toContain('pickupToggleState(')
+    expect(src).not.toContain('pickupToggleNotice(')
     expect(src).not.toContain('pickupPlanWarning')
     expect(src).not.toContain('pickupFeatureState(')
     // Un `useFeatures` aici ar chema `supabase.rpc` pe mock-ul `{}` din

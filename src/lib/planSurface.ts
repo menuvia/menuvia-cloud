@@ -8,7 +8,7 @@
 // comenzile există, dar plata și bonul rămân pe casa existentă, deci nicio
 // cotă TVA, nicio sumă din rapoarte și nimic „fiscal".
 //
-// Tab-urile citesc DOAR de aici (clichetul `planSurfaceRatchet.test.ts` pică pe
+// Tab-urile citesc DOAR de aici (clichetul `tests/functions/plan-surface-ratchet.test.js` pică pe
 // orice `tier >= N` / `planTier(...)` scris de mână în src/components sau
 // src/pages, cu registru de scutiri motivate). Gating-ul REAL rămâne în
 // server (RPC/RLS, regula de aur); aici se decide doar ce se ARATĂ.
@@ -39,6 +39,8 @@ export interface PlanSurface {
   stocks: boolean
   /** Ascunderea badge-ului „Creat cu Menuvia". */
   branding: boolean
+  /** SMS-uri tranzacționale (`sms_notifications`, de la starter — Planul 1 inclus). */
+  sms: boolean
   /** Suprafețele de plată ale Planului 3 (cardul „Plăți online la masă"). */
   payments: boolean
   /** Bon, casă de marcat, încasări, facturi, sume în rapoarte, plata reală. */
@@ -62,6 +64,7 @@ export function planSurface(features: RestaurantFeatures | null): PlanSurface | 
     extras: hasFeature(features, 'extras_pairings'),
     stocks: hasFeature(features, 'stocks'),
     branding: hasFeature(features, 'remove_branding'),
+    sms: hasFeature(features, 'sms_notifications'),
     payments: general === 3,
     fiscal: money === 3,
     vat: general === 3,

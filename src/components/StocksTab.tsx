@@ -342,7 +342,7 @@ export default function StocksTab({ restaurantId, showVat }: Props) {
               </span>
               <div style={{ flex: 1, fontSize: '0.82rem', color: D.t2, lineHeight: 1.5 }}>
                 <strong style={{ color: D.t1 }}>Vezi profit + stoc automat</strong> — la fiecare
-                comandă plătită, ingredientele scad automat și vezi marja per produs.
+                comandă finalizată, ingredientele scad automat și vezi marja per produs.
               </div>
             </div>
           </div>

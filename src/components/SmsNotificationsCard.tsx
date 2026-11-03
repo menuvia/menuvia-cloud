@@ -4,7 +4,6 @@
 // aici doar UX-ul: toggle + contorul lunar din get_sms_usage.
 import { useEffect, useState } from 'react'
 import { D } from '../lib/constants'
-import { planTier } from '../lib/features'
 import { supabase } from '../lib/supabase'
 import { Toggle } from './_dashboard/sharedUI'
 import { Icon } from './ui/Icon'
@@ -26,7 +25,11 @@ interface SmsUsage {
 }
 
 export default function SmsNotificationsCard({ restaurantId, plan, modulesState, toast }: Props) {
-  const eligible = planTier(plan) >= 1 && plan !== 'free'
+  // `planTier(plan) >= 1` era mereu adevărat (tier-ul e 1–3), deci condiția
+  // reală a fost dintotdeauna „nu e free" — oglinda `sms_notifications` din
+  // plan_features (starter+). Din lotul P, SettingsTab montează cardul doar pe
+  // planSurface.sms, deci starea blocată rămâne doar ca plasă.
+  const eligible = plan !== 'free'
   const enabled = modulesState.isEnabled('sms_notifications')
   const [usage, setUsage] = useState<SmsUsage | null>(null)
 

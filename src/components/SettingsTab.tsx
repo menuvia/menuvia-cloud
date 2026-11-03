@@ -7,13 +7,7 @@ import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/t
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
 import type { PlanSurface } from '../lib/planSurface'
-import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
-import {
-  pickupCardDescription,
-  pickupFeatureFromToggle,
-  pickupOnlyToggleDescription,
-  pickupToggleNotice,
-} from '../lib/pickupCopy'
+import { pickupCardDescription, pickupOnlyToggleDescription } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -155,7 +149,6 @@ export default function SettingsTab({
   restaurant,
   onUpdate,
   plan,
-  planKnown,
   onSignOut,
   modulesState,
   founderView = false,
@@ -163,11 +156,11 @@ export default function SettingsTab({
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
+  // Doar pentru eticheta „Plan curent" (Cont). Ce vede planul vine din
+  // `surface`; fostul `planKnown` (comutatorul de ridicare pe `unknown`) a ieșit
+  // odată cu stările comutatorului (recenzia #334) — `surface: null` e acum
+  // singurul „nu știu".
   plan: string
-  // `plan` cade pe 'free' cât timp features nu s-au încărcat (DashboardPage);
-  // `planKnown` spune dacă valoarea e reală. Obligatoriu: un apel care l-ar
-  // omite ar transforma „nu știu" în „planul tău nu include".
-  planKnown: boolean
   onSignOut: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
   // Fondatorul în vizită: acțiunile pe care serverul le leagă de membership-ul
@@ -408,16 +401,13 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
-  // Ridicarea se pornește doar pe planurile cu `pickup_orders` (lib/pickupAvailability).
-  // Din aceeași stare se derivă și textele cardului (lib/pickupCopy.ts): pagina
-  // publică arată ridicarea doar cu `pickup_orders` (mig 309), deci descrierea
-  // promite comenzi DOAR pe `available`, iar nota de sub comutator e UNA. Fără
-  // `useFeatures` aici: `plan` vine deja din `useFeatures(restaurantId)` din
-  // DashboardPage (planul RESTAURANTULUI, regula 3).
-  const pickupState = pickupToggleState(
-    planKnown ? plan : null,
-    form.pickup_settings?.enabled ?? false,
-  )
+  // Cardul de ridicare se montează DOAR pe `planSurface.pickup` (= `pickup_orders`
+  // activ, lotul P), deci aici feature-ul e mereu CUNOSCUT și activ: comutatorul
+  // e liber, iar textele (lib/pickupCopy.ts) primesc `true`. Stările vechi ale
+  // comutatorului (`locked`/`locked_on`/`unknown`, cu nota de sub el) au devenit
+  // inaccesibile și au ieșit (recenzia #334) — pe planul fără ridicare cardul nu
+  // se arată deloc. Fără `useFeatures` aici: planul vine din DashboardPage
+  // (planul RESTAURANTULUI, regula 3).
   // Stilul EFECTIV al meniului (flipbook fără pagini = listă, regula unică din
   // lib/themes), citit din FORMULAR, nu din rândul salvat — ca restul filei:
   // comutatorul de ridicare e și el pe starea nesalvată, iar „Meniu & aspect”
@@ -425,8 +415,7 @@ export default function SettingsTab({
   // la „Comenzi & plăți” vede consecința ÎNAINTE să salveze; altfel aceeași
   // pagină ar spune „Flipbook” într-o filă și ar promite comenzi în cealaltă.
   const menuFlipbook = resolveEffectiveMenuLayout(form.theme_settings) === 'flipbook'
-  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState), menuFlipbook)
-  const pickupNotice = pickupToggleNotice(pickupState)
+  const pickupDesc = pickupCardDescription(true, menuFlipbook)
 
   return (
     <div>
@@ -1763,9 +1752,10 @@ export default function SettingsTab({
             )}
 
             {/* SMS tranzacționale (mig 228): confirmare rezervare + pickup gata.
-                Doar pe un plan cu comenzi (fost card blocat pe Planul 1; pagina de
-                prețuri nici nu promite SMS pe Planurile 1–2 — PL4). */}
-            {modulesState && surface?.ordering === true && (
+                Pe planul care ARE `sms_notifications` (planSurface.sms — de la
+                starter, deci și Planul 1, unde un modul pornit trebuie să se
+                poată opri); pe free nu apare deloc, nici blocat (lotul P). */}
+            {modulesState && surface?.sms === true && (
               <SmsNotificationsCard
                 restaurantId={restaurant.id}
                 plan={plan}
@@ -1795,42 +1785,17 @@ export default function SettingsTab({
                 <Toggle
                   label="Comenzi pentru ridicare"
                   value={form.pickup_settings?.enabled ?? false}
-                  disabled={pickupState === 'locked' || pickupState === 'unknown'}
-                  onChange={(v) => {
-                    if (canSetPickupEnabled(pickupState, v)) updPickup({ enabled: v })
-                  }}
+                  onChange={(v) => updPickup({ enabled: v })}
                 />
               }
             >
-              {pickupNotice && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'flex-start',
-                    fontSize: '0.75rem',
-                    lineHeight: 1.5,
-                    color: pickupState === 'locked_on' ? D.amber : D.t2,
-                    background: D.s3,
-                    borderRadius: 8,
-                    padding: '9px 12px',
-                  }}
-                >
-                  <Icon
-                    name={pickupState === 'unknown' ? 'info' : 'lock'}
-                    size={13}
-                    color={pickupState === 'locked_on' ? D.amber : D.t2}
-                  />
-                  <span>{pickupNotice}</span>
-                </div>
-              )}
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
                       ascunde Hartă sală/Rezervări din nav; QR-ul general /m/:slug
                       devine QR-ul principal (card în Mese & QR-uri). Pe planul
-                      fără ridicare (`locked_on`) modul e suspendat
-                      (pickupOnlyMode) și descrierea o spune. */}
+                      fără ridicare modul e suspendat (pickupOnlyMode, în
+                      DashboardPage), dar acolo cardul nu se mai arată. */}
                   <div
                     style={{
                       display: 'flex',
@@ -1844,7 +1809,7 @@ export default function SettingsTab({
                         Mod „doar ridicare" (fără mese)
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        {pickupOnlyToggleDescription(pickupFeatureFromToggle(pickupState))}
+                        {pickupOnlyToggleDescription(true)}
                       </div>
                     </div>
                     <Toggle

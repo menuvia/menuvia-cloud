@@ -5,7 +5,6 @@ import {
   productLimitReason,
   surfaceTiers,
   type PlanTier,
-  type UpgradeReason,
 } from '../lib/features'
 import { planSurface, planUpsellTarget } from '../lib/planSurface'
 import { browserSite } from '../lib/domain'
@@ -67,7 +66,10 @@ function UpgradeModal({
   onClose,
   onGoToPricing,
 }: {
-  reason: UpgradeReason
+  // Textul limitei atinse (productLimitReason). Singurul deschizător al
+  // modalului e limita de produse — varianta „informativă" (banda planului
+  // gratuit, planUsageReason) a ieșit în lotul P.
+  reason: string
   onClose: () => void
   onGoToPricing: () => void
 }) {
@@ -159,20 +161,18 @@ function UpgradeModal({
           >
             Deblochează mai mult
           </div>
-          {/* Roșu DOAR la limita atinsă; din banda planului gratuit, sub limită,
-              motivul e informativ (planUsageReason). */}
           <div
             style={{
               fontSize: '0.82rem',
-              color: reason.atLimit ? D.t3 : D.t2,
+              color: D.t3,
               lineHeight: 1.5,
-              background: reason.atLimit ? D.redA : D.s3,
-              border: reason.atLimit ? `1px solid rgba(224,85,85,.25)` : `1px solid ${D.border}`,
+              background: D.redA,
+              border: `1px solid rgba(224,85,85,.25)`,
               borderRadius: 7,
               padding: '8px 12px',
             }}
           >
-            {reason.text}
+            {reason}
           </div>
         </div>
 
@@ -635,7 +635,7 @@ export default function DashboardPage({
   // ai-proxy: o are și agentul cu acces acordat (has_partner_access, PR #307).
   const canUseAiMenu = canUseAi || isPartner
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [upgradeReason, setUpgradeReason] = useState<UpgradeReason | null>(null)
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
   const isMobile = useIsMobile()
 
@@ -1520,10 +1520,7 @@ export default function DashboardPage({
                         void features.reload()
                         return
                       }
-                      setUpgradeReason({
-                        text: productLimitReason(plan, planLimits.max_products),
-                        atLimit: true,
-                      })
+                      setUpgradeReason(productLimitReason(plan, planLimits.max_products))
                     }}
                     userId={user?.id || ''}
                     menuLanguages={restaurant.menu_languages ?? []}
@@ -1531,6 +1528,9 @@ export default function DashboardPage({
                     canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}
                     surface={surface}
+                    // Cotele TVA stau în Setări (secțiunea cu plăți); partenerul
+                    // n-are fila Setări.
+                    onOpenVatRates={isPartner ? undefined : () => setTab('settings')}
                   />
                 </Suspense>
               )}
@@ -1665,7 +1665,6 @@ export default function DashboardPage({
                     restaurant={restaurant}
                     onUpdate={update}
                     plan={plan}
-                    planKnown={features.features != null}
                     onSignOut={onSignOut}
                     modulesState={modulesState}
                     founderView={inFounderView}

@@ -11,8 +11,15 @@
 //   PT3  control pozitiv pe Planul 3: badge-ul TVA, câmpul „Cotă TVA", extras
 //        și rețeta apar — pe Planul 3 nu se ascunde nimic.
 //   PT4  plan necunoscut (`surface` null): nimic dependent de plan.
+//   PT5  recenzia #334: pe Planul 3, ≥ 3 produse active TOATE pe aceeași grupă
+//        TVA → o notă de o linie deasupra listei („aceeași grupă TVA (Mâncare
+//        11%)…"), cu ieșire spre Setări. Mutația care pică: nota scoasă, sau
+//        pragul de 3 produse ignorat.
+//   PT6  grupe mixte → fără notă. Mutația care pică: `every` înlocuit cu `some`.
+//   PT7  Planul 2, toate pe aceeași grupă → fără notă (nimic despre TVA sub
+//        Planul 3). Mutația care pică: nota fără garda `showVat`.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Product } from '../../hooks/useData'
 
@@ -79,7 +86,7 @@ import ProductsTab from '../ProductsTab'
 import { surfaceFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { PlanSurface } from '../../lib/planSurface'
 
-function product(): Product {
+function product(over: Partial<Product> = {}): Product {
   return {
     id: 'p1',
     restaurant_id: 'rest-1',
@@ -104,8 +111,30 @@ function product(): Product {
     carbs_g: null,
     fat_g: null,
     ai_generated_fields: [],
+    ...over,
   }
 }
+
+function renderList(surface: PlanSurface | null, onOpenVatRates = vi.fn()) {
+  render(
+    <ProductsTab
+      restaurantId="rest-1"
+      plan="pro"
+      onUpgrade={() => {}}
+      userId="u1"
+      canUseAi={false}
+      canUseAiMenu={false}
+      canManageRecipes
+      menuLanguages={[]}
+      surface={surface}
+      onOpenVatRates={onOpenVatRates}
+    />,
+  )
+  return onOpenVatRates
+}
+
+const three = (groups: [number, number, number]) =>
+  groups.map((g, i) => product({ id: `p${i}`, name: `Produs ${i}`, vat_group: g }))
 
 async function openNewProduct(surface: PlanSurface | null) {
   const user = userEvent.setup()
@@ -174,5 +203,40 @@ describe('ProductsTab — fiecare plan vede doar ce are', () => {
     expect(screen.queryByText('Extras & Pereche')).toBeNull()
     expect(screen.queryByText('Rețetă (ingrediente consumate)')).toBeNull()
     expect(vat.calls).toBe(0)
+  })
+})
+
+describe('ProductsTab — nota „toate pe aceeași grupă TVA" (recenzia #334)', () => {
+  it('PT5: Planul 3, trei produse pe grupa 1 → nota cu cota și ieșirea spre Setări', async () => {
+    data.products = three([1, 1, 1])
+    const onOpen = renderList(surfaceFor('pro'))
+    const note = await screen.findByRole('note')
+    await waitFor(() => expect(note).toHaveTextContent('aceeași grupă TVA (Mâncare 11%)'))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Vezi cotele TVA' }))
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('PT5b: sub pragul de 3 produse active → fără notă', async () => {
+    data.products = [...three([1, 1, 1]).slice(0, 2), product({ id: 'px', name: 'Inactiv', is_active: false })]
+    renderList(surfaceFor('pro'))
+    expect(await screen.findByText('Produs 0')).toBeInTheDocument()
+    await waitFor(() => expect(vat.calls).toBeGreaterThanOrEqual(1))
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
+  it('PT6: grupe mixte → fără notă', async () => {
+    data.products = three([1, 1, 3])
+    renderList(surfaceFor('pro'))
+    expect(await screen.findByText('Produs 2')).toBeInTheDocument()
+    await waitFor(() => expect(vat.calls).toBeGreaterThanOrEqual(1))
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+
+  it('PT7: Planul 2, toate pe aceeași grupă → fără notă', () => {
+    data.products = three([1, 1, 1])
+    renderList(surfaceFor('growth'))
+    expect(screen.getByText('Produs 0')).toBeInTheDocument()
+    expect(screen.queryByRole('note')).toBeNull()
+    expect(document.body.textContent ?? '').not.toMatch(/\bTVA\b/)
   })
 })

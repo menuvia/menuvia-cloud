@@ -79,12 +79,6 @@ const ALLOWED = [
     reason:
       'starea internă de lacăt a cardului; din lotul P SettingsTab îl montează doar cu planSurface.ordering, deci lacătul nu mai e vizibil',
   },
-  {
-    file: 'src/components/SmsNotificationsCard.tsx',
-    contains: "const eligible = planTier(plan) >= 1 && plan !== 'free'",
-    reason:
-      'starea internă de lacăt a cardului; din lotul P SettingsTab îl montează doar cu planSurface.ordering, deci lacătul nu mai e vizibil',
-  },
 ]
 
 function sourceFiles(dir) {

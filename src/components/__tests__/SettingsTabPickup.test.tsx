@@ -135,7 +135,6 @@ async function openOrders(plan: DbPlan, restaurant: Restaurant, planKnown = true
       restaurant={restaurant}
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
-      planKnown={planKnown}
       onSignOut={() => {}}
       surface={planKnown ? surfaceFor(plan) : null}
     />,
@@ -156,7 +155,6 @@ async function openMenuAspect(plan: DbPlan, restaurant: Restaurant, planKnown = 
       restaurant={restaurant}
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
-      planKnown={planKnown}
       onSignOut={() => {}}
       surface={planKnown ? surfaceFor(plan) : null}
     />,

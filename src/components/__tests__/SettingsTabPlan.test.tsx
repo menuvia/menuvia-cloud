@@ -5,11 +5,16 @@
 // planSurfaceFixtures). Fiecare test trece prin TOATE secțiunile.
 //
 //   ST1  Planul 1: secțiunea se numește „Meniu QR"; fără ridicare, sugestii la
-//        coș, cote TVA, plăți online, fidelizare, SMS și fără rândul badge-ului
+//        coș, cote TVA, plăți online, fidelizare și fără rândul badge-ului
 //        „Creat cu Menuvia" (fost chip cu lacăt „Plan Meniu + Comenzi"); niciun
 //        termen fiscal (TVA / bon fiscal / casă de marcat / Bridge fiscal) în
 //        nicio secțiune. Mutația care pică: oricare gate `surface?.… === true`
 //        scos (cardul revine), sau textul Google Reviews / Moneda nefiltrat.
+//   ST1b SMS pe Planul 1 urmează FEATURE-UL, nu comenzile: starter are
+//        `sms_notifications` (cardul apare — un modul pornit se poate opri),
+//        free nu (cardul lipsește, nici blocat). Mutația care pică: cardul
+//        montat pe `surface?.ordering` (starterul pierde cardul) sau
+//        necondiționat (free îl primește).
 //   ST2  Planul 2: „Comenzi"; ridicare, sugestii, fidelizare, SMS și badge-ul
 //        DA; cote TVA și plăți online NU; niciun termen fiscal.
 //        Mutația care pică: `vat` derivat din `ordering`.
@@ -108,7 +113,6 @@ async function renderAll(plan: string, surface: PlanSurface | null): Promise<str
       restaurant={makeRestaurant()}
       onUpdate={vi.fn(async () => ({ error: null }))}
       plan={plan}
-      planKnown={surface != null}
       onSignOut={() => {}}
       modulesState={modulesState}
       surface={surface}
@@ -135,12 +139,31 @@ describe('SettingsTab — fiecare plan vede doar ce are', () => {
     expect(screen.getByRole('tab', { name: 'Meniu QR' })).toBeInTheDocument()
     expect(all).not.toMatch(/Creat cu Menuvia/)
     expect(all).not.toMatch(/Plan Meniu \+ Comenzi/)
-    expect(all).not.toMatch(/stub-plati-online|stub-fidelizare|stub-sms|stub-editor-cote/)
+    expect(all).not.toMatch(/stub-plati-online|stub-fidelizare|stub-editor-cote/)
     expect(all).not.toMatch(/Sugestii la coș/)
     expect(all).not.toMatch(/ridicare/i)
     // Ancora: secțiunea „Meniu QR" are modulele (rezervările sunt pe orice plan).
     await openOrders()
     expect(screen.getByRole('switch', { name: 'Rezervări' })).toBeInTheDocument()
+  })
+
+  it('ST1b: SMS pe Planul 1 urmează feature-ul — starter da, free nu', async () => {
+    const { unmount } = render(
+      <SettingsTab
+        restaurant={makeRestaurant()}
+        onUpdate={vi.fn(async () => ({ error: null }))}
+        plan="starter"
+        onSignOut={() => {}}
+        modulesState={modulesState}
+        surface={surfaceFor('starter')}
+      />,
+    )
+    await openOrders()
+    expect(screen.getByText('stub-sms')).toBeInTheDocument()
+    unmount()
+    const texts = await renderAll('free', surfaceFor('free'))
+    expect(texts.join('\n')).not.toMatch(/stub-sms/)
+    for (const t of texts) expect(t).not.toMatch(FISCAL)
   })
 
   it('ST2: Planul 2 — „Comenzi" cu ridicare, sugestii și module; fără TVA și plăți', async () => {

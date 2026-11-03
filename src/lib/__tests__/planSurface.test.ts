@@ -10,7 +10,8 @@
 //   PS1  matricea completă pe free / starter / growth / pro / enterprise.
 //        Mutația care pică: `vat: true` pe orice plan (cotele TVA înapoi pe
 //        Planurile 1–2), `pickup` derivat din `order_qr` (fără să existe
-//        `pickup_orders`), `fiscal` pe `general` în loc de `money`.
+//        `pickup_orders`), `fiscal` pe `general` în loc de `money`, `sms`
+//        derivat din `ordering` (starterul cu SMS pornit nu l-ar mai putea opri).
 //   PS2  `null` (features neîncărcate) → `null`: nici funcția, nici upsell-ul.
 //        Mutația care pică: un fallback pe planul cel mai restrictiv (un obiect
 //        cu totul `false` ar arăta upsell-ul de Planul 1 unui plătitor).
@@ -37,6 +38,7 @@ const OFF: PlanSurface = {
   extras: false,
   stocks: false,
   branding: false,
+  sms: false,
   payments: false,
   fiscal: false,
   vat: false,
@@ -48,6 +50,7 @@ const PLAN_2: PlanSurface = {
   extras: true,
   stocks: true,
   branding: true,
+  sms: true,
   payments: false,
   fiscal: false,
   vat: false,
@@ -59,6 +62,7 @@ const ALL: PlanSurface = {
   extras: true,
   stocks: true,
   branding: true,
+  sms: true,
   payments: true,
   fiscal: true,
   vat: true,
@@ -67,7 +71,9 @@ const ALL: PlanSurface = {
 describe('planSurface — matricea pe planuri', () => {
   it('PS1: free / starter / growth / pro / enterprise', () => {
     expect(surfaceFor('free')).toEqual(OFF)
-    expect(surfaceFor('starter')).toEqual(OFF)
+    // Starter = Planul 1, dar ARE `sms_notifications` (plafon 100/lună): cardul
+    // SMS trebuie să se poată opri. Singura cheie diferită față de free.
+    expect(surfaceFor('starter')).toEqual({ ...OFF, sms: true })
     expect(surfaceFor('growth')).toEqual(PLAN_2)
     expect(surfaceFor('pro')).toEqual(ALL)
     expect(surfaceFor('enterprise')).toEqual(ALL)
