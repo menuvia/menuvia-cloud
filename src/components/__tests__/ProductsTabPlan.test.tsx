@@ -398,6 +398,13 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     expect(priceInput).not.toHaveAttribute('aria-invalid')
     expect(priceInput).not.toHaveAttribute('aria-describedby')
 
+    // Editarea ALTUI câmp (Prețul) nu stinge eroarea numelui: numele e tot gol,
+    // deci alerta și marcajul lui rămân (recenzia CodeRabbit pe #336; mutația
+    // „orice editare pe nume/preț șterge eroarea” pică aici).
+    fireEvent.change(priceInput, { target: { value: '12' } })
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Numele produsului e obligatoriu')
+    expect(within(dlg).getByRole('textbox', { name: 'Nume' })).toHaveAttribute('aria-invalid', 'true')
+
     // Editarea numelui stinge alerta; un preț negativ o readuce, tot în dialog.
     await user.type(within(dlg).getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
     expect(within(dlg).queryByRole('alert')).toBeNull()

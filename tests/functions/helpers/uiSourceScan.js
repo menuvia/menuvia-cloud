@@ -252,14 +252,25 @@ function visibleTexts(src) {
         textLine &&
         !/\s/.test(t) &&
         /[A-Za-zĂÂÎȘȚăâîșț]{2,}/.test(t) &&
-        prevTrim.endsWith('>') &&
-        !prevTrim.endsWith('=>')
+        endsJsxTag(prevTrim)
       ) {
         out.push({ line: n, text: t })
       }
       if (t !== '') prevTrim = t
     })
   return out
+}
+
+// Rândul de dinainte închide un TAG JSX, nu o comparație (`count >` urmat de
+// `owner.limit` e cod, recenzia #336): un tag complet pe rând (`<span>`,
+// `</div>`, `<Button variant="x">`), un `>` singur (închiderea unui tag scris pe
+// mai multe rânduri) sau ultimul atribut al unui tag multilinie (`">`, `'>`,
+// `}>`). `=>` nu e niciodată tag.
+function endsJsxTag(prev) {
+  if (!prev.endsWith('>') || prev.endsWith('=>')) return false
+  if (prev === '>') return true
+  if (/<\/?[A-Za-z][\w.:-]*(\s[^<>]*)?>$/.test(prev)) return true
+  return /["'}]>$/.test(prev)
 }
 
 module.exports = {

@@ -108,6 +108,8 @@ describe('clichet: terminologia din panou', () => {
       "hint: 'Reia setup-ul'",
       // cuvânt singur pe rândul lui, între taguri pe rânduri separate (recenzia #336)
       '        <span>\n          Dashboard\n        </span>',
+      // tag deschis pe mai multe rânduri: ultimul atribut închide tag-ul
+      '        <span\n          className="x">\n          Dashboard\n        </span>',
     ]
     for (const l of caught) assert.ok(termHits(l).length > 0, `ar trebui prinsă: ${l}`)
     const fine = [
@@ -130,6 +132,8 @@ describe('clichet: terminologia din panou', () => {
       'const {\n  owner,\n  setup\n} = x',
       // rând după `=>` (corpul unei funcții-săgeată), nu după un tag
       'const pick = () =>\n  owner',
+      // comparație pe două rânduri: `>` final nu e tag (recenzia #336)
+      'const over = count >\n  owner.limit',
     ]
     for (const l of fine) assert.deepEqual(termHits(l), [], `nu trebuie prinsă: ${l}`)
   })

@@ -505,7 +505,10 @@ function ProductModal({
     }
   }
   const upd = (k: keyof Product, v: unknown) => {
-    if (k === 'name' || k === 'price') {
+    // Eroarea se șterge doar când omul editează câmpul care a greșit (sau când
+    // eroarea nu ține de un câmp): altfel, editând Prețul, alerta numelui gol
+    // și marcajul lui `aria-invalid` ar dispărea deși numele e tot gol.
+    if ((k === 'name' || k === 'price') && (formErrorField === null || formErrorField === k)) {
       setFormError(null)
       setFormErrorField(null)
     }
