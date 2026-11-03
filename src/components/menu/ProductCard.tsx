@@ -411,9 +411,9 @@ function Thumbnail({
           fallbackSrc={product.image_url}
           alt={product.name}
           aspectRatio="1 / 1"
+          skeleton
           width={THUMB}
           height={THUMB}
-          skeleton
         />
       </div>
     )

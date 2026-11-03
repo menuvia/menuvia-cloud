@@ -393,9 +393,9 @@ function GridThumbnail({
           fallbackSrc={product.image_url}
           alt={product.name}
           aspectRatio="4 / 3"
+          skeleton
           width={320}
           height={240}
-          skeleton
         />
       </div>
     )

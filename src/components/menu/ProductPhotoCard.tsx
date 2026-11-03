@@ -171,9 +171,9 @@ function ProductPhotoCard({
             src={product.image_url}
             alt={product.name}
             aspectRatio="4 / 3"
+            skeleton
             width={1200}
             height={900}
-            skeleton
           />
 
           {/* Scrim gradient jos — garantează lizibilitatea numelui/prețului alb
