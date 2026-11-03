@@ -18,6 +18,7 @@
 //   DS5  ținta upsell-ului dată Acasei: Planul 1 → 'ordering', Planul 2 →
 //        'payments', Planul 3 → null, planul necunoscut → null.
 //        Mutația care pică: `upsell` calculat fără `planUpsellTarget`.
+import type { ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -154,7 +155,11 @@ async function renderDashboard(plan: DbPlan | null) {
       onSignOut={vi.fn(async () => {})}
       restaurants={[makeRestaurant()]}
       restaurantsLoading={false}
-      updateRestaurant={vi.fn(async () => ({ error: null }))}
+      updateRestaurant={
+        vi.fn(async () => ({ error: null })) as unknown as ComponentProps<
+          typeof DashboardPage
+        >['updateRestaurant']
+      }
     />,
   )
   // Ancora: Acasă s-a montat (lazy), deci bara laterală e cea finală.
