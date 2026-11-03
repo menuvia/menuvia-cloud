@@ -24,10 +24,17 @@
 //        (reîncărcare completă); butonul de creare dispare, deci nu există
 //        reîncercare oarbă. Mutația care pică: verificarea eșuată tratată ca
 //        „negăsită" (butonul rămâne și creează din nou).
+//   AL7  eșec ambiguu + locația NEgăsită nici la reîncercare (recenzia
+//        CodeRabbit pe #344): „negăsită" nu dovedește că tranzacția s-a
+//        anulat — poate fi încă necomisă, iar `create_restaurant` alege alt
+//        slug, deci o a doua creare ar face o locație DUBLĂ. În primul minut
+//        reîncercarea NU creează (mesaj „Verificăm încă…"); după
+//        `CREATE_SETTLE_MS` tratează cererea ca moartă și creează. Mutația care
+//        pică: ramura `absent` care cade direct pe `createRestaurant`.
 //   AL6  `onCreated` pică DUPĂ ce restaurantul a fost creat → reîncercarea NU
 //        mai creează încă unul (tiparul OnboardingPage). Mutația care pică:
 //        `createdRef` scos.
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -40,7 +47,12 @@ vi.mock('../../lib/locations', async (importOriginal) => ({
 }))
 
 import AddLocationCard from '../AddLocationCard'
-import { MSG_CREATE_UNCERTAIN, MSG_LOCATION_LIMIT } from '../../lib/locations'
+import {
+  CREATE_SETTLE_MS,
+  MSG_CREATE_SETTLING,
+  MSG_CREATE_UNCERTAIN,
+  MSG_LOCATION_LIMIT,
+} from '../../lib/locations'
 
 const LOST = new TypeError('Failed to fetch')
 
@@ -48,6 +60,9 @@ beforeEach(() => {
   m.create.mockReset()
   m.find.mockReset()
   m.reload.mockReset()
+})
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 function renderCard(onCreated: (id: string) => Promise<void>) {
@@ -159,6 +174,35 @@ describe('AddLocationCard', () => {
     expect(m.reload).toHaveBeenCalledWith('/dashboard')
     expect(m.create).toHaveBeenCalledTimes(1)
     expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it('AL7: negăsită la reîncercare → nu creează în primul minut, creează după', async () => {
+    let now = 1_800_000_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    m.create
+      .mockRejectedValueOnce(LOST)
+      .mockResolvedValueOnce({ restaurant_id: 'rest-new', restaurant_slug: 'bistro-gara' })
+    m.find.mockResolvedValue(null)
+    const onCreated = vi.fn(async () => {})
+    renderCard(onCreated)
+    const { user } = await openAndType('Bistro Gară')
+    await user.click(submitBtn())
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(m.create).toHaveBeenCalledTimes(1)
+
+    // 10 s mai târziu: încă negăsită → fără a doua creare.
+    now += 10_000
+    await user.click(submitBtn())
+    await waitFor(() => expect(m.find).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('alert')).toHaveTextContent(MSG_CREATE_SETTLING)
+    expect(m.create).toHaveBeenCalledTimes(1)
+    expect(onCreated).not.toHaveBeenCalled()
+
+    // Peste fereastră: cererea veche nu mai poate comite → se creează.
+    now += CREATE_SETTLE_MS
+    await user.click(submitBtn())
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rest-new'))
+    expect(m.create).toHaveBeenCalledTimes(2)
   })
 
   it('AL6: reîncercarea după un onCreated eșuat nu creează a doua locație', async () => {

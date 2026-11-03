@@ -245,6 +245,19 @@ export const MSG_CREATE_UNCERTAIN =
   'Nu știm sigur dacă locația s-a creat — reîncarcă pagina și verifică lista.'
 
 /**
+ * Cât așteptăm după o creare AMBIGUĂ înainte să tratăm „negăsită" drept „nu
+ * s-a creat". Un rând lipsă imediat după eșec nu dovedește nimic: tranzacția
+ * poate fi încă necomisă, iar `create_restaurant` alege alt slug la coliziune,
+ * deci o a doua creare ar face o locație DUBLĂ (recenzia CodeRabbit pe #344).
+ * Plafonul vine din `statement_timeout`-ul rolului `authenticated` (8 s pe
+ * Supabase): după un minut o cerere fie s-a comis (și se vede), fie a murit.
+ */
+export const CREATE_SETTLE_MS = 60_000
+
+export const MSG_CREATE_SETTLING =
+  'Verificăm încă dacă locația s-a creat. Încearcă din nou peste un minut.'
+
+/**
  * Reîncărcarea COMPLETĂ a panoului (ieșirea de rezervă când listele din
  * memorie nu pot fi aduse la zi). Funcție separată ca testele s-o poată
  * observa — `window.location.assign` nu se poate spiona în jsdom.

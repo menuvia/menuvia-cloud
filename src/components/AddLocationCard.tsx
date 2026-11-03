@@ -21,6 +21,8 @@ import { useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../lib/constants'
 import {
+  CREATE_SETTLE_MS,
+  MSG_CREATE_SETTLING,
   MSG_CREATE_UNCERTAIN,
   describeCreateLocationError,
   findCreatedLocation,
@@ -122,6 +124,18 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
           return
         }
         if (check.status === 'found') id = check.id
+        if (check.status === 'absent') {
+          const pending = pendingRef.current
+          // Prea devreme ca „negăsită" să însemne „nu s-a creat": cererea
+          // anterioară poate fi încă în curs de comitere.
+          if (pending != null && Date.now() - pending.sentAt < CREATE_SETTLE_MS) {
+            setError(MSG_CREATE_SETTLING)
+            setSaving(false)
+            return
+          }
+          // Peste fereastră: tranzacția nu mai poate comite — nu s-a creat.
+          pendingRef.current = null
+        }
       }
       if (id == null) {
         if (!trimmed) {
