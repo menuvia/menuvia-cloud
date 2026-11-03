@@ -25,13 +25,66 @@ function transliterate(text) {
   return String(text).replace(/[ăâîșşțţĂÂÎȘŞȚŢ]/g, (c) => RO_MAP[c] || c);
 }
 
-// ESC/POS minimal: init + text + feed + full cut.
-const ESC_INIT = '\x1b\x40';
-const ESC_CUT = '\x1d\x56\x42\x00';
+// ─── Octeți tipăribili ──────────────────────────────────────────────────────
+// Payload-ul conține text scris de OASPETE (notele comenzii QR, mig 227 le
+// curăță doar de \r\n\t). Pe 9100 orice octet de control e o COMANDĂ:
+// ESC p = deschide sertarul de bani, GS V = taie hârtia, ESC @ = reset. Iar
+// vechiul `socket.end(text, 'binary')` trunchia fiecare caracter la octetul
+// lui de jos: „ě” (U+011B) devenea 0x1B = ESC, „ȝ” (U+021D) 0x1D = GS, „„”
+// (U+201E) 0x1E. Deci și un text inofensiv la vedere ajungea la imprimantă
+// ca secvență de control. Regula de aici: după transliterare, singurul
+// control păstrat e \n, iar setul de caractere depinde de canal (`charset`):
+//   'ascii'   — 0x20–0x7E (transliterare pornită, implicit);
+//   'latin1'  — + 0xA0–0xFF, pe 9100 cu transliterarea OPRITĂ (codepage-ul
+//               imprimantei e configurarea instalatorului — amânat);
+//   'unicode' — orice caracter tipăribil, pentru fișierul UTF-8 (fără
+//               transliterare): un spooler care citea UTF-8 nu regresează.
+// Tot ce nu încape devine '?', vizibil, nu dispare tăcut.
+const PUNCT_MAP = {
+  '\u201e': '"', '\u201c': '"', '\u201d': '"', '\u00ab': '"', '\u00bb': '"',
+  '\u2018': "'", '\u2019': "'", '\u201a': "'", '\u2032': "'",
+  '\u2013': '-', '\u2014': '-', '\u2212': '-', '\u2026': '...',
+  '\u20ac': 'EUR', '\u00d7': 'x', '\u00a0': ' ', '\u2022': '*',
+};
+
+function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
+  let out = '';
+  // CRLF/CR → LF, tab → spațiu: singurul control păstrat e \n.
+  const src = String(text).replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+  for (const ch of src) {
+    if (ch === '\n') { out += ch; continue; }
+    const cp = ch.codePointAt(0);
+    if (cp >= 0x20 && cp <= 0x7e) { out += ch; continue; }
+    if (cp < 0x20 || (cp >= 0x7f && cp <= 0x9f)) continue; // C0, DEL, C1: aruncate
+    if (charset === 'unicode') {
+      // Fișier UTF-8: textul rămâne cum l-a scris omul; afară doar ce nu se
+      // vede (formatare/bidi, separatori de rând, surogate, uz privat).
+      out += /[\p{C}\p{Zl}\p{Zp}]/u.test(ch) ? '?' : ch;
+      continue;
+    }
+    const mapped = PUNCT_MAP[ch];
+    if (mapped !== undefined) { out += mapped; continue; }
+    if (charset === 'latin1' && cp >= 0xa0 && cp <= 0xff) { out += ch; continue; }
+    // Litere latine cu accent (é, ü, ő…): litera de bază, dacă e ASCII.
+    const base = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    out += /^[\x20-\x7e]+$/.test(base) ? base : '?';
+  }
+  return out;
+}
+
+// ESC/POS minimal: init + text + feed + full cut. Buffer EXPLICIT: textul e
+// deja restrâns la ≤ 0xFF, deci latin1 e o codificare 1:1, nu o trunchiere.
+const ESC_INIT = Buffer.from([0x1b, 0x40]);
+const ESC_CUT = Buffer.from([0x1d, 0x56, 0x42, 0x00]);
+const FEED = Buffer.from('\n\n\n', 'latin1');
+
+function ticketText(cfg, payload, wideCharset) {
+  if (cfg.kitchen.transliterate) return sanitizeForEscPos(transliterate(payload), { charset: 'ascii' });
+  return sanitizeForEscPos(payload, { charset: wideCharset });
+}
 
 function buildEscPos(cfg, payload) {
-  const text = cfg.kitchen.transliterate ? transliterate(payload) : payload;
-  return ESC_INIT + text + '\n\n\n' + ESC_CUT;
+  return Buffer.concat([ESC_INIT, Buffer.from(ticketText(cfg, payload, 'latin1'), 'latin1'), FEED, ESC_CUT]);
 }
 
 function printViaTcp(cfg, ticket) {
@@ -56,7 +109,7 @@ function printViaTcp(cfg, ticket) {
       // NU așteptăm 'close': multe imprimante termice acceptă datele dar nu
       // trimit niciodată FIN — fiecare print ar fi raportat fals PRINT_TIMEOUT
       // (zgomot + retry-uri manuale degeaba). 9100 rămâne fire-and-forget.
-      socket.end(bytes, 'binary', () =>
+      socket.end(bytes, () =>
         done({ success: true, errorCode: null, errorInfo: null }));
     });
   });
@@ -64,8 +117,8 @@ function printViaTcp(cfg, ticket) {
 
 function printViaFile(cfg, ticket) {
   try {
-    const text = (cfg.kitchen.transliterate ? transliterate(ticket.payload) : ticket.payload)
-      .replace(/\r?\n/g, '\r\n');
+    // Aceeași regulă ca pe 9100: un spooler RAW trimite fișierul ca atare.
+    const text = ticketText(cfg, ticket.payload, 'unicode').replace(/\n/g, '\r\n');
     const target = path.join(cfg.kitchen.dir, `${ticket.id}.txt`);
     const tmp = target + '.tmp';
     // Scriere atomică: spooler-ul nu are voie să vadă fișiere pe jumătate.
@@ -87,4 +140,4 @@ async function printTicket(cfg, ticket) {
   }
 }
 
-module.exports = { printTicket, transliterate, buildEscPos };
+module.exports = { printTicket, transliterate, sanitizeForEscPos, buildEscPos };
