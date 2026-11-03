@@ -200,6 +200,101 @@ export async function cancelTablePayment(
   throw new Error(body.error || 'Anularea nu a reușit.')
 }
 
+// ── Statusul PUBLIC al plății (lotul E, mig 312) ──────────────
+/** Ce poate afla oaspetele despre plata lui — DOAR statusul, din DB. */
+export type TablePaymentPublicStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'unknown'
+
+/**
+ * Felul plății, din `table_payments.kind` (mig 229) — NU din URL: `table` =
+ * toată nota (masa devine „plătită”), `split` = doar partea oaspetelui.
+ */
+export type TablePaymentPublicKind = 'table' | 'split' | 'unknown'
+
+/** Răspunsul lui `get_table_payment_public_status` (mig 312): exact `{status, kind}`. */
+export interface TablePaymentPublicResult {
+  status: TablePaymentPublicStatus
+  kind: TablePaymentPublicKind
+}
+
+const PUBLIC_STATUSES: readonly TablePaymentPublicStatus[] = [
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'canceled',
+  'unknown',
+]
+const PUBLIC_KINDS: readonly TablePaymentPublicKind[] = ['table', 'split', 'unknown']
+
+export const TABLE_PAYMENT_UNKNOWN: TablePaymentPublicResult = Object.freeze({
+  status: 'unknown',
+  kind: 'unknown',
+})
+
+/**
+ * Cât așteptăm O cerere de status înainte s-o socotim `unknown`. supabase-js
+ * nu are timeout pe `rpc`, iar o cerere agățată (rețea mobilă moartă) ar
+ * îngheța polling-ul fără ca termenul lui să mai conteze.
+ */
+export const TABLE_PAYMENT_STATUS_TIMEOUT_MS = 8000
+
+/** Formă necunoscută → `unknown` pe câmpul respectiv (funcție PURĂ). */
+export function parseTablePaymentPublicResult(data: unknown): TablePaymentPublicResult {
+  const raw = (data ?? {}) as { status?: unknown; kind?: unknown }
+  const status = PUBLIC_STATUSES.find((s) => s === raw.status) ?? 'unknown'
+  const kind = PUBLIC_KINDS.find((k) => k === raw.kind) ?? 'unknown'
+  return { status, kind }
+}
+
+/**
+ * Statusul plății din DB (`get_table_payment_public_status`, mig 312):
+ * `succeeded` DOAR după ce `settle_table_payment` a decontat-o (webhook-ul),
+ * nu pe rezultatul din browser al lui Stripe. `paymentRef` = id-ul plății
+ * (uuid, din `createTablePayment`) sau id-ul PaymentIntent-ului (`pi_…`).
+ *
+ * NU aruncă și NU atârnă: orice eroare (rețea, RPC nedeployat, formă
+ * necunoscută) și orice cerere care depășește `timeoutMs` dau `unknown` — iar
+ * UI-ul nu declară „Plătit” pe `unknown`, deci degradarea e spre „în curs de
+ * confirmare”, niciodată spre un „Plătit” fals.
+ */
+export async function fetchTablePaymentStatus(
+  token: string,
+  sessionId: string,
+  paymentRef: string,
+  timeoutMs: number = TABLE_PAYMENT_STATUS_TIMEOUT_MS,
+): Promise<TablePaymentPublicResult> {
+  const ctrl = typeof AbortController === 'undefined' ? null : new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<TablePaymentPublicResult>((resolve) => {
+    timer = setTimeout(() => {
+      ctrl?.abort()
+      resolve(TABLE_PAYMENT_UNKNOWN)
+    }, timeoutMs)
+  })
+  async function request(): Promise<TablePaymentPublicResult> {
+    let query = supabase.rpc('get_table_payment_public_status', {
+      p_token: token,
+      p_session_id: sessionId,
+      p_payment_ref: paymentRef,
+    })
+    if (ctrl) query = query.abortSignal(ctrl.signal)
+    const { data, error } = await query
+    if (error) return TABLE_PAYMENT_UNKNOWN
+    return parseTablePaymentPublicResult(data)
+  }
+  try {
+    return await Promise.race([request().catch(() => TABLE_PAYMENT_UNKNOWN), timeout])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
 // ── Reconciliere plăți online (admin, mig 211) ────────────────
 export interface SettleNoteRow {
   id: string
