@@ -85,7 +85,8 @@ describe('Button', () => {
       </Button>,
     )
     expect(ref.current).toBe(screen.getByRole('button', { name: 'Importă' }))
-    expect(ref.current?.style.flex).toBe('1')
+    // jsdom extinde shorthand-ul `flex: 1` în `1 1 0%`; flex-grow e valoarea stabilă.
+    expect(ref.current?.style.flexGrow).toBe('1')
     expect(ref.current).not.toHaveAttribute('aria-busy')
   })
 })
