@@ -37,20 +37,26 @@ function transliterate(text) {
 //   'ascii'   — 0x20–0x7E (transliterare pornită, implicit);
 //   'latin1'  — + 0xA0–0xFF, pe 9100 cu transliterarea OPRITĂ (codepage-ul
 //               imprimantei e configurarea instalatorului — amânat);
-//   'unicode' — orice caracter tipăribil, pentru fișierul UTF-8 (fără
-//               transliterare): un spooler care citea UTF-8 nu regresează.
+//   'unicode' — orice caracter tipăribil, pentru fișierul UTF-8 (cu sau
+//               fără transliterare): un spooler care citea UTF-8 nu regresează.
 // Tot ce nu încape devine '?', vizibil, nu dispare tăcut.
 const PUNCT_MAP = {
   '\u201e': '"', '\u201c': '"', '\u201d': '"', '\u00ab': '"', '\u00bb': '"',
   '\u2018': "'", '\u2019': "'", '\u201a': "'", '\u2032': "'",
   '\u2013': '-', '\u2014': '-', '\u2212': '-', '\u2026': '...',
   '\u20ac': 'EUR', '\u00d7': 'x', '\u00a0': ' ', '\u2022': '*',
+  // `·` e separatorul din ANTETUL fiecărui tichet (mig 227: „OSPATAR · MASA”).
+  '\u00b7': '-', '\u2260': '!=',
 };
 
 function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
   let out = '';
-  // CRLF/CR → LF, tab → spațiu: singurul control păstrat e \n.
-  const src = String(text).replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+  // NFC întâi: „s” + virgulă combinată devine „ș” precompus (altfel ieșea
+  // „s?”). CRLF/CR/NEL/LS/PS → LF, tab → spațiu: singurul control păstrat e \n.
+  const src = String(text)
+    .normalize('NFC')
+    .replace(/\r\n?|[\u0085\u2028\u2029]/g, '\n')
+    .replace(/\t/g, ' ');
   for (const ch of src) {
     if (ch === '\n') { out += ch; continue; }
     const cp = ch.codePointAt(0);
@@ -59,15 +65,18 @@ function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
     if (charset === 'unicode') {
       // Fișier UTF-8: textul rămâne cum l-a scris omul; afară doar ce nu se
       // vede (formatare/bidi, separatori de rând, surogate, uz privat).
-      out += /[\p{C}\p{Zl}\p{Zp}]/u.test(ch) ? '?' : ch;
+      out += /[\p{C}]/u.test(ch) ? '?' : ch;
       continue;
     }
     const mapped = PUNCT_MAP[ch];
     if (mapped !== undefined) { out += mapped; continue; }
     if (charset === 'latin1' && cp >= 0xa0 && cp <= 0xff) { out += ch; continue; }
-    // Litere latine cu accent (é, ü, ő…): litera de bază, dacă e ASCII.
-    const base = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    out += /^[\x20-\x7e]+$/.test(base) ? base : '?';
+    // Un semn diacritic rămas singur după NFC nu are literă de purtat.
+    if (/\p{M}/u.test(ch)) continue;
+    // Litere latine cu accent (é, ü, ő…): litera de bază — DOAR dacă e literă.
+    // Altfel NFD scotea negația din „≠”/„≮” și inversa sensul notei (≠ → =).
+    const base = ch.normalize('NFD').replace(/\p{M}/gu, '');
+    out += /^[A-Za-z]+$/.test(base) ? base : '?';
   }
   return out;
 }
@@ -78,13 +87,18 @@ const ESC_INIT = Buffer.from([0x1b, 0x40]);
 const ESC_CUT = Buffer.from([0x1d, 0x56, 0x42, 0x00]);
 const FEED = Buffer.from('\n\n\n', 'latin1');
 
-function ticketText(cfg, payload, wideCharset) {
-  if (cfg.kitchen.transliterate) return sanitizeForEscPos(transliterate(payload), { charset: 'ascii' });
-  return sanitizeForEscPos(payload, { charset: wideCharset });
+// 9100: ASCII cu transliterarea pornită, latin1 cu ea oprită. Fișierul e
+// UTF-8 pe AMBELE ramuri (ca înainte): transliterarea scoate doar
+// diacriticele românești, restul textului tipăribil rămâne.
+function ticketText(cfg, payload, channel) {
+  const src = String(payload).normalize('NFC');
+  const text = cfg.kitchen.transliterate ? transliterate(src) : src;
+  if (channel === 'file') return sanitizeForEscPos(text, { charset: 'unicode' });
+  return sanitizeForEscPos(text, { charset: cfg.kitchen.transliterate ? 'ascii' : 'latin1' });
 }
 
 function buildEscPos(cfg, payload) {
-  return Buffer.concat([ESC_INIT, Buffer.from(ticketText(cfg, payload, 'latin1'), 'latin1'), FEED, ESC_CUT]);
+  return Buffer.concat([ESC_INIT, Buffer.from(ticketText(cfg, payload, 'tcp'), 'latin1'), FEED, ESC_CUT]);
 }
 
 function printViaTcp(cfg, ticket) {
@@ -118,7 +132,7 @@ function printViaTcp(cfg, ticket) {
 function printViaFile(cfg, ticket) {
   try {
     // Aceeași regulă ca pe 9100: un spooler RAW trimite fișierul ca atare.
-    const text = ticketText(cfg, ticket.payload, 'unicode').replace(/\n/g, '\r\n');
+    const text = ticketText(cfg, ticket.payload, 'file').replace(/\n/g, '\r\n');
     const target = path.join(cfg.kitchen.dir, `${ticket.id}.txt`);
     const tmp = target + '.tmp';
     // Scriere atomică: spooler-ul nu are voie să vadă fișiere pe jumătate.

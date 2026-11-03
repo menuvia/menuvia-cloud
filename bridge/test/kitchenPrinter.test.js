@@ -121,6 +121,37 @@ test('KB5 transliterare oprită: latin1 pe 9100, UTF-8 curățat în fișier', a
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+// Recenzie adversarială pe #339 (F1–F4). Mutații care pică: `·` scos din
+// PUNCT_MAP (KB6), fișierul pe `ascii` când transliterarea e pornită (KB7),
+// fișier necurățat pe ramura implicită (KB7), fără NFC (KB7), `\r\n?` →
+// `\r\n` (KB8), baza NFD acceptată pe orice ASCII (KB9).
+test('KB6 antetul real din mig 227 (`·`) rămâne lizibil, nu `?`', () => {
+  const buf = buildEscPos(cfgWith({}), 'OSPATAR · MASA: 5\n#ABC123 · 12:30');
+  assert.equal(body(buf).toString('latin1'), 'OSPATAR - MASA: 5\n#ABC123 - 12:30\n\n\n');
+});
+
+test('KB7 fișier cu transliterarea PORNITĂ (implicit): UTF-8 păstrat, controale scoase', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kt-'));
+  const result = await printTicket(cfgWith({ mode: 'file', dir }), {
+    // `S\u0326` = Ș DEScompus: fără NFC, transliterarea (doar forme
+    // precompuse) îl rata și fișierul păstra diacriticul.
+    id: 'kb7', payload: 'OSPATAR · MASA: 2\nCafé „mare” Ciorbă S\u0326nițel\x1bp\x00\x19',
+  });
+  assert.equal(result.success, true);
+  const written = fs.readFileSync(path.join(dir, 'kb7.txt'), 'utf8');
+  assert.equal(written, 'OSPATAR · MASA: 2\r\nCafé „mare” Ciorba Snitelp\r\n');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('KB8 CR singur, NEL și separatorii Unicode devin rând nou', () => {
+  assert.equal(sanitizeForEscPos('a\rb\u0085c\u2028d'), 'a\nb\nc\nd');
+});
+
+test('KB9 diacritice descompuse și negații: fără „?” parazit, fără sens inversat', () => {
+  const buf = buildEscPos(cfgWith({}), 's\u0326ef Cafe\u0301 fara \u2260 ceapa \u226e5');
+  assert.equal(body(buf).toString('latin1'), 'sef Cafe fara != ceapa ?5\n\n\n');
+});
+
 test('sanitizeForEscPos: implicit ASCII, fără să atingă textul curat', () => {
   assert.equal(sanitizeForEscPos('2x Mici\nMASA: 5'), '2x Mici\nMASA: 5');
   assert.equal(sanitizeForEscPos('Ő ü ñ 漢'), 'O u n ?');
