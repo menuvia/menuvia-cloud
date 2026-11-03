@@ -217,8 +217,14 @@ async function writeViaFile(encoding, payload) {
   };
   const id = `enc-${encoding}`;
   const pending = sendReceipt(cfg, { id, payload });
+  // Răspunsul se publică ATOMIC (tmp → rename), ca driver-ul real: altfel
+  // cititorul care face poll poate prinde fișierul gol sau pe jumătate
+  // (recenzie CodeRabbit pe #341).
   const nudge = setTimeout(() => {
-    fs.writeFile(path.join(raspunsDir, `${id}.txt`), 'BONOK=1\nNRBON=1').catch(() => {});
+    const tmp = path.join(raspunsDir, `.${id}.txt.tmp`);
+    fs.writeFile(tmp, 'BONOK=1\nNRBON=1')
+      .then(() => fs.rename(tmp, path.join(raspunsDir, `${id}.txt`)))
+      .catch(() => {});
   }, 80);
   const res = await pending;
   clearTimeout(nudge);
@@ -241,6 +247,13 @@ test('FE2 latin1: „Ċ” nu injectează o linie nouă (o comandă P^ în plus)
   const lines = bytes.toString('latin1').split('\r\n').filter(Boolean);
   assert.deepStrictEqual(lines, ['S^ApaCP^1^100^buc^1^1', 'P^1^100']);
   for (const b of bytes) assert.ok(b === 0x0d || b === 0x0a || b >= 0x20, `octet 0x${b.toString(16)}`);
+});
+
+test('FE2b ascii: fișierul de bon e plierea ASCII, cap-coadă prin sendReceipt', async () => {
+  const { res, bytes } = await writeViaFile('ascii', 'S^Café ŞĊ^100^1000^buc^1^1\nP^1^100');
+  assert.strictEqual(res.success, true);
+  assert.strictEqual(bytes.toString('ascii'), 'S^Cafe SC^100^1000^buc^1^1\r\nP^1^100\r\n');
+  for (const b of bytes) assert.ok(b <= 0x7f, `octet non-ASCII 0x${b.toString(16)}`);
 });
 
 test('FE3 utf8 rămâne fără pierdere (diacriticele trec neatinse)', async () => {
