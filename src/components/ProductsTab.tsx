@@ -8,6 +8,7 @@ import { D, DIETARY_TAGS, ALLERGENS } from '../lib/constants'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { fetchVatRates } from '../lib/vat'
 import type { VatRate } from '../lib/vat'
+import type { PlanSurface } from '../lib/planSurface'
 import {
   fetchIngredients,
   fetchRecipesForProduct,
@@ -44,6 +45,8 @@ function ProductModal({
   menuLanguages,
   canUseAi,
   canManageRecipes,
+  showVat,
+  showExtras,
 }: {
   product: Product | null
   categories: Category[]
@@ -61,6 +64,11 @@ function ProductModal({
   // aceste funcții în ai-proxy), rețetele doar cu `canManageRecipes`.
   canUseAi: boolean
   canManageRecipes: boolean
+  // Ce vede planul (planSurface, lotul P): cota TVA doar pe planul cu bon,
+  // Extras & Pereche doar pe planul cu comenzi. Fără ele câmpurile nu se arată
+  // și datele lor nici nu se cer.
+  showVat: boolean
+  showExtras: boolean
 }) {
   const isMobile = useIsMobile()
   // Scroll-lock-ul e gestionat acum de <Modal> (sharedUI) — nu-l mai dublăm aici.
@@ -278,10 +286,11 @@ function ProductModal({
   const [showOptional, setShowOptional] = useState(false)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
+    if (!showVat) return
     void fetchVatRates(restaurantId)
       .then(setVatRates)
       .catch((err) => console.error('VAT rates load:', err))
-  }, [restaurantId])
+  }, [restaurantId, showVat])
   const [showUpsell, setShowUpsell] = useState(false)
   const [extras, setExtras] = useState<
     Array<{
@@ -303,7 +312,7 @@ function ProductModal({
 
   // Load extras + pairings when editing existing product
   useEffect(() => {
-    if (!product?.id) {
+    if (!product?.id || !showExtras) {
       return
     }
     setUpsellLoading(true)
@@ -334,7 +343,7 @@ function ProductModal({
         setAllProducts(prodsRes.data.map((p) => ({ ...p, price: Number(p.price) })))
       setUpsellLoading(false)
     })()
-  }, [product?.id, restaurantId])
+  }, [product?.id, restaurantId, showExtras])
 
   async function addExtra(name: string, price: number, emoji: string) {
     if (!product?.id || name.length === 0) return
@@ -645,7 +654,9 @@ function ProductModal({
           </div>
         </div>
 
-        {/* TVA selector — folosește cotele configurate de owner în Settings */}
+        {/* TVA selector — folosește cotele configurate de owner în Settings.
+            Doar pe planul cu bon (planSurface.vat, lotul P). */}
+        {showVat && (
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
             Cotă TVA
@@ -719,6 +730,7 @@ function ProductModal({
             </>
           )}
         </div>
+        )}
         <div>
           <label style={{ display: 'block', fontSize: '0.78rem', color: D.t2, marginBottom: 5 }}>
             Descriere
@@ -1316,6 +1328,9 @@ function ProductModal({
         </div>
 
         {/* ── Upsell: Extras + Pereche (opțional, colapsabil) ──────── */}
+        {/* Extras și perechile apar în COȘ, deci doar pe planul cu comenzi
+            (planSurface.extras, lotul P). */}
+        {showExtras && (
         <div style={{ borderTop: `1px solid ${D.border}`, paddingTop: 14, marginTop: 8 }}>
           <button
             type="button"
@@ -1601,6 +1616,7 @@ function ProductModal({
             </div>
           )}
         </div>
+        )}
 
         {/* ── Rețetă (gestiune stocuri) ──────────────────────────────── */}
         {/* Partenerul n-are acces la stocuri (mig 286): secțiunea i-ar arăta
@@ -2018,6 +2034,7 @@ export default function ProductsTab({
   canUseAi,
   canUseAiMenu,
   canManageRecipes,
+  surface,
 }: {
   restaurantId: string
   plan: string
@@ -2036,17 +2053,25 @@ export default function ProductsTab({
   canUseAi: boolean
   canUseAiMenu: boolean
   canManageRecipes: boolean
+  // Ce vede planul (lib/planSurface.ts, lotul P): cota TVA (câmp, badge, CSV)
+  // doar pe planul cu bon, Extras & Pereche doar cu comenzi, Rețeta doar cu
+  // stocuri. `null` = planul necunoscut → niciuna.
+  surface: PlanSurface | null
 }) {
+  const showVat = surface?.vat === true
+  const showExtras = surface?.extras === true
+  const showRecipes = canManageRecipes && surface?.stocks === true
   // Lotul AI are sens fără `canUseAi` doar pentru traduceri: fără limbi extra
   // configurate, agentul n-ar avea nimic de generat acolo.
   const hasExtraLangs = menuLanguages.some((c) => c !== 'ro')
   const canBulkAi = canUseAi || (canUseAiMenu && hasExtraLangs)
   const [vatRates, setVatRates] = useState<VatRate[]>([])
   useEffect(() => {
+    if (!showVat) return
     void fetchVatRates(restaurantId)
       .then(setVatRates)
       .catch(() => {})
-  }, [restaurantId])
+  }, [restaurantId, showVat])
   const vatLabel = (g: number): string => {
     const r = vatRates.find((r) => r.vat_group === (g || 1))
     return r ? `${r.rate_percent}%` : `${g || 1}`
@@ -2457,9 +2482,11 @@ export default function ProductsTab({
                     <div style={{ fontSize: '0.9rem', color: D.gold, fontWeight: 600 }}>
                       {p.price.toFixed(2)} lei
                     </div>
-                    <div style={{ fontSize: '0.62rem', color: D.t3, fontWeight: 500 }}>
-                      TVA {vatLabel(p.vat_group ?? 1)}
-                    </div>
+                    {showVat && (
+                      <div style={{ fontSize: '0.62rem', color: D.t3, fontWeight: 500 }}>
+                        TVA {vatLabel(p.vat_group ?? 1)}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
@@ -2625,9 +2652,11 @@ export default function ProductsTab({
                   <div style={{ fontSize: '0.875rem', color: D.t1, fontWeight: 500 }}>
                     {p.price.toFixed(2)} lei
                   </div>
-                  <div style={{ fontSize: '0.65rem', color: D.t3, fontWeight: 500, marginTop: 2 }}>
-                    TVA {vatLabel(p.vat_group ?? 1)}
-                  </div>
+                  {showVat && (
+                    <div style={{ fontSize: '0.65rem', color: D.t3, fontWeight: 500, marginTop: 2 }}>
+                      TVA {vatLabel(p.vat_group ?? 1)}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={() => void handleToggleActive(p)}
@@ -2760,7 +2789,9 @@ export default function ProductsTab({
           userId={userId}
           menuLanguages={menuLanguages}
           canUseAi={canUseAi}
-          canManageRecipes={canManageRecipes}
+          canManageRecipes={showRecipes}
+          showVat={showVat}
+          showExtras={showExtras}
         />
       )}
       {csvImportOpen && (
@@ -2768,6 +2799,7 @@ export default function ProductsTab({
           <ProductsCsvImport
             restaurantId={restaurantId}
             remainingSlots={Math.max(0, limits.max_products - products.length)}
+            showVat={showVat}
             existingCategories={categories.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji }))}
             onClose={() => setCsvImportOpen(false)}
             onDone={(n) => {

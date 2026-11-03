@@ -171,6 +171,8 @@ vi.mock('../../../lib/stocks', () => ({
 }))
 
 import ProductsTab from '../../ProductsTab'
+import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
+import type { PlanSurface } from '../../../lib/planSurface'
 
 function product(over: Partial<Product> = {}): Product {
   return {
@@ -206,6 +208,11 @@ function renderTab(
   canManageRecipes = true,
   canUseAiMenu = canUseAi,
   menuLanguages: string[] = [],
+  // Lotul P: fișa produsului arată Rețeta doar pe un plan cu stocuri. Testele
+  // de aici păzesc ROLURILE (AI, partener), deci rulează pe Planul 3, unde
+  // planul nu ascunde nimic — planurile inferioare au suita lor
+  // (ProductsTabPlan.test.tsx).
+  surface: PlanSurface | null = surfaceFor('pro'),
 ) {
   render(
     <ProductsTab
@@ -217,6 +224,7 @@ function renderTab(
       canUseAiMenu={canUseAiMenu}
       canManageRecipes={canManageRecipes}
       menuLanguages={menuLanguages}
+      surface={surface}
     />,
   )
 }

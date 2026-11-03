@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────
 // plans.ts — Sursa de adevăr pentru cele 3 planuri comerciale.
-// PricingPage, UpgradeModal, UpgradePrompt și fallback-ul de limite
+// PricingPage, UpgradeModal și fallback-ul de limite
 // citesc TOATE de aici. DB (plan_limits + plan_features) trebuie aliniat
 // cu mig 089.
 // ─────────────────────────────────────────────────────────────

@@ -30,6 +30,11 @@ import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
+  // planSurface.fiscal (lotul P): butonul „Aplică Happy Hour" există doar în
+  // plata reală (PayModal, Planul 3). Pe Planul 2 regulile se aplică singure pe
+  // comenzile QR și de ridicare (trg_apply_happy_hour_auto, mig 077), deci
+  // textul nu mai promite un buton „la plată".
+  payAtTable: boolean
 }
 
 interface Category {
@@ -89,7 +94,7 @@ const btn = (extra: React.CSSProperties = {}): React.CSSProperties => ({
 })
 
 // ── Main ──────────────────────────────────────────────────────
-export default function HappyHourTab({ restaurantId }: Props) {
+export default function HappyHourTab({ restaurantId, payAtTable }: Props) {
   const [rules, setRules] = useState<HappyHourRule[]>([])
   const [active, setActive] = useState<ActiveRule[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -209,8 +214,9 @@ export default function HappyHourTab({ restaurantId }: Props) {
             Promoții
           </h2>
           <div style={{ fontSize: '0.86rem', color: D.t2, marginTop: 4, maxWidth: 600 }}>
-            Reguli automate de reducere pe interval orar și zilele săptămânii. Ospătarul va vedea
-            un buton „Aplică Happy Hour” la plată dacă există regulă activă.
+            {payAtTable
+              ? 'Reguli automate de reducere pe interval orar și zilele săptămânii. Ospătarul va vedea un buton „Aplică Happy Hour” la plată dacă există regulă activă.'
+              : 'Reguli automate de reducere pe interval orar și zilele săptămânii. Reducerea se aplică singură comenzilor din meniul QR și celor pentru ridicare, cât timp regula e activă.'}
           </div>
         </div>
         <button
@@ -305,7 +311,9 @@ export default function HappyHourTab({ restaurantId }: Props) {
           icon="percent"
           title="Nicio regulă încă"
           description={
-            'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și sistemul va sugera automat reducerea la plată în acest interval.'
+            payAtTable
+              ? 'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și sistemul va sugera automat reducerea la plată în acest interval.'
+              : 'Creează prima regulă (ex: "Happy Hour 17-19, -20% pe tot") și reducerea se aplică singură comenzilor din meniu în acest interval.'
           }
           action={
             <button

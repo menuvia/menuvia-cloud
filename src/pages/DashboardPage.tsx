@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
-import UpgradePrompt from '../components/UpgradePrompt'
 import { useFeatures } from '../hooks/useFeatures'
 import {
-  planUsageReason,
   productLimitReason,
   surfaceTiers,
   type PlanTier,
   type UpgradeReason,
 } from '../lib/features'
+import { planSurface, planUpsellTarget } from '../lib/planSurface'
+import { browserSite } from '../lib/domain'
 import { retryPendingCountry } from '../lib/pendingCountry'
 import { getPlan as getCommercialPlan } from '../lib/plans'
 import { useRestaurantModules } from '../hooks/useRestaurantModules'
@@ -58,7 +58,7 @@ import { HelpButton } from '../components/HelpButton'
 import { SignOutButton } from '../components/SignOutButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
-import { FreePlanBanner, PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
+import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 
 // ── Upgrade Modal ─────────────────────────────────────────────
 // Shown when user hits a plan limit — stays in dashboard context
@@ -365,6 +365,9 @@ interface SubTab {
   money?: true
   // Ascuns în modul „doar ridicare" (food truck) — mese/rezervări fără sens.
   hiddenPickupOnly?: boolean
+  // Eticheta pe un plan FĂRĂ bon (planSurface.fiscal false): pe Planul 2 fila
+  // casei de marcat e doar imprimanta din bucătărie (lotul P).
+  labelWithoutFiscal?: string
 }
 interface NavGroup {
   id: string
@@ -422,7 +425,12 @@ const NAV_GROUPS: NavGroup[] = [
       { id: 'tva', label: 'TVA', minTier: 3, money: true },
       { id: 'casa-tura', label: 'Încasări', minTier: 3, money: true },
       // Tichete bucătărie = growth+ (mig 227); fiscalul rămâne tier 3 în tab.
-      { id: 'casa-marcat', label: 'Casă & tichete', minTier: 2 },
+      {
+        id: 'casa-marcat',
+        label: 'Casă & tichete',
+        labelWithoutFiscal: 'Imprimantă bucătărie',
+        minTier: 2,
+      },
       { id: 'invoices', label: 'Facturi', minTier: 3, money: true },
       // Stocuri = feature `stocks` (growth+ în plan_features) → Plan 2, aliniat cu serverul (mig 142).
       { id: 'gestiune', label: 'Stocuri', minTier: 2 },
@@ -478,13 +486,14 @@ function OrdersHub({
   onViewKitchen,
   onHistory,
   isAdmin,
-  tier,
+  fiscal,
 }: {
   onViewWaiter: () => void
   onViewKitchen: () => void
   onHistory: () => void
   isAdmin: boolean
-  tier: PlanTier
+  // planSurface.fiscal: „plăți la masă" doar pe planul cu bon.
+  fiscal: boolean
 }) {
   const cards: { icon: IconName; title: string; desc: string; fn: () => void; external?: boolean }[] = [
     { icon: 'orders', title: 'Comenzi live', desc: 'Comenzile deschise acum, pe mese', fn: onViewWaiter, external: true },
@@ -492,7 +501,7 @@ function OrdersHub({
     {
       icon: 'users',
       title: 'Ospătar',
-      desc: tier >= 3 ? 'Preluare manuală + plăți la masă' : 'Preluare manuală a comenzilor',
+      desc: fiscal ? 'Preluare manuală + plăți la masă' : 'Preluare manuală a comenzilor',
       fn: onViewWaiter,
       external: true,
     },
@@ -724,6 +733,17 @@ export default function DashboardPage({
   // bani/bon (plăți, bonuri, casă, facturi, încasări, TVA) — coborât sub 3
   // pentru un restaurant din afara României (mig 296). Pe RO sunt identice.
   const { general: tier, money } = surfaceTiers(features.features)
+  // CE VEDE planul în tab-uri (lib/planSurface.ts, lotul P): planurile
+  // inferioare nu văd nimic din cele superioare. `tier`/`money` de mai sus
+  // rămân DOAR pentru filtrul NAV_GROUPS (minTier) — reorganizarea navigării
+  // e lotul R2. `null` = planul nu e cunoscut: nici funcția, nici upsell-ul.
+  const surface = planSurface(features.features)
+  const fiscalSurface = surface?.fiscal === true
+  // Upsell-ul unic de pe Acasă. Plata la masă și bonul există doar pentru un
+  // restaurant din România, pe site-ul .ro (mig 296, lib/siteMarket.ts).
+  const upsell = planUpsellTarget(surface, {
+    fiscalMarket: (restaurant?.country ?? 'RO') === 'RO' && browserSite() === 'ro',
+  })
 
   // Mod „doar ridicare" (food truck, E3): mesele/rezervările ies din nav.
   // Ambele flag-uri trebuie pornite — pickup_only fără pickup activ e inert —
@@ -741,11 +761,15 @@ export default function DashboardPage({
   // sub-tab vizibil dispare complet din sidebar.
   const visibleGroups = NAV_GROUPS.map((g) => ({
     ...g,
-    subTabs: g.subTabs.filter(
-      (st) =>
-        isSubTabVisible(st, isAdminRole, tier, money, pickupOnly) &&
-        (!isPartner || isPartnerTab(st.id)),
-    ),
+    subTabs: g.subTabs
+      .filter(
+        (st) =>
+          isSubTabVisible(st, isAdminRole, tier, money, pickupOnly) &&
+          (!isPartner || isPartnerTab(st.id)),
+      )
+      .map((st) =>
+        st.labelWithoutFiscal && !fiscalSurface ? { ...st, label: st.labelWithoutFiscal } : st,
+      ),
   })).filter(
     (g) =>
       (!g.adminOnly || isAdminRole) &&
@@ -775,10 +799,11 @@ export default function DashboardPage({
       return
     }
     if (productCountForRef.current !== restaurant.id) setProductCount(null)
-    // OPT-2: count-ul alimentează DOAR banda planului gratuit și HomeTab (tab
-    // 'home') — pe un plan plătit, navigarea între celelalte tab-uri emitea un
-    // query per click fără niciun efect vizibil.
-    if (plan !== 'free' && tab !== 'home') return
+    // OPT-2: count-ul alimentează DOAR HomeTab (tab 'home') — navigarea între
+    // celelalte tab-uri emitea un query per click fără niciun efect vizibil.
+    // (Banda planului gratuit din bara laterală, al doilea consumator, a ieșit
+    // în lotul P: upsell-ul e unul singur, pe Acasă.)
+    if (tab !== 'home') return
     let cancelled = false
     const countedId = restaurant.id
     void supabase
@@ -794,7 +819,7 @@ export default function DashboardPage({
     return () => {
       cancelled = true
     }
-  }, [restaurant?.id, tab, plan]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [restaurant?.id, tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Badge „Rezervări": câte rezervări PENDING viitoare așteaptă confirmare.
   // Count ieftin (head:true), reîmprospătat la schimbarea de tab/restaurant —
@@ -1013,17 +1038,8 @@ export default function DashboardPage({
           )
         })}
       </nav>
-      {/* Upsell-ul planului doar pentru PROPRIETAR (ca pe Acasă): abonamentul e
-          pe contul lui — managerul și partenerul n-au ce cumpăra aici. */}
-      {planKnown && plan === 'free' && isOwnerRole && (
-        <FreePlanBanner
-          productCount={productCount}
-          maxProducts={planLimits.max_products}
-          onShowPlans={() =>
-            setUpgradeReason(planUsageReason(plan, productCount, planLimits.max_products))
-          }
-        />
-      )}
+      {/* Fără bandă de upsell în bara laterală (lotul P): upsell-ul e UNUL,
+          pe Acasă, lângă abonament (PlanUpsellCard). */}
       <div
         style={{
           padding: '10px 8px',
@@ -1061,10 +1077,16 @@ export default function DashboardPage({
         >
           <Icon name="eye" size={16} /> Previzualizează meniu
         </button>
-        {isAdminRole && (
+        {/* Ecranul de ospătar există doar pe un plan cu echipă (planSurface.staff):
+            pe Planul 1 nu are ce arăta. */}
+        {isAdminRole && surface?.staff === true && (
           <button
             onClick={onViewWaiter}
-            title="Deschide ecranul de ospătar — comenzi live, rezervări, plăți"
+            title={
+              fiscalSurface
+                ? 'Deschide ecranul de ospătar — comenzi live, rezervări, plăți'
+                : 'Deschide ecranul de ospătar — comenzi live și rezervări'
+            }
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -1282,7 +1304,7 @@ export default function DashboardPage({
             {restaurant?.name ?? 'Menuvia'}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            {isAdminRole && (
+            {isAdminRole && surface?.staff === true && (
               <button
                 onClick={onViewWaiter}
                 title="Vezi ca ospătar"
@@ -1451,11 +1473,11 @@ export default function DashboardPage({
                   <HomeTab
                     restaurantId={restaurant.id}
                     restaurantName={restaurant.name}
-                    // HomeTab folosește tier ≥ 3 DOAR pentru banner-ul casei
-                    // fiscale (bani/bon) → tier-ul `money`; pragurile ≥ 2 sunt
-                    // identice pe ambele tier-uri. `null` = planul NU e încă
-                    // cunoscut: fără upsell și fără „totul e gata" (perf-staff-3).
-                    tier={planKnown ? money : null}
+                    // Ce vede planul (planSurface; `fiscal` pe tier-ul `money`).
+                    // `null` = planul NU e încă cunoscut: fără upsell și fără
+                    // „totul e gata" (perf-staff-3).
+                    surface={surface}
+                    upsell={upsell}
                     isAdmin={isAdminRole}
                     isOwner={isOwnerRole}
                     productCount={productCount}
@@ -1482,8 +1504,8 @@ export default function DashboardPage({
                   // total, ospătar, anulări) — pagină viitoare Comenzi > Istoric.
                   onHistory={() => setTab('raport')}
                   isAdmin={isAdminRole}
-                  // „plăți la masă" = suprafață de bani → tier-ul `money`.
-                  tier={money}
+                  // „plăți la masă" = suprafață de bani (planSurface.fiscal).
+                  fiscal={fiscalSurface}
                 />
               )}
               {tab === 'products' && (
@@ -1508,6 +1530,7 @@ export default function DashboardPage({
                     canUseAi={canUseAi}
                     canUseAiMenu={canUseAiMenu}
                     canManageRecipes={!isPartner}
+                    surface={surface}
                   />
                 </Suspense>
               )}
@@ -1535,13 +1558,12 @@ export default function DashboardPage({
                     restaurantId={restaurant.id}
                     plan={plan}
                     fiscalEnabled={features.features?.features?.fiscal_receipt?.enabled ?? null}
-                    onUpgrade={onPricing}
                   />
                 </Suspense>
               )}
               {tab === 'raport' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă raportul..." />}>
-                  <ReportsTab restaurantId={restaurant.id} fiscalReports={money >= 3} />
+                  <ReportsTab restaurantId={restaurant.id} fiscalReports={fiscalSurface} />
                 </Suspense>
               )}
               {tab === 'arhitectura' && (
@@ -1569,71 +1591,35 @@ export default function DashboardPage({
                   <WaiterAssignments restaurantId={restaurant.id} />
                 </Suspense>
               )}
-              {tab === 'gestiune' &&
-                (features.has('stocks') ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă gestiunea..." />}>
-                    <StocksTab restaurantId={restaurant.id} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Modul Gestiune"
-                    emoji="📦"
-                    description="Urmărește stocurile, definește rețete, calculează profitabilitatea per produs. Disponibil pe planul Meniu + Comenzi."
-                    requiredTier={2}
-                    onUpgrade={onPricing}
-                  />
-                ))}
-              {tab === 'tva' &&
-                (features.has('reports_vat') ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă raportul TVA..." />}>
-                    <VatReportTab restaurantId={restaurant.id} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Raport TVA"
-                    emoji="🧾"
-                    description="Raport TVA grupat pe cote și zile, export CSV pentru contabil. Disponibil pe planul Fiscalizare."
-                    requiredTier={3}
-                    onUpgrade={onPricing}
-                  />
-                ))}
-              {tab === 'casa-tura' &&
-                (features.has('shifts') ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <CashRegisterTab restaurantId={restaurant.id} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Casă & Tură"
-                    emoji="💰"
-                    description="Casă de bani, ture și încasări. Disponibil pe planul Fiscalizare."
-                    requiredTier={3}
-                    onUpgrade={onPricing}
-                  />
-                ))}
-              {tab === 'happy-hour' && (
-                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                  <HappyHourTab restaurantId={restaurant.id} />
+              {/* Fără prompt-uri de upgrade în tab-uri (lotul P): fila e vizibilă
+                  doar pe planul care o are (NAV_GROUPS), iar upsell-ul e unul,
+                  pe Acasă. Pe o nepotrivire rară (feature oprit pe plan) fila
+                  rămâne goală, nu promite alt plan. */}
+              {tab === 'gestiune' && surface?.stocks === true && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă gestiunea..." />}>
+                  <StocksTab restaurantId={restaurant.id} showVat={surface.vat} />
                 </Suspense>
               )}
-              {tab === 'invoices' &&
-                (money >= 3 ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
-                    <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Facturi"
-                    emoji="🧾"
-                    description="Emitere facturi Oblio. Disponibil pe planul Fiscalizare."
-                    requiredTier={3}
-                    onUpgrade={onPricing}
-                  />
-                ))}
+              {tab === 'tva' && features.has('reports_vat') && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă raportul TVA..." />}>
+                  <VatReportTab restaurantId={restaurant.id} />
+                </Suspense>
+              )}
+              {tab === 'casa-tura' && features.has('shifts') && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                  <CashRegisterTab restaurantId={restaurant.id} />
+                </Suspense>
+              )}
+              {tab === 'happy-hour' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                  <HappyHourTab restaurantId={restaurant.id} payAtTable={fiscalSurface} />
+                </Suspense>
+              )}
+              {tab === 'invoices' && fiscalSurface && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă facturile..." />}>
+                  <InvoicesTab restaurantId={restaurant.id} restaurantName={restaurant.name} />
+                </Suspense>
+              )}
               {tab === 'reservations' &&
                 (reservationsModuleOn ? (
                   <Suspense fallback={<InlineSpinner label="Se încarcă rezervările..." />}>
@@ -1666,23 +1652,13 @@ export default function DashboardPage({
                     }
                   />
                 ))}
-              {tab === 'casa-marcat' &&
-                // Tier 2 = tichete de bucătărie (mig 227); tier 3 adaugă
-                // secțiunile fiscale. Sub tier 2 rămâne upgrade prompt.
-                (tier >= 2 ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
-                    <BridgeTab restaurantId={restaurant.id} fiscalEnabled={money >= 3} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Casă & tichete"
-                    emoji="🖨️"
-                    description="Tipărește comenzile în bucătărie (din planul Meniu + Comenzi) și conectează casa de marcat fiscală (planul Fiscalizare)."
-                    requiredTier={2}
-                    onUpgrade={onPricing}
-                  />
-                ))}
+              {/* Planul 2 = imprimanta din bucătărie (mig 227); planul cu bon
+                  adaugă secțiunile fiscale. Fila e minTier 2 în NAV_GROUPS. */}
+              {tab === 'casa-marcat' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă..." />}>
+                  <BridgeTab restaurantId={restaurant.id} fiscalEnabled={fiscalSurface} />
+                </Suspense>
+              )}
               {tab === 'settings' && (
                 <Suspense fallback={<InlineSpinner label="Se încarcă setările..." />}>
                   <SettingsTab
@@ -1693,24 +1669,16 @@ export default function DashboardPage({
                     onSignOut={onSignOut}
                     modulesState={modulesState}
                     founderView={inFounderView}
+                    surface={surface}
                   />
                 </Suspense>
               )}
-              {tab === 'ai' &&
-                (tier >= 2 ? (
-                  <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
-                    <AiSettingsTab restaurantId={restaurant.id} readOnly={inFounderView} />
-                  </Suspense>
-                ) : (
-                  <UpgradePrompt
-                    currentPlan={plan}
-                    featureName="Asistent AI"
-                    emoji="🤖"
-                    description="Asistent AI pentru recomandări și automatizări. Disponibil pe planul Meniu + Comenzi."
-                    requiredTier={2}
-                    onUpgrade={onPricing}
-                  />
-                ))}
+              {/* Fila AI e minTier 2 în NAV_GROUPS — vizibilă doar pe planul care o are. */}
+              {tab === 'ai' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă asistentul AI..." />}>
+                  <AiSettingsTab restaurantId={restaurant.id} readOnly={inFounderView} />
+                </Suspense>
+              )}
               </TabFade>
               )}
             </>

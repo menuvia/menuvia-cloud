@@ -1,5 +1,16 @@
-// Setări → Comenzi & plăți: comutatorul „Comenzi pentru ridicare" pe planul
-// restaurantului. Pe Planul 1 (fără `pickup_orders`) comutatorul pornea
+// Setări → Comenzi: comutatorul „Comenzi pentru ridicare" pe planul
+// restaurantului.
+//
+// LOTUL P (nov 2026) a schimbat contractul pe planurile FĂRĂ ridicare: decizia
+// fondatorului e că un plan inferior nu vede nimic din cele superioare, deci pe
+// Planul 1 (și pe planul NECUNOSCUT — `planSurface` întoarce `null`, „nici
+// funcția, nici upsell-ul") cardul de ridicare NU se mai arată deloc, nici
+// blocat, nici cu avertisment. PS1, PS3, PS4, PZ4a și PZ4c au fost RESCRISE
+// onest pe noul contract (aserțiunea veche cerea comutatorul blocat și textul
+// de plan). Textele stărilor `locked`/`locked_on`/`unknown` rămân acoperite în
+// lib/pickupCopy (pickupCopy.test.ts), unde trăiesc. Secțiunea se numește
+// acum după plan (`sectionLabel`): „Meniu QR" fără comenzi, „Comenzi" pe
+// Planul 2, „Comenzi & plăți" pe Planul 3 — de aici `ORDERS_TAB`. Pe Planul 1 (fără `pickup_orders`) comutatorul pornea
 // ridicarea pentru oaspeți, iar serverul (`enforce_ordering_enabled`, mig 083)
 // le respingea apoi FIECARE comandă. Din mig 309 pagina publică nici nu mai
 // arată ridicarea fără `pickup_orders`, deci textele cardului (lib/pickupCopy)
@@ -65,6 +76,8 @@ vi.mock('../menu/MenuPreview', () => ({ default: () => null }))
 vi.mock('../_dashboard/AgentCard', () => ({ AgentCard: () => null }))
 
 import SettingsTab from '../SettingsTab'
+import { surfaceFor } from '../../lib/__tests__/planSurfaceFixtures'
+import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
 const PICKUP_ON: NonNullable<Restaurant['pickup_settings']> = {
   enabled: true,
@@ -112,8 +125,10 @@ function makeRestaurant(over: Partial<Restaurant> = {}): Restaurant {
 }
 
 const SWITCH = 'Comenzi pentru ridicare'
+// Secțiunea „orders", pe orice nume îi dă planul (Meniu QR / Comenzi / Comenzi & plăți).
+const ORDERS_TAB = /Comenzi|Meniu QR/
 
-async function openOrders(plan: string, restaurant: Restaurant, planKnown = true) {
+async function openOrders(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
   const user = userEvent.setup()
   render(
     <SettingsTab
@@ -122,16 +137,19 @@ async function openOrders(plan: string, restaurant: Restaurant, planKnown = true
       plan={plan}
       planKnown={planKnown}
       onSignOut={() => {}}
+      surface={planKnown ? surfaceFor(plan) : null}
     />,
   )
-  await user.click(screen.getByRole('tab', { name: /Comenzi & plăți/ }))
+  await user.click(screen.getByRole('tab', { name: ORDERS_TAB }))
+  // Ancora: secțiunea e deschisă, deci absența cardului nu vine dintr-un tab greșit.
+  expect(screen.getByRole('tab', { name: ORDERS_TAB })).toHaveAttribute('aria-selected', 'true')
   return user
 }
 
 const FLIPBOOK: Restaurant['theme_settings'] = { preset_id: 'cafe', menu_layout: 'flipbook' }
 const FLIPBOOK_NOTE = /comanda din meniu nu e disponibilă pe acest stil/
 
-async function openMenuAspect(plan: string, restaurant: Restaurant, planKnown = true) {
+async function openMenuAspect(plan: DbPlan, restaurant: Restaurant, planKnown = true) {
   const user = userEvent.setup()
   render(
     <SettingsTab
@@ -140,6 +158,7 @@ async function openMenuAspect(plan: string, restaurant: Restaurant, planKnown = 
       plan={plan}
       planKnown={planKnown}
       onSignOut={() => {}}
+      surface={planKnown ? surfaceFor(plan) : null}
     />,
   )
   await user.click(screen.getByRole('tab', { name: /Meniu & aspect/ }))
@@ -149,21 +168,20 @@ async function openMenuAspect(plan: string, restaurant: Restaurant, planKnown = 
 }
 
 describe('SettingsTab — ridicarea pe planul restaurantului', () => {
-  it('PS1: pe un plan fără ridicare comutatorul e blocat și spune de ce', async () => {
-    const user = await openOrders('starter', makeRestaurant())
-    const sw = screen.getByRole('switch', { name: SWITCH })
-    expect(sw).toBeDisabled()
-    expect(sw).toHaveAttribute('aria-checked', 'false')
-    expect(screen.getByText(/Disponibil de la planul Meniu \+ Comenzi/)).toBeInTheDocument()
-    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
-
-    await user.click(sw)
-    expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'false')
-    expect(screen.queryByRole('switch', { name: /doar ridicare/ })).not.toBeInTheDocument()
+  // PS1 (lotul P): pe Planul 1 cardul nu există — fost comutator blocat cu
+  // „Disponibil de la planul Meniu + Comenzi". Mutația care pică: gate-ul
+  // `surface?.pickup === true` scos de pe card în SettingsTab.
+  it('PS1: pe un plan fără ridicare cardul nu apare deloc', async () => {
+    await openOrders('starter', makeRestaurant())
+    expect(screen.getByRole('tab', { name: 'Meniu QR' })).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: SWITCH })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/ridicare/i)).not.toBeInTheDocument()
   })
 
   it('PS2: pe Meniu + Comenzi ridicarea pornește și arată opțiunile', async () => {
     const user = await openOrders('growth', makeRestaurant())
+    expect(screen.getByRole('tab', { name: 'Comenzi' })).toBeInTheDocument()
     const sw = screen.getByRole('switch', { name: SWITCH })
     expect(sw).toBeEnabled()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
@@ -174,45 +192,24 @@ describe('SettingsTab — ridicarea pe planul restaurantului', () => {
     expect(screen.getByRole('switch', { name: /doar ridicare/ })).toBeInTheDocument()
   })
 
-  it('PS3: pornită pe un plan fără ridicare — se poate doar opri, cu avertisment', async () => {
-    const user = await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ON }))
-    const sw = screen.getByRole('switch', { name: SWITCH })
-    expect(sw).toBeEnabled()
-    expect(sw).toHaveAttribute('aria-checked', 'true')
-    // UN singur avertisment (fără al doilea, paralel), cu ce e adevărat după 309.
-    expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
-    expect(screen.getByText(/nu văd ridicarea pe pagina publică/)).toBeInTheDocument()
-    expect(screen.getByText(/Setarea rămâne salvată/)).toBeInTheDocument()
-    // Ancora: blocul „doar ridicare” e randat și el (ridicarea e pornită în
-    // formular), deci unicitatea de mai sus nu vine dintr-un bloc ascuns.
-    expect(screen.getByText(/Pe planul tău modul nu se aplică/)).toBeInTheDocument()
-    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
-    expect(screen.queryByText(/văd formularul|sunt respinse/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
-
-    await user.click(sw)
-    const off = screen.getByRole('switch', { name: SWITCH })
-    expect(off).toHaveAttribute('aria-checked', 'false')
-    // Odată oprită, nu se mai poate reporni pe acest plan.
-    expect(off).toBeDisabled()
-    expect(screen.getByText(/Disponibil de la planul Meniu \+ Comenzi/)).toBeInTheDocument()
+  // PS3 (lotul P): pornită pe un plan fără ridicare (downgrade) — cardul tot nu
+  // apare: din mig 309 pagina publică n-o arată, deci setarea rămasă e inertă,
+  // iar un avertisment de plan ar fi exact „vezi ce are planul superior".
+  it('PS3: pornită pe un plan fără ridicare (downgrade) — fără card și fără avertisment', async () => {
+    await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ON }))
+    expect(screen.queryByRole('switch', { name: SWITCH })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Planul tău nu include/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: /doar ridicare/ })).not.toBeInTheDocument()
   })
 
-  it('PS4: plan necunoscut — blocat, fără verdict fals despre plan', async () => {
-    const user = await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ON }), false)
-    const sw = screen.getByRole('switch', { name: SWITCH })
-    expect(sw).toBeDisabled()
-    expect(sw).toHaveAttribute('aria-checked', 'true')
+  // PS4 (lotul P): plan NECUNOSCUT — `planSurface` e `null`, deci nici funcția
+  // (fost: comutator blocat cu „Se verifică planul restaurantului").
+  it('PS4: plan necunoscut — fără card, fără verdict despre plan', async () => {
+    await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ON }), false)
+    expect(screen.queryByRole('switch', { name: SWITCH })).not.toBeInTheDocument()
     expect(screen.queryByText(/Planul tău nu include/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Disponibil de la planul/)).not.toBeInTheDocument()
-    // Nici promisiunea de comenzi: planul nu e cunoscut.
     expect(screen.queryByText(/clienții pot comanda/i)).not.toBeInTheDocument()
-    // Textul nu pretinde un eșec: „unknown" e și starea de încărcare normală.
-    expect(screen.getByText(/Se verifică planul restaurantului/)).toBeInTheDocument()
-    expect(screen.queryByText(/Nu am putut/)).not.toBeInTheDocument()
-
-    await user.click(sw)
-    expect(screen.getByRole('switch', { name: SWITCH })).toHaveAttribute('aria-checked', 'true')
   })
 })
 
@@ -287,7 +284,7 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
       'true',
     )
 
-    await user.click(screen.getByRole('tab', { name: /Comenzi & plăți/ }))
+    await user.click(screen.getByRole('tab', { name: ORDERS_TAB }))
     expect(screen.queryByText(PROMISE)).not.toBeInTheDocument()
     expect(screen.getByText(FLIPBOOK_WHY)).toBeInTheDocument()
   })
@@ -299,19 +296,14 @@ const SUSPENDED = /Pe planul tău modul nu se aplică/
 const NORMAL_DESC = /ascunde Harta sălii și Rezervările din dashboard/
 
 describe('SettingsTab — modul „doar ridicare” pe planul restaurantului', () => {
-  it('PZ4a: plan fără ridicare (downgrade) — descrierea spune că modul nu se aplică', async () => {
+  // PZ4a (lotul P): pe planul fără ridicare cardul lipsește cu totul, deci și
+  // comutatorul modului. Suspendarea modului pe panou rămâne în DashboardPage
+  // (`pickupOnlyMode`, pickupAvailability.test.ts).
+  it('PZ4a: plan fără ridicare (downgrade) — fără comutatorul modului', async () => {
     await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ONLY_ON }))
-    // Ancora: comutatorul de mod e randat și rămâne pornit (rândul nu se rescrie).
-    expect(screen.getByRole('switch', { name: PICKUP_ONLY_SWITCH })).toHaveAttribute(
-      'aria-checked',
-      'true',
-    )
-    expect(screen.getByText(SUSPENDED)).toBeInTheDocument()
-    expect(screen.getByText(/panoul îți arată mesele și rezervările/)).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: PICKUP_ONLY_SWITCH })).not.toBeInTheDocument()
+    expect(screen.queryByText(SUSPENDED)).not.toBeInTheDocument()
     expect(screen.queryByText(NORMAL_DESC)).not.toBeInTheDocument()
-    // UN singur loc spune că setarea rămâne și revine: nota `locked_on`.
-    expect(screen.getAllByText(/Setarea rămâne salvată/)).toHaveLength(1)
-    expect(screen.getAllByText(/Planul tău nu include comenzile pentru ridicare/)).toHaveLength(1)
   })
 
   it('PZ4b: control — pe Meniu + Comenzi descrierea obișnuită', async () => {
@@ -321,9 +313,11 @@ describe('SettingsTab — modul „doar ridicare” pe planul restaurantului', (
     expect(screen.queryByText(SUSPENDED)).not.toBeInTheDocument()
   })
 
-  it('PZ4c: plan necunoscut — comportamentul stocat, fără verdict de plan', async () => {
+  // PZ4c (lotul P): plan necunoscut — `planSurface` null, fără card (fost:
+  // descrierea obișnuită pe comportamentul stocat).
+  it('PZ4c: plan necunoscut — fără card', async () => {
     await openOrders('free', makeRestaurant({ pickup_settings: PICKUP_ONLY_ON }), false)
-    expect(screen.getByText(NORMAL_DESC)).toBeInTheDocument()
+    expect(screen.queryByRole('switch', { name: PICKUP_ONLY_SWITCH })).not.toBeInTheDocument()
     expect(screen.queryByText(SUSPENDED)).not.toBeInTheDocument()
   })
 })

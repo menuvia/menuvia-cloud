@@ -30,15 +30,46 @@
 //   HR3  personalul NE-admin: fără acțiunile de editare („Adaugă produs",
 //        „Generează QR-uri", „Suporturi QR fizice"); „Vezi meniul public"
 //        rămâne (control). Mutația care pică: acțiunile randate necondiționat.
+//
+// Lotul P (nov 2026): HomeTab primește `surface` (planSurface) + `upsell`
+// (planUpsellTarget) în loc de `tier`, iar upsell-ul vechi („Vrei să primești
+// comenzi direct de la masă?", doar tier 1) e înlocuit de PlanUpsellCard, UNIC,
+// în zona de abonament. Testele vechi rulează pe aceleași planuri (tier 1 =
+// starter, tier 2 = growth) prin fixtura matricei reale (planSurfaceFixtures).
+// HT2 s-a schimbat ONEST: pe Planul 2 proprietarul vede acum upsell-ul „Plata
+// la masă" (înainte niciunul); testul cere că NU vede cel vechi, de Planul 1.
+//
+//   HU1  Planul 1 (proprietar): upsell-ul „Meniu + Comenzi" cu cele 3 beneficii
+//        (comenzi de la masă, ecran de bucătărie, ridicare); „Vezi planul" duce
+//        la planuri. Mutația care pică: cardul scos din HomeTab.
+//   HU2  Planul 2 (proprietar): upsell-ul „Plata la masă" (plata din telefon,
+//        bonul automat, raportarea), NU cel de Planul 1. Mutația care pică: o
+//        singură ofertă pentru orice plan.
+//   HU3  Planul 3 și planul necunoscut → niciun upsell. Mutația care pică:
+//        `{upsell != null && …}` înlocuit cu randare necondiționată.
+//   HU4  MANAGERUL (nu proprietar), cu țintă → niciun upsell (n-are ce cumpăra).
+//        Mutația care pică: cardul scos de sub `isOwner`.
+//   HF1  Planurile 1 și 2 (manager — fără upsell): pe Acasă nu apare NIMIC
+//        fiscal (TVA / bon fiscal / casă de marcat / Bridge fiscal), nici cu
+//        Bridge-ul „deconectat". Mutația care pică: `isFiscal` derivat din
+//        `ordering` (Planul 2 ar cere starea casei și ar arăta banner-ul).
+//   HF2  Planul 2 (proprietar): termenii fiscali apar DOAR în interiorul
+//        upsell-ului — nicăieri altundeva pe pagină.
+//   HF3  control pozitiv pe Planul 3: cu casa deconectată banner-ul fiscal apare.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 
-const { failing, counts, codvia } = vi.hoisted(() => ({
+const { failing, counts, codvia, bridge } = vi.hoisted(() => ({
   failing: new Set<string>(),
   counts: {} as Record<string, number>,
   codvia: { open: null as boolean | null },
+  // Starea casei pe care ar întoarce-o RPC-ul; hook-ul o dă DOAR când HomeTab
+  // o cere (`enabled`) — exact gate-ul pe care îl păzește HF1.
+  bridge: {
+    status: null as { registered: boolean; connected: boolean; last_seen_at: string | null } | null,
+  },
 }))
 
 // Builder thenable: `await from(t).select(...).eq(...)…` dă {count, data, error}.
@@ -70,9 +101,14 @@ vi.mock('../../../lib/health', () => ({
   scoreLabel: () => '',
   scoreColor: () => '#888',
   getActionableSuggestions: () => [],
+  planHealthScore: () => 0,
 }))
 vi.mock('../../../hooks/useBridgeConnected', () => ({
-  useBridgeConnected: () => ({ status: null, loading: false, reload: vi.fn() }),
+  useBridgeConnected: (_id: string | null, enabled: boolean) => ({
+    status: enabled ? bridge.status : null,
+    loading: false,
+    reload: vi.fn(),
+  }),
 }))
 vi.mock('../AgentCard', () => ({ AgentCard: () => null }))
 vi.mock('../SubscriptionCard', async () => {
@@ -84,14 +120,22 @@ vi.mock('../../../hooks/useCodviaOrdersOpen', () => ({
 }))
 
 import HomeTab from '../HomeTab'
+import { surfaceFor } from '../../../lib/__tests__/planSurfaceFixtures'
+import { planUpsellTarget, type PlanSurface } from '../../../lib/planSurface'
 
 type Props = ComponentProps<typeof HomeTab>
+
+// Planul, ca în DashboardPage: suprafața + ținta upsell-ului pe o piață fiscală.
+function plan(p: 'starter' | 'growth' | 'pro' | null): Pick<Props, 'surface' | 'upsell'> {
+  const surface: PlanSurface | null = p == null ? null : surfaceFor(p)
+  return { surface, upsell: planUpsellTarget(surface, { fiscalMarket: true }) }
+}
 
 function renderHome(over: Partial<Props> = {}) {
   const props: Props = {
     restaurantId: 'r1',
     restaurantName: 'Bistro Test',
-    tier: 1,
+    ...plan('starter'),
     isAdmin: true,
     isOwner: true,
     productCount: 12,
@@ -112,10 +156,15 @@ function metric(label: string): HTMLElement {
   return el
 }
 
-const UPSELL = 'Vrei să primești comenzi direct de la masă?'
+// Upsell-ul vechi (scos în lotul P) — nu are voie să revină.
+const OLD_UPSELL = 'Vrei să primești comenzi direct de la masă?'
+// PlanUpsellCard e un <section aria-label="Ofertă: …"> → rol „region".
+const upsellRegion = () => screen.queryByRole('region', { name: /^Ofertă:/ })
+const FISCAL = /\bTVA\b|bon(ul|uri)? fiscal|cas[aă] de marcat|Bridge fiscal|Fiscalizare activ/i
 
 beforeEach(() => {
   codvia.open = null
+  bridge.status = null
   failing.clear()
   for (const k of Object.keys(counts)) delete counts[k]
   Object.assign(counts, {
@@ -130,26 +179,28 @@ beforeEach(() => {
 
 describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT1: plan necunoscut → fără „totul e gata", fără upsell, fără checklist', async () => {
-    renderHome({ tier: null })
+    renderHome(plan(null))
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
     expect(metric('Setup')).toHaveTextContent('…')
     expect(screen.queryByText('totul e gata ✓')).toBeNull()
-    expect(screen.queryByText(UPSELL)).toBeNull()
+    expect(upsellRegion()).toBeNull()
     expect(screen.queryByText('Setup restaurant')).toBeNull()
     // Nici cifrele de comenzi (Plan 2+) nu se pretind cunoscute.
     expect(screen.queryByText('Comenzi azi')).toBeNull()
   })
 
   it('HT2: control pozitiv — plan 2 cunoscut, totul făcut → „totul e gata ✓"', async () => {
-    renderHome({ tier: 2 })
+    renderHome(plan('growth'))
     await waitFor(() => expect(screen.getByText('totul e gata ✓')).toBeInTheDocument())
     expect(metric('Setup')).toHaveTextContent('6/6')
     expect(screen.queryByText('Setup restaurant')).toBeNull()
-    expect(screen.queryByText(UPSELL)).toBeNull()
+    // Lotul P: pe Planul 2 upsell-ul e „Plata la masă", nu cel de Planul 1.
+    expect(screen.queryByText(OLD_UPSELL)).toBeNull()
+    expect(upsellRegion()).toHaveAccessibleName('Ofertă: Plata la masă')
   })
 
   it('HT3: numărul de produse necunoscut nu devine 0 și nici pas „de făcut"', async () => {
-    renderHome({ tier: 2, productCount: null })
+    renderHome({ ...plan('growth'), productCount: null })
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
     expect(metric('Produse active')).toHaveTextContent('…')
     expect(
@@ -160,7 +211,7 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
 
   it('HT4: citirea categoriilor eșuează → pas „stare necunoscută", nu nebifat', async () => {
     failing.add('categories')
-    renderHome({ tier: 2 })
+    renderHome(plan('growth'))
     // Întâi citirea-soră (mesele, același lot) s-a așezat — deci și cea eșuată a
     // categoriilor. Fără așteptare, pasul era „necunoscut" doar fiindcă nimic nu
     // sosise încă, iar mutația „eroare → 0" trecea testul.
@@ -174,8 +225,9 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   })
 
   it('HT5: control pozitiv — tier 1 CUNOSCUT → upsell-ul apare', async () => {
-    renderHome({ tier: 1 })
-    expect(await screen.findByText(UPSELL)).toBeInTheDocument()
+    renderHome(plan('starter'))
+    expect(await screen.findByRole('region', { name: /^Ofertă:/ })).toBeInTheDocument()
+    expect(screen.queryByText(OLD_UPSELL)).toBeNull()
   })
 })
 
@@ -183,7 +235,7 @@ describe('HomeTab — checklist-ul e singura cale de setup', () => {
   it('HT6: fără „asistentul detaliat"; pasul de mese duce în tab-ul Mese', async () => {
     counts.tables = 0
     const onNavigate = vi.fn()
-    renderHome({ tier: 1, onNavigate })
+    renderHome({ ...plan('starter'), onNavigate })
     const step = await screen.findByRole('button', { name: 'Generează QR-uri pentru mese' })
     expect(screen.getByText('Setup restaurant')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /asistentul detaliat/i })).toBeNull()
@@ -197,7 +249,7 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
   it('HC1: în pauză sau necunoscut → fără acțiune', async () => {
     for (const open of [false, null]) {
       codvia.open = open
-      const { unmount } = renderHome({ tier: 2 })
+      const { unmount } = renderHome(plan('growth'))
       expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
       // Control: celelalte acțiuni sunt acolo.
       expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
@@ -209,7 +261,7 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
   it('HC2: deschis → acțiunea apare și deschide magazinul', async () => {
     codvia.open = true
     const onOrderQrStands = vi.fn()
-    renderHome({ tier: 2, onOrderQrStands })
+    renderHome({ ...plan('growth'), onOrderQrStands })
     await userEvent
       .setup()
       .click(await screen.findByRole('button', { name: 'Suporturi QR fizice' }))
@@ -219,28 +271,102 @@ describe('HomeTab — „Suporturi QR fizice" doar cât magazinul primește come
 
 describe('HomeTab — fiecare rol vede doar ce poate face', () => {
   it('HR1: managerul nu vede abonamentul și nici upsell-ul', async () => {
-    renderHome({ tier: 1, isOwner: false })
+    renderHome({ ...plan('starter'), isOwner: false })
     expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
     expect(screen.queryByText('card-abonament')).toBeNull()
-    expect(screen.queryByText(UPSELL)).toBeNull()
+    expect(upsellRegion()).toBeNull()
     // Editarea rămâne a lui (control): e admin.
     expect(screen.getByRole('button', { name: 'Adaugă produs' })).toBeInTheDocument()
   })
 
   it('HR2: control pozitiv — proprietarul vede cardul și upsell-ul', async () => {
-    renderHome({ tier: 1, isOwner: true })
+    renderHome({ ...plan('starter'), isOwner: true })
     expect(await screen.findByText('card-abonament')).toBeInTheDocument()
-    expect(screen.getByText(UPSELL)).toBeInTheDocument()
+    expect(upsellRegion()).toBeInTheDocument()
   })
 
   it('HR3: personalul ne-admin nu primește acțiuni de editare', async () => {
     codvia.open = true
-    renderHome({ tier: 2, isAdmin: false, isOwner: false })
+    renderHome({ ...plan('growth'), isAdmin: false, isOwner: false })
     expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Vezi meniul public' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Adaugă produs' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Generează QR-uri' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Suporturi QR fizice' })).toBeNull()
     expect(screen.queryByText('card-abonament')).toBeNull()
+  })
+})
+
+describe('HomeTab — upsell-ul unic (lotul P)', () => {
+  it('HU1: Planul 1 → „Meniu + Comenzi", cu cele trei beneficii, „Vezi planul" duce la planuri', async () => {
+    const onPricing = vi.fn()
+    renderHome({ ...plan('starter'), onPricing })
+    const card = await screen.findByRole('region', { name: /^Ofertă:/ })
+    expect(card).toHaveAccessibleName(/Meniu \+ Comenzi/)
+    expect(within(card).getByText('Comenzi de la masă, prin QR')).toBeInTheDocument()
+    expect(within(card).getByText('Ecran de bucătărie pentru comenzile noi')).toBeInTheDocument()
+    expect(within(card).getByText('Comenzi pentru ridicare')).toBeInTheDocument()
+    expect(within(card).getAllByRole('listitem')).toHaveLength(3)
+    await userEvent.setup().click(within(card).getByRole('button', { name: 'Vezi planul' }))
+    expect(onPricing).toHaveBeenCalledTimes(1)
+    // UN singur upsell pe pagină.
+    expect(screen.getAllByRole('region', { name: /^Ofertă:/ })).toHaveLength(1)
+  })
+
+  it('HU2: Planul 2 → „Plata la masă", nu oferta de Planul 1', async () => {
+    renderHome(plan('growth'))
+    const card = await screen.findByRole('region', { name: /^Ofertă:/ })
+    expect(card).toHaveAccessibleName('Ofertă: Plata la masă')
+    expect(within(card).getByText('Oaspetele plătește din telefon')).toBeInTheDocument()
+    expect(within(card).getByText('Bonul fiscal se emite automat')).toBeInTheDocument()
+    expect(within(card).getByText('Încasările și TVA-ul se raportează singure')).toBeInTheDocument()
+    expect(screen.queryByText('Comenzi de la masă, prin QR')).toBeNull()
+  })
+
+  it('HU3: Planul 3 și planul necunoscut → niciun upsell', async () => {
+    for (const p of ['pro', null] as const) {
+      const { unmount } = renderHome(plan(p))
+      expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+      // Control: zona de abonament e acolo (proprietar), doar oferta lipsește.
+      expect(screen.getByText('card-abonament')).toBeInTheDocument()
+      expect(upsellRegion()).toBeNull()
+      unmount()
+    }
+  })
+
+  it('HU4: managerul nu vede nicio ofertă, nici pe Planul 1, nici pe Planul 2', async () => {
+    for (const p of ['starter', 'growth'] as const) {
+      const { unmount } = renderHome({ ...plan(p), isOwner: false })
+      expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+      expect(upsellRegion()).toBeNull()
+      unmount()
+    }
+  })
+})
+
+describe('HomeTab — nimic fiscal sub Planul 3 (lotul P)', () => {
+  it('HF1: Planurile 1 și 2 (manager) — niciun termen fiscal, nici cu casa „deconectată"', async () => {
+    bridge.status = { registered: true, connected: false, last_seen_at: null }
+    for (const p of ['starter', 'growth'] as const) {
+      const { container, unmount } = renderHome({ ...plan(p), isOwner: false })
+      expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
+      expect(screen.queryByRole('alert')).toBeNull()
+      expect(container.textContent ?? '').not.toMatch(FISCAL)
+      unmount()
+    }
+  })
+
+  it('HF2: Planul 2 (proprietar) — termenii fiscali doar în interiorul ofertei', async () => {
+    const { container } = renderHome(plan('growth'))
+    const card = await screen.findByRole('region', { name: /^Ofertă:/ })
+    expect(card.textContent ?? '').toMatch(FISCAL)
+    const outside = (container.textContent ?? '').replace(card.textContent ?? '', '')
+    expect(outside).not.toMatch(FISCAL)
+  })
+
+  it('HF3: control pozitiv — pe Planul 3, cu casa deconectată, banner-ul fiscal apare', async () => {
+    bridge.status = { registered: true, connected: false, last_seen_at: null }
+    renderHome(plan('pro'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Fiscalizare activă/)
   })
 })

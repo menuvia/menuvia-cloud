@@ -7,14 +7,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import {
-  planTier,
-  planNameForTier,
-  PLAN_NAMES,
-  productLimitReason,
-  planUsageReason,
-  suggestUpgrade,
-} from '../features'
+import { planTier, PLAN_NAMES, productLimitReason } from '../features'
 import { PLAN_LABELS } from '../constants'
 import { getPlanByInternalId, getPlan } from '../plans'
 
@@ -36,33 +29,8 @@ describe('productLimitReason — mesajul de limită pe planul REAL', () => {
   })
 })
 
-// ux-owner-upgrade-banner: banda „Demo gratuit" din sidebar deschidea modalul cu
-// „Ai atins limita de produse" și la 0/15. Mutația care pică (PU1/PU3): banda
-// revine la productLimitReason necondiționat.
-describe('planUsageReason — motivul spune utilizarea REALĂ', () => {
-  it('PU1: sub limită → informativ, fără „Ai atins"', () => {
-    const r = planUsageReason('free', 0, 15)
-    expect(r.atLimit).toBe(false)
-    expect(r.text).not.toMatch(/atins/i)
-    expect(r.text).toContain('0 din 15 produse')
-    expect(r.text).toContain(PLAN_LABELS.free)
-  })
-
-  it('PU2: la limită (și peste) → exact mesajul de limită', () => {
-    expect(planUsageReason('free', 15, 15)).toEqual({
-      text: productLimitReason('free', 15),
-      atLimit: true,
-    })
-    expect(planUsageReason('starter', 301, 300).atLimit).toBe(true)
-  })
-
-  it('PU3: număr necunoscut → nu inventează nici „0", nici limita atinsă', () => {
-    const r = planUsageReason('free', null, 15)
-    expect(r.atLimit).toBe(false)
-    expect(r.text).not.toMatch(/atins|\b0 din/i)
-    expect(r.text).toContain('15 produse')
-  })
-})
+// planUsageReason (motivul benzii „Demo gratuit" din bara laterală, PU1–PU3) a
+// ieșit odată cu banda, în lotul P: upsell-ul e unul singur, pe Acasă.
 
 describe('planTier — regula de aur (bani + bon = Plan 3)', () => {
   it('free → tier 1 (Meniu Digital — demo/trial)', () => {
@@ -131,47 +99,9 @@ describe('PLAN_NAMES — numele comerciale', () => {
   })
 })
 
-describe('planNameForTier — tier comercial → nume public', () => {
-  // Blochează maparea tier → planul reprezentativ → numele comercial.
-  // Folosit de UpgradePrompt ca să indice planul-țintă corect.
-  it('tier 1 → numele comercial al lui starter (Meniu Digital)', () => {
-    expect(planNameForTier(1)).toBe(PLAN_NAMES.starter)
-    expect(planNameForTier(1)).toContain('Meniu Digital')
-  })
-
-  it('tier 2 → numele comercial al lui growth (Meniu + Comenzi)', () => {
-    expect(planNameForTier(2)).toBe(PLAN_NAMES.growth)
-    expect(planNameForTier(2)).toContain('Meniu + Comenzi')
-  })
-
-  it('tier 3 → numele comercial al lui pro (Fiscalizare)', () => {
-    expect(planNameForTier(3)).toBe(PLAN_NAMES.pro)
-    expect(planNameForTier(3)).toContain('Fiscalizare')
-  })
-})
-
-describe('suggestUpgrade — sugestia de upgrade', () => {
-  it('starter → growth (urcăm o treaptă)', () => {
-    expect(suggestUpgrade('starter')).toBe('growth')
-  })
-
-  it('growth → pro', () => {
-    expect(suggestUpgrade('growth')).toBe('pro')
-  })
-
-  it('pro → enterprise (ultima treaptă publică)', () => {
-    expect(suggestUpgrade('pro')).toBe('enterprise')
-  })
-
-  it('enterprise → null (top of chain, nu mai e nimic deasupra)', () => {
-    expect(suggestUpgrade('enterprise')).toBeNull()
-  })
-
-  it('plan necunoscut → null', () => {
-    expect(suggestUpgrade('business')).toBeNull()
-    expect(suggestUpgrade('xyz')).toBeNull()
-  })
-})
+// planNameForTier și suggestUpgrade (planul-țintă al lui UpgradePrompt) au ieșit
+// odată cu prompt-urile de upgrade din tab-uri, în lotul P (upsell unic pe Acasă,
+// ținta din planUpsellTarget — lib/planSurface.ts, teste PS* în planSurface.test.ts).
 
 describe('getPlanByInternalId — mapping intern → comercial', () => {
   // Acest mapping e ce vede userul pe AuthPage (pill de plan intent),

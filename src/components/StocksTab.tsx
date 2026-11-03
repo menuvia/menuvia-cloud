@@ -43,6 +43,9 @@ import { toUserMessage } from '../lib/userMessages'
 
 interface Props {
   restaurantId: string
+  // Cotele TVA (ingredient, NIR) doar pe planul cu bon — planSurface.vat, lotul
+  // P. Pe Planul 2 ingredientele n-au câmp de cotă, iar NIR-ul e simplificat.
+  showVat: boolean
 }
 
 type SubTab = 'ingredients' | 'suppliers' | 'purchases' | 'profitability'
@@ -94,7 +97,7 @@ function useEscapeClose(active: boolean, onClose: () => void) {
   }, [active, onClose])
 }
 
-export default function StocksTab({ restaurantId }: Props) {
+export default function StocksTab({ restaurantId, showVat }: Props) {
   const [subTab, setSubTab] = useState<SubTab>('ingredients')
   const [stats, setStats] = useState<{
     ingredientsCount: number
@@ -410,9 +413,13 @@ export default function StocksTab({ restaurantId }: Props) {
 
       {/* Content */}
       <div>
-        {subTab === 'ingredients' && <IngredientsSection restaurantId={restaurantId} />}
+        {subTab === 'ingredients' && (
+          <IngredientsSection restaurantId={restaurantId} showVat={showVat} />
+        )}
         {subTab === 'suppliers' && <SuppliersSection restaurantId={restaurantId} />}
-        {subTab === 'purchases' && <PurchasesSection restaurantId={restaurantId} />}
+        {subTab === 'purchases' && (
+          <PurchasesSection restaurantId={restaurantId} showVat={showVat} />
+        )}
         {subTab === 'profitability' && <ProfitabilitySection restaurantId={restaurantId} />}
       </div>
     </div>
@@ -422,7 +429,13 @@ export default function StocksTab({ restaurantId }: Props) {
 // ═══════════════════════════════════════════════════════════════
 // INGREDIENTS section
 // ═══════════════════════════════════════════════════════════════
-function IngredientsSection({ restaurantId }: { restaurantId: string }) {
+function IngredientsSection({
+  restaurantId,
+  showVat,
+}: {
+  restaurantId: string
+  showVat: boolean
+}) {
   const [items, setItems] = useState<Ingredient[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -433,6 +446,8 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
   const [vatRates, setVatRates] = useState<VatRate[]>([])
 
   useEffect(() => {
+    // Fără cote pe plan (lotul P) nu se cer deloc.
+    if (!showVat) return
     let cancelled = false
     fetchVatRates(restaurantId)
       .then((r) => {
@@ -444,7 +459,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
     return () => {
       cancelled = true
     }
-  }, [restaurantId])
+  }, [restaurantId, showVat])
 
   const [loadError, setLoadError] = useState(false)
   async function load() {
@@ -598,7 +613,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
                   <span>
                     {ing.cost_per_unit.toFixed(2)} lei / {ing.unit}
                   </span>
-                  <span>TVA {getVatLabel(vatRates, ing.vat_group)}</span>
+                  {showVat && <span>TVA {getVatLabel(vatRates, ing.vat_group)}</span>}
                 </div>
 
                 <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
@@ -638,6 +653,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
         <IngredientModal
           restaurantId={restaurantId}
           vatRates={vatRates}
+          showVat={showVat}
           ingredient={null}
           onClose={() => setShowAdd(false)}
           onSave={() => {
@@ -650,6 +666,7 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
         <IngredientModal
           restaurantId={restaurantId}
           vatRates={vatRates}
+          showVat={showVat}
           ingredient={editing}
           onClose={() => setEditing(null)}
           onSave={() => {
@@ -676,12 +693,16 @@ function IngredientsSection({ restaurantId }: { restaurantId: string }) {
 function IngredientModal({
   restaurantId,
   vatRates,
+  showVat,
   ingredient,
   onClose,
   onSave,
 }: {
   restaurantId: string
   vatRates: VatRate[]
+  // Cota TVA a ingredientului doar pe planul cu bon (lotul P); altfel grupa
+  // rămâne cea salvată (implicit 1), fără câmp.
+  showVat: boolean
   ingredient: Ingredient | null
   onClose: () => void
   onSave: () => void
@@ -813,6 +834,7 @@ function IngredientModal({
                 ))}
               </select>
             </div>
+            {showVat && (
             <div>
               <label style={lbl} htmlFor="ing-vat">
                 Cota TVA
@@ -842,6 +864,7 @@ function IngredientModal({
                 )}
               </select>
             </div>
+            )}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
@@ -1295,7 +1318,13 @@ function SuppliersSection({ restaurantId }: { restaurantId: string }) {
 // ═══════════════════════════════════════════════════════════════
 // PURCHASES section (NIR — full CRUD)
 // ═══════════════════════════════════════════════════════════════
-function PurchasesSection({ restaurantId }: { restaurantId: string }) {
+function PurchasesSection({
+  restaurantId,
+  showVat,
+}: {
+  restaurantId: string
+  showVat: boolean
+}) {
   const [items, setItems] = useState<PurchaseOrder[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
@@ -1305,6 +1334,8 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
   const [vatRates, setVatRates] = useState<VatRate[]>([])
 
   useEffect(() => {
+    // NIR-ul simplificat (Planul 2, lotul P) nu are cote — nu se cer.
+    if (!showVat) return
     let cancelled = false
     fetchVatRates(restaurantId)
       .then((r) => {
@@ -1316,7 +1347,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
     return () => {
       cancelled = true
     }
-  }, [restaurantId])
+  }, [restaurantId, showVat])
 
   const [loadError, setLoadError] = useState(false)
   async function load() {
@@ -1494,6 +1525,7 @@ function PurchasesSection({ restaurantId }: { restaurantId: string }) {
         <NirCreateModal
           restaurantId={restaurantId}
           vatRates={vatRates}
+          showVat={showVat}
           suppliers={suppliers}
           ingredients={ingredients}
           onClose={() => setShowAdd(false)}
@@ -1518,6 +1550,7 @@ interface NirItem {
 function NirCreateModal({
   restaurantId,
   vatRates,
+  showVat,
   suppliers,
   ingredients,
   onClose,
@@ -1525,13 +1558,18 @@ function NirCreateModal({
 }: {
   restaurantId: string
   vatRates: VatRate[]
+  // NIR SIMPLIFICAT pe planul fără bon (lotul P): fără coloana de TVA și fără
+  // defalcare — fiecare linie se salvează cu cota 0, deci totalul e exact ce a
+  // tastat omul (cantitate × preț). Pe Planul 3 nimic nu se schimbă.
+  showVat: boolean
   suppliers: Supplier[]
   ingredients: Ingredient[]
   onClose: () => void
   onSave: () => void
 }) {
-  // Default de rând = cota grupei 1 (mâncare) din config; 19 doar ca ultim fallback.
-  const defaultVat = getVatRate(vatRates, 1) ?? 19
+  // Default de rând = cota grupei 1 (mâncare) din config; 19 doar ca ultim
+  // fallback. Fără TVA pe plan, cota e 0 (NIR simplificat).
+  const defaultVat = showVat ? (getVatRate(vatRates, 1) ?? 19) : 0
   const [supplierId, setSupplierId] = useState<string>('')
   const [supplierName, setSupplierName] = useState<string>('') // pentru autocomplete
   const [invoiceNumber, setInvoiceNumber] = useState('')
@@ -1787,7 +1825,7 @@ function NirCreateModal({
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '1fr 1fr 90px',
+                        gridTemplateColumns: showVat ? '1fr 1fr 90px' : '1fr 1fr',
                         gap: 6,
                         alignItems: 'center',
                       }}
@@ -1818,6 +1856,7 @@ function NirCreateModal({
                           onChange={(e) => updateRow(idx, 'unit_price', e.target.value)}
                         />
                       </div>
+                      {showVat && (
                       <div>
                         <div style={{ fontSize: '0.66rem', color: D.t3, marginBottom: 2 }}>TVA</div>
                         <select
@@ -1841,6 +1880,7 @@ function NirCreateModal({
                             ))}
                         </select>
                       </div>
+                      )}
                     </div>
                     {/* Line total */}
                     <div
@@ -1853,7 +1893,9 @@ function NirCreateModal({
                         borderRadius: 6,
                       }}
                     >
-                      <span style={{ fontSize: '0.74rem', color: D.t3 }}>Total linie (cu TVA)</span>
+                      <span style={{ fontSize: '0.74rem', color: D.t3 }}>
+                        {showVat ? 'Total linie (cu TVA)' : 'Total linie'}
+                      </span>
                       <span
                         style={{
                           fontSize: '0.92rem',
@@ -1893,32 +1935,36 @@ function NirCreateModal({
             </button>
           </div>
 
-          {/* Totals */}
+          {/* Totals — defalcarea subtotal/TVA doar pe planul cu bon (lotul P). */}
           <div style={{ background: D.s3, borderRadius: 9, padding: 14 }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: '0.82rem',
-                color: D.t2,
-                marginBottom: 4,
-              }}
-            >
-              <span>Subtotal (fără TVA)</span>
-              <span>{subtotal.toFixed(2)} lei</span>
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontSize: '0.82rem',
-                color: D.t2,
-                marginBottom: 8,
-              }}
-            >
-              <span>TVA</span>
-              <span>{vatTotal.toFixed(2)} lei</span>
-            </div>
+            {showVat && (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.82rem',
+                    color: D.t2,
+                    marginBottom: 4,
+                  }}
+                >
+                  <span>Subtotal (fără TVA)</span>
+                  <span>{subtotal.toFixed(2)} lei</span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: '0.82rem',
+                    color: D.t2,
+                    marginBottom: 8,
+                  }}
+                >
+                  <span>TVA</span>
+                  <span>{vatTotal.toFixed(2)} lei</span>
+                </div>
+              </>
+            )}
             <div
               style={{
                 display: 'flex',

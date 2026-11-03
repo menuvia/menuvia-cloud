@@ -13,7 +13,10 @@
 //   • pret       (obligatoriu) — număr decimal cu . sau , ca separator
 //   • emoji      (opțional)    — default 🍽️
 //   • descriere  (opțional)    — text
-//   • tva        (opțional)    — 1-4 (default 1)
+//   • tva        (opțional)    — 1-4 (default 1). DOAR pe planul cu bon
+//                               (`showVat`, planSurface.vat — lotul P): pe
+//                               Planurile 1–2 coloana nu se cere, nu se
+//                               arată și nu se citește (grupa rămâne 1).
 //
 // Acceptă atât , cât și ; ca delimitator (auto-detect).
 // ─────────────────────────────────────────────────────────────
@@ -33,6 +36,9 @@ interface Props {
   // dar fără plafon client-side userul afla abia din eroarea brută, la mijlocul
   // importului, cu rânduri deja inserate. undefined = necunoscut → fără plafon aici.
   remainingSlots?: number
+  // Cotele TVA există doar pe planul cu bon (planSurface.vat). Obligatoriu:
+  // un apelant care l-ar uita n-are voie să cadă tăcut pe o variantă.
+  showVat: boolean
 }
 
 interface ParsedRow {
@@ -180,6 +186,11 @@ Limonadă,Băuturi reci,14.00,🍋,Cu mentă proaspătă,1
 Cheesecake,Prăjituri,16.00,🍰,Cu fructe de pădure,1
 `
 
+// Același model fără coloana TVA — Planurile 1–2 (lotul P).
+const TEMPLATE_NO_VAT = TEMPLATE.split('\n')
+  .map((line) => line.replace(/,[^,]*$/, ''))
+  .join('\n')
+
 // ── Style ────────────────────────────────────────────────────
 const card: React.CSSProperties = {
   background: D.s1,
@@ -218,6 +229,7 @@ export default function ProductsCsvImport({
   onClose,
   onDone,
   remainingSlots,
+  showVat,
 }: Props) {
   // Blochează scroll-ul paginii cât modalul e deschis (altfel pagina din spate
   // rămâne scrollabilă și modalul pare deplasat / cere scroll manual — fix #74).
@@ -260,7 +272,8 @@ export default function ProductsCsvImport({
     const idxPret = findCol('pret') !== -1 ? findCol('pret') : findCol('preț')
     const idxEmoji = findCol('emoji')
     const idxDescriere = findCol('descriere')
-    const idxTva = findCol('tva')
+    // Fără cote TVA pe plan, coloana se ignoră (nici citită, nici validată).
+    const idxTva = showVat ? findCol('tva') : -1
 
     return rows.slice(1).map((r, i): ParsedRow => {
       const errs: string[] = []
@@ -288,7 +301,7 @@ export default function ProductsCsvImport({
 
       return { nume, categorie, pret, emoji, descriere, tva, errors: errs, rowNum: i + 2 }
     })
-  }, [csvText])
+  }, [csvText, showVat])
 
   const validRows = parsed.filter((r) => r.errors.length === 0)
   const invalidRows = parsed.filter((r) => r.errors.length > 0)
@@ -310,7 +323,9 @@ export default function ProductsCsvImport({
   }, [importRows, existingCategories])
 
   function downloadTemplate() {
-    const blob = new Blob(['\uFEFF' + TEMPLATE], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob(['\uFEFF' + (showVat ? TEMPLATE : TEMPLATE_NO_VAT)], {
+      type: 'text/csv;charset=utf-8;',
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -591,14 +606,18 @@ export default function ProductsCsvImport({
                   fontFamily: 'monospace',
                 }}
               >
-                {`nume,categorie,pret,emoji,descriere,tva
+                {showVat
+                  ? `nume,categorie,pret,emoji,descriere,tva
 Espresso,Cafele,8.00,☕,,1
-Latte,Cafele,14.00,🥛,Cu lapte,1`}
+Latte,Cafele,14.00,🥛,Cu lapte,1`
+                  : `nume,categorie,pret,emoji,descriere
+Espresso,Cafele,8.00,☕,
+Latte,Cafele,14.00,🥛,Cu lapte`}
               </pre>
               <div style={{ marginTop: 8, fontSize: '0.76rem' }}>
                 <strong style={{ color: D.t1 }}>Coloane:</strong> <em>nume</em> și{' '}
                 <em>categorie</em> și <em>pret</em> obligatorii. Categoriile inexistente se creează
-                automat. TVA = 1-4 (default 1).
+                automat.{showVat ? ' TVA = 1-4 (default 1).' : ''}
               </div>
             </div>
 
@@ -632,7 +651,11 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
               <textarea
                 value={csvText}
                 onChange={(e) => setCsvText(e.target.value)}
-                placeholder="nume,categorie,pret,emoji,descriere,tva..."
+                placeholder={
+                  showVat
+                    ? 'nume,categorie,pret,emoji,descriere,tva...'
+                    : 'nume,categorie,pret,emoji,descriere...'
+                }
                 style={{
                   width: '100%',
                   minHeight: 180,
@@ -770,16 +793,18 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
                     >
                       Preț
                     </th>
-                    <th
-                      style={{
-                        padding: '8px 10px',
-                        textAlign: 'center',
-                        fontSize: '0.7rem',
-                        textTransform: 'uppercase',
-                      }}
-                    >
-                      TVA
-                    </th>
+                    {showVat && (
+                      <th
+                        style={{
+                          padding: '8px 10px',
+                          textAlign: 'center',
+                          fontSize: '0.7rem',
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        TVA
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -815,9 +840,11 @@ Latte,Cafele,14.00,🥛,Cu lapte,1`}
                       >
                         {r.pret != null && !isNaN(r.pret) ? `${r.pret.toFixed(2)} lei` : '—'}
                       </td>
-                      <td style={{ padding: '6px 10px', textAlign: 'center', color: D.t3 }}>
-                        {r.tva}
-                      </td>
+                      {showVat && (
+                        <td style={{ padding: '6px 10px', textAlign: 'center', color: D.t3 }}>
+                          {r.tva}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

@@ -180,7 +180,10 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
 
   // Register modal
   const [showRegister, setShowRegister] = useState(false)
-  const [regName, setRegName] = useState('Casa de marcat principală')
+  // Numele implicit al device-ului urmează planul: casa de marcat pe planul cu
+  // bon, PC-ul imprimantei din bucătărie altfel (lotul P).
+  const defaultRegName = fiscalEnabled ? 'Casa de marcat principală' : 'PC bucătărie'
+  const [regName, setRegName] = useState(defaultRegName)
   const [regBrand, setRegBrand] = useState('datecs')
   const [regModel, setRegModel] = useState('')
   const [regBusy, setRegBusy] = useState(false)
@@ -320,7 +323,9 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
   async function handleDeleteDevice(id: string) {
     const ok = await confirmDialog({
       title: 'Ștergi acest device?',
-      description: 'Bridge-ul instalat nu va mai putea trimite bonuri.',
+      description: fiscalEnabled
+        ? 'Bridge-ul instalat nu va mai putea trimite bonuri.'
+        : 'Bridge-ul instalat nu va mai putea tipări tichetele din bucătărie.',
       confirmLabel: 'Șterge device',
       destructive: true,
     })
@@ -549,7 +554,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
             }}
           >
             <Icon name="receipt" size={24} color={D.gold} />
-            {fiscalEnabled ? 'Casă de marcat & tichete' : 'Tichete bucătărie'}
+            {fiscalEnabled ? 'Casă de marcat & tichete' : 'Imprimantă bucătărie'}
           </h1>
           <div style={{ fontSize: '0.82rem', color: D.t2, marginTop: 4 }}>
             {fiscalEnabled
@@ -678,9 +683,17 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                       {d.name}
                     </div>
                     <div style={{ fontSize: '0.78rem', color: D.t2, marginTop: 3 }}>
-                      {d.fiscalnet_brand ? d.fiscalnet_brand.toUpperCase() : 'Brand nedefinit'}
-                      {d.fiscalnet_model ? ` · ${d.fiscalnet_model}` : ''}
-                      {' · Ultim semnal '}
+                      {/* Marca și modelul sunt ale CASEI de marcat (FiscalNet):
+                          pe planul fără bon device-ul e doar PC-ul imprimantei din
+                          bucătărie, deci fără „Brand nedefinit" (lotul P). */}
+                      {fiscalEnabled && (
+                        <>
+                          {d.fiscalnet_brand ? d.fiscalnet_brand.toUpperCase() : 'Brand nedefinit'}
+                          {d.fiscalnet_model ? ` · ${d.fiscalnet_model}` : ''}
+                          {' · '}
+                        </>
+                      )}
+                      {'Ultim semnal '}
                       {relativeTime(d.last_seen_at)}
                     </div>
                   </div>
@@ -735,22 +748,9 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         )}
       </div>
 
-      {/* Pending receipts — doar Plan 3 (bani + bon fiscal). Pe tier 2
-          afișăm un upsell compact în loc de coada fiscală. */}
-      {!fiscalEnabled && (
-        <div style={{ ...card, borderColor: `${D.gold}55` }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-            <span style={{ flexShrink: 0, marginTop: 2 }}>
-              <Icon name="receipt" size={20} color={D.gold} />
-            </span>
-            <div style={{ flex: '1 1 260px', fontSize: '0.84rem', color: D.t2, lineHeight: 1.55 }}>
-              <strong style={{ color: D.t1 }}>Bonuri fiscale automate</strong> — disponibile din
-              planul <strong style={{ color: D.gold }}>Fiscalizare</strong>: bonul se tipărește
-              singur la plată, pe casa ta de marcat, prin același Bridge.
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Pending receipts — doar Plan 3 (bani + bon fiscal). Pe Planul 2 nu
+          mai apare nici upsell-ul compact „Bonuri fiscale automate" (lotul P:
+          upsell-ul e unul, pe Acasă). */}
       {fiscalEnabled && (
       <div style={card}>
         <div
@@ -988,7 +988,9 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
         <h2 style={h2}>Tichete bucătărie</h2>
         <div style={{ fontSize: '0.8rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
           Comenzile noi se tipăresc automat pe imprimanta termică din bucătărie, prin device-urile
-          cu „Tichete bucătărie" activat. Tichetele NU sunt bonuri fiscale.
+          cu „Tichete bucătărie" activat.
+          {/* Distincția față de bon are sens doar pe planul care emite bonuri. */}
+          {fiscalEnabled && ' Tichetele NU sunt bonuri fiscale.'}
         </div>
         {tickets.length === 0 ? (
           <div
@@ -1277,12 +1279,12 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
           onClose={() => {
             setNewSecret(null)
             setShowRegister(false)
-            setRegName('Casa de marcat principală')
+            setRegName(defaultRegName)
             setRegModel('')
             setCopiedKey(false)
             setCopyFailed(false)
           }}
-          title="Casă înregistrată"
+          title={fiscalEnabled ? 'Casă înregistrată' : 'Device înregistrat'}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontSize: '0.88rem', color: D.t1, lineHeight: 1.55 }}>
@@ -1357,7 +1359,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               onClick={() => {
                 setNewSecret(null)
                 setShowRegister(false)
-                setRegName('Casa de marcat principală')
+                setRegName(defaultRegName)
                 setRegModel('')
                 setCopiedKey(false)
                 setCopyFailed(false)
