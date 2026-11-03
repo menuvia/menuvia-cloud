@@ -744,7 +744,7 @@ export default function SettingsTab({
                     variant="secondary"
                     size="sm"
                     onClick={() => upd('cover_url', null)}
-                    style={{ position: 'absolute', top: 8, right: 8, background: D.overlay }}
+                    style={{ position: 'absolute', top: 8, right: 8 }}
                   >
                     Șterge
                   </Button>
@@ -1156,7 +1156,7 @@ export default function SettingsTab({
             {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
             <SettingsCard
               icon="menu"
-              title="Aspect meniu"
+              title="Așezarea produselor"
               desc="Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul digital și pe meniul QR."
             >
               <div

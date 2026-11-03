@@ -17,6 +17,10 @@
 //        contextului cu tipul tradus, iar regiunile legacy nu se mai randează —
 //        un singur loc de notificări, nu două suprapuse. Mutația care pică:
 //        `useToast` din sharedUI care ignoră contextul (lista locală mereu).
+//   SU9  `useToast({ local: true })` + `<Toast local />` (recenzia #336): SUB
+//        provider mesajul rămâne în arborele componentei — într-un dialog
+//        `aria-modal`, viewport-ul global e în afara modalului și VoiceOver îl
+//        ignoră. Mutația care pică: opțiunea `local` ignorată (delegare mereu).
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -185,6 +189,39 @@ describe('Toast — delegare la sistemul unic', () => {
     expect(api.success).toHaveBeenCalledWith('Produs adăugat')
     expect(api.error).toHaveBeenCalledWith('Nu s-a putut salva')
     expect(screen.queryByText('Produs adăugat')).toBeNull()
+  })
+})
+
+function LocalToastHarness() {
+  const { toasts, toast } = useToast({ local: true })
+  return (
+    <div data-testid="gazda">
+      <button type="button" onClick={() => toast('Nume obligatoriu', 'error')}>
+        eroare
+      </button>
+      <Toast toasts={toasts} local />
+    </div>
+  )
+}
+
+describe('Toast — lista locală (în dialog)', () => {
+  it('SU9: cu `local`, mesajul rămâne în componentă, chiar sub provider', async () => {
+    const user = userEvent.setup()
+    const api: ToastApi = {
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
+      info: vi.fn(),
+      dismiss: vi.fn(),
+    }
+    render(
+      <ToastContext.Provider value={api}>
+        <LocalToastHarness />
+      </ToastContext.Provider>,
+    )
+    await user.click(screen.getByRole('button', { name: 'eroare' }))
+    expect(api.error).not.toHaveBeenCalled()
+    expect(within(screen.getByTestId('gazda')).getByText('Nume obligatoriu')).toBeInTheDocument()
   })
 })
 

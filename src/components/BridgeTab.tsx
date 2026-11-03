@@ -322,11 +322,11 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
 
   async function handleDeleteDevice(id: string) {
     const ok = await confirmDialog({
-      title: 'Ștergi acest device?',
+      title: 'Ștergi acest dispozitiv?',
       description: fiscalEnabled
         ? 'Bridge-ul instalat nu va mai putea trimite bonuri.'
         : 'Bridge-ul instalat nu va mai putea tipări tichetele din bucătărie.',
-      confirmLabel: 'Șterge device',
+      confirmLabel: 'Șterge dispozitivul',
       destructive: true,
     })
     if (!ok) return
@@ -566,7 +566,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
             style={btn({ background: D.gold, color: '#0a0a0a' })}
           >
             <Icon name="plus" size={15} />
-            {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează device'}
+            {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează dispozitiv'}
           </button>
         </div>
       </div>
@@ -632,12 +632,12 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
             title={
               fiscalEnabled
                 ? 'Nu ai înregistrat nicio casă de marcat.'
-                : 'Nu ai înregistrat niciun device.'
+                : 'Nu ai înregistrat niciun dispozitiv.'
             }
             description={
               fiscalEnabled
                 ? 'Înregistrează prima casă ca să primești cheia de instalare pentru Bridge-ul Menuvia.'
-                : 'Înregistrează un device ca să primești cheia de instalare pentru Bridge-ul Menuvia (PC-ul conectat la imprimanta din bucătărie).'
+                : 'Înregistrează un dispozitiv ca să primești cheia de instalare pentru Bridge-ul Menuvia (PC-ul conectat la imprimanta din bucătărie).'
             }
             action={
               <button
@@ -645,7 +645,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
                 style={btn({ background: D.gold, color: '#0a0a0a' })}
               >
                 <Icon name="plus" size={15} />
-                {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează device'}
+                {fiscalEnabled ? 'Înregistrează casă' : 'Înregistrează dispozitiv'}
               </button>
             }
           />
@@ -976,7 +976,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       <div style={card}>
         <h2 style={h2}>Tichete bucătărie</h2>
         <div style={{ fontSize: '0.8rem', color: D.t2, marginBottom: 12, lineHeight: 1.5 }}>
-          Comenzile noi se tipăresc automat pe imprimanta termică din bucătărie, prin device-urile
+          Comenzile noi se tipăresc automat pe imprimanta termică din bucătărie, prin dispozitivele
           cu „Tichete bucătărie" activat.
           {/* Distincția față de bon are sens doar pe planul care emite bonuri. */}
           {fiscalEnabled && ' Tichetele NU sunt bonuri fiscale.'}
@@ -985,7 +985,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
           <div
             style={{ padding: '20px 16px', textAlign: 'center', color: D.t2, fontSize: '0.88rem' }}
           >
-            Niciun tichet încă. Activează „Tichete bucătărie" pe un device de mai sus — comenzile
+            Niciun tichet încă. Activează „Tichete bucătărie" pe un dispozitiv de mai sus — comenzile
             noi vor apărea aici.
           </div>
         ) : (
@@ -1116,7 +1116,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
       {showRegister && !newSecret && (
         <Modal
           onClose={() => setShowRegister(false)}
-          title={fiscalEnabled ? 'Înregistrează casă de marcat' : 'Înregistrează device Bridge'}
+          title={fiscalEnabled ? 'Înregistrează casă de marcat' : 'Înregistrează dispozitiv Bridge'}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
@@ -1273,7 +1273,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
             setCopiedKey(false)
             setCopyFailed(false)
           }}
-          title={fiscalEnabled ? 'Casă înregistrată' : 'Device înregistrat'}
+          title={fiscalEnabled ? 'Casă înregistrată' : 'Dispozitiv înregistrat'}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ fontSize: '0.88rem', color: D.t1, lineHeight: 1.55 }}>
@@ -1341,7 +1341,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
               </span>
               <span>
                 Salvează cheia acum. După închiderea acestei ferestre nu mai poate fi recuperată.
-                Dacă o pierzi, șterge device-ul și înregistrează unul nou.
+                Dacă o pierzi, șterge dispozitivul și înregistrează unul nou.
               </span>
             </div>
             <button

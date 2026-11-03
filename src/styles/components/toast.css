@@ -11,7 +11,10 @@
   gap: var(--space-2);
   max-width: 380px;
   width: calc(100% - var(--space-4) * 2);
-  pointer-events: none; /* lăsă click-urile să treacă; reactivate per-toast */
+  /* Click-urile trec prin TOT toast-ul (recenzia #336): sus, pe toată lățimea
+     pe mobil, un corp `pointer-events: auto` intercepta tap-urile pe antet și
+     pe foi timp de 3,5–6,5 s. Doar butonul de închidere le primește. */
+  pointer-events: none;
 }
 
 @media (max-width: 600px) {
@@ -24,7 +27,7 @@
 }
 
 .toast {
-  pointer-events: auto;
+  pointer-events: none;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
@@ -62,6 +65,7 @@
 }
 
 .toast__close {
+  pointer-events: auto;
   flex-shrink: 0;
   background: transparent;
   border: none;

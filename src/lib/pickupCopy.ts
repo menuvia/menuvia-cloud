@@ -61,7 +61,8 @@ export function pickupPlanName(): string {
 // Setări și în Mese (PY1), ca motivul să nu fie formulat în două feluri.
 const FLIPBOOK_NO_ORDERS =
   'pe stilul Flipbook pagina publică arată meniul ca pe o carte, fără coș, deci clienții ' +
-  'nu pot comanda pentru ridicare. Pentru comenzi, alege alt stil din Setări → Aspect meniu.'
+  'nu pot comanda pentru ridicare. Pentru comenzi, alege alt stil din Setări → Aspect meniu → ' +
+  'Așezarea produselor.'
 
 /**
  * `pickup_orders` al restaurantului, tristate: `true`/`false` = CUNOSCUT,

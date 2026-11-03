@@ -139,6 +139,67 @@ function styledButtons(src) {
   return count
 }
 
+/**
+ * Atributele unui tag JSX care începe la `start` (indexul lui `<`), ca text
+ * BRUT (cu tot cu conținutul acoladelor), până la primul `>` aflat în afara
+ * acoladelor și a ghilimelelor.
+ */
+function tagAttrs(s, start, nameLen) {
+  let depth = 0
+  let quote = ''
+  let i = start + 1 + nameLen
+  for (; i < s.length; i++) {
+    const c = s[i]
+    if (quote) {
+      if (c === quote) quote = ''
+    } else if (depth === 0 && (c === '"' || c === "'")) {
+      quote = c
+    } else if (c === '{') depth++
+    else if (c === '}') depth--
+    else if (c === '>' && depth === 0) break
+  }
+  return s.slice(start + 1 + nameLen, i)
+}
+
+/** Conținutul expresiei `style={…}` de la nivelul de sus al atributelor, sau null. */
+function topLevelStyle(attrs) {
+  let depth = 0
+  for (let i = 0; i < attrs.length; i++) {
+    const c = attrs[i]
+    if (c === '{') depth++
+    else if (c === '}') depth--
+    else if (depth === 0 && attrs.startsWith('style={', i) && (i === 0 || /\s/.test(attrs[i - 1]))) {
+      let d = 0
+      for (let j = i + 6; j < attrs.length; j++) {
+        if (attrs[j] === '{') d++
+        else if (attrs[j] === '}' && --d === 0) return attrs.slice(i + 7, j)
+      }
+      return attrs.slice(i + 7)
+    }
+  }
+  return null
+}
+
+// Chei de CULOARE/CHENAR: pe <Button> le dă varianta; `style` e doar pentru layout.
+const BUTTON_COLOR_KEY_RE = /(?:^|[\s{,])(?:background(?:Color)?|color|border(?:Color)?|boxShadow)\s*:/
+
+/**
+ * Câte `<Button …>` (primitiva, și pe mai multe rânduri) au în `style={…}` o
+ * cheie de culoare sau chenar — varianta colorată de mână pe care BT1 nu o vede.
+ * Un `style` de pe un COPIL (ex. `icon={<Icon style={{ color }} />}`) nu contează.
+ */
+function coloredButtons(src) {
+  const s = stripComments(src)
+  let count = 0
+  const re = /<Button\b/g
+  let m
+  while ((m = re.exec(s)) !== null) {
+    const style = topLevelStyle(tagAttrs(s, m.index, 6))
+    if (style != null && BUTTON_COLOR_KEY_RE.test(style)) count++
+  }
+  return count
+}
+
 // ── Text pentru om ──────────────────────────────────────────────────────
 /**
  * Fragmentele de text VIZIBIL dintr-un fișier: literalele de string (`'…'`,
@@ -158,12 +219,25 @@ function visibleTexts(src) {
         if (!/\s/.test(text) && !/[A-ZĂÂÎȘȚ]/.test(text)) continue
         out.push({ line: n, text })
       }
+      // Interpolările `{…}` (și cele imbricate) devin un spațiu înainte de
+      // testele pe JSX: `din dashboard pentru {restaurantName}.` e text pentru
+      // om, iar acolada nu are voie să-l ascundă (recenzia #336). Literalele de
+      // mai sus se citesc din rândul ORIGINAL.
+      let plain = line
+      for (let prev = ''; prev !== plain; ) {
+        prev = plain
+        plain = plain.replace(/\{[^{}]*\}/g, ' ')
+      }
+      // Ghilimelele românești „…" închise cu `"` drept (frecvent în textul JSX)
+      // nu sunt cod: ghilimeaua de închidere devine `”`, ca rândul să rămână
+      // text și conținutul citat să fie scanat.
+      plain = plain.replace(/„([^"„\n]*)"/g, '„$1”')
       // text JSX între taguri pe același rând: `>Text<`
-      for (const m of line.matchAll(/>([^<>{}]*[A-Za-zĂÂÎȘȚăâîșț][^<>{}]*)</g)) {
+      for (const m of plain.matchAll(/>([^<>{}]*[A-Za-zĂÂÎȘȚăâîșț][^<>{}]*)</g)) {
         out.push({ line: n, text: m[1].trim() })
       }
       // rând întreg de text JSX (fără caractere de cod)
-      const t = line.trim()
+      const t = plain.trim()
       if (t && !/[{}()<>=;:'"`[\]]/.test(t) && /[A-Za-zĂÂÎȘȚăâîșț]{2,}\s/.test(t)) {
         out.push({ line: n, text: t })
       }
@@ -182,5 +256,6 @@ module.exports = {
   fnColors,
   alphaSuffixes,
   styledButtons,
+  coloredButtons,
   visibleTexts,
 }

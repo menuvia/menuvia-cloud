@@ -31,8 +31,15 @@
 //        la refuz fișa rămâne deschisă și Setările NU se deschid, la accept da.
 //        Control: PT8b (fișa neatinsă) iese direct, fără dialog. Mutația care
 //        pică: butonul legat direct la `onOpenVatRates`.
+//   PT10 recenzia #336: eroarea de validare („Numele produsului e obligatoriu”,
+//        „Prețul nu poate fi negativ”) stă ÎN dialogul `aria-modal`, ca
+//        role="alert" — și SUB <ToastProvider>, unde toast-ul vechi pleca în
+//        viewport-ul global, în afara modalului (VoiceOver îl ignora). Mutația
+//        care pică: validarea trimisă înapoi prin `pmToast` (api.error chemat,
+//        nimic în dialog), sau `useToast()` fără `local` pe fișă.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
+import { ToastContext, type ToastApi } from '../ui/useToast'
 import userEvent from '@testing-library/user-event'
 import type { Product } from '../../hooks/useData'
 
@@ -330,5 +337,49 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     expect(screen.queryByText('Se încarcă cotele TVA...')).toBeNull()
     // Fără `onOpenVatRates` (partenerul) nu există butonul de ieșire.
     expect(screen.queryByRole('button', { name: 'Deschide cotele TVA' })).toBeNull()
+  })
+
+  it('PT10: validarea apare în dialog ca role="alert", nu în viewport-ul global', async () => {
+    const user = userEvent.setup()
+    const api: ToastApi = {
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
+      info: vi.fn(),
+      dismiss: vi.fn(),
+    }
+    render(
+      <ToastContext.Provider value={api}>
+        <ProductsTab
+          restaurantId="rest-1"
+          plan="pro"
+          onUpgrade={() => {}}
+          userId="u1"
+          canUseAi={false}
+          canUseAiMenu={false}
+          canManageRecipes
+          menuLanguages={[]}
+          surface={surfaceFor('starter')}
+        />
+      </ToastContext.Provider>,
+    )
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    const dlg = await screen.findByRole('dialog', { name: 'Adaugă produs' })
+    // Control: înainte de salvare nu există nicio alertă.
+    expect(within(dlg).queryByRole('alert')).toBeNull()
+
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Numele produsului e obligatoriu')
+    expect(api.error).not.toHaveBeenCalled()
+
+    // Editarea numelui stinge alerta; un preț negativ o readuce, tot în dialog.
+    await user.type(within(dlg).getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
+    expect(within(dlg).queryByRole('alert')).toBeNull()
+    fireEvent.change(within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' }), {
+      target: { value: '-5' },
+    })
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(within(dlg).getByRole('alert')).toHaveTextContent('Prețul nu poate fi negativ')
+    expect(api.error).not.toHaveBeenCalled()
   })
 })

@@ -27,6 +27,13 @@
 //   HX4  sufixele de alfa pe token nu cresc peste ALPHA_CEILING (110 → 81).
 //        Mutația care îl pică: `border: \`1px solid ${D.amber}55\`` nou în
 //        orice fișier din panou.
+//   HX5  culorile scrise ca funcție — `rgba()`/`rgb()`/`hsl()`/`hsla()` — din
+//        panou, FĂRĂ fișierele din EXEMPT, nu cresc peste FN_COLOR_CEILING
+//        (înghețat la 199, recenzia #336: 200 → 199 cu toast-ul local scos din
+//        TeamManager): HX1 număra doar hex-ul, deci un `rgba(200,150,60,0.3)`
+//        nou trecea neobservat — aceeași culoare de mână,
+//        altă sintaxă. Mutația care îl pică: `background: 'rgba(0,0,0,0.5)'`
+//        nou în BridgeTab.tsx (verificat).
 //
 // Rulează în jobul „Bridge tests" (`cd tests/functions && npm test`).
 'use strict'
@@ -39,6 +46,7 @@ const { ROOT, uiFiles, read, hexColors, fnColors, alphaSuffixes } = require('./h
 
 const HEX_CEILING = 191
 const ALPHA_CEILING = 81
+const FN_COLOR_CEILING = 199
 
 // Scutiri PE FIȘIER, fiecare cu motivul ei. Meniul oaspetelui are paleta lui
 // (temele PUB din lib/themes, culoarea de accent a restaurantului), nu pe a
@@ -172,6 +180,26 @@ describe('clichet: culorile panoului vin din token-urile D', () => {
       `${total} sufixe de alfa pe token (plafon ${ALPHA_CEILING}): \`\${D.gold}44\` dă ` +
         '`var(...)44`, CSS invalid. Folosește D.goldBorder / D.goldA / D.redBorder / ' +
         'D.amberBorder / D.greenBorder sau `color-mix(in srgb, ${culoare} N%, transparent)`.',
+    )
+  })
+
+  it(`HX5 rgba()/rgb()/hsl() din panou (fără scutiri) nu cresc peste ${FN_COLOR_CEILING}`, () => {
+    const per = uiFiles()
+      .filter((f) => !exempt.has(f))
+      .map((f) => ({ f, n: fnColors(read(f)).length }))
+      .filter((x) => x.n > 0)
+    const total = per.reduce((s, x) => s + x.n, 0)
+    assert.ok(per.length > 20, `anti-vacuitate: scannerul a văzut doar ${per.length} fișiere cu rgba()/hsl()`)
+    assert.ok(
+      total <= FN_COLOR_CEILING,
+      `${total} culori rgba()/rgb()/hsl() scrise de mână în panou (plafon ${FN_COLOR_CEILING}). ` +
+        'Folosește un token din `D` (ex. D.overlay, D.scrim, D.goldA, D.redA) sau ' +
+        '`color-mix(in srgb, ${D.x} N%, transparent)`. Cele mai multe: ' +
+        per
+          .sort((a, b) => b.n - a.n)
+          .slice(0, 5)
+          .map((x) => `${x.f} (${x.n})`)
+          .join(', '),
     )
   })
 })

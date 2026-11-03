@@ -6,6 +6,12 @@
 //        randat mereu, care adaugă spațiu sub fiecare titlu).
 //   PH3  containerul NU e <header>: în afara lui <main> ar deveni reperul
 //        „banner" al paginii (mutația: `<header>` ca rădăcină).
+//   PH4  `compact` (antetele Bucătărie / Ospătar, recenzia #336): titlul mai
+//        mic (`--text-lg`), pe UN rând cu ellipsis (`nowrap` + `overflow:
+//        hidden` + `text-overflow: ellipsis`), fără `overflow-wrap: anywhere`,
+//        blocul de titlu cu `min-width: 0`, textul întreg în `title`. Control:
+//        varianta implicită NU taie titlul. Mutația care pică: `compact`
+//        ignorat (titlul de 24px care se rupe pe trei rânduri la 375px).
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { PageHeader } from '../PageHeader'
@@ -39,5 +45,25 @@ describe('PageHeader', () => {
   it('PH3: fără reper „banner"', () => {
     render(<PageHeader title="Bucătărie" />)
     expect(screen.queryByRole('banner')).toBeNull()
+  })
+
+  it('PH4: varianta compactă taie titlul pe un rând, cea implicită nu', () => {
+    const long = 'Bucătărie — Restaurantul cu un nume foarte, foarte lung'
+    const { unmount } = render(<PageHeader as="h1" title={long} />)
+    const normal = screen.getByRole('heading', { level: 1, name: long })
+    expect(normal.style.whiteSpace).not.toBe('nowrap')
+    expect(normal.style.textOverflow).not.toBe('ellipsis')
+    expect(normal).not.toHaveAttribute('title')
+    unmount()
+
+    render(<PageHeader as="h1" compact title={long} />)
+    const h1 = screen.getByRole('heading', { level: 1, name: long })
+    expect(h1.style.whiteSpace).toBe('nowrap')
+    expect(h1.style.overflow).toBe('hidden')
+    expect(h1.style.textOverflow).toBe('ellipsis')
+    expect(h1.style.overflowWrap).not.toBe('anywhere')
+    expect(h1.style.fontSize).toBe('var(--text-lg, 1.125rem)')
+    expect(h1).toHaveAttribute('title', long)
+    expect((h1.parentElement as HTMLElement).style.minWidth).toBe('0px')
   })
 })

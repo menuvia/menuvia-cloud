@@ -83,7 +83,13 @@ function ProductModal({
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
   // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
-  const { toasts: pmToasts, toast: pmToast } = useToast()
+  // `local`: mesajele rămân în arborele dialogului `aria-modal` (recenzia #336) —
+  // viewport-ul global e în afara lui, iar VoiceOver ignoră ce e în afara modalului.
+  const { toasts: pmToasts, toast: pmToast } = useToast({ local: true })
+  // Eroarea de validare stă INLINE, lângă butoane, cu role="alert": persistă până
+  // la următoarea încercare sau editare (un toast dispare în 3 s, înainte ca
+  // omul să afle ce câmp e greșit).
+  const [formError, setFormError] = useState<string | null>(null)
   // Focus pe Nume după „Salvează și adaugă următorul" — Inp nu forwardează ref,
   // deci țintim input-ul prin containerul câmpului (audit aug 2026: 30 de
   // produse = 30 de cicluri complete de modal; burst-ul de adăugare repară asta).
@@ -488,7 +494,10 @@ function ProductModal({
       else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga perechea.'), 'error')
     }
   }
-  const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+  const upd = (k: keyof Product, v: unknown) => {
+    if (k === 'name' || k === 'price') setFormError(null)
+    setForm((f) => ({ ...f, [k]: v }))
+  }
 
   // Creează categoria pe loc și o selectează pe produs. Lista din select se
   // împrospătează prin parent (useCategories.create → load()), nu local.
@@ -515,13 +524,14 @@ function ProductModal({
     // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
     // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
     if (!(form.name ?? '').trim()) {
-      pmToast('Numele produsului e obligatoriu', 'error')
+      setFormError('Numele produsului e obligatoriu')
       return
     }
     if (form.price != null && form.price < 0) {
-      pmToast('Prețul nu poate fi negativ', 'error')
+      setFormError('Prețul nu poate fi negativ')
       return
     }
+    setFormError(null)
     setSaving(true)
     try {
       const okSaved = await onSave(form, { keepOpen })
@@ -1914,6 +1924,21 @@ function ProductModal({
         </div>
         )}
 
+        {formError && (
+          <div
+            role="alert"
+            style={{
+              background: D.redA,
+              border: `1px solid ${D.redBorder}`,
+              color: D.redText,
+              borderRadius: 9,
+              padding: '10px 14px',
+              fontSize: '0.84rem',
+            }}
+          >
+            {formError}
+          </div>
+        )}
         <div
           style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
         >
@@ -1944,7 +1969,7 @@ function ProductModal({
           </Button>
         </div>
       </div>
-      <Toast toasts={pmToasts} />
+      <Toast toasts={pmToasts} local />
     </Modal>
   )
 }

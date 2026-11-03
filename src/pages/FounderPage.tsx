@@ -832,7 +832,7 @@ function RestaurantsSection() {
                 <EnterAccountButton
                   restaurantId={r.restaurant_id}
                   style={{ ...primaryBtn, flex: 1, minHeight: 44 }}
-                  title="Deschide dashboardul acestui restaurant în mod fondator"
+                  title="Deschide panoul acestui restaurant în mod fondator"
                 />
                 <button
                   onClick={() => void toggleActive(r)}
@@ -885,7 +885,7 @@ function RestaurantsSection() {
                       <EnterAccountButton
                         restaurantId={r.restaurant_id}
                         style={primaryBtn}
-                        title="Deschide dashboardul acestui restaurant în mod fondator"
+                        title="Deschide panoul acestui restaurant în mod fondator"
                       />
                       <button
                         onClick={() => void toggleActive(r)}
@@ -1287,7 +1287,7 @@ function AffiliatesSection() {
                       <EnterAccountButton
                         key={r.restaurant_id}
                         restaurantId={r.restaurant_id}
-                        title="Deschide dashboardul restaurantului în mod fondator"
+                        title="Deschide panoul restaurantului în mod fondator"
                         label={`${r.name} · ${PLAN_LABELS[r.plan] || r.plan}`}
                         style={{
                           padding: '8px 14px',

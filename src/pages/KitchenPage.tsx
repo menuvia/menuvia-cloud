@@ -507,6 +507,7 @@ export default function KitchenPage() {
         )}
         <PageHeader
           as="h1"
+          compact
           title={`Bucătărie${restaurantName.length > 0 ? ` — ${restaurantName}` : ''}`}
           style={{ flex: '1 1 160px', minWidth: 0, alignItems: 'center' }}
         />

@@ -243,7 +243,7 @@ describe('SettingsTab — nota flipbook despre comanda din meniu', () => {
 const PAGE = 'https://cdn.example.com/meniu-1.webp'
 const PROMISE = /clienții pot comanda/i
 const FLIPBOOK_WHY = /stilul Flipbook pagina publică arată meniul ca pe o carte, fără coș/
-const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Aspect meniu/
+const FLIPBOOK_WAY_OUT = /alege alt stil din Setări → Aspect meniu → Așezarea produselor\./
 
 describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
   it('PZ1: plan cu ridicare + Flipbook cu pagini — fără promisiune, cu motivul', async () => {
@@ -280,6 +280,10 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
     expect(screen.getByText(PROMISE)).toBeInTheDocument()
 
     show('menu')
+    // Trimiterea din motiv („Setări → Aspect meniu → Așezarea produselor”)
+    // duce la un card REAL; cardul nu repetă titlul paginii (recenzia #336).
+    expect(screen.getByText('Așezarea produselor')).toBeInTheDocument()
+    expect(screen.queryByText('Aspect meniu')).not.toBeInTheDocument()
     const flipbook = screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })
     await user.click(flipbook)
     expect(screen.getByRole('button', { name: /Flipbook \(PDF\/pagini\)/ })).toHaveAttribute(

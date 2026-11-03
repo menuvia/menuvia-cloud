@@ -735,6 +735,7 @@ export default function WaiterPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
               <PageHeader
                 as="h1"
+                compact
                 title={isAdminRole ? 'Comenzi live' : 'Ospătar'}
                 style={{ flex: '0 1 auto', minWidth: 0 }}
               />

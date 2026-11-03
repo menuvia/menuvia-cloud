@@ -12,6 +12,10 @@ import type { MemberRole } from '../lib/constants'
 import type { Restaurant } from '../hooks/useData'
 import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants'
 import { toUserMessage } from '../lib/userMessages'
+// Toast-ul unic al panoului (sharedUI → ui/useToast, lotul V): înainte TeamManager
+// avea o copie locală (fixă jos-dreapta, fără regiune live), deci notificările
+// echipei arătau și se anunțau altfel decât restul panoului.
+import { useToast, Toast } from './_dashboard/sharedUI'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
   owner: 'Proprietar',
@@ -55,50 +59,6 @@ const inp: React.CSSProperties = {
   outline: 'none',
   fontFamily: 'DM Sans,sans-serif',
   boxSizing: 'border-box',
-}
-
-function useToast() {
-  const [toasts, setToasts] = useState<{ id: string; msg: string; type: string }[]>([])
-  const toast = useCallback((msg: string, type = 'success') => {
-    const id = Math.random().toString(36).slice(2)
-    setToasts((t) => [...t, { id, msg, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000)
-  }, [])
-  return { toasts, toast }
-}
-function Toast({ toasts }: { toasts: { id: string; msg: string; type: string }[] }) {
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        bottom: 80,
-        right: 16,
-        zIndex: 9999,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        pointerEvents: 'none',
-      }}
-    >
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          style={{
-            background: D.s3,
-            borderLeft: `3px solid ${t.type === 'error' ? D.red : D.green}`,
-            borderRadius: 10,
-            padding: '10px 16px',
-            fontSize: '0.875rem',
-            color: D.t1,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            minWidth: 220,
-          }}
-        >
-          {t.msg}
-        </div>
-      ))}
-    </div>
-  )
 }
 
 interface Member {

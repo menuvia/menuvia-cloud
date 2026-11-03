@@ -25,15 +25,28 @@
 //        `type = 'button'` implicit și `loading` care dezactivează butonul; iar
 //        ecranele migrate chiar o importă (fără asta, ștergerea primitivei ar
 //        lăsa BT1 verde).
+//   BT4  CONTROL POZITIV pe surse SINTETICE pentru BT5 (recenzia #336): numără
+//        `<Button style={{ background: … }}>`, forma pe mai multe rânduri (cu
+//        `onClick={() => a > b}` înaintea lui `style`) și fiecare cheie de culoare
+//        sau chenar (`background`, `backgroundColor`, `color`, `border`,
+//        `borderColor`, `boxShadow`); NU numără `style` de LAYOUT pe <Button>,
+//        `style` cu culoare pe un COPIL (`icon={<Icon style={{ color }} />}`),
+//        `<button style>` (e al lui BT1), `<ButtonGroup>` sau un comentariu.
+//   BT5  `<Button>` nu primește culori/chenar prin `style` — varianta le dă.
+//        Plafon 0 pe ecranele migrate și total înghețat la COLORED_CEILING (0
+//        după repararea lui SettingsTab, unde „Șterge” de pe copertă avea
+//        `background: D.overlay` — fundal translucid peste varianta opacă).
+//        Mutația care îl pică: readuci acel `background` (verificat).
 //
 // Rulează în jobul „Bridge tests" (`cd tests/functions && npm test`).
 'use strict'
 
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
-const { uiFiles, read, styledButtons } = require('./helpers/uiSourceScan')
+const { uiFiles, read, styledButtons, coloredButtons } = require('./helpers/uiSourceScan')
 
 const BUTTON_CEILING = 610
+const COLORED_CEILING = 0
 
 const MIGRATED_CEILINGS = {
   'src/components/_dashboard/HomeTab.tsx': 3,
@@ -111,5 +124,47 @@ describe('clichet: butoanele panoului sunt <Button>', () => {
     for (const f of Object.keys(MIGRATED_CEILINGS).filter((x) => !x.endsWith('HomeTab.tsx'))) {
       assert.match(read(f), /from '[./]*(?:components\/)?ui\/Button'/, `${f} nu importă ui/Button`)
     }
+  })
+
+  it('BT4 control pozitiv: scannerul prinde <Button> colorat de mână', () => {
+    const caught = [
+      '<Button variant="secondary" style={{ background: D.overlay }}>A</Button>',
+      '<Button',
+      '  variant="primary"',
+      '  onClick={() => setOpen(a > b)}',
+      '  style={{ flex: 1, color: D.t1 }}',
+      '>',
+      '  B',
+      '</Button>',
+      '<Button style={{ backgroundColor: x }}>C</Button>',
+      '<Button style={{ border: `1px solid ${D.gold}` }}>D</Button>',
+      '<Button style={{ borderColor: D.red }}>E</Button>',
+      '<Button style={{ boxShadow: D.shadowLg }}>F</Button>',
+    ].join('\n')
+    assert.equal(coloredButtons(caught), 6)
+    const fine = [
+      '<Button variant="primary" style={{ flex: 1, position: \'absolute\', top: 8 }}>A</Button>',
+      '<Button icon={<Icon name="x" style={{ color: D.gold }} />} style={{ marginTop: 4 }}>B</Button>',
+      '<button style={{ background: D.gold }}>C</button>',
+      '<ButtonGroup style={{ background: D.s2 }} />',
+      '// <Button style={{ color: D.t1 }}> într-un comentariu',
+      '{/* <Button style={{ color: D.t1 }}> */}',
+    ].join('\n')
+    assert.equal(coloredButtons(fine), 0)
+  })
+
+  it(`BT5 <Button> fără culori în style (plafon 0 pe ecranele migrate, total ${COLORED_CEILING})`, () => {
+    const per = uiFiles()
+      .map((f) => ({ f, n: coloredButtons(read(f)) }))
+      .filter((x) => x.n > 0)
+    const migrated = per.filter((x) => x.f in MIGRATED_CEILINGS).map((x) => `${x.f} (${x.n})`)
+    assert.deepEqual(migrated, [], '<Button> colorat prin style într-un ecran migrat — alege varianta.')
+    const total = per.reduce((s, x) => s + x.n, 0)
+    assert.ok(
+      total <= COLORED_CEILING,
+      `${total} <Button> cu culoare/chenar în style (plafon ${COLORED_CEILING}): ` +
+        per.map((x) => `${x.f} (${x.n})`).join(', ') +
+        '. Culoarea vine din `variant`; `style` pe <Button> e doar pentru layout.',
+    )
   })
 })

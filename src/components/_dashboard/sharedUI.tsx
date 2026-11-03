@@ -72,8 +72,14 @@ function delegate(api: ToastApi, msg: string, type: string): void {
   else api.success(msg)
 }
 
-export function useToast() {
-  const api = useContext(ToastContext)
+// `local: true` = lista locală MEREU, chiar sub provider. E pentru ecranele
+// din interiorul unui dialog `aria-modal` (ProductModal): viewport-ul global stă
+// în afara dialogului, iar VoiceOver ignoră conținutul din afara unui modal —
+// mesajul trebuie să trăiască în arborele dialogului, deci se randează cu
+// `<Toast toasts={...} local />` acolo.
+export function useToast(opts: { local?: boolean } = {}) {
+  const ctx = useContext(ToastContext)
+  const api = opts.local ? null : ctx
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const toast = useCallback(
     (msg: string, type = 'success') => {
@@ -110,9 +116,11 @@ function ToastCard({ toast }: { toast: ToastItem }) {
   )
 }
 
-export function Toast({ toasts }: { toasts: ToastItem[] }) {
-  // Sub provider notificările trăiesc în viewport-ul unic din ui/Toast.
-  const delegated = useContext(ToastContext) != null
+export function Toast({ toasts, local = false }: { toasts: ToastItem[]; local?: boolean }) {
+  // Sub provider notificările trăiesc în viewport-ul unic din ui/Toast — în
+  // afară de lista `local` (vezi useToast), care se randează pe loc.
+  const ctx = useContext(ToastContext)
+  const delegated = !local && ctx != null
   const errors = toasts.filter((t) => t.type === 'error')
   const others = toasts.filter((t) => t.type !== 'error')
   const region: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 }
