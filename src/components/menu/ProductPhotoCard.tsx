@@ -6,6 +6,7 @@ import { readableTextOn } from '../../lib/themes'
 import { menuType } from '../../lib/menuType'
 import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
+import { AllergenIcons } from './AllergenIcons'
 import { DIETARY_TAGS } from '../../lib/constants'
 import { T } from '../../lib/publicMenuStrings'
 import { Tf, dietaryLabel } from '../../lib/guestI18n'
@@ -164,7 +165,16 @@ function ProductPhotoCard({
         {/* Poza mare 4:3 (span, nu div: în <button> e permis doar phrasing
             content în HTML valid). */}
         <span style={{ position: 'relative', display: 'block', width: '100%' }}>
-          <BlurImage src={product.image_url} alt={product.name} aspectRatio="4 / 3" skeleton />
+          {/* Originalul, nu thumb-ul: cardul-poză ocupă toată lățimea (~390px,
+              ~780px la DPR 2), iar thumb-ul de ~320px s-ar vedea neclar. */}
+          <BlurImage
+            src={product.image_url}
+            alt={product.name}
+            aspectRatio="4 / 3"
+            width={1200}
+            height={900}
+            skeleton
+          />
 
           {/* Scrim gradient jos — garantează lizibilitatea numelui/prețului alb
               peste ORICE poză (inclusiv poze deschise). */}
@@ -210,6 +220,15 @@ function ProductPhotoCard({
                 )}
               </span>
             )}
+
+            {/* Alergenii: toți, mereu (UE 1169/2011 — înainte de „+”). Sticlă
+                întunecată peste poză, ca badge-urile de deasupra. */}
+            <AllergenIcons
+              allergens={product.allergens}
+              lang={lang}
+              chipBg="rgba(0,0,0,0.45)"
+              chipBorder="rgba(255,255,255,0.35)"
+            />
 
             <span
               style={{

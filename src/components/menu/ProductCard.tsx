@@ -7,6 +7,7 @@ import { menuType } from '../../lib/menuType'
 import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '../../lib/currency'
 import { BlurImage } from '../ui/BlurImage'
 import { thumbUrlFor } from '../../lib/images'
+import { AllergenIcons } from './AllergenIcons'
 import { DIETARY_TAGS } from '../../lib/constants'
 import { T } from '../../lib/publicMenuStrings'
 import { Tf, dietaryLabel } from '../../lib/guestI18n'
@@ -327,6 +328,14 @@ function ProductCard({
             )}
           </span>
         )}
+
+        {/* Alergenii: toți, mereu (UE 1169/2011 — înainte de „+”). */}
+        <AllergenIcons
+          allergens={product.allergens}
+          lang={lang}
+          chipBg={theme.colors.surface2}
+          chipBorder={PUB.border}
+        />
       </button>
 
       {/* Quick-add circular 44px — buton SEPARAT, frate cu zona de conținut. */}
@@ -402,6 +411,8 @@ function Thumbnail({
           fallbackSrc={product.image_url}
           alt={product.name}
           aspectRatio="1 / 1"
+          width={THUMB}
+          height={THUMB}
           skeleton
         />
       </div>
