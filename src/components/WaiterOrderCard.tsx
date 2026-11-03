@@ -7,6 +7,7 @@ import type { Order, PaymentMethod } from '../lib/orders'
 import { D } from '../lib/constants'
 import { elapsed } from '../lib/utils'
 import { ageLevel } from '../lib/orderAge'
+import { isScheduledPickupAhead, urgencyAnchor } from '../lib/pickupOrders'
 import { Icon } from './ui/Icon'
 import PickupDetails from './PickupDetails'
 import { confirm as confirmDialog } from './ui/confirm'
@@ -15,13 +16,16 @@ import { toUserMessage } from '../lib/userMessages'
 
 // FIX: vechiul cod calcula elapsed() o dată la render → timer înghețat
 // în WaiterPage (KitchenPage folosea deja ElapsedTimer). Hook partajat acum.
-function useElapsed(createdAt: string): string {
-  const [val, setVal] = useState(() => elapsed(createdAt))
+// Ceasul bate la 15 s, iar textul se calculează la randare din ancora CURENTĂ:
+// ancora se poate schimba între două bătăi (ora de ridicare tocmai a trecut),
+// iar un text memorat ar rămâne pe vechea ancoră până la următoarea bătaie.
+function useElapsed(anchor: string): string {
+  const [, setTick] = useState(0)
   useEffect(() => {
-    const id = setInterval(() => setVal(elapsed(createdAt)), 15_000)
+    const id = setInterval(() => setTick((t) => t + 1), 15_000)
     return () => clearInterval(id)
-  }, [createdAt])
-  return val
+  }, [])
+  return elapsed(anchor)
 }
 
 // Stările în care o comandă e încă deschisă (ne-terminală) — aceleași ca în
@@ -630,7 +634,13 @@ function OrderCardInner({
   onDismissError,
 }: OrderCardProps) {
   const meta = STATUS_META[order.status]
-  const elapsedStr = useElapsed(order.created_at)
+  // Vârsta afișată are ACEEAȘI ancoră ca culoarea (ageLevel): un pickup
+  // programat a cărui oră a trecut se măsoară față de ora promisă — altfel
+  // cardul scria „3h 20m · întârziată" pentru o comandă întârziată de 25 de
+  // minute. Până la ora promisă rămâne vârsta de la plasare (culoarea e calmă).
+  const elapsedStr = useElapsed(
+    isScheduledPickupAhead(order) ? order.created_at : urgencyAnchor(order),
+  )
   // Lotul G: vârsta colorată, cu aceleași praguri ca în Bucătărie (10 / 20 min,
   // pickup-ul măsurat față de ora promisă). După „Servit" comanda nu mai
   // așteaptă bucătăria, deci culoarea dispare. Re-randarea vine din useElapsed (15 s).

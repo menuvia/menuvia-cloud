@@ -314,6 +314,10 @@ describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-a
 //        late); 12 minute → atenție (warn); 3 minute → calm. Mutația care pică:
 //        vârsta randată fără nivel (codul vechi).
 //   WA2  după „Servit" culoarea dispare: comanda nu mai așteaptă bucătăria.
+//   WA3  pickup programat, plasat acum 3 ore, ora promisă trecută de 25 de
+//        minute: cifra afișată e „25m", nu „3h …" — aceeași ancoră ca culoarea.
+//        Înainte de ora promisă cifra rămâne vârsta de la plasare. Mutația care
+//        pică: `useElapsed(order.created_at)` (cifra veche, „3h 0m · întârziată").
 describe('OrderCard — vârsta colorată (lotul G)', () => {
   const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
 
@@ -334,6 +338,32 @@ describe('OrderCard — vârsta colorată (lotul G)', () => {
       <OrderCard order={makeOrder({ status: 'new', created_at: ago(3) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
     )
     expect(calm.container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('calm')
+  })
+
+  it('WA3 pickup programat: vârsta afișată e față de ora promisă', () => {
+    const late = render(
+      <OrderCard
+        order={makeOrder({ status: 'preparing', source: 'pickup', created_at: ago(180), pickup_time: ago(25) })}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+      />,
+    )
+    const span = late.container.querySelector('[data-age]')
+    expect(span?.getAttribute('data-age')).toBe('late')
+    expect(span?.textContent).toBe('25m · întârziată')
+    late.unmount()
+    const ahead = render(
+      <OrderCard
+        order={makeOrder({ status: 'preparing', source: 'pickup', created_at: ago(30), pickup_time: ago(-40) })}
+        paymentsEnabled={null}
+        onPayOpen={vi.fn()}
+        onSplitOpen={vi.fn()}
+      />,
+    )
+    const calm = ahead.container.querySelector('[data-age]')
+    expect(calm?.getAttribute('data-age')).toBe('calm')
+    expect(calm?.textContent).toBe('30m')
   })
 
   it('WA2 servită → fără culoare de întârziere', () => {
