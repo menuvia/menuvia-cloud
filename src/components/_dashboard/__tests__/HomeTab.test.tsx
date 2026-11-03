@@ -98,7 +98,7 @@ vi.mock('../../../lib/supabase', () => {
         failing.has(table) || failing.has(`${table}:${cols}`)
           ? { data: null, count: null, error: { message: 'boom', code: '500' } }
           : rows[`${table}:${cols}`]
-            ? { data: rows[`${table}:${cols}`], count: null, error: null }
+            ? { data: rows[`${table}:${cols}`], count: rows[`${table}:${cols}`].length, error: null }
             : {
               data: (counts[table] ?? 0) > 0 ? [{ id: 'x' }] : [],
               count: counts[table] ?? 0,
@@ -412,9 +412,18 @@ describe('HomeTab — nimic fiscal sub Planul 3 (lotul P)', () => {
 //   HD4  citire eșuată → „—" + „Reîncearcă" (nu „…" la nesfârșit, nu „0");
 //        reîncercarea reface citirea. Mutația care pică: eroarea tratată ca 0.
 //   HD5  modul „doar ridicare": fără „Mese ocupate acum".
+//   HD6  citirea meselor active (numitorul) eșuează → „—" + „Reîncearcă", nu
+//        „…" la nesfârșit. Mutația care pică: numitorul luat din `tablesCount`.
+//   HD7  peste plafonul de rânduri cifra e necunoscută („—"), nu parțială.
+//        Mutația care pică: `.limit(1000)` fără detectarea depășirii.
+//   HD8  revenirea în pagină reface citirile (zi nouă, comenzi noi), fără să
+//        golească cifrele între timp. Mutația care pică: fără `visibilitychange`.
 describe('HomeTab — cifrele zilei (lotul D)', () => {
   it('HD1 Planul 2: mese ocupate distincte, fără bani', async () => {
-    rows['orders:table_id'] = [{ table_id: 't1' }, { table_id: 't1' }, { table_id: 't2' }]
+    rows['tables:id'] = [{ id: 't1' }, { id: 't2' }, { id: 't3' }, { id: 't4' }]
+    // t9 e o masă DEZACTIVATĂ cu o comandă rămasă deschisă: nu se numără
+    // (recenzie #342 — altfel numărătorul putea depăși numitorul).
+    rows['orders:table_id'] = [{ table_id: 't1' }, { table_id: 't1' }, { table_id: 't2' }, { table_id: 't9' }]
     renderHome({ ...plan('growth'), isOwner: false })
     await waitFor(() => expect(metric('Mese ocupate acum')).toHaveTextContent('2/4'))
     expect(screen.queryByText('Încasări azi')).toBeNull()
@@ -459,5 +468,33 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
     renderHome({ ...plan('growth'), pickupOnly: true })
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('1'))
     expect(screen.queryByText('Mese ocupate acum')).toBeNull()
+  })
+
+  it('HD6 numitorul eșuat: „—" și „Reîncearcă"', async () => {
+    failing.add('tables:id')
+    renderHome({ ...plan('growth'), isOwner: false })
+    await waitFor(() => expect(metric('Mese ocupate acum')).toHaveTextContent('—'))
+    expect(screen.getByRole('button', { name: 'Reîncearcă' })).toBeInTheDocument()
+  })
+
+  it('HD7 peste plafonul de rânduri: necunoscut, nu parțial', async () => {
+    rows['tables:id'] = [{ id: 't1' }]
+    rows['orders:table_id'] = Array.from({ length: 1001 }, () => ({ table_id: 't1' }))
+    rows['orders:tips_amount'] = Array.from({ length: 1001 }, () => ({ tips_amount: 1 }))
+    renderHome(plan('pro'))
+    await waitFor(() => expect(metric('Mese ocupate acum')).toHaveTextContent('—'))
+    await waitFor(() => expect(metric('Bacșiș azi')).toHaveTextContent('—'))
+  })
+
+  it('HD8 revenirea în pagină reface citirile', async () => {
+    rpcState.results = [
+      { data: [{ total_revenue: 10 }], error: null },
+      { data: [{ total_revenue: 25 }], error: null },
+    ]
+    renderHome(plan('pro'))
+    await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('10.00 lei'))
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('25.00 lei'))
   })
 })
