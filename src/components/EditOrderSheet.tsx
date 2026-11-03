@@ -65,6 +65,10 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   const [showPicker, setShowPicker] = useState(false)
   const [activeCatId, setActiveCatId] = useState<string | null>(null)
   const [activeProduct, setActiveProduct] = useState<Product | null>(null)
+  // Cât selectorul reîncarcă catalogul, produsele nu se pot alege: altfel
+  // ospătarul putea deschide un produs pe care răspunsul tocmai îl marca
+  // epuizat, iar serverul respingea apoi TOATĂ salvarea (product_sold_out).
+  const [catalogRefreshing, setCatalogRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -105,6 +109,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   // produs epuizat cu product_sold_out).
   function openPicker(): void {
     setShowPicker(true)
+    setCatalogRefreshing(true)
     const isLatest = menuGateRef.current.begin()
     fetchMenuForRestaurant(order.restaurant_id)
       .then((cats) => {
@@ -114,9 +119,18 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
         setActiveCatId((prev) =>
           prev != null && cats.some((c) => c.id === prev) ? prev : (cats[0]?.id ?? null),
         )
+        // Un produs deja deschis pe care catalogul nou îl dă epuizat (sau
+        // scos din meniu) își închide foaia: nu mai poate fi adăugat.
+        setActiveProduct((prev) => {
+          if (!prev) return prev
+          const fresh = cats.flatMap((c) => c.products).find((p) => p.id === prev.id)
+          return fresh && !fresh.is_sold_out ? prev : null
+        })
+        setCatalogRefreshing(false)
       })
       .catch(() => {
         /* catalogul de dinainte rămâne */
+        if (isLatest()) setCatalogRefreshing(false)
       })
   }
 
@@ -595,18 +609,19 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                 // din el rămâne editabilă în coș.
                 <button
                   key={p.id}
-                  disabled={p.is_sold_out}
-                  aria-disabled={p.is_sold_out}
+                  disabled={p.is_sold_out || catalogRefreshing}
+                  aria-disabled={p.is_sold_out || catalogRefreshing}
+                  aria-busy={catalogRefreshing || undefined}
                   onClick={() => {
-                    if (!p.is_sold_out) setActiveProduct(p)
+                    if (!p.is_sold_out && !catalogRefreshing) setActiveProduct(p)
                   }}
                   style={{
                     background: D.s2,
                     border: `1px solid ${D.s3}`,
                     borderRadius: 10,
                     padding: 10,
-                    cursor: p.is_sold_out ? 'not-allowed' : 'pointer',
-                    opacity: p.is_sold_out ? 0.5 : 1,
+                    cursor: p.is_sold_out || catalogRefreshing ? 'not-allowed' : 'pointer',
+                    opacity: p.is_sold_out ? 0.5 : catalogRefreshing ? 0.7 : 1,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 4,
