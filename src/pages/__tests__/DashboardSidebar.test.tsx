@@ -61,7 +61,7 @@
 //        NU se rescrie; după un „Reîncearcă" reușit (plan cunoscut) TVA revine.
 //        Mutația care pică: corecția URL-ului pe `loadError` (fosta poartă
 //        `navReady = planKnown || loadError` în efect).
-import type { ComponentProps } from 'react'
+import { cloneElement, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -284,7 +284,7 @@ async function renderDashboard(
   const view = render(ui)
   // Ancora: Acasă s-a montat (lazy), deci bara laterală e cea finală.
   if (opts.anchor !== false) expect(await screen.findByText('stub-acasa')).toBeInTheDocument()
-  // `ui` = același element, pentru `rerender` după o schimbare a stării mock-urilor.
+  // `ui` = elementul randat; pentru `rerender` se clonează (vezi DS9c).
   return { ...view, ui }
 }
 
@@ -543,7 +543,9 @@ describe('DashboardPage — recenzia #335', () => {
     // „Reîncearcă" reușit: planul devine cunoscut.
     state.loadError = false
     state.features = featuresFor('pro')
-    view.rerender(view.ui)
+    // Element NOU: cu aceeași referință React sare peste re-randare (bailout),
+    // iar DashboardPage n-ar mai citi starea nouă din `useFeatures`.
+    view.rerender(cloneElement(view.ui))
     expect(await screen.findByText('stub-tva')).toBeInTheDocument()
     expect(title()).toHaveTextContent('TVA')
     expect(urls.replaceUrl).not.toHaveBeenCalled()
