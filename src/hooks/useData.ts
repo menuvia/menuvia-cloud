@@ -166,7 +166,10 @@ export function useRestaurants() {
   // ajuns încă la AppRouter. Ieșirea hook-ului e mascată pe el (mai jos).
   const [listOwner, setListOwner] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  // Întoarce lista încărcată (aceeași care ajunge în state) sau `null` când nu
+  // s-a putut citi / a fost depășită de o cerere mai nouă — „Adaugă o locație"
+  // (lotul A) verifică pe ea că locația nouă chiar e în listă.
+  const load = useCallback(async (): Promise<Restaurant[] | null> => {
     const seq = ++loadSeqRef.current
     if (user && loadedForUserRef.current !== user.id) {
       if (loadedForUserRef.current !== null) {
@@ -182,7 +185,7 @@ export function useRestaurants() {
       setRestaurants([])
       setLoading(false)
       initialFetchDoneRef.current = false
-      return
+      return null
     }
     // Setăm loading:true doar pe fetch-ul INIȚIAL pentru acest user. Asta
     // previne flash-ul OnboardingPage când auth se hidratează tardiv —
@@ -198,14 +201,14 @@ export function useRestaurants() {
         .eq('user_id', user.id)
         .neq('role', 'owner'),
     ])
-    if (seq !== loadSeqRef.current) return
+    if (seq !== loadSeqRef.current) return null
     // `owned` e sursa principală de adevăr: dacă interogarea ei eșuează (blip
     // rețea / RLS timeout / 500), NU știm dacă userul are restaurante — arătăm
     // eroare, nu o listă goală (care ar trimite fals un owner la Onboarding).
     if (ownedRes.error) {
       setError(ownedRes.error.message)
       setLoading(false)
-      return
+      return null
     }
     const owned = (ownedRes.data ?? []) as Restaurant[]
     // memberRes eșuat colapsat la „zero membership-uri" ar bloca un staff (fără
@@ -214,7 +217,7 @@ export function useRestaurants() {
     if (memberRes.error && owned.length === 0) {
       setError(memberRes.error.message)
       setLoading(false)
-      return
+      return null
     }
     const viaMembership: Restaurant[] = (memberRes.data ?? [])
       .map((m) => {
@@ -241,21 +244,22 @@ export function useRestaurants() {
         .select('*')
         .eq('id', fv)
         .maybeSingle()
-      if (seq !== loadSeqRef.current) return
+      if (seq !== loadSeqRef.current) return null
       if (fvErr) {
         // Fără restaurantul vizitat în listă, DashboardPage ar cădea pe primul
         // restaurant PROPRIU sub bannerul de impersonare (banner/conținut
         // nepotrivite). Mai bine stare de eroare explicită decât cont greșit.
         setError(fvErr.message)
         setLoading(false)
-        return
+        return null
       }
       if (fvRow) merged.push(fvRow as Restaurant)
     }
-    if (seq !== loadSeqRef.current) return
+    if (seq !== loadSeqRef.current) return null
     setRestaurants(merged)
     setLoading(false)
     initialFetchDoneRef.current = true
+    return merged
   }, [user])
 
   useEffect(() => {

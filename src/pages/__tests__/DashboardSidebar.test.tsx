@@ -61,6 +61,36 @@
 //        NU se rescrie; după un „Reîncearcă" reușit (plan cunoscut) TVA revine.
 //        Mutația care pică: corecția URL-ului pe `loadError` (fosta poartă
 //        `navReady = planKnown || loadError` în efect).
+//
+// Lotul A („Toate locațiile", mig 314):
+//   DS15 proprietar la un local + MANAGER la altul → grupul „Locații" apare;
+//        click → titlul „Toate locațiile" și ecranul montat; „Deschide" din
+//        ecran → `setActive(id)` + Acasă. Mutația care pică: `multiLocation`
+//        netrimis la visibleNavGroups (grupul nu apare), sau `onOpen` fără
+//        setActive.
+//   DS16 un singur local de admin (al doilea e doar ca OSPĂTAR) și vizita de
+//        fondator (membership sintetic) → grupul NU apare. Mutația care pică:
+//        numărarea oricărei membership-uri / a celei sintetice.
+//   DS17 „Adaugă o locație" (SettingsTab primește `addLocation`): ambele
+//        liste se recitesc ÎNAINTE de `setActive(id)`, apoi Acasă. Recitirile
+//        se rezolvă abia când testul le eliberează (promisiune controlată), iar
+//        `setActive` trebuie să vină DUPĂ încheierea AMBELOR — nu doar după
+//        pornirea lor. Mutația care pică: apelurile fără `await` (setActive
+//        imediat după pornire).
+//
+// Recenzia adversarială pe #344:
+//   DS18 „Deschide" pe un id NECUNOSCUT contextului (locație creată pe alt
+//        dispozitiv): membership-urile se recitesc ÎNTÂI; dacă tot lipsește,
+//        fără `setActive` și cu eroarea respinsă spre ecran; control pozitiv:
+//        după o recitire care îl conține, `setActive` pe el. Mutația care pică:
+//        `setActive` direct (rol null pe localul necunoscut).
+//   DS19 locația creată NU apare în lista de restaurante recitită (useData.load
+//        doar setează `error`) → reîncărcare completă, nu panoul lăsat pe
+//        `restaurants[0]`. Mutația care pică: verificarea listei recitite scoasă.
+//   DS20 cardul „Adaugă o locație" DOAR cu limita cunoscută și loc liber: limita
+//        1 cu 1 local deținut → lipsește; limita 2 → apare; `plan_limits` în
+//        încărcare sau planul necunoscut → lipsește. Mutația care pică:
+//        `addLocation` trimis necondiționat pentru proprietar (codul din 3dacdbd).
 import { cloneElement, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
@@ -68,7 +98,7 @@ import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
 import type { RestaurantFeatures } from '../../lib/features'
 
-const { state, homeProps } = vi.hoisted(() => ({
+const { state, homeProps, ctx, limits } = vi.hoisted(() => ({
   state: {
     features: null as RestaurantFeatures | null,
     country: 'RO' as string | null,
@@ -76,6 +106,22 @@ const { state, homeProps } = vi.hoisted(() => ({
     loadError: false,
   },
   homeProps: { upsell: undefined as unknown },
+  // RestaurantContext: membership-urile (lotul A) + ordinea apelurilor.
+  ctx: {
+    memberships: [] as { restaurant_id: string; role: string; restaurant: { id: string; name: string; slug: string } }[],
+    founderViewId: null as string | null,
+    calls: [] as string[],
+    // Ce întorc recitirile (null = membership-urile curente / id-urile lor).
+    reloadRows: null as
+      | { restaurant_id: string; role: string; restaurant: { id: string; name: string; slug: string } }[]
+      | null,
+    listIds: null as string[] | null,
+    // Promisiune controlată: recitirile se termină abia la `release()`.
+    hold: null as Promise<void> | null,
+    openErrors: [] as string[],
+  },
+  // Limitele planului (usePlanLimits): plafonul de restaurante + încărcarea.
+  limits: { maxRestaurants: 1, loading: false },
 }))
 // Confirmarea ieșirii din Setări: răspunsul îl decide testul (`dialog.resolve`).
 const { dialog } = vi.hoisted(() => ({
@@ -98,8 +144,17 @@ vi.mock('../../contexts/RestaurantContext', () => ({
   useRestaurantCtx: () => ({
     activeId: 'rest-1',
     activeRole: 'owner',
-    setActive: vi.fn(),
-    founderViewId: null,
+    setActive: (id: string) => {
+      ctx.calls.push(`setActive:${id}`)
+    },
+    founderViewId: ctx.founderViewId,
+    memberships: ctx.memberships,
+    reloadMemberships: async () => {
+      ctx.calls.push('reloadMemberships')
+      if (ctx.hold) await ctx.hold
+      ctx.calls.push('reloadMemberships:done')
+      return ctx.reloadRows ?? ctx.memberships
+    },
   }),
 }))
 vi.mock('../../hooks/useFeatures', () => ({
@@ -125,8 +180,13 @@ vi.mock('../../hooks/useRestaurantModules', () => ({
 }))
 vi.mock('../../hooks/usePlanLimits', () => ({
   usePlanLimits: () => ({
-    limits: { plan: 'starter', max_products: 300, max_restaurants: 1, max_tables: 120 },
-    loading: false,
+    limits: {
+      plan: 'starter',
+      max_products: 300,
+      max_restaurants: limits.maxRestaurants,
+      max_tables: 120,
+    },
+    loading: limits.loading,
     canAddProduct: () => true,
   }),
 }))
@@ -172,13 +232,26 @@ vi.mock('../../components/VatReportTab', async () => {
 vi.mock('../../components/SettingsTab', async () => {
   const { createElement } = await import('react')
   return {
-    default: (p: { section: string; isOwner?: boolean; onDirtyChange?: (d: boolean) => void }) =>
+    default: (p: {
+      section: string
+      isOwner?: boolean
+      onDirtyChange?: (d: boolean) => void
+      addLocation?: { onCreated: (id: string) => Promise<void> }
+    }) =>
       createElement(
         'div',
         null,
         `stub-setari-${p.section}`,
         // Simulează o modificare nesalvată în formular.
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
+        // Simulează o locație nou creată din „Adaugă o locație" (lotul A).
+        p.addLocation
+          ? createElement(
+              'button',
+              { onClick: () => void p.addLocation?.onCreated('rest-new') },
+              'stub-locatie-creata',
+            )
+          : null,
         p.section === 'account' && p.isOwner === true
           ? createElement('div', { id: 'billing-card' }, 'stub-abonament')
           : null,
@@ -199,7 +272,32 @@ vi.mock('../../components/ModifiersTab', () => ({ default: () => null }))
 vi.mock('../../components/HappyHourTab', () => ({ default: () => null }))
 vi.mock('../../components/StocksTab', () => ({ default: () => null }))
 vi.mock('../../components/TablesManager', () => ({ default: () => null }))
+vi.mock('../../components/LocationsTab', async () => {
+  const { createElement } = await import('react')
+  return {
+    default: (p: { onOpen: (id: string) => Promise<void> }) => {
+      const open = (id: string) =>
+        p.onOpen(id).catch((e: unknown) => {
+          ctx.openErrors.push(e instanceof Error ? e.message : String(e))
+        })
+      return createElement(
+        'div',
+        null,
+        'stub-locatii',
+        createElement('button', { onClick: () => void open('rest-2') }, 'stub-deschide'),
+        createElement('button', { onClick: () => void open('rest-3') }, 'stub-deschide-necunoscut'),
+      )
+    },
+  }
+})
 vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
+// Reîncărcarea completă a paginii (jsdom nu navighează): o notăm.
+vi.mock('../../lib/locations', async (importOriginal) => ({
+  ...((await importOriginal()) as typeof import('../../lib/locations')),
+  hardReloadTo: (path: string) => {
+    ctx.calls.push(`hardReload:${path}`)
+  },
+}))
 vi.mock('../../components/_dashboard/HomeTab', async () => {
   const { createElement } = await import('react')
   return {
@@ -214,9 +312,9 @@ import DashboardPage from '../DashboardPage'
 import { featuresFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { DbPlan } from '../../lib/__tests__/planFeatureMatrix.fixture'
 
-function makeRestaurant(): Restaurant {
+function makeRestaurant(id = 'rest-1'): Restaurant {
   return {
-    id: 'rest-1',
+    id,
     owner_id: 'owner-1',
     name: 'Bistro Test',
     tagline: null,
@@ -249,6 +347,10 @@ function makeRestaurant(): Restaurant {
   }
 }
 
+function membership(id: string, role: string) {
+  return { restaurant_id: id, role, restaurant: { id, name: `Local ${id}`, slug: id } }
+}
+
 const FISCAL = /\bTVA\b|bon(ul|uri)? fiscal|cas[aă] de marcat|Bridge fiscal|Încasări|Facturi/i
 
 // Navigarea din App, emulată: push/replace pe istoricul jsdom.
@@ -277,6 +379,13 @@ async function renderDashboard(
           typeof DashboardPage
         >['updateRestaurant']
       }
+      refetchRestaurants={async () => {
+        ctx.calls.push('refetchRestaurants')
+        if (ctx.hold) await ctx.hold
+        ctx.calls.push('refetchRestaurants:done')
+        const ids = ctx.listIds ?? (ctx.reloadRows ?? ctx.memberships).map((m) => m.restaurant_id)
+        return ids.map((id) => makeRestaurant(id))
+      }}
       navigate={urls.navigate}
       replaceUrl={urls.replaceUrl}
     />
@@ -295,6 +404,15 @@ const openGroup = async (name: RegExp) =>
 
 beforeEach(() => {
   homeProps.upsell = undefined
+  ctx.memberships = [membership('rest-1', 'owner')]
+  ctx.founderViewId = null
+  ctx.calls = []
+  ctx.reloadRows = null
+  ctx.listIds = null
+  ctx.hold = null
+  ctx.openErrors = []
+  limits.maxRestaurants = 1
+  limits.loading = false
   state.loadError = false
   dialog.calls = 0
   dialog.resolve = null
@@ -549,5 +667,119 @@ describe('DashboardPage — recenzia #335', () => {
     expect(await screen.findByText('stub-tva')).toBeInTheDocument()
     expect(title()).toHaveTextContent('TVA')
     expect(urls.replaceUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
+  it('DS15: proprietar + manager la două localuri → „Locații" apare; „Deschide" face localul activ', async () => {
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-2', 'manager')]
+    await renderDashboard('growth')
+    await openGroup(/Locații/)
+    expect(await screen.findByText('stub-locatii')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Toate locațiile')
+    expect(urls.navigate).toHaveBeenLastCalledWith('/dashboard?tab=locatii')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-deschide' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-2'))
+    // rest-2 e deja în context: fără recitirea membership-urilor.
+    expect(ctx.calls).not.toContain('reloadMemberships')
+    await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
+  })
+
+  it('DS16: un singur local de admin (al doilea doar ca ospătar) sau vizita de fondator → fără „Locații"', async () => {
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-2', 'waiter')]
+    const first = await renderDashboard('growth')
+    expect(within(nav()).queryByRole('button', { name: /Locații/ })).toBeNull()
+    first.unmount()
+    // Membership-ul SINTETIC al vizitei de fondator nu e un local al omului.
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-9', 'manager')]
+    ctx.founderViewId = 'rest-9'
+    await renderDashboard('growth')
+    expect(within(nav()).queryByRole('button', { name: /Locații/ })).toBeNull()
+    // Control: grupul Meniu e acolo (bara laterală e cea finală).
+    expect(within(nav()).getByRole('button', { name: /Meniu/ })).toBeInTheDocument()
+  })
+
+  it('DS17: locație nouă → setActive abia DUPĂ ce ambele recitiri s-au terminat, apoi Acasă', async () => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    const gate = { release: () => {} }
+    ctx.hold = new Promise<void>((r) => {
+      gate.release = () => r()
+    })
+    await renderDashboard('growth', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('refetchRestaurants'))
+    expect(ctx.calls).toContain('reloadMemberships')
+    // Recitirile sunt încă în zbor: nicio comutare.
+    expect(ctx.calls).not.toContain('setActive:rest-new')
+    await act(async () => {
+      gate.release()
+    })
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+    const at = ctx.calls.indexOf('setActive:rest-new')
+    expect(ctx.calls.indexOf('reloadMemberships:done')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('reloadMemberships:done')).toBeLessThan(at)
+    expect(ctx.calls.indexOf('refetchRestaurants:done')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('refetchRestaurants:done')).toBeLessThan(at)
+    expect(ctx.calls.some((c) => c.startsWith('hardReload'))).toBe(false)
+    await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
+  })
+
+  it('DS18: „Deschide" pe un id necunoscut → întâi recitire; dacă lipsește, eroare fără comutare', async () => {
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-2', 'manager')]
+    await renderDashboard('growth', { url: '/dashboard?tab=locatii', anchor: false })
+    expect(await screen.findByText('stub-locatii')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-deschide-necunoscut' }))
+    await waitFor(() => expect(ctx.openErrors).toHaveLength(1))
+    expect(ctx.calls).toContain('reloadMemberships')
+    expect(ctx.calls.some((c) => c.startsWith('setActive'))).toBe(false)
+    expect(ctx.openErrors[0]).toMatch(/Locația nu apare/)
+    expect(title()).toHaveTextContent('Toate locațiile')
+    // Control: o recitire care îl conține → comutare.
+    ctx.reloadRows = [...ctx.memberships, membership('rest-3', 'manager')]
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-deschide-necunoscut' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-3'))
+    expect(ctx.openErrors).toHaveLength(1)
+  })
+
+  it('DS19: locația creată lipsește din lista recitită → reîncărcare completă', async () => {
+    limits.maxRestaurants = 2
+    ctx.reloadRows = [membership('rest-1', 'owner'), membership('rest-new', 'owner')]
+    ctx.listIds = ['rest-1']
+    await renderDashboard('growth', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('hardReload:/dashboard'))
+    expect(ctx.calls).toContain('setActive:rest-new')
+    expect(title()).not.toHaveTextContent('Acasă')
+  })
+
+  it('DS20: „Adaugă o locație" doar cu limita cunoscută și loc liber', async () => {
+    const card = () => screen.queryByRole('button', { name: 'stub-locatie-creata' })
+    const at = async (plan: DbPlan | null) => {
+      const view = await renderDashboard(plan, { url: '/dashboard?tab=settings-account', anchor: false })
+      expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+      return view
+    }
+    // Limita 1, un local deținut (Planurile 1–2) → lipsește.
+    limits.maxRestaurants = 1
+    let v = await at('growth')
+    expect(card()).toBeNull()
+    v.unmount()
+    // Limita 2 → apare (control pozitiv).
+    limits.maxRestaurants = 2
+    v = await at('pro')
+    expect(card()).toBeInTheDocument()
+    v.unmount()
+    // `plan_limits` încă în încărcare → necunoscut → lipsește.
+    limits.loading = true
+    v = await at('pro')
+    expect(card()).toBeNull()
+    v.unmount()
+    // Planul necunoscut (features neîncărcate) → lipsește.
+    limits.loading = false
+    await at(null)
+    expect(card()).toBeNull()
   })
 })

@@ -39,6 +39,61 @@ describe('createRestaurant', () => {
     })
   })
 
+  // RC1 (mig 315): cheia de idempotență pleacă la server ca `p_idempotency_key`.
+  // RC2: pe o bază fără 315 (PGRST202) se reîncearcă O dată fără cheie; orice
+  // altă eroare NU declanșează a doua cerere (ar fi o creare dublă oarbă).
+  // Mutații care pică: cheia nepropagată (RC1); fallback pe orice eroare (RC2b).
+  it('RC1: trimite cheia de idempotență', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: { ok: true, restaurant_id: 'r-1', restaurant_slug: 'rsl' },
+      error: null,
+    })
+    await createRestaurant({ name: 'X', idempotencyKey: 'k-1' })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+    expect(mockRpc).toHaveBeenCalledWith('create_restaurant', {
+      p_name: 'X',
+      p_city: null,
+      p_slug: null,
+      p_primary_color: '#C8963C',
+      p_idempotency_key: 'k-1',
+    })
+  })
+
+  it('RC2: PGRST202 → o singură reîncercare fără cheie', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'not found' } })
+      .mockResolvedValueOnce({
+        data: { ok: true, restaurant_id: 'r-1', restaurant_slug: 'rsl' },
+        error: null,
+      })
+    const r = await createRestaurant({ name: 'X', idempotencyKey: 'k-1' })
+    expect(r.restaurant_id).toBe('r-1')
+    expect(mockRpc).toHaveBeenCalledTimes(2)
+    expect(mockRpc).toHaveBeenLastCalledWith('create_restaurant', {
+      p_name: 'X',
+      p_city: null,
+      p_slug: null,
+      p_primary_color: '#C8963C',
+    })
+  })
+
+  // RC3: cu `requireIdempotency` (reîncercarea după un eșec ambiguu) fallback-ul
+  // fără cheie e interzis — PGRST202 urcă la apelant, nicio a doua cerere.
+  // Mutația care pică: fallback-ul aplicat și cu requireIdempotency.
+  it('RC3: requireIdempotency → PGRST202 urcă, fără reîncercare fără cheie', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'not found' } })
+    await expect(
+      createRestaurant({ name: 'X', idempotencyKey: 'k-1', requireIdempotency: true }),
+    ).rejects.toMatchObject({ code: 'PGRST202' })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+  })
+
+  it('RC2b: altă eroare nu declanșează a doua cerere', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'limit' } })
+    await expect(createRestaurant({ name: 'X', idempotencyKey: 'k-1' })).rejects.toBeTruthy()
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+  })
+
   it('throws on rpc error', async () => {
     mockRpc.mockResolvedValueOnce({ data: null, error: new Error('rpc failed') })
     await expect(createRestaurant({ name: 'X' })).rejects.toThrow('rpc failed')

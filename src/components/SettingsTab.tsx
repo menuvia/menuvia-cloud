@@ -14,6 +14,7 @@ import OnlinePaymentsCard from './OnlinePaymentsCard'
 import LoyaltySettingsCard from './LoyaltySettingsCard'
 import MfaCard from './MfaCard'
 import GdprCard from './GdprCard'
+import AddLocationCard, { type AddLocationProps } from './AddLocationCard'
 import { SubscriptionCard } from './_dashboard/SubscriptionCard'
 import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
@@ -156,6 +157,7 @@ export default function SettingsTab({
   modulesState,
   founderView = false,
   surface,
+  addLocation,
 }: {
   // Secțiunea formularului = sub-tab-ul panoului (lib/dashboardNav.ts).
   section: SettingsSection
@@ -185,6 +187,10 @@ export default function SettingsTab({
   // nimic din cele superioare — nici funcția, nici un lacăt. Obligatoriu:
   // `null` = planul necunoscut, deci nicio funcție dependentă de plan.
   surface: PlanSurface | null
+  // „Adaugă o locație" (lotul A). DashboardPage îl trimite DOAR când limita
+  // planului e CUNOSCUTĂ și mai mare decât localurile deținute (canAddLocation,
+  // lib/locations.ts). Lipsă = cardul nu apare (fail-closed, ca `isOwner`).
+  addLocation?: AddLocationProps
 }) {
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
@@ -1932,6 +1938,11 @@ export default function SettingsTab({
                 <SubscriptionCard />
               </div>
             )}
+
+            {/* Locație nouă (goală) pe contul PROPRIETARULUI: limita de
+                restaurante e a contului lui (mig 131), managerul n-are ce crea;
+                fără loc liber în plan, cardul nu apare deloc (lotul P). */}
+            {isOwner && addLocation && <AddLocationCard {...addLocation} />}
 
             <MfaCard />
 

@@ -31,18 +31,45 @@ function asOkResponse(data: unknown, label: string): Record<string, unknown> {
   return data
 }
 
+/**
+ * `idempotencyKey` (mig 315): aceeași cheie trimisă de două ori de același
+ * proprietar întoarce locația DEJA creată, nu una nouă — reîncercarea după un
+ * răspuns pierdut devine sigură. Pe o bază fără 315 PostgREST răspunde
+ * PGRST202 pentru parametrul necunoscut; atunci se reîncearcă O SINGURĂ dată
+ * fără cheie (crearea merge, doar fără protecția la dublură — ca înainte),
+ * tiparul `createReservationPublic` (273). Cu `requireIdempotency` fallback-ul
+ * e INTERZIS și eroarea PGRST202 urcă la apelant: o reîncercare după un eșec
+ * ambiguu fără protecția cheii ar putea face o locație dublă.
+ */
 export async function createRestaurant(input: {
   name: string
   city?: string | null
   slug?: string | null
   primaryColor?: string
+  idempotencyKey?: string | null
+  requireIdempotency?: boolean
 }): Promise<CreatedRestaurant> {
-  const { data, error } = await supabase.rpc('create_restaurant', {
+  const args = {
     p_name: input.name,
     p_city: input.city ?? null,
     p_slug: input.slug ?? null,
     p_primary_color: input.primaryColor ?? '#C8963C',
-  })
+  }
+  const key = input.idempotencyKey ?? null
+  let { data, error } = await supabase.rpc(
+    'create_restaurant',
+    key === null ? args : { ...args, p_idempotency_key: key },
+  )
+  if (
+    error &&
+    key !== null &&
+    input.requireIdempotency !== true &&
+    (error as { code?: unknown }).code === 'PGRST202'
+  ) {
+    const retry = await supabase.rpc('create_restaurant', args)
+    data = retry.data
+    error = retry.error
+  }
   if (error) throw error
   const ok = asOkResponse(data, 'create_restaurant')
   const restaurantId = ok.restaurant_id

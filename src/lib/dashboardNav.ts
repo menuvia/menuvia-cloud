@@ -5,6 +5,8 @@
 // Decizia fondatorului: aceleași ecrane, fiecare într-un SINGUR loc. Harta
 // vechi → nou (testele `dashboardNav.test.ts` o țin):
 //   Acasă      ← home
+//   Locații    ← locatii („Toate locațiile", lotul A — doar pentru adminul cu
+//                ≥ 2 localuri; NU e un ecran vechi mutat, e unul nou)
 //   Comenzi    ← comenzi („Comenzi live”: un card spre /waiter + Bucătărie),
 //                reservations (din Mese & QR), casa-tura (din Rapoarte)
 //   Meniu      ← products, categories, modificatori, happy-hour,
@@ -28,6 +30,7 @@ import type { PlanSurface } from './planSurface'
 
 export type Tab =
   | 'home'
+  | 'locatii'
   | 'products'
   | 'categories'
   | 'modificatori'
@@ -72,6 +75,10 @@ export interface SubTab {
   // „Meniu QR". Planul necunoscut ia varianta cea mai restrictivă.
   labelWithoutPayments?: string
   labelWithoutOrdering?: string
+  // Doar pentru adminul cu ≥ 2 localuri la care e admin (lotul A, decizia
+  // fondatorului): „Toate locațiile". Numărul vine din RestaurantContext
+  // (lib/locations.ts `hasMultipleLocations`).
+  multiLocationOnly?: true
 }
 
 export interface NavGroup {
@@ -90,6 +97,15 @@ export interface NavGroup {
 
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'acasa', label: 'Acasă', icon: 'home', subTabs: [{ id: 'home', label: 'Acasă' }] },
+  {
+    id: 'locatii',
+    label: 'Locații',
+    icon: 'mapPin',
+    adminOnly: true,
+    subTabs: [
+      { id: 'locatii', label: 'Toate locațiile', adminOnly: true, multiLocationOnly: true },
+    ],
+  },
   {
     id: 'comenzi',
     label: 'Comenzi',
@@ -228,6 +244,9 @@ export interface NavContext {
   surface: PlanSurface | null
   // Partenerul (mig 286) vede DOAR tab-urile acoperite de politicile lui.
   isPartnerTab: ((id: Tab) => boolean) | null
+  // Adminul are ≥ 2 localuri la care e admin („Toate locațiile", lotul A).
+  // Lipsă = fals: ecranul nu apare.
+  multiLocation?: boolean
 }
 
 /**
@@ -240,6 +259,8 @@ export function visibleNavGroups(ctx: NavContext): NavGroup[] {
       .filter(
         (st) =>
           isSubTabVisible(st, ctx.isAdmin, ctx.tier, ctx.money, ctx.pickupOnly) &&
+          // „Toate locațiile" (lotul A): doar cu ≥ 2 localuri de admin.
+          (!st.multiLocationOnly || ctx.multiLocation === true) &&
           (ctx.isPartnerTab == null || ctx.isPartnerTab(st.id)),
       )
       .map((st) => ({ ...st, label: subTabLabel(st, ctx.surface) }))

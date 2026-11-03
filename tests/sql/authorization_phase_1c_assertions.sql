@@ -310,7 +310,7 @@ do $$
 declare v_role text; v_fn text; v_should boolean; v_actual boolean; v_proc regprocedure;
   v_all text[] := array[
     'public.preview_invite(text)','public.accept_invite(text)',
-    'public.create_restaurant(text,text,text,text)',
+    'public.create_restaurant(text,text,text,text,uuid)',
     'public.change_member_role(uuid,public.member_role)',
     'public.remove_member(uuid)','public.revoke_invite(uuid)',
     'public.change_restaurant_slug(uuid,text)'];
@@ -336,9 +336,9 @@ begin
       ('anon','public.accept_invite(text)',false),
       ('authenticated','public.accept_invite(text)',true),
       ('service_role','public.accept_invite(text)',false),
-      ('anon','public.create_restaurant(text,text,text,text)',false),
-      ('authenticated','public.create_restaurant(text,text,text,text)',true),
-      ('service_role','public.create_restaurant(text,text,text,text)',false),
+      ('anon','public.create_restaurant(text,text,text,text,uuid)',false),
+      ('authenticated','public.create_restaurant(text,text,text,text,uuid)',true),
+      ('service_role','public.create_restaurant(text,text,text,text,uuid)',false),
       ('anon','public.change_member_role(uuid,public.member_role)',false),
       ('authenticated','public.change_member_role(uuid,public.member_role)',true),
       ('service_role','public.change_member_role(uuid,public.member_role)',false),
