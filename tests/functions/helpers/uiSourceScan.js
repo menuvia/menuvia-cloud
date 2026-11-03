@@ -264,11 +264,12 @@ function visibleTexts(src) {
 // Rândul de dinainte închide un TAG JSX, nu o comparație (`count >` urmat de
 // `owner.limit` e cod, recenzia #336): un tag complet pe rând (`<span>`,
 // `</div>`, `<Button variant="x">`), un `>` singur (închiderea unui tag scris pe
-// mai multe rânduri) sau ultimul atribut al unui tag multilinie (`">`, `'>`,
+// mai multe rânduri), un fragment `<>` sau ultimul atribut al unui tag multilinie (`">`, `'>`,
 // `}>`). `=>` nu e niciodată tag.
 function endsJsxTag(prev) {
   if (!prev.endsWith('>') || prev.endsWith('=>')) return false
-  if (prev === '>') return true
+  // `>` singur sau deschiderea unui fragment (`<>`) pe rândul ei
+  if (prev === '>' || prev.endsWith('<>')) return true
   if (/<\/?[A-Za-z][\w.:-]*(\s[^<>]*)?>$/.test(prev)) return true
   return /["'}]>$/.test(prev)
 }

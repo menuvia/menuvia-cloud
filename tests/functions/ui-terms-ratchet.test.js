@@ -110,6 +110,8 @@ describe('clichet: terminologia din panou', () => {
       '        <span>\n          Dashboard\n        </span>',
       // tag deschis pe mai multe rânduri: ultimul atribut închide tag-ul
       '        <span\n          className="x">\n          Dashboard\n        </span>',
+      // fragment: `<>` deschide JSX la fel ca un tag (recenzia #336)
+      '        <>\n          Dashboard\n        </>',
     ]
     for (const l of caught) assert.ok(termHits(l).length > 0, `ar trebui prinsă: ${l}`)
     const fine = [
