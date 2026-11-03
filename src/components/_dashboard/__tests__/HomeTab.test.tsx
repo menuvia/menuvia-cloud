@@ -331,8 +331,9 @@ describe('HomeTab — upsell-ul unic (lotul P)', () => {
     for (const p of ['pro', null] as const) {
       const { unmount } = renderHome(plan(p))
       expect(await screen.findByText('Acțiuni rapide')).toBeInTheDocument()
-      // Control: zona de abonament e acolo (proprietar), doar oferta lipsește.
-      expect(screen.getByText('card-abonament')).toBeInTheDocument()
+      // Cardul de abonament s-a mutat în Setări → Abonament & cont (lotul R2,
+      // #335); controlul pozitiv al ofertei pe același drum de randare e HU1.
+      expect(screen.queryByText('card-abonament')).toBeNull()
       expect(upsellRegion()).toBeNull()
       unmount()
     }
