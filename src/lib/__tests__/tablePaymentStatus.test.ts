@@ -9,7 +9,7 @@
 //       `TABLE_PAYMENT_STATUS_TIMEOUT_MS` și abandonează cererea (abort)
 //       Mutația care pică: `Promise.race` cu timeout-ul scos.
 //   S3  o excepție (rețea) → `unknown`, fără să arunce
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { rpcMock } = vi.hoisted(() => ({ rpcMock: vi.fn() }))
 vi.mock('../supabase', () => ({ supabase: { rpc: rpcMock } }))
@@ -20,8 +20,10 @@ import {
   TABLE_PAYMENT_STATUS_TIMEOUT_MS,
 } from '../payments'
 
-/** Builder-ul supabase-js: thenable + `abortSignal`. */
-function builder(result: Promise<unknown>) {
+/** Builder-ul supabase-js: thenable + `abortSignal`. Rezultatul se creează
+ * LENEȘ, la `then` — un `Promise.reject` construit dinainte ar fi o respingere
+ * netratată până când codul testat apucă să-l aștepte. */
+function builder(make: () => Promise<unknown>) {
   const signals: AbortSignal[] = []
   const b = {
     signals,
@@ -30,18 +32,17 @@ function builder(result: Promise<unknown>) {
       return b
     },
     then<T>(onOk: (v: unknown) => T, onErr?: (e: unknown) => T) {
-      return result.then(onOk, onErr)
+      return make().then(onOk, onErr)
     },
   }
   return b
 }
 
 beforeEach(() => rpcMock.mockReset())
-afterEach(() => vi.useRealTimers())
 
 describe('fetchTablePaymentStatus', () => {
   it('S1 forma {status, kind}; formă necunoscută → unknown pe câmp', async () => {
-    rpcMock.mockReturnValue(builder(Promise.resolve({ data: { status: 'succeeded', kind: 'split' }, error: null })))
+    rpcMock.mockReturnValue(builder(() => Promise.resolve({ data: { status: 'succeeded', kind: 'split' }, error: null })))
     await expect(fetchTablePaymentStatus('tok', 'sess', 'ref')).resolves.toEqual({
       status: 'succeeded',
       kind: 'split',
@@ -52,13 +53,13 @@ describe('fetchTablePaymentStatus', () => {
       p_payment_ref: 'ref',
     })
 
-    rpcMock.mockReturnValue(builder(Promise.resolve({ data: { status: 'succeeded' }, error: null })))
+    rpcMock.mockReturnValue(builder(() => Promise.resolve({ data: { status: 'succeeded' }, error: null })))
     await expect(fetchTablePaymentStatus('tok', 'sess', 'ref')).resolves.toEqual({
       status: 'succeeded',
       kind: 'unknown',
     })
 
-    rpcMock.mockReturnValue(builder(Promise.resolve({ data: null, error: { message: 'x' } })))
+    rpcMock.mockReturnValue(builder(() => Promise.resolve({ data: null, error: { message: 'x' } })))
     await expect(fetchTablePaymentStatus('tok', 'sess', 'ref')).resolves.toEqual({
       status: 'unknown',
       kind: 'unknown',
@@ -76,23 +77,22 @@ describe('fetchTablePaymentStatus', () => {
   })
 
   it('S2 o cerere agățată → unknown după timeout, cu abort', async () => {
-    vi.useFakeTimers()
-    const b = builder(new Promise(() => {}))
+    // Timere REALE cu un plafon scurt (parametrul `timeoutMs`). Prima variantă,
+    // cu timere false, a lăsat hook-ul să expire în CI (10 s), iar cu un plafon
+    // de 30 ms testul nu mai depinde deloc de cum falsifică vitest timerele.
+    expect(TABLE_PAYMENT_STATUS_TIMEOUT_MS).toBeGreaterThan(0)
+    const b = builder(() => new Promise(() => {}))
     rpcMock.mockReturnValue(b)
-    let settled: unknown = 'pending'
-    void fetchTablePaymentStatus('tok', 'sess', 'ref').then((v) => {
-      settled = v
-    })
-    await vi.advanceTimersByTimeAsync(TABLE_PAYMENT_STATUS_TIMEOUT_MS - 1)
-    expect(settled).toBe('pending')
-    await vi.advanceTimersByTimeAsync(2)
-    expect(settled).toEqual({ status: 'unknown', kind: 'unknown' })
+    const started = Date.now()
+    const res = await fetchTablePaymentStatus('tok', 'sess', 'ref', 30)
+    expect(res).toEqual({ status: 'unknown', kind: 'unknown' })
+    expect(Date.now() - started).toBeGreaterThanOrEqual(25)
     expect(b.signals).toHaveLength(1)
     expect(b.signals[0].aborted).toBe(true)
   })
 
   it('S3 excepție de rețea → unknown, fără throw', async () => {
-    rpcMock.mockReturnValue(builder(Promise.reject(new Error('Failed to fetch'))))
+    rpcMock.mockReturnValue(builder(() => Promise.reject(new Error('Failed to fetch'))))
     await expect(fetchTablePaymentStatus('tok', 'sess', 'ref')).resolves.toEqual({
       status: 'unknown',
       kind: 'unknown',
