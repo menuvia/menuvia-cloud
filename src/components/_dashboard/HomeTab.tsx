@@ -61,8 +61,11 @@ function tint(color: string, percent: number): string {
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
 
 // Lotul D: plafonul de rânduri pentru cifrele de azi (se cere +1 ca depășirea
-// să fie DETECTATĂ, nu tăiată tăcut) și cadența reîmprospătării.
-const METRICS_ROW_CAP = 1000
+// să fie DETECTATĂ, nu tăiată tăcut) și cadența reîmprospătării. N+1 trebuie
+// să rămână SUB `max_rows` al API-ului (1000, supabase/config.toml), altfel
+// cererea de 1001 întoarce 1000 și depășirea nu se vede — aceeași regulă ca
+// STAFF_ORDERS_FETCH_LIMIT = 500 (recenzie CodeRabbit pe #342).
+const METRICS_ROW_CAP = 500
 const METRICS_REFRESH_MS = 120_000
 
 interface Props {

@@ -479,8 +479,8 @@ describe('HomeTab — cifrele zilei (lotul D)', () => {
 
   it('HD7 peste plafonul de rânduri: necunoscut, nu parțial', async () => {
     rows['tables:id'] = [{ id: 't1' }]
-    rows['orders:table_id'] = Array.from({ length: 1001 }, () => ({ table_id: 't1' }))
-    rows['orders:tips_amount'] = Array.from({ length: 1001 }, () => ({ tips_amount: 1 }))
+    rows['orders:table_id'] = Array.from({ length: 501 }, () => ({ table_id: 't1' }))
+    rows['orders:tips_amount'] = Array.from({ length: 501 }, () => ({ tips_amount: 1 }))
     renderHome(plan('pro'))
     await waitFor(() => expect(metric('Mese ocupate acum')).toHaveTextContent('—'))
     await waitFor(() => expect(metric('Bacșiș azi')).toHaveTextContent('—'))
