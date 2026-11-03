@@ -1,5 +1,4 @@
-import { allergenEntries } from '../../lib/allergens'
-import { Tf } from '../../lib/guestI18n'
+import { allergenEntries, allergenListLabel } from '../../lib/allergens'
 
 // ─────────────────────────────────────────────────────────────
 // AllergenIcons — alergenii produsului, ca pictograme, pe FIECARE card din
@@ -19,6 +18,10 @@ import { Tf } from '../../lib/guestI18n'
 //     pictogramă generică, iar numele lui brut intră în textul accesibil;
 //   - numele întreg, în limba aleasă, stă în `aria-label` + `title` (un
 //     singur rol `img` — e conținut de frază într-un <button>, deci fără listă).
+//     Cardurile cu `aria-label` pe buton (Grid, Photo) pun ACEEAȘI listă și în
+//     el (`allergenListLabel`): acolo eticheta butonului înlocuiește conținutul;
+//   - foaia produsului folosește aceeași listă (`allergenEntries`), deci un id
+//     necunoscut nu apare pe card și dispare în foaie.
 // ─────────────────────────────────────────────────────────────
 
 export function AllergenIcons({
@@ -36,8 +39,8 @@ export function AllergenIcons({
   size?: number
 }) {
   const entries = allergenEntries(allergens, lang)
-  if (entries.length === 0) return null
-  const label = Tf(lang, 'allergens_list_aria', { list: entries.map((e) => e.label).join(', ') })
+  const label = allergenListLabel(allergens, lang)
+  if (entries.length === 0 || !label) return null
   return (
     <span
       role="img"

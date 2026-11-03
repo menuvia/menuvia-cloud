@@ -1,5 +1,5 @@
 import { ALLERGENS } from './constants'
-import { allergenLabel } from './guestI18n'
+import { Tf, allergenLabel } from './guestI18n'
 
 // Lista de alergeni afișată pe cardurile meniului oaspetelui (lotul C) —
 // pură, separată de componentă (react-refresh cere ca un fișier .tsx să
@@ -39,4 +39,17 @@ export function allergenEntries(
       ? { id, emoji: a.emoji, label: allergenLabel(lang, a.id, a.label) }
       : { id, emoji: UNKNOWN_EMOJI, label: id }
   })
+}
+
+/** „Alergeni: Gluten, Lapte” în limba aleasă, sau null fără alergeni. Textul
+ *  accesibil al pictogramelor ȘI al cardului: Grid și Photo au `aria-label`
+ *  pe buton, care înlocuiește numele calculat din conținut (iar copiii unui
+ *  <button> sunt prezentaționali), deci acolo lista trebuie pusă explicit. */
+export function allergenListLabel(
+  allergens: readonly string[] | null | undefined,
+  lang: string,
+): string | null {
+  const entries = allergenEntries(allergens, lang)
+  if (entries.length === 0) return null
+  return Tf(lang, 'allergens_list_aria', { list: entries.map((e) => e.label).join(', ') })
 }

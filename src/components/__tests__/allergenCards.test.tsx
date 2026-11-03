@@ -13,15 +13,22 @@
 //   AL5  imagini: grila folosește thumb-ul _t (cu originalul ca fallback),
 //        cardul-poză originalul; ProductCard are width/height intrinseci.
 //        Mutația care pică: `src={product.image_url}` pe grilă.
+//   AL6  numele ACCESIBIL al butonului-card conține alergenii, pe toate patru.
+//        Grid și Photo au `aria-label` pe buton, care înlocuiește conținutul
+//        (pictogramele nu ajung la cititorul de ecran) — mutația care pică:
+//        `allergenListLabel` scos din aria-label-ul lui Grid sau Photo.
+//   AL7  foaia produsului arată aceeași listă ca cardul, inclusiv id-ul
+//        necunoscut. Mutația care pică: `if (!a) return null` readus.
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import ProductCard from '../menu/ProductCard'
 import ProductGridCard from '../menu/ProductGridCard'
 import ProductPhotoCard from '../menu/ProductPhotoCard'
 import ProductMinimalRow from '../menu/ProductMinimalRow'
 import { allergenEntries } from '../../lib/allergens'
+import ProductSheet from '../ProductSheet'
 import { ALLERGENS } from '../../lib/constants'
-import { getTheme } from '../../lib/themes'
+import { getTheme, resolveTheme } from '../../lib/themes'
 import { makeProduct } from './fixtures'
 import type { Product } from '../../lib/qr'
 
@@ -69,6 +76,8 @@ describe('alergenii pe cardurile oaspetelui', () => {
     const e = allergenEntries(['lapte', ' gluten ', 'xyz', 'lapte', ''], 'en')
     expect(e.map((x) => x.id)).toEqual(['gluten', 'lapte', 'xyz'])
     expect(e.map((x) => x.label)).toEqual(['Gluten', 'Milk', 'xyz'])
+    // Două necunoscute: după cele cunoscute, în ordinea în care au venit.
+    expect(allergenEntries(['zzz', 'oua', 'aaa'], 'ro').map((x) => x.id)).toEqual(['oua', 'zzz', 'aaa'])
     expect(allergenEntries([], 'ro')).toEqual([])
     expect(allergenEntries(null, 'ro')).toEqual([])
   })
@@ -118,5 +127,30 @@ describe('alergenii pe cardurile oaspetelui', () => {
     expect(cardImg?.getAttribute('src')).toBe(IMG.replace('.webp', '_t.webp'))
     expect(cardImg?.getAttribute('width')).toBe('88')
     expect(cardImg?.getAttribute('height')).toBe('88')
+  })
+
+  it.each(CARDS)('AL6 %s: butonul-card își anunță alergenii cititorului de ecran', (_n, Card) => {
+    renderCard(Card, makeProduct({ name: 'Plăcintă', image_url: IMG, allergens: ['lapte', 'gluten'] }))
+    expect(screen.getByRole('button', { name: /Allergens: Gluten, Milk/ })).toBeInTheDocument()
+  })
+
+  it('AL7 foaia produsului: aceeași listă ca pe card, cu id-ul necunoscut', () => {
+    render(
+      <ProductSheet
+        product={makeProduct({ name: 'Supă', allergens: ['xyz', 'lapte', 'gluten'] })}
+        accent="#C8963C"
+        theme={resolveTheme(null)}
+        onAdd={vi.fn()}
+        onClose={vi.fn()}
+        lang="en"
+      />,
+    )
+    const toggle = screen.getByRole('button', { name: 'More info' })
+    if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
+    const ids = Array.from(document.querySelectorAll<HTMLElement>('[data-allergen]')).map(
+      (el) => el.dataset.allergen,
+    )
+    expect(ids).toEqual(['gluten', 'lapte', 'xyz'])
+    expect(document.querySelector('[data-allergen="xyz"]')?.textContent).toContain('xyz')
   })
 })

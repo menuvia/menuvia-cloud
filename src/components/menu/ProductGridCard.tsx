@@ -8,6 +8,7 @@ import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '..
 import { BlurImage } from '../ui/BlurImage'
 import { thumbUrlFor } from '../../lib/images'
 import { AllergenIcons } from './AllergenIcons'
+import { allergenListLabel } from '../../lib/allergens'
 import { DIETARY_TAGS } from '../../lib/constants'
 import { T } from '../../lib/publicMenuStrings'
 import { Tf, dietaryLabel } from '../../lib/guestI18n'
@@ -125,7 +126,14 @@ function ProductGridCard({
         onClick={() => {
           if (!isSoldOut) onOpen(product)
         }}
-        aria-label={Tf(lang, 'view_details_named', { name: product.name })}
+        // Eticheta butonului ÎNLOCUIEȘTE conținutul pentru cititorul de ecran,
+        // deci alergenii (pictogramele dinăuntru) se repetă aici.
+        aria-label={[
+          Tf(lang, 'view_details_named', { name: product.name }),
+          allergenListLabel(product.allergens, lang),
+        ]
+          .filter(Boolean)
+          .join('. ')}
         style={{
           display: 'flex',
           flexDirection: 'column',

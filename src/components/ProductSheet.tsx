@@ -15,10 +15,11 @@ import { modifierGroupMin } from '../lib/qr'
 import type { CartItem, SelectedModifier } from '../lib/orders'
 import { fmtPrice, type MenuCurrency } from '../lib/currency'
 import { ALLERGENS, DIETARY_TAGS } from '../lib/constants'
+import { allergenEntries } from '../lib/allergens'
 import { readableTextOn, type MenuTheme } from '../lib/themes'
 import Icon, { type IconName } from './ui/Icon'
 import { T } from '../lib/publicMenuStrings'
-import { allergenLabel, dietaryLabel, modifierGroupHintT } from '../lib/guestI18n'
+import { dietaryLabel, modifierGroupHintT } from '../lib/guestI18n'
 
 type Selections = Record<string, string | Set<string> | null>
 
@@ -1132,14 +1133,16 @@ function ProductSheet({
                           <Icon name="alert" size={12} color="#8B6914" /> {T(lang, 'allergens_title')}
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {product.allergens.map((id) => {
-                            const a = ALLERGENS.find((x) => x.id === id)
-                            if (!a) return null
+                          {/* Aceeași listă ca pe card (lotul C): ordine canonică, fără
+                              duplicate, iar un id necunoscut NU dispare. */}
+                          {allergenEntries(product.allergens, lang).map((e) => {
+                            const a = ALLERGENS.find((x) => x.id === e.id)
                             return (
                               <span
-                                key={id}
+                                key={e.id}
+                                data-allergen={e.id}
                                 // Descrierea (exemple de alimente) există doar în română.
-                                title={lang === 'ro' ? a.desc : undefined}
+                                title={lang === 'ro' && a ? a.desc : undefined}
                                 style={{
                                   fontSize: 12,
                                   fontWeight: 500,
@@ -1151,7 +1154,7 @@ function ProductSheet({
                                   fontFamily: 'DM Sans, sans-serif',
                                 }}
                               >
-                                {a.emoji} {allergenLabel(lang, a.id, a.label)}
+                                {e.emoji} {e.label}
                               </span>
                             )
                           })}
