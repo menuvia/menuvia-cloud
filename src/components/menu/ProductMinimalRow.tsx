@@ -8,6 +8,7 @@ import { fmtPrice, currencyLabel, currencyDecimals, type MenuCurrency } from '..
 import { DIETARY_TAGS } from '../../lib/constants'
 import { T } from '../../lib/publicMenuStrings'
 import { Tf, dietaryLabel } from '../../lib/guestI18n'
+import { AllergenIcons } from './AllergenIcons'
 
 // ─────────────────────────────────────────────────────────────
 // ProductMinimalRow — rând de produs MINIMAL/EDITORIAL (stil eker.ro): fără
@@ -236,6 +237,15 @@ function ProductMinimalRow({
             )}
           </span>
         )}
+
+        {/* Alergenii: toți, mereu (UE 1169/2011 — înainte de „+”). */}
+        <AllergenIcons
+          allergens={product.allergens}
+          lang={lang}
+          chipBg={theme.colors.surface2}
+          chipBorder={PUB.border}
+          size={20}
+        />
       </button>
 
       {/* Quick-add — buton SEPARAT (frate), outline discret ca să rămână minimal. */}
