@@ -204,11 +204,14 @@ function coloredButtons(src) {
 /**
  * Fragmentele de text VIZIBIL dintr-un fișier: literalele de string (`'…'`,
  * `"…"`, `` `…` `` pe un rând) care NU arată a identificator/cheie/rută, plus
- * textul JSX (între `>` și `<`, sau un rând întreg de text într-un bloc JSX).
+ * textul JSX (între `>` și `<`, sau un rând întreg de text într-un bloc JSX —
+ * inclusiv un rând cu UN SINGUR cuvânt, dar doar imediat după un tag deschis).
  * Întoarce `{ line, text }`.
  */
 function visibleTexts(src) {
   const out = []
+  // Ultimul rând ne-gol (după interpolări), pentru regula cuvântului singur.
+  let prevTrim = ''
   stripComments(src)
     .split('\n')
     .forEach((line, idx) => {
@@ -238,9 +241,23 @@ function visibleTexts(src) {
       }
       // rând întreg de text JSX (fără caractere de cod)
       const t = plain.trim()
-      if (t && !/[{}()<>=;:'"`[\]]/.test(t) && /[A-Za-zĂÂÎȘȚăâîșț]{2,}\s/.test(t)) {
+      const textLine = t !== '' && !/[{}()<>=;:'"`[\]]/.test(t)
+      if (textLine && /[A-Za-zĂÂÎȘȚăâîșț]{2,}\s/.test(t)) {
+        out.push({ line: n, text: t })
+      } else if (
+        // Un SINGUR cuvânt pe rând (`<span>` / `Dashboard` / `</span>`, recenzia
+        // #336) e text doar când rândul ne-gol de dinainte se termină cu `>`
+        // (tag deschis, nu `=>`): altfel ar fi prinși identificatorii dintr-o
+        // destructurare pe mai multe rânduri (`const {` / `owner,`).
+        textLine &&
+        !/\s/.test(t) &&
+        /[A-Za-zĂÂÎȘȚăâîșț]{2,}/.test(t) &&
+        prevTrim.endsWith('>') &&
+        !prevTrim.endsWith('=>')
+      ) {
         out.push({ line: n, text: t })
       }
+      if (t !== '') prevTrim = t
     })
   return out
 }

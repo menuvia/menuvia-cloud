@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, useId, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -35,6 +35,8 @@ const AiMenuImport = lazy(() => import('./AiMenuImport'))
 const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 
 // ── Product Modal ─────────────────────────────────────────────
+type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void }
+
 function ProductModal({
   product,
   categories,
@@ -54,10 +56,13 @@ function ProductModal({
   categories: Category[]
   // Întoarce succesul salvării; cu keepOpen (doar la create) modalul rămâne
   // deschis pentru „Salvează și adaugă următorul" — parentul NU face setModal(null).
-  onSave: (f: Partial<Product>, opts?: { keepOpen?: boolean }) => boolean | Promise<boolean>
+  // `onError`: unde ajunge mesajul unui eșec — modalul trimite toast-ul LOCAL,
+  // din dialogul `aria-modal` (recenzia #336: viewport-ul global e în afara lui,
+  // iar dialogul rămâne deschis pe eșec, deci mesajul nu era anunțat).
+  onSave: (f: Partial<Product>, opts?: ProductSaveOpts) => boolean | Promise<boolean>
   // Creare categorie inline din select (întoarce id-ul nou sau null pe eșec) —
   // implementată de parent prin useCategories.create, fără apel supabase nou aici.
-  onCreateCategory: (name: string) => Promise<string | null>
+  onCreateCategory: (name: string, onError?: (message: string) => void) => Promise<string | null>
   onClose: () => void
   restaurantId: string
   userId: string
@@ -90,6 +95,11 @@ function ProductModal({
   // la următoarea încercare sau editare (un toast dispare în 3 s, înainte ca
   // omul să afle ce câmp e greșit).
   const [formError, setFormError] = useState<string | null>(null)
+  // Câmpul vinovat: `aria-invalid` + `aria-describedby` (id stabil din useId,
+  // pe alertă) stau DOAR pe el — fiecare stare invalidă e legată de propria eroare.
+  const [formErrorField, setFormErrorField] = useState<'name' | 'price' | null>(null)
+  const formErrorId = useId()
+  const reportError = (message: string) => pmToast(message, 'error')
   // Focus pe Nume după „Salvează și adaugă următorul" — Inp nu forwardează ref,
   // deci țintim input-ul prin containerul câmpului (audit aug 2026: 30 de
   // produse = 30 de cicluri complete de modal; burst-ul de adăugare repară asta).
@@ -495,7 +505,10 @@ function ProductModal({
     }
   }
   const upd = (k: keyof Product, v: unknown) => {
-    if (k === 'name' || k === 'price') setFormError(null)
+    if (k === 'name' || k === 'price') {
+      setFormError(null)
+      setFormErrorField(null)
+    }
     setForm((f) => ({ ...f, [k]: v }))
   }
 
@@ -506,7 +519,7 @@ function ProductModal({
     if (name.length === 0 || newCatBusy) return
     setNewCatBusy(true)
     try {
-      const id = await onCreateCategory(name)
+      const id = await onCreateCategory(name, reportError)
       if (id) {
         upd('category_id', id)
         setNewCatOpen(false)
@@ -525,16 +538,19 @@ function ProductModal({
     // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
     if (!(form.name ?? '').trim()) {
       setFormError('Numele produsului e obligatoriu')
+      setFormErrorField('name')
       return
     }
     if (form.price != null && form.price < 0) {
       setFormError('Prețul nu poate fi negativ')
+      setFormErrorField('price')
       return
     }
     setFormError(null)
+    setFormErrorField(null)
     setSaving(true)
     try {
-      const okSaved = await onSave(form, { keepOpen })
+      const okSaved = await onSave(form, { keepOpen, onError: reportError })
       if (okSaved && keepOpen) {
         // Reset la valorile implicite din mount, DAR păstrăm categoria și cota
         // TVA alese — produsul „următor" e aproape mereu din aceeași secțiune.
@@ -623,6 +639,8 @@ function ProductModal({
             label="Nume"
             value={form.name || ''}
             onChange={(v) => upd('name', v)}
+            invalid={formErrorField === 'name'}
+            describedBy={formErrorField === 'name' ? formErrorId : undefined}
             placeholder="Spaghete Carbonara"
           />
         </div>
@@ -634,6 +652,8 @@ function ProductModal({
             <Inp
               label="Preț (lei)"
               value={form.price != null ? String(form.price) : ''}
+              invalid={formErrorField === 'price'}
+              describedBy={formErrorField === 'price' ? formErrorId : undefined}
               onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
               placeholder="32.00"
@@ -1926,6 +1946,7 @@ function ProductModal({
 
         {formError && (
           <div
+            id={formErrorId}
             role="alert"
             style={{
               background: D.redA,
@@ -2231,14 +2252,17 @@ export default function ProductsTab({
 
   // Întoarce succesul ca modalul să decidă (opts.keepOpen = „Salvează și adaugă
   // următorul": modalul rămâne deschis și își resetează singur formularul).
-  const handleSave = async (
-    form: Partial<Product>,
-    opts?: { keepOpen?: boolean },
-  ): Promise<boolean> => {
+  // Eșecul pleacă prin reporterul modalului (toast-ul din dialog); fără el,
+  // fallback pe toast-ul global, ca un alt apelant să nu piardă mesajul.
+  const handleSave = async (form: Partial<Product>, opts?: ProductSaveOpts): Promise<boolean> => {
+    const fail = (message: string) => {
+      if (opts?.onError) opts.onError(message)
+      else toast(message, 'error')
+    }
     if (modal === 'add') {
       const { error: e } = await create(form)
       if (e) {
-        toast(toUserMessage(e), 'error')
+        fail(toUserMessage(e))
         return false
       }
       // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
@@ -2250,7 +2274,7 @@ export default function ProductsTab({
     } else if (modal) {
       const { error: e } = await update((modal as Product).id, form)
       if (e) {
-        toast(toUserMessage(e), 'error')
+        fail(toUserMessage(e))
         return false
       }
       toast('Actualizat')
@@ -2261,10 +2285,15 @@ export default function ProductsTab({
   }
   // Creare categorie inline din modalul de produs — refolosește helper-ul
   // existent useCategories.create (care reîncarcă și lista), fără apel supabase nou.
-  const handleCreateCategoryInline = async (name: string): Promise<string | null> => {
+  const handleCreateCategoryInline = async (
+    name: string,
+    onError?: (message: string) => void,
+  ): Promise<string | null> => {
     const r = await createCategory({ name })
     if (r.error || !r.data) {
-      toast(toUserMessage(r.error, 'Nu am putut crea categoria.'), 'error')
+      const message = toUserMessage(r.error, 'Nu am putut crea categoria.')
+      if (onError) onError(message)
+      else toast(message, 'error')
       return null
     }
     return (r.data as { id: string }).id

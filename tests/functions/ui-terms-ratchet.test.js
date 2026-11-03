@@ -16,13 +16,16 @@
 //   TM0  CONTROL POZITIV pe linii SINTETICE: termenii sunt prinși în literale
 //        de string cu spațiu sau majusculă (`'Owner'`, `title="Layout meniu"`,
 //        `'Device-uri Bridge'`), în textul JSX dintre taguri (`>Dashboard<`) și
-//        pe un rând întreg de text JSX — și când rândul are o interpolare `{…}`
+//        pe un rând întreg de text JSX — inclusiv un cuvânt SINGUR pe rândul
+//        lui după un tag deschis (`<span>` / `Dashboard` / `</span>`; mutația
+//        care pică: regula cuvântului singur scoasă) —, și când rândul are o interpolare `{…}`
 //        sau ghilimele românești „…" (recenzia #336) —, plus formele flexionate
 //        (`title="Deschide dashboardul…"`, `dashboard-ul`, `dashboarduri`,
 //        `owneri`, `device-ul`, `Înregistrează device`); NU sunt prinși
 //        identificatorii și rutele (`role === 'owner'`, `navigate('/dashboard')`,
 //        `owner_id`, `isOwner`, `'dashboard'`, `'device_secret'`, importul
-//        `./_dashboard/…`), cuvintele care doar ÎNCEP cu rădăcina (`ownership`,
+//        `./_dashboard/…`), identificatorii dintr-o destructurare pe mai multe
+//        rânduri (`const {` / `owner,`) sau de după `=>`, cuvintele care doar ÎNCEP cu rădăcina (`ownership`,
 //        `Dashboards`, `devices`) și nici comentariile.
 //   TM1  niciun termen interzis în textul vizibil din src/components,
 //        src/pages, src/lib/dashboardNav.ts și copy-ul de planuri/prețuri din
@@ -103,6 +106,8 @@ describe('clichet: terminologia din panou', () => {
       "confirmLabel: 'Înregistrează device'",
       "desc: 'Doar owneri și manageri'",
       "hint: 'Reia setup-ul'",
+      // cuvânt singur pe rândul lui, între taguri pe rânduri separate (recenzia #336)
+      '        <span>\n          Dashboard\n        </span>',
     ]
     for (const l of caught) assert.ok(termHits(l).length > 0, `ar trebui prinsă: ${l}`)
     const fine = [
@@ -121,6 +126,10 @@ describe('clichet: terminologia din panou', () => {
       "label: 'Dashboards'",
       "label: 'Devices'",
       '  {devices.map((d) => (',
+      // destructurare pe mai multe rânduri: identificatori, nu text
+      'const {\n  owner,\n  setup\n} = x',
+      // rând după `=>` (corpul unei funcții-săgeată), nu după un tag
+      'const pick = () =>\n  owner',
     ]
     for (const l of fine) assert.deepEqual(termHits(l), [], `nu trebuie prinsă: ${l}`)
   })

@@ -36,7 +36,16 @@
 //        role="alert" — și SUB <ToastProvider>, unde toast-ul vechi pleca în
 //        viewport-ul global, în afara modalului (VoiceOver îl ignora). Mutația
 //        care pică: validarea trimisă înapoi prin `pmToast` (api.error chemat,
-//        nimic în dialog), sau `useToast()` fără `local` pe fișă.
+//        nimic în dialog), sau `useToast()` fără `local` pe fișă. Tot aici:
+//        `aria-invalid="true"` + `aria-describedby` = id-ul alertei stau DOAR
+//        pe câmpul vinovat (Nume, apoi Preț), celălalt nu e marcat invalid.
+//        Mutația care pică: `invalid` legat de `formError` în loc de câmpul lui.
+//   PT11 recenzia #336: salvarea produsului EȘUEAZĂ (create întoarce eroare) →
+//        mesajul apare ÎN dialog (toast-ul local), dialogul rămâne deschis, iar
+//        `api.error` global NU e chemat. Mutația care pică: reporterul
+//        `onError` scos din `onSave` (handleSave cade pe toast-ul global).
+//   PT12 la fel pentru categoria creată inline din select. Mutația care pică:
+//        `onCreateCategory(name)` fără reporter.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import { ToastContext, type ToastApi } from '../ui/useToast'
@@ -53,8 +62,10 @@ vi.mock('../ui/confirm', () => ({
   },
 }))
 
-const { data, vat } = vi.hoisted(() => ({
+const { data, vat, writes } = vi.hoisted(() => ({
   data: { products: [] as Product[] },
+  // Rezultatul scrierilor din fișă (create/update produs, create categorie).
+  writes: { error: null as { message: string } | null },
   // `fail`: câte citiri următoare eșuează; `empty`: restaurant fără cote.
   vat: { calls: 0, fail: 0, empty: false },
 }))
@@ -64,15 +75,20 @@ vi.mock('../../hooks/useData', () => ({
     products: data.products,
     loading: false,
     error: null,
-    create: vi.fn(),
-    update: vi.fn(),
+    create: async () => ({ data: null, error: writes.error }),
+    update: async () => ({ data: null, error: writes.error }),
     remove: vi.fn(),
     toggleActive: vi.fn(),
     toggleSoldOut: vi.fn(),
     toggleDailySpecial: vi.fn(),
     refetch: vi.fn(),
   }),
-  useCategories: () => ({ categories: [], error: null, refetch: vi.fn(), create: vi.fn() }),
+  useCategories: () => ({
+    categories: [],
+    error: null,
+    refetch: vi.fn(),
+    create: async () => ({ data: null, error: writes.error }),
+  }),
 }))
 vi.mock('../../hooks/usePlanLimits', () => ({
   usePlanLimits: () => ({
@@ -119,6 +135,7 @@ vi.mock('../../lib/stocks', () => ({
 }))
 
 import ProductsTab from '../ProductsTab'
+import { toUserMessage } from '../../lib/userMessages'
 import { surfaceFor } from '../../lib/__tests__/planSurfaceFixtures'
 import type { PlanSurface } from '../../lib/planSurface'
 
@@ -206,6 +223,7 @@ beforeEach(() => {
   vat.empty = false
   dialog.calls = 0
   dialog.answer = false
+  writes.error = null
 })
 
 describe('ProductsTab — fiecare plan vede doar ce are', () => {
@@ -369,8 +387,16 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
     expect(within(dlg).queryByRole('alert')).toBeNull()
 
     await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
-    expect(within(dlg).getByRole('alert')).toHaveTextContent('Numele produsului e obligatoriu')
+    const nameAlert = within(dlg).getByRole('alert')
+    expect(nameAlert).toHaveTextContent('Numele produsului e obligatoriu')
     expect(api.error).not.toHaveBeenCalled()
+    const nameInput = within(dlg).getByRole('textbox', { name: 'Nume' })
+    const priceInput = within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' })
+    expect(nameAlert.id).not.toBe('')
+    expect(nameInput).toHaveAttribute('aria-invalid', 'true')
+    expect(nameInput).toHaveAttribute('aria-describedby', nameAlert.id)
+    expect(priceInput).not.toHaveAttribute('aria-invalid')
+    expect(priceInput).not.toHaveAttribute('aria-describedby')
 
     // Editarea numelui stinge alerta; un preț negativ o readuce, tot în dialog.
     await user.type(within(dlg).getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
@@ -379,7 +405,74 @@ describe('ProductsTab — cotele din fișa produsului nu se mai încarcă la nes
       target: { value: '-5' },
     })
     await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
-    expect(within(dlg).getByRole('alert')).toHaveTextContent('Prețul nu poate fi negativ')
+    const priceAlert = within(dlg).getByRole('alert')
+    expect(priceAlert).toHaveTextContent('Prețul nu poate fi negativ')
+    expect(api.error).not.toHaveBeenCalled()
+    const priceAfter = within(dlg).getByRole('spinbutton', { name: 'Preț (lei)' })
+    expect(priceAfter).toHaveAttribute('aria-invalid', 'true')
+    expect(priceAfter).toHaveAttribute('aria-describedby', priceAlert.id)
+    const nameAfter = within(dlg).getByRole('textbox', { name: 'Nume' })
+    expect(nameAfter).not.toHaveAttribute('aria-invalid')
+    expect(nameAfter).not.toHaveAttribute('aria-describedby')
+  })
+})
+
+describe('ProductsTab — eșecurile din fișă rămân în dialog (recenzia #336)', () => {
+  function renderUnderProvider() {
+    const api: ToastApi = {
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
+      info: vi.fn(),
+      dismiss: vi.fn(),
+    }
+    render(
+      <ToastContext.Provider value={api}>
+        <ProductsTab
+          restaurantId="rest-1"
+          plan="pro"
+          onUpgrade={() => {}}
+          userId="u1"
+          canUseAi={false}
+          canUseAiMenu={false}
+          canManageRecipes
+          menuLanguages={[]}
+          surface={surfaceFor('starter')}
+        />
+      </ToastContext.Provider>,
+    )
+    return api
+  }
+  const failure = { message: 'Salvarea a eșuat — încearcă din nou.' }
+
+  it('PT11: salvarea produsului eșuează → mesajul în dialog, nu în toast-ul global', async () => {
+    writes.error = failure
+    const expected = toUserMessage(failure)
+    const user = userEvent.setup()
+    const api = renderUnderProvider()
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    const dlg = await screen.findByRole('dialog', { name: 'Adaugă produs' })
+    // Control: înainte de salvare mesajul nu există nicăieri.
+    expect(within(dlg).queryByText(expected)).toBeNull()
+    await user.type(within(dlg).getByRole('textbox', { name: 'Nume' }), 'Ciorbă')
+    await user.click(within(dlg).getByRole('button', { name: 'Salvează' }))
+    expect(await within(dlg).findByText(expected)).toBeInTheDocument()
+    expect(api.error).not.toHaveBeenCalled()
+    // Dialogul rămâne deschis pe eșec.
+    expect(screen.getByRole('dialog', { name: 'Adaugă produs' })).toBeInTheDocument()
+  })
+
+  it('PT12: categoria inline eșuează → mesajul în dialog, nu în toast-ul global', async () => {
+    writes.error = failure
+    const expected = toUserMessage(failure, 'Nu am putut crea categoria.')
+    const user = userEvent.setup()
+    const api = renderUnderProvider()
+    await user.click(screen.getByRole('button', { name: '+ Adaugă produs' }))
+    const dlg = await screen.findByRole('dialog', { name: 'Adaugă produs' })
+    await user.selectOptions(within(dlg).getByRole('combobox', { name: 'Categorie' }), '__new__')
+    await user.type(within(dlg).getByRole('textbox', { name: 'Nume categorie nouă' }), 'Supe')
+    await user.click(within(dlg).getByRole('button', { name: 'Creează' }))
+    expect(await within(dlg).findByText(expected)).toBeInTheDocument()
     expect(api.error).not.toHaveBeenCalled()
   })
 })

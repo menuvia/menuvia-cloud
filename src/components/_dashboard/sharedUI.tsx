@@ -270,6 +270,8 @@ export function Inp({
   type = 'text',
   label,
   id,
+  invalid = false,
+  describedBy,
 }: {
   value: string
   onChange: (v: string) => void
@@ -278,6 +280,10 @@ export function Inp({
   /** Numele accesibil al câmpului (textul etichetei vizibile). */
   label: string
   id?: string
+  /** `aria-invalid` — doar când eroarea e chiar a acestui câmp. */
+  invalid?: boolean
+  /** `aria-describedby` — id-ul mesajului de eroare/ajutor. */
+  describedBy?: string
 }) {
   return (
     <input
@@ -287,6 +293,8 @@ export function Inp({
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       aria-label={label}
+      aria-invalid={invalid ? true : undefined}
+      aria-describedby={describedBy}
       style={inp}
       onFocus={(e) => (e.target.style.borderColor = D.gold)}
       onBlur={(e) => (e.target.style.borderColor = D.border)}
