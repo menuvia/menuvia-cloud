@@ -98,6 +98,7 @@ begin
     ('get_menu_for_restaurant(uuid)'),                  -- meniul pe un RTT (212→253)
     ('get_order_public_status(uuid,uuid)'),             -- OrderTracker
     ('get_restaurant_by_slug(text)'),                   -- proiecție publică (217/219/281)
+    ('get_table_payment_public_status(text,uuid,text)'), -- PayTableSheet: „Plătit” doar după server (312); doar {status}, anti-oracle, rate-limit per masă
     ('loyalty_attach_order(uuid,uuid,text,text)'),      -- lib/loyalty.ts
     ('open_table_session(text)'),                       -- sesiunea de masă QR (088)
     ('public_happy_hour_now(uuid)'),                    -- badge HH pe meniu
@@ -129,8 +130,8 @@ begin
   select coalesce(array_agg(x order by x collate "C"), '{}') into v_actual
     from pg_temp.ah_anon_definer() x;
 
-  if cardinality(v_expect) <> 39 then
-    raise exception 'AH1: allowlist-ul are % intrări, se așteptau 39 (editare accidentală?)', cardinality(v_expect);
+  if cardinality(v_expect) <> 40 then
+    raise exception 'AH1: allowlist-ul are % intrări, se așteptau 40 (editare accidentală?)', cardinality(v_expect);
   end if;
   if v_actual is distinct from v_expect then
     raise exception 'AH1 FAIL: setul DEFINER apelabil de anon a derivat. în plus (decide: revoke sau allowlist cu motiv): %; lipsă (apelant public rupt?): %',

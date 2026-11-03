@@ -75,6 +75,23 @@ export function saveQrSessionSnapshot(
   }
 }
 
+/**
+ * Masa e „plătită” în snapshot DOAR dacă fiecare comandă cunoscută e în
+ * `paidOrderIds` — iar acolo intră exclusiv după confirmarea SERVERULUI
+ * (lotul E, mig 312: `get_table_payment_public_status` = `succeeded`), nu pe
+ * rezultatul din browser al lui Stripe. Supraviețuiește reîncărcării; o rundă
+ * nouă (comandă neplătită) o face din nou neplătită. Funcție PURĂ.
+ */
+export function snapshotTablePaid(
+  snap: Pick<QrSessionSnapshot, 'previousOrders' | 'paidOrderIds'> | null,
+): boolean {
+  return (
+    snap != null &&
+    snap.previousOrders.length > 0 &&
+    snap.previousOrders.every((o) => snap.paidOrderIds.includes(o.id))
+  )
+}
+
 export function clearQrSessionSnapshot(token: string): void {
   try {
     sessionStorage.removeItem(storageKey(token))

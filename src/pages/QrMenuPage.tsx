@@ -34,7 +34,13 @@ import {
   saveQrSessionSnapshot,
   clearQrSessionSnapshot,
   reconcileQrSessionSnapshot,
+  snapshotTablePaid,
 } from '../lib/qrSession'
+import {
+  parseTablePaymentReturn,
+  stripTablePaymentReturn,
+  type TablePaymentReturn,
+} from '../lib/tablePaymentConfirm'
 import { callWaiter } from '../lib/orders'
 import {
   fetchLoyaltyState,
@@ -157,14 +163,19 @@ export default function QrMenuPage({ token }: Props) {
   // begin_table_payment. Eroare la citire → butonul rămâne „cere nota".
   const [onlinePayEnabled, setOnlinePayEnabled] = useState(false)
   const [showPaySheet, setShowPaySheet] = useState(false)
-  const [tablePaid, setTablePaid] = useState<boolean>(() => {
-    const snap = loadQrSessionSnapshot(token)
-    return (
-      snap != null &&
-      snap.previousOrders.length > 0 &&
-      snap.previousOrders.every((o) => snap.paidOrderIds.includes(o.id))
-    )
-  })
+  // „Plătit” se derivă din comenzile marcate plătite, iar acestea se marchează
+  // DOAR după confirmarea SERVERULUI (lotul E, mig 312) — deci și după un
+  // reload masa rămâne „plătită” doar dacă serverul a spus-o.
+  const [tablePaid, setTablePaid] = useState<boolean>(() =>
+    snapshotTablePaid(loadQrSessionSnapshot(token)),
+  )
+  // Revenirea din redirect-ul Stripe (3DS & co., `return_url`): citită O
+  // SINGURĂ dată la montare; sheet-ul reia confirmarea de la server, iar URL-ul
+  // se curăță imediat (un refresh nu re-pornește reluarea, un link copiat nu
+  // poartă plata).
+  const [resumePayment, setResumePayment] = useState<TablePaymentReturn | null>(() =>
+    typeof window === 'undefined' ? null : parseTablePaymentReturn(window.location.href),
+  )
   const [showSplitSheet, setShowSplitSheet] = useState(false)
   // Comenzile deja plătite online (client-side, aproximare a settle-ului):
   // totalul butonului „Plătește masa" nu le mai numără, iar o rundă nouă
@@ -183,6 +194,30 @@ export default function QrMenuPage({ token }: Props) {
       paidOrderIds: Array.from(paidOrderIds),
     })
   }, [token, previousOrders, confirmation, sessionId, paidOrderIds])
+
+  useEffect(() => {
+    if (!resumePayment) return
+    try {
+      window.history.replaceState(
+        window.history.state,
+        '',
+        stripTablePaymentReturn(window.location.href),
+      )
+    } catch {
+      /* history indisponibil — reluarea merge oricum, URL-ul rămâne */
+    }
+  }, [resumePayment])
+
+  // Serverul a confirmat plata TOATEI note: marcăm comenzile cunoscute local
+  // ca totalul butonului să nu le renumere la runda următoare.
+  function markTablePaidLocally(): void {
+    setTablePaid(true)
+    setPaidOrderIds((prev) => {
+      const next = new Set(prev)
+      previousOrders.forEach((o) => next.add(o.id))
+      return next
+    })
+  }
 
   // RESID-14: o scanare = un rând. `loadQr` se re-execută la schimbarea
   // token-ului, iar sub StrictMode efectul rulează de DOUĂ ori la montare —
@@ -1814,21 +1849,40 @@ export default function QrMenuPage({ token }: Props) {
             accent={accent}
             lang={lang}
             onClose={() => setShowPaySheet(false)}
-            onPaid={() => {
-              setTablePaid(true)
-              // Serverul a plătit TOATE comenzile neplătite ale sesiunii —
-              // marcăm ce cunoaștem local ca totalul butonului să nu le
-              // renumere la runda următoare. (`confirmation` e mereu null
-              // aici — early-return-ul de mai sus randează OrderTracker.)
-              setPaidOrderIds((prev) => {
-                const next = new Set(prev)
-                previousOrders.forEach((o) => next.add(o.id))
-                return next
-              })
-            }}
+            // Chemat DOAR după `succeeded` de la server: serverul a plătit
+            // TOATE comenzile neplătite ale sesiunii. (`confirmation` e mereu
+            // null aici — early-return-ul de mai sus randează OrderTracker.)
+            onPaid={markTablePaidLocally}
             onPayOtherwise={() => {
               setShowPaySheet(false)
               // Ospătarul află imediat că masa vrea să plătească altfel.
+              void handleRequestBill()
+            }}
+          />
+        </Suspense>
+      )}
+
+      {/* Reluarea confirmării după redirect-ul Stripe (lotul E). Sesiunea vine
+          din URL, nu din state: după un settle reușit pe toată nota sesiunea
+          se închide (084), iar open_table_session a deschis deja una nouă. */}
+      {resumePayment && !showPaySheet && (
+        <Suspense fallback={null}>
+          <PayTableSheet
+            token={token}
+            sessionId={resumePayment.sessionId}
+            PUB={PUB}
+            accent={accent}
+            lang={lang}
+            resume={{
+              paymentRef: resumePayment.paymentRef,
+              redirectFailed: resumePayment.redirectFailed,
+              split: resumePayment.kind === 'split',
+            }}
+            onClose={() => setResumePayment(null)}
+            // Split = plată PARȚIALĂ: masa NU devine „plătită”.
+            onPaid={resumePayment.kind === 'table' ? markTablePaidLocally : () => {}}
+            onPayOtherwise={() => {
+              setResumePayment(null)
               void handleRequestBill()
             }}
           />

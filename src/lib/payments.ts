@@ -200,6 +200,54 @@ export async function cancelTablePayment(
   throw new Error(body.error || 'Anularea nu a reușit.')
 }
 
+// ── Statusul PUBLIC al plății (lotul E, mig 312) ──────────────
+/** Ce poate afla oaspetele despre plata lui — DOAR statusul, din DB. */
+export type TablePaymentPublicStatus =
+  | 'pending'
+  | 'processing'
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'unknown'
+
+const PUBLIC_STATUSES: readonly TablePaymentPublicStatus[] = [
+  'pending',
+  'processing',
+  'succeeded',
+  'failed',
+  'canceled',
+  'unknown',
+]
+
+/**
+ * Statusul plății din DB (`get_table_payment_public_status`, mig 312):
+ * `succeeded` DOAR după ce `settle_table_payment` a decontat-o (webhook-ul),
+ * nu pe rezultatul din browser al lui Stripe. `paymentRef` = id-ul plății
+ * (uuid, din `createTablePayment`) sau id-ul PaymentIntent-ului (`pi_…`).
+ *
+ * NU aruncă: orice eroare (rețea, RPC nedeployat, formă necunoscută) dă
+ * `unknown` — iar UI-ul nu declară „Plătit” pe `unknown`, deci degradarea e
+ * spre „în curs de confirmare”, niciodată spre un „Plătit” fals.
+ */
+export async function fetchTablePaymentStatus(
+  token: string,
+  sessionId: string,
+  paymentRef: string,
+): Promise<TablePaymentPublicStatus> {
+  try {
+    const { data, error } = await supabase.rpc('get_table_payment_public_status', {
+      p_token: token,
+      p_session_id: sessionId,
+      p_payment_ref: paymentRef,
+    })
+    if (error) return 'unknown'
+    const status = (data as { status?: unknown } | null)?.status
+    return PUBLIC_STATUSES.find((s) => s === status) ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 // ── Reconciliere plăți online (admin, mig 211) ────────────────
 export interface SettleNoteRow {
   id: string
