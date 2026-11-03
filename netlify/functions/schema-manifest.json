@@ -310,6 +310,7 @@
     "migration_309_public_pickup_read_gate",
     "migration_310_founder_admin_single",
     "migration_311_founder_support_rpcs",
-    "migration_312_table_payment_public_status"
+    "migration_312_table_payment_public_status",
+    "migration_313_stock_sold_out"
   ]
 }

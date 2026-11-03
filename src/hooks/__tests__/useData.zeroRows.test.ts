@@ -9,10 +9,23 @@
 //        de drepturi (cod 42501), NU PGRST116; cu un rând, rândul se întoarce
 //        (control). Mutația care pică: `.single()` readus pe oricare dintre ele
 //        (mock-ul nu-l are — ar arunca), sau `return r` fără zeroRowsAsDenied.
+//        toggleSoldOut trece aici pe UPDATE-ul direct fiindcă RPC-ul din mig
+//        313 răspunde PGRST202 (bază fără migrație — fallback-ul de deploy).
+//   ZD3  toggleSoldOut pe o bază CU mig 313: cheamă `set_product_sold_out` cu
+//        starea inversă, contopește sursa întoarsă în rând (fără UPDATE direct)
+//        și dă refuzul serverului (42501) ca eroare de drepturi. Mutația care
+//        pică: toggleSoldOut readus pe `toggleProductFlag` direct (rpc nechemat,
+//        sursa lipsă din rând), sau fallback-ul pe UPDATE luat pe ORICE eroare
+//        (refuzul 42501 ar deveni un UPDATE direct, interzis ospătarului).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 
-const m = vi.hoisted(() => ({ rows: [] as unknown[] }))
+const m = vi.hoisted(() => ({
+  rows: [] as unknown[],
+  list: [] as unknown[],
+  rpc: vi.fn(),
+  updates: 0,
+}))
 
 vi.mock('../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }))
 vi.mock('../../lib/founder', () => ({ getFounderView: () => null }))
@@ -21,15 +34,20 @@ vi.mock('../../lib/supabase', () => {
   const write = () => ({
     eq: () => ({ select: () => Promise.resolve({ data: m.rows, error: null }) }),
   })
+  const update = () => {
+    m.updates += 1
+    return write()
+  }
   return {
     supabase: {
       from: () => ({
         select: () => ({
-          eq: () => ({ order: () => Promise.resolve({ data: [], error: null }) }),
+          eq: () => ({ order: () => Promise.resolve({ data: m.list, error: null }) }),
         }),
         delete: write,
-        update: write,
+        update,
       }),
+      rpc: m.rpc,
     },
   }
 })
@@ -41,6 +59,11 @@ const ROW = { id: 'p1', name: 'Supă', display_order: 0, is_sold_out: true }
 
 beforeEach(() => {
   m.rows = []
+  m.list = []
+  m.updates = 0
+  // Implicit: bază fără mig 313 — RPC-ul lipsește, toggleSoldOut cade pe UPDATE.
+  m.rpc.mockReset()
+  m.rpc.mockResolvedValue({ data: null, error: { message: 'not found', code: 'PGRST202' } })
 })
 
 describe('useData — scrierile refuzate de RLS', () => {
@@ -86,5 +109,40 @@ describe('useData — scrierile refuzate de RLS', () => {
       expect(res.error, toggle).toBeNull()
       expect(res.data, toggle).toEqual(ROW)
     }
+  })
+
+  it('ZD3 toggleSoldOut pe RPC: sursa contopită, refuzul serverului = 42501', async () => {
+    m.list = [{ ...ROW, is_sold_out: false }]
+    const { result } = renderHook(() => useProducts('r1'))
+    await waitFor(() => expect(result.current.products).toHaveLength(1))
+
+    m.rpc.mockResolvedValue({
+      data: { ok: true, product_id: 'p1', is_sold_out: true, sold_out_source: 'manual' },
+      error: null,
+    })
+    m.updates = 0
+    let res: { data: { is_sold_out?: boolean; sold_out_source?: unknown } | null; error: unknown } =
+      { data: null, error: null }
+    await act(async () => {
+      res = await result.current.toggleSoldOut('p1', false)
+    })
+    expect(m.rpc).toHaveBeenCalledWith('set_product_sold_out', {
+      p_product_id: 'p1',
+      p_sold_out: true,
+    })
+    expect(m.updates).toBe(0)
+    expect(res.error).toBeNull()
+    expect(res.data?.is_sold_out).toBe(true)
+    expect(res.data?.sold_out_source).toBe('manual')
+
+    m.rpc.mockResolvedValue({
+      data: null,
+      error: { message: 'Nu ai acces la acest produs.', code: '42501', hint: 'not_member' },
+    })
+    await act(async () => {
+      res = await result.current.toggleSoldOut('p1', true)
+    })
+    expect(m.updates).toBe(0)
+    expect(toUserMessage(res.error)).toBe(MSG_NO_PERMISSION)
   })
 })

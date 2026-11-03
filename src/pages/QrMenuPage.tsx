@@ -5,6 +5,7 @@
 // =============================================================
 
 import { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue, lazy, Suspense } from 'react'
+import { useMenuVersionRefetch } from '../hooks/useMenuVersionRefetch'
 import {
   resolveQrMenu,
   fetchMenuForRestaurant,
@@ -316,6 +317,31 @@ export default function QrMenuPage({ token }: Props) {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => loadQr(), [token])
+
+  // mig 313: la revenirea în tab meniul se reface DOAR dacă versiunea lui s-a
+  // schimbat (un produs epuizat cât telefonul stătea în buzunar apare
+  // „Epuizat”, coșul îl semnalează). O foaie de produs deschisă primește
+  // rândul proaspăt, ca butonul „Adaugă” să știe de epuizare.
+  const menuRestaurantId = ctx?.restaurant.id ?? null
+  const refreshMenu = useCallback(() => {
+    if (!menuRestaurantId) return
+    fetchMenuForRestaurant(menuRestaurantId)
+      .then((cats) => {
+        setCategories(cats)
+        setActiveProduct((prev) => {
+          if (!prev) return prev
+          for (const c of cats) {
+            const fresh = c.products?.find((p) => p.id === prev.id)
+            if (fresh) return fresh
+          }
+          return prev
+        })
+      })
+      .catch(() => {
+        /* meniul vechi rămâne; serverul respinge oricum produsele epuizate */
+      })
+  }, [menuRestaurantId])
+  useMenuVersionRefetch(menuRestaurantId, refreshMenu)
 
   // Ultima adăugare, anunțată de regiunea role="status" (ux-guest-12): fără
   // ea, adăugarea în coș nu era confirmată deloc pentru cititorul de ecran.

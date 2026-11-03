@@ -10,6 +10,7 @@ import {
 import { createRestaurant } from '../lib/restaurants'
 import { getFounderView } from '../lib/founder'
 import { zeroRowsAsDenied } from '../lib/userMessages'
+import { setProductSoldOut, isMissingSoldOutRpc, type SoldOutSource } from '../lib/soldOut'
 
 export interface Restaurant {
   id: string
@@ -118,6 +119,9 @@ export interface Product {
   is_active: boolean
   is_daily_special: boolean
   is_sold_out: boolean
+  // De ce e (sau nu e) epuizat (mig 313): 'stock' = automat din rețetă,
+  // 'manual' = de om. Opțional: lipsește pe o bază fără migrația 313.
+  sold_out_source?: SoldOutSource
   is_draft: boolean
   display_order: number
   allergens: string[]
@@ -509,8 +513,31 @@ export function useProducts(restaurantId: string | null) {
   // Activ/inactiv, epuizat și specialitatea zilei: aceeași regulă.
   const toggleActive = async (id: string, current: boolean) =>
     toggleProductFlag(id, { is_active: !current })
-  const toggleSoldOut = async (id: string, current: boolean) =>
-    toggleProductFlag(id, { is_sold_out: !current })
+  // „Epuizat” trece prin RPC-ul personalului (mig 313), ca sursa (manual vs.
+  // din stoc) să fie scrisă la fel din ProductsTab și din panoul ospătarului.
+  // Pe o bază fără 313 (PGRST202) cade pe UPDATE-ul direct de dinainte.
+  const toggleSoldOut = async (
+    id: string,
+    current: boolean,
+  ): Promise<{ data: Product | null; error: { message: string; code: string } | null }> => {
+    try {
+      const state = await setProductSoldOut(id, !current)
+      const prev = products.find((p) => p.id === id)
+      const row = prev ? { ...prev, ...state } : null
+      if (row) mergeRow(row)
+      return { data: row, error: null }
+    } catch (e) {
+      if (isMissingSoldOutRpc(e)) return toggleProductFlag(id, { is_sold_out: !current })
+      const err = e as { message?: unknown; code?: unknown }
+      return {
+        data: null,
+        error: {
+          message: typeof err.message === 'string' ? err.message : '',
+          code: typeof err.code === 'string' ? err.code : '',
+        },
+      }
+    }
+  }
   const toggleDailySpecial = async (id: string, current: boolean) =>
     toggleProductFlag(id, { is_daily_special: !current })
 

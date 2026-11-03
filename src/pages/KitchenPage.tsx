@@ -5,7 +5,9 @@
 // =============================================================
 
 import {
+  lazy,
   memo,
+  Suspense,
   useCallback,
   useMemo,
   useState,
@@ -33,6 +35,8 @@ import PickupDetails from '../components/PickupDetails'
 import { ActionErrorNote } from '../components/ActionErrorNote'
 import { SignOutButton } from '../components/SignOutButton'
 import { isScheduledPickupAhead, sortByDue, urgencyAnchor } from '../lib/pickupOrders'
+// Panoul „Epuizate” (mig 313): încărcat doar la deschidere.
+const StaffSoldOutSheet = lazy(() => import('../components/StaffSoldOutSheet'))
 
 // D imported from constants
 
@@ -369,6 +373,7 @@ export default function KitchenPage() {
   // tranzientă nu trebuie să lase un banner roșu perpetuu. O eroare NOUĂ (text diferit)
   // redeschide bannerul.
   const [dismissedError, setDismissedError] = useState<string | null>(null)
+  const [showSoldOut, setShowSoldOut] = useState(false)
 
   const {
     orders,
@@ -528,6 +533,17 @@ export default function KitchenPage() {
             activeId={restaurantId}
             setActive={setActive}
           />
+          {restaurantId != null && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShowSoldOut(true)}
+              icon={<Icon name="alert" size={16} />}
+              aria-label="Produse epuizate — marchează ce s-a terminat"
+            >
+              Epuizate
+            </Button>
+          )}
           {pushSupported && pushPerm !== 'unsupported' && (
             <Button
               variant="secondary"
@@ -676,6 +692,12 @@ export default function KitchenPage() {
             <Icon name="close" size={16} />
           </Button>
         </div>
+      )}
+
+      {showSoldOut && restaurantId != null && (
+        <Suspense fallback={null}>
+          <StaffSoldOutSheet restaurantId={restaurantId} onClose={() => setShowSoldOut(false)} />
+        </Suspense>
       )}
 
       {/* Kanban */}

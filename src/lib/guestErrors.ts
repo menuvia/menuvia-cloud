@@ -19,6 +19,9 @@ const HINT_KEYS: Readonly<Record<string, PublicMenuStringKey>> = {
   // create_order (mig 191)
   missing_required_group: 'err_missing_required_group',
   product_inactive: 'err_product_unavailable',
+  // trigger-ul 130 / update_order_items (mig 313): epuizat între timp
+  product_sold_out: 'err_product_sold_out',
+  product_draft: 'err_product_unavailable',
   product_not_found: 'err_product_unavailable',
   product_unavailable: 'err_product_unavailable',
   product_wrong_restaurant: 'err_product_unavailable',
@@ -79,6 +82,7 @@ const MESSAGE_PATTERNS: ReadonlyArray<{ re: RegExp; key: PublicMenuStringKey }> 
   { re: /^Featurea\b/i, key: 'err_feature_disabled' },
   { re: /masa a fost închisă|sesiunea (mesei )?(a expirat|lipsește)/i, key: 'err_session_closed' },
   { re: /cere cel puțin|required group/i, key: 'err_missing_required_group' },
+  { re: /este epuizat|sold out/i, key: 'err_product_sold_out' },
   { re: /product .* (is not available|not found|does not belong)|product not found/i, key: 'err_product_unavailable' },
   { re: /invalid quantity/i, key: 'err_invalid_quantity' },
   { re: /too many lines|too many items/i, key: 'err_too_many_items' },

@@ -506,6 +506,27 @@ export const GUEST_STRINGS = {
     hu: 'A kosár egyik tétele már nem elérhető. Vedd ki, és próbáld újra.',
     es: 'Un producto del carrito ya no está disponible. Quítalo e inténtalo de nuevo.',
   },
+  // mig 313: produsul s-a epuizat între timp (stocul a scăzut sub o porție
+  // sau personalul l-a marcat) — hint `product_sold_out`.
+  err_product_sold_out: {
+    ro: 'Un produs din coș tocmai s-a epuizat. Scoate-l din coș și trimite din nou.',
+    en: 'An item in your cart has just sold out. Remove it and send again.',
+    de: 'Ein Artikel im Warenkorb ist gerade ausverkauft. Entferne ihn und sende erneut.',
+    fr: 'Un article du panier vient d’être épuisé. Retirez-le et renvoyez la commande.',
+    it: 'Un prodotto nel carrello è appena esaurito. Rimuovilo e invia di nuovo.',
+    hu: 'A kosár egyik tétele épp elfogyott. Vedd ki, és küldd el újra.',
+    es: 'Un producto del carrito se acaba de agotar. Quítalo y vuelve a enviar.',
+  },
+  // Coșul conține un produs epuizat după reîmprospătarea meniului (mig 313).
+  cart_sold_out_notice: {
+    ro: 'Unele produse din coș s-au epuizat. Scoate-le ca să poți trimite comanda.',
+    en: 'Some items in your cart have sold out. Remove them to send your order.',
+    de: 'Einige Artikel im Warenkorb sind ausverkauft. Entferne sie, um die Bestellung zu senden.',
+    fr: 'Certains articles du panier sont épuisés. Retirez-les pour envoyer la commande.',
+    it: 'Alcuni prodotti nel carrello sono esauriti. Rimuovili per inviare l’ordine.',
+    hu: 'A kosár néhány tétele elfogyott. Vedd ki őket a rendelés elküldéséhez.',
+    es: 'Algunos productos del carrito se han agotado. Quítalos para enviar el pedido.',
+  },
   err_invalid_quantity: {
     ro: 'Cantitate invalidă — maximum 20 bucăți pe produs.',
     en: 'Invalid quantity — maximum 20 per item.',
