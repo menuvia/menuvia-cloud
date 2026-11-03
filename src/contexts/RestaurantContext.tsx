@@ -31,11 +31,39 @@ interface RestaurantCtxValue {
   // Id-ul restaurantului vizitat în „mod fondator/partener" (nu e membership
   // real al userului) — null în folosirea normală. DashboardPage arată banner.
   founderViewId: string | null
+  // Recitește membership-urile FĂRĂ să treacă prin `loading` (care ar demonta
+  // panoul): după „Adaugă o locație" (lotul A), noul restaurant trebuie să
+  // aibă rolul `owner` în listă ÎNAINTE de `setActive`, altfel `activeRole` ar
+  // fi null pe locul tocmai creat. `false` = citirea a eșuat (lista rămâne).
+  reloadMemberships: () => Promise<boolean>
 }
 
 const RestaurantCtx = createContext<RestaurantCtxValue | null>(null)
 
 const STORAGE_KEY = 'menuvia_active_restaurant'
+
+const MEMBERSHIP_SELECT = 'restaurant_id, role, restaurant:restaurants(id, name, slug)'
+
+// Rândurile `restaurant_memberships` (cu restaurantul încorporat) → forma din
+// context. Folosită de încărcarea inițială ȘI de `reloadMemberships`.
+function mapMembershipRows(data: unknown[] | null): RestaurantMembership[] {
+  return (data ?? []).map((m) => {
+    const raw = m as {
+      restaurant_id: string
+      role: string
+      restaurant:
+        | { id: string; name: string; slug: string }
+        | { id: string; name: string; slug: string }[]
+        | null
+    }
+    const rest = Array.isArray(raw.restaurant) ? raw.restaurant[0] : raw.restaurant
+    return {
+      restaurant_id: raw.restaurant_id,
+      role: raw.role as MemberRole,
+      restaurant: rest ?? { id: '', name: '', slug: '' },
+    }
+  })
+}
 
 export function RestaurantProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth()
@@ -106,7 +134,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       try {
         const { data, error: memErr } = await supabase
           .from('restaurant_memberships')
-          .select('restaurant_id, role, restaurant:restaurants(id, name, slug)')
+          .select(MEMBERSHIP_SELECT)
           .eq('user_id', user!.id)
           // Ordine STABILĂ: fără ea, `rows[0]` (restaurantul implicit când nu
           // există unul salvat) era la mila ordinii returnate de Postgres —
@@ -125,22 +153,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
           return
         }
 
-        const rows: RestaurantMembership[] = (data ?? []).map((m) => {
-          const raw = m as {
-            restaurant_id: string
-            role: string
-            restaurant:
-              | { id: string; name: string; slug: string }
-              | { id: string; name: string; slug: string }[]
-              | null
-          }
-          const rest = Array.isArray(raw.restaurant) ? raw.restaurant[0] : raw.restaurant
-          return {
-            restaurant_id: raw.restaurant_id,
-            role: raw.role as MemberRole,
-            restaurant: rest ?? { id: '', name: '', slug: '' },
-          }
-        })
+        const rows: RestaurantMembership[] = mapMembershipRows(data)
         // Mod fondator/partener: FounderPage sau AffiliatePanel a cerut
         // vizitarea unui restaurant pe care userul NU are membership. RLS-ul
         // (is_member, extins în mig 186) decide accesul: dacă SELECT-ul pe
@@ -223,6 +236,33 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
     setFounderViewId(null)
   }, [])
 
+  // Doar membership-urile REALE se recitesc; cel sintetic al vizitei de
+  // fondator/partener (dacă există) rămâne în listă, neatins.
+  const userId = user?.id ?? null
+  const reloadMemberships = useCallback(async (): Promise<boolean> => {
+    if (!userId) return false
+    const { data, error: memErr } = await supabase
+      .from('restaurant_memberships')
+      .select(MEMBERSHIP_SELECT)
+      .eq('user_id', userId)
+      .order('restaurant_id', { ascending: true })
+    // Contul s-a schimbat cât cererea era în zbor: răspunsul nu mai e al lui.
+    if (loadedForUserRef.current !== userId) return false
+    if (memErr) {
+      console.error('[RestaurantContext] Failed to reload memberships:', memErr)
+      return false
+    }
+    const rows = mapMembershipRows(data)
+    setMemberships((prev) => {
+      const realIds = new Set(rows.map((r) => r.restaurant_id))
+      const synthetic = prev.filter(
+        (m) => m.restaurant_id === founderViewId && !realIds.has(m.restaurant_id),
+      )
+      return [...rows, ...synthetic]
+    })
+    return true
+  }, [userId, founderViewId])
+
   const active = memberships.find((m) => m.restaurant_id === activeId)
 
   return (
@@ -236,6 +276,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
         loading,
         error,
         founderViewId,
+        reloadMemberships,
       }}
     >
       {children}

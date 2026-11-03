@@ -38,6 +38,7 @@ const ProductsTab = lazy(() => import('../components/ProductsTab'))
 const CategoriesTab = lazy(() => import('../components/CategoriesTab'))
 const ReportsTab = lazy(() => import('../components/ReportsTab'))
 const HomeTab = lazy(() => import('../components/_dashboard/HomeTab'))
+const LocationsTab = lazy(() => import('../components/LocationsTab'))
 const FloorPlanEditor = lazy(() => import('../components/FloorPlanEditor'))
 // Re-importăm type-only pentru a evita any-cast
 import type { FloorLayout } from '../components/FloorPlanEditor'
@@ -47,6 +48,7 @@ const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
+import { hasMultipleLocations } from '../lib/locations'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { pickupFeatureState } from '../lib/pickupCopy'
 import { HelpButton } from '../components/HelpButton'
@@ -423,6 +425,7 @@ export default function DashboardPage({
   restaurants,
   restaurantsLoading,
   updateRestaurant,
+  refetchRestaurants,
   navigate,
   replaceUrl,
 }: {
@@ -434,6 +437,9 @@ export default function DashboardPage({
   restaurants: ReturnType<typeof useRestaurants>['restaurants']
   restaurantsLoading: ReturnType<typeof useRestaurants>['loading']
   updateRestaurant: ReturnType<typeof useRestaurants>['update']
+  // Reîncărcarea listei (aceeași instanță useRestaurants din AppRouter) —
+  // după „Adaugă o locație" (lotul A), înainte ca locația nouă să devină activă.
+  refetchRestaurants: () => Promise<void>
   // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
   // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
   navigate: (path: string) => void
@@ -441,7 +447,8 @@ export default function DashboardPage({
   replaceUrl: (path: string) => void
 }) {
   const { user } = useAuth()
-  const { activeId, activeRole, setActive, founderViewId } = useRestaurantCtx()
+  const { activeId, activeRole, setActive, founderViewId, memberships, reloadMemberships } =
+    useRestaurantCtx()
   // OPT-R2: lista de restaurante + `update` vin ca props din AppRouter (o
   // SINGURĂ instanță useRestaurants). Înainte DashboardPage rula o A DOUA
   // instanță → 4 query-uri identice la boot ȘI două copii de state care puteau
@@ -568,6 +575,21 @@ export default function DashboardPage({
   // Munca de MENIU cu AI (import din poză, traducere) — `AGENT_FEATURES` din
   // ai-proxy: o are și agentul cu acces acordat (has_partner_access, PR #307).
   const canUseAiMenu = canUseAi || isPartner
+
+  // „Adaugă o locație" (lotul A): după `create_restaurant`, AMBELE liste se
+  // recitesc ÎNAINTE de `setActive` — fără membership-ul nou în context,
+  // `activeRole` ar fi null pe locul tocmai creat (panoul l-ar trata ca pe un
+  // străin). Dacă recitirea membership-urilor pică, restaurantul activ e deja
+  // salvat (setActive → localStorage), deci o reîncărcare completă îl deschide.
+  const handleLocationCreated = async (restaurantId: string) => {
+    const [membershipsOk] = await Promise.all([reloadMemberships(), refetchRestaurants()])
+    setActive(restaurantId)
+    if (!membershipsOk) {
+      window.location.assign('/dashboard')
+      return
+    }
+    setTab('home')
+  }
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [upgradeReason, setUpgradeReason] = useState<string | null>(null)
   const [isPlatAdmin, setIsPlatAdmin] = useState(false)
@@ -694,6 +716,9 @@ export default function DashboardPage({
 
   // Grupurile vizibile pe rol + tier + module (Gate D), cu etichetele planului
   // (lib/dashboardNav.ts). Un grup fără niciun sub-tab vizibil dispare complet.
+  // „Toate locațiile" (lotul A): adminul cu ≥ 2 localuri la care e admin
+  // (membership-uri REALE — vizita de fondator nu se numără, lib/locations.ts).
+  const multiLocation = hasMultipleLocations(memberships, founderViewId)
   const visibleGroups = visibleNavGroups({
     isAdmin: isAdminRole,
     tier,
@@ -701,6 +726,7 @@ export default function DashboardPage({
     pickupOnly,
     surface,
     isPartnerTab: isPartner ? isPartnerTab : null,
+    multiLocation,
   })
   const groupOf = (t: Tab) => visibleGroups.find((g) => g.subTabs.some((st) => st.id === t)) ?? null
   const requestedGroup = groupOf(requestedTab)
@@ -1496,6 +1522,17 @@ export default function DashboardPage({
                   />
                 </Suspense>
               )}
+              {tab === 'locatii' && (
+                <Suspense fallback={<InlineSpinner label="Se încarcă locațiile..." />}>
+                  <LocationsTab
+                    activeId={restaurant.id}
+                    onOpen={(id) => {
+                      setActive(id)
+                      setTab('home')
+                    }}
+                  />
+                </Suspense>
+              )}
               {tab === 'comenzi' && (
                 <OrdersHub
                   onViewWaiter={onViewWaiter}
@@ -1670,6 +1707,7 @@ export default function DashboardPage({
                     modulesState={modulesState}
                     founderView={inFounderView}
                     surface={surface}
+                    onLocationCreated={handleLocationCreated}
                   />
                 </Suspense>
               )}

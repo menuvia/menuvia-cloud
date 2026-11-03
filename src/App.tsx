@@ -932,6 +932,7 @@ function AppRouter() {
         restaurants={restaurants}
         restaurantsLoading={rLoading}
         updateRestaurant={update}
+        refetchRestaurants={refetch}
         // Tab-ul panoului stă în URL (`/dashboard?tab=…`, lotul R2): push la
         // fiecare schimbare de tab, replace pentru corecții (tab nepermis).
         navigate={navigate}

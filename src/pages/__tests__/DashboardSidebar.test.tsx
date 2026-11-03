@@ -61,6 +61,19 @@
 //        NU se rescrie; după un „Reîncearcă" reușit (plan cunoscut) TVA revine.
 //        Mutația care pică: corecția URL-ului pe `loadError` (fosta poartă
 //        `navReady = planKnown || loadError` în efect).
+//
+// Lotul A („Toate locațiile", mig 314):
+//   DS15 proprietar la un local + MANAGER la altul → grupul „Locații" apare;
+//        click → titlul „Toate locațiile" și ecranul montat; „Deschide" din
+//        ecran → `setActive(id)` + Acasă. Mutația care pică: `multiLocation`
+//        netrimis la visibleNavGroups (grupul nu apare), sau `onOpen` fără
+//        setActive.
+//   DS16 un singur local de admin (al doilea e doar ca OSPĂTAR) și vizita de
+//        fondator (membership sintetic) → grupul NU apare. Mutația care pică:
+//        numărarea oricărei membership-uri / a celei sintetice.
+//   DS17 „Adaugă o locație" (SettingsTab primește `onLocationCreated`): ambele
+//        liste se recitesc ÎNAINTE de `setActive(id)`, apoi Acasă. Mutația care
+//        pică: `setActive` înaintea recitirii membership-urilor.
 import { cloneElement, type ComponentProps } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor, act } from '@testing-library/react'
@@ -68,7 +81,7 @@ import userEvent from '@testing-library/user-event'
 import type { Restaurant } from '../../hooks/useData'
 import type { RestaurantFeatures } from '../../lib/features'
 
-const { state, homeProps } = vi.hoisted(() => ({
+const { state, homeProps, ctx } = vi.hoisted(() => ({
   state: {
     features: null as RestaurantFeatures | null,
     country: 'RO' as string | null,
@@ -76,6 +89,12 @@ const { state, homeProps } = vi.hoisted(() => ({
     loadError: false,
   },
   homeProps: { upsell: undefined as unknown },
+  // RestaurantContext: membership-urile (lotul A) + ordinea apelurilor.
+  ctx: {
+    memberships: [] as { restaurant_id: string; role: string; restaurant: { id: string; name: string; slug: string } }[],
+    founderViewId: null as string | null,
+    calls: [] as string[],
+  },
 }))
 // Confirmarea ieșirii din Setări: răspunsul îl decide testul (`dialog.resolve`).
 const { dialog } = vi.hoisted(() => ({
@@ -98,8 +117,15 @@ vi.mock('../../contexts/RestaurantContext', () => ({
   useRestaurantCtx: () => ({
     activeId: 'rest-1',
     activeRole: 'owner',
-    setActive: vi.fn(),
-    founderViewId: null,
+    setActive: (id: string) => {
+      ctx.calls.push(`setActive:${id}`)
+    },
+    founderViewId: ctx.founderViewId,
+    memberships: ctx.memberships,
+    reloadMemberships: async () => {
+      ctx.calls.push('reloadMemberships')
+      return true
+    },
   }),
 }))
 vi.mock('../../hooks/useFeatures', () => ({
@@ -172,13 +198,26 @@ vi.mock('../../components/VatReportTab', async () => {
 vi.mock('../../components/SettingsTab', async () => {
   const { createElement } = await import('react')
   return {
-    default: (p: { section: string; isOwner?: boolean; onDirtyChange?: (d: boolean) => void }) =>
+    default: (p: {
+      section: string
+      isOwner?: boolean
+      onDirtyChange?: (d: boolean) => void
+      onLocationCreated?: (id: string) => Promise<void>
+    }) =>
       createElement(
         'div',
         null,
         `stub-setari-${p.section}`,
         // Simulează o modificare nesalvată în formular.
         createElement('button', { onClick: () => p.onDirtyChange?.(true) }, 'stub-modifica'),
+        // Simulează o locație nou creată din „Adaugă o locație" (lotul A).
+        p.onLocationCreated
+          ? createElement(
+              'button',
+              { onClick: () => void p.onLocationCreated?.('rest-new') },
+              'stub-locatie-creata',
+            )
+          : null,
         p.section === 'account' && p.isOwner === true
           ? createElement('div', { id: 'billing-card' }, 'stub-abonament')
           : null,
@@ -199,6 +238,18 @@ vi.mock('../../components/ModifiersTab', () => ({ default: () => null }))
 vi.mock('../../components/HappyHourTab', () => ({ default: () => null }))
 vi.mock('../../components/StocksTab', () => ({ default: () => null }))
 vi.mock('../../components/TablesManager', () => ({ default: () => null }))
+vi.mock('../../components/LocationsTab', async () => {
+  const { createElement } = await import('react')
+  return {
+    default: (p: { onOpen: (id: string) => void }) =>
+      createElement(
+        'div',
+        null,
+        'stub-locatii',
+        createElement('button', { onClick: () => p.onOpen('rest-2') }, 'stub-deschide'),
+      ),
+  }
+})
 vi.mock('../../components/FloorPlanEditor', () => ({ default: () => null }))
 vi.mock('../../components/_dashboard/HomeTab', async () => {
   const { createElement } = await import('react')
@@ -249,6 +300,10 @@ function makeRestaurant(): Restaurant {
   }
 }
 
+function membership(id: string, role: string) {
+  return { restaurant_id: id, role, restaurant: { id, name: `Local ${id}`, slug: id } }
+}
+
 const FISCAL = /\bTVA\b|bon(ul|uri)? fiscal|cas[aă] de marcat|Bridge fiscal|Încasări|Facturi/i
 
 // Navigarea din App, emulată: push/replace pe istoricul jsdom.
@@ -277,6 +332,9 @@ async function renderDashboard(
           typeof DashboardPage
         >['updateRestaurant']
       }
+      refetchRestaurants={async () => {
+        ctx.calls.push('refetchRestaurants')
+      }}
       navigate={urls.navigate}
       replaceUrl={urls.replaceUrl}
     />
@@ -295,6 +353,9 @@ const openGroup = async (name: RegExp) =>
 
 beforeEach(() => {
   homeProps.upsell = undefined
+  ctx.memberships = [membership('rest-1', 'owner')]
+  ctx.founderViewId = null
+  ctx.calls = []
   state.loadError = false
   dialog.calls = 0
   dialog.resolve = null
@@ -549,5 +610,46 @@ describe('DashboardPage — recenzia #335', () => {
     expect(await screen.findByText('stub-tva')).toBeInTheDocument()
     expect(title()).toHaveTextContent('TVA')
     expect(urls.replaceUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('DashboardPage — „Toate locațiile" (lotul A)', () => {
+  it('DS15: proprietar + manager la două localuri → „Locații" apare; „Deschide" face localul activ', async () => {
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-2', 'manager')]
+    await renderDashboard('growth')
+    await openGroup(/Locații/)
+    expect(await screen.findByText('stub-locatii')).toBeInTheDocument()
+    expect(title()).toHaveTextContent('Toate locațiile')
+    expect(urls.navigate).toHaveBeenLastCalledWith('/dashboard?tab=locatii')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-deschide' }))
+    expect(ctx.calls).toContain('setActive:rest-2')
+    await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
+  })
+
+  it('DS16: un singur local de admin (al doilea doar ca ospătar) sau vizita de fondator → fără „Locații"', async () => {
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-2', 'waiter')]
+    const first = await renderDashboard('growth')
+    expect(within(nav()).queryByRole('button', { name: /Locații/ })).toBeNull()
+    first.unmount()
+    // Membership-ul SINTETIC al vizitei de fondator nu e un local al omului.
+    ctx.memberships = [membership('rest-1', 'owner'), membership('rest-9', 'manager')]
+    ctx.founderViewId = 'rest-9'
+    await renderDashboard('growth')
+    expect(within(nav()).queryByRole('button', { name: /Locații/ })).toBeNull()
+    // Control: grupul Meniu e acolo (bara laterală e cea finală).
+    expect(within(nav()).getByRole('button', { name: /Meniu/ })).toBeInTheDocument()
+  })
+
+  it('DS17: locație nouă → listele se recitesc ÎNAINTE de setActive, apoi Acasă', async () => {
+    await renderDashboard('growth', { url: '/dashboard?tab=settings-account', anchor: false })
+    expect(await screen.findByText('stub-setari-account')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'stub-locatie-creata' }))
+    await waitFor(() => expect(ctx.calls).toContain('setActive:rest-new'))
+    const at = ctx.calls.indexOf('setActive:rest-new')
+    expect(ctx.calls.indexOf('reloadMemberships')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('reloadMemberships')).toBeLessThan(at)
+    expect(ctx.calls.indexOf('refetchRestaurants')).toBeGreaterThanOrEqual(0)
+    expect(ctx.calls.indexOf('refetchRestaurants')).toBeLessThan(at)
+    await waitFor(() => expect(title()).toHaveTextContent('Acasă'))
   })
 })

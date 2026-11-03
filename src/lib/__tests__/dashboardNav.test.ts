@@ -36,6 +36,12 @@
 //        `dashboardPathFor` + `tabFromSearch` fac dus-întors pe fiecare tab.
 //        Mutația care pică: căutarea aliasului cu `TAB_PARAM_ALIASES[raw]`
 //        (prototipul), sau validarea id-ului scoasă.
+//   NV7  „Toate locațiile" (lotul A, mig 314): ecran NOU (nu e în harta veche),
+//        vizibil DOAR cu `multiLocation` ȘI rol de admin, pe orice plan; lipsa
+//        câmpului din context = ascuns; partenerul nu-l vede. Mutațiile care
+//        pică: `multiLocationOnly` scos de pe sub-tab (apare cu un singur
+//        local), `adminOnly` scos (îl vede un ne-admin), sau filtrul din
+//        visibleNavGroups scris `ctx.multiLocation !== false` (lipsa = vizibil).
 import { describe, it, expect } from 'vitest'
 import {
   NAV_GROUPS,
@@ -200,6 +206,7 @@ describe('dashboardNav — structura (lotul R2)', () => {
   it('NV1: id-urile și ordinea grupurilor și a sub-tab-urilor', () => {
     expect(NAV_GROUPS.map((g) => [g.id, g.subTabs.map((st) => st.id)])).toEqual([
       ['acasa', ['home']],
+      ['locatii', ['locatii']],
       ['comenzi', ['comenzi', 'reservations', 'casa-tura']],
       ['meniu', ['products', 'categories', 'modificatori', 'happy-hour', 'gestiune']],
       ['mese-qr', ['mese', 'arhitectura']],
@@ -220,6 +227,7 @@ describe('dashboardNav — structura (lotul R2)', () => {
     ])
     expect(NAV_GROUPS.map((g) => g.label)).toEqual([
       'Acasă',
+      'Locații',
       'Comenzi',
       'Meniu',
       'Mese & QR',
@@ -344,5 +352,29 @@ describe('dashboardNav — structura (lotul R2)', () => {
       const search = path.includes('?') ? path.slice(path.indexOf('?')) : ''
       expect(tabFromSearch(search) ?? 'home', t).toBe(t)
     }
+  })
+})
+
+describe('dashboardNav — „Toate locațiile" (lotul A)', () => {
+  it('NV7: doar adminul cu ≥ 2 localuri vede ecranul, pe orice plan', () => {
+    for (const plan of ['free', 'starter', 'growth', 'pro'] as DbPlan[]) {
+      expect(visibleIds(ctxFor(plan, { multiLocation: true })), plan).toContain('locatii')
+      expect(visibleIds(ctxFor(plan, { multiLocation: false })), plan).not.toContain('locatii')
+      // Câmpul lipsă din context = ascuns (fail-closed).
+      expect(visibleIds(ctxFor(plan)), plan).not.toContain('locatii')
+      expect(
+        visibleIds(ctxFor(plan, { multiLocation: true, isAdmin: false })),
+        plan,
+      ).not.toContain('locatii')
+    }
+    // Partenerul vede doar tab-urile politicilor lui.
+    expect(
+      visibleIds(ctxFor('pro', { multiLocation: true, isPartnerTab: (id) => id === 'products' })),
+    ).not.toContain('locatii')
+    const st = NAV_GROUPS.flatMap((g) => g.subTabs).find((t) => t.id === 'locatii')
+    if (!st) throw new Error('locatii lipsește')
+    expect(st.multiLocationOnly).toBe(true)
+    // Titlul paginii.
+    expect(subTabLabel(st, surfaceFor('growth'))).toBe('Toate locațiile')
   })
 })
