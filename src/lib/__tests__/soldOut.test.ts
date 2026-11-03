@@ -203,6 +203,6 @@ describe('isSoldOutGuestError — reîncărcarea meniului în QrMenuPage', () =>
     // Mutația care pică: apelul scos din handleSubmit — predicatul ar rămâne
     // corect, dar coșul n-ar mai arăta CARE linie s-a epuizat.
     const src = readFileSync(resolve(process.cwd(), 'src/pages/QrMenuPage.tsx'), 'utf8')
-    expect(src).toMatch(/if \(isSoldOutGuestError\(lastError\)\) refreshMenu\(\)/)
+    expect(src).toMatch(/if \(isSoldOutGuestError\(lastError\)\) (void )?refreshMenu\(\)/)
   })
 })
