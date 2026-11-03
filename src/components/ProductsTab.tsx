@@ -207,7 +207,9 @@ function ProductModal({
   )
   // Instantaneul fișei la deschidere: ieșirea spre cotele TVA închide fișa, deci
   // cu modificări cere confirmare (recenzia #335).
-  const [initialFormJson] = useState(() => JSON.stringify(form))
+  // Se reface după „Salvează și adaugă următorul”: fișa nouă pornește curată
+  // (recenzie CodeRabbit pe #335).
+  const [initialFormJson, setInitialFormJson] = useState(() => JSON.stringify(form))
   async function openVatRatesFromForm() {
     if (!onOpenVatRates) return
     if (JSON.stringify(form) !== initialFormJson) {
@@ -528,7 +530,7 @@ function ProductModal({
         // TVA alese — produsul „următor" e aproape mereu din aceeași secțiune.
         // Obiect nou complet (nu merge peste prev): description/translations
         // dispar odată cu cheile lor.
-        setForm((prev) => ({
+        const next: typeof form = {
           name: '',
           price: 0,
           emoji: '🍽️',
@@ -540,14 +542,16 @@ function ProductModal({
           dietary_tags: [],
           prep_time_minutes: null,
           portion_size: null,
-          vat_group: prev.vat_group ?? 1,
-          category_id: prev.category_id,
+          vat_group: form.vat_group ?? 1,
+          category_id: form.category_id,
           calories: null,
           protein_g: null,
           carbs_g: null,
           fat_g: null,
           ai_generated_fields: [],
-        }))
+        }
+        setForm(next)
+        setInitialFormJson(JSON.stringify(next))
         setImgPreview(null)
         setAiAllergenSuggestions([])
         nameWrapRef.current?.querySelector('input')?.focus()

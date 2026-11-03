@@ -38,7 +38,7 @@
 //        prin replace. Control pozitiv: DS7 (același parametru pe Planul 3).
 //        DS9b: cât planul NU e cunoscut, tab-ul cerut NU e aruncat pe Acasă (nici
 //        URL-ul atins) — un refresh pe „TVA" nu pierde locul. Mutația care pică:
-//        poarta `navReady` scoasă din efectul de corecție.
+//        poarta `planKnown` scoasă din efectul de corecție.
 //   DS10 click pe grup / chip → `navigate('/dashboard?tab=…')` + titlul nou;
 //        Back (`popstate`) readuce tab-ul din URL. Mutația care pică: tab-ul ținut
 //        doar în state (fără push) sau fără ascultătorul de popstate.
