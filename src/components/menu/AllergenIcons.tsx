@@ -1,5 +1,5 @@
-import { ALLERGENS } from '../../lib/constants'
-import { Tf, allergenLabel } from '../../lib/guestI18n'
+import { allergenEntries } from '../../lib/allergens'
+import { Tf } from '../../lib/guestI18n'
 
 // ─────────────────────────────────────────────────────────────
 // AllergenIcons — alergenii produsului, ca pictograme, pe FIECARE card din
@@ -20,39 +20,6 @@ import { Tf, allergenLabel } from '../../lib/guestI18n'
 //   - numele întreg, în limba aleasă, stă în `aria-label` + `title` (un
 //     singur rol `img` — e conținut de frază într-un <button>, deci fără listă).
 // ─────────────────────────────────────────────────────────────
-
-type Allergen = (typeof ALLERGENS)[number]
-const ORDER = new Map<string, number>(ALLERGENS.map((a, i): [string, number] => [a.id, i]))
-const BY_ID = new Map<string, Allergen>(ALLERGENS.map((a): [string, Allergen] => [a.id, a]))
-const UNKNOWN_EMOJI = '⚠️'
-
-export interface AllergenEntry {
-  id: string
-  emoji: string
-  label: string
-}
-
-/** Lista afișată: deduplicată, în ordinea canonică, cu necunoscutele la final. */
-export function allergenEntries(
-  allergens: readonly string[] | null | undefined,
-  lang: string,
-): AllergenEntry[] {
-  const seen = new Set<string>()
-  const ids: string[] = []
-  for (const raw of allergens ?? []) {
-    const id = typeof raw === 'string' ? raw.trim() : ''
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    ids.push(id)
-  }
-  ids.sort((a, b) => (ORDER.get(a) ?? Infinity) - (ORDER.get(b) ?? Infinity))
-  return ids.map((id) => {
-    const a = BY_ID.get(id)
-    return a
-      ? { id, emoji: a.emoji, label: allergenLabel(lang, a.id, a.label) }
-      : { id, emoji: UNKNOWN_EMOJI, label: id }
-  })
-}
 
 export function AllergenIcons({
   allergens,
