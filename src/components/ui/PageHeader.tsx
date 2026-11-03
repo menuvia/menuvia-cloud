@@ -52,7 +52,7 @@ export function PageHeader({
         ...style,
       }}
     >
-      <div style={{ flex: '1 1 240px', minWidth: 0 }}>
+      <div style={{ flex: '1 1 auto', minWidth: 0 }}>
         <Heading
           style={{
             ...PAGE_TITLE_STYLE,
