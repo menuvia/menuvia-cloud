@@ -661,20 +661,15 @@ function ProductModal({
                     placeholder="Nume categorie nouă"
                   />
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void handleCreateCategoryInline()}
-                  disabled={newCatBusy || newCatName.trim().length === 0}
-                  style={btn({
-                    background: D.gold,
-                    color: '#000',
-                    height: 36,
-                    fontSize: '0.74rem',
-                    opacity: newCatBusy || newCatName.trim().length === 0 ? 0.5 : 1,
-                  })}
+                  disabled={newCatName.trim().length === 0}
+                  loading={newCatBusy}
                 >
                   {newCatBusy ? 'Se creează…' : 'Creează'}
-                </button>
+                </Button>
                 <button
                   type="button"
                   onClick={() => {
@@ -735,7 +730,7 @@ function ProductModal({
                     fontSize: '0.74rem',
                     background: 'transparent',
                     color: D.gold,
-                    border: `1px solid ${D.gold}44`,
+                    border: `1px solid ${D.goldBorder}`,
                   })}
                 >
                   Reîncearcă
@@ -751,7 +746,7 @@ function ProductModal({
                     fontSize: '0.74rem',
                     background: 'transparent',
                     color: D.gold,
-                    border: `1px solid ${D.gold}44`,
+                    border: `1px solid ${D.goldBorder}`,
                   })}
                 >
                   Deschide cotele TVA
@@ -897,8 +892,8 @@ function ProductModal({
                   width: 24,
                   height: 24,
                   borderRadius: '50%',
-                  background: D.red,
-                  color: '#fff',
+                  background: D.dangerSolid,
+                  color: D.onSolid,
                   border: 'none',
                   cursor: 'pointer',
                   fontSize: 12,
@@ -960,7 +955,7 @@ function ProductModal({
               style={btn({
                 background: 'transparent',
                 color: D.gold,
-                border: `1px solid ${D.gold}55`,
+                border: `1px solid ${D.goldBorder}`,
                 height: 34,
                 fontSize: '0.78rem',
                 padding: '0 12px',
@@ -1003,7 +998,7 @@ function ProductModal({
                     padding: '4px 10px',
                     borderRadius: 100,
                     fontSize: '0.75rem',
-                    fontFamily: 'DM Sans,sans-serif',
+                    fontFamily: D.fontBody,
                     cursor: 'pointer',
                     outline: 'none',
                     background: active ? tag.color + '22' : 'transparent',
@@ -1049,16 +1044,16 @@ function ProductModal({
                     padding: '5px 8px',
                     borderRadius: 7,
                     fontSize: '0.75rem',
-                    fontFamily: 'DM Sans,sans-serif',
+                    fontFamily: D.fontBody,
                     cursor: 'pointer',
                     outline: 'none',
                     textAlign: 'left',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 5,
-                    background: active ? 'rgba(224,85,85,0.12)' : 'transparent',
+                    background: active ? D.redA : 'transparent',
                     color: active ? D.red : D.t3,
-                    border: `1px solid ${active ? 'rgba(224,85,85,0.3)' : D.border}`,
+                    border: `1px solid ${active ? D.redBorder : D.border}`,
                     fontWeight: active ? 600 : 400,
                     transition: 'all .15s',
                   }}
@@ -1071,9 +1066,10 @@ function ProductModal({
           </div>
           {/* Sugestii AI de alergeni — de confirmat manual (NU se publică automat). */}
           {aiAllergenSuggestions.filter((id) => !(form.allergens || []).includes(id)).length > 0 && (
-            <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amber}44`, borderRadius: 8 }}>
+            <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amberBorder}`, borderRadius: 8 }}>
               <div style={{ fontSize: '0.7rem', color: D.amber, marginBottom: 6, fontWeight: 600 }}>
-                ✨ Sugerat de AI — confirmă doar ce e corect (răspundere legală):
+                <Icon name="sparkle" size={12} color={D.amber} /> Sugerat de AI — confirmă doar ce e
+                corect (răspundere legală):
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {aiAllergenSuggestions
@@ -1093,11 +1089,11 @@ function ProductModal({
                           padding: '4px 10px',
                           borderRadius: 100,
                           fontSize: '0.74rem',
-                          fontFamily: 'DM Sans,sans-serif',
+                          fontFamily: D.fontBody,
                           cursor: 'pointer',
                           background: 'transparent',
                           color: D.amber,
-                          border: `1px dashed ${D.amber}88`,
+                          border: `1px dashed ${D.amberBorder}`,
                         }}
                       >
                         + {a.emoji} {a.label}
@@ -1143,7 +1139,7 @@ function ProductModal({
                 cursor: 'pointer',
                 padding: '4px 0',
                 color: D.t2,
-                fontFamily: 'DM Sans,sans-serif',
+                fontFamily: D.fontBody,
                 fontSize: '0.85rem',
                 fontWeight: 600,
               }}
@@ -1253,7 +1249,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1356,7 +1352,7 @@ function ProductModal({
                     style={btn({
                       background: 'transparent',
                       color: D.gold,
-                      border: `1px solid ${D.gold}55`,
+                      border: `1px solid ${D.goldBorder}`,
                       height: 32,
                       fontSize: '0.76rem',
                       padding: '0 12px',
@@ -1430,7 +1426,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1652,7 +1648,7 @@ function ProductModal({
                                 {isPaired && (
                                   <span
                                     style={{
-                                      color: '#000',
+                                      color: D.onGold,
                                       fontSize: '0.7rem',
                                       fontWeight: 700,
                                       lineHeight: 1,
@@ -1721,7 +1717,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1874,7 +1870,7 @@ function ProductModal({
                       style={{
                         padding: '10px 12px',
                         background: D.goldA,
-                        border: `1px solid ${D.gold}33`,
+                        border: `1px solid ${D.goldBorder}`,
                         borderRadius: 7,
                         fontSize: '0.75rem',
                         color: D.t1,
@@ -1921,37 +1917,31 @@ function ProductModal({
         <div
           style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
         >
-          <button
-            onClick={onClose}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-          >
+          <Button variant="secondary" onClick={onClose}>
             Anulează
-          </button>
+          </Button>
           {/* „Salvează și adaugă următorul" — doar la create (audit aug 2026:
               30 de produse = 30 de cicluri de modal). După succes modalul rămâne
               deschis, formularul se resetează (păstrând categoria + cota TVA —
               burst-ul e aproape mereu în aceeași secțiune) și focusul revine pe Nume. */}
           {!product && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => void doSave(true)}
-              disabled={uploading || saving}
-              style={btn({
-                background: D.s3,
-                color: D.gold,
-                border: `1px solid ${D.gold}55`,
-                opacity: uploading || saving ? 0.7 : 1,
-              })}
+              disabled={uploading}
+              loading={saving}
             >
               {saving ? 'Se salvează…' : 'Salvează și adaugă următorul'}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="primary"
             onClick={() => void doSave(false)}
-            disabled={uploading || saving}
-            style={btn({ background: D.gold, color: '#000', opacity: uploading || saving ? 0.7 : 1 })}
+            disabled={uploading}
+            loading={saving}
           >
             {saving ? 'Se salvează…' : 'Salvează'}
-          </button>
+          </Button>
         </div>
       </div>
       <Toast toasts={pmToasts} />
@@ -2018,7 +2008,7 @@ function RecipeAddForm({
           borderRadius: 7,
           color: D.t1,
           fontSize: '0.82rem',
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           height: 36,
         }}
       >
@@ -2041,20 +2031,14 @@ function RecipeAddForm({
           {sel?.unit ?? ''}
         </span>
       </div>
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         onClick={submit}
         disabled={selectedId.length === 0 || quantity.length === 0}
-        style={btn({
-          background: D.gold,
-          color: '#000',
-          height: 36,
-          fontSize: '0.74rem',
-          opacity: selectedId.length === 0 || quantity.length === 0 ? 0.5 : 1,
-        })}
       >
         + Adaugă
-      </button>
+      </Button>
     </div>
   )
 }
@@ -2091,20 +2075,14 @@ function ExtraForm({
       <Inp label="Emoji extra" value={emoji} onChange={setEmoji} placeholder="🧀" />
       <Inp label="Nume extra" value={name} onChange={setName} placeholder="Brânză extra" />
       <Inp label="Preț extra (lei)" value={price} onChange={setPrice} type="number" placeholder="5.00" />
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         onClick={submit}
         disabled={name.trim().length === 0 || price.length === 0}
-        style={btn({
-          background: D.gold,
-          color: '#000',
-          height: 36,
-          fontSize: '0.78rem',
-          opacity: name.trim().length === 0 || price.length === 0 ? 0.5 : 1,
-        })}
       >
         + Adaugă
-      </button>
+      </Button>
     </div>
   )
 }
@@ -2383,7 +2361,7 @@ export default function ProductsTab({
               fontSize: '0.78rem',
               background: activeCat === 'all' ? D.goldA : D.s2,
               color: activeCat === 'all' ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === 'all' ? D.gold + '44' : D.border}`,
+              border: `1px solid ${activeCat === 'all' ? D.goldBorder : D.border}`,
             })}
           >
             Toate
@@ -2399,7 +2377,7 @@ export default function ProductsTab({
                 fontSize: '0.78rem',
                 background: activeCat === c.id ? D.goldA : D.s2,
                 color: activeCat === c.id ? D.goldL : D.t2,
-                border: `1px solid ${activeCat === c.id ? D.gold + '44' : D.border}`,
+                border: `1px solid ${activeCat === c.id ? D.goldBorder : D.border}`,
               })}
             >
               {c.emoji} {c.name}
@@ -2418,7 +2396,7 @@ export default function ProductsTab({
             fontSize: '0.78rem',
             color: D.t2,
             background: D.s2,
-            border: `1px solid ${D.amber}55`,
+            border: `1px solid ${D.amberBorder}`,
             borderRadius: 10,
             padding: '8px 12px',
             marginBottom: 12,
@@ -2439,7 +2417,7 @@ export default function ProductsTab({
                 fontSize: '0.74rem',
                 background: 'transparent',
                 color: D.gold,
-                border: `1px solid ${D.gold}44`,
+                border: `1px solid ${D.goldBorder}`,
               })}
             >
               Vezi cotele TVA
@@ -2819,7 +2797,7 @@ export default function ProductsTab({
                       fontWeight: 500,
                       background: p.is_active ? D.greenA : D.s3,
                       color: p.is_active ? D.green : D.t3,
-                      border: `1px solid ${p.is_active ? 'rgba(76,175,110,0.2)' : D.border}`,
+                      border: `1px solid ${p.is_active ? D.greenBorder : D.border}`,
                     }}
                   >
                     {p.is_active ? 'Activ' : 'Inactiv'}
@@ -2839,7 +2817,7 @@ export default function ProductsTab({
                       height: 30,
                       borderRadius: 7,
                       background: p.is_sold_out ? D.redA : D.s4,
-                      border: `1px solid ${p.is_sold_out ? 'rgba(224,85,85,0.3)' : D.border}`,
+                      border: `1px solid ${p.is_sold_out ? D.redBorder : D.border}`,
                       color: p.is_sold_out ? D.red : D.t3,
                       display: 'flex',
                       alignItems: 'center',
@@ -2862,7 +2840,7 @@ export default function ProductsTab({
                       height: 30,
                       borderRadius: 7,
                       background: p.is_daily_special ? D.goldA : D.s4,
-                      border: `1px solid ${p.is_daily_special ? D.gold + '44' : D.border}`,
+                      border: `1px solid ${p.is_daily_special ? D.goldBorder : D.border}`,
                       color: p.is_daily_special ? D.gold : D.t3,
                       display: 'flex',
                       alignItems: 'center',
@@ -3008,15 +2986,12 @@ export default function ProductsTab({
             <strong style={{ color: D.t1 }}>{products.find((p) => p.id === delId)?.name}</strong>?
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setDelId(null)}
-              style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-            >
+            <Button variant="secondary" onClick={() => setDelId(null)}>
               Anulează
-            </button>
-            <button onClick={handleDelete} style={btn({ background: D.red, color: '#fff' })}>
+            </Button>
+            <Button variant="danger" onClick={handleDelete}>
               Șterge
-            </button>
+            </Button>
           </div>
         </Modal>
       )}

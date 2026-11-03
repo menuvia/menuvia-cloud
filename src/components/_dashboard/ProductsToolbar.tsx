@@ -12,7 +12,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import { D } from '../../lib/constants'
 import { Icon } from '../ui/Icon'
-import { btn } from './sharedUI'
+import { Button } from '../ui/Button'
 
 export function ProductsToolbar({
   mobile,
@@ -60,17 +60,8 @@ export function ProductsToolbar({
     action()
   }
 
-  const secondary = (extra: CSSProperties = {}): CSSProperties =>
-    btn({
-      background: D.s2,
-      color: D.t1,
-      border: `1px solid ${D.border}`,
-      height: 44,
-      fontSize: mobile ? '0.78rem' : '0.85rem',
-      padding: mobile ? '0 10px' : '0 14px',
-      gap: 6,
-      ...extra,
-    })
+  // Pe telefon butoanele se strâng (padding mai mic), dar rămân <Button>.
+  const compact: CSSProperties | undefined = mobile ? { padding: '0 10px' } : undefined
 
   const menuItem: CSSProperties = {
     display: 'flex',
@@ -83,7 +74,7 @@ export function ProductsToolbar({
     border: 'none',
     color: D.t1,
     fontSize: '0.85rem',
-    fontFamily: 'DM Sans,sans-serif',
+    fontFamily: D.fontBody,
     textAlign: 'left',
     cursor: 'pointer',
   }
@@ -91,16 +82,16 @@ export function ProductsToolbar({
   return (
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       {onBulkAi && (
-      <button
-        type="button"
+      <Button
+        variant="secondary"
         onClick={onBulkAi}
         aria-label="Generează AI pentru tot meniul (imagini și nutriție)"
         title="Generează imagini + nutriție cu AI pentru tot meniul"
-        style={secondary({ background: D.s2, color: D.gold, border: `1px solid ${D.gold}55` })}
+        icon={<Icon name="sparkle" size={16} color={D.gold} />}
+        style={compact}
       >
-        <Icon name="sparkle" size={16} />
         {mobile ? 'AI' : 'Generează AI'}
-      </button>
+      </Button>
       )}
 
       <div
@@ -115,20 +106,18 @@ export function ProductsToolbar({
           }
         }}
       >
-        <button
+        <Button
           ref={triggerRef}
-          type="button"
+          variant="secondary"
           aria-expanded={importOpen}
           aria-controls={menuId}
           onClick={() => setImportOpen((o) => !o)}
-          style={secondary()}
+          icon={<Icon name="download" size={16} />}
+          style={compact}
         >
-          <Icon name="download" size={16} />
           Importă
-          <span aria-hidden="true" style={{ fontSize: '0.7rem', color: D.t2 }}>
-            ▾
-          </span>
-        </button>
+          <Icon name="chevronDown" size={14} color={D.t2} />
+        </Button>
         {importOpen && (
           <div
             id={menuId}
@@ -148,7 +137,7 @@ export function ProductsToolbar({
               background: D.s2,
               border: `1px solid ${D.bHov}`,
               borderRadius: 12,
-              boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
+              boxShadow: D.shadowLg,
               padding: 6,
             }}
           >
@@ -166,27 +155,14 @@ export function ProductsToolbar({
         )}
       </div>
 
-      <button
-        type="button"
+      <Button
+        variant={canAdd ? 'primary' : 'secondary'}
         onClick={canAdd ? onAdd : onUpgrade}
-        style={btn({
-          background: canAdd ? D.gold : D.s3,
-          color: canAdd ? '#000' : D.t2,
-          border: canAdd ? 'none' : `1px solid ${D.border}`,
-          height: 44,
-          fontSize: mobile ? '0.82rem' : '0.9rem',
-          gap: 6,
-        })}
+        icon={canAdd ? undefined : <Icon name="lock" size={16} />}
+        style={compact}
       >
-        {canAdd ? (
-          '+ Adaugă produs'
-        ) : (
-          <>
-            <Icon name="lock" size={16} />
-            Limită atinsă — Upgrade
-          </>
-        )}
-      </button>
+        {canAdd ? '+ Adaugă produs' : 'Limită atinsă — Upgrade'}
+      </Button>
     </div>
   )
 }

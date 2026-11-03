@@ -349,7 +349,7 @@ export function describeCancelRejection(err: unknown): string {
     case 'void_reason_required':
       return 'Motivul e obligatoriu pentru stornarea unei plăți.'
     case 'role_insufficient':
-      return 'Rolul tău nu permite această acțiune (doar owner/manager pot storna plăți sau anula).'
+      return 'Rolul tău nu permite această acțiune (doar proprietarul sau managerul pot storna plăți sau anula).'
     case 'order_terminal':
       return 'Comanda e deja finalizată și nu mai poate fi anulată.'
     default:

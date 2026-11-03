@@ -70,7 +70,7 @@ const VERTICALS: Record<VerticalKey, VerticalConfig> = {
       },
       {
         t: 'Generezi câte un QR pe cameră',
-        d: 'Din dashboard, câte o „masă" pentru fiecare cameră — printezi și lipești.',
+        d: 'Din panou, câte o „masă" pentru fiecare cameră — printezi și lipești.',
       },
       {
         t: 'Oaspetele comandă, echipa vede live',
@@ -129,7 +129,7 @@ const VERTICALS: Record<VerticalKey, VerticalConfig> = {
       },
       {
         t: 'Printezi QR-urile pe mese',
-        d: 'Câte un cod pentru fiecare masă, generat din dashboard.',
+        d: 'Câte un cod pentru fiecare masă, generat din panou.',
       },
       {
         t: 'Clienții comandă singuri',

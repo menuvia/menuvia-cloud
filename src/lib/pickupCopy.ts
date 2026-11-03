@@ -203,7 +203,7 @@ export function pickupOnlyToggleDescription(feature: boolean | null): string {
     )
   }
   return (
-    'Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din dashboard. ' +
+    'Pentru food truck / tejghea: ascunde Harta sălii și Rezervările din panou. ' +
     'QR-ul general din Mese & QR devine QR-ul tău principal.'
   )
 }

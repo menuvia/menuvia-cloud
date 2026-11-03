@@ -1,18 +1,19 @@
 // Helpers UI partajate între DashboardPage, SettingsTab, ProductsTab,
 // CategoriesTab. Extracție DRY după refactor-ul god component.
-// API păstrat 1:1 cu legacy (lift-and-shift); migrare la src/components/ui/
-// (Toast / useToast cu API .success/.error) e refactor separat.
+// API păstrat 1:1 cu legacy (lift-and-shift). Toast-ul DELEAGĂ la sistemul unic
+// din src/components/ui/ (ToastProvider / useToast) — lotul V, nov 2026.
 //
 // Fișier hibrid (components + style helpers + hook). Split în 2 fișiere e
 // follow-up — pentru acum dezactivăm regula react-refresh local.
 /* eslint-disable react-refresh/only-export-components */
 
-import { useState, useCallback, useId } from 'react'
+import { useState, useCallback, useContext, useId } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../../lib/constants'
 import { useBodyScrollLock } from '../../hooks/useBodyScrollLock'
 import { FocusTrap } from '../ui/FocusTrap'
+import { ToastContext, type ToastApi } from '../ui/useToast'
 
 // ── Style helpers ──
 
@@ -51,6 +52,12 @@ export const inp: React.CSSProperties = {
 }
 
 // ── Toast (legacy API: toast(msg, type) + <Toast toasts={...} />) ──
+// Un SINGUR sistem de notificări (lotul V): sub <ToastProvider> (App.tsx, deci
+// în toată aplicația) `toast(msg, type)` deleagă la `ui/useToast` — aceeași
+// regiune, aceleași durate, același aspect ca restul panoului — iar `toasts`
+// rămâne gol și `<Toast />` nu randează nimic. Fără provider (un ecran randat
+// izolat, ex. în teste) cade pe lista locală de mai jos, ca apelanții vechi să
+// nu arunce. Semnătura e NESCHIMBATĂ: `{ toasts, toast }` + `<Toast toasts />`.
 
 export interface ToastItem {
   id: string
@@ -58,13 +65,28 @@ export interface ToastItem {
   type: string
 }
 
+function delegate(api: ToastApi, msg: string, type: string): void {
+  if (type === 'error') api.error(msg)
+  else if (type === 'warning') api.warning(msg)
+  else if (type === 'info') api.info(msg)
+  else api.success(msg)
+}
+
 export function useToast() {
+  const api = useContext(ToastContext)
   const [toasts, setToasts] = useState<ToastItem[]>([])
-  const toast = useCallback((msg: string, type = 'success') => {
-    const id = Math.random().toString(36).slice(2)
-    setToasts((t) => [...t, { id, msg, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
-  }, [])
+  const toast = useCallback(
+    (msg: string, type = 'success') => {
+      if (api) {
+        delegate(api, msg, type)
+        return
+      }
+      const id = Math.random().toString(36).slice(2)
+      setToasts((t) => [...t, { id, msg, type }])
+      setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
+    },
+    [api],
+  )
   return { toasts, toast }
 }
 
@@ -78,7 +100,7 @@ function ToastCard({ toast }: { toast: ToastItem }) {
         padding: '12px 16px',
         fontSize: '0.875rem',
         color: D.t1,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        boxShadow: D.shadowLg,
         minWidth: 220,
         maxWidth: 320,
       }}
@@ -88,17 +110,13 @@ function ToastCard({ toast }: { toast: ToastItem }) {
   )
 }
 
-// Notificările sunt anunțate de cititorul de ecran (audit a11y oct 2026):
-// înainte erau div-uri simple, deci „Salvat" sau „Eroare: …" apăreau doar
-// vizual. Două regiuni live, montate PERMANENT (o regiune care apare odată cu
-// mesajul nu e anunțată de toate cititoarele): confirmările în `role="status"`
-// (politicos), erorile într-o regiune `aria-live="assertive"`. Erorile NU poartă
-// `role="alert"` pe regiune: o regiune goală cu acel rol ar fi un „alert"
-// permanent în pagină, iar dialogurile își au propriile alerte de eroare.
 export function Toast({ toasts }: { toasts: ToastItem[] }) {
+  // Sub provider notificările trăiesc în viewport-ul unic din ui/Toast.
+  const delegated = useContext(ToastContext) != null
   const errors = toasts.filter((t) => t.type === 'error')
   const others = toasts.filter((t) => t.type !== 'error')
   const region: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 }
+  if (delegated) return null
   return (
     <div
       style={{
@@ -160,7 +178,7 @@ export function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.75)',
+        background: D.overlay,
         backdropFilter: 'blur(8px)',
         zIndex: 1000,
         display: 'flex',
@@ -341,9 +359,9 @@ export function Toggle({
           width: 18,
           height: 18,
           borderRadius: '50%',
-          background: '#fff',
+          background: D.onSolid,
           transition: 'left .2s',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+          boxShadow: D.shadowSm,
         }}
       />
     </button>

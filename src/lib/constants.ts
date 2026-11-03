@@ -35,6 +35,27 @@ export const D_RAW = {
   surfaceHover: 'rgba(255,255,255,0.04)',
   onGold: '#1A1208',
   goldBorder: 'rgba(200,150,60,0.32)',
+  // Lotul V (nov 2026): culorile scrise de mână în ecranele panoului au devenit
+  // tokeni. Bordurile semantice (în loc de `${D.red}44`, care lipea un sufix
+  // de alfa la un `var(...)` → CSS invalid, bordura dispărea tăcut).
+  greenBorder: 'rgba(76,175,110,0.30)',
+  redBorder: 'rgba(224,85,85,0.30)',
+  amberBorder: 'rgba(232,160,32,0.30)',
+  // Fundaluri PLINE cu text alb (contrast AA cu onSolid): acțiuni distructive,
+  // bannere de stare (offline / sincronizat).
+  dangerSolid: '#B83A3A',
+  warningSolid: '#854D0E',
+  successSolid: '#166534',
+  onSolid: '#FFFFFF',
+  // Fundalul de sub un dialog și pastila discretă de pe un banner plin.
+  overlay: 'rgba(8,8,8,0.72)',
+  scrim: 'rgba(0,0,0,0.20)',
+  shadowSm: '0 1px 3px rgba(0,0,0,0.35)',
+  shadowMd: '0 4px 16px rgba(0,0,0,0.45)',
+  shadowLg: '0 8px 32px rgba(0,0,0,0.55)',
+  // Hârtia și cerneala codurilor QR (canvas-ul QR primește valori brute).
+  qrPaper: '#F8F3EB',
+  qrMuted: '#8A6D3B',
 } as const
 
 // Helper: citește o CSS variable (cu fallback la valoarea brută din D_RAW).
@@ -72,6 +93,20 @@ export const D = {
   tDisabled: cssVar('--color-text-disabled', D_RAW.tDisabled),
   onGold: cssVar('--color-on-gold', D_RAW.onGold),
   goldBorder: cssVar('--color-gold-border', D_RAW.goldBorder),
+  greenBorder: cssVar('--color-success-border', D_RAW.greenBorder),
+  redBorder: cssVar('--color-danger-border', D_RAW.redBorder),
+  amberBorder: cssVar('--color-warning-border', D_RAW.amberBorder),
+  dangerSolid: cssVar('--color-danger-solid', D_RAW.dangerSolid),
+  warningSolid: cssVar('--color-warning-solid', D_RAW.warningSolid),
+  successSolid: cssVar('--color-success-solid', D_RAW.successSolid),
+  onSolid: cssVar('--color-on-solid', D_RAW.onSolid),
+  overlay: cssVar('--color-overlay', D_RAW.overlay),
+  scrim: cssVar('--color-scrim', D_RAW.scrim),
+  shadowSm: cssVar('--shadow-sm', D_RAW.shadowSm),
+  shadowMd: cssVar('--shadow-md', D_RAW.shadowMd),
+  shadowLg: cssVar('--shadow-lg', D_RAW.shadowLg),
+  qrPaper: cssVar('--color-qr-paper', D_RAW.qrPaper),
+  qrMuted: cssVar('--color-qr-muted', D_RAW.qrMuted),
   // Fonturi ca tokens (elimină 'Fraunces'/'DM Sans' hardcodate în componente)
   fontDisplay: cssVar('--font-display', "'Fraunces', Georgia, serif"),
   fontBody: cssVar('--font-body', "'DM Sans', system-ui, sans-serif"),

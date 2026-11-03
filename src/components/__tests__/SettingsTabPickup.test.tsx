@@ -296,7 +296,7 @@ describe('SettingsTab — ridicarea pe stilul Flipbook', () => {
 const PICKUP_ONLY_ON: NonNullable<Restaurant['pickup_settings']> = { ...PICKUP_ON, pickup_only: true }
 const PICKUP_ONLY_SWITCH = /doar ridicare/
 const SUSPENDED = /Pe planul tău modul nu se aplică/
-const NORMAL_DESC = /ascunde Harta sălii și Rezervările din dashboard/
+const NORMAL_DESC = /ascunde Harta sălii și Rezervările din panou/
 
 describe('SettingsTab — modul „doar ridicare” pe planul restaurantului', () => {
   // PZ4a (lotul P): pe planul fără ridicare cardul lipsește cu totul, deci și

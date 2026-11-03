@@ -1,7 +1,8 @@
-/* Button — patru variante (primary/secondary/ghost/danger), trei mărimi.
-   Touch target min 40px (md/lg ≥ 44px conform WCAG 2.5.5).
-   Hover ridică ușor cardul + adaugă umbră; focus folosește :focus-visible
-   global din global.css. */
+/* Button — patru variante (primary/secondary/ghost/danger), mărimi sm/md/lg.
+   Touch target: înălțime minimă --tap-min (44px, WCAG 2.5.5) pe TOATE mărimile —
+   `sm` diferă doar prin padding și corp de literă (lotul V, nov 2026).
+   Hover ridică ușor butonul + adaugă umbră; focusul folosește inelul global
+   :focus-visible din global.css, cu offset propriu. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -14,8 +15,16 @@
   cursor: pointer;
   transition: var(--transition-fast);
   white-space: nowrap;
-  min-height: 40px;
+  min-height: var(--tap-min);
+  line-height: 1.2;
+  text-decoration: none;
   user-select: none;
+}
+.btn:focus-visible {
+  outline-offset: var(--ring-offset);
+}
+.btn__spinner {
+  display: inline-flex;
 }
 .btn:disabled {
   opacity: 0.5;
@@ -76,7 +85,6 @@
 .btn--sm {
   padding: 6px 12px;
   font-size: var(--text-sm);
-  min-height: 32px;
   gap: var(--space-1);
 }
 .btn--md {

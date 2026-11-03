@@ -17,7 +17,7 @@
 //        care la rândul lui e comparat în CI cu `plan_features` REAL — deci
 //        fixtura nu poate păstra rânduri șterse de o migrație (mig 290).
 //
-// „Dashboard bucătărie" NU are feature propriu: rândul `kitchen_dashboard` era
+// „Ecran bucătărie" NU are feature propriu: rândul `kitchen_dashboard` era
 // date moarte (zero cititori, șters în mig 290), iar KitchenPage nu are gate de
 // plan — afișează comenzile, care pe Planul 2 există DOAR prin `order_qr`
 // (comenzi QR, mig 083) și `waiter_manual` (comenzi de ospătar); grupul
@@ -57,12 +57,12 @@ const CARD_BINDINGS: Record<string, Basis> = {
     universal: 'modulul reservations e permis pe orice plan (mig 086, set_restaurant_module)',
   },
   'Comenzi prin QR': { features: ['order_qr'] },
-  'Dashboard bucătărie': { features: ['order_qr', 'waiter_manual'] },
+  'Ecran bucătărie': { features: ['order_qr', 'waiter_manual'] },
   'Tot din Meniu Digital +': { header: true },
   'Până la 1.000 de produse': { limit: 'max_products' },
   'Până la 300 mese / QR-uri': { limit: 'max_tables' },
   'Comenzi prin QR (identificare automată a mesei)': { features: ['order_qr'] },
-  'Dashboard bucătărie + flux ospătar': { features: ['order_qr', 'waiter_manual'] },
+  'Ecran bucătărie + flux ospătar': { features: ['order_qr', 'waiter_manual'] },
   'Pre-comandă pentru ridicare (pickup)': { features: ['pickup_orders'] },
   'Fidelizare pe comenzile prin QR (puncte + recompense)': { features: ['loyalty', 'order_qr'] },
   '„Cere nota" cu bacșiș, din telefonul clientului': { features: ['order_qr', 'table_lifecycle'] },
@@ -86,7 +86,7 @@ const ROW_BINDINGS: Record<string, Basis> = {
   'Teme premium + flipbook': { features: ['themes'] },
   'Rezervări online': { universal: 'modul permis pe orice plan (mig 086)' },
   'Comenzi prin QR': { features: ['order_qr'] },
-  'Dashboard bucătărie': { features: ['order_qr', 'waiter_manual'] },
+  'Ecran bucătărie': { features: ['order_qr', 'waiter_manual'] },
   'Flux ospătar': { features: ['waiter_manual'] },
   'Pre-comandă pentru ridicare (pickup)': { features: ['pickup_orders'] },
   'Fidelizare pe comenzile prin QR': { features: ['loyalty'] },

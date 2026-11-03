@@ -13,6 +13,7 @@
 import { D, PLAN_LABELS } from '../../lib/constants'
 import { PLAN_NAMES } from '../../lib/features'
 import type { PlanUpsellTarget } from '../../lib/planSurface'
+import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Icon } from '../ui/Icon'
 
@@ -53,12 +54,7 @@ export function PlanUpsellCard({
   const copy = COPY[target]
   return (
     <section aria-label={`Ofertă: ${copy.title}`}>
-      <Card
-        variant="raised"
-        padding="18px 20px"
-        radius={14}
-        style={{ border: `1px solid ${D.gold}33` }}
-      >
+      <Card variant="raised" style={{ border: `1px solid ${D.goldBorder}` }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 240px', minWidth: 0 }}>
             <h2
@@ -102,31 +98,10 @@ export function PlanUpsellCard({
               ))}
             </ul>
           </div>
-          <button
-            type="button"
-            onClick={onSeePlan}
-            className="pressable"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              alignSelf: 'center',
-              background: D.gold,
-              color: '#000',
-              border: 'none',
-              borderRadius: 9,
-              padding: '11px 18px',
-              minHeight: 44,
-              fontSize: '0.82rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <Button variant="primary" onClick={onSeePlan} style={{ alignSelf: 'center' }}>
             Vezi planul
-            <Icon name="chevronRight" size={16} color="#000" />
-          </button>
+            <Icon name="chevronRight" size={16} />
+          </Button>
         </div>
       </Card>
     </section>

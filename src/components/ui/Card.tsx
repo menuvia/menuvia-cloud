@@ -1,16 +1,19 @@
 import type { CSSProperties, HTMLAttributes } from 'react'
 import { D } from '../../lib/constants'
 
-// Primitivă Card — surface + bordură + rază consistente, ca să nu mai fie
-// fiecare card hand-styled. Variante de elevație + opțiune interactivă
-// (hover-lift + pressable din animations.css).
+// Primitivă Card — suprafață + bordură + UN SINGUR radius și UN SINGUR padding,
+// din token-uri (lotul V, nov 2026). Înainte fiecare apelant își alegea perechea
+// („18px 20px"/14, „22px 24px"/16, „16px 18px"/14…), deci cardurile de pe
+// aceeași pagină nu se aliniau. Raza și padding-ul se aplică DUPĂ `style`:
+// `style` rămâne pentru layout (flex, înălțime minimă, accent de bordură), nu
+// poate reintroduce o a doua rază. `flush` = fără padding (liste care își
+// au propriul padding pe rând).
 type CardVariant = 'flat' | 'raised' | 'inset'
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   variant?: CardVariant
   interactive?: boolean
-  padding?: number | string
-  radius?: number | string
+  flush?: boolean
 }
 
 const SURFACE: Record<CardVariant, string> = {
@@ -19,11 +22,13 @@ const SURFACE: Record<CardVariant, string> = {
   inset: D.s1,
 }
 
+const CARD_RADIUS = 'var(--radius-lg)'
+const CARD_PADDING = 'var(--space-5)'
+
 export function Card({
   variant = 'flat',
   interactive = false,
-  padding = 16,
-  radius = 16,
+  flush = false,
   className = '',
   style,
   children,
@@ -32,10 +37,10 @@ export function Card({
   const base: CSSProperties = {
     background: SURFACE[variant],
     border: `1px solid ${D.border}`,
-    borderRadius: typeof radius === 'number' ? `${radius}px` : radius,
-    padding: typeof padding === 'number' ? `${padding}px` : padding,
     boxShadow: variant === 'raised' ? 'var(--shadow-md)' : 'none',
     ...style,
+    borderRadius: CARD_RADIUS,
+    padding: flush ? 0 : CARD_PADDING,
   }
   const cls = [interactive ? 'hover-lift pressable' : '', className].filter(Boolean).join(' ')
   return (

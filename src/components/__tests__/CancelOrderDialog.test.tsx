@@ -162,7 +162,7 @@ describe('describeCancelRejection', () => {
       /stornarea/i,
     )
     expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'role_insufficient' }))).toMatch(
-      /owner\/manager/i,
+      /proprietarul sau managerul/i,
     )
     expect(describeCancelRejection(Object.assign(new Error('x'), { hint: 'order_terminal' }))).toMatch(
       /deja finalizată/i,

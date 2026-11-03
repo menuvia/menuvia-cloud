@@ -625,7 +625,7 @@ export default function BridgeTab({ restaurantId, fiscalEnabled }: Props) {
 
       {/* Devices */}
       <div style={card}>
-        <h2 style={h2}>{fiscalEnabled ? 'Case de marcat înregistrate' : 'Device-uri Bridge'}</h2>
+        <h2 style={h2}>{fiscalEnabled ? 'Case de marcat înregistrate' : 'Dispozitive'}</h2>
         {devices.length === 0 ? (
           <EmptyState
             icon="receipt"

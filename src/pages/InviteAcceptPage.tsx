@@ -5,7 +5,7 @@ import type { MemberRole } from '../lib/constants'
 import { Icon } from '../components/ui/Icon'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
-  owner: 'Owner',
+  owner: 'Proprietar',
   manager: 'Manager',
   waiter: 'Ospătar',
   kitchen: 'Bucătărie',
@@ -420,7 +420,7 @@ export default function InviteAcceptPage({
               fontFamily: 'DM Sans,sans-serif',
             }}
           >
-            Intră în dashboard
+            Intră în panou
           </button>
         </div>
       </div>

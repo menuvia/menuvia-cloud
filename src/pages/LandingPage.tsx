@@ -371,7 +371,7 @@ export default function LandingPage({
             </button>
           </div>
           <div style={{ color: MKT.text3, fontSize: 13, marginTop: 18 }}>
-            Setup în 10 minute · Anulezi oricând · Suport pe email
+            Configurare în 10 minute · Anulezi oricând · Suport pe email
           </div>
         </div>
 
@@ -1016,7 +1016,7 @@ export default function LandingPage({
             Gata să începi?
           </h3>
           <p style={{ color: MKT.text2, fontSize: 15, marginBottom: 28 }}>
-            30 de zile gratuite. Setup în 10 minute. Anulezi oricând.
+            30 de zile gratuite. Configurare în 10 minute. Anulezi oricând.
           </p>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button onClick={() => onStartPlan('growth')} className="pressable" style={ctaBtn}>

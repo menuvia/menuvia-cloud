@@ -52,14 +52,14 @@ export const TRIAL_FAQ = {
     `Trialul de ${TRIAL_DAYS} de zile e pe ${trialPlanNames.join(' și ')} și se acordă o singură ` +
     'dată per cont. După el, abonamentul continuă la prețul planului ales, abia atunci se face ' +
     'prima plată. Dacă nu ești mulțumit, anulezi din aplicație înainte de prima plată și nu ' +
-    'plătești nimic. Fiscalizarea intră prin programul pilot, cu setup făcut împreună. După ' +
+    'plătești nimic. Fiscalizarea intră prin programul pilot, cu configurarea făcută împreună. După ' +
     'încetarea abonamentului poți cere exportul datelor tale timp de 30 de zile.',
 }
 
 export const PILOT_BANNER = {
   title: `Program Pilot — ${PILOT_DAYS} de zile gratis, în loc de ${TRIAL_DAYS}`,
   body:
-    `Primii 10 patroni primesc setup personal și ${PILOT_DAYS} de zile gratuite pe ` +
+    `Primii 10 patroni primesc configurare personală și ${PILOT_DAYS} de zile gratuite pe ` +
     'Meniu + Comenzi, în locul trialului obișnuit. Locurile sunt limitate.',
 }
 

@@ -56,6 +56,8 @@ const TableStatusBoard = lazy(() => import('../components/TableStatusBoard'))
 import type { FloorLayout } from '../lib/floorPlan'
 import { suggestHappyHourForOrder, type HappyHourSuggestion } from '../lib/happyHour'
 import { Icon } from '../components/ui/Icon'
+import { Button } from '../components/ui/Button'
+import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
 import { sortByDue } from '../lib/pickupOrders'
@@ -88,7 +90,7 @@ function SectionHeading({
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
       <span
         style={{
-          fontFamily: 'DM Sans, sans-serif',
+          fontFamily: D.fontBody,
           fontSize: 12,
           fontWeight: 700,
           color,
@@ -715,51 +717,27 @@ export default function WaiterPage() {
           }}
         >
           {isAdminRole && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Icon name="arrowLeft" size={14} />}
               onClick={() => {
                 window.history.pushState({}, '', '/dashboard')
                 window.dispatchEvent(new PopStateEvent('popstate'))
               }}
               title="Înapoi la panoul de administrare"
-              style={{
-                background: 'transparent',
-                color: D.t2,
-                border: `1px solid ${D.s3}`,
-                borderRadius: 7,
-                padding: '5px 10px',
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 5,
-                flexShrink: 0,
-                minHeight: 44,
-                whiteSpace: 'nowrap',
-              }}
+              style={{ flexShrink: 0 }}
             >
-              <Icon name="arrowLeft" size={14} />
               Înapoi la panou
-            </button>
+            </Button>
           )}
           <div style={{ minWidth: 0, flex: '1 1 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-              <span
-                style={{
-                  fontFamily: 'Fraunces, Georgia, serif',
-                  fontSize: 18,
-                  fontWeight: 700,
-                  color: D.t1,
-                  whiteSpace: 'nowrap',
-                  // Titlul se scurtează cu „…" în loc să treacă peste butoane.
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  minWidth: 0,
-                }}
-              >
-                {isAdminRole ? 'Comenzi live' : 'Ospătar'}
-              </span>
+              <PageHeader
+                as="h1"
+                title={isAdminRole ? 'Comenzi live' : 'Ospătar'}
+                style={{ flex: '0 1 auto', minWidth: 0 }}
+              />
               <span
                 role="status"
                 aria-label={connectionLabel}
@@ -774,7 +752,7 @@ export default function WaiterPage() {
                       : connectionStatus === 'connecting'
                         ? D.amber
                         : D.red,
-                  boxShadow: connectionStatus === 'connected' ? `0 0 6px ${D.green}88` : 'none',
+                  boxShadow: connectionStatus === 'connected' ? `0 0 6px ${D.greenBorder}` : 'none',
                   flexShrink: 0,
                 }}
               />
@@ -843,7 +821,7 @@ export default function WaiterPage() {
                 color: D.t1,
                 padding: '6px 10px',
                 fontSize: 13,
-                fontFamily: 'DM Sans, sans-serif',
+                fontFamily: D.fontBody,
                 cursor: 'pointer',
                 outline: 'none',
                 // Aliniat cu ținta de atingere de 44px a butoanelor din grup.
@@ -858,59 +836,26 @@ export default function WaiterPage() {
               ))}
             </select>
           )}
-          <button
+          <Button
+            variant="secondary"
             onClick={() => setShowManualOrder(true)}
-            style={{
-              background: D.s3,
-              color: D.t1,
-              border: `1px solid ${D.border}`,
-              borderRadius: 8,
-              padding: '8px 14px',
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 5,
-              // Nu se comprimă sub ținta de atingere de 44px.
-              flexShrink: 0,
-              minHeight: 44,
-              whiteSpace: 'nowrap',
-            }}
+            icon={<Icon name="users" size={15} />}
+            style={{ flexShrink: 0 }}
           >
-            <Icon name="users" size={15} />
             Manual
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             onClick={() => {
               // „Comandă nouă" din header = flux normal (alegi masa în WaiterEntry).
               setEntryTableId(null)
               setShowEntry(true)
             }}
-            style={{
-              background: D.gold,
-              color: D.bg,
-              border: 'none',
-              borderRadius: 8,
-              padding: '8px 16px',
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 5,
-              flexShrink: 0,
-              minHeight: 44,
-              whiteSpace: 'nowrap',
-            }}
+            icon={<Icon name="plus" size={16} />}
+            style={{ flexShrink: 0 }}
           >
-            <Icon name="plus" size={16} />
             Comandă nouă
-          </button>
+          </Button>
           {/* Ieșirea din cont, pentru ORICE rol — ospătarul nu avea niciuna. */}
           <SignOutButton
             variant="header"
@@ -930,11 +875,12 @@ export default function WaiterPage() {
         <div
           role="status"
           style={{
-            background: offlineQueue.isOffline || offlineQueue.authRequired ? '#854d0e' : '#166534',
-            color: '#fff',
+            background:
+              offlineQueue.isOffline || offlineQueue.authRequired ? D.warningSolid : D.successSolid,
+            color: D.onSolid,
             padding: '6px 24px',
             fontSize: 12,
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: D.fontBody,
             fontWeight: 600,
             display: 'flex',
             justifyContent: 'space-between',
@@ -950,7 +896,7 @@ export default function WaiterPage() {
                 : 'Se trimit comenzile salvate pe telefon (reîncercare automată).'}
           </span>
           {offlineQueue.pendingCount > 0 && (
-            <span style={{ background: 'rgba(0,0,0,0.2)', padding: '2px 8px', borderRadius: 12 }}>
+            <span style={{ background: D.scrim, padding: '2px 8px', borderRadius: 12 }}>
               {offlineQueue.pendingCount}{' '}
               {offlineQueue.pendingCount === 1 ? 'comandă în așteptare' : 'comenzi în așteptare'}
             </span>
@@ -962,11 +908,11 @@ export default function WaiterPage() {
       {offlineQueue.droppedReason != null && (
         <div
           style={{
-            background: D.red,
-            color: '#fff',
+            background: D.dangerSolid,
+            color: D.onSolid,
             padding: '8px 24px',
             fontSize: 13,
-            fontFamily: 'DM Sans, sans-serif',
+            fontFamily: D.fontBody,
             fontWeight: 600,
             display: 'flex',
             justifyContent: 'space-between',
@@ -982,17 +928,19 @@ export default function WaiterPage() {
             onClick={offlineQueue.dismissDropped}
             aria-label="Închide avertismentul"
             style={{
-              background: 'rgba(0,0,0,0.2)',
-              color: '#fff',
+              background: D.scrim,
+              color: D.onSolid,
               border: 'none',
               borderRadius: 8,
               minWidth: 44,
-              height: 32,
+              minHeight: 44,
               cursor: 'pointer',
-              fontSize: 16,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
       )}
@@ -1000,7 +948,7 @@ export default function WaiterPage() {
       {ordersTruncated && (
         <div
           role="status"
-          style={{ background: `${D.amber}22`, color: D.amber, padding: '8px 24px', fontSize: 13 }}
+          style={{ background: D.amberA, color: D.amber, padding: '8px 24px', fontSize: 13 }}
         >
           Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi deschise — finalizează
           sau anulează comenzile vechi ca lista să fie completă.
@@ -1012,7 +960,7 @@ export default function WaiterPage() {
       {error != null && (
         <div
           role="alert"
-          style={{ background: `${D.red}22`, color: D.red, padding: '8px 24px', fontSize: 13 }}
+          style={{ background: D.redA, color: D.red, padding: '8px 24px', fontSize: 13 }}
         >
           Nu am putut încărca comenzile. Verifică conexiunea — lista se reîmprospătează
           automat. <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
@@ -1050,24 +998,14 @@ export default function WaiterPage() {
             }}
           >
             <span>Nu am putut încărca planul restaurantului — plata și închiderea comenzilor sunt indisponibile.</span>
-            <button
-              type="button"
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => void restaurantFeatures.reload()}
-              style={{
-                background: D.gold,
-                color: '#000',
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 14px',
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
+              style={{ flexShrink: 0 }}
             >
               Reîncearcă
-            </button>
+            </Button>
           </div>
         )}
         <BridgeOfflineBanner status={bridge.status} compact />
@@ -1108,7 +1046,7 @@ export default function WaiterPage() {
                     borderRadius: 8,
                     border: 'none',
                     cursor: 'pointer',
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontFamily: D.fontBody,
                     fontSize: 13,
                     fontWeight: 600,
                     background: active ? D.gold : 'transparent',
@@ -1134,7 +1072,7 @@ export default function WaiterPage() {
           <div style={{ marginBottom: 18 }}>
             <div
               style={{
-                fontFamily: 'DM Sans, sans-serif',
+                fontFamily: D.fontBody,
                 fontSize: 12,
                 fontWeight: 600,
                 color: D.gold,
@@ -1176,7 +1114,7 @@ export default function WaiterPage() {
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
                         <span
                           style={{
-                            fontFamily: 'Fraunces, Georgia, serif',
+                            fontFamily: D.fontDisplay,
                             fontSize: 20,
                             fontWeight: 700,
                             color: D.t1,
@@ -1217,7 +1155,7 @@ export default function WaiterPage() {
                           color: D.amber,
                           marginBottom: 8,
                           padding: '4px 8px',
-                          background: 'rgba(232,160,32,0.08)',
+                          background: D.amberA,
                           borderRadius: 6,
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -1275,7 +1213,9 @@ export default function WaiterPage() {
                                 </option>
                               ))}
                             </select>
-                            <button
+                            <Button
+                              variant="primary"
+                              size="sm"
                               onClick={() => {
                                 if (!canSeat) return
                                 void seatReservation(r.id, pick).catch((e) =>
@@ -1284,41 +1224,22 @@ export default function WaiterPage() {
                               }}
                               disabled={!canSeat}
                               title={canSeat ? 'Marchează ca așezat' : 'Alege întâi o masă'}
-                              style={{
-                                flex: 1,
-                                padding: '10px',
-                                background: canSeat ? D.green : D.s3,
-                                color: canSeat ? '#fff' : D.t3,
-                                border: 'none',
-                                borderRadius: 8,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                cursor: canSeat ? 'pointer' : 'not-allowed',
-                                opacity: canSeat ? 1 : 0.7,
-                              }}
+                              style={{ flex: 1 }}
                             >
                               Așezat
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => {
                                 if (!confirm('Marchezi ca no-show?')) return
                                 void updateReservationStatus(r.id, 'no_show').catch((e) =>
                                   toast.error(toUserMessage(e)),
                                 )
                               }}
-                              style={{
-                                padding: '10px 14px',
-                                background: 'transparent',
-                                color: D.red,
-                                border: `1px solid ${D.red}`,
-                                borderRadius: 8,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                              }}
                             >
                               No-show
-                            </button>
+                            </Button>
                           </div>
                         )
                       })()}
@@ -1333,7 +1254,7 @@ export default function WaiterPage() {
                   color: D.red,
                   marginTop: 8,
                   padding: '6px 10px',
-                  background: 'rgba(224,85,85,0.10)',
+                  background: D.redA,
                   borderRadius: 6,
                 }}
               >
@@ -1385,8 +1306,8 @@ export default function WaiterPage() {
                   key={call.id}
                   className="hover-lift"
                   style={{
-                    background: 'rgba(232,160,32,0.08)',
-                    border: '1px solid rgba(232,160,32,0.3)',
+                    background: D.amberA,
+                    border: `1px solid ${D.amberBorder}`,
                     borderRadius: 12,
                     padding: 16,
                     display: 'flex',
@@ -1398,7 +1319,7 @@ export default function WaiterPage() {
                   <div>
                     <div
                       style={{
-                        fontFamily: 'Fraunces, Georgia, serif',
+                        fontFamily: D.fontDisplay,
                         fontSize: 16,
                         fontWeight: 700,
                         color: D.t1,
@@ -1421,7 +1342,7 @@ export default function WaiterPage() {
                             marginLeft: 8,
                             fontSize: 11,
                             fontWeight: 600,
-                            background: 'rgba(232,160,32,0.18)',
+                            background: D.amberA,
                             color: D.amber,
                             borderRadius: 5,
                             padding: '2px 8px',
@@ -1445,25 +1366,13 @@ export default function WaiterPage() {
                       })}
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="primary"
                     className="pressable"
                     onClick={() => handleResolveCall(call.id)}
-                    style={{
-                      background: D.amber,
-                      color: '#000',
-                      border: 'none',
-                      borderRadius: 10,
-                      padding: '12px 22px',
-                      fontFamily: 'DM Sans, sans-serif',
-                      fontSize: 14,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      minHeight: 46,
-                    }}
                   >
                     Preiau
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
@@ -1500,7 +1409,7 @@ export default function WaiterPage() {
                 >
                   <span
                     style={{
-                      fontFamily: 'Fraunces, Georgia, serif',
+                      fontFamily: D.fontDisplay,
                       fontSize: 18,
                       fontWeight: 700,
                       color: D.t1,
@@ -1645,7 +1554,7 @@ export default function WaiterPage() {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.75)',
+            background: D.overlay,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1663,7 +1572,7 @@ export default function WaiterPage() {
               padding: 28,
               width: 400,
               maxWidth: '100%',
-              boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+              boxShadow: D.shadowLg,
               display: 'flex',
               flexDirection: 'column',
               gap: 16,
@@ -1671,7 +1580,7 @@ export default function WaiterPage() {
           >
             <div
               style={{
-                fontFamily: 'Fraunces, Georgia, serif',
+                fontFamily: D.fontDisplay,
                 fontSize: 20,
                 fontWeight: 700,
                 color: D.t1,
@@ -1683,7 +1592,7 @@ export default function WaiterPage() {
               <div style={{ color: D.t2, fontSize: 13 }}>Masa: {splitOrder.table?.name ?? '-'}</div>
               <div
                 style={{
-                  fontFamily: 'Fraunces, Georgia, serif',
+                  fontFamily: D.fontDisplay,
                   fontSize: 28,
                   fontWeight: 900,
                   color: D.gold,
@@ -1755,7 +1664,7 @@ export default function WaiterPage() {
                     border: '1px solid ' + (splitMethod === m ? D.gold : D.s3),
                     borderRadius: 8,
                     color: splitMethod === m ? D.gold : D.t2,
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontFamily: D.fontBody,
                     fontSize: 13,
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -1780,52 +1689,34 @@ export default function WaiterPage() {
                   border: '1px solid ' + D.s3,
                   borderRadius: 8,
                   color: D.t1,
-                  fontFamily: 'DM Sans, sans-serif',
+                  fontFamily: D.fontBody,
                   fontSize: 16,
                   padding: '10px 12px',
                 }}
               />
             </div>
 
-            <button
+            <Button
+              variant="primary"
+              size="lg"
+              fullWidth
               className="pressable"
               onClick={() => {
                 void handlePartialPay()
               }}
-              disabled={splitLoading || !splitAmount}
-              style={{
-                background: D.green,
-                color: '#fff',
-                border: 'none',
-                borderRadius: 10,
-                padding: '14px 0',
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: splitLoading || !splitAmount ? 'not-allowed' : 'pointer',
-                opacity: splitLoading || !splitAmount ? 0.6 : 1,
-                minHeight: 48,
-              }}
+              disabled={!splitAmount}
+              loading={splitLoading}
             >
               {splitLoading ? 'Se procesează...' : 'Adaugă plata'}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
+              fullWidth
               className="pressable"
               onClick={() => setSplitOrder(null)}
-              style={{
-                background: 'transparent',
-                color: D.t2,
-                border: '1px solid ' + D.s3,
-                borderRadius: 10,
-                padding: '11px 0',
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
             >
               Închide
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -1909,13 +1800,13 @@ export default function WaiterPage() {
             right: 16,
             zIndex: 9999,
             background: D.s2,
-            border: `1px solid ${D.green}44`,
+            border: `1px solid ${D.greenBorder}`,
             borderLeft: `3px solid ${D.green}`,
             borderRadius: 10,
             padding: '12px 16px',
             fontSize: '0.875rem',
             color: D.t1,
-            boxShadow: '0 8px 32px rgba(0,0,0,.4)',
+            boxShadow: D.shadowLg,
             minWidth: 220,
             cursor: 'pointer',
           }}
@@ -2003,31 +1894,18 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
 
   return (
     <div style={{ alignSelf: 'flex-start' }}>
-      <button
+      <Button
+        variant="secondary"
+        size="sm"
         onClick={() => {
           setOpen((v) => !v)
           setResult(null)
         }}
         className="pressable"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          minHeight: 40,
-          padding: '0 14px',
-          borderRadius: 10,
-          border: `1px solid ${D.border}`,
-          background: D.s2,
-          color: D.t2,
-          fontFamily: 'DM Sans, sans-serif',
-          fontSize: 13,
-          fontWeight: 600,
-          cursor: 'pointer',
-        }}
+        icon={<Icon name="star" size={15} color={D.gold} />}
       >
-        <Icon name="star" size={15} color={D.gold} />
         Fidelizare — cod client
-      </button>
+      </Button>
       {open && (
         <div
           style={{
@@ -2054,33 +1932,23 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
                 border: `1px solid ${D.border}`,
                 background: D.s3,
                 color: D.t1,
-                fontFamily: 'DM Sans, sans-serif',
+                fontFamily: D.fontBody,
                 fontSize: 14,
                 letterSpacing: '0.15em',
                 textTransform: 'uppercase',
                 boxSizing: 'border-box',
               }}
             />
-            <button
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => void doRedeem()}
-              disabled={busy || code.trim().length < 4}
+              disabled={code.trim().length < 4}
+              loading={busy}
               className="pressable"
-              style={{
-                minHeight: 40,
-                padding: '0 16px',
-                borderRadius: 8,
-                border: 'none',
-                background: D.gold,
-                color: '#000',
-                fontFamily: 'DM Sans, sans-serif',
-                fontSize: 13,
-                fontWeight: 700,
-                cursor: 'pointer',
-                opacity: busy || code.trim().length < 4 ? 0.6 : 1,
-              }}
             >
               {busy ? 'Se verifică…' : 'Răscumpără'}
-            </button>
+            </Button>
           </div>
           {result && (
             <div
@@ -2088,7 +1956,7 @@ function LoyaltyRedeem({ restaurantId }: { restaurantId: string }) {
                 marginTop: 10,
                 padding: '8px 12px',
                 borderRadius: 8,
-                background: result.ok ? 'rgba(74,222,128,0.12)' : D.redA,
+                background: result.ok ? D.greenA : D.redA,
                 color: result.ok ? D.green : D.red,
                 fontSize: 13,
                 lineHeight: 1.5,

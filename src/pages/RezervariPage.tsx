@@ -49,7 +49,7 @@ const BENEFITS: { icon: IconName; t: string; d: string }[] = [
 
 const STEPS = [
   { t: 'Creezi contul gratuit', d: '2 minute: numele localului și atât. Rezervările se activează automat.' },
-  { t: 'Îți pui linkul pe Google', d: 'Copiezi linkul tău de rezervare din dashboard și îl adaugi în Google Business Profile (îți arătăm pașii).' },
+  { t: 'Îți pui linkul pe Google', d: 'Copiezi linkul tău de rezervare din panou și îl adaugi în Google Business Profile (îți arătăm pașii).' },
   { t: 'Clienții rezervă singuri', d: 'Confirmare instant, reminder automat, no-show marcat singur. Tu doar vezi lista.' },
 ]
 

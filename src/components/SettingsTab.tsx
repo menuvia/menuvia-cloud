@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, type CSSProperties, type ReactNode } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { changeRestaurantSlug } from '../lib/restaurants'
@@ -19,7 +19,10 @@ import SmsNotificationsCard from './SmsNotificationsCard'
 import MenuPreview from './menu/MenuPreview'
 import type { Restaurant } from '../hooks/useData'
 import type { useRestaurantModules } from '../hooks/useRestaurantModules'
-import { btn, useToast, Toast, Inp, Toggle, AutoSaveHint } from './_dashboard/sharedUI'
+import { useToast, Toast, Inp, Toggle, AutoSaveHint } from './_dashboard/sharedUI'
+import { Button } from './ui/Button'
+import { Card } from './ui/Card'
+import { ACCENT_SWATCHES } from '../lib/accentPalette'
 import { useIsMobile } from '../hooks/useIsMobile'
 import { Icon, type IconName } from './ui/Icon'
 import type { SettingsSection } from '../lib/dashboardNav'
@@ -91,48 +94,52 @@ function SettingsCard({
   children?: ReactNode
 }) {
   return (
-    <div
-      style={{
-        background: D.s2,
-        border: `1px solid ${D.border}`,
-        borderRadius: 14,
-        padding: 22,
-      }}
-    >
+    <Card variant="flat">
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           gap: 12,
+          flexWrap: 'wrap',
           marginBottom: desc != null ? 6 : 14,
         }}
       >
-        <div
+        {/* Antetul secțiunii: h2 sub titlul paginii (h1 din panou), un singur
+            stil pentru toate cardurile de setări (lotul V). */}
+        <h2
           style={{
-            fontSize: '0.875rem',
-            fontWeight: 500,
+            fontFamily: D.fontBody,
+            fontSize: '0.92rem',
+            fontWeight: 600,
             color: D.t1,
             display: 'flex',
             alignItems: 'center',
             gap: 8,
+            margin: 0,
           }}
         >
-          {icon && <Icon name={icon} size={16} color={D.t2} />}
+          {icon && <Icon name={icon} size={16} color={D.gold} />}
           {title}
           {autoSave && <AutoSaveHint />}
-        </div>
+        </h2>
         {right}
       </div>
       {desc != null && (
-        <div style={{ fontSize: '0.72rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
+        <div style={{ fontSize: '0.75rem', color: D.t2, marginBottom: 14, lineHeight: 1.5 }}>
           {desc}
         </div>
       )}
       {children}
-    </div>
+    </Card>
   )
 }
+
+// Încărcările de fișier sunt un <label> peste un <input type=file>: arată ca
+// butonul secundar (aceleași clase ca <Button variant="secondary">).
+const UPLOAD_LABEL_CLASS = 'btn btn--secondary btn--md'
+// Butoanele doar-iconiță: pătrat de 44px (ținta tactilă).
+const ICON_BTN: CSSProperties = { width: 44, minWidth: 44, padding: 0 }
 
 // ── SettingsTab — lifted from DashboardPage.tsx (identical behavior) ──
 
@@ -345,18 +352,6 @@ export default function SettingsTab({
   // („pizza-" → „pizza"), deci un slug cu cratimă era imposibil de scris manual.
   // Curățarea capetelor o face RPC-ul change_restaurant_slug la salvare.
   const slugifyWhileTyping = (s: string) => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-')
-  const COLORS = ['#C8963C', '#E05555', '#4CAF6E', '#5B8DEF', '#9B72CF', '#E07B45', '#3ABFBF']
-  // Nume RO pentru fiecare accent — folosite ca aria-label (screen reader) și
-  // ca indicator ne-cromatic pentru utilizatorii care nu disting culorile.
-  const COLOR_NAMES: Record<string, string> = {
-    '#C8963C': 'Auriu',
-    '#E05555': 'Roșu',
-    '#4CAF6E': 'Verde',
-    '#5B8DEF': 'Albastru',
-    '#9B72CF': 'Mov',
-    '#E07B45': 'Portocaliu',
-    '#3ABFBF': 'Turcoaz',
-  }
 
   const handleSave = async () => {
     setSaving(true)
@@ -455,13 +450,9 @@ export default function SettingsTab({
             marginBottom: 18,
           }}
         >
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
-          >
+          <Button variant="primary" onClick={handleSave} loading={saving}>
             {saving ? 'Se salvează...' : 'Salvează'}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -523,7 +514,7 @@ export default function SettingsTab({
                       border: `1px solid ${D.border}`,
                       borderRadius: 8,
                       color: D.t1,
-                      fontFamily: 'DM Sans, sans-serif',
+                      fontFamily: D.fontBody,
                       fontSize: 14,
                       padding: '10px 12px',
                       minHeight: 44,
@@ -557,23 +548,9 @@ export default function SettingsTab({
               title="Program detaliat"
               desc={`Folosit pentru indicatorul "DESCHIS ACUM" și textul "Astăzi 08:00–23:00" din meniul public.`}
               right={
-                <button
-                  onClick={copyMondayToAll}
-                  style={{
-                    background: 'transparent',
-                    border: `1px solid ${D.border}`,
-                    borderRadius: 6,
-                    color: D.t2,
-                    fontSize: '0.7rem',
-                    padding: '4px 10px',
-                    minHeight: 44,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    cursor: 'pointer',
-                  }}
-                >
+                <Button variant="ghost" size="sm" onClick={copyMondayToAll}>
                   Copiază luni → toate
-                </button>
+                </Button>
               }
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -711,10 +688,9 @@ export default function SettingsTab({
                   </div>
                 )}
                 <label
+                  className={UPLOAD_LABEL_CLASS}
                   style={{
-                    ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
                     cursor: uploadingLogo ? 'wait' : 'pointer',
-                    display: 'inline-block',
                     opacity: uploadingLogo ? 0.6 : 1,
                   }}
                 >
@@ -733,13 +709,9 @@ export default function SettingsTab({
                   />
                 </label>
                 {form.logo_url && (
-                  <button
-                    type="button"
-                    onClick={() => upd('logo_url', null)}
-                    style={btn({ background: 'transparent', color: D.t2, border: `1px solid ${D.border}` })}
-                  >
+                  <Button variant="ghost" onClick={() => upd('logo_url', null)}>
                     Șterge logo
-                  </button>
+                  </Button>
                 )}
               </div>
             </SettingsCard>
@@ -768,26 +740,14 @@ export default function SettingsTab({
                       border: `1px solid ${D.border}`,
                     }}
                   />
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => upd('cover_url', null)}
-                    style={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      background: 'rgba(0,0,0,0.65)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 100,
-                      padding: '4px 14px',
-                      minHeight: 44,
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      fontSize: '0.7rem',
-                      cursor: 'pointer',
-                    }}
+                    style={{ position: 'absolute', top: 8, right: 8, background: D.overlay }}
                   >
                     Șterge
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div
@@ -808,10 +768,9 @@ export default function SettingsTab({
                 </div>
               )}
               <label
+                className={UPLOAD_LABEL_CLASS}
                 style={{
-                  ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
                   cursor: uploadingCover ? 'wait' : 'pointer',
-                  display: 'inline-block',
                   opacity: uploadingCover ? 0.6 : 1,
                 }}
               >
@@ -969,7 +928,7 @@ export default function SettingsTab({
                       gap: 6,
                     }}
                   >
-                    <Icon name="check" size={13} color="#4CAF6E" />
+                    <Icon name="check" size={13} color={D.green} />
                     Configurat
                   </div>
                   <div>
@@ -1048,22 +1007,25 @@ export default function SettingsTab({
 
             <SettingsCard icon="sparkle" title="Culoare accent">
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {COLORS.map((c) => {
+                {/* Mostrele sunt DATE (lib/accentPalette.ts) — culoarea aleasă pentru
+                    meniul oaspetelui —, nu culori ale panoului. Numele RO =
+                    eticheta accesibilă + indicatorul ne-cromatic. */}
+                {ACCENT_SWATCHES.map(({ hex: c, name }) => {
                   const selected = form.primary_color === c
                   return (
                     <button
                       key={c}
                       type="button"
                       onClick={() => upd('primary_color', c)}
-                      aria-label={`Culoare accent ${COLOR_NAMES[c] ?? c}`}
+                      aria-label={`Culoare accent ${name}`}
                       aria-pressed={selected}
-                      title={COLOR_NAMES[c] ?? c}
+                      title={name}
                       style={{
                         width: 40,
                         height: 40,
                         borderRadius: '50%',
                         background: c,
-                        border: `3px solid ${selected ? '#fff' : 'transparent'}`,
+                        border: `3px solid ${selected ? D.onSolid : 'transparent'}`,
                         cursor: 'pointer',
                         padding: 0,
                         display: 'flex',
@@ -1072,7 +1034,7 @@ export default function SettingsTab({
                       }}
                     >
                       {/* Bifă ne-cromatică: arată selecția independent de culoare. */}
-                      {selected && <Icon name="check" size={18} color="#fff" />}
+                      {selected && <Icon name="check" size={18} color={D.onSolid} />}
                     </button>
                   )
                 })}
@@ -1194,7 +1156,7 @@ export default function SettingsTab({
             {/* Layout picker — aspectul listei de produse (separat de temă/culori) */}
             <SettingsCard
               icon="menu"
-              title="Layout meniu"
+              title="Aspect meniu"
               desc="Cum sunt aranjate produsele pe pagina pe care o văd clienții. Se aplică pe meniul digital și pe meniul QR."
             >
               <div
@@ -1326,60 +1288,34 @@ export default function SettingsTab({
                             }}
                           />
                           <span style={{ flex: 1 }} />
-                          <button
-                            type="button"
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => moveFlipbookPage(idx, -1)}
                             disabled={idx === 0}
                             aria-label={`Mută pagina ${idx + 1} mai sus`}
-                            style={{
-                              background: 'transparent',
-                              border: `1px solid ${D.border}`,
-                              borderRadius: 6,
-                              color: idx === 0 ? D.t3 : D.t1,
-                              width: 44,
-                              height: 44,
-                              cursor: idx === 0 ? 'default' : 'pointer',
-                              opacity: idx === 0 ? 0.4 : 1,
-                            }}
+                            style={ICON_BTN}
                           >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
+                            <Icon name="chevronUp" size={16} />
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => moveFlipbookPage(idx, 1)}
                             disabled={idx === flipbookPages.length - 1}
                             aria-label={`Mută pagina ${idx + 1} mai jos`}
-                            style={{
-                              background: 'transparent',
-                              border: `1px solid ${D.border}`,
-                              borderRadius: 6,
-                              color: idx === flipbookPages.length - 1 ? D.t3 : D.t1,
-                              width: 44,
-                              height: 44,
-                              cursor: idx === flipbookPages.length - 1 ? 'default' : 'pointer',
-                              opacity: idx === flipbookPages.length - 1 ? 0.4 : 1,
-                            }}
+                            style={ICON_BTN}
                           >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
+                            <Icon name="chevronDown" size={16} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => removeFlipbookPage(idx)}
                             aria-label={`Șterge pagina ${idx + 1}`}
-                            style={{
-                              background: 'transparent',
-                              border: `1px solid ${D.border}`,
-                              borderRadius: 6,
-                              color: D.t2,
-                              fontSize: '0.7rem',
-                              padding: '0 10px',
-                              minWidth: 44,
-                              height: 44,
-                              cursor: 'pointer',
-                            }}
                           >
                             Șterge
-                          </button>
+                          </Button>
                         </div>
                       ))}
                     </div>
@@ -1403,10 +1339,9 @@ export default function SettingsTab({
                   )}
 
                   <label
+                    className={UPLOAD_LABEL_CLASS}
                     style={{
-                      ...btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` }),
                       cursor: uploadingPages ? 'wait' : 'pointer',
-                      display: 'inline-block',
                       opacity: uploadingPages ? 0.6 : 1,
                     }}
                   >
@@ -1613,7 +1548,7 @@ export default function SettingsTab({
                     border: `1px solid ${D.border}`,
                     borderRadius: 8,
                     color: D.t1,
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontFamily: D.fontBody,
                     fontSize: 14,
                     padding: '10px 12px',
                     minHeight: 44,
@@ -2009,13 +1944,9 @@ export default function SettingsTab({
               title="Plan curent"
               right={
                 surface == null && planLoadError && onRetryPlan ? (
-                  <button
-                    type="button"
-                    onClick={onRetryPlan}
-                    style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
-                  >
+                  <Button variant="secondary" size="sm" onClick={onRetryPlan}>
                     Reîncearcă
-                  </button>
+                  </Button>
                 ) : undefined
               }
             >
@@ -2023,7 +1954,7 @@ export default function SettingsTab({
                 style={{
                   padding: '4px 10px',
                   background: D.goldA,
-                  border: `1px solid ${D.gold}44`,
+                  border: `1px solid ${D.goldBorder}`,
                   borderRadius: 6,
                   fontSize: '0.78rem',
                   color: D.goldL,
@@ -2039,18 +1970,9 @@ export default function SettingsTab({
               </span>
             </SettingsCard>
 
-            <button
-              onClick={onSignOut}
-              style={btn({
-                background: D.s2,
-                color: D.t2,
-                border: `1px solid ${D.border}`,
-                width: '100%',
-                justifyContent: 'center',
-              })}
-            >
+            <Button variant="secondary" fullWidth onClick={onSignOut}>
               Deconectare
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -2073,19 +1995,15 @@ export default function SettingsTab({
             alignItems: 'center',
             gap: 12,
             zIndex: 10,
-            boxShadow: '0 -6px 20px rgba(0,0,0,0.25)',
+            boxShadow: `0 -6px 20px ${D.scrim}`,
           }}
         >
           <span style={{ color: D.t2, fontSize: '0.78rem', marginRight: 'auto' }}>
             Ai modificări nesalvate
           </span>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
-          >
+          <Button variant="primary" onClick={handleSave} loading={saving}>
             {saving ? 'Se salvează...' : 'Salvează'}
-          </button>
+          </Button>
         </div>
       )}
     </div>

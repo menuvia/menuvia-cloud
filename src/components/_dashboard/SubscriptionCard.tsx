@@ -9,6 +9,7 @@
 // complexitate în HomeTab.
 import { useState } from 'react'
 import { D } from '../../lib/constants'
+import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { Icon } from '../ui/Icon'
 import { openBillingPortal, type BillingError } from '../../lib/billing'
@@ -40,19 +41,14 @@ export function SubscriptionCard({ planName }: { planName?: string }) {
   return (
     <Card
       variant="flat"
-      padding="18px 20px"
-      radius={14}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 14,
         flexWrap: 'wrap',
-        border: `1px solid ${D.border}`,
       }}
     >
-      <span style={{ fontSize: '1.5rem' }} aria-hidden="true">
-        💳
-      </span>
+      <Icon name="receipt" size={24} color={D.gold} />
       <div style={{ flex: 1, minWidth: 220 }}>
         <div style={{ color: D.t1, fontSize: '0.92rem', fontWeight: 600 }}>
           Abonament &amp; facturare
@@ -70,31 +66,10 @@ export function SubscriptionCard({ planName }: { planName?: string }) {
           </div>
         )}
       </div>
-      <button
-        onClick={handleOpen}
-        disabled={loading}
-        className="pressable"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 7,
-          background: 'transparent',
-          color: D.t1,
-          border: `1px solid ${D.border}`,
-          borderRadius: 9,
-          padding: '11px 18px',
-          fontSize: '0.82rem',
-          fontWeight: 700,
-          cursor: loading ? 'default' : 'pointer',
-          opacity: loading ? 0.6 : 1,
-          fontFamily: 'DM Sans,sans-serif',
-          whiteSpace: 'nowrap',
-          minHeight: 44,
-        }}
-      >
+      <Button variant="secondary" onClick={handleOpen} loading={loading}>
         {loading ? 'Se deschide…' : 'Gestionează abonamentul'}
-        {!loading && <Icon name="chevronRight" size={16} color={D.t1} />}
-      </button>
+        {!loading && <Icon name="chevronRight" size={16} />}
+      </Button>
     </Card>
   )
 }

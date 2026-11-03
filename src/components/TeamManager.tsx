@@ -14,7 +14,7 @@ import { changeMemberRole, removeMember, revokeInvite } from '../lib/restaurants
 import { toUserMessage } from '../lib/userMessages'
 
 const ROLE_LABELS: Record<MemberRole, string> = {
-  owner: 'Owner',
+  owner: 'Proprietar',
   manager: 'Manager',
   waiter: 'Ospătar',
   kitchen: 'Bucătărie',
@@ -280,7 +280,7 @@ export default function TeamManager({
   const handleChangeRole = async (id: string, newRole: MemberRole) => {
     if (newRole === 'owner') {
       // UI nu permite promovarea la owner; defense in depth.
-      toast('Promovarea la owner nu este permisă', 'error')
+      toast('Promovarea la proprietar nu este permisă', 'error')
       return
     }
     try {

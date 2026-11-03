@@ -58,6 +58,7 @@ export type IconName =
   | 'wifi'
   | 'filter'
   | 'chevronRight'
+  | 'chevronUp'
   | 'chevronDown'
   | 'logout'
 
@@ -220,6 +221,7 @@ const PATHS: Record<IconName, JSX.Element> = {
   filter: <path d="M3 5h18l-7 8v6l-4 2v-8L3 5Z" />,
   chevronRight: <path d="M9 6l6 6-6 6" />,
   chevronDown: <path d="M6 9l6 6 6-6" />,
+  chevronUp: <path d="M6 15l6-6 6 6" />,
 }
 
 export function Icon({

@@ -60,6 +60,17 @@
   --color-on-gold: #1a1208;
   --color-gold-border: rgba(200, 150, 60, 0.32);
 
+  /* ── Lotul V: borduri semantice, fundaluri pline, hârtia QR (oglinda D_RAW) ── */
+  --color-success-border: rgba(76, 175, 110, 0.3);
+  --color-danger-border: rgba(224, 85, 85, 0.3);
+  --color-warning-border: rgba(232, 160, 32, 0.3);
+  --color-warning-solid: #854d0e;
+  --color-success-solid: #166534;
+  --color-on-solid: #ffffff;
+  --color-scrim: rgba(0, 0, 0, 0.2);
+  --color-qr-paper: #f8f3eb;
+  --color-qr-muted: #8a6d3b;
+
   /* ── Spațiere (scală 4px) ── */
   --space-1: 4px;
   --space-2: 8px;

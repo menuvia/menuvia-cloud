@@ -32,7 +32,7 @@ interface Table {
 // Rolul intern (engleză) → etichetă afișată, aliniat cu TeamManager /
 // InviteAcceptPage. Fallback la valoarea brută pentru un rol necunoscut.
 const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner',
+  owner: 'Proprietar',
   manager: 'Manager',
   waiter: 'Ospătar',
   kitchen: 'Bucătărie',

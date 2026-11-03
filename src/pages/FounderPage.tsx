@@ -240,7 +240,7 @@ export default function FounderPage({ onBack }: Props) {
                 minHeight: 44,
               }}
             >
-              Înapoi la dashboard
+              Înapoi la panou
             </button>
           </>
         ) : checkErr ? (
@@ -302,7 +302,7 @@ export default function FounderPage({ onBack }: Props) {
             </div>
           </div>
           <button onClick={onBack} className="pressable" style={ghostBtn}>
-            ← Înapoi la dashboard
+            ← Înapoi la panou
           </button>
         </div>
 

@@ -579,7 +579,7 @@ function Differentiators() {
             },
             {
               k: 'Onboarding',
-              main: 'Setup Asistent: meniul și mesele, pas cu pas',
+              main: 'Asistentul de configurare: meniul și mesele, pas cu pas',
               more: 'Import de meniu din fișier CSV',
             },
           ].map((x, i) => (
@@ -702,7 +702,7 @@ function PilotOffer() {
               d: `${getPlan('growth').name} gratuit, în locul trialului obișnuit de ${TRIAL_DAYS} de zile`,
             },
             {
-              n: 'Setup împreună',
+              n: 'Configurare împreună',
               d: `Import meniu, cote TVA și, pe ${getPlan('pro').name}, conectarea casei de marcat`,
             },
             { n: 'Suport', d: 'Prin agentul tău Menuvia și pe email' },

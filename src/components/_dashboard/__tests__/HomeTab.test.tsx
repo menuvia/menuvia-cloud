@@ -3,7 +3,7 @@
 // (code-health-error-ignored-guards).
 //
 //   HT1  plan NECUNOSCUT (tier null), pașii de tier 1 toți făcuți: fără
-//        „totul e gata ✓", fără upsell, fără checklist; cifra Setup e „…"
+//        „totul e gata ✓", fără upsell, fără checklist; cifra Configurare e „…"
 //        Mutația care pică: codul vechi (tier 1 implicit) — „4/4 totul e gata ✓"
 //        și cardul „Vrei să primești comenzi…" pentru un plătitor.
 //   HT2  control pozitiv: plan 2 CUNOSCUT, toți pașii făcuți → „totul e gata ✓"
@@ -183,10 +183,10 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT1: plan necunoscut → fără „totul e gata", fără upsell, fără checklist', async () => {
     renderHome(plan(null))
     await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
-    expect(metric('Setup')).toHaveTextContent('…')
+    expect(metric('Configurare')).toHaveTextContent('…')
     expect(screen.queryByText('totul e gata ✓')).toBeNull()
     expect(upsellRegion()).toBeNull()
-    expect(screen.queryByText('Setup restaurant')).toBeNull()
+    expect(screen.queryByText('Configurare restaurant')).toBeNull()
     // Nici cifrele de comenzi (Plan 2+) nu se pretind cunoscute.
     expect(screen.queryByText('Comenzi azi')).toBeNull()
   })
@@ -194,8 +194,8 @@ describe('HomeTab — planul necunoscut și citirile eșuate', () => {
   it('HT2: control pozitiv — plan 2 cunoscut, totul făcut → „totul e gata ✓"', async () => {
     renderHome(plan('growth'))
     await waitFor(() => expect(screen.getByText('totul e gata ✓')).toBeInTheDocument())
-    expect(metric('Setup')).toHaveTextContent('6/6')
-    expect(screen.queryByText('Setup restaurant')).toBeNull()
+    expect(metric('Configurare')).toHaveTextContent('6/6')
+    expect(screen.queryByText('Configurare restaurant')).toBeNull()
     // Lotul P: pe Planul 2 upsell-ul e „Plata la masă", nu cel de Planul 1.
     expect(screen.queryByText(OLD_UPSELL)).toBeNull()
     expect(upsellRegion()).toHaveAccessibleName('Ofertă: Plata la masă')
@@ -239,9 +239,9 @@ describe('HomeTab — checklist-ul e singura cale de setup', () => {
     const onNavigate = vi.fn()
     renderHome({ ...plan('starter'), onNavigate })
     const step = await screen.findByRole('button', { name: 'Generează QR-uri pentru mese' })
-    expect(screen.getByText('Setup restaurant')).toBeInTheDocument()
+    expect(screen.getByText('Configurare restaurant')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /asistentul detaliat/i })).toBeNull()
-    expect(screen.queryByText(/Setup Asistent/i)).toBeNull()
+    expect(screen.queryByText(/Setup Asistent|Asistentul de configurare/i)).toBeNull()
     await userEvent.setup().click(step)
     expect(onNavigate).toHaveBeenCalledWith('mese')
   })
