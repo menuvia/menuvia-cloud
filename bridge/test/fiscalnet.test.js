@@ -12,7 +12,7 @@ const path = require('node:path');
 const http = require('node:http');
 
 const { createServer } = require('../mock-fiscalnet');
-const { sendReceipt, parseFiscalNetResponse, AMBIGUOUS_PREFIX } = require('../lib/fiscalnet');
+const { sendReceipt, parseFiscalNetResponse, fitToEncoding, AMBIGUOUS_PREFIX } = require('../lib/fiscalnet');
 
 function apiCfg(port) {
   return {
@@ -198,4 +198,59 @@ test('parse: răspuns JSON cu chei alternative (receiptNumber)', () => {
   const res = parseFiscalNetResponse(JSON.stringify({ success: true, receiptNumber: 4242 }));
   assert.strictEqual(res.success, true);
   assert.strictEqual(res.bonNumber, '4242');
+});
+
+// ── FE1–FE4: fișierul de bon pe latin1/ascii nu trunchiază la octetul de jos ──
+// `fs.writeFile(..., {encoding:'latin1'})` păstra din fiecare caracter doar
+// octetul de jos: „Ş” (U+015E) → `^` (separator de câmp în plus), „Ċ” (U+010A)
+// → rând nou (o comandă P^ injectată). Mutația care pică: `fitToEncoding`
+// scos din sendViaFile → FE1 și FE2; fără garda C1 → FE4; fără ramura utf8
+// neatinsă → FE3.
+async function writeViaFile(encoding, payload) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fnenc-'));
+  const bonuriDir = path.join(dir, 'Bonuri');
+  const raspunsDir = path.join(dir, 'Raspuns');
+  await fs.mkdir(bonuriDir);
+  await fs.mkdir(raspunsDir);
+  const cfg = {
+    fiscalnet: { mode: 'file', bonuriDir, raspunsDir, encoding, timeoutMs: 3000, pollResponseMs: 20 },
+  };
+  const id = `enc-${encoding}`;
+  const pending = sendReceipt(cfg, { id, payload });
+  const nudge = setTimeout(() => {
+    fs.writeFile(path.join(raspunsDir, `${id}.txt`), 'BONOK=1\nNRBON=1').catch(() => {});
+  }, 80);
+  const res = await pending;
+  clearTimeout(nudge);
+  const bytes = await fs.readFile(path.join(bonuriDir, `${id}.txt`));
+  await fs.rm(dir, { recursive: true, force: true });
+  return { res, bytes };
+}
+
+test('FE1 latin1: „Ş” din numele produsului nu devine separator `^`', async () => {
+  const { res, bytes } = await writeViaFile('latin1', 'S^Ciorbă Şef^100^1000^buc^1^1\nP^1^100');
+  assert.strictEqual(res.success, true);
+  const text = bytes.toString('latin1');
+  assert.strictEqual(text, 'S^Ciorba Sef^100^1000^buc^1^1\r\nP^1^100\r\n');
+  // Control: același număr de câmpuri ca în payload.
+  assert.strictEqual(text.split('\r\n')[0].split('^').length, 7);
+});
+
+test('FE2 latin1: „Ċ” nu injectează o linie nouă (o comandă P^ în plus)', async () => {
+  const { bytes } = await writeViaFile('latin1', 'S^ApaĊP^1^100^buc^1^1\nP^1^100');
+  const lines = bytes.toString('latin1').split('\r\n').filter(Boolean);
+  assert.deepStrictEqual(lines, ['S^ApaCP^1^100^buc^1^1', 'P^1^100']);
+  for (const b of bytes) assert.ok(b === 0x0d || b === 0x0a || b >= 0x20, `octet 0x${b.toString(16)}`);
+});
+
+test('FE3 utf8 rămâne fără pierdere (diacriticele trec neatinse)', async () => {
+  const { bytes } = await writeViaFile('utf8', 'S^Ciorbă Şef^100^1000^buc^1^1\nP^1^100');
+  assert.strictEqual(bytes.toString('utf8'), 'S^Ciorbă Şef^100^1000^buc^1^1\r\nP^1^100\r\n');
+});
+
+test('FE4 fitToEncoding: latin1 păstrează é, ascii îl pliază, C1 și restul devin `?`', () => {
+  assert.strictEqual(fitToEncoding('Café ș ă', 'latin1'), 'Café s a');
+  assert.strictEqual(fitToEncoding('Café ș ă', 'ascii'), 'Cafe s a');
+  assert.strictEqual(fitToEncoding('a\u0085b \u20ac \u2260', 'latin1'), 'a?b ? ?');
+  assert.strictEqual(fitToEncoding('Ciorbă', 'utf16le'), 'Ciorbă');
 });
