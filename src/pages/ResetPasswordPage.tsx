@@ -222,7 +222,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
             Parolă schimbată
           </h2>
           <p style={{ color: A.text2, fontSize: '0.875rem', marginBottom: 24 }}>
-            Noua parolă a fost salvată. Poți intra în dashboard.
+            Noua parolă a fost salvată. Poți intra în panou.
           </p>
           <button
             onClick={() => navigate('/dashboard')}
@@ -239,7 +239,7 @@ export default function ResetPasswordPage({ navigate }: { navigate: (p: string) 
               boxShadow: '0 4px 14px rgba(200,150,60,0.25)',
             }}
           >
-            Intră în dashboard →
+            Intră în panou →
           </button>
         </div>
       </div>

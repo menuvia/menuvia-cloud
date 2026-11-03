@@ -25,6 +25,8 @@ import { useAudioUnlock } from '../hooks/useAudioUnlock'
 import { createTapGuard } from '../lib/tapGuard'
 import { useInView, revealStyle } from '../lib/motion'
 import { Icon, type IconName } from '../components/ui/Icon'
+import { Button } from '../components/ui/Button'
+import { PageHeader } from '../components/ui/PageHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { Skeleton } from '../components/ui/Skeleton'
 import PickupDetails from '../components/PickupDetails'
@@ -175,12 +177,14 @@ const OrderCard = memo(function OrderCard({
   const card: CSSProperties = {
     background:
       level === 'late'
-        ? `${D.red}14`
+        ? D.redA
         : level === 'warn'
-          ? `${D.amber}10`
+          ? D.amberA
           : D.s2,
-    border: `1.5px solid ${accent != null ? `${accent}99` : D.s3}`,
-    boxShadow: level === 'late' ? `0 0 0 1px ${D.red}33, 0 4px 16px ${D.red}1A` : 'none',
+    // `color-mix`, nu `${accent}99`: un sufix de alfa lipit de un `var(...)` e
+    // CSS invalid — bordura de urgență dispărea tăcut (lotul V).
+    border: `1.5px solid ${accent != null ? `color-mix(in srgb, ${accent} 60%, transparent)` : D.s3}`,
+    boxShadow: level === 'late' ? `0 0 0 1px ${D.redBorder}, 0 4px 16px ${D.redA}` : 'none',
     borderRadius: 12,
     padding: 16,
     display: 'flex',
@@ -271,10 +275,12 @@ const OrderCard = memo(function OrderCard({
         </div>
       )}
       {next != null && (
-        <button
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
           className="pressable"
-          disabled={pending}
-          aria-busy={pending}
+          loading={pending}
           onClick={(e) => {
             // Feedback tactil scurt pe tap — bucătarul vede că butonul a „prins".
             e.currentTarget.classList.remove('animate-bump')
@@ -282,23 +288,9 @@ const OrderCard = memo(function OrderCard({
             e.currentTarget.classList.add('animate-bump')
             onAdvance(order.id, order.status, next.status)
           }}
-          style={{
-            background: D.gold,
-            color: D.bg,
-            border: 'none',
-            borderRadius: 10,
-            padding: '14px 0',
-            fontFamily: 'DM Sans, sans-serif',
-            fontSize: 15,
-            fontWeight: 700,
-            cursor: pending ? 'wait' : 'pointer',
-            opacity: pending ? 0.6 : 1,
-            width: '100%',
-            minHeight: 48,
-          }}
         >
           {pending ? 'Se salvează…' : next.label}
-        </button>
+        </Button>
       )}
       {actionError != null && (
         <ActionErrorNote
@@ -337,7 +329,7 @@ function RestaurantSelector({
         minHeight: 44,
         padding: '6px 10px',
         fontSize: 13,
-        fontFamily: 'DM Sans, sans-serif',
+        fontFamily: D.fontBody,
         cursor: 'pointer',
         outline: 'none',
         // Numele lungi de restaurant nu au voie să împingă header-ul în overflow la 375px.
@@ -499,51 +491,26 @@ export default function KitchenPage() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 200px' }}>
         {isAdminRole && (
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Icon name="arrowLeft" size={14} />}
             onClick={() => {
               window.history.pushState({}, '', '/dashboard')
               window.dispatchEvent(new PopStateEvent('popstate'))
             }}
             title="Înapoi la panoul de administrare"
-            style={{
-              background: 'transparent',
-              color: D.t2,
-              border: `1px solid ${D.s3}`,
-              borderRadius: 7,
-              padding: '5px 10px',
-              fontFamily: 'DM Sans, sans-serif',
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 5,
-              flexShrink: 0,
-              minHeight: 44,
-              whiteSpace: 'nowrap',
-            }}
+            style={{ flexShrink: 0 }}
           >
-            <Icon name="arrowLeft" size={14} />
             Înapoi la panou
-          </button>
+          </Button>
         )}
-        <span
-          style={{
-            fontFamily: 'Fraunces, Georgia, serif',
-            fontSize: 18,
-            fontWeight: 700,
-            color: D.t1,
-            // La 375px cu selector multi-restaurant, titlul cedează primul:
-            // ellipsis în loc de wrap/overflow în înălțimea fixă de 56px.
-            minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          Bucătărie{restaurantName.length > 0 ? ` — ${restaurantName}` : ''}
-        </span>
+        <PageHeader
+          as="h1"
+          compact
+          title={`Bucătărie${restaurantName.length > 0 ? ` — ${restaurantName}` : ''}`}
+          style={{ flex: '1 1 160px', minWidth: 0, alignItems: 'center' }}
+        />
         </div>
         <div
           style={{
@@ -562,7 +529,9 @@ export default function KitchenPage() {
             setActive={setActive}
           />
           {pushSupported && pushPerm !== 'unsupported' && (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => {
                 void (pushSubscribed ? pushUnsubscribe() : pushSubscribe())
               }}
@@ -581,28 +550,11 @@ export default function KitchenPage() {
                     ? 'Notificările sunt blocate în browser'
                     : 'Activează notificările pentru comenzi noi'
               }
-              style={{
-                background: 'transparent',
-                border: `1px solid ${pushSubscribed ? D.gold + '55' : D.border}`,
-                borderRadius: 8,
-                padding: '5px 10px',
-                minHeight: 44,
-                cursor: pushPerm === 'denied' ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                color: pushSubscribed ? D.gold : D.t2,
-                fontSize: 13,
-                fontFamily: 'DM Sans,sans-serif',
-                opacity: pushLoading || (!pushSubscribed && pushPerm === 'denied') ? 0.6 : 1,
-              }}
+              icon={<Icon name="bell" size={16} color={pushSubscribed ? D.gold : undefined} />}
             >
-              <Icon name="bell" size={16} />
-              {/* „Blocate" e vizibil și pe touch — title-ul nu se afișează pe tablete KDS */}
-              <span style={{ fontSize: 12 }}>
-                {pushSubscribed ? 'Activ' : pushPerm === 'denied' ? 'Blocate' : 'Notificări'}
-              </span>
-            </button>
+              {/* „Blocate" e vizibil și pe touch — title-ul nu se afișează pe tabletele din bucătărie */}
+              {pushSubscribed ? 'Activ' : pushPerm === 'denied' ? 'Blocate' : 'Notificări'}
+            </Button>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div
@@ -626,7 +578,7 @@ export default function KitchenPage() {
         <div
           style={{
             background: D.goldA,
-            borderBottom: `1px solid ${D.gold}33`,
+            borderBottom: `1px solid ${D.goldBorder}`,
             padding: '10px 24px',
             display: 'flex',
             alignItems: 'center',
@@ -642,28 +594,17 @@ export default function KitchenPage() {
               închis.
             </span>
           </div>
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             onClick={() => {
               void pushSubscribe()
             }}
-            disabled={pushLoading}
-            style={{
-              background: D.gold,
-              color: '#000',
-              border: 'none',
-              borderRadius: 7,
-              minHeight: 44,
-              padding: '7px 16px',
-              fontFamily: 'DM Sans,sans-serif',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
+            loading={pushLoading}
+            style={{ flexShrink: 0 }}
           >
             {pushLoading ? 'Se activează...' : 'Activează →'}
-          </button>
+          </Button>
         </div>
       )}
 
@@ -689,33 +630,16 @@ export default function KitchenPage() {
             <Icon name="bell" size={16} color={D.amber} />
             Sunetul pentru comenzile noi e oprit de browser până atingi ecranul o dată.
           </span>
-          <button
-            type="button"
-            onClick={sound.unlock}
-            style={{
-              background: D.amber,
-              color: '#000',
-              border: 'none',
-              borderRadius: 7,
-              minHeight: 44,
-              padding: '7px 16px',
-              fontFamily: 'DM Sans,sans-serif',
-              fontSize: '0.8rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-            }}
-          >
+          <Button variant="primary" size="sm" onClick={sound.unlock} style={{ flexShrink: 0 }}>
             Pornește sunetul
-          </button>
+          </Button>
         </div>
       )}
 
       {truncated && (
         <div
           role="status"
-          style={{ background: `${D.amber}22`, color: D.amber, padding: '8px 24px', fontSize: 13 }}
+          style={{ background: D.amberA, color: D.amber, padding: '8px 24px', fontSize: 13 }}
         >
           Se afișează doar cele mai noi {STAFF_ORDERS_FETCH_LIMIT} comenzi active — finalizează
           comenzile vechi ca lista să fie completă.
@@ -725,7 +649,7 @@ export default function KitchenPage() {
       {error != null && error !== dismissedError && (
         <div
           style={{
-            background: `${D.red}22`,
+            background: D.redA,
             color: D.red,
             padding: '4px 12px 4px 24px',
             fontSize: 13,
@@ -742,25 +666,15 @@ export default function KitchenPage() {
             Nu am putut sincroniza comenzile. Verifică conexiunea și reîncearcă.{' '}
             <span style={{ opacity: 0.65, fontSize: 11 }}>({error})</span>
           </span>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setDismissedError(error)}
             aria-label={'Închide mesajul de eroare'}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: D.red,
-              cursor: 'pointer',
-              minWidth: 44,
-              minHeight: 44,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              flexShrink: 0,
-              padding: 0,
-            }}
+            style={{ flexShrink: 0, minWidth: 44, padding: 0 }}
           >
             <Icon name="close" size={16} />
-          </button>
+          </Button>
         </div>
       )}
 
@@ -800,7 +714,7 @@ export default function KitchenPage() {
               >
                 <span
                   style={{
-                    fontFamily: 'DM Sans, sans-serif',
+                    fontFamily: D.fontBody,
                     fontSize: 13,
                     fontWeight: 600,
                     color: D.t2,

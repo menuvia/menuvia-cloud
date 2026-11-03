@@ -53,6 +53,7 @@ import { HelpButton } from '../components/HelpButton'
 import { SignOutButton } from '../components/SignOutButton'
 import { Icon, type IconName } from '../components/ui/Icon'
 import { EmptyState } from '../components/ui/EmptyState'
+import { PageHeader } from '../components/ui/PageHeader'
 import { PlanUnknownBanner } from '../components/_dashboard/PlanBanners'
 import { confirm as confirmDialog } from '../components/ui/confirm'
 import {
@@ -95,7 +96,7 @@ function UpgradeModal({
       pro: String(growth.limits.maxTables),
     },
     { label: 'Comenzi prin QR', free: '—', pro: '✓' },
-    { label: 'Dashboard bucătărie', free: '—', pro: '✓' },
+    { label: 'Ecran bucătărie', free: '—', pro: '✓' },
     { label: 'Comenzi ospătar', free: '—', pro: '✓' },
     // Tab-ul Rapoarte e minTier 2; pe growth = evidența comenzilor (fără
     // rapoarte pe email — acelea numără doar comenzi `paid`).
@@ -368,7 +369,7 @@ function OrdersHub({
         : 'Comenzile deschise acum, pe mese — și preluare manuală',
       fn: onViewWaiter,
     },
-    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare (KDS)', fn: onViewKitchen },
+    { icon: 'utensils', title: 'Bucătărie', desc: 'Ecranul de preparare al bucătăriei', fn: onViewKitchen },
   ]
   return (
     <div style={{ maxWidth: 1000 }}>
@@ -1370,19 +1371,11 @@ export default function DashboardPage({
                   în bara laterală). Sub titlu, sub-navigația grupului (chips). */}
               {activeGroup != null && activeSubTab != null && (
                 <div style={{ marginBottom: 20 }}>
-                  <h1
-                    style={{
-                      fontFamily: 'Fraunces,serif',
-                      fontSize: '1.5rem',
-                      fontWeight: 600,
-                      color: D.t1,
-                      letterSpacing: '-0.02em',
-                      margin: 0,
-                      marginBottom: activeGroup.subTabs.length > 1 ? 12 : 0,
-                    }}
-                  >
-                    {activeSubTab.label}
-                  </h1>
+                  <PageHeader
+                    as="h1"
+                    title={activeSubTab.label}
+                    style={{ marginBottom: activeGroup.subTabs.length > 1 ? 12 : 0 }}
+                  />
                   {activeGroup.subTabs.length > 1 && (
                   /* Wrapper relativ pentru fade-ul de scroll orizontal */
                   <div style={{ position: 'relative' }}>

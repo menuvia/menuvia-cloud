@@ -23,6 +23,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import { THEMES, readableTextOn, legibleOn, isDarkTheme } from '../themes'
+import { ACCENT_SWATCHES } from '../accentPalette'
 
 function rgb(hex: string): [number, number, number] {
   const h = hex.replace('#', '')
@@ -140,12 +141,15 @@ describe('Temele publice — contrast AA', () => {
     expect(legibleOn('rgba(0,0,0,0.5)', '#FFFFFF')).toBe('rgba(0,0,0,0.5)')
   })
 
-  it('TC5 paleta din test e exact cea din SettingsTab', () => {
+  it('TC5 paleta din test e exact cea din Setări (lib/accentPalette.ts)', () => {
+    // Lotul V a mutat mostrele din SettingsTab în lib/accentPalette.ts (date,
+    // nu culori ale panoului). Testul leagă AMBELE capete: paleta verificată
+    // aici == ACCENT_SWATCHES, iar SettingsTab chiar randează ACCENT_SWATCHES
+    // (altfel o paletă locală nouă în Setări ar scăpa contrastului AA).
+    // Mutație: o culoare nouă în ACCENT_SWATCHES fără ea aici → pică.
+    expect(ACCENT_SWATCHES.map((s) => s.hex.toUpperCase())).toEqual([...SETTINGS_ACCENTS])
     const src = readFileSync(resolve(process.cwd(), 'src/components/SettingsTab.tsx'), 'utf8')
-    const m = src.match(/const COLORS = \[([^\]]*)\]/)
-    expect(m, 'nu mai găsesc `const COLORS = [...]` în SettingsTab').toBeTruthy()
-    const inSettings = (m?.[1] ?? '').match(/#[0-9A-Fa-f]{6}/g)?.map((c) => c.toUpperCase()) ?? []
-    expect(inSettings).toEqual([...SETTINGS_ACCENTS])
+    expect(src, 'SettingsTab nu mai randează ACCENT_SWATCHES').toMatch(/ACCENT_SWATCHES\.map\(/)
   })
 
   it('isDarkTheme: doar fine-dining e dark (refolosește aceeași luminanță)', () => {

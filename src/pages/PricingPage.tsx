@@ -264,7 +264,7 @@ export default function PricingPage({
   const EXTRAS_ONETIME = extrasForSite(site, [
     {
       icon: <Icon name="settings" size={26} color={MKT.accent} />,
-      title: 'Setup Concierge',
+      title: 'Configurare asistată',
       price: '300 lei',
       desc: 'Vine cineva din echipă la tine: configurare restaurant, meniu, QR, training echipă. O zi.',
     },
@@ -1411,7 +1411,7 @@ export default function PricingPage({
             Gata să începi?
           </h3>
           <p style={{ color: MKT.text2, fontSize: '1rem', marginBottom: 28, lineHeight: 1.6 }}>
-            30 zile gratuite. Setup în 10 minute.
+            30 zile gratuite. Configurare în 10 minute.
           </p>
           <button
             disabled={loadingPlan !== null}

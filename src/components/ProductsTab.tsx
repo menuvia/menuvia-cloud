@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, useId, lazy, Suspense } from 'react'
 import { useProducts, useCategories } from '../hooks/useData'
 import type { Product, Category } from '../hooks/useData'
 import { usePlanLimits } from '../hooks/usePlanLimits'
@@ -35,6 +35,8 @@ const AiMenuImport = lazy(() => import('./AiMenuImport'))
 const AiBulkGenerate = lazy(() => import('./AiBulkGenerate'))
 
 // ── Product Modal ─────────────────────────────────────────────
+type ProductSaveOpts = { keepOpen?: boolean; onError?: (message: string) => void }
+
 function ProductModal({
   product,
   categories,
@@ -54,10 +56,13 @@ function ProductModal({
   categories: Category[]
   // Întoarce succesul salvării; cu keepOpen (doar la create) modalul rămâne
   // deschis pentru „Salvează și adaugă următorul" — parentul NU face setModal(null).
-  onSave: (f: Partial<Product>, opts?: { keepOpen?: boolean }) => boolean | Promise<boolean>
+  // `onError`: unde ajunge mesajul unui eșec — modalul trimite toast-ul LOCAL,
+  // din dialogul `aria-modal` (recenzia #336: viewport-ul global e în afara lui,
+  // iar dialogul rămâne deschis pe eșec, deci mesajul nu era anunțat).
+  onSave: (f: Partial<Product>, opts?: ProductSaveOpts) => boolean | Promise<boolean>
   // Creare categorie inline din select (întoarce id-ul nou sau null pe eșec) —
   // implementată de parent prin useCategories.create, fără apel supabase nou aici.
-  onCreateCategory: (name: string) => Promise<string | null>
+  onCreateCategory: (name: string, onError?: (message: string) => void) => Promise<string | null>
   onClose: () => void
   restaurantId: string
   userId: string
@@ -83,7 +88,18 @@ function ProductModal({
   const [imgPreview, setImgPreview] = useState<string | null>(product?.image_url || null)
   // Toast local pentru erori din modal (extras/pereche/rețetă/imagine) — înainte
   // erau înghițite silențios (doar console.error), owner-ul nu afla că salvarea a picat.
-  const { toasts: pmToasts, toast: pmToast } = useToast()
+  // `local`: mesajele rămân în arborele dialogului `aria-modal` (recenzia #336) —
+  // viewport-ul global e în afara lui, iar VoiceOver ignoră ce e în afara modalului.
+  const { toasts: pmToasts, toast: pmToast } = useToast({ local: true })
+  // Eroarea de validare stă INLINE, lângă butoane, cu role="alert": persistă până
+  // la următoarea încercare sau editare (un toast dispare în 3 s, înainte ca
+  // omul să afle ce câmp e greșit).
+  const [formError, setFormError] = useState<string | null>(null)
+  // Câmpul vinovat: `aria-invalid` + `aria-describedby` (id stabil din useId,
+  // pe alertă) stau DOAR pe el — fiecare stare invalidă e legată de propria eroare.
+  const [formErrorField, setFormErrorField] = useState<'name' | 'price' | null>(null)
+  const formErrorId = useId()
+  const reportError = (message: string) => pmToast(message, 'error')
   // Focus pe Nume după „Salvează și adaugă următorul" — Inp nu forwardează ref,
   // deci țintim input-ul prin containerul câmpului (audit aug 2026: 30 de
   // produse = 30 de cicluri complete de modal; burst-ul de adăugare repară asta).
@@ -488,7 +504,16 @@ function ProductModal({
       else if (error) pmToast(toUserMessage(error, 'Nu am putut adăuga perechea.'), 'error')
     }
   }
-  const upd = (k: keyof Product, v: unknown) => setForm((f) => ({ ...f, [k]: v }))
+  const upd = (k: keyof Product, v: unknown) => {
+    // Eroarea se șterge doar când omul editează câmpul care a greșit (sau când
+    // eroarea nu ține de un câmp): altfel, editând Prețul, alerta numelui gol
+    // și marcajul lui `aria-invalid` ar dispărea deși numele e tot gol.
+    if ((k === 'name' || k === 'price') && (formErrorField === null || formErrorField === k)) {
+      setFormError(null)
+      setFormErrorField(null)
+    }
+    setForm((f) => ({ ...f, [k]: v }))
+  }
 
   // Creează categoria pe loc și o selectează pe produs. Lista din select se
   // împrospătează prin parent (useCategories.create → load()), nu local.
@@ -497,7 +522,7 @@ function ProductModal({
     if (name.length === 0 || newCatBusy) return
     setNewCatBusy(true)
     try {
-      const id = await onCreateCategory(name)
+      const id = await onCreateCategory(name, reportError)
       if (id) {
         upd('category_id', id)
         setNewCatOpen(false)
@@ -515,16 +540,20 @@ function ProductModal({
     // Fără el, un nume gol se crea tăcut, iar un preț negativ era respins
     // de CHECK-ul din DB cu o eroare Postgres brută, neinteligibilă.
     if (!(form.name ?? '').trim()) {
-      pmToast('Numele produsului e obligatoriu', 'error')
+      setFormError('Numele produsului e obligatoriu')
+      setFormErrorField('name')
       return
     }
     if (form.price != null && form.price < 0) {
-      pmToast('Prețul nu poate fi negativ', 'error')
+      setFormError('Prețul nu poate fi negativ')
+      setFormErrorField('price')
       return
     }
+    setFormError(null)
+    setFormErrorField(null)
     setSaving(true)
     try {
-      const okSaved = await onSave(form, { keepOpen })
+      const okSaved = await onSave(form, { keepOpen, onError: reportError })
       if (okSaved && keepOpen) {
         // Reset la valorile implicite din mount, DAR păstrăm categoria și cota
         // TVA alese — produsul „următor" e aproape mereu din aceeași secțiune.
@@ -613,6 +642,8 @@ function ProductModal({
             label="Nume"
             value={form.name || ''}
             onChange={(v) => upd('name', v)}
+            invalid={formErrorField === 'name'}
+            describedBy={formErrorField === 'name' ? formErrorId : undefined}
             placeholder="Spaghete Carbonara"
           />
         </div>
@@ -624,6 +655,8 @@ function ProductModal({
             <Inp
               label="Preț (lei)"
               value={form.price != null ? String(form.price) : ''}
+              invalid={formErrorField === 'price'}
+              describedBy={formErrorField === 'price' ? formErrorId : undefined}
               onChange={(v) => upd('price', v.trim() === '' ? 0 : parseFloat(v) || 0)}
               type="number"
               placeholder="32.00"
@@ -661,20 +694,15 @@ function ProductModal({
                     placeholder="Nume categorie nouă"
                   />
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void handleCreateCategoryInline()}
-                  disabled={newCatBusy || newCatName.trim().length === 0}
-                  style={btn({
-                    background: D.gold,
-                    color: '#000',
-                    height: 36,
-                    fontSize: '0.74rem',
-                    opacity: newCatBusy || newCatName.trim().length === 0 ? 0.5 : 1,
-                  })}
+                  disabled={newCatName.trim().length === 0}
+                  loading={newCatBusy}
                 >
                   {newCatBusy ? 'Se creează…' : 'Creează'}
-                </button>
+                </Button>
                 <button
                   type="button"
                   onClick={() => {
@@ -735,7 +763,7 @@ function ProductModal({
                     fontSize: '0.74rem',
                     background: 'transparent',
                     color: D.gold,
-                    border: `1px solid ${D.gold}44`,
+                    border: `1px solid ${D.goldBorder}`,
                   })}
                 >
                   Reîncearcă
@@ -751,7 +779,7 @@ function ProductModal({
                     fontSize: '0.74rem',
                     background: 'transparent',
                     color: D.gold,
-                    border: `1px solid ${D.gold}44`,
+                    border: `1px solid ${D.goldBorder}`,
                   })}
                 >
                   Deschide cotele TVA
@@ -897,8 +925,8 @@ function ProductModal({
                   width: 24,
                   height: 24,
                   borderRadius: '50%',
-                  background: D.red,
-                  color: '#fff',
+                  background: D.dangerSolid,
+                  color: D.onSolid,
                   border: 'none',
                   cursor: 'pointer',
                   fontSize: 12,
@@ -960,7 +988,7 @@ function ProductModal({
               style={btn({
                 background: 'transparent',
                 color: D.gold,
-                border: `1px solid ${D.gold}55`,
+                border: `1px solid ${D.goldBorder}`,
                 height: 34,
                 fontSize: '0.78rem',
                 padding: '0 12px',
@@ -1003,7 +1031,7 @@ function ProductModal({
                     padding: '4px 10px',
                     borderRadius: 100,
                     fontSize: '0.75rem',
-                    fontFamily: 'DM Sans,sans-serif',
+                    fontFamily: D.fontBody,
                     cursor: 'pointer',
                     outline: 'none',
                     background: active ? tag.color + '22' : 'transparent',
@@ -1049,16 +1077,16 @@ function ProductModal({
                     padding: '5px 8px',
                     borderRadius: 7,
                     fontSize: '0.75rem',
-                    fontFamily: 'DM Sans,sans-serif',
+                    fontFamily: D.fontBody,
                     cursor: 'pointer',
                     outline: 'none',
                     textAlign: 'left',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 5,
-                    background: active ? 'rgba(224,85,85,0.12)' : 'transparent',
+                    background: active ? D.redA : 'transparent',
                     color: active ? D.red : D.t3,
-                    border: `1px solid ${active ? 'rgba(224,85,85,0.3)' : D.border}`,
+                    border: `1px solid ${active ? D.redBorder : D.border}`,
                     fontWeight: active ? 600 : 400,
                     transition: 'all .15s',
                   }}
@@ -1071,9 +1099,10 @@ function ProductModal({
           </div>
           {/* Sugestii AI de alergeni — de confirmat manual (NU se publică automat). */}
           {aiAllergenSuggestions.filter((id) => !(form.allergens || []).includes(id)).length > 0 && (
-            <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amber}44`, borderRadius: 8 }}>
+            <div style={{ marginTop: 10, padding: '8px 10px', background: D.s3, border: `1px solid ${D.amberBorder}`, borderRadius: 8 }}>
               <div style={{ fontSize: '0.7rem', color: D.amber, marginBottom: 6, fontWeight: 600 }}>
-                ✨ Sugerat de AI — confirmă doar ce e corect (răspundere legală):
+                <Icon name="sparkle" size={12} color={D.amber} /> Sugerat de AI — confirmă doar ce e
+                corect (răspundere legală):
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {aiAllergenSuggestions
@@ -1093,11 +1122,11 @@ function ProductModal({
                           padding: '4px 10px',
                           borderRadius: 100,
                           fontSize: '0.74rem',
-                          fontFamily: 'DM Sans,sans-serif',
+                          fontFamily: D.fontBody,
                           cursor: 'pointer',
                           background: 'transparent',
                           color: D.amber,
-                          border: `1px dashed ${D.amber}88`,
+                          border: `1px dashed ${D.amberBorder}`,
                         }}
                       >
                         + {a.emoji} {a.label}
@@ -1143,7 +1172,7 @@ function ProductModal({
                 cursor: 'pointer',
                 padding: '4px 0',
                 color: D.t2,
-                fontFamily: 'DM Sans,sans-serif',
+                fontFamily: D.fontBody,
                 fontSize: '0.85rem',
                 fontWeight: 600,
               }}
@@ -1253,7 +1282,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1356,7 +1385,7 @@ function ProductModal({
                     style={btn({
                       background: 'transparent',
                       color: D.gold,
-                      border: `1px solid ${D.gold}55`,
+                      border: `1px solid ${D.goldBorder}`,
                       height: 32,
                       fontSize: '0.76rem',
                       padding: '0 12px',
@@ -1430,7 +1459,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1652,7 +1681,7 @@ function ProductModal({
                                 {isPaired && (
                                   <span
                                     style={{
-                                      color: '#000',
+                                      color: D.onGold,
                                       fontSize: '0.7rem',
                                       fontWeight: 700,
                                       lineHeight: 1,
@@ -1721,7 +1750,7 @@ function ProductModal({
               cursor: 'pointer',
               padding: '4px 0',
               color: D.t2,
-              fontFamily: 'DM Sans,sans-serif',
+              fontFamily: D.fontBody,
               fontSize: '0.85rem',
               fontWeight: 600,
             }}
@@ -1874,7 +1903,7 @@ function ProductModal({
                       style={{
                         padding: '10px 12px',
                         background: D.goldA,
-                        border: `1px solid ${D.gold}33`,
+                        border: `1px solid ${D.goldBorder}`,
                         borderRadius: 7,
                         fontSize: '0.75rem',
                         color: D.t1,
@@ -1918,43 +1947,53 @@ function ProductModal({
         </div>
         )}
 
+        {formError && (
+          <div
+            id={formErrorId}
+            role="alert"
+            style={{
+              background: D.redA,
+              border: `1px solid ${D.redBorder}`,
+              color: D.redText,
+              borderRadius: 9,
+              padding: '10px 14px',
+              fontSize: '0.84rem',
+            }}
+          >
+            {formError}
+          </div>
+        )}
         <div
           style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6, flexWrap: 'wrap' }}
         >
-          <button
-            onClick={onClose}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-          >
+          <Button variant="secondary" onClick={onClose}>
             Anulează
-          </button>
+          </Button>
           {/* „Salvează și adaugă următorul" — doar la create (audit aug 2026:
               30 de produse = 30 de cicluri de modal). După succes modalul rămâne
               deschis, formularul se resetează (păstrând categoria + cota TVA —
               burst-ul e aproape mereu în aceeași secțiune) și focusul revine pe Nume. */}
           {!product && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => void doSave(true)}
-              disabled={uploading || saving}
-              style={btn({
-                background: D.s3,
-                color: D.gold,
-                border: `1px solid ${D.gold}55`,
-                opacity: uploading || saving ? 0.7 : 1,
-              })}
+              disabled={uploading}
+              loading={saving}
             >
               {saving ? 'Se salvează…' : 'Salvează și adaugă următorul'}
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="primary"
             onClick={() => void doSave(false)}
-            disabled={uploading || saving}
-            style={btn({ background: D.gold, color: '#000', opacity: uploading || saving ? 0.7 : 1 })}
+            disabled={uploading}
+            loading={saving}
           >
             {saving ? 'Se salvează…' : 'Salvează'}
-          </button>
+          </Button>
         </div>
       </div>
-      <Toast toasts={pmToasts} />
+      <Toast toasts={pmToasts} local />
     </Modal>
   )
 }
@@ -2018,7 +2057,7 @@ function RecipeAddForm({
           borderRadius: 7,
           color: D.t1,
           fontSize: '0.82rem',
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
           height: 36,
         }}
       >
@@ -2041,20 +2080,14 @@ function RecipeAddForm({
           {sel?.unit ?? ''}
         </span>
       </div>
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         onClick={submit}
         disabled={selectedId.length === 0 || quantity.length === 0}
-        style={btn({
-          background: D.gold,
-          color: '#000',
-          height: 36,
-          fontSize: '0.74rem',
-          opacity: selectedId.length === 0 || quantity.length === 0 ? 0.5 : 1,
-        })}
       >
         + Adaugă
-      </button>
+      </Button>
     </div>
   )
 }
@@ -2091,20 +2124,14 @@ function ExtraForm({
       <Inp label="Emoji extra" value={emoji} onChange={setEmoji} placeholder="🧀" />
       <Inp label="Nume extra" value={name} onChange={setName} placeholder="Brânză extra" />
       <Inp label="Preț extra (lei)" value={price} onChange={setPrice} type="number" placeholder="5.00" />
-      <button
-        type="button"
+      <Button
+        variant="primary"
+        size="sm"
         onClick={submit}
         disabled={name.trim().length === 0 || price.length === 0}
-        style={btn({
-          background: D.gold,
-          color: '#000',
-          height: 36,
-          fontSize: '0.78rem',
-          opacity: name.trim().length === 0 || price.length === 0 ? 0.5 : 1,
-        })}
       >
         + Adaugă
-      </button>
+      </Button>
     </div>
   )
 }
@@ -2228,14 +2255,17 @@ export default function ProductsTab({
 
   // Întoarce succesul ca modalul să decidă (opts.keepOpen = „Salvează și adaugă
   // următorul": modalul rămâne deschis și își resetează singur formularul).
-  const handleSave = async (
-    form: Partial<Product>,
-    opts?: { keepOpen?: boolean },
-  ): Promise<boolean> => {
+  // Eșecul pleacă prin reporterul modalului (toast-ul din dialog); fără el,
+  // fallback pe toast-ul global, ca un alt apelant să nu piardă mesajul.
+  const handleSave = async (form: Partial<Product>, opts?: ProductSaveOpts): Promise<boolean> => {
+    const fail = (message: string) => {
+      if (opts?.onError) opts.onError(message)
+      else toast(message, 'error')
+    }
     if (modal === 'add') {
       const { error: e } = await create(form)
       if (e) {
-        toast(toUserMessage(e), 'error')
+        fail(toUserMessage(e))
         return false
       }
       // Telemetria funelului (audit aug 2026): pasul „introdu meniul" nu era
@@ -2247,7 +2277,7 @@ export default function ProductsTab({
     } else if (modal) {
       const { error: e } = await update((modal as Product).id, form)
       if (e) {
-        toast(toUserMessage(e), 'error')
+        fail(toUserMessage(e))
         return false
       }
       toast('Actualizat')
@@ -2258,10 +2288,15 @@ export default function ProductsTab({
   }
   // Creare categorie inline din modalul de produs — refolosește helper-ul
   // existent useCategories.create (care reîncarcă și lista), fără apel supabase nou.
-  const handleCreateCategoryInline = async (name: string): Promise<string | null> => {
+  const handleCreateCategoryInline = async (
+    name: string,
+    onError?: (message: string) => void,
+  ): Promise<string | null> => {
     const r = await createCategory({ name })
     if (r.error || !r.data) {
-      toast(toUserMessage(r.error, 'Nu am putut crea categoria.'), 'error')
+      const message = toUserMessage(r.error, 'Nu am putut crea categoria.')
+      if (onError) onError(message)
+      else toast(message, 'error')
       return null
     }
     return (r.data as { id: string }).id
@@ -2383,7 +2418,7 @@ export default function ProductsTab({
               fontSize: '0.78rem',
               background: activeCat === 'all' ? D.goldA : D.s2,
               color: activeCat === 'all' ? D.goldL : D.t2,
-              border: `1px solid ${activeCat === 'all' ? D.gold + '44' : D.border}`,
+              border: `1px solid ${activeCat === 'all' ? D.goldBorder : D.border}`,
             })}
           >
             Toate
@@ -2399,7 +2434,7 @@ export default function ProductsTab({
                 fontSize: '0.78rem',
                 background: activeCat === c.id ? D.goldA : D.s2,
                 color: activeCat === c.id ? D.goldL : D.t2,
-                border: `1px solid ${activeCat === c.id ? D.gold + '44' : D.border}`,
+                border: `1px solid ${activeCat === c.id ? D.goldBorder : D.border}`,
               })}
             >
               {c.emoji} {c.name}
@@ -2418,7 +2453,7 @@ export default function ProductsTab({
             fontSize: '0.78rem',
             color: D.t2,
             background: D.s2,
-            border: `1px solid ${D.amber}55`,
+            border: `1px solid ${D.amberBorder}`,
             borderRadius: 10,
             padding: '8px 12px',
             marginBottom: 12,
@@ -2439,7 +2474,7 @@ export default function ProductsTab({
                 fontSize: '0.74rem',
                 background: 'transparent',
                 color: D.gold,
-                border: `1px solid ${D.gold}44`,
+                border: `1px solid ${D.goldBorder}`,
               })}
             >
               Vezi cotele TVA
@@ -2819,7 +2854,7 @@ export default function ProductsTab({
                       fontWeight: 500,
                       background: p.is_active ? D.greenA : D.s3,
                       color: p.is_active ? D.green : D.t3,
-                      border: `1px solid ${p.is_active ? 'rgba(76,175,110,0.2)' : D.border}`,
+                      border: `1px solid ${p.is_active ? D.greenBorder : D.border}`,
                     }}
                   >
                     {p.is_active ? 'Activ' : 'Inactiv'}
@@ -2839,7 +2874,7 @@ export default function ProductsTab({
                       height: 30,
                       borderRadius: 7,
                       background: p.is_sold_out ? D.redA : D.s4,
-                      border: `1px solid ${p.is_sold_out ? 'rgba(224,85,85,0.3)' : D.border}`,
+                      border: `1px solid ${p.is_sold_out ? D.redBorder : D.border}`,
                       color: p.is_sold_out ? D.red : D.t3,
                       display: 'flex',
                       alignItems: 'center',
@@ -2862,7 +2897,7 @@ export default function ProductsTab({
                       height: 30,
                       borderRadius: 7,
                       background: p.is_daily_special ? D.goldA : D.s4,
-                      border: `1px solid ${p.is_daily_special ? D.gold + '44' : D.border}`,
+                      border: `1px solid ${p.is_daily_special ? D.goldBorder : D.border}`,
                       color: p.is_daily_special ? D.gold : D.t3,
                       display: 'flex',
                       alignItems: 'center',
@@ -3008,15 +3043,12 @@ export default function ProductsTab({
             <strong style={{ color: D.t1 }}>{products.find((p) => p.id === delId)?.name}</strong>?
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setDelId(null)}
-              style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-            >
+            <Button variant="secondary" onClick={() => setDelId(null)}>
               Anulează
-            </button>
-            <button onClick={handleDelete} style={btn({ background: D.red, color: '#fff' })}>
+            </Button>
+            <Button variant="danger" onClick={handleDelete}>
               Șterge
-            </button>
+            </Button>
           </div>
         </Modal>
       )}

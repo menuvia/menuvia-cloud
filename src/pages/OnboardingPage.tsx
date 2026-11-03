@@ -77,7 +77,7 @@ const S = {
     },
     step2: {
       title: 'Adaugă primul produs',
-      subtitle: 'Un produs e de ajuns acum. Adaugi restul din dashboard.',
+      subtitle: 'Un produs e de ajuns acum. Adaugi restul din panou.',
       categoryLabel: 'Categorie',
       quickCats: [
         { name: 'Aperitive', emoji: '🥗' },
@@ -114,7 +114,7 @@ const S = {
     step3: {
       title: 'Câte mese are restaurantul?',
       subtitle:
-        'Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le redenumești din dashboard.',
+        'Vom crea mese numerotate automat (Masa 1, Masa 2...) cu QR-uri gata de printat. Le redenumești din panou.',
       // Numele/slug-ul meselor create urmează limba fluxului — subtitlul de
       // mai sus promite exact schema asta de numire.
       tableName: (n: number) => `Masa ${n}`,
@@ -159,7 +159,7 @@ const S = {
       // există de la Meniu + Comenzi; pe Meniu Digital QR-ul deschide doar meniul.
       summaryRestaurant: 'Restaurant creat',
       summaryMenuProducts: (n: number) => (n === 1 ? 'Meniu: 1 produs' : `Meniu: ${n} produse`),
-      summaryMenuEmpty: 'Meniul e încă gol — adaugi produsele din dashboard',
+      summaryMenuEmpty: 'Meniul e încă gol — adaugi produsele din panou',
       summaryTablesQr: (n: number) => (n === 1 ? '1 masă cu QR' : `${n} mese cu QR-uri`),
       summaryTablesNoQr: 'Mesele sunt create, dar QR-urile nu — le generezi din Mese & QR',
       summaryPickup: 'Ridicare activată — QR-ul meniului e QR-ul principal',
@@ -185,13 +185,13 @@ const S = {
       copyBtnAriaLabel: 'Copiază link-ul meniului',
       copiedLabel: 'Copiat!',
       copyLabel: 'Copiază',
-      nextStepsTitle: 'Următorii pași în dashboard:',
+      nextStepsTitle: 'Următorii pași în panou:',
       nextStepAddProducts: 'Adaugă restul produselor din meniu',
       nextStepAddFirstProducts: 'Adaugă produsele din meniu (tab-ul Produse)',
       nextStepInviteTeam: 'Invită echipa din Setări → Echipă (de la planul Meniu + Comenzi)',
       nextStepTrackOrders: 'Urmărește comenzile live din Bucătărie',
       finishingBtn: 'Se deschide...',
-      doneBtn: 'Deschide dashboard-ul →',
+      doneBtn: 'Deschide panoul →',
       // Planul ales pe landing/pricing înainte de cont: întâi restaurantul,
       // apoi planul — CTA-ul final duce la activarea lui (/pricing).
       continuePlanBtn: (plan: string) => `Continuă cu planul ${plan} →`,

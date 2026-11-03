@@ -19,6 +19,7 @@ import {
   type HealthScore,
 } from '../../lib/health'
 import { Card } from '../ui/Card'
+import { PageHeader } from '../ui/PageHeader'
 import { Icon, type IconName } from '../ui/Icon'
 import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
@@ -46,6 +47,13 @@ function RevealItem({ children, delay = 0 }: { children: ReactNode; delay?: numb
 // Scală de tipografie pentru cifre (serif display). Numărul dominant e mult
 // mai mare/greu decât metricele secundare — ierarhie clară, nu grid identic.
 const displayFont = 'var(--font-display)'
+
+// Nuanța transparentă a unei culori de token. `${D.green}22` lipea un sufix de
+// alfa la un `var(...)` → CSS invalid, fundalul dispărea tăcut (lotul V);
+// `color-mix` funcționează pe orice culoare, inclusiv pe un var().
+function tint(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`
+}
 
 const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
 
@@ -79,11 +87,14 @@ interface Props {
   onOrderQrStands: () => void
 }
 
+// Aceeași rază și același padding ca primitiva <Card> (token-uri, lotul V) —
+// pentru suprafețele care sunt BUTOANE (acțiuni rapide, cardul expandabil) și
+// nu pot fi un <div> de Card.
 const card: React.CSSProperties = {
   background: D.s2,
   border: `1px solid ${D.border}`,
-  borderRadius: 14,
-  padding: '18px 20px',
+  borderRadius: 'var(--radius-lg)',
+  padding: 'var(--space-5)',
 }
 
 const sectionTitle: React.CSSProperties = {
@@ -114,10 +125,8 @@ function HeroMetric({ label, value, hint }: { label: string; value: string; hint
   return (
     <Card
       variant="raised"
-      padding="22px 24px"
-      radius={16}
       style={{
-        border: `1px solid ${D.gold}44`,
+        border: `1px solid ${D.goldBorder}`,
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'center',
@@ -156,7 +165,7 @@ function HeroMetric({ label, value, hint }: { label: string; value: string; hint
 // Metrică SECUNDARĂ — număr mai mic, etichetă discretă. Ierarhie sub hero.
 function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <Card variant="flat" padding="16px 18px" radius={14}>
+    <Card variant="flat">
       <div
         style={{
           fontSize: '0.66rem',
@@ -208,7 +217,7 @@ function QuickAction({
         color: D.t1,
         fontSize: '0.875rem',
         fontWeight: 500,
-        fontFamily: 'DM Sans,sans-serif',
+        fontFamily: D.fontBody,
         textAlign: 'left',
       }}
     >
@@ -241,7 +250,7 @@ function ExpandableCard({
           border: 'none',
           cursor: 'pointer',
           textAlign: 'left',
-          fontFamily: 'DM Sans,sans-serif',
+          fontFamily: D.fontBody,
         }}
       >
         {header(open)}
@@ -471,12 +480,12 @@ export default function HomeTab({
           value: tablesCount == null ? '…' : String(tablesCount),
           hint: 'mese scanabile',
         },
-    // Metrica „Setup" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
+    // Metrica „Configurare" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
     // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
     ...(isAdmin
       ? [
           {
-            label: 'Setup',
+            label: 'Configurare',
             value: planKnown ? `${setupDone}/${setupTotal}` : '…',
             hint: setupComplete ? 'totul e gata ✓' : planKnown ? 'pași completați' : undefined,
           },
@@ -490,20 +499,10 @@ export default function HomeTab({
           un h2, nu al doilea h1. */}
       <RevealItem>
         <div>
-          <h2
-            style={{
-              fontFamily: displayFont,
-              fontSize: '1.3rem',
-              fontWeight: 600,
-              color: D.t1,
-              letterSpacing: '-0.02em',
-            }}
-          >
-            Bun venit, {restaurantName}
-          </h2>
-          <p style={{ color: D.t2, fontSize: '0.82rem', marginTop: 5 }}>
-            Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi.
-          </p>
+          <PageHeader
+            title={`Bun venit, ${restaurantName}`}
+            description="Configurează restaurantul, verifică QR-urile și urmărește activitatea de azi."
+          />
         </div>
       </RevealItem>
 
@@ -562,7 +561,7 @@ export default function HomeTab({
         )}
       </RevealItem>
 
-      {/* Setup restaurant — progres cu bară + pași compacți. Doar pe un plan
+      {/* Configurare restaurant — progres cu bară + pași compacți. Doar pe un plan
           CUNOSCUT: lista depinde de plan, iar o listă greșită e o promisiune falsă.
           Fiecare pas duce în tab-ul lui, cu gate-urile lui de plan. Fostul
           „asistent detaliat" (QuickSetupTab) dubla pașii pe alt drum, care le
@@ -572,7 +571,7 @@ export default function HomeTab({
           de cote TVA — singura lui parte fără pas aici — e în Setări → Comenzi & plăți → Cote TVA. */}
       {isAdmin && planKnown && !setupComplete && (
         <RevealItem delay={120}>
-        <div style={card}>
+        <Card variant="flat">
           <div
             style={{
               display: 'flex',
@@ -592,7 +591,7 @@ export default function HomeTab({
               }}
             >
               <Icon name="sparkle" size={18} color={D.gold} />
-              Setup restaurant
+              Configurare restaurant
             </div>
             <div style={{ color: D.gold, fontSize: '0.82rem', fontWeight: 700 }}>
               {setupDone}/{setupTotal} pași completați
@@ -603,7 +602,7 @@ export default function HomeTab({
             aria-valuenow={setupDone}
             aria-valuemin={0}
             aria-valuemax={setupTotal}
-            aria-label="Progres setup"
+            aria-label="Progres configurare"
             style={{
               height: 6,
               background: D.s3,
@@ -651,7 +650,7 @@ export default function HomeTab({
                   minHeight: 44,
                   margin: '0 -8px',
                   cursor: it.done === true ? 'default' : 'pointer',
-                  fontFamily: 'DM Sans,sans-serif',
+                  fontFamily: D.fontBody,
                   fontSize: '0.85rem',
                   color: it.done === true ? D.t3 : D.t1,
                   textAlign: 'left',
@@ -663,7 +662,7 @@ export default function HomeTab({
                     height: 18,
                     borderRadius: '50%',
                     border: `1.5px ${it.done == null ? 'dashed' : 'solid'} ${it.done === true ? D.green : D.border}`,
-                    background: it.done === true ? 'rgba(76,175,110,0.15)' : 'transparent',
+                    background: it.done === true ? D.greenA : 'transparent',
                     color: D.green,
                     display: 'flex',
                     alignItems: 'center',
@@ -686,7 +685,7 @@ export default function HomeTab({
               </button>
             ))}
           </div>
-        </div>
+        </Card>
         </RevealItem>
       )}
 
@@ -709,8 +708,8 @@ export default function HomeTab({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  background: health ? `${sc}1A` : D.s3,
-                  border: `1.5px solid ${health ? `${sc}66` : D.border}`,
+                  background: health ? tint(sc, 10) : D.s3,
+                  border: `1.5px solid ${health ? tint(sc, 40) : D.border}`,
                   fontFamily: displayFont,
                   fontSize: '1.5rem',
                   fontWeight: 700,
@@ -735,7 +734,7 @@ export default function HomeTab({
                   {shownScore != null && (
                     <span
                       style={{
-                        background: `${sc}22`,
+                        background: tint(sc, 13),
                         color: sc,
                         fontSize: '0.7rem',
                         fontWeight: 700,

@@ -10,8 +10,10 @@ import { useFeatures } from '../hooks/useFeatures'
 import { getPlanByInternalId } from '../lib/plans'
 import QRCode from 'qrcode'
 import { supabase } from '../lib/supabase'
-import { D } from '../lib/constants'
+import { D, D_RAW } from '../lib/constants'
 import { Icon } from './ui/Icon'
+import { Button } from './ui/Button'
+import { useToast, Toast } from './_dashboard/sharedUI'
 import { EmptyState } from './ui/EmptyState'
 import { Skeleton } from './ui/Skeleton'
 import type { Restaurant } from '../hooks/useData'
@@ -45,23 +47,9 @@ interface TableRow {
   active_token: QrTokenRow | null
 }
 
-const btn = (extra: React.CSSProperties = {}): React.CSSProperties => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 6,
-  padding: '0 16px',
-  // A11y: țintă tactilă min. 44px (WCAG 2.5.5) — înlocuiește height:38.
-  minHeight: 44,
-  borderRadius: 9,
-  fontSize: '0.85rem',
-  fontWeight: 500,
-  border: 'none',
-  cursor: 'pointer',
-  fontFamily: 'DM Sans,sans-serif',
-  whiteSpace: 'nowrap',
-  ...extra,
-})
+// Butoanele doar-iconiță de pe rândul mesei: pătrat de 44px (ținta tactilă),
+// aceeași variantă `secondary` ca restul acțiunilor.
+const ICON_BTN: React.CSSProperties = { width: 44, minWidth: 44, padding: 0 }
 const inp: React.CSSProperties = {
   width: '100%',
   background: D.s3,
@@ -71,7 +59,7 @@ const inp: React.CSSProperties = {
   fontSize: '0.9rem',
   color: D.t1,
   outline: 'none',
-  fontFamily: 'DM Sans,sans-serif',
+  fontFamily: D.fontBody,
   boxSizing: 'border-box',
 }
 function slugify(s: string) {
@@ -99,7 +87,7 @@ async function generateQRDataURL(token: string, size: number): Promise<string> {
   return QRCode.toDataURL(qrUrl(token), {
     width: size,
     margin: 1,
-    color: { dark: '#1A1208', light: '#F8F3EB' },
+    color: { dark: D_RAW.onGold, light: D_RAW.qrPaper },
   })
 }
 
@@ -126,14 +114,14 @@ function QRImage({ token, size = 80, label }: { token: string; size?: number; la
         style={{
           width: size,
           height: size,
-          background: '#F8F3EB',
+          background: D.qrPaper,
           borderRadius: 4,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
         }}
       >
-        {failed && <Icon name="alert" size={Math.min(20, Math.round(size / 2))} color="#8A6D3B" />}
+        {failed && <Icon name="alert" size={Math.min(20, Math.round(size / 2))} color={D.qrMuted} />}
       </div>
     )
   return (
@@ -147,54 +135,8 @@ function QRImage({ token, size = 80, label }: { token: string; size?: number; la
   )
 }
 
-// ── Toast ─────────────────────────────────────────────────────
-function useToast() {
-  const [toasts, setToasts] = useState<{ id: string; msg: string; type: string }[]>([])
-  const toast = useCallback((msg: string, type = 'success') => {
-    const id = Math.random().toString(36).slice(2)
-    setToasts((t) => [...t, { id, msg, type }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000)
-  }, [])
-  return { toasts, toast }
-}
-function Toast({ toasts }: { toasts: { id: string; msg: string; type: string }[] }) {
-  return (
-    <div
-      // A11y: regiune live — confirmările/erorile sunt anunțate de screen readere.
-      role="status"
-      aria-live="polite"
-      style={{
-        position: 'fixed',
-        bottom: 80,
-        right: 16,
-        zIndex: 9999,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        pointerEvents: 'none',
-      }}
-    >
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          role={t.type === 'error' ? 'alert' : undefined}
-          style={{
-            background: D.s3,
-            borderLeft: `3px solid ${t.type === 'error' ? D.red : D.green}`,
-            borderRadius: 10,
-            padding: '10px 16px',
-            fontSize: '0.875rem',
-            color: D.t1,
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-            minWidth: 220,
-          }}
-        >
-          {t.msg}
-        </div>
-      ))}
-    </div>
-  )
-}
+// Toast-ul vine din sistemul unic (sharedUI → ui/useToast, lotul V): înainte
+// TablesManager avea a TREIA implementare proprie, cu alt aspect și altă durată.
 
 // ── TableModal ────────────────────────────────────────────────
 function TableModal({
@@ -287,7 +229,7 @@ function TableModal({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.75)',
+        background: D.overlay,
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
@@ -316,7 +258,7 @@ function TableModal({
         <FocusTrap />
         <div
           style={{
-            fontFamily: 'Fraunces,serif',
+            fontFamily: D.fontDisplay,
             fontSize: '1.05rem',
             color: D.t1,
             marginBottom: 20,
@@ -401,8 +343,8 @@ function TableModal({
         {error && (
           <div
             style={{
-              background: 'rgba(224,85,85,0.1)',
-              border: `1px solid rgba(224,85,85,0.3)`,
+              background: D.redA,
+              border: `1px solid ${D.redBorder}`,
               borderRadius: 8,
               padding: '8px 12px',
               fontSize: 13,
@@ -414,19 +356,12 @@ function TableModal({
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button
-            onClick={onClose}
-            style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-          >
+          <Button variant="secondary" onClick={onClose}>
             Anulează
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            style={btn({ background: D.gold, color: '#000', opacity: saving ? 0.7 : 1 })}
-          >
+          </Button>
+          <Button variant="primary" onClick={save} loading={saving}>
             {saving ? 'Se salvează...' : 'Salvează'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -461,7 +396,7 @@ function GeneralMenuQrCard({
     QRCode.toDataURL(menuUrl, {
       width: 480,
       margin: 1,
-      color: { dark: '#1A1208', light: '#F8F3EB' },
+      color: { dark: D_RAW.onGold, light: D_RAW.qrPaper },
     })
       .then((url) => {
         if (!cancelled) setQr(url)
@@ -505,7 +440,8 @@ function GeneralMenuQrCard({
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        <button
+        <Button
+          variant="secondary"
           onClick={() => {
             if (!qr) return
             const a = document.createElement('a')
@@ -514,23 +450,22 @@ function GeneralMenuQrCard({
             a.click()
           }}
           disabled={!qr}
-          style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+          icon={<Icon name="download" size={15} />}
         >
-          <Icon name="download" size={15} />
           PNG
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="secondary"
           onClick={() => {
             navigator.clipboard
               .writeText(menuUrl)
               .then(() => toast('Link copiat'))
               .catch(() => toast('Nu am putut copia linkul', 'error'))
           }}
-          style={btn({ background: D.s3, color: D.t1, border: `1px solid ${D.border}` })}
+          icon={<Icon name="link" size={15} />}
         >
-          <Icon name="link" size={15} />
           Copiază link
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -951,24 +886,19 @@ export default function TablesManager({
               }}
               style={{ position: 'relative' }}
             >
-              <button
+              <Button
                 ref={pdfTriggerRef}
+                variant="secondary"
                 onClick={() => setPdfMenuOpen((o) => !o)}
                 disabled={downloading !== null}
                 aria-haspopup="menu"
                 aria-expanded={pdfMenuOpen}
                 title="Descarcă QR-urile în format PDF pentru print"
-                style={btn({
-                  background: D.s3,
-                  color: D.t1,
-                  border: `1px solid ${D.border}`,
-                  opacity: downloading !== null ? 0.7 : 1,
-                })}
+                icon={<Icon name="download" size={16} />}
               >
-                <Icon name="download" size={16} />
                 {downloading !== null ? 'Se descarcă...' : 'Descarcă QR-uri'}
                 <Icon name="chevronDown" size={14} />
-              </button>
+              </Button>
               {pdfMenuOpen && (
                 <div
                   role="menu"
@@ -983,7 +913,7 @@ export default function TablesManager({
                     border: `1px solid ${D.border}`,
                     borderRadius: 12,
                     padding: 6,
-                    boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+                    boxShadow: D.shadowLg,
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 2,
@@ -1014,7 +944,7 @@ export default function TablesManager({
                         border: 'none',
                         color: D.t1,
                         cursor: downloading !== null ? 'default' : 'pointer',
-                        fontFamily: 'DM Sans,sans-serif',
+                        fontFamily: D.fontBody,
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = D.s3)}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
@@ -1036,13 +966,13 @@ export default function TablesManager({
               )}
             </div>
           )}
-          <button
+          <Button
+            variant="primary"
             onClick={() => setModal('add')}
-            style={btn({ background: D.gold, color: '#000' })}
+            icon={<Icon name="plus" size={16} />}
           >
-            <Icon name="plus" size={16} />
             Adaugă masă
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1090,8 +1020,8 @@ export default function TablesManager({
                 : 'Detaliu tehnic: domeniul curent diferă de VITE_APP_URL.'
             }
             style={{
-              background: 'rgba(232,160,32,0.1)',
-              border: '1px solid rgba(232,160,32,0.25)',
+              background: D.amberA,
+              border: `1px solid ${D.amberBorder}`,
               borderRadius: 10,
               padding: '10px 14px',
               marginBottom: 16,
@@ -1100,8 +1030,8 @@ export default function TablesManager({
               gap: 10,
             }}
           >
-            <Icon name="alert" size={18} color="#E8A020" />
-            <div style={{ fontSize: '0.78rem', color: '#E8A020', lineHeight: 1.5 }}>
+            <Icon name="alert" size={18} color={D.amber} />
+            <div style={{ fontSize: '0.78rem', color: D.amber, lineHeight: 1.5 }}>
               {isPreview
                 ? 'Atenție: QR-urile generate acum vor conține o adresă temporară de test, nu adresa finală a meniului. Nu le printa încă — contactează suportul dacă ai nevoie de ajutor.'
                 : 'Ești pe o altă adresă decât cea configurată pentru meniu. QR-urile generate vor folosi adresa configurată, nu pe cea curentă.'}
@@ -1123,7 +1053,7 @@ export default function TablesManager({
         >
           <div
             style={{
-              fontFamily: 'Fraunces,serif',
+              fontFamily: D.fontDisplay,
               fontSize: '1.05rem',
               color: D.t1,
               fontWeight: 600,
@@ -1158,35 +1088,27 @@ export default function TablesManager({
                 padding: '10px 14px',
                 color: D.t1,
                 fontSize: '0.9rem',
-                fontFamily: 'DM Sans,sans-serif',
+                fontFamily: D.fontBody,
                 width: 220,
               }}
             />
-            <button
-              onClick={() => void bulkGenerate()}
-              disabled={bulkBusy}
-              style={btn({
-                background: D.gold,
-                color: '#000',
-                opacity: bulkBusy ? 0.7 : 1,
-              })}
-            >
+            <Button variant="primary" onClick={() => void bulkGenerate()} loading={bulkBusy}>
               {bulkBusy
                 ? 'Se generează...'
                 : tables.length === 0
                   ? 'Generează mese și QR-uri'
                   : 'Generează QR-uri'}
-            </button>
+            </Button>
           </div>
           {limitMsg && (
             <div
               style={{
                 marginTop: 10,
-                background: 'rgba(232,160,32,0.1)',
-                border: '1px solid rgba(232,160,32,0.25)',
+                background: D.amberA,
+                border: `1px solid ${D.amberBorder}`,
                 borderRadius: 8,
                 padding: '8px 12px',
-                color: '#E8A020',
+                color: D.amber,
                 fontSize: '0.78rem',
               }}
             >
@@ -1209,13 +1131,9 @@ export default function TablesManager({
           title="Nu s-au putut încărca mesele"
           description={loadError}
           action={
-            <button
-              onClick={load}
-              style={btn({ background: D.s2, color: D.gold, border: `1px solid ${D.border}` })}
-            >
-              <Icon name="refresh" size={16} />
+            <Button variant="secondary" onClick={load} icon={<Icon name="refresh" size={16} />}>
               Reîncearcă
-            </button>
+            </Button>
           }
         />
       ) : tables.length === 0 ? null : (
@@ -1391,7 +1309,7 @@ export default function TablesManager({
               </div>
               {/* FIX: QRImage generates locally — no api.qrserver.com */}
               {t.active_token && (
-                <div style={{ background: '#F8F3EB', borderRadius: 8, padding: 4, flexShrink: 0 }}>
+                <div style={{ background: D.qrPaper, borderRadius: 8, padding: 4, flexShrink: 0 }}>
                   <QRImage token={t.active_token.token} size={48} label={t.name} />
                 </div>
               )}
@@ -1399,53 +1317,33 @@ export default function TablesManager({
               {/* Rând acțiuni: wrap pe mai multe rânduri ca să nu se taie butoanele pe mobil */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {t.active_token && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => void downloadPng(t)}
                     title="Descarcă QR (PNG)"
                     aria-label="Descarcă QR (PNG)"
-                    style={{
-                      width: 44,
-                      height: 44,
-                      minWidth: 44,
-                      minHeight: 44,
-                      borderRadius: 7,
-                      background: D.s3,
-                      border: `1px solid ${D.border}`,
-                      color: D.t2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
+                    style={ICON_BTN}
                   >
                     <Icon name="download" size={16} />
-                  </button>
+                  </Button>
                 )}
                 {t.active_token && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => copyLink(t)}
                     title="Copiază link"
                     aria-label="Copiază link"
-                    style={{
-                      width: 44,
-                      height: 44,
-                      minWidth: 44,
-                      minHeight: 44,
-                      borderRadius: 7,
-                      background: D.s3,
-                      border: `1px solid ${D.border}`,
-                      color: D.t2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                    }}
+                    style={ICON_BTN}
                   >
                     <Icon name="link" size={16} />
-                  </button>
+                  </Button>
                 )}
                 {(canRotateQr || !t.active_token) && (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => {
                     // Fără QR existent nu e nimic de invalidat — generăm direct.
                     // Partenerul nu poate roti, deci primește token-ul prin
@@ -1456,32 +1354,13 @@ export default function TablesManager({
                   disabled={rotating === t.id}
                   title={t.active_token ? 'Regenerează QR' : 'Generează QR'}
                   aria-label={t.active_token ? 'Regenerează QR' : 'Generează QR'}
-                  style={{
-                    // UX: fără QR, butonul are text vizibil „Generează QR" (mesajul de
-                    // status trimite la el); cu QR rămâne icon-only ca celelalte acțiuni.
-                    width: t.active_token ? 44 : 'auto',
-                    padding: t.active_token ? 0 : '0 14px',
-                    gap: 6,
-                    height: 44,
-                    minWidth: 44,
-                    minHeight: 44,
-                    borderRadius: 7,
-                    background: D.s3,
-                    border: `1px solid ${D.border}`,
-                    color: D.t2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    opacity: rotating === t.id ? 0.5 : 1,
-                    fontFamily: 'DM Sans,sans-serif',
-                    fontSize: '0.85rem',
-                    fontWeight: 500,
-                  }}
+                  // UX: fără QR, butonul are text vizibil „Generează QR" (mesajul de
+                  // status trimite la el); cu QR rămâne icon-only ca celelalte acțiuni.
+                  style={t.active_token ? ICON_BTN : undefined}
+                  icon={<Icon name="refresh" size={16} />}
                 >
-                  <Icon name="refresh" size={16} />
                   {!t.active_token && 'Generează QR'}
-                </button>
+                </Button>
                 )}
                 <button
                   onClick={() => toggleActive(t)}
@@ -1493,8 +1372,8 @@ export default function TablesManager({
                     minWidth: 44,
                     minHeight: 44,
                     borderRadius: 7,
-                    background: t.is_active ? 'rgba(76,175,110,0.12)' : D.s3,
-                    border: `1px solid ${t.is_active ? 'rgba(76,175,110,0.3)' : D.border}`,
+                    background: t.is_active ? D.greenA : D.s3,
+                    border: `1px solid ${t.is_active ? D.greenBorder : D.border}`,
                     color: t.is_active ? D.green : D.t3,
                     display: 'flex',
                     alignItems: 'center',
@@ -1505,27 +1384,16 @@ export default function TablesManager({
                   {/* Iconul diferă per stare (nu doar culoarea): bifă = activă, X = inactivă. */}
                   <Icon name={t.is_active ? 'check' : 'close'} size={16} />
                 </button>
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setModal(t)}
                   title="Editează masă"
                   aria-label="Editează masă"
-                  style={{
-                    width: 44,
-                    height: 44,
-                    minWidth: 44,
-                    minHeight: 44,
-                    borderRadius: 7,
-                    background: D.s3,
-                    border: `1px solid ${D.border}`,
-                    color: D.t2,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                  }}
+                  style={ICON_BTN}
                 >
                   <Icon name="edit" size={16} />
-                </button>
+                </Button>
                 <button
                   onClick={() => setDelId(t.id)}
                   title="Șterge masă"
@@ -1536,8 +1404,8 @@ export default function TablesManager({
                     minWidth: 44,
                     minHeight: 44,
                     borderRadius: 7,
-                    background: 'rgba(224,85,85,0.1)',
-                    border: `1px solid rgba(224,85,85,0.2)`,
+                    background: D.redA,
+                    border: `1px solid ${D.redBorder}`,
                     color: D.red,
                     display: 'flex',
                     alignItems: 'center',
@@ -1572,7 +1440,7 @@ export default function TablesManager({
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.75)',
+            background: D.overlay,
             zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
@@ -1597,7 +1465,7 @@ export default function TablesManager({
             <FocusTrap />
             <div
               style={{
-                fontFamily: 'Fraunces,serif',
+                fontFamily: D.fontDisplay,
                 fontSize: '1.05rem',
                 color: D.t1,
                 marginBottom: 12,
@@ -1609,23 +1477,19 @@ export default function TablesManager({
               QR-ul vechi nu va mai funcționa. Vrei să generezi unul nou pentru această masă?
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                autoFocus
-                onClick={() => setRotateTarget(null)}
-                style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-              >
+              <Button variant="secondary" autoFocus onClick={() => setRotateTarget(null)}>
                 Anulează
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="primary"
                 onClick={() => {
                   const t = rotateTarget
                   setRotateTarget(null)
                   void rotateToken(t)
                 }}
-                style={btn({ background: D.gold, color: '#000' })}
               >
                 Regenerează
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -1639,7 +1503,7 @@ export default function TablesManager({
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0,0,0,0.75)',
+            background: D.overlay,
             zIndex: 1000,
             display: 'flex',
             alignItems: 'center',
@@ -1664,7 +1528,7 @@ export default function TablesManager({
             <FocusTrap />
             <div
               style={{
-                fontFamily: 'Fraunces,serif',
+                fontFamily: D.fontDisplay,
                 fontSize: '1.05rem',
                 color: D.t1,
                 marginBottom: 12,
@@ -1676,16 +1540,12 @@ export default function TablesManager({
               Toate codurile QR asociate vor fi șterse. Comenzile existente nu sunt afectate.
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button
-                autoFocus
-                onClick={() => setDelId(null)}
-                style={btn({ background: D.s3, color: D.t2, border: `1px solid ${D.border}` })}
-              >
+              <Button variant="secondary" autoFocus onClick={() => setDelId(null)}>
                 Anulează
-              </button>
-              <button onClick={handleDelete} style={btn({ background: D.red, color: '#fff' })}>
+              </Button>
+              <Button variant="danger" onClick={handleDelete}>
                 Șterge
-              </button>
+              </Button>
             </div>
           </div>
         </div>

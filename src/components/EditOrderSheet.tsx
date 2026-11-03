@@ -136,7 +136,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     }
     if (hasOrphan) {
       setSubmitError(
-        'Comanda conține produse șterse din meniu (marcate cu ⚠). Elimină-le sau roagă owner-ul să reactiveze produsul înainte de a salva.',
+        'Comanda conține produse șterse din meniu (marcate cu ⚠). Elimină-le sau roagă proprietarul să reactiveze produsul înainte de a salva.',
       )
       return
     }
