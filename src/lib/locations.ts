@@ -245,21 +245,6 @@ export const MSG_CREATE_UNCERTAIN =
   'Nu știm sigur dacă locația s-a creat — reîncarcă pagina și verifică lista.'
 
 /**
- * Cât așteptăm după o creare AMBIGUĂ înainte să tratăm „negăsită" drept „nu
- * s-a creat". Un rând lipsă imediat după eșec nu dovedește nimic: tranzacția
- * poate fi încă necomisă, iar `create_restaurant` alege alt slug la coliziune,
- * deci o a doua creare ar face o locație DUBLĂ (recenzia CodeRabbit pe #344).
- * Garanția reală e cheia de idempotență (mig 315): reîncercarea o refolosește,
- * deci serverul întoarce locația veche dacă a comis. Fereastra rămâne doar plasa
- * pentru o bază fără 315 (cheia ignorată) și NU e o dovadă — o cerere întârziată
- * înainte de execuție poate începe și mai târziu; micșorează riscul, atât.
- */
-export const CREATE_SETTLE_MS = 60_000
-
-export const MSG_CREATE_SETTLING =
-  'Verificăm încă dacă locația s-a creat. Încearcă din nou peste un minut.'
-
-/**
  * Reîncărcarea COMPLETĂ a panoului (ieșirea de rezervă când listele din
  * memorie nu pot fi aduse la zi). Funcție separată ca testele s-o poată
  * observa — `window.location.assign` nu se poate spiona în jsdom.

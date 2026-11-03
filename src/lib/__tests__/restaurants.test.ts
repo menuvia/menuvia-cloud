@@ -77,6 +77,17 @@ describe('createRestaurant', () => {
     })
   })
 
+  // RC3: cu `requireIdempotency` (reîncercarea după un eșec ambiguu) fallback-ul
+  // fără cheie e interzis — PGRST202 urcă la apelant, nicio a doua cerere.
+  // Mutația care pică: fallback-ul aplicat și cu requireIdempotency.
+  it('RC3: requireIdempotency → PGRST202 urcă, fără reîncercare fără cheie', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'PGRST202', message: 'not found' } })
+    await expect(
+      createRestaurant({ name: 'X', idempotencyKey: 'k-1', requireIdempotency: true }),
+    ).rejects.toMatchObject({ code: 'PGRST202' })
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+  })
+
   it('RC2b: altă eroare nu declanșează a doua cerere', async () => {
     mockRpc.mockResolvedValueOnce({ data: null, error: { code: 'P0001', message: 'limit' } })
     await expect(createRestaurant({ name: 'X', idempotencyKey: 'k-1' })).rejects.toBeTruthy()

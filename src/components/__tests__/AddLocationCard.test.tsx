@@ -25,18 +25,20 @@
 //        reîncercare oarbă. Mutația care pică: verificarea eșuată tratată ca
 //        „negăsită" (butonul rămâne și creează din nou).
 //   AL7  eșec ambiguu + locația NEgăsită nici la reîncercare (recenzia
-//        CodeRabbit pe #344): „negăsită" nu dovedește că tranzacția s-a
-//        anulat — poate fi încă necomisă, iar `create_restaurant` alege alt
-//        slug, deci o a doua creare ar face o locație DUBLĂ. În primul minut
-//        reîncercarea NU creează (mesaj „Verificăm încă…"); după
-//        `CREATE_SETTLE_MS` reîncearcă — cu ACEEAȘI cheie de idempotență (mig
-//        315), deci serverul întoarce locația veche dacă a comis totuși.
-//        Mutații care pică: ramura `absent` care cade direct pe
-//        `createRestaurant`; cheie nouă la reîncercare.
+//        CodeRabbit pe #344): „negăsită" nu dovedește că cererea veche s-a
+//        anulat, deci reîncercarea trimite ACEEAȘI cheie de idempotență (mig
+//        315) și cere protecția ei (`requireIdempotency`) — dacă cererea veche
+//        a comis totuși, serverul o întoarce pe ea în loc de o locație dublă.
+//        Mutații care pică: cheie nouă la reîncercare; `requireIdempotency`
+//        scos.
+//   AL8  aceeași reîncercare pe o bază FĂRĂ mig 315 (PGRST202): nu există
+//        protecție, deci dialogul spune „Nu știm sigur…" + „Reîncarcă" și NU
+//        mai trimite nicio cerere. Mutația care pică: PGRST202 tratat ca refuz
+//        clar (pendingRef golit → următorul click creează orb).
 //   AL6  `onCreated` pică DUPĂ ce restaurantul a fost creat → reîncercarea NU
 //        mai creează încă unul (tiparul OnboardingPage). Mutația care pică:
 //        `createdRef` scos.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
@@ -50,8 +52,6 @@ vi.mock('../../lib/locations', async (importOriginal) => ({
 
 import AddLocationCard from '../AddLocationCard'
 import {
-  CREATE_SETTLE_MS,
-  MSG_CREATE_SETTLING,
   MSG_CREATE_UNCERTAIN,
   MSG_LOCATION_LIMIT,
 } from '../../lib/locations'
@@ -62,9 +62,6 @@ beforeEach(() => {
   m.create.mockReset()
   m.find.mockReset()
   m.reload.mockReset()
-})
-afterEach(() => {
-  vi.restoreAllMocks()
 })
 
 function renderCard(onCreated: (id: string) => Promise<void>) {
@@ -96,6 +93,7 @@ describe('AddLocationCard', () => {
       name: 'Bistro Gară',
       slug: expect.any(String),
       idempotencyKey: expect.any(String),
+      requireIdempotency: false,
     })
     expect(m.find).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -182,9 +180,7 @@ describe('AddLocationCard', () => {
     expect(onCreated).not.toHaveBeenCalled()
   })
 
-  it('AL7: negăsită la reîncercare → nu creează în primul minut, creează după', async () => {
-    let now = 1_800_000_000_000
-    vi.spyOn(Date, 'now').mockImplementation(() => now)
+  it('AL7: negăsită la reîncercare → aceeași cheie, cu protecția ei obligatorie', async () => {
     m.create
       .mockRejectedValueOnce(LOST)
       .mockResolvedValueOnce({ restaurant_id: 'rest-new', restaurant_slug: 'bistro-gara' })
@@ -196,25 +192,32 @@ describe('AddLocationCard', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(m.create).toHaveBeenCalledTimes(1)
 
-    // 10 s mai târziu: încă negăsită → fără a doua creare.
-    now += 10_000
-    await user.click(submitBtn())
-    await waitFor(() => expect(m.find).toHaveBeenCalledTimes(2))
-    expect(await screen.findByRole('alert')).toHaveTextContent(MSG_CREATE_SETTLING)
-    expect(m.create).toHaveBeenCalledTimes(1)
-    expect(onCreated).not.toHaveBeenCalled()
-
-    // Peste fereastră: cererea veche nu mai poate comite → se creează.
-    now += CREATE_SETTLE_MS
     await user.click(submitBtn())
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rest-new'))
     expect(m.create).toHaveBeenCalledTimes(2)
-    // Aceeași creare, aceeași CHEIE (mig 315): dacă cererea veche a comis
-    // totuși, serverul o întoarce pe ea în loc să facă a doua locație.
-    const k1 = (m.create.mock.calls[0][0] as { idempotencyKey?: string }).idempotencyKey
-    const k2 = (m.create.mock.calls[1][0] as { idempotencyKey?: string }).idempotencyKey
-    expect(typeof k1).toBe('string')
-    expect(k2).toBe(k1)
+    const first = m.create.mock.calls[0][0] as { idempotencyKey?: string; requireIdempotency?: boolean }
+    const retry = m.create.mock.calls[1][0] as { idempotencyKey?: string; requireIdempotency?: boolean }
+    expect(typeof first.idempotencyKey).toBe('string')
+    expect(retry.idempotencyKey).toBe(first.idempotencyKey)
+    expect(first.requireIdempotency).toBe(false)
+    expect(retry.requireIdempotency).toBe(true)
+  })
+
+  it('AL8: reîncercare pe o bază fără mig 315 → „Nu știm sigur", fără altă cerere', async () => {
+    m.create
+      .mockRejectedValueOnce(LOST)
+      .mockRejectedValueOnce({ code: 'PGRST202', message: 'Could not find the function' })
+    m.find.mockResolvedValue(null)
+    const onCreated = vi.fn(async () => {})
+    renderCard(onCreated)
+    const { user } = await openAndType('Bistro Gară')
+    await user.click(submitBtn())
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    await user.click(submitBtn())
+    expect(await screen.findByRole('alert')).toHaveTextContent(MSG_CREATE_UNCERTAIN)
+    expect(screen.queryByRole('button', { name: 'Creează locația' })).toBeNull()
+    expect(m.create).toHaveBeenCalledTimes(2)
+    expect(onCreated).not.toHaveBeenCalled()
   })
 
   it('AL6: reîncercarea după un onCreated eșuat nu creează a doua locație', async () => {

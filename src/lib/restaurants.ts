@@ -37,7 +37,9 @@ function asOkResponse(data: unknown, label: string): Record<string, unknown> {
  * răspuns pierdut devine sigură. Pe o bază fără 315 PostgREST răspunde
  * PGRST202 pentru parametrul necunoscut; atunci se reîncearcă O SINGURĂ dată
  * fără cheie (crearea merge, doar fără protecția la dublură — ca înainte),
- * tiparul `createReservationPublic` (273).
+ * tiparul `createReservationPublic` (273). Cu `requireIdempotency` fallback-ul
+ * e INTERZIS și eroarea PGRST202 urcă la apelant: o reîncercare după un eșec
+ * ambiguu fără protecția cheii ar putea face o locație dublă.
  */
 export async function createRestaurant(input: {
   name: string
@@ -45,6 +47,7 @@ export async function createRestaurant(input: {
   slug?: string | null
   primaryColor?: string
   idempotencyKey?: string | null
+  requireIdempotency?: boolean
 }): Promise<CreatedRestaurant> {
   const args = {
     p_name: input.name,
@@ -57,7 +60,12 @@ export async function createRestaurant(input: {
     'create_restaurant',
     key === null ? args : { ...args, p_idempotency_key: key },
   )
-  if (error && key !== null && (error as { code?: unknown }).code === 'PGRST202') {
+  if (
+    error &&
+    key !== null &&
+    input.requireIdempotency !== true &&
+    (error as { code?: unknown }).code === 'PGRST202'
+  ) {
     const retry = await supabase.rpc('create_restaurant', args)
     data = retry.data
     error = retry.error

@@ -22,8 +22,6 @@ import { useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../lib/constants'
 import {
-  CREATE_SETTLE_MS,
-  MSG_CREATE_SETTLING,
   MSG_CREATE_UNCERTAIN,
   describeCreateLocationError,
   findCreatedLocation,
@@ -69,14 +67,8 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
   // dialogului — altfel redeschiderea ar permite exact reîncercarea oarbă).
   // `key` = cheia de idempotență a creării (mig 315): reîncercarea o
   // REFOLOSEȘTE, deci serverul întoarce locația deja creată în loc de una nouă.
-  // `sentAt` = PRIMA trimitere (marginea de jos a căutării în listă),
-  // `lastSentAt` = ultima (o cerere poate fi încă în drum de atunci).
-  const pendingRef = useRef<{
-    name: string
-    sentAt: number
-    lastSentAt: number
-    key: string
-  } | null>(null)
+  // `sentAt` = PRIMA trimitere (marginea de jos a căutării în listă).
+  const pendingRef = useRef<{ name: string; sentAt: number; key: string } | null>(null)
   const knownIdsRef = useRef<ReadonlySet<string>>(new Set())
   useBodyScrollLock(open)
 
@@ -126,11 +118,10 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
     try {
       let id = createdRef.current
       if (id == null && pendingRef.current != null) {
-        // O încercare anterioară a eșuat ambiguu: întâi verificăm, abia apoi creăm.
-        // Momentul se ia ÎNAINTEA verificării: un „negăsită" citit înainte de
-        // prag nu are voie să deblocheze crearea doar fiindcă răspunsul lui a
-        // sosit după prag (recenzia CodeRabbit pe #344).
-        const checkedAt = Date.now()
+        // O încercare anterioară a eșuat ambiguu: întâi verificăm, abia apoi
+        // reîncercăm — cu ACEEAȘI cheie, deci „negăsită" (cerere încă în drum
+        // sau necomisă) nu mai poate produce o locație dublă: serverul o
+        // întoarce pe cea veche dacă a comis (mig 315).
         const check = await checkPending()
         if (check.status === 'unknown') {
           setUncertain(true)
@@ -138,20 +129,6 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
           return
         }
         if (check.status === 'found') id = check.id
-        if (check.status === 'absent') {
-          const pending = pendingRef.current
-          // Prea devreme ca „negăsită" să însemne „nu s-a creat": cererea
-          // anterioară poate fi încă în curs de comitere.
-          if (pending != null && checkedAt - pending.lastSentAt < CREATE_SETTLE_MS) {
-            setError(MSG_CREATE_SETTLING)
-            setSaving(false)
-            return
-          }
-          // Peste fereastră: reîncercăm cu ACEEAȘI cheie (pendingRef rămâne),
-          // deci chiar dacă cererea veche a comis între timp, serverul o
-          // întoarce pe ea (mig 315) — fereastra e doar plasa pentru o bază
-          // fără 315, unde cheia e ignorată.
-        }
       }
       if (id == null) {
         if (!trimmed && pendingRef.current == null) {
@@ -161,11 +138,8 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
         }
         // O reîncercare după un eșec ambiguu păstrează numele și CHEIA cererii
         // inițiale: e aceeași creare, nu una nouă.
-        const now = Date.now()
         const prev = pendingRef.current
-        const pending = prev
-          ? { ...prev, lastSentAt: now }
-          : { name: trimmed, sentAt: now, lastSentAt: now, key: crypto.randomUUID() }
+        const pending = prev ?? { name: trimmed, sentAt: Date.now(), key: crypto.randomUUID() }
         pendingRef.current = pending
         try {
           id = (
@@ -173,10 +147,20 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
               name: pending.name,
               slug: slugify(pending.name),
               idempotencyKey: pending.key,
+              // O REÎNCERCARE fără protecția cheii (bază fără mig 315) e
+              // interzisă: ar putea dubla o creare care a comis totuși.
+              requireIdempotency: prev != null,
             })
           ).restaurant_id
           pendingRef.current = null
         } catch (err) {
+          const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : null
+          if (prev != null && code === 'PGRST202') {
+            // Baza nu deduplică (fără mig 315): nu putem reîncerca în siguranță.
+            setUncertain(true)
+            setSaving(false)
+            return
+          }
           if (!isAmbiguousCreateFailure(err)) {
             // Refuz CLAR: nu s-a creat nimic, reîncercarea e sigură.
             pendingRef.current = null
