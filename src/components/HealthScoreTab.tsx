@@ -19,6 +19,7 @@ import {
   scoreLabel,
   getActionableSuggestions,
   planHealthScore,
+  planHealthTrend,
 } from '../lib/health'
 import { toUserMessage } from '../lib/userMessages'
 
@@ -155,8 +156,10 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
   const scope = { fiscal }
   const suggestions = getActionableSuggestions(score, scope)
   const shown = planHealthScore(score, scope)
+  // Fără bon: `stable` (neutru) — narațiunea se decide doar pe scorul afișat.
+  const trend = planHealthTrend(score, scope)
   const sc = scoreColor(shown, PALETTE)
-  const tc = trendColor(score.trend, PALETTE)
+  const tc = trendColor(trend, PALETTE)
   // Delta doar pe scorul brut al serverului (Planul 3): `previous_score` nu are
   // componentele lui, deci nu se poate normaliza la fel pe celelalte planuri.
   const delta = fiscal && score.previous_score != null ? score.score - score.previous_score : null
@@ -269,17 +272,22 @@ export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
           >
             {scoreLabel(shown)}
           </div>
-          <div style={{ color: tc, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-            {trendIcon(score.trend)} {trendLabel(score.trend)}
-            {delta !== null && delta !== 0 && (
-              <span style={{ color: D.t3, fontWeight: 400, marginLeft: 8 }}>
-                ({delta > 0 ? '+' : ''}
-                {delta} față de scorul precedent)
-              </span>
-            )}
-          </div>
+          {/* Tendința și delta vin din scorul BRUT al serverului (cu Bridge
+              fiscal) — doar pe planul cu bon; altfel ar contrazice scorul
+              normalizat de alături (recenzia #334 / CodeRabbit). */}
+          {fiscal && (
+            <div style={{ color: tc, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+              {trendIcon(trend)} {trendLabel(trend)}
+              {delta !== null && delta !== 0 && (
+                <span style={{ color: D.t3, fontWeight: 400, marginLeft: 8 }}>
+                  ({delta > 0 ? '+' : ''}
+                  {delta} față de scorul precedent)
+                </span>
+              )}
+            </div>
+          )}
           <p style={{ color: D.t2, fontSize: 14, lineHeight: 1.55, margin: 0 }}>
-            {scoreNarrative(shown, score.trend)}
+            {scoreNarrative(shown, trend)}
           </p>
         </div>
       </div>

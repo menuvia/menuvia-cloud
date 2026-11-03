@@ -11,11 +11,21 @@
 //        se rescalează la 100 (80/80 → 100, 40/80 → 50, tickets ignorat).
 //        Mutația care pică: `planHealthScore` care întoarce `score.score` brut.
 //   HS4  pe Planul 3 scorul e exact cel din server (nimic nu se schimbă).
+//   HS5  recenzia #334 / CodeRabbit: fără bon tendința brută a serverului (cu
+//        Bridge fiscal) nu descrie scorul afișat → `stable` neutru, oricare ar
+//        fi tendința serverului. Mutația care pică: `planHealthTrend` care
+//        întoarce `score.trend` și fără bon.
+//   HS6  pe Planul 3 tendința e exact cea din server.
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../supabase', () => ({ supabase: {} }))
 
-import { getActionableSuggestions, planHealthScore, type HealthScore } from '../health'
+import {
+  getActionableSuggestions,
+  planHealthScore,
+  planHealthTrend,
+  type HealthScore,
+} from '../health'
 
 function score(over: Partial<HealthScore> = {}): HealthScore {
   return {
@@ -64,5 +74,18 @@ describe('health — scorul normalizat', () => {
 
   it('HS4: pe Planul 3 scorul e exact cel din server', () => {
     expect(planHealthScore(score({ score: 73 }), { fiscal: true })).toBe(73)
+  })
+})
+
+describe('health — tendința pe scorul afișat', () => {
+  it('HS5: fără bon, tendința serverului nu se afirmă — mereu `stable`', () => {
+    for (const trend of ['critical', 'declining', 'rising', 'stable'] as const) {
+      expect(planHealthTrend(score({ score: 35, trend }), { fiscal: false }), trend).toBe('stable')
+    }
+  })
+
+  it('HS6: pe Planul 3 tendința e exact cea din server', () => {
+    expect(planHealthTrend(score({ score: 35, trend: 'critical' }), { fiscal: true })).toBe('critical')
+    expect(planHealthTrend(score({ trend: 'declining' }), { fiscal: true })).toBe('declining')
   })
 })

@@ -147,6 +147,21 @@ export function planHealthScore(score: HealthScore, scope: HealthScope): number 
   return Math.max(0, Math.min(100, Math.round((sum / scopeMax(scope)) * 100)))
 }
 
+/**
+ * Tendința pe care o poate afirma panoul (recenzia #334 + CodeRabbit pe
+ * HealthScoreTab). Tendința din server (mig 039/040) e calculată pe scorul
+ * BRUT, care include componenta Bridge fiscal (`score_tickets` scade cu bonurile
+ * în eroare): `critical` = brut < 40, altfel rising/declining față de brutul
+ * precedent. Fără bon scorul afișat e cel normalizat, deci tendința brută nu-l
+ * descrie — un brut 35 dă 44 normalizat („Mediu”) lângă un „Critic” roșu.
+ * Fără bon întoarcem `stable` (neutru): HealthScoreTab ascunde atunci linia de
+ * tendință și delta, iar narațiunea se decide DOAR pe scorul normalizat. Pe
+ * Planul 3: exact serverul.
+ */
+export function planHealthTrend(score: HealthScore, scope: HealthScope): HealthTrend {
+  return scope.fiscal ? score.trend : 'stable'
+}
+
 /** Actionable suggestions for each component below max — doar pe ce are planul. */
 export function getActionableSuggestions(
   score: HealthScore,
