@@ -171,6 +171,9 @@ const nav = () => screen.getByRole('navigation')
 
 beforeEach(() => {
   homeProps.upsell = undefined
+  // jsdom nu implementează Element.scrollTo; DashboardPage readuce conținutul
+  // sus la fiecare schimbare de tab.
+  Element.prototype.scrollTo = vi.fn() as unknown as Element['scrollTo']
 })
 
 describe('DashboardPage — bara laterală pe planul restaurantului', () => {
