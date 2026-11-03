@@ -29,8 +29,10 @@
 //        anulat — poate fi încă necomisă, iar `create_restaurant` alege alt
 //        slug, deci o a doua creare ar face o locație DUBLĂ. În primul minut
 //        reîncercarea NU creează (mesaj „Verificăm încă…"); după
-//        `CREATE_SETTLE_MS` tratează cererea ca moartă și creează. Mutația care
-//        pică: ramura `absent` care cade direct pe `createRestaurant`.
+//        `CREATE_SETTLE_MS` reîncearcă — cu ACEEAȘI cheie de idempotență (mig
+//        315), deci serverul întoarce locația veche dacă a comis totuși.
+//        Mutații care pică: ramura `absent` care cade direct pe
+//        `createRestaurant`; cheie nouă la reîncercare.
 //   AL6  `onCreated` pică DUPĂ ce restaurantul a fost creat → reîncercarea NU
 //        mai creează încă unul (tiparul OnboardingPage). Mutația care pică:
 //        `createdRef` scos.
@@ -90,7 +92,11 @@ describe('AddLocationCard', () => {
     await user.click(submitBtn())
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rest-new'))
     expect(m.create).toHaveBeenCalledTimes(1)
-    expect(m.create).toHaveBeenCalledWith({ name: 'Bistro Gară', slug: expect.any(String) })
+    expect(m.create).toHaveBeenCalledWith({
+      name: 'Bistro Gară',
+      slug: expect.any(String),
+      idempotencyKey: expect.any(String),
+    })
     expect(m.find).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
@@ -203,6 +209,12 @@ describe('AddLocationCard', () => {
     await user.click(submitBtn())
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith('rest-new'))
     expect(m.create).toHaveBeenCalledTimes(2)
+    // Aceeași creare, aceeași CHEIE (mig 315): dacă cererea veche a comis
+    // totuși, serverul o întoarce pe ea în loc să facă a doua locație.
+    const k1 = (m.create.mock.calls[0][0] as { idempotencyKey?: string }).idempotencyKey
+    const k2 = (m.create.mock.calls[1][0] as { idempotencyKey?: string }).idempotencyKey
+    expect(typeof k1).toBe('string')
+    expect(k2).toBe(k1)
   })
 
   it('AL6: reîncercarea după un onCreated eșuat nu creează a doua locație', async () => {

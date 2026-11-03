@@ -203,8 +203,8 @@ export function isAmbiguousCreateFailure(err: unknown): boolean {
 const CREATE_CLOCK_SKEW_MS = 2 * 60 * 1000
 
 /**
- * După un eșec AMBIGUU: a creat totuși serverul locația? `create_restaurant`
- * nu are idempotență, iar un restaurant nu se mai poate șterge (DELETE revocat
+ * După un eșec AMBIGUU: a creat totuși serverul locația? Fără mig 315
+ * `create_restaurant` nu are idempotență, iar un restaurant nu se mai poate șterge (DELETE revocat
  * din 096B) — o a doua creare ar ocupa PERMANENT un loc din limita planului.
  * Caută printre restaurantele DEȚINUTE (aceeași sursă ca useRestaurants) unul
  * cu exact numele trimis (serverul face doar `btrim`), creat după momentul
@@ -249,8 +249,10 @@ export const MSG_CREATE_UNCERTAIN =
  * s-a creat". Un rând lipsă imediat după eșec nu dovedește nimic: tranzacția
  * poate fi încă necomisă, iar `create_restaurant` alege alt slug la coliziune,
  * deci o a doua creare ar face o locație DUBLĂ (recenzia CodeRabbit pe #344).
- * Plafonul vine din `statement_timeout`-ul rolului `authenticated` (8 s pe
- * Supabase): după un minut o cerere fie s-a comis (și se vede), fie a murit.
+ * Garanția reală e cheia de idempotență (mig 315): reîncercarea o refolosește,
+ * deci serverul întoarce locația veche dacă a comis. Fereastra rămâne doar plasa
+ * pentru o bază fără 315 (cheia ignorată) și NU e o dovadă — o cerere întârziată
+ * înainte de execuție poate începe și mai târziu; micșorează riscul, atât.
  */
 export const CREATE_SETTLE_MS = 60_000
 

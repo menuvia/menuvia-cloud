@@ -9,9 +9,10 @@
 // ACTIV. Refuzul de limită (hint `upgrade_plan`) ajunge la om în română
 // (`describeCreateLocationError`, lib/locations.ts), nu ca text de server.
 //
-// Fără a doua creare la reîncercare (recenzia #344): `create_restaurant` nu
-// are idempotență, iar un restaurant nu se mai poate șterge (DELETE revocat
-// din 096B) — o locație dublă ar ocupa PERMANENT un loc din limita planului.
+// Fără a doua creare la reîncercare (recenzia #344): un restaurant nu se mai
+// poate șterge (DELETE revocat din 096B), deci o locație dublă ar ocupa
+// PERMANENT un loc din limita planului. Garanția e în DATE: fiecare creare
+// poartă o cheie de idempotență (mig 315), iar reîncercarea o REFOLOSEȘTE.
 // Un eșec AMBIGUU (rețea, răspuns pierdut după COMMIT) NU se reîncearcă orb:
 // întâi se recitesc restaurantele deținute (`findCreatedLocation`); dacă
 // locația există, crearea a reușit; dacă lista nu se poate citi, dialogul
@@ -66,7 +67,16 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
   const createdRef = useRef<string | null>(null)
   // O creare terminată AMBIGUU, încă neverificată (supraviețuiește închiderii
   // dialogului — altfel redeschiderea ar permite exact reîncercarea oarbă).
-  const pendingRef = useRef<{ name: string; sentAt: number } | null>(null)
+  // `key` = cheia de idempotență a creării (mig 315): reîncercarea o
+  // REFOLOSEȘTE, deci serverul întoarce locația deja creată în loc de una nouă.
+  // `sentAt` = PRIMA trimitere (marginea de jos a căutării în listă),
+  // `lastSentAt` = ultima (o cerere poate fi încă în drum de atunci).
+  const pendingRef = useRef<{
+    name: string
+    sentAt: number
+    lastSentAt: number
+    key: string
+  } | null>(null)
   const knownIdsRef = useRef<ReadonlySet<string>>(new Set())
   useBodyScrollLock(open)
 
@@ -117,6 +127,10 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
       let id = createdRef.current
       if (id == null && pendingRef.current != null) {
         // O încercare anterioară a eșuat ambiguu: întâi verificăm, abia apoi creăm.
+        // Momentul se ia ÎNAINTEA verificării: un „negăsită" citit înainte de
+        // prag nu are voie să deblocheze crearea doar fiindcă răspunsul lui a
+        // sosit după prag (recenzia CodeRabbit pe #344).
+        const checkedAt = Date.now()
         const check = await checkPending()
         if (check.status === 'unknown') {
           setUncertain(true)
@@ -128,24 +142,39 @@ export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds
           const pending = pendingRef.current
           // Prea devreme ca „negăsită" să însemne „nu s-a creat": cererea
           // anterioară poate fi încă în curs de comitere.
-          if (pending != null && Date.now() - pending.sentAt < CREATE_SETTLE_MS) {
+          if (pending != null && checkedAt - pending.lastSentAt < CREATE_SETTLE_MS) {
             setError(MSG_CREATE_SETTLING)
             setSaving(false)
             return
           }
-          // Peste fereastră: tranzacția nu mai poate comite — nu s-a creat.
-          pendingRef.current = null
+          // Peste fereastră: reîncercăm cu ACEEAȘI cheie (pendingRef rămâne),
+          // deci chiar dacă cererea veche a comis între timp, serverul o
+          // întoarce pe ea (mig 315) — fereastra e doar plasa pentru o bază
+          // fără 315, unde cheia e ignorată.
         }
       }
       if (id == null) {
-        if (!trimmed) {
+        if (!trimmed && pendingRef.current == null) {
           setError('Scrie numele locației.')
           setSaving(false)
           return
         }
-        pendingRef.current = { name: trimmed, sentAt: Date.now() }
+        // O reîncercare după un eșec ambiguu păstrează numele și CHEIA cererii
+        // inițiale: e aceeași creare, nu una nouă.
+        const now = Date.now()
+        const prev = pendingRef.current
+        const pending = prev
+          ? { ...prev, lastSentAt: now }
+          : { name: trimmed, sentAt: now, lastSentAt: now, key: crypto.randomUUID() }
+        pendingRef.current = pending
         try {
-          id = (await createRestaurant({ name: trimmed, slug: slugify(trimmed) })).restaurant_id
+          id = (
+            await createRestaurant({
+              name: pending.name,
+              slug: slugify(pending.name),
+              idempotencyKey: pending.key,
+            })
+          ).restaurant_id
           pendingRef.current = null
         } catch (err) {
           if (!isAmbiguousCreateFailure(err)) {
