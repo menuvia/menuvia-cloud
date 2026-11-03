@@ -123,8 +123,8 @@ test('KB5 transliterare oprită: latin1 pe 9100, UTF-8 curățat în fișier', a
 
 // Recenzie adversarială pe #339 (F1–F4). Mutații care pică: `·` scos din
 // PUNCT_MAP (KB6), fișierul pe `ascii` când transliterarea e pornită (KB7),
-// fișier necurățat pe ramura implicită (KB7), fără NFC (KB7), `\r\n?` →
-// `\r\n` (KB8), baza NFD acceptată pe orice ASCII (KB9).
+// fișier necurățat pe ramura implicită (KB7), fără NFC (KB7), LS/NEL/CR
+// mapate pe `\n` (KB8), baza NFD acceptată pe orice ASCII (KB9).
 test('KB6 antetul real din mig 227 (`·`) rămâne lizibil, nu `?`', () => {
   const buf = buildEscPos(cfgWith({}), 'OSPATAR · MASA: 5\n#ABC123 · 12:30');
   assert.equal(body(buf).toString('latin1'), 'OSPATAR - MASA: 5\n#ABC123 - 12:30\n\n\n');
@@ -143,8 +143,12 @@ test('KB7 fișier cu transliterarea PORNITĂ (implicit): UTF-8 păstrat, controa
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-test('KB8 CR singur, NEL și separatorii Unicode devin rând nou', () => {
-  assert.equal(sanitizeForEscPos('a\rb\u0085c\u2028d'), 'a\nb\nc\nd');
+test('KB8 CR singur, NEL și separatorii Unicode NU fac rând nou (fără produse false)', () => {
+  // Recenzie CodeRabbit pe #339: o notă „rapid\u20282x Pizza” ar fi tipărit
+  // „2x Pizza” pe rândul ei, adică un produs necomandat. Doar \n (și CRLF),
+  // separatorul pus de SQL, rupe rândul.
+  assert.equal(sanitizeForEscPos('a\rb\u0085c\u2028d\u2029e'), 'a b c d e');
+  assert.equal(sanitizeForEscPos('MASA: 4\r\nNOTE: rapid\u20282x Pizza'), 'MASA: 4\nNOTE: rapid 2x Pizza');
 });
 
 test('KB9 diacritice descompuse și negații: fără „?” parazit, fără sens inversat', () => {

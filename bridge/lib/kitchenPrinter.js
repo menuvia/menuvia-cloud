@@ -52,11 +52,14 @@ const PUNCT_MAP = {
 function sanitizeForEscPos(text, { charset = 'ascii' } = {}) {
   let out = '';
   // NFC întâi: „s” + virgulă combinată devine „ș” precompus (altfel ieșea
-  // „s?”). CRLF/CR/NEL/LS/PS → LF, tab → spațiu: singurul control păstrat e \n.
+  // „s?”). Singurul rând nou e \n (și CRLF): e separatorul pus de SQL între
+  // rândurile tichetului. CR singur, NEL, LS, PS și tab devin SPAȚIU — mig 227
+  // aplatizează notele pe un rând tocmai ca o notă de oaspete să nu poată
+  // apărea pe tichet ca un rând separat, adică un produs comandat fals.
   const src = String(text)
     .normalize('NFC')
-    .replace(/\r\n?|[\u0085\u2028\u2029]/g, '\n')
-    .replace(/\t/g, ' ');
+    .replace(/\r\n/g, '\n')
+    .replace(/[\r\t\u0085\u2028\u2029]/g, ' ');
   for (const ch of src) {
     if (ch === '\n') { out += ch; continue; }
     const cp = ch.codePointAt(0);
