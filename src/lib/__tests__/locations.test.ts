@@ -20,10 +20,40 @@
 //        `plan_upgrade_required` → mesajul de limită în română; o eroare
 //        englezească fără hint → rezerva românească (nu textul serverului).
 //        Mutația care pică: hint-ul ignorat (mesajul serverului afișat ca atare).
+//   LC7  `canAddLocation` (recenzia #344): DOAR cu limita CUNOSCUTĂ și peste
+//        localurile deținute — limită 1 cu 1 local → nu; 2 cu 1 → da; limită
+//        sau număr necunoscut → nu. Mutația care pică: `ownedCount <= max`
+//        (limita 1 cu 1 local ar arăta cardul pe Planurile 1–2).
+//   LC8  `isAmbiguousCreateFailure`: rețea / eroare fără cod / formă ciudată →
+//        ambiguu; refuz cu cod Postgres → clar. Mutația care pică: orice eroare
+//        tratată drept clară (reîncercare oarbă după un răspuns pierdut).
+//   LC9  `findCreatedLocation` citește restaurantele DEȚINUTE cu numele exact,
+//        sare id-urile cunoscute și rândurile create înaintea trimiterii
+//        (peste toleranța de ceas), întoarce rândul nou; pe eroare ARUNCĂ (nu
+//        „negăsit"). Mutația care pică: eroarea de citire colapsată la `null`.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const m = vi.hoisted(() => ({ rpc: vi.fn() }))
-vi.mock('../supabase', () => ({ supabase: { rpc: m.rpc } }))
+const m = vi.hoisted(() => ({
+  rpc: vi.fn(),
+  result: { data: [] as unknown, error: null as unknown },
+  filters: [] as [string, unknown][],
+}))
+interface Chain {
+  select: () => Chain
+  eq: (col: string, val: unknown) => Chain
+  order: () => Promise<{ data: unknown; error: unknown }>
+}
+vi.mock('../supabase', () => {
+  const chain: Chain = {
+    select: () => chain,
+    eq: (col: string, val: unknown) => {
+      m.filters.push([col, val])
+      return chain
+    },
+    order: () => Promise.resolve(m.result),
+  }
+  return { supabase: { rpc: m.rpc, from: () => chain } }
+})
 
 import {
   MSG_LOCATION_LIMIT,
@@ -32,6 +62,9 @@ import {
   formatLastOrder,
   hasMultipleLocations,
   adminLocationCount,
+  canAddLocation,
+  findCreatedLocation,
+  isAmbiguousCreateFailure,
 } from '../locations'
 
 const ROW = {
@@ -46,6 +79,8 @@ const ROW = {
 
 beforeEach(() => {
   m.rpc.mockReset()
+  m.result = { data: [], error: null }
+  m.filters = []
 })
 
 describe('fetchLocationsSummary', () => {
@@ -140,5 +175,61 @@ describe('describeCreateLocationError', () => {
     const msg = describeCreateLocationError(english)
     expect(msg).not.toMatch(/name is required/)
     expect(msg).toBe('Locația nu a putut fi creată. Reîncearcă.')
+  })
+})
+
+describe('„Adaugă o locație" — vizibilitate și eșec ambiguu', () => {
+  it('LC7: cardul doar cu limita cunoscută și loc liber', () => {
+    expect(canAddLocation(1, 1)).toBe(false)
+    expect(canAddLocation(2, 1)).toBe(true)
+    expect(canAddLocation(2, 2)).toBe(false)
+    expect(canAddLocation(1_000_000_000, 7)).toBe(true)
+    expect(canAddLocation(null, 1)).toBe(false)
+    expect(canAddLocation(2, null)).toBe(false)
+    expect(canAddLocation(Number.NaN, 0)).toBe(false)
+  })
+
+  it('LC8: ambiguu vs. refuz clar', () => {
+    expect(isAmbiguousCreateFailure(new TypeError('Failed to fetch'))).toBe(true)
+    expect(isAmbiguousCreateFailure({ message: 'TypeError: Failed to fetch', code: '' })).toBe(true)
+    expect(isAmbiguousCreateFailure(new Error('Invalid create_restaurant response'))).toBe(true)
+    expect(isAmbiguousCreateFailure(null)).toBe(true)
+    expect(isAmbiguousCreateFailure({ code: 'P0001', hint: 'upgrade_plan', message: 'x' })).toBe(false)
+    expect(isAmbiguousCreateFailure({ code: '23514', message: 'name is required' })).toBe(false)
+  })
+
+  it('LC9: găsește doar locația NOUĂ, cu numele exact; pe eroare aruncă', async () => {
+    const sentAt = Date.parse('2026-11-03T10:00:00Z')
+    m.result = {
+      data: [
+        { id: 'known', name: 'Bistro', created_at: '2026-11-03T10:00:05Z' },
+        { id: 'other-name', name: 'Bistro 2', created_at: '2026-11-03T10:00:05Z' },
+        { id: 'new', name: 'Bistro', created_at: '2026-11-03T09:59:30Z' },
+        { id: 'old', name: 'Bistro', created_at: '2026-10-01T10:00:00Z' },
+      ],
+      error: null,
+    }
+    const found = await findCreatedLocation({
+      ownerId: 'owner-1',
+      name: 'Bistro',
+      sentAt,
+      knownIds: new Set(['known']),
+    })
+    // 09:59:30 e în toleranța de ceas (2 min) față de 10:00:00.
+    expect(found).toBe('new')
+    expect(m.filters).toEqual([
+      ['owner_id', 'owner-1'],
+      ['name', 'Bistro'],
+    ])
+    // Doar rânduri vechi / cunoscute → null.
+    m.result = { data: [{ id: 'old', name: 'Bistro', created_at: '2026-10-01T10:00:00Z' }], error: null }
+    await expect(
+      findCreatedLocation({ ownerId: 'owner-1', name: 'Bistro', sentAt, knownIds: new Set() }),
+    ).resolves.toBeNull()
+    // Citirea eșuată → aruncă (nu „negăsit").
+    m.result = { data: null, error: { code: '57014', message: 'timeout' } }
+    await expect(
+      findCreatedLocation({ ownerId: 'owner-1', name: 'Bistro', sentAt, knownIds: new Set() }),
+    ).rejects.toThrow(/Nu am putut verifica/)
   })
 })

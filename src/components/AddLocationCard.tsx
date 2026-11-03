@@ -8,10 +8,25 @@
 // INSERT, ca la onboarding). După succes, apelantul face noul restaurant
 // ACTIV. Refuzul de limită (hint `upgrade_plan`) ajunge la om în română
 // (`describeCreateLocationError`, lib/locations.ts), nu ca text de server.
+//
+// Fără a doua creare la reîncercare (recenzia #344): `create_restaurant` nu
+// are idempotență, iar un restaurant nu se mai poate șterge (DELETE revocat
+// din 096B) — o locație dublă ar ocupa PERMANENT un loc din limita planului.
+// Un eșec AMBIGUU (rețea, răspuns pierdut după COMMIT) NU se reîncearcă orb:
+// întâi se recitesc restaurantele deținute (`findCreatedLocation`); dacă
+// locația există, crearea a reușit; dacă lista nu se poate citi, dialogul
+// spune că nu știm și oferă doar „Reîncarcă" (MSG_CREATE_UNCERTAIN). Până la
+// o verificare reușită, ORICE reîncercare verifică întâi.
 import { useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { D } from '../lib/constants'
-import { describeCreateLocationError } from '../lib/locations'
+import {
+  MSG_CREATE_UNCERTAIN,
+  describeCreateLocationError,
+  findCreatedLocation,
+  hardReloadTo,
+  isAmbiguousCreateFailure,
+} from '../lib/locations'
 import { createRestaurant } from '../lib/restaurants'
 import { slugify } from '../lib/slug'
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock'
@@ -21,43 +36,121 @@ import { FocusTrap } from './ui/FocusTrap'
 import { Icon } from './ui/Icon'
 import '../styles/components/confirm-dialog.css'
 
-export default function AddLocationCard({
-  onCreated,
-}: {
+export interface AddLocationProps {
   // Reîncarcă listele (restaurante + membership-uri) și face locația activă.
   onCreated: (restaurantId: string) => Promise<void>
-}) {
+  // Proprietarul (auth.uid()) — lista restaurantelor DEȚINUTE e a lui.
+  ownerId: string
+  // Id-urile restaurantelor deținute deja, la deschiderea dialogului: o
+  // locație găsită după un eșec ambiguu trebuie să fie NOUĂ.
+  knownRestaurantIds: readonly string[]
+}
+
+type PendingCheck =
+  | { status: 'found'; id: string }
+  | { status: 'absent' }
+  | { status: 'unknown' }
+
+export default function AddLocationCard({ onCreated, ownerId, knownRestaurantIds }: AddLocationProps) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Nu știm dacă s-a creat și nici nu putem verifica: doar „Reîncarcă".
+  const [uncertain, setUncertain] = useState(false)
   // Locația deja creată într-o încercare a cărei a doua jumătate (reîncărcarea
   // listelor) a picat: la reîncercare NU se mai creează încă un restaurant
   // (tiparul OnboardingPage).
   const createdRef = useRef<string | null>(null)
+  // O creare terminată AMBIGUU, încă neverificată (supraviețuiește închiderii
+  // dialogului — altfel redeschiderea ar permite exact reîncercarea oarbă).
+  const pendingRef = useRef<{ name: string; sentAt: number } | null>(null)
+  const knownIdsRef = useRef<ReadonlySet<string>>(new Set())
   useBodyScrollLock(open)
+
+  const openDialog = () => {
+    // Instantaneul se ia doar când nu există o creare în curs de lămurire.
+    if (pendingRef.current == null && createdRef.current == null) {
+      knownIdsRef.current = new Set(knownRestaurantIds)
+    }
+    setOpen(true)
+  }
 
   const close = () => {
     if (saving) return
     setOpen(false)
     setError(null)
-    setName('')
-    createdRef.current = null
+  }
+
+  // A creat serverul locația, deși răspunsul s-a pierdut?
+  const checkPending = async (): Promise<PendingCheck> => {
+    const pending = pendingRef.current
+    if (!pending) return { status: 'absent' }
+    try {
+      const found = await findCreatedLocation({
+        ownerId,
+        name: pending.name,
+        sentAt: pending.sentAt,
+        knownIds: knownIdsRef.current,
+      })
+      if (found == null) return { status: 'absent' }
+      pendingRef.current = null
+      return { status: 'found', id: found }
+    } catch {
+      return { status: 'unknown' }
+    }
   }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (uncertain) return
     const trimmed = name.trim()
-    if (!trimmed) {
+    if (!trimmed && createdRef.current == null && pendingRef.current == null) {
       setError('Scrie numele locației.')
       return
     }
     setSaving(true)
     setError(null)
     try {
-      const id =
-        createdRef.current ??
-        (await createRestaurant({ name: trimmed, slug: slugify(trimmed) })).restaurant_id
+      let id = createdRef.current
+      if (id == null && pendingRef.current != null) {
+        // O încercare anterioară a eșuat ambiguu: întâi verificăm, abia apoi creăm.
+        const check = await checkPending()
+        if (check.status === 'unknown') {
+          setUncertain(true)
+          setSaving(false)
+          return
+        }
+        if (check.status === 'found') id = check.id
+      }
+      if (id == null) {
+        if (!trimmed) {
+          setError('Scrie numele locației.')
+          setSaving(false)
+          return
+        }
+        pendingRef.current = { name: trimmed, sentAt: Date.now() }
+        try {
+          id = (await createRestaurant({ name: trimmed, slug: slugify(trimmed) })).restaurant_id
+          pendingRef.current = null
+        } catch (err) {
+          if (!isAmbiguousCreateFailure(err)) {
+            // Refuz CLAR: nu s-a creat nimic, reîncercarea e sigură.
+            pendingRef.current = null
+            throw err
+          }
+          const check = await checkPending()
+          if (check.status === 'unknown') {
+            setUncertain(true)
+            setSaving(false)
+            return
+          }
+          // Negăsită ÎNCĂ: eroarea rămâne vizibilă, iar următoarea încercare
+          // verifică din nou înainte de a crea (`pendingRef` rămâne).
+          if (check.status === 'absent') throw err
+          id = check.id
+        }
+      }
       createdRef.current = id
       await onCreated(id)
       setSaving(false)
@@ -92,7 +185,7 @@ export default function AddLocationCard({
           Ai mai multe localuri? Adaugă o locație nouă — pornește goală, cu meniul și mesele
           ei. Câte locații poți avea depinde de planul contului.
         </div>
-        <Button variant="secondary" onClick={() => setOpen(true)} icon={<Icon name="plus" size={16} />}>
+        <Button variant="secondary" onClick={openDialog} icon={<Icon name="plus" size={16} />}>
           Adaugă o locație
         </Button>
       </Card>
@@ -130,7 +223,7 @@ export default function AddLocationCard({
                   maxLength={120}
                   autoComplete="off"
                   onChange={(e) => setName(e.target.value)}
-                  disabled={saving}
+                  disabled={saving || uncertain}
                   style={{
                     width: '100%',
                     boxSizing: 'border-box',
@@ -153,14 +246,33 @@ export default function AddLocationCard({
                     {error}
                   </div>
                 )}
-                <div className="confirm-dialog__actions">
-                  <Button variant="ghost" onClick={close} disabled={saving}>
-                    Anulează
-                  </Button>
-                  <Button type="submit" variant="primary" loading={saving}>
-                    Creează locația
-                  </Button>
-                </div>
+                {uncertain ? (
+                  <>
+                    <div
+                      role="alert"
+                      style={{ color: D.redText, fontSize: '0.8rem', lineHeight: 1.45, marginBottom: 12 }}
+                    >
+                      {MSG_CREATE_UNCERTAIN}
+                    </div>
+                    <div className="confirm-dialog__actions">
+                      <Button variant="ghost" onClick={close}>
+                        Închide
+                      </Button>
+                      <Button variant="primary" onClick={() => hardReloadTo('/dashboard')}>
+                        Reîncarcă
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="confirm-dialog__actions">
+                    <Button variant="ghost" onClick={close} disabled={saving}>
+                      Anulează
+                    </Button>
+                    <Button type="submit" variant="primary" loading={saving}>
+                      Creează locația
+                    </Button>
+                  </div>
+                )}
               </form>
             </div>
           </div>,

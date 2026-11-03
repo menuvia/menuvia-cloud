@@ -34,8 +34,10 @@ interface RestaurantCtxValue {
   // Recitește membership-urile FĂRĂ să treacă prin `loading` (care ar demonta
   // panoul): după „Adaugă o locație" (lotul A), noul restaurant trebuie să
   // aibă rolul `owner` în listă ÎNAINTE de `setActive`, altfel `activeRole` ar
-  // fi null pe locul tocmai creat. `false` = citirea a eșuat (lista rămâne).
-  reloadMemberships: () => Promise<boolean>
+  // fi null pe locul tocmai creat. Întoarce membership-urile REALE recitite
+  // (apelantul verifică pe ele, nu pe state-ul încă nerandat); `null` = citirea
+  // a eșuat (lista rămâne).
+  reloadMemberships: () => Promise<RestaurantMembership[] | null>
 }
 
 const RestaurantCtx = createContext<RestaurantCtxValue | null>(null)
@@ -239,18 +241,18 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
   // Doar membership-urile REALE se recitesc; cel sintetic al vizitei de
   // fondator/partener (dacă există) rămâne în listă, neatins.
   const userId = user?.id ?? null
-  const reloadMemberships = useCallback(async (): Promise<boolean> => {
-    if (!userId) return false
+  const reloadMemberships = useCallback(async (): Promise<RestaurantMembership[] | null> => {
+    if (!userId) return null
     const { data, error: memErr } = await supabase
       .from('restaurant_memberships')
       .select(MEMBERSHIP_SELECT)
       .eq('user_id', userId)
       .order('restaurant_id', { ascending: true })
     // Contul s-a schimbat cât cererea era în zbor: răspunsul nu mai e al lui.
-    if (loadedForUserRef.current !== userId) return false
+    if (loadedForUserRef.current !== userId) return null
     if (memErr) {
       console.error('[RestaurantContext] Failed to reload memberships:', memErr)
-      return false
+      return null
     }
     const rows = mapMembershipRows(data)
     setMemberships((prev) => {
@@ -260,7 +262,7 @@ export function RestaurantProvider({ children }: { children: React.ReactNode }) 
       )
       return [...rows, ...synthetic]
     })
-    return true
+    return rows
   }, [userId, founderViewId])
 
   const active = memberships.find((m) => m.restaurant_id === activeId)

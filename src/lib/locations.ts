@@ -12,6 +12,7 @@
 // =============================================================
 import { supabase } from './supabase'
 import { toUserMessage } from './userMessages'
+import { isNetworkError } from './networkError'
 import { formatTimeInZone, isoToRomaniaYMD, toRomaniaYMD } from './dates'
 
 /** Pragul de la care panoul arată „Toate locațiile". */
@@ -166,4 +167,88 @@ export function describeCreateLocationError(err: unknown): string {
     typeof err === 'object' && err !== null ? (err as { hint?: unknown }).hint : undefined
   if (typeof hint === 'string' && PLAN_LIMIT_HINTS.has(hint)) return MSG_LOCATION_LIMIT
   return toUserMessage(err, 'Locația nu a putut fi creată. Reîncearcă.')
+}
+
+// ── „Adaugă o locație": când se arată și cum nu se creează de două ori ──────
+
+/**
+ * Cardul „Adaugă o locație" se arată DOAR cu limita planului CUNOSCUTĂ și mai
+ * mare decât numărul de localuri deținute de proprietar (`plan_limits.
+ * max_restaurants`: 1 pe free/starter/growth, 2 pe pro, nelimitat pe
+ * enterprise). Altfel butonul ar eșua mereu — iar lotul P cere ca planurile
+ * inferioare să nu vadă funcțiile superioare (upsell-ul e unul, pe Acasă).
+ * `null` pe oricare = necunoscut = nu se arată. Autoritatea rămâne serverul
+ * (`enforce_restaurant_limit`, mig 131/290).
+ */
+export function canAddLocation(maxRestaurants: number | null, ownedCount: number | null): boolean {
+  if (maxRestaurants == null || ownedCount == null) return false
+  if (!Number.isFinite(maxRestaurants) || maxRestaurants <= 0) return false
+  return ownedCount < maxRestaurants
+}
+
+/**
+ * Eșecul lui `create_restaurant` e AMBIGUU când nu știm dacă serverul a comis:
+ * cădere de rețea, răspuns pierdut, răspuns fără cod de eroare (5xx de la un
+ * proxy, formă neașteptată). Un refuz CLAR vine cu un cod Postgres/PostgREST
+ * (limita de plan P0001, 23505, 42501…): tranzacția a fost derulată, nu s-a
+ * creat nimic, iar reîncercarea e sigură.
+ */
+export function isAmbiguousCreateFailure(err: unknown): boolean {
+  if (isNetworkError(err)) return true
+  const code = typeof err === 'object' && err !== null ? (err as { code?: unknown }).code : undefined
+  return !(typeof code === 'string' && code.trim() !== '')
+}
+
+/** Toleranța între ceasul telefonului și cel al serverului (`created_at`). */
+const CREATE_CLOCK_SKEW_MS = 2 * 60 * 1000
+
+/**
+ * După un eșec AMBIGUU: a creat totuși serverul locația? `create_restaurant`
+ * nu are idempotență, iar un restaurant nu se mai poate șterge (DELETE revocat
+ * din 096B) — o a doua creare ar ocupa PERMANENT un loc din limita planului.
+ * Caută printre restaurantele DEȚINUTE (aceeași sursă ca useRestaurants) unul
+ * cu exact numele trimis (serverul face doar `btrim`), creat după momentul
+ * trimiterii (cu toleranța de ceas) și care NU era cunoscut la deschiderea
+ * dialogului. Întoarce id-ul lui sau `null`; ARUNCĂ dacă lista nu se poate
+ * citi — atunci nu știm, iar apelantul NU are voie să reîncerce orb.
+ */
+export async function findCreatedLocation(opts: {
+  ownerId: string
+  name: string
+  sentAt: number
+  knownIds: ReadonlySet<string>
+}): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('restaurants')
+    .select('id, name, created_at')
+    .eq('owner_id', opts.ownerId)
+    .eq('name', opts.name)
+    .order('created_at', { ascending: false })
+  if (error) {
+    const err = new Error('Nu am putut verifica lista locațiilor.')
+    ;(err as Error & { code?: string }).code = error.code
+    throw err
+  }
+  if (!Array.isArray(data)) throw new Error('Nu am putut verifica lista locațiilor.')
+  for (const raw of data as unknown[]) {
+    if (typeof raw !== 'object' || raw === null) continue
+    const r = raw as { id?: unknown; name?: unknown; created_at?: unknown }
+    const id = typeof r.id === 'string' ? r.id : null
+    if (id === null || r.name !== opts.name || opts.knownIds.has(id)) continue
+    const at = typeof r.created_at === 'string' ? Date.parse(r.created_at) : NaN
+    if (Number.isFinite(at) && at >= opts.sentAt - CREATE_CLOCK_SKEW_MS) return id
+  }
+  return null
+}
+
+export const MSG_CREATE_UNCERTAIN =
+  'Nu știm sigur dacă locația s-a creat — reîncarcă pagina și verifică lista.'
+
+/**
+ * Reîncărcarea COMPLETĂ a panoului (ieșirea de rezervă când listele din
+ * memorie nu pot fi aduse la zi). Funcție separată ca testele s-o poată
+ * observa — `window.location.assign` nu se poate spiona în jsdom.
+ */
+export function hardReloadTo(path: string): void {
+  window.location.assign(path)
 }

@@ -48,7 +48,7 @@ const AiChatbot = lazy(() => import('../components/AiChatbot'))
 import { isPlatformAdmin } from '../lib/ai'
 import { exitFounderView, clearFounderView, getFounderViewOrigin } from '../lib/founder'
 import { isPartnerTab } from '../lib/partnerAccess'
-import { hasMultipleLocations } from '../lib/locations'
+import { canAddLocation, hardReloadTo, hasMultipleLocations } from '../lib/locations'
 import { pickupOnlyMode } from '../lib/pickupAvailability'
 import { pickupFeatureState } from '../lib/pickupCopy'
 import { HelpButton } from '../components/HelpButton'
@@ -439,7 +439,9 @@ export default function DashboardPage({
   updateRestaurant: ReturnType<typeof useRestaurants>['update']
   // Reîncărcarea listei (aceeași instanță useRestaurants din AppRouter) —
   // după „Adaugă o locație" (lotul A), înainte ca locația nouă să devină activă.
-  refetchRestaurants: () => Promise<void>
+  // Întoarce lista recitită (`null` = citirea a eșuat), ca apelantul să verifice
+  // pe ea, nu pe prop-ul încă nerandat.
+  refetchRestaurants: ReturnType<typeof useRestaurants>['refetch']
   // Navigarea din App (pushState + rutare): tab-ul curent stă în URL
   // (`?tab=…`), deci refresh-ul și Back-ul păstrează locul (lotul R2).
   navigate: (path: string) => void
@@ -576,18 +578,50 @@ export default function DashboardPage({
   // ai-proxy: o are și agentul cu acces acordat (has_partner_access, PR #307).
   const canUseAiMenu = canUseAi || isPartner
 
+  // Un local pe care panoul îl va deschide trebuie să fie în AMBELE liste —
+  // membership-urile din context (altfel `activeRole` e null pe el: panoul îl
+  // tratează ca pe un străin până la reload) și restaurantele (altfel panoul
+  // cade pe `restaurants[0]`). Ce lipsește se recitește; verificarea se face
+  // pe listele ÎNTOARSE, nu pe props/state-ul încă nerandat. `force` = recitire
+  // necondiționată (locația tocmai creată).
+  const ensureLocationLoaded = async (restaurantId: string, force: boolean): Promise<boolean> => {
+    const needMembers = force || !memberships.some((m) => m.restaurant_id === restaurantId)
+    const needList = force || !restaurants.some((r) => r.id === restaurantId)
+    const [rows, list] = await Promise.all([
+      needMembers ? reloadMemberships() : Promise.resolve(memberships),
+      needList ? refetchRestaurants() : Promise.resolve(restaurants),
+    ])
+    return (
+      rows != null &&
+      rows.some((m) => m.restaurant_id === restaurantId) &&
+      list != null &&
+      list.some((r) => r.id === restaurantId)
+    )
+  }
+
   // „Adaugă o locație" (lotul A): după `create_restaurant`, AMBELE liste se
-  // recitesc ÎNAINTE de `setActive` — fără membership-ul nou în context,
-  // `activeRole` ar fi null pe locul tocmai creat (panoul l-ar trata ca pe un
-  // străin). Dacă recitirea membership-urilor pică, restaurantul activ e deja
-  // salvat (setActive → localStorage), deci o reîncărcare completă îl deschide.
+  // recitesc ÎNAINTE de `setActive`. Dacă una pică sau nu conține locația
+  // nouă (useData.load doar setează `error`), restaurantul activ e deja salvat
+  // (setActive → localStorage), deci o reîncărcare completă îl deschide.
   const handleLocationCreated = async (restaurantId: string) => {
-    const [membershipsOk] = await Promise.all([reloadMemberships(), refetchRestaurants()])
+    const ok = await ensureLocationLoaded(restaurantId, true)
     setActive(restaurantId)
-    if (!membershipsOk) {
-      window.location.assign('/dashboard')
+    if (!ok) {
+      hardReloadTo('/dashboard')
       return
     }
+    setTab('home')
+  }
+
+  // „Deschide" din „Toate locațiile": un id necunoscut contextului (locație
+  // creată pe alt dispozitiv, acces primit între timp) se recitește ÎNTÂI; dacă
+  // tot lipsește, eroarea ajunge pe ecran în locul comutării.
+  const openLocation = async (restaurantId: string) => {
+    const ok = await ensureLocationLoaded(restaurantId, false)
+    if (!ok) {
+      throw new Error('Locația nu apare în lista ta de acces. Reîncarcă pagina și încearcă din nou.')
+    }
+    setActive(restaurantId)
     setTab('home')
   }
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -768,7 +802,18 @@ export default function DashboardPage({
   // Spinner doar cât planul se ÎNCARCĂ (nici cunoscut, nici eșuat).
   const navReady = planKnown || features.loadError
 
-  const { limits: planLimits } = usePlanLimits(plan)
+  const { limits: planLimits, loading: planLimitsLoading } = usePlanLimits(plan)
+  // „Adaugă o locație" (lotul A): DOAR cu limita CUNOSCUTĂ (planul citit ȘI
+  // `plan_limits` încărcat) și peste numărul de localuri DEȚINUTE — planul e
+  // al proprietarului, deci al restaurantului lui activ. Pe Planurile 1–2
+  // (limita 1) cardul nu apare deloc: butonul ar eșua mereu (lotul P).
+  const ownedRestaurantIds = restaurants
+    .filter((r) => userId != null && r.owner_id === userId)
+    .map((r) => r.id)
+  const addLocationAllowed = canAddLocation(
+    planKnown && !planLimitsLoading ? planLimits.max_restaurants : null,
+    rLoading ? null : ownedRestaurantIds.length,
+  )
   // Numărul de produse, TRISTATE: `null` = necunoscut (încă se citește sau
   // citirea a eșuat). Înainte o eroare devenea tăcut 0 — „0/15" în bandă și
   // „Adaugă produse" nebifat pe Acasă la un meniu plin (code-health-error-ignored-guards).
@@ -1526,10 +1571,7 @@ export default function DashboardPage({
                 <Suspense fallback={<InlineSpinner label="Se încarcă locațiile..." />}>
                   <LocationsTab
                     activeId={restaurant.id}
-                    onOpen={(id) => {
-                      setActive(id)
-                      setTab('home')
-                    }}
+                    onOpen={openLocation}
                   />
                 </Suspense>
               )}
@@ -1707,7 +1749,15 @@ export default function DashboardPage({
                     modulesState={modulesState}
                     founderView={inFounderView}
                     surface={surface}
-                    onLocationCreated={handleLocationCreated}
+                    addLocation={
+                      isOwnerRole && userId && addLocationAllowed
+                        ? {
+                            onCreated: handleLocationCreated,
+                            ownerId: userId,
+                            knownRestaurantIds: ownedRestaurantIds,
+                          }
+                        : undefined
+                    }
                   />
                 </Suspense>
               )}

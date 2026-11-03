@@ -61,10 +61,25 @@ export default function LocationsTab({
   // Restaurantul deschis acum în panou (cardul lui nu mai are „Deschide").
   activeId: string | null
   // Face restaurantul activ (RestaurantContext.setActive) și duce omul pe Acasă.
-  onOpen: (restaurantId: string) => void
+  // Respinge când localul nu poate fi adus în listele panoului (DashboardPage
+  // recitește întâi un id necunoscut) — eroarea apare aici, fără comutare.
+  onOpen: (restaurantId: string) => Promise<void>
 }) {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [opening, setOpening] = useState<string | null>(null)
+  const [openError, setOpenError] = useState<string | null>(null)
+
+  const open = async (restaurantId: string) => {
+    setOpening(restaurantId)
+    setOpenError(null)
+    try {
+      await onOpen(restaurantId)
+    } catch (err) {
+      setOpenError(toUserMessage(err, 'Nu am putut deschide locația. Reîncearcă.'))
+    }
+    setOpening(null)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -137,6 +152,11 @@ export default function LocationsTab({
   return (
     <div>
       {intro}
+      {openError && (
+        <div role="alert" style={{ color: D.redText, fontSize: '0.85rem', marginBottom: 12 }}>
+          {openError}
+        </div>
+      )}
       {state.locations.length === 0 ? (
         <Card variant="flat">
           <div style={{ color: D.t2, fontSize: '0.85rem' }}>
@@ -200,7 +220,9 @@ export default function LocationsTab({
                   <Button
                     variant="secondary"
                     fullWidth
-                    onClick={() => onOpen(loc.id)}
+                    loading={opening === loc.id}
+                    disabled={opening != null}
+                    onClick={() => void open(loc.id)}
                     aria-label={`Deschide ${loc.name}`}
                   >
                     Deschide

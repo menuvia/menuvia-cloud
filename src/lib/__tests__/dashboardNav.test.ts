@@ -40,8 +40,11 @@
 //        vizibil DOAR cu `multiLocation` ȘI rol de admin, pe orice plan; lipsa
 //        câmpului din context = ascuns; partenerul nu-l vede. Mutațiile care
 //        pică: `multiLocationOnly` scos de pe sub-tab (apare cu un singur
-//        local), `adminOnly` scos (îl vede un ne-admin), sau filtrul din
-//        visibleNavGroups scris `ctx.multiLocation !== false` (lipsa = vizibil).
+//        local), sau filtrul din visibleNavGroups scris `ctx.multiLocation !==
+//        false` (lipsa = vizibil). `adminOnly` stă pe grup ȘI pe sub-tab, deci
+//        ramura „ne-admin" pică DOAR dacă flag-ul e scos de pe AMBELE —
+//        fiecare singur e mascat de celălalt (verificat pe modulul transpilat,
+//        recenzia #344).
 import { describe, it, expect } from 'vitest'
 import {
   NAV_GROUPS,

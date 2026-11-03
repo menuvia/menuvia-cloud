@@ -15,6 +15,10 @@
 //        locație". Control: o listă goală REALĂ spune „nicio locație".
 //        Mutația care pică: `rows ?? []`.
 //   LT5  cât se încarcă: nicio cifră și niciun mesaj afirmat.
+//   LT6  `onOpen` respins (localul nu poate fi adus în listele panoului —
+//        recenzia #344) → mesajul pe ecran, cardurile rămân, butonul se
+//        reactivează. Mutația care pică: `onOpen` chemat fără `await`/catch
+//        (respingere netratată, nimic pe ecran).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -122,5 +126,21 @@ describe('LocationsTab', () => {
     expect(screen.queryAllByTestId('location-card')).toHaveLength(0)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByText(/nicio locație|nu este încă disponibil/i)).toBeNull()
+  })
+
+  it('LT6: deschiderea refuzată → mesajul pe ecran, fără comutare', async () => {
+    m.fetch.mockResolvedValue([A, B])
+    const onOpen = vi
+      .fn<(id: string) => Promise<void>>()
+      .mockRejectedValue(
+        new Error('Locația nu apare în lista ta de acces. Reîncarcă pagina și încearcă din nou.'),
+      )
+    render(<LocationsTab activeId="r1" onOpen={onOpen} />)
+    await screen.findByRole('heading', { name: 'Bistro Gară' })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Deschide Bistro Gară' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Locația nu apare în lista ta de acces')
+    expect(onOpen).toHaveBeenCalledWith('r2')
+    expect(screen.getAllByTestId('location-card')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: 'Deschide Bistro Gară' })).toBeEnabled()
   })
 })
