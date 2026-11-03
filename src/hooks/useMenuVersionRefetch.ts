@@ -41,12 +41,11 @@ export function useMenuVersionRefetch(
       void fetchMenuVersion(restaurantId)
         .then(async (next) => {
           if (cancelled || !menuVersionChanged(baseline, next)) return
-          let ok = false
-          try {
-            ok = await onChangedRef.current()
-          } catch {
-            ok = false
-          }
+          // Un `onChanged` care aruncă (sincron sau asincron) = refresh eșuat:
+          // baza rămâne cea veche.
+          const ok = await Promise.resolve()
+            .then(() => onChangedRef.current())
+            .catch(() => false)
           if (ok && !cancelled) baseline = next
         })
         .finally(() => {
