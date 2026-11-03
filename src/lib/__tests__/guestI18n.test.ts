@@ -50,6 +50,7 @@ const GUEST_FILES: readonly string[] = [
   'src/components/PaymentConfirmedScreen.tsx',
   'src/components/OrderClosedScreen.tsx',
   'src/components/PhoneInput.tsx',
+  'src/components/menu/AllergenIcons.tsx',
   'src/components/menu/CategoryTabs.tsx',
   'src/components/menu/FlipbookViewer.tsx',
   'src/components/menu/FloorPlanViewer.tsx',

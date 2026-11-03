@@ -103,6 +103,43 @@ async function sendViaApi(cfg, lines, receiptId) {
   }
 }
 
+// ── Codificarea fișierului de bon ───────────────────────────────────────────
+// `fs.writeFile(text, {encoding:'latin1'|'ascii'})` NU refuză caracterele care
+// nu încap: păstrează din fiecare doar octetul de JOS. Pe bon asta înseamnă
+// date corupte în câmpuri delimitate de `^`:
+//   „Ş” (U+015E, ș-ul cu sedilă, frecvent în numele de produse) → 0x5E = `^`,
+//   adică un SEPARATOR de câmp în plus în mijlocul numelui;
+//   „Ċ” (U+010A) → 0x0A = rând nou, deci o linie de comandă NOUĂ (ex. `P^`);
+//   „ă” (U+0103) → 0x03, „č” → 0x0D, „Ā” → 0x00.
+// `fiscalnet_sanitize` (mig 030) scoate doar `^ \r \n \t` ca CARACTERE —
+// trunchierea se petrece după, în bridge, deci invariantul SUM(S^)=P^ din SQL
+// e verificat pe un text care nu mai e cel scris. Regula: pe latin1/ascii,
+// ce nu încape devine litera de bază (transliterarea românească, apoi NFD) sau
+// `?` — niciodată un octet arbitrar. utf8/ucs2/utf16le sunt fără pierdere și
+// rămân neatinse.
+const NARROW_ENCODINGS = { ascii: 0x7f, latin1: 0xff };
+const RO_FOLD = {
+  'ă': 'a', 'â': 'a', 'î': 'i', 'ș': 's', 'ş': 's', 'ț': 't', 'ţ': 't',
+  'Ă': 'A', 'Â': 'A', 'Î': 'I', 'Ș': 'S', 'Ş': 'S', 'Ț': 'T', 'Ţ': 'T',
+};
+
+function fitToEncoding(text, encoding) {
+  const max = NARROW_ENCODINGS[encoding];
+  if (max === undefined) return text;
+  let out = '';
+  for (const ch of String(text).normalize('NFC')) {
+    const cp = ch.codePointAt(0);
+    // C1 (0x80–0x9F) nu are glife în latin1: control, nu text.
+    if (cp <= max && !(cp >= 0x80 && cp <= 0x9f)) { out += ch; continue; }
+    const ro = RO_FOLD[ch];
+    if (ro !== undefined && ro.codePointAt(0) <= max) { out += ro; continue; }
+    if (/\p{M}/u.test(ch)) continue;
+    const base = ch.normalize('NFD').replace(/\p{M}/gu, '');
+    out += /^[A-Za-z]+$/.test(base) ? base : '?';
+  }
+  return out;
+}
+
 // ── Transport 2: fișiere (fallback) — scrie Bonuri/<id>.txt, citește Raspuns/ ──
 async function sendViaFile(cfg, receiptId, lines) {
   const { bonuriDir, raspunsDir, encoding, timeoutMs, pollResponseMs } = cfg.fiscalnet;
@@ -110,7 +147,7 @@ async function sendViaFile(cfg, receiptId, lines) {
   const tmpPath = path.join(bonuriDir, `.${fileName}.tmp`);
   const finalPath = path.join(bonuriDir, fileName);
   // FiscalNet pe Windows preferă CRLF.
-  const content = lines.join('\r\n') + '\r\n';
+  const content = fitToEncoding(lines.join('\r\n') + '\r\n', encoding);
 
   // Scriere atomică: scriem în .tmp, apoi rename — driver-ul nu ridică fișier pe jumătate.
   await fs.writeFile(tmpPath, content, { encoding });
@@ -190,4 +227,4 @@ function fail(code, info, ambiguous = false) {
   return { success: false, bonNumber: null, errorCode: code, errorInfo, ambiguous };
 }
 
-module.exports = { sendReceipt, parseFiscalNetResponse, AMBIGUOUS_PREFIX };
+module.exports = { sendReceipt, parseFiscalNetResponse, fitToEncoding, AMBIGUOUS_PREFIX };
