@@ -38,7 +38,13 @@ function builder(make: () => Promise<unknown>) {
   return b
 }
 
-beforeEach(() => rpcMock.mockReset())
+// Cu acolade: `() => rpcMock.mockReset()` ÎNTOARCE mock-ul, iar vitest tratează
+// o funcție întoarsă dintr-un hook drept teardown — o chema după fiecare test
+// și aștepta builder-ul ultimului test (S2: promisiune agățată → „Hook timed
+// out”; S3: respingerea „Failed to fetch” scăpa din hook).
+beforeEach(() => {
+  rpcMock.mockReset()
+})
 
 describe('fetchTablePaymentStatus', () => {
   it('S1 forma {status, kind}; formă necunoscută → unknown pe câmp', async () => {
@@ -77,9 +83,8 @@ describe('fetchTablePaymentStatus', () => {
   })
 
   it('S2 o cerere agățată → unknown după timeout, cu abort', async () => {
-    // Timere REALE cu un plafon scurt (parametrul `timeoutMs`). Prima variantă,
-    // cu timere false, a lăsat hook-ul să expire în CI (10 s), iar cu un plafon
-    // de 30 ms testul nu mai depinde deloc de cum falsifică vitest timerele.
+    // Timere reale cu un plafon scurt (parametrul `timeoutMs`), ca testul să nu
+    // depindă de felul în care vitest falsifică timerele.
     expect(TABLE_PAYMENT_STATUS_TIMEOUT_MS).toBeGreaterThan(0)
     const b = builder(() => new Promise(() => {}))
     rpcMock.mockReturnValue(b)
