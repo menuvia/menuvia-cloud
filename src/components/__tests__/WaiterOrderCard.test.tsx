@@ -308,3 +308,39 @@ describe('OrderCard — acțiunea în curs și refuzul ei (ux-staff-double-tap-a
     expect(screen.queryByRole('alert')).toBeNull()
   })
 })
+
+// Lotul G: vârsta comenzii e colorată și la ospătar, cu pragurile Bucătăriei.
+//   WA1  25 de minute, încă în preparare → „întârziată", în roșu (data-age
+//        late); 12 minute → atenție (warn); 3 minute → calm. Mutația care pică:
+//        vârsta randată fără nivel (codul vechi).
+//   WA2  după „Servit" culoarea dispare: comanda nu mai așteaptă bucătăria.
+describe('OrderCard — vârsta colorată (lotul G)', () => {
+  const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+
+  it('WA1 pragurile 10 / 20 de minute', () => {
+    const { container, unmount } = render(
+      <OrderCard order={makeOrder({ status: 'preparing', created_at: ago(25) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('late')
+    expect(screen.getByText(/întârziată/)).toBeInTheDocument()
+    unmount()
+    const warn = render(
+      <OrderCard order={makeOrder({ status: 'confirmed', created_at: ago(12) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(warn.container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('warn')
+    expect(screen.queryByText(/întârziată/)).toBeNull()
+    warn.unmount()
+    const calm = render(
+      <OrderCard order={makeOrder({ status: 'new', created_at: ago(3) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(calm.container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('calm')
+  })
+
+  it('WA2 servită → fără culoare de întârziere', () => {
+    const { container } = render(
+      <OrderCard order={makeOrder({ status: 'served', created_at: ago(45) })} paymentsEnabled={null} onPayOpen={vi.fn()} onSplitOpen={vi.fn()} />,
+    )
+    expect(container.querySelector('[data-age]')?.getAttribute('data-age')).toBe('calm')
+    expect(screen.queryByText(/întârziată/)).toBeNull()
+  })
+})
