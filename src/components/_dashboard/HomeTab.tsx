@@ -2,24 +2,26 @@
 // HomeTab — „Acasă": mission control-ul dashboard-ului (Val 2, DESIGN_SPEC).
 // Ierarhie: salut → cifrele zilei (Comenzi azi MARE) → setup ca progres
 // „X/Y pași" cu bară → scor meniu ca badge + sugestii → acțiuni rapide →
-// upgrade card (doar tier 1, ultimul). Gating-ul real e server-side;
-// aici doar decidem ce merită văzut pe fiecare plan.
+// upsell-ul UNIC al planului (PlanUpsellCard, lângă abonament, doar pentru
+// proprietar). Ce vede fiecare plan vine din `planSurface` (lib/planSurface.ts);
+// gating-ul real e server-side.
 // ─────────────────────────────────────────────────────────────
 import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { D } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
-import type { PlanTier } from '../../lib/features'
-import { getPlanByInternalId } from '../../lib/plans'
+import type { PlanSurface, PlanUpsellTarget } from '../../lib/planSurface'
 import {
   fetchHealthScore,
   scoreLabel,
   scoreColor,
   getActionableSuggestions,
+  planHealthScore,
   type HealthScore,
 } from '../../lib/health'
 import { Card } from '../ui/Card'
 import { Icon, type IconName } from '../ui/Icon'
 import { SubscriptionCard } from './SubscriptionCard'
+import { PlanUpsellCard } from './PlanUpsellCard'
 import { AgentCard } from './AgentCard'
 import { romaniaDayBoundaryISO, toRomaniaYMD } from '../../lib/dates'
 import { useInView, revealStyle } from '../../lib/motion'
@@ -51,10 +53,14 @@ const HealthScoreTab = lazy(() => import('../HealthScoreTab'))
 interface Props {
   restaurantId: string
   restaurantName: string
-  // `null` = planul NU e cunoscut (se încarcă / citirea a eșuat). Acasă nu
-  // afirmă atunci nimic dependent de plan: fără upsell, fără „totul e gata",
-  // fără pașii și cifrele de comenzi (perf-staff-3).
-  tier: PlanTier | null
+  // Ce vede planul (lib/planSurface.ts). `null` = planul NU e cunoscut (se
+  // încarcă / citirea a eșuat). Acasă nu afirmă atunci nimic dependent de plan:
+  // fără upsell, fără „totul e gata", fără pașii și cifrele de comenzi
+  // (perf-staff-3).
+  surface: PlanSurface | null
+  // Upsell-ul unic (`planUpsellTarget`): `null` = niciunul (Planul 3, plan
+  // necunoscut, Planul 2 în afara pieței fiscale). Se arată doar proprietarului.
+  upsell: PlanUpsellTarget | null
   isAdmin: boolean
   // Abonamentul e pe contul PROPRIETARULUI: managerul n-are client Stripe și
   // primea în card un refuz („gestionat de contul proprietarului"), adică o
@@ -257,7 +263,8 @@ interface SetupItem {
 export default function HomeTab({
   restaurantId,
   restaurantName,
-  tier,
+  surface,
+  upsell,
   isAdmin,
   isOwner = false,
   productCount,
@@ -267,8 +274,6 @@ export default function HomeTab({
   onPricing,
   onOrderQrStands,
 }: Props) {
-  const growthPlan = getPlanByInternalId('growth')
-
   // ── Cifrele zilei + datele de setup (HEAD counts, o singură rundă) ──
   const [ordersToday, setOrdersToday] = useState<number | null>(null)
   const [tablesCount, setTablesCount] = useState<number | null>(null)
@@ -278,10 +283,11 @@ export default function HomeTab({
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
 
-  // Pragurile de plan, ca booleeni: pe un plan NECUNOSCUT (tier null) toate
+  // Ce are planul, ca booleeni: pe un plan NECUNOSCUT (surface null) toate
   // sunt false — nu se cer și nu se afișează cifre/pași de comenzi.
-  const hasOrdering = tier != null && tier >= 2
-  const isFiscal = tier != null && tier >= 3
+  const planKnown = surface != null
+  const hasOrdering = surface?.ordering === true
+  const isFiscal = surface?.fiscal === true
 
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
@@ -443,9 +449,15 @@ export default function HomeTab({
   // „Totul e gata" e o AFIRMAȚIE: cere planul cunoscut (altfel lista e cea de
   // tier 1, mai scurtă — un plătitor vedea „4/4 totul e gata" fără pașii de
   // comenzi) și fiecare pas CUNOSCUT ca făcut.
-  const setupComplete = tier != null && setupItems.every((s) => s.done === true)
+  const setupComplete = planKnown && setupItems.every((s) => s.done === true)
 
-  const healthSuggestions = health ? getActionableSuggestions(health).slice(0, 2) : []
+  // Scorul și sugestiile pe ce ARE planul: fără componenta de bonuri/Bridge
+  // fiscal pe Planul 2 (lib/health.ts).
+  const healthScope = { fiscal: isFiscal }
+  const healthSuggestions = health
+    ? getActionableSuggestions(health, healthScope).slice(0, 2)
+    : []
+  const shownScore = health ? planHealthScore(health, healthScope) : null
 
   // Metricele secundare — aceeași importanță între ele, sub hero.
   const secondaryMetrics = [
@@ -467,8 +479,8 @@ export default function HomeTab({
       ? [
           {
             label: 'Setup',
-            value: tier == null ? '…' : `${setupDone}/${setupTotal}`,
-            hint: setupComplete ? 'totul e gata ✓' : tier == null ? undefined : 'pași completați',
+            value: planKnown ? `${setupDone}/${setupTotal}` : '…',
+            hint: setupComplete ? 'totul e gata ✓' : planKnown ? 'pași completați' : undefined,
           },
         ]
       : []),
@@ -559,7 +571,7 @@ export default function HomeTab({
           serverul refuză apoi acceptarea), mese în bulk peste plafon, produse
           demo publicate pe meniul real (ux-owner-quicksetup-duplicate). Presetul
           de cote TVA — singura lui parte fără pas aici — e în Setări → Cote TVA. */}
-      {isAdmin && tier != null && !setupComplete && (
+      {isAdmin && planKnown && !setupComplete && (
         <RevealItem delay={120}>
         <div style={card}>
           <div
@@ -685,7 +697,7 @@ export default function HomeTab({
         <ExpandableCard
           header={(open) => {
             // Culoarea scorului dictează accentul: verde/gold/amber/roșu.
-            const sc = health ? scoreColor(health.score, scorePalette) : D.t3
+            const sc = shownScore != null ? scoreColor(shownScore, scorePalette) : D.t3
             return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               {/* Cifra scorului — proeminentă, în cerc color-codat */}
@@ -707,7 +719,7 @@ export default function HomeTab({
                   lineHeight: 1,
                 }}
               >
-                {health ? health.score : '…'}
+                {shownScore ?? '…'}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
@@ -721,7 +733,7 @@ export default function HomeTab({
                   <span style={{ color: D.t1, fontSize: '0.98rem', fontWeight: 700 }}>
                     Scor meniu
                   </span>
-                  {health && (
+                  {shownScore != null && (
                     <span
                       style={{
                         background: `${sc}22`,
@@ -734,7 +746,7 @@ export default function HomeTab({
                         padding: '2px 10px',
                       }}
                     >
-                      {scoreLabel(health.score)}
+                      {scoreLabel(shownScore)}
                     </span>
                   )}
                 </div>
@@ -753,7 +765,7 @@ export default function HomeTab({
           }}
         >
           <Suspense fallback={<InlineSpinner label="Se încarcă scorul..." />}>
-            <HealthScoreTab />
+            <HealthScoreTab fiscal={isFiscal} />
           </Suspense>
         </ExpandableCard>
         </RevealItem>
@@ -804,61 +816,13 @@ export default function HomeTab({
         <RevealItem delay={300}>
           {/* id-ul e ținta CTA-urilor din emailuri (/dashboard?tab=billing →
               scroll aici, vezi efectul din DashboardPage). */}
-          <div id="billing-card">
+          <div id="billing-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <SubscriptionCard />
+            {/* Upsell-ul UNIC al panoului, în zona de abonament (lotul P): doar
+                pe un plan CUNOSCUT cu o țintă — cu planul necunoscut, un upsell
+                către un plătitor ar fi exact minciuna din perf-staff-3. */}
+            {upsell != null && <PlanUpsellCard target={upsell} onSeePlan={onPricing} />}
           </div>
-        </RevealItem>
-      )}
-
-      {/* Upgrade — doar tier 1 CUNOSCUT, mereu ultimul. Cu planul necunoscut,
-          un upsell către un plătitor ar fi exact minciuna din perf-staff-3. */}
-      {isOwner && tier === 1 && (
-        <RevealItem delay={300}>
-        <Card
-          variant="raised"
-          padding="18px 20px"
-          radius={14}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            flexWrap: 'wrap',
-            border: `1px solid ${D.gold}33`,
-          }}
-        >
-          <span style={{ fontSize: '1.6rem' }}>{growthPlan.emoji}</span>
-          <div style={{ flex: 1, minWidth: 220 }}>
-            <div style={{ color: D.t1, fontSize: '0.92rem', fontWeight: 600 }}>
-              Vrei să primești comenzi direct de la masă?
-            </div>
-            <div style={{ color: D.t2, fontSize: '0.78rem', marginTop: 4, lineHeight: 1.5 }}>
-              Activează {growthPlan.name} și clienții pot comanda prin QR, iar bucătăria primește
-              instant.
-            </div>
-          </div>
-          <button
-            onClick={onPricing}
-            className="pressable"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 7,
-              background: D.gold,
-              color: '#000',
-              border: 'none',
-              borderRadius: 9,
-              padding: '11px 18px',
-              fontSize: '0.82rem',
-              fontWeight: 700,
-              cursor: 'pointer',
-              fontFamily: 'DM Sans,sans-serif',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Activează {growthPlan.name}
-            <Icon name="chevronRight" size={16} color="#000" />
-          </button>
-        </Card>
         </RevealItem>
       )}
     </div>

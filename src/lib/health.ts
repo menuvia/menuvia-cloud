@@ -119,8 +119,54 @@ export function scoreLabel(score: number): string {
   return 'Critic'
 }
 
-/** Actionable suggestions for each component below max. */
-export function getActionableSuggestions(score: HealthScore): Array<{
+/**
+ * Ce componente ale scorului are planul (lotul P). Componenta „tickets" =
+ * bonurile în eroare ale Bridge-ului FISCAL: pe un plan fără bon (Planurile
+ * 1–2) nu există nimic de stabilizat acolo, deci nu intră nici în scor, nici
+ * în sugestii, nici în compoziția afișată.
+ */
+export interface HealthScope {
+  fiscal: boolean
+}
+
+/** Maximul componentelor pe care le are planul (100 pe Planul 3, 80 fără bon). */
+function scopeMax(scope: HealthScope): number {
+  const all = SCORE_MAX.login + SCORE_MAX.orders + SCORE_MAX.team + SCORE_MAX.engagement
+  return scope.fiscal ? all + SCORE_MAX.tickets : all
+}
+
+/**
+ * Scorul NORMALIZAT pe ce are planul, 0–100. Pe Planul 3 e exact scorul din
+ * server; fără bon, componenta Bridge iese din sumă și restul se rescalează la
+ * 100 — altfel un local fără casă de marcat primea 20 de puncte (sau le pierdea)
+ * pentru o funcție pe care planul lui nu o are.
+ */
+export function planHealthScore(score: HealthScore, scope: HealthScope): number {
+  if (scope.fiscal) return score.score
+  const sum = score.score_login + score.score_orders + score.score_team + score.score_engagement
+  return Math.max(0, Math.min(100, Math.round((sum / scopeMax(scope)) * 100)))
+}
+
+/**
+ * Tendința pe care o poate afirma panoul (recenzia #334 + CodeRabbit pe
+ * HealthScoreTab). Tendința din server (mig 039/040) e calculată pe scorul
+ * BRUT, care include componenta Bridge fiscal (`score_tickets` scade cu bonurile
+ * în eroare): `critical` = brut < 40, altfel rising/declining față de brutul
+ * precedent. Fără bon scorul afișat e cel normalizat, deci tendința brută nu-l
+ * descrie — un brut 35 dă 44 normalizat („Mediu”) lângă un „Critic” roșu.
+ * Fără bon întoarcem `stable` (neutru): HealthScoreTab ascunde atunci linia de
+ * tendință și delta, iar narațiunea se decide DOAR pe scorul normalizat. Pe
+ * Planul 3: exact serverul.
+ */
+export function planHealthTrend(score: HealthScore, scope: HealthScope): HealthTrend {
+  return scope.fiscal ? score.trend : 'stable'
+}
+
+/** Actionable suggestions for each component below max — doar pe ce are planul. */
+export function getActionableSuggestions(
+  score: HealthScore,
+  scope: HealthScope,
+): Array<{
   component: string
   current: number
   max: number
@@ -179,7 +225,7 @@ export function getActionableSuggestions(score: HealthScore): Array<{
     })
   }
 
-  if (score.score_tickets < SCORE_MAX.tickets) {
+  if (scope.fiscal && score.score_tickets < SCORE_MAX.tickets) {
     const alerts = score.details.open_alerts ?? 0
     suggestions.push({
       component: 'Erori Bridge fiscal',
@@ -197,8 +243,9 @@ export function getActionableSuggestions(score: HealthScore): Array<{
       component: 'Utilizare features',
       current: score.score_engagement,
       max: SCORE_MAX.engagement,
-      suggestion:
-        'Activează mai multe module: deschide ture de casă, configurează Happy Hour, adaugă rețete pentru gestiune stocuri, conectează Bridge fiscal.',
+      suggestion: scope.fiscal
+        ? 'Activează mai multe module: deschide ture de casă, configurează Happy Hour, adaugă rețete pentru gestiune stocuri, conectează Bridge fiscal.'
+        : 'Activează mai multe module: configurează Happy Hour, adaugă rețete pentru gestiune stocuri, conectează imprimanta din bucătărie.',
     })
   }
 

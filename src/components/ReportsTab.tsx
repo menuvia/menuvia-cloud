@@ -197,6 +197,8 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
   const isMobile = useIsMobile()
+  // Tabelul „Top produse": coloanele de sume doar pe planul cu bon (lotul P).
+  const topProductCols = fiscalReports ? '28px 1fr 60px 90px 90px' : '28px 1fr 60px'
 
   // Aggregated metrics
   const [metrics, setMetrics] = useState({
@@ -957,29 +959,11 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
         />
       ) : (
         <>
-          {/* Plan 1/2: evidență operațională — niciun număr nu e document fiscal */}
+          {/* Plan 1/2: evidență operațională — o notă discretă de o linie, nu o
+              alertă (lotul P): planul nu are sume, deci nu are ce „avertiza". */}
           {!fiscalReports && (
-            <div
-              style={{
-                background: 'rgba(232,160,32,0.10)',
-                border: `1px solid ${D.amber}`,
-                borderRadius: 10,
-                padding: '10px 14px',
-                marginBottom: 14,
-                color: D.amber,
-                fontSize: 13,
-                lineHeight: 1.5,
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 8,
-              }}
-            >
-              <Icon name="alert" size={16} color={D.amber} />
-              <span>
-                <strong>Evidență operațională</strong> — ce s-a comandat (cantități, mix
-                produse). Estimare, <strong>nu este raport fiscal</strong>. Plata și bonul se
-                înregistrează pe casa de marcat existentă.
-              </span>
+            <div style={{ color: D.t3, fontSize: '0.75rem', marginBottom: 12 }}>
+              Evidența comenzilor: cantități și produse, fără sume.
             </div>
           )}
 
@@ -1270,15 +1254,21 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                         style={{ display: 'flex', gap: 20, flexWrap: 'wrap', paddingLeft: 28 }}
                       >
                         <ReportMetric label="Buc." value={String(p.qty)} />
-                        <ReportMetric
-                          label="Venituri"
-                          value={fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
-                          accent
-                        />
-                        <ReportMetric
-                          label="Preț mediu"
-                          value={fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
-                        />
+                        {/* Sumele doar pe planul cu bon (lotul P): pe Planul 2
+                            coloanele nu se arată deloc, nici ca „—". */}
+                        {fiscalReports && (
+                          <>
+                            <ReportMetric
+                              label="Venituri"
+                              value={`${p.revenue.toFixed(0)} lei`}
+                              accent
+                            />
+                            <ReportMetric
+                              label="Preț mediu"
+                              value={`${(p.revenue / p.qty).toFixed(2)} lei`}
+                            />
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
@@ -1288,14 +1278,17 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '28px 1fr 60px 90px 90px',
+                        gridTemplateColumns: topProductCols,
                         minWidth: 360,
                         padding: '8px 16px',
                         background: D.s3,
                         borderBottom: `1px solid ${D.border}`,
                       }}
                     >
-                      {['#', 'Produs', 'Buc.', 'Venituri', 'Preț mediu'].map((h) => (
+                      {(fiscalReports
+                        ? ['#', 'Produs', 'Buc.', 'Venituri', 'Preț mediu']
+                        : ['#', 'Produs', 'Buc.']
+                      ).map((h) => (
                     <div
                       key={h}
                       style={{
@@ -1315,7 +1308,7 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     key={i}
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: '28px 1fr 60px 90px 90px',
+                      gridTemplateColumns: topProductCols,
                       minWidth: 360,
                       padding: '11px 16px',
                       borderBottom: i < topProducts.length - 1 ? `1px solid ${D.border}` : 'none',
@@ -1338,12 +1331,16 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
                     <div style={{ fontSize: '0.875rem', color: D.t2, fontWeight: 600 }}>
                       {p.qty}
                     </div>
-                    <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
-                      {fiscalReports ? `${p.revenue.toFixed(0)} lei` : '—'}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: D.t3 }}>
-                      {fiscalReports ? `${(p.revenue / p.qty).toFixed(2)} lei` : '—'}
-                    </div>
+                    {fiscalReports && (
+                      <>
+                        <div style={{ fontSize: '0.875rem', color: D.gold, fontWeight: 600 }}>
+                          {`${p.revenue.toFixed(0)} lei`}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: D.t3 }}>
+                          {`${(p.revenue / p.qty).toFixed(2)} lei`}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
                   </>
@@ -1726,17 +1723,21 @@ export default function ReportsTab({ restaurantId, fiscalReports = true }: Props
             </div>
           )}
 
-          <div
-            style={{
-              fontSize: '0.7rem',
-              color: D.t3,
-              textAlign: 'center',
-              padding: '8px 0',
-              lineHeight: 1.6,
-            }}
-          >
-            Document operațional intern. Nu înlocuiește raportul Z fiscal al casei de marcat.
-          </div>
+          {/* Nota despre raportul Z doar pe planul cu bon (lotul P): pe Planul 2
+              casa de marcat nu e în aplicație, deci nici comparația cu ea. */}
+          {fiscalReports && (
+            <div
+              style={{
+                fontSize: '0.7rem',
+                color: D.t3,
+                textAlign: 'center',
+                padding: '8px 0',
+                lineHeight: 1.6,
+              }}
+            >
+              Document operațional intern. Nu înlocuiește raportul Z fiscal al casei de marcat.
+            </div>
+          )}
         </>
       )}
     </div>

@@ -30,7 +30,6 @@ interface Props {
   // afara RO (mig 296) — toate view-urile tab-ului au gate fiscal în date.
   // Absent/null = necunoscut → comportamentul de dinainte.
   fiscalEnabled?: boolean | null
-  onUpgrade: () => void
 }
 
 const tt = {
@@ -211,7 +210,7 @@ type AnalyticsSnapshot = {
 const ANALYTICS_TTL_MS = 60_000
 const analyticsCache = new Map<string, { ts: number; data: AnalyticsSnapshot }>()
 
-export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null, onUpgrade }: Props) {
+export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null }: Props) {
   const isMobile = useIsMobile()
   const [daily, setDaily] = useState<Record<string, unknown>[]>([])
   const [products, setProducts] = useState<Record<string, unknown>[]>([])
@@ -354,60 +353,9 @@ export default function AnalyticsTab({ restaurantId, plan, fiscalEnabled = null,
       </div>
     )
 
-  if (!hasAccess)
-    return (
-      <div>
-        <h2
-          style={{
-            fontFamily: 'Fraunces,serif',
-            fontSize: '1.5rem',
-            color: D.t1,
-            marginBottom: 20,
-          }}
-        >
-          Statistici
-        </h2>
-        <div
-          style={{
-            background: D.s2,
-            border: `1px solid ${D.border}`,
-            borderRadius: 14,
-            padding: '60px 20px',
-            textAlign: 'center',
-            color: D.t2,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'center',
-              marginBottom: 12,
-              color: D.gold,
-            }}
-          >
-            <Icon name="chart" size={32} />
-          </div>
-          {/* Copy aliniat cu gate-ul real (hasAccess = pro/enterprise = Fiscalizare)
-              și cu butonul „Upgrade la Pro" — înainte spunea greșit „Meniu + Comenzi". */}
-          <div style={{ marginBottom: 16 }}>Statisticile avansate sunt disponibile din planul Fiscalizare (Pro)</div>
-          <button
-            onClick={onUpgrade}
-            style={{
-              background: D.gold,
-              color: '#000',
-              border: 'none',
-              borderRadius: 9,
-              padding: '12px 24px',
-              fontFamily: 'DM Sans,sans-serif',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Treci la Fiscalizare
-          </button>
-        </div>
-      </div>
-    )
+  // Sub Fiscalizare fila nu există (NAV_GROUPS minTier 3), iar upsell-ul e unul
+  // singur, pe Acasă (lotul P) — fără prompt de upgrade aici.
+  if (!hasAccess) return null
 
   const totalOrders = daily.reduce((s, d) => s + Number(d.total_orders || 0), 0)
   const totalRevenue = daily.reduce((s, d) => s + Number(d.revenue || 0), 0)

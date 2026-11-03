@@ -19,7 +19,6 @@ import { Skeleton } from './ui/Skeleton'
 import { EmptyState } from './ui/EmptyState'
 import { Icon } from './ui/Icon'
 import { useToast } from './ui/useToast'
-import { useFeatures } from '../hooks/useFeatures'
 import { confirm as confirmDialog } from './ui/confirm'
 import { RESERVATION_STATUS_LABEL as STATUS_LABEL } from '../lib/reservations'
 import { toUserMessage } from '../lib/userMessages'
@@ -507,13 +506,13 @@ function FilterChip({
 // Google Business Profile (Profil → Editează → Rezervări) → cine îl caută pe
 // Google rezervă direct. Slug-ul se citește o dată (SELECT pe restaurants,
 // RLS de membru); pe eroare cardul tace (nu blochează tab-ul).
-// Dedesubt, upsell-ul onest pentru planurile fără SMS (free): reminderele merg
-// doar pe email — bannerul apare DOAR după ce features s-au încărcat cu succes.
+// Fost: dedesubt, un upsell „treci pe Rezervări Automate (99 lei/lună…)" pe
+// planurile fără SMS — al doilea upsell al panoului, cu numele și prețul
+// planului scrise de mână. Scos în lotul P: upsell-ul e unul, pe Acasă.
 function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
   const [slug, setSlug] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [showSteps, setShowSteps] = useState(false)
-  const { has, loading: featuresLoading, loadError } = useFeatures(restaurantId)
 
   useEffect(() => {
     let cancelled = false
@@ -535,7 +534,6 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
 
   if (!slug) return null
   const url = `${window.location.origin}/rezervare/${slug}`
-  const showSmsUpsell = !featuresLoading && !loadError && !has('sms_notifications')
 
   return (
     <div
@@ -614,27 +612,6 @@ function GoogleLinkCard({ restaurantId }: { restaurantId: string }) {
             Detalii: <code>docs/GOOGLE_REZERVARI.md</code>.
           </li>
         </ol>
-      )}
-      {showSmsUpsell && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: '10px 12px',
-            borderRadius: 8,
-            background: 'rgba(200,150,60,0.08)',
-            border: `1px solid rgba(200,150,60,0.3)`,
-            fontSize: 13,
-            color: D.t2,
-            lineHeight: 1.6,
-          }}
-        >
-          Pe planul gratuit, confirmările și reminderele pleacă doar pe <b>email</b>. Clienții
-          răspund mult mai des la <b>SMS</b> — treci pe <b>Rezervări Automate</b> (99 lei/lună,
-          100 SMS incluse):{' '}
-          <a href="/pricing" style={{ color: D.gold, fontWeight: 600 }}>
-            vezi planurile →
-          </a>
-        </div>
       )}
     </div>
   )

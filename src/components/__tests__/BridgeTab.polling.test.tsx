@@ -95,7 +95,9 @@ async function mounted(fiscal: boolean): Promise<void> {
   render(<BridgeTab restaurantId="r1" fiscalEnabled={fiscal} />)
   await screen.findByRole('heading', {
     level: 1,
-    name: fiscal ? 'Casă de marcat & tichete' : 'Tichete bucătărie',
+    // Lotul P: pe planul fără bon fila e „Imprimantă bucătărie" (fost
+    // „Tichete bucătărie"), ca în bara de navigare.
+    name: fiscal ? 'Casă de marcat & tichete' : 'Imprimantă bucătărie',
   })
 }
 

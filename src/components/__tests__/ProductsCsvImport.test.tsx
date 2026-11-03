@@ -76,6 +76,8 @@ async function openPreviewAndImport() {
       existingCategories={[]}
       onClose={vi.fn()}
       onDone={vi.fn()}
+      // Coloana TVA (Planul 3) — placeholder-ul de mai jos o conține.
+      showVat
     />,
   )
   fireEvent.change(screen.getByPlaceholderText('nume,categorie,pret,emoji,descriere,tva...'), {

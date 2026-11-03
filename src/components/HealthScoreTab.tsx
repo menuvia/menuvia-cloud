@@ -18,6 +18,8 @@ import {
   scoreColor,
   scoreLabel,
   getActionableSuggestions,
+  planHealthScore,
+  planHealthTrend,
 } from '../lib/health'
 import { toUserMessage } from '../lib/userMessages'
 
@@ -31,7 +33,10 @@ const PALETTE = {
   red: D_RAW.red,
 }
 
-export default function HealthScoreTab() {
+// `fiscal` = planul are bon fiscal (planSurface.fiscal). Fără el componenta
+// „Stabilitate" (bonurile în eroare ale Bridge-ului fiscal) iese din scor, din
+// compoziție și din sugestii — lotul P: fiecare plan vede doar ce are.
+export default function HealthScoreTab({ fiscal }: { fiscal: boolean }) {
   const { activeId } = useRestaurantCtx()
   const [score, setScore] = useState<HealthScore | null>(null)
   const [loading, setLoading] = useState(true)
@@ -148,10 +153,16 @@ export default function HealthScoreTab() {
     )
   }
 
-  const suggestions = getActionableSuggestions(score)
-  const sc = scoreColor(score.score, PALETTE)
-  const tc = trendColor(score.trend, PALETTE)
-  const delta = score.previous_score != null ? score.score - score.previous_score : null
+  const scope = { fiscal }
+  const suggestions = getActionableSuggestions(score, scope)
+  const shown = planHealthScore(score, scope)
+  // Fără bon: `stable` (neutru) — narațiunea se decide doar pe scorul afișat.
+  const trend = planHealthTrend(score, scope)
+  const sc = scoreColor(shown, PALETTE)
+  const tc = trendColor(trend, PALETTE)
+  // Delta doar pe scorul brut al serverului (Planul 3): `previous_score` nu are
+  // componentele lui, deci nu se poate normaliza la fel pe celelalte planuri.
+  const delta = fiscal && score.previous_score != null ? score.score - score.previous_score : null
 
   return (
     <div
@@ -247,7 +258,7 @@ export default function HealthScoreTab() {
           alignItems: 'center',
         }}
       >
-        <CircularScore score={score.score} color={sc} />
+        <CircularScore score={shown} color={sc} />
         <div>
           <div
             style={{
@@ -259,19 +270,24 @@ export default function HealthScoreTab() {
               marginBottom: 4,
             }}
           >
-            {scoreLabel(score.score)}
+            {scoreLabel(shown)}
           </div>
-          <div style={{ color: tc, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-            {trendIcon(score.trend)} {trendLabel(score.trend)}
-            {delta !== null && delta !== 0 && (
-              <span style={{ color: D.t3, fontWeight: 400, marginLeft: 8 }}>
-                ({delta > 0 ? '+' : ''}
-                {delta} față de scorul precedent)
-              </span>
-            )}
-          </div>
+          {/* Tendința și delta vin din scorul BRUT al serverului (cu Bridge
+              fiscal) — doar pe planul cu bon; altfel ar contrazice scorul
+              normalizat de alături (recenzia #334 / CodeRabbit). */}
+          {fiscal && (
+            <div style={{ color: tc, fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
+              {trendIcon(trend)} {trendLabel(trend)}
+              {delta !== null && delta !== 0 && (
+                <span style={{ color: D.t3, fontWeight: 400, marginLeft: 8 }}>
+                  ({delta > 0 ? '+' : ''}
+                  {delta} față de scorul precedent)
+                </span>
+              )}
+            </div>
+          )}
           <p style={{ color: D.t2, fontSize: 14, lineHeight: 1.55, margin: 0 }}>
-            {scoreNarrative(score.score, score.trend)}
+            {scoreNarrative(shown, trend)}
           </p>
         </div>
       </div>
@@ -310,12 +326,14 @@ export default function HealthScoreTab() {
             icon="📈"
           />
           <ScoreBar label="Echipă" current={score.score_team} max={SCORE_MAX.team} icon="👥" />
-          <ScoreBar
-            label="Stabilitate"
-            current={score.score_tickets}
-            max={SCORE_MAX.tickets}
-            icon="✓"
-          />
+          {fiscal && (
+            <ScoreBar
+              label="Stabilitate"
+              current={score.score_tickets}
+              max={SCORE_MAX.tickets}
+              icon="✓"
+            />
+          )}
           <ScoreBar
             label="Engagement"
             current={score.score_engagement}
@@ -398,9 +416,9 @@ export default function HealthScoreTab() {
         <div style={{ fontWeight: 600, color: D.gold, marginBottom: 6 }}>
           Cum funcționează scorul
         </div>
-        Scor 0-100 calculat la 30 minute pe baza a 5 componente: login (20), comenzi (30), echipă
-        (15), stabilitate Bridge (20), engagement features (15). Sub 40 → primesc alertă automată să
-        te contactez. <strong>Reducere churn estimată: 40-60%</strong> doar prin detectare precoce.
+        {fiscal
+          ? 'Scor 0-100, recalculat la 30 de minute, din 5 componente: login (20), comenzi (30), echipă (15), stabilitatea casei de marcat (20) și folosirea funcțiilor (15).'
+          : 'Scor 0-100, recalculat la 30 de minute, din 4 componente: login, comenzi, echipă și folosirea funcțiilor.'}
       </div>
     </div>
   )
@@ -541,7 +559,7 @@ function formatTimeAgo(iso: string): string {
 
 function scoreNarrative(score: number, trend: HealthScore['trend']): string {
   if (trend === 'critical') {
-    return 'Cafeneaua ta arată semne îngrijorătoare. Verifică sugestiile de mai jos și contactează-mă dacă ai blocaje — vreau să rezolvăm împreună.'
+    return 'Cafeneaua ta arată semne îngrijorătoare. Verifică sugestiile de mai jos; dacă ai blocaje, folosește butonul „Ajutor”.'
   }
   if (score >= 80) {
     return 'Felicitări! Folosești Menuvia la potențial maxim. Continuă tot așa și consideră să recomanzi platforma altor patroni.'
@@ -552,5 +570,5 @@ function scoreNarrative(score: number, trend: HealthScore['trend']): string {
   if (score >= 40) {
     return 'Sunt destule oportunități de optimizare. Adresează în primul rând componenta cu scorul cel mai mic.'
   }
-  return 'Folosirea aplicației e sub potențial. Hai să discutăm — îți pot arăta cum să tragi mai multă valoare.'
+  return 'Folosirea aplicației e sub potențial. Începe cu componenta cu scorul cel mai mic.'
 }

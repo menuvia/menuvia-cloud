@@ -12,7 +12,7 @@ import { useFeatures } from '../hooks/useFeatures'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
 import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
-import { moneyTier } from '../lib/features'
+import { planSurface } from '../lib/planSurface'
 import { useReservations } from '../hooks/useReservations'
 import { useOfflineOrderQueue } from '../hooks/useOfflineOrderQueue'
 import { useAudioUnlock } from '../hooks/useAudioUnlock'
@@ -145,10 +145,9 @@ export default function WaiterPage() {
   // un restaurant Plan 3 și serverul o accepta → comandă `closed` fără bon și
   // fără venit. Acum: necunoscut = fără buton de finalizare + banner de
   // reîncercare; serverul refuză oricum close_order pe planurile fiscale (mig 263).
-  const planKnown = restaurantFeatures.features != null
-  const paymentsEnabled: boolean | null = planKnown
-    ? moneyTier(restaurantFeatures.features) >= 3
-    : null
+  // Sursa e `planSurface(...).fiscal` (= moneyTier ≥ 3, lotul P): tristate-ul
+  // vine din `null`-ul suprafeței pe un plan necunoscut.
+  const paymentsEnabled: boolean | null = planSurface(restaurantFeatures.features)?.fiscal ?? null
 
   // ★ audit v3 (rangul 8): pe planurile fiscale comenzile se încasează normal
   // chiar dacă bridge-ul e căzut — dar atunci NU se emite niciun bon. Banner-ul

@@ -6,14 +6,8 @@ import { D, PLAN_LABELS, AMENITIES, type AmenityId } from '../lib/constants'
 import { THEMES, FLIPBOOK_MAX_PAGES, resolveEffectiveMenuLayout } from '../lib/themes'
 import { MENU_LANGS } from '../lib/i18nMenu'
 import { MENU_CURRENCIES, resolveMenuCurrency } from '../lib/currency'
-import { planTier } from '../lib/features'
-import { canSetPickupEnabled, pickupToggleState } from '../lib/pickupAvailability'
-import {
-  pickupCardDescription,
-  pickupFeatureFromToggle,
-  pickupOnlyToggleDescription,
-  pickupToggleNotice,
-} from '../lib/pickupCopy'
+import type { PlanSurface } from '../lib/planSurface'
+import { pickupCardDescription, pickupOnlyToggleDescription } from '../lib/pickupCopy'
 import { encodeForUpload } from '../lib/imageEncode'
 import VatRatesEditor from './VatRatesEditor'
 import OnlinePaymentsCard from './OnlinePaymentsCard'
@@ -80,6 +74,16 @@ const SETTINGS_SECTIONS: { id: SettingsSectionId; label: string; icon: IconName 
   { id: 'account', label: 'Cont', icon: 'settings' },
 ]
 
+// Numele secțiunii „orders" pe ce ARE planul (lotul P): pe Planul 1 nu există
+// nici comenzi, nici plăți — secțiunea ține modulele meniului QR (rezervările);
+// pe Planul 2 există comenzi, dar plata rămâne pe casa existentă. Planul
+// necunoscut ia varianta cea mai restrictivă.
+function sectionLabel(id: SettingsSectionId, label: string, surface: PlanSurface | null): string {
+  if (id !== 'orders') return label
+  if (surface?.payments === true) return label
+  return surface?.ordering === true ? 'Comenzi' : 'Meniu QR'
+}
+
 // Card cu chrome consistent (surface + border + header cu icon/titlu/descriere).
 // Înlocuiește cele ~18 div-uri hand-rolled identice — un singur stil premium,
 // ușor de întreținut. `right` ține un buton sau un Toggle în antet.
@@ -145,23 +149,27 @@ export default function SettingsTab({
   restaurant,
   onUpdate,
   plan,
-  planKnown,
   onSignOut,
   modulesState,
   founderView = false,
+  surface,
 }: {
   restaurant: Restaurant
   onUpdate: (id: string, f: Partial<Restaurant>) => Promise<{ error: Error | null }>
+  // Doar pentru eticheta „Plan curent" (Cont). Ce vede planul vine din
+  // `surface`; fostul `planKnown` (comutatorul de ridicare pe `unknown`) a ieșit
+  // odată cu stările comutatorului (recenzia #334) — `surface: null` e acum
+  // singurul „nu știu".
   plan: string
-  // `plan` cade pe 'free' cât timp features nu s-au încărcat (DashboardPage);
-  // `planKnown` spune dacă valoarea e reală. Obligatoriu: un apel care l-ar
-  // omite ar transforma „nu știu" în „planul tău nu include".
-  planKnown: boolean
   onSignOut: () => void
   modulesState?: ReturnType<typeof useRestaurantModules>
   // Fondatorul în vizită: acțiunile pe care serverul le leagă de membership-ul
   // REAL (conectarea Stripe) nu i se arată.
   founderView?: boolean
+  // Ce vede planul (lib/planSurface.ts, lotul P): planurile inferioare nu văd
+  // nimic din cele superioare — nici funcția, nici un lacăt. Obligatoriu:
+  // `null` = planul necunoscut, deci nicio funcție dependentă de plan.
+  surface: PlanSurface | null
 }) {
   const { user } = useAuth()
   // Mobile-first: pe telefon stivuim coloanele (altfel layout-ul 2-col se taie lateral).
@@ -393,16 +401,13 @@ export default function SettingsTab({
   // făcea dublu JSON.stringify pe tot restaurantul la fiecare tastă.
   const restaurantJson = useMemo(() => JSON.stringify(restaurant), [restaurant])
   const dirty = JSON.stringify(form) !== restaurantJson
-  // Ridicarea se pornește doar pe planurile cu `pickup_orders` (lib/pickupAvailability).
-  // Din aceeași stare se derivă și textele cardului (lib/pickupCopy.ts): pagina
-  // publică arată ridicarea doar cu `pickup_orders` (mig 309), deci descrierea
-  // promite comenzi DOAR pe `available`, iar nota de sub comutator e UNA. Fără
-  // `useFeatures` aici: `plan` vine deja din `useFeatures(restaurantId)` din
-  // DashboardPage (planul RESTAURANTULUI, regula 3).
-  const pickupState = pickupToggleState(
-    planKnown ? plan : null,
-    form.pickup_settings?.enabled ?? false,
-  )
+  // Cardul de ridicare se montează DOAR pe `planSurface.pickup` (= `pickup_orders`
+  // activ, lotul P), deci aici feature-ul e mereu CUNOSCUT și activ: comutatorul
+  // e liber, iar textele (lib/pickupCopy.ts) primesc `true`. Stările vechi ale
+  // comutatorului (`locked`/`locked_on`/`unknown`, cu nota de sub el) au devenit
+  // inaccesibile și au ieșit (recenzia #334) — pe planul fără ridicare cardul nu
+  // se arată deloc. Fără `useFeatures` aici: planul vine din DashboardPage
+  // (planul RESTAURANTULUI, regula 3).
   // Stilul EFECTIV al meniului (flipbook fără pagini = listă, regula unică din
   // lib/themes), citit din FORMULAR, nu din rândul salvat — ca restul filei:
   // comutatorul de ridicare e și el pe starea nesalvată, iar „Meniu & aspect”
@@ -410,8 +415,7 @@ export default function SettingsTab({
   // la „Comenzi & plăți” vede consecința ÎNAINTE să salveze; altfel aceeași
   // pagină ar spune „Flipbook” într-o filă și ar promite comenzi în cealaltă.
   const menuFlipbook = resolveEffectiveMenuLayout(form.theme_settings) === 'flipbook'
-  const pickupDesc = pickupCardDescription(pickupFeatureFromToggle(pickupState), menuFlipbook)
-  const pickupNotice = pickupToggleNotice(pickupState)
+  const pickupDesc = pickupCardDescription(true, menuFlipbook)
 
   return (
     <div>
@@ -493,7 +497,7 @@ export default function SettingsTab({
               }}
             >
               <Icon name={s.icon} size={16} color={active ? D.goldL : D.t2} />
-              {s.label}
+              {sectionLabel(s.id, s.label, surface)}
             </button>
           )
         })}
@@ -542,7 +546,11 @@ export default function SettingsTab({
               <SettingsCard
                 icon="info"
                 title="Țara restaurantului"
-                desc="Plățile în aplicație, bonul fiscal și raportul TVA există doar pentru restaurantele din România."
+                desc={
+                  surface?.vat === true
+                    ? 'Plățile în aplicație, bonul fiscal și raportul TVA există doar pentru restaurantele din România.'
+                    : 'Țara în care funcționează localul.'
+                }
                 right={
                   <select
                     aria-label="Țara restaurantului"
@@ -950,7 +958,13 @@ export default function SettingsTab({
             <SettingsCard
               icon="star"
               title="Google Reviews (recenzii automate)"
-              desc={`După ce clientul finalizează plata și răspunde la întrebările de feedback, îi afișăm un buton "Scrie o recenzie pe Google" care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.`}
+              desc={
+                // Fără plată în aplicație (Planurile 1–2), textul nu pomenește plata.
+                // Pe `payments` (planul, nu țara): pe Planul 3 nu se schimbă nimic.
+                surface?.payments === true
+                  ? 'După ce clientul finalizează plata și răspunde la întrebările de feedback, îi afișăm un buton „Scrie o recenzie pe Google” care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.'
+                  : 'După ce clientul răspunde la întrebările de feedback, îi afișăm un buton „Scrie o recenzie pe Google” care îl duce direct la pagina ta de business. Butonul apare tuturor clienților, indiferent de notă — Google nu permite să arăți linkul doar celor mulțumiți.'
+              }
             >
               <label style={{ display: 'block', fontSize: '0.74rem', color: D.t2, marginBottom: 5 }}>
                 Google Place ID
@@ -1455,8 +1469,8 @@ export default function SettingsTab({
                       NU se aprinde pe ridicarea pornită a unui plan fără ea: din
                       mig 309 pagina publică n-o arată, iar fără planul cu comenzi
                       nu există nimic de comandat pe niciun stil (PS5). Pe planul
-                      necunoscut DashboardPage trimite 'free', deci nota tace. */}
-                  {planTier(plan) >= 2 && (
+                      necunoscut (surface null) nota tace. */}
+                  {surface?.ordering === true && (
                     <div
                       style={{
                         fontSize: '0.7rem',
@@ -1549,56 +1563,35 @@ export default function SettingsTab({
                 {/* Badge „Creat cu Menuvia" — opt-out de la Plan 2 în sus, aliniat
                     cu plan_features.remove_branding (growth+, mig 028) și cu
                     promisiunea publică de pe cardul „Meniu + Comenzi" din pricing.
-                    Citirea în meniuri e liberă (resolveHideBranding); aici gate-uim
-                    scrierea: sub tier 2 arătăm un chip de plan. */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    gap: 12,
-                    borderTop: `1px solid ${D.s3}`,
-                    paddingTop: 12,
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
-                      {'Badge „Creat cu Menuvia"'}
+                    Citirea în meniuri e gate-uită și în server (mig 281). Lotul P:
+                    pe planul fără `remove_branding` rândul nu se arată deloc (fost
+                    chip „Plan Meniu + Comenzi" cu lacăt) — upsell-ul e unul, pe Acasă. */}
+                {surface?.branding === true && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 12,
+                      borderTop: `1px solid ${D.s3}`,
+                      paddingTop: 12,
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 500, color: D.t1 }}>
+                        {'Badge „Creat cu Menuvia"'}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
+                        Linkul discret din josul meniului public. Pe planul tău îl poți ascunde.
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                      Linkul discret din josul meniului public.
-                      {planTier(plan) >= 2
-                        ? ' Pe planul tău îl poți ascunde.'
-                        : ' Se poate ascunde de la Meniu + Comenzi în sus.'}
-                    </div>
-                  </div>
-                  {planTier(plan) >= 2 ? (
                     <Toggle
                       label={'Afișează badge-ul „Creat cu Menuvia"'}
                       value={!(form.theme_settings?.hide_branding ?? false)}
                       onChange={(v) => updTheme({ hide_branding: !v })}
                     />
-                  ) : (
-                    <span
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 5,
-                        background: D.s3,
-                        color: D.t2,
-                        fontSize: '0.68rem',
-                        fontWeight: 600,
-                        padding: '5px 10px',
-                        borderRadius: 999,
-                        whiteSpace: 'nowrap',
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Icon name="lock" size={12} color={D.t2} />
-                      Plan Meniu + Comenzi
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </SettingsCard>
 
@@ -1644,7 +1637,11 @@ export default function SettingsTab({
             <SettingsCard
               icon="info"
               title="Moneda meniului"
-              desc="Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate."
+              desc={
+                surface?.payments === true
+                  ? 'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia și fiscalizarea nu sunt afectate.'
+                  : 'Moneda în care se afișează prețurile în meniul public și QR. Abonamentul Menuvia nu e afectat.'
+              }
               right={
                 <select
                   aria-label="Moneda meniului"
@@ -1729,8 +1726,10 @@ export default function SettingsTab({
               </SettingsCard>
             )}
 
-            {/* Plăți online la masă — Etapa 1 (docs/ONLINE_PAYMENT.md) */}
-            {modulesState && (
+            {/* Plăți online la masă — Etapa 1 (docs/ONLINE_PAYMENT.md). Lotul P:
+                doar pe Planul 3 (planSurface.payments); dedesubt nu mai apare
+                ca un card blocat — upsell-ul „Plata la masă" e unul, pe Acasă. */}
+            {modulesState && surface?.payments === true && (
               <OnlinePaymentsCard
                 restaurantId={restaurant.id}
                 plan={plan}
@@ -1740,8 +1739,10 @@ export default function SettingsTab({
               />
             )}
 
-            {/* Fidelizare — Loyalty v1 (mig 226): puncte + prag + recompensă */}
-            {modulesState && (
+            {/* Fidelizare — Loyalty v1 (mig 226): puncte + prag + recompensă.
+                Punctele se acordă pe comenzi, deci doar pe un plan cu comenzi
+                (fost card blocat pe Planul 1 — lotul P). */}
+            {modulesState && surface?.ordering === true && (
               <LoyaltySettingsCard
                 restaurantId={restaurant.id}
                 plan={plan}
@@ -1750,8 +1751,11 @@ export default function SettingsTab({
               />
             )}
 
-            {/* SMS tranzacționale (mig 228): confirmare rezervare + pickup gata */}
-            {modulesState && (
+            {/* SMS tranzacționale (mig 228): confirmare rezervare + pickup gata.
+                Pe planul care ARE `sms_notifications` (planSurface.sms — de la
+                starter, deci și Planul 1, unde un modul pornit trebuie să se
+                poată opri); pe free nu apare deloc, nici blocat (lotul P). */}
+            {modulesState && surface?.sms === true && (
               <SmsNotificationsCard
                 restaurantId={restaurant.id}
                 plan={plan}
@@ -1760,7 +1764,11 @@ export default function SettingsTab({
               />
             )}
 
-            {/* Pickup ordering settings */}
+            {/* Pickup ordering settings — doar pe planul cu `pickup_orders`
+                (planSurface.pickup, lotul P). Pe un plan fără ridicare cardul nu
+                se mai arată deloc: din mig 309 pagina publică nu arată ridicarea
+                oricum, deci o setare rămasă pornită după un downgrade e inertă. */}
+            {surface?.pickup === true && (
             <SettingsCard
               icon="box"
               title="Comenzi pentru ridicare (click-and-collect)"
@@ -1777,42 +1785,17 @@ export default function SettingsTab({
                 <Toggle
                   label="Comenzi pentru ridicare"
                   value={form.pickup_settings?.enabled ?? false}
-                  disabled={pickupState === 'locked' || pickupState === 'unknown'}
-                  onChange={(v) => {
-                    if (canSetPickupEnabled(pickupState, v)) updPickup({ enabled: v })
-                  }}
+                  onChange={(v) => updPickup({ enabled: v })}
                 />
               }
             >
-              {pickupNotice && (
-                <div
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'flex-start',
-                    fontSize: '0.75rem',
-                    lineHeight: 1.5,
-                    color: pickupState === 'locked_on' ? D.amber : D.t2,
-                    background: D.s3,
-                    borderRadius: 8,
-                    padding: '9px 12px',
-                  }}
-                >
-                  <Icon
-                    name={pickupState === 'unknown' ? 'info' : 'lock'}
-                    size={13}
-                    color={pickupState === 'locked_on' ? D.amber : D.t2}
-                  />
-                  <span>{pickupNotice}</span>
-                </div>
-              )}
               {form.pickup_settings?.enabled && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
                   {/* Mod „doar ridicare" (food truck, E3) — pur mod de afișare:
                       ascunde Hartă sală/Rezervări din nav; QR-ul general /m/:slug
                       devine QR-ul principal (card în Mese & QR-uri). Pe planul
-                      fără ridicare (`locked_on`) modul e suspendat
-                      (pickupOnlyMode) și descrierea o spune. */}
+                      fără ridicare modul e suspendat (pickupOnlyMode, în
+                      DashboardPage), dar acolo cardul nu se mai arată. */}
                   <div
                     style={{
                       display: 'flex',
@@ -1826,7 +1809,7 @@ export default function SettingsTab({
                         Mod „doar ridicare" (fără mese)
                       </div>
                       <div style={{ fontSize: '0.72rem', color: D.t2, marginTop: 2 }}>
-                        {pickupOnlyToggleDescription(pickupFeatureFromToggle(pickupState))}
+                        {pickupOnlyToggleDescription(true)}
                       </div>
                     </div>
                     <Toggle
@@ -1964,8 +1947,11 @@ export default function SettingsTab({
                 </div>
               )}
             </SettingsCard>
+            )}
 
-            {/* Checkout suggestion settings */}
+            {/* Checkout suggestion settings — sugestiile apar în COȘ, deci doar pe
+                un plan cu comenzi (planSurface.ordering, lotul P). */}
+            {surface?.ordering === true && (
             <SettingsCard
               icon="orders"
               title="Sugestii la coș"
@@ -2019,15 +2005,20 @@ export default function SettingsTab({
                 </div>
               )}
             </SettingsCard>
+            )}
 
-            {/* VAT rates configuration */}
-            <SettingsCard
-              icon="receipt"
-              title="Cote TVA"
-              desc="Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul schimbă cotele — produsele își păstrează automat grupa."
-            >
-              <VatRatesEditor restaurantId={restaurant.id} />
-            </SettingsCard>
+            {/* VAT rates configuration — doar pe planul cu bon și raport TVA
+                (planSurface.vat, lotul P): pe Planurile 1–2 bonul se emite pe
+                casa existentă, deci cotele de aici nu le folosește nimic. */}
+            {surface?.vat === true && (
+              <SettingsCard
+                icon="receipt"
+                title="Cote TVA"
+                desc="Cele 4 grupe de TVA folosite în restaurantul tău. Modifică procentul când statul schimbă cotele — produsele își păstrează automat grupa."
+              >
+                <VatRatesEditor restaurantId={restaurant.id} />
+              </SettingsCard>
+            )}
           </>
         )}
 
