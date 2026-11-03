@@ -63,9 +63,13 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { ComponentProps } from 'react'
 
-const { failing, counts, codvia, bridge } = vi.hoisted(() => ({
+const { failing, counts, codvia, bridge, rows, rpcState } = vi.hoisted(() => ({
   failing: new Set<string>(),
   counts: {} as Record<string, number>,
+  // Lotul D: rândurile întoarse pe `${tabel}:${coloane}` (ex. „orders:table_id"),
+  // ca cele patru citiri din `orders` să se poată distinge.
+  rows: {} as Record<string, unknown[]>,
+  rpcState: { calls: 0, results: [] as Array<{ data: unknown; error: unknown }> },
   codvia: { open: null as boolean | null },
   // Starea casei pe care ar întoarce-o RPC-ul; hook-ul o dă DOAR când HomeTab
   // o cere (`enabled`) — exact gate-ul pe care îl păzește HF1.
@@ -78,17 +82,24 @@ const { failing, counts, codvia, bridge } = vi.hoisted(() => ({
 vi.mock('../../../lib/supabase', () => {
   function chain(table: string) {
     const b: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'neq', 'gte', 'limit', 'order']) {
+    let cols = ''
+    for (const m of ['eq', 'neq', 'gte', 'gt', 'in', 'not', 'limit', 'order']) {
       b[m] = vi.fn(() => b)
     }
+    b.select = vi.fn((c: string) => {
+      cols = c
+      return b
+    })
     b.then = (
       onFulfilled: (v: { data: unknown[] | null; count: number | null; error: unknown }) => unknown,
       onRejected?: (e: unknown) => unknown,
     ) =>
       Promise.resolve(
-        failing.has(table)
+        failing.has(table) || failing.has(`${table}:${cols}`)
           ? { data: null, count: null, error: { message: 'boom', code: '500' } }
-          : {
+          : rows[`${table}:${cols}`]
+            ? { data: rows[`${table}:${cols}`], count: null, error: null }
+            : {
               data: (counts[table] ?? 0) > 0 ? [{ id: 'x' }] : [],
               count: counts[table] ?? 0,
               error: null,
@@ -96,7 +107,17 @@ vi.mock('../../../lib/supabase', () => {
       ).then(onFulfilled, onRejected)
     return b
   }
-  return { supabase: { from: vi.fn((t: string) => chain(t)), rpc: vi.fn() } }
+  // `rpc` întoarce, pe rând, rezultatele din `rpcState.results` (ultimul se
+  // repetă); implicit o zi fără încasări.
+  const rpc = vi.fn(() => {
+    const r = rpcState.results[Math.min(rpcState.calls, rpcState.results.length - 1)] ?? {
+      data: [],
+      error: null,
+    }
+    rpcState.calls++
+    return Promise.resolve(r)
+  })
+  return { supabase: { from: vi.fn((t: string) => chain(t)), rpc } }
 })
 vi.mock('../../../lib/health', () => ({
   fetchHealthScore: () => new Promise(() => {}),
@@ -168,6 +189,9 @@ beforeEach(() => {
   codvia.open = null
   bridge.status = null
   failing.clear()
+  for (const k of Object.keys(rows)) delete rows[k]
+  rpcState.calls = 0
+  rpcState.results = []
   for (const k of Object.keys(counts)) delete counts[k]
   Object.assign(counts, {
     tables: 4,
@@ -373,5 +397,67 @@ describe('HomeTab — nimic fiscal sub Planul 3 (lotul P)', () => {
     bridge.status = { registered: true, connected: false, last_seen_at: null }
     renderHome(plan('pro'))
     expect(await screen.findByRole('alert')).toHaveTextContent(/Fiscalizare activă/)
+  })
+})
+
+// ─── Lotul D: cifrele de acum/azi ──────────────────────────────────────────
+//   HD1  Planul 2: „Mese ocupate acum" = mese DISTINCTE cu comenzi deschise,
+//        din totalul de mese; fără bani. Mutația care pică: numărarea
+//        rândurilor în loc de mese distincte (3/4 în loc de 2/4).
+//   HD2  Planul 3 (admin): „Încasări azi" din get_daily_payments_by_method
+//        (aceeași sursă ca Rapoartele) și „Bacșiș azi" din tips_amount, pe
+//        cenți. Mutația care pică: bacșișul adunat în încasări.
+//   HD3  Planul 3, personal NE-admin, și Planul 1: fără cifrele de bani /
+//        de mese. Mutația care pică: `showMoney` fără `isAdmin`.
+//   HD4  citire eșuată → „—" + „Reîncearcă" (nu „…" la nesfârșit, nu „0");
+//        reîncercarea reface citirea. Mutația care pică: eroarea tratată ca 0.
+//   HD5  modul „doar ridicare": fără „Mese ocupate acum".
+describe('HomeTab — cifrele zilei (lotul D)', () => {
+  it('HD1 Planul 2: mese ocupate distincte, fără bani', async () => {
+    rows['orders:table_id'] = [{ table_id: 't1' }, { table_id: 't1' }, { table_id: 't2' }]
+    renderHome({ ...plan('growth'), isOwner: false })
+    await waitFor(() => expect(metric('Mese ocupate acum')).toHaveTextContent('2/4'))
+    expect(screen.queryByText('Încasări azi')).toBeNull()
+    expect(screen.queryByText('Bacșiș azi')).toBeNull()
+  })
+
+  it('HD2 Planul 3 (admin): încasări și bacșiș azi, separat', async () => {
+    rpcState.results = [{ data: [{ day: '2026-11-03', total_revenue: '150.50' }], error: null }]
+    rows['orders:tips_amount'] = [{ tips_amount: '5.10' }, { tips_amount: 2 }]
+    renderHome(plan('pro'))
+    await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('150.50 lei'))
+    await waitFor(() => expect(metric('Bacșiș azi')).toHaveTextContent('7.10 lei'))
+  })
+
+  it('HD3 personalul ne-admin pe Planul 3 și Planul 1 nu văd cifrele noi', async () => {
+    const { unmount } = renderHome({ ...plan('pro'), isAdmin: false, isOwner: false })
+    await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
+    expect(screen.queryByText('Încasări azi')).toBeNull()
+    expect(screen.queryByText('Bacșiș azi')).toBeNull()
+    unmount()
+    renderHome(plan('starter'))
+    await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('4'))
+    expect(screen.queryByText('Mese ocupate acum')).toBeNull()
+    expect(screen.queryByText('Încasări azi')).toBeNull()
+  })
+
+  it('HD4 citirea eșuată arată „—" și se poate reîncerca', async () => {
+    const user = userEvent.setup()
+    rpcState.results = [
+      { data: null, error: { message: 'boom', code: '500' } },
+      { data: [{ total_revenue: 42 }], error: null },
+    ]
+    renderHome(plan('pro'))
+    await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('—'))
+    expect(metric('Încasări azi')).not.toHaveTextContent('0')
+    await user.click(screen.getByRole('button', { name: 'Reîncearcă' }))
+    await waitFor(() => expect(metric('Încasări azi')).toHaveTextContent('42.00 lei'))
+    expect(screen.queryByRole('button', { name: 'Reîncearcă' })).toBeNull()
+  })
+
+  it('HD5 „doar ridicare": fără mese ocupate', async () => {
+    renderHome({ ...plan('growth'), pickupOnly: true })
+    await waitFor(() => expect(metric('QR-uri active')).toHaveTextContent('1'))
+    expect(screen.queryByText('Mese ocupate acum')).toBeNull()
   })
 })

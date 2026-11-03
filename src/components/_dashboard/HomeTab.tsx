@@ -9,6 +9,8 @@
 import { useState, useEffect, lazy, Suspense, type ReactNode } from 'react'
 import { D } from '../../lib/constants'
 import { supabase } from '../../lib/supabase'
+import { OPEN_ORDER_STATUSES, countOccupiedTables, sumAmounts } from '../../lib/homeMetrics'
+import { fmtPrice } from '../../lib/currency'
 import type { PlanSurface, PlanUpsellTarget } from '../../lib/planSurface'
 import {
   fetchHealthScore,
@@ -19,6 +21,7 @@ import {
   type HealthScore,
 } from '../../lib/health'
 import { Card } from '../ui/Card'
+import { Button } from '../ui/Button'
 import { PageHeader } from '../ui/PageHeader'
 import { Icon, type IconName } from '../ui/Icon'
 import { PlanUpsellCard } from './PlanUpsellCard'
@@ -289,12 +292,24 @@ export default function HomeTab({
   const [everOrdered, setEverOrdered] = useState<boolean | null>(null)
   const [menuChecked, setMenuChecked] = useState(() => wasMenuChecked(restaurantId))
   const [health, setHealth] = useState<HealthScore | null>(null)
+  // Lotul D: cifrele de acum/azi. `null` = încă nu știm; o citire EȘUATĂ intră
+  // în `failed`, iar cifra arată „—" cu „Reîncearcă" (nu „…" la nesfârșit și
+  // nu „0", care ar fi o afirmație falsă).
+  const [occupiedTables, setOccupiedTables] = useState<number | null>(null)
+  const [revenueToday, setRevenueToday] = useState<number | null>(null)
+  const [tipsToday, setTipsToday] = useState<number | null>(null)
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Ce are planul, ca booleeni: pe un plan NECUNOSCUT (surface null) toate
   // sunt false — nu se cer și nu se afișează cifre/pași de comenzi.
   const planKnown = surface != null
   const hasOrdering = surface?.ordering === true
   const isFiscal = surface?.fiscal === true
+  const showOccupancy = hasOrdering && !pickupOnly
+  // Banii zilei: doar Planul 3 și doar adminii (personalul n-are Acasă, iar
+  // managerul vede oricum Rapoartele).
+  const showMoney = isFiscal && isAdmin
 
   // Starea casei de marcat, TRISTATE: interogăm doar pe planurile fiscale și
   // doar pentru admini (ceilalți nu văd tab-ul „Casă de marcat" oricum).
@@ -390,6 +405,67 @@ export default function HomeTab({
     }
   }, [restaurantId, hasOrdering, isAdmin])
 
+  // Lotul D: mese ocupate (Plan 2+), încasări și bacșiș azi (Plan 3).
+  useEffect(() => {
+    setOccupiedTables(null)
+    setRevenueToday(null)
+    setTipsToday(null)
+    setFailed(new Set())
+    if (!showOccupancy && !showMoney) return
+    let alive = true
+    const fail = (k: string): void => {
+      if (alive) setFailed((prev) => new Set(prev).add(k))
+    }
+    const todayYmd = toRomaniaYMD(new Date())
+    const todayStart = romaniaDayBoundaryISO(todayYmd, false)
+    const jobs: PromiseLike<void>[] = []
+    if (showOccupancy) {
+      jobs.push(
+        supabase
+          .from('orders')
+          .select('table_id')
+          .eq('restaurant_id', restaurantId)
+          .in('status', [...OPEN_ORDER_STATUSES])
+          .not('table_id', 'is', null)
+          .limit(1000)
+          .then(({ data, error }) => {
+            if (error || !data) return fail('occupied')
+            if (alive) setOccupiedTables(countOccupiedTables(data as { table_id: string | null }[]))
+          }),
+      )
+    }
+    if (showMoney) {
+      jobs.push(
+        supabase
+          .rpc('get_daily_payments_by_method', {
+            p_restaurant_id: restaurantId,
+            p_from: todayYmd,
+            p_to: todayYmd,
+          })
+          .then(({ data, error }) => {
+            if (error || !Array.isArray(data)) return fail('revenue')
+            if (alive) setRevenueToday(sumAmounts(data as { total_revenue?: unknown }[], 'total_revenue'))
+          }),
+        supabase
+          .from('orders')
+          .select('tips_amount')
+          .eq('restaurant_id', restaurantId)
+          .eq('status', 'paid')
+          .gte('paid_at', todayStart)
+          .gt('tips_amount', 0)
+          .limit(1000)
+          .then(({ data, error }) => {
+            if (error || !data) return fail('tips')
+            if (alive) setTipsToday(sumAmounts(data as { tips_amount?: unknown }[], 'tips_amount'))
+          }),
+      )
+    }
+    void Promise.all(jobs)
+    return () => {
+      alive = false
+    }
+  }, [restaurantId, showOccupancy, showMoney, reloadKey])
+
   // Scorul — separat (RPC), doar pentru admini pe planurile cu comenzi.
   useEffect(() => {
     if (!isAdmin || !hasOrdering) return
@@ -480,6 +556,33 @@ export default function HomeTab({
           value: tablesCount == null ? '…' : String(tablesCount),
           hint: 'mese scanabile',
         },
+    ...(showOccupancy
+      ? [
+          {
+            label: 'Mese ocupate acum',
+            value: failed.has('occupied')
+              ? '—'
+              : occupiedTables == null || tablesCount == null
+                ? '…'
+                : `${occupiedTables}/${tablesCount}`,
+            hint: failed.has('occupied') ? 'nu s-a putut încărca' : 'cu comenzi deschise',
+          },
+        ]
+      : []),
+    ...(showMoney
+      ? [
+          {
+            label: 'Încasări azi',
+            value: failed.has('revenue') ? '—' : revenueToday == null ? '…' : fmtPrice(revenueToday),
+            hint: failed.has('revenue') ? 'nu s-a putut încărca' : 'plăți înregistrate azi',
+          },
+          {
+            label: 'Bacșiș azi',
+            value: failed.has('tips') ? '—' : tipsToday == null ? '…' : fmtPrice(tipsToday),
+            hint: failed.has('tips') ? 'nu s-a putut încărca' : 'informativ, nu intră în încasări',
+          },
+        ]
+      : []),
     // Metrica „Configurare" doar pentru admin: checklist-ul (sursa pașilor) e gate-uit
     // pe isAdmin mai jos — staff-ul ar vedea o cifră fără nicio listă/acțiune.
     ...(isAdmin
@@ -557,6 +660,17 @@ export default function HomeTab({
             {secondaryMetrics.map((m) => (
               <MetricCard key={m.label} label={m.label} value={m.value} hint={m.hint} />
             ))}
+          </div>
+        )}
+        {failed.size > 0 && (
+          <div
+            role="status"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, color: D.t3, fontSize: 13 }}
+          >
+            <span>Unele cifre nu s-au putut încărca.</span>
+            <Button variant="ghost" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+              Reîncearcă
+            </Button>
           </div>
         )}
       </RevealItem>
