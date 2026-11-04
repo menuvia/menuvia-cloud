@@ -9,6 +9,7 @@ import { useRestaurantCtx } from '../contexts/RestaurantContext'
 import { SignOutButton } from '../components/SignOutButton'
 import { useOrders } from '../hooks/useOrders'
 import { useFeatures } from '../hooks/useFeatures'
+import { hasFeature } from '../lib/features'
 import { useBridgeConnected } from '../hooks/useBridgeConnected'
 import { useRomaniaTodayRange } from '../hooks/useRomaniaTodayRange'
 import { BridgeOfflineBanner } from '../components/BridgeOfflineBanner'
@@ -45,6 +46,7 @@ import {
   closeSessionOrders,
   describeWaiterOrderSent,
   STAFF_ORDERS_FETCH_LIMIT,
+  reprintKitchenTicket,
 } from '../lib/orders'
 import type { OrderPaymentRow } from '../lib/orders'
 import type { WaiterCall } from '../lib/orders'
@@ -151,6 +153,24 @@ export default function WaiterPage() {
   // Sursa e `planSurface(...).fiscal` (= moneyTier ≥ 3, lotul P): tristate-ul
   // vine din `null`-ul suprafeței pe un plan necunoscut.
   const paymentsEnabled: boolean | null = planSurface(restaurantFeatures.features)?.fiscal ?? null
+  // Lotul O3b: retipărirea tichetului de bucătărie (după o editare imprimanta
+  // nu primea nimic). Doar pe planul cu tichete de bucătărie.
+  const kitchenTickets = hasFeature(restaurantFeatures.features, 'kitchen_tickets')
+  const handleReprint = useCallback(
+    async (o: Order) => {
+      const r = await reprintKitchenTicket(o.id)
+      if (r === 'ok') toast.success('Tichetul a plecat la bucătărie.')
+      else if (r === 'no_kitchen_printer')
+        toast.warning('Nu e conectată nicio imprimantă de bucătărie (Setări → Bridge).')
+      else toast.error('Tichetul nu a putut fi retipărit. Reîncearcă.')
+    },
+    [toast],
+  )
+  // Handler STABIL pentru OrderCard (memo, OPT-8); undefined = fără buton.
+  const onReprint = useMemo(
+    () => (kitchenTickets ? (o: Order) => void handleReprint(o) : undefined),
+    [kitchenTickets, handleReprint],
+  )
 
   // ★ audit v3 (rangul 8): pe planurile fiscale comenzile se încasează normal
   // chiar dacă bridge-ul e căzut — dar atunci NU se emite niciun bon. Banner-ul
@@ -1434,6 +1454,7 @@ export default function WaiterPage() {
                       onSplitOpen={openSplitBill}
                       onEdit={setEditOrder}
                       onCancel={setCancelOrder}
+                      onReprint={onReprint}
                       onAudit={isAdminRole ? setAuditOrder : undefined}
                       paymentsEnabled={paymentsEnabled}
                       onCloseOrder={handleCloseOrder}
@@ -1468,6 +1489,7 @@ export default function WaiterPage() {
                 onSplitOpen={openSplitBill}
                 onEdit={setEditOrder}
                 onCancel={setCancelOrder}
+                onReprint={onReprint}
                 onAudit={isAdminRole ? setAuditOrder : undefined}
                 paymentsEnabled={paymentsEnabled}
                 onCloseOrder={handleCloseOrder}

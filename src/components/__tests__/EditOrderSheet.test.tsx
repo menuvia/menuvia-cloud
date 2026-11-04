@@ -4,6 +4,9 @@
 //     un coș deja editat (dirtyRef)
 //   - guard-uri: coș gol / produs orfan → save blocat, RPC neapelat
 //   - EO1/EO2/EO3: deschiderea selectorului reface disponibilitatea (mig 313)
+//   - ES1–ES3 (lotul O3b, mig 320): fiecare linie existentă pleacă cu
+//     `source_item_id` și cu extra-urile EI (nu ghicite de server după produs);
+//     o linie nouă cu extra_ids; unitățile adăugate se arată la prețul de azi
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -88,8 +91,16 @@ describe('EditOrderSheet — editarea comenzii (bani + optimistic lock)', () => 
     expect(updateOrderItemsMock).toHaveBeenCalledTimes(1)
     const [orderId, items, baseline] = updateOrderItemsMock.mock.calls[0]
     expect(orderId).toBe('o1')
+    // Lotul O3b: linia existentă pleacă cu sursa ei și cu extra-urile EI.
     expect(items).toEqual([
-      { product_id: 'p1', quantity: 3, option_ids: ['op-paine'], notes: null },
+      {
+        product_id: 'p1',
+        quantity: 3,
+        option_ids: ['op-paine'],
+        notes: null,
+        source_item_id: 'it1',
+        extra_ids: [],
+      },
     ])
     // Baseline-ul de optimistic lock = totalul pe care s-a bazat editarea.
     expect(baseline).toBe(20)
@@ -284,5 +295,69 @@ describe('EditOrderSheet — editarea comenzii (bani + optimistic lock)', () => 
 
     expect(await screen.findByText(/cel puțin 1 produs/i)).toBeInTheDocument()
     expect(updateOrderItemsMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('EditOrderSheet — liniile își păstrează sursa (lotul O3b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    updateOrderItemsMock.mockResolvedValue({ id: 'o2', total: 0, discount_amount: 0, items_count: 2 })
+  })
+
+  function twoBurgers() {
+    return makeOrder({
+      id: 'o2',
+      total: 80,
+      order_items: [
+        makeOrderItem({
+          id: 'l-bacon',
+          product_id: 'pb',
+          product_name_snapshot: 'Burger',
+          unit_price_snapshot: 25,
+          quantity: 1,
+          item_total: 30,
+          extras_added: [{ extra_id: 'e-bacon', extra_name: 'Bacon', price: 5 }],
+        }),
+        makeOrderItem({
+          id: 'l-plain',
+          product_id: 'pb',
+          product_name_snapshot: 'Burger',
+          unit_price_snapshot: 25,
+          quantity: 2,
+          item_total: 50,
+        }),
+      ],
+    })
+  }
+
+  it('ES1 fiecare linie pleacă cu sursa și extra-urile ei', async () => {
+    const user = userEvent.setup()
+    // Meniul: burger-ul s-a scumpit la 27 între timp.
+    fetchMenuMock.mockResolvedValue([
+      makeCategory({ id: 'c1', products: [makeProduct({ id: 'pb', name: 'Burger', price: 27 })] }),
+    ])
+    fetchOrderByIdMock.mockResolvedValue(twoBurgers())
+    render(<EditOrderSheet order={twoBurgers()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /salvează/i }))
+    await waitFor(() => expect(updateOrderItemsMock).toHaveBeenCalledTimes(1))
+    const [, items] = updateOrderItemsMock.mock.calls[0]
+    expect(items).toEqual([
+      expect.objectContaining({ source_item_id: 'l-bacon', extra_ids: ['e-bacon'], quantity: 1 }),
+      expect.objectContaining({ source_item_id: 'l-plain', extra_ids: [], quantity: 2 }),
+    ])
+  })
+
+  it('ES2 unitățile adăugate se arată la prețul de azi, cele vechi la prețul lor', async () => {
+    const user = userEvent.setup()
+    fetchMenuMock.mockResolvedValue([
+      makeCategory({ id: 'c1', products: [makeProduct({ id: 'pb', name: 'Burger', price: 27 })] }),
+    ])
+    fetchOrderByIdMock.mockResolvedValue(twoBurgers())
+    render(<EditOrderSheet order={twoBurgers()} onClose={vi.fn()} onSaved={vi.fn()} />)
+    // Meniul încărcat, apoi + pe linia simplă (2 → 3): 2 × 25 + 1 × 27 = 77.
+    await waitFor(() => expect(fetchMenuMock).toHaveBeenCalled())
+    const plus = screen.getAllByRole('button', { name: '+' })
+    await user.click(plus[1])
+    expect(await screen.findByText('77.00 lei')).toBeInTheDocument()
   })
 })

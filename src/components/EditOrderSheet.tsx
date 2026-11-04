@@ -10,6 +10,7 @@ import {
   updateOrderItems,
   fetchOrderById,
   describeEditOrderError,
+  MAX_LINE_QTY,
   type Order,
   type CartItem,
 } from '../lib/orders'
@@ -35,9 +36,20 @@ interface EditCartItem extends CartItem {
   // pe care order_items nu le expune în selected_* (M1, mig 146). Fără el,
   // subtotalul afișat subevalua liniile cu extras (serverul salva corect).
   _unitWithAddons?: number
-  // Extra-urile liniei venite din DB, doar pentru afișare (lotul O2a). Editarea
-  // lor (trimiterea `extra_ids`) vine în lotul O3.
+  // Extra-urile liniei venite din DB (lotul O2a). La salvare pleacă drept
+  // `extra_ids`-urile EI (lotul O3b), nu sunt ghicite de server după produs.
   _extras?: Order['order_items'][number]['extras_added']
+  // Lotul O3b (mig 320): linia din comandă și cantitatea ei la deschidere.
+  // Serverul păstrează prețul liniei neschimbate; unitățile adăugate peste
+  // `_srcQty` se taxează la prețul de azi.
+  _sourceId?: string
+  _srcQty?: number
+}
+
+function extraIdsOf(extras: EditCartItem['_extras']): string[] {
+  return (extras ?? [])
+    .map((e) => e.extra_id ?? null)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 function orderItemsToCart(order: Order): EditCartItem[] {
@@ -52,15 +64,37 @@ function orderItemsToCart(order: Order): EditCartItem[] {
     _orphan: it.product_id == null,
     _unitWithAddons: it.quantity > 0 ? it.item_total / it.quantity : it.unit_price_snapshot,
     _extras: it.extras_added ?? [],
+    _sourceId: it.id,
+    _srcQty: it.quantity,
   }))
 }
 
-function lineTotal(item: EditCartItem): number {
-  // Liniile venite din DB au per-unit-ul real (cu extras); cele adăugate în
-  // sheet (fără extras) cad pe formula unit+modificatori — identic cu serverul.
-  if (item._unitWithAddons != null) return item._unitWithAddons * item.quantity
+// Prețul de AZI al unei unități (produs + opțiuni + extra-uri din meniul
+// încărcat), pentru unitățile adăugate peste cantitatea veche — așa le
+// taxează serverul (mig 320). Fără meniu: prețul liniei.
+function todayUnit(item: EditCartItem, products: ReadonlyMap<string, Product>): number | null {
+  const p = products.get(item.product_id)
+  if (!p) return null
+  const opts = item.selected_modifiers.reduce((s, m) => {
+    const o = p.modifier_groups.flatMap((g) => g.modifier_options).find((x) => x.id === m.option_id)
+    return s + (o ? o.price_delta : m.price_delta)
+  }, 0)
+  const ids = item._sourceId ? extraIdsOf(item._extras) : (item.selected_extras ?? []).map((e) => e.id)
+  const extras = ids.reduce((s, id) => s + (p.extras.find((e) => e.id === id)?.price ?? 0), 0)
+  return p.price + opts + extras
+}
+
+function lineTotal(item: EditCartItem, products: ReadonlyMap<string, Product>): number {
+  // Liniile venite din DB au per-unit-ul real (cu extras) pentru cantitatea
+  // lor de la deschidere; unitățile ADĂUGATE se taxează la prețul de azi.
+  if (item._unitWithAddons != null) {
+    const kept = Math.min(item.quantity, item._srcQty ?? item.quantity)
+    const added = item.quantity - kept
+    return item._unitWithAddons * kept + (todayUnit(item, products) ?? item._unitWithAddons) * added
+  }
   const modD = item.selected_modifiers.reduce((s, m) => s + m.price_delta, 0)
-  return (item.unit_price_snapshot + modD) * item.quantity
+  const exD = (item.selected_extras ?? []).reduce((s, e) => s + e.price, 0)
+  return (item.unit_price_snapshot + modD + exD) * item.quantity
 }
 
 export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
@@ -161,7 +195,12 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
   function updateQty(key: string, delta: number): void {
     dirtyRef.current = true
     setCart((prev) =>
-      prev.map((i) => (i._key === key ? { ...i, quantity: Math.max(1, i.quantity + delta) } : i)),
+      prev.map((i) =>
+        i._key === key
+          ? // Între 1 și plafonul serverului pe linie (mig 320: 20).
+            { ...i, quantity: Math.min(MAX_LINE_QTY, Math.max(1, i.quantity + delta)) }
+          : i,
+      ),
     )
   }
 
@@ -175,7 +214,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
     setCart((prev) => [...prev, item])
   }
 
-  const cartTotal = cart.reduce((s, i) => s + lineTotal(i), 0)
+  const productsById = new Map(categories.flatMap((c) => c.products).map((p) => [p.id, p] as const))
+  const cartTotal = cart.reduce((s, i) => s + lineTotal(i, productsById), 0)
   const activeProducts = categories.find((c) => c.id === activeCatId)?.products ?? []
 
   async function handleSave(): Promise<void> {
@@ -201,6 +241,11 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
           quantity: i.quantity,
           option_ids: i.selected_modifiers.map((m) => m.option_id),
           notes: i.notes,
+          // Linia existentă: sursa + extra-urile EI; linia nouă: extra-urile
+          // alese (mig 320 — fără ghicit pe produs).
+          ...(i._sourceId
+            ? { source_item_id: i._sourceId, extra_ids: extraIdsOf(i._extras) }
+            : { extra_ids: (i.selected_extras ?? []).map((e) => e.id) }),
         })),
         baselineTotal,
       )
@@ -325,7 +370,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ color: D.gold, fontWeight: 600, fontSize: 14 }}>
-                        {lineTotal(item).toFixed(2)} lei
+                        {lineTotal(item, productsById).toFixed(2)} lei
                       </div>
                     </div>
                   </div>
@@ -367,7 +412,7 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                       </span>
                       <button
                         onClick={() => updateQty(item._key, 1)}
-                        disabled={item._orphan}
+                        disabled={item._orphan || item.quantity >= MAX_LINE_QTY}
                         style={{
                           width: 30,
                           height: 30,
@@ -375,8 +420,8 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
                           background: D.s3,
                           border: 'none',
                           color: D.t1,
-                          cursor: item._orphan ? 'not-allowed' : 'pointer',
-                          opacity: item._orphan ? 0.4 : 1,
+                          cursor: item._orphan || item.quantity >= MAX_LINE_QTY ? 'not-allowed' : 'pointer',
+                          opacity: item._orphan || item.quantity >= MAX_LINE_QTY ? 0.4 : 1,
                           fontSize: 16,
                         }}
                       >
@@ -644,6 +689,9 @@ export default function EditOrderSheet({ order, onClose, onSaved }: Props) {
       {activeProduct && (
         <ModifierSheet
           product={activeProduct}
+          // Lotul O3b: extra-urile plătite se pot adăuga și la editare (pleacă
+          // drept extra_ids, validate de server).
+          allowExtras
           onAdd={(item) => {
             addItem(item)
             setShowPicker(false)

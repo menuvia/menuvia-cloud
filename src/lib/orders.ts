@@ -665,6 +665,13 @@ export interface EditOrderItemPayload {
   quantity: number
   option_ids: string[]
   notes: string | null
+  // Lotul O3b (mig 320): linia din comandă din care provine. Cu ea, serverul
+  // păstrează prețul, opțiunile și extra-urile liniei neschimbate, iar
+  // extra-urile nu mai „sar” pe altă linie a aceluiași produs.
+  source_item_id?: string
+  // Extra-urile liniei (ale ei, pentru o linie existentă; cele alese, pentru
+  // una nouă). Lipsă = serverul vechi le ghicea după produs.
+  extra_ids?: string[]
 }
 
 /**
@@ -690,6 +697,23 @@ export function describeWaiterOrderSent(c: Pick<OrderConfirmationPayload, 'short
 // Edit items pe comandă non-terminală, fără plăți parțiale.
 // Server validează rol + status + plăți + produs/modificatori; client doar
 // trimite snapshot-ul nou complet.
+/**
+ * Retipărește tichetul de bucătărie al comenzii (kitchen_ticket_reprint, mig
+ * 227 — RPC-ul exista, dar n-avea niciun apelant). Nu aruncă pe refuzurile de
+ * business: întoarce de ce n-a mers, ca ecranul să spună asta.
+ */
+export async function reprintKitchenTicket(
+  orderId: string,
+): Promise<'ok' | 'no_kitchen_printer' | 'not_found' | 'unavailable'> {
+  const { data, error } = await supabase.rpc('kitchen_ticket_reprint', { p_order_id: orderId })
+  if (error) return 'unavailable'
+  const r = data as { ok?: boolean; reason?: string } | null
+  if (r?.ok) return 'ok'
+  if (r?.reason === 'no_kitchen_printer') return 'no_kitchen_printer'
+  if (r?.reason === 'not_found') return 'not_found'
+  return 'unavailable'
+}
+
 export async function updateOrderItems(
   orderId: string,
   items: EditOrderItemPayload[],
@@ -700,6 +724,8 @@ export async function updateOrderItems(
     quantity: item.quantity,
     option_ids: item.option_ids,
     notes: item.notes,
+    ...(item.source_item_id ? { source_item_id: item.source_item_id } : {}),
+    ...(item.extra_ids ? { extra_ids: item.extra_ids } : {}),
   }))
   const { data, error } = await supabase.rpc('update_order_items', {
     p_order_id: orderId,

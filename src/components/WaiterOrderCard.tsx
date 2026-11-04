@@ -9,6 +9,7 @@ import { elapsed } from '../lib/utils'
 import { ageLevel } from '../lib/orderAge'
 import { isScheduledPickupAhead, urgencyAnchor } from '../lib/pickupOrders'
 import { Icon } from './ui/Icon'
+import { Button } from './ui/Button'
 import PickupDetails from './PickupDetails'
 import { OrderLineDetails } from './OrderLineDetails'
 import { confirm as confirmDialog } from './ui/confirm'
@@ -594,6 +595,10 @@ interface OrderCardProps {
   onEdit?: (order: Order) => void
   onCancel?: (order: Order) => void
   onAudit?: (order: Order) => void
+  // Retipărirea tichetului de bucătărie (lotul O3b): după o editare, imprimanta
+  // bucătăriei nu primea nimic (tichetul pleacă doar la crearea comenzii).
+  // Doar unde localul are tichete de bucătărie pe plan.
+  onReprint?: (order: Order) => void
   // Regula de aur (review monetizare): bani + bon = Plan 3, fără excepții.
   // false (Plan 1/2) → butoanele de plată dispar; apare „Închide comanda"
   // (plata + bonul se fac pe casa de marcat existentă a localului).
@@ -626,6 +631,7 @@ function OrderCardInner({
   onEdit,
   onCancel,
   onAudit,
+  onReprint,
   paymentsEnabled = null,
   onCloseOrder,
   onCloseTable,
@@ -866,6 +872,12 @@ function OrderCardInner({
             </button>
           )}
         </div>
+      )}
+
+      {onReprint && order.status !== 'paid' && order.status !== 'cancelled' && order.status !== 'closed' && (
+        <Button variant="ghost" size="sm" fullWidth onClick={() => onReprint(order)}>
+          Retipărește la bucătărie
+        </Button>
       )}
 
       {/* „Vezi istoric" — doar owner/manager: WaiterPage nu trimite onAudit altor
