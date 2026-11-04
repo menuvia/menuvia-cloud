@@ -422,6 +422,11 @@ function ProductModal({
     Array<{ id: string; name: string; emoji: string; price: number }>
   >([])
   const [upsellLoading, setUpsellLoading] = useState(false)
+  // Lista de produse a venit ÎNTREAGĂ (fără eroare, sub plafonul de 1000 al
+  // PostgREST). Doar atunci o pereche fără produs în listă e chiar „scoasă din
+  // meniu”: altfel o citire picată ar fi marcat toate perechile reale așa, iar
+  // „Scoate” le-ar fi șters (recenzia O5a).
+  const [allProductsComplete, setAllProductsComplete] = useState(false)
 
   // Load extras + pairings when editing existing product
   useEffect(() => {
@@ -452,8 +457,12 @@ function ProductModal({
       if (!extrasRes.error && extrasRes.data)
         setExtras(extrasRes.data.map((e) => ({ ...e, price: Number(e.price) })))
       if (!pairingsRes.error && pairingsRes.data) setPairings(pairingsRes.data)
-      if (!prodsRes.error && prodsRes.data)
+      if (!prodsRes.error && prodsRes.data) {
         setAllProducts(prodsRes.data.map((p) => ({ ...p, price: Number(p.price) })))
+        setAllProductsComplete(prodsRes.data.length < 1000)
+      } else {
+        setAllProductsComplete(false)
+      }
       setUpsellLoading(false)
     })()
   }, [product?.id, restaurantId, showExtras])
@@ -663,13 +672,15 @@ function ProductModal({
       setFormErrorField('name')
       return
     }
-    if (Number.isNaN(parseDecimalInput(priceText))) {
-      setFormError('Prețul nu e un număr valid (ex. 12,50)')
+    // Minusul întâi: câmpul e text (lotul O5a), iar „-5” nu are formă de preț,
+    // deci altfel ar fi primit mesajul generic „nu e un număr valid”.
+    if (priceText.trim().startsWith('-') || (form.price != null && form.price < 0)) {
+      setFormError('Prețul nu poate fi negativ')
       setFormErrorField('price')
       return
     }
-    if (form.price != null && form.price < 0) {
-      setFormError('Prețul nu poate fi negativ')
+    if (Number.isNaN(parseDecimalInput(priceText))) {
+      setFormError('Prețul nu e un număr valid (ex. 12,50)')
       setFormErrorField('price')
       return
     }
@@ -1823,7 +1834,10 @@ function ProductModal({
                         din cele 3 locuri fără să apară în listă, deci nici nu
                         se puteau scoate. */}
                     {pairings
-                      .filter((pr) => !allProducts.some((p) => p.id === pr.paired_product_id))
+                      .filter(
+                        (pr) =>
+                          allProductsComplete && !allProducts.some((p) => p.id === pr.paired_product_id),
+                      )
                       .map((pr) => (
                         <div
                           key={pr.id}

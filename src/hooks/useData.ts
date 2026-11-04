@@ -322,6 +322,9 @@ export function useRestaurants() {
 
 const EMPTY_RESTAURANTS: Restaurant[] = []
 
+// Refuzul unei scrieri numărate (0 rânduri sub RLS → eroare de drepturi).
+type WriteDenied = ReturnType<typeof zeroRowsAsDenied>
+
 export function useCategories(restaurantId: string | null) {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -399,7 +402,7 @@ export function useCategories(restaurantId: string | null) {
   // de la ea, nu de la cea veche), se scriu doar rândurile care chiar își
   // schimbă poziția, iar un refuz RLS (0 rânduri, FĂRĂ eroare) nu mai arată
   // „salvat” — orice eșec reîncarcă ordinea reală și întoarce eroarea.
-  const reorder = async (ordered: Category[]): Promise<{ error: Error | null }> => {
+  const reorder = async (ordered: Category[]): Promise<{ error: WriteDenied }> => {
     setCategories(ordered.map((c, i) => ({ ...c, display_order: i })))
     const changed = ordered
       .map((c, i) => ({ id: c.id, from: c.display_order, to: i }))
@@ -564,7 +567,7 @@ export function useProducts(restaurantId: string | null) {
   // Ordinea produselor dintr-o categorie (lotul O5b, MENU-10): se scriu doar
   // pozițiile schimbate; un refuz RLS (0 rânduri, fără eroare) e raportat, iar
   // lista se reîncarcă oricum din server.
-  const reorder = async (orderedIds: readonly string[]): Promise<{ error: Error | null }> => {
+  const reorder = async (orderedIds: readonly string[]): Promise<{ error: WriteDenied }> => {
     const byId = new Map(products.map((p) => [p.id, p] as const))
     const changed = orderedIds
       .map((id, i) => ({ id, to: i, from: byId.get(id)?.display_order }))
