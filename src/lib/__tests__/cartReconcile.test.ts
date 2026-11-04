@@ -15,13 +15,15 @@
 //        întoarce ACEEAȘI referință (setCart nu randează degeaba).
 //   CM7  isStaleMenuGuestError: epuizare, produs scos, opțiuni/extra-uri
 //        invalide, grup obligatoriu → da; rețea, sesiune închisă, rate-limit → nu.
+//   CM9  textul de sub coș: opțiuni schimbate → „scoate și adaugă din nou”;
+//        produs scos din meniu → doar „scoate” (nu se mai poate adăuga).
 //   CM8  cablajul: QR, coșul QR și ridicarea pe /m folosesc piesele de mai sus.
 //        [PICĂ: `onStaleMenu` scos din PickupCheckoutSheet sau
 //        `useMenuVersionRefetch` scos de pe /m — ridicarea rămânea pe meniul vechi]
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { cartIssueCounts, cartLineIssue, productIndex, repriceCart } from '../cartReconcile'
+import { cartIssueCounts, cartIssueNoticeKey, cartLineIssue, productIndex, repriceCart } from '../cartReconcile'
 import { isStaleMenuGuestError } from '../guestErrors'
 import type { CartItem } from '../orders'
 import {
@@ -204,7 +206,18 @@ describe('cablajul pe paginile oaspetelui', () => {
     expect(pub).toMatch(/useMenuVersionRefetch\(menuRestaurantId, refreshMenu\)/)
     expect(pub).toMatch(/onStaleMenu=\{\(\) => void refreshMenu\(\)\}/)
     expect(pub).toMatch(/disabled=\{cart\.length === 0 \|\| cartBlocked\}/)
+    expect(pub).toMatch(/blocked=\{cartBlocked\}/)
     const pickup = read('src/components/PickupCheckoutSheet.tsx')
     expect(pickup).toMatch(/if \(isStaleMenuGuestError\(err\)\) onStaleMenu\?\.\(\)/)
+    expect(pickup).toMatch(/submitBlocked = submitting \|\| blocked/)
+  })
+})
+
+describe('cartIssueNoticeKey — ce îi spunem oaspetelui', () => {
+  it('CM9 opțiuni schimbate / produs scos / epuizat / nimic', () => {
+    expect(cartIssueNoticeKey({ sold_out: 1, unavailable: 1, options_changed: 1 })).toBe('cart_changed_notice')
+    expect(cartIssueNoticeKey({ sold_out: 1, unavailable: 1, options_changed: 0 })).toBe('cart_unavailable_notice')
+    expect(cartIssueNoticeKey({ sold_out: 1, unavailable: 0, options_changed: 0 })).toBe('cart_sold_out_notice')
+    expect(cartIssueNoticeKey({ sold_out: 0, unavailable: 0, options_changed: 0 })).toBeNull()
   })
 })
